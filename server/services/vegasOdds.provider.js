@@ -62,10 +62,16 @@ function noopVegasOddsProvider() {
     name: null,
     available: false,
     /**
-     * Called as `getWeeklyOdds({ season, week, client })`. A real provider is
-     * expected to read `game_odds_snapshots` for the newest quote at or before
-     * the run's input cutoff rather than hitting a live endpoint — see the
-     * "odds move" note in the module docblock.
+     * Called as `getWeeklyOdds({ season, week, client, observedAtOrBefore })`.
+     * A real provider is expected to read `game_odds_snapshots` newest-wins —
+     * the newest snapshot per game, period (CONTEXT.md's Line: "the newest
+     * one is the line"; ADR 0039) — rather than hitting a live endpoint; see
+     * the "odds move" note in the module docblock. `observedAtOrBefore` is an
+     * optional bound a holdout capture passes as its own capture cutoff, so
+     * its read can never outrun what it is evaluating; a live run passes
+     * nothing and gets the same newest-wins read with no bound at all. This
+     * no-op provider ignores the argument either way, since it always
+     * returns nothing.
      *
      * @returns {Promise<Map<string, GameOdds>>} always empty
      */

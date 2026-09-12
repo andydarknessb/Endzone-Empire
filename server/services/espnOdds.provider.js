@@ -162,26 +162,44 @@ async function syncOdds({ season, week, transport } = {}) {
 }
 
 /**
- * The seam's `getWeeklyOdds({ season, week, client })` (vegasOdds.provider.js
- * / projection.service.js's `generateProjections`): the newest snapshot per
- * game for the week, never an older one once a newer exists (issue #1234,
- * criterion 3). One round trip via `DISTINCT ON`, ordered newest-first per
- * game, rather than one query per game. Filtered to this provider's OWN
- * `source` (qa-reviewer #1234 finding 4): the table's unique constraint
- * allows a second source to write the same game_key/observed_at pair, and
- * without this filter a future second provider's row could win the
- * newest-per-game pick here and be mislabeled `espn`. `row.source` is read
- * back rather than assumed for the same reason — it happens to always be
- * `ESPN_ODDS_SOURCE` today only because the WHERE clause guarantees it.
+ * The seam's `getWeeklyOdds({ season, week, client, observedAtOrBefore })`
+ * (vegasOdds.provider.js / projection.service.js's `generateProjections`):
+ * newest-wins is the read contract (CONTEXT.md's Line: "the newest one is
+ * the line"; ADR 0039) — the newest snapshot per game for the week, never an
+ * older one once a newer exists (issue #1234, criterion 3). One round trip
+ * via `DISTINCT ON`, ordered newest-first per game, rather than one query per
+ * game. Filtered to this provider's OWN `source` (qa-reviewer #1234 finding
+ * 4): the table's unique constraint allows a second source to write the same
+ * game_key/observed_at pair, and without this filter a future second
+ * provider's row could win the newest-per-game pick here and be mislabeled
+ * `espn`. `row.source` is read back rather than assumed for the same reason
+ * — it happens to always be `ESPN_ODDS_SOURCE` today only because the WHERE
+ * clause guarantees it.
+ *
+ * `observedAtOrBefore` (a Date or ISO string) is optional and additionally
+ * bounds the read: rows observed after it are excluded BEFORE the
+ * newest-per-game pick runs, so a game whose only snapshots are after the
+ * bound is absent from the map entirely, never a null quote. This is the
+ * holdout capture's cutoff, never `input_cutoff` (the week's first kickoff,
+ * not an odds bound) — `holdout.service.js`'s `snapshotWeek` passes its
+ * effective capture cutoff here for every arm's run; the live and cache
+ * projection paths pass nothing and get the unbounded newest-wins read.
  */
-async function getWeeklyOdds({ season, week, client } = {}) {
+async function getWeeklyOdds({ season, week, client, observedAtOrBefore } = {}) {
   const db = client || pool;
+  const bound = observedAtOrBefore != null ? new Date(observedAtOrBefore) : null;
+  const params = [season, week, ESPN_ODDS_SOURCE];
+  let where = `"season" = $1 AND "week" = $2 AND "source" = $3`;
+  if (bound) {
+    params.push(bound);
+    where += ` AND "observed_at" <= $${params.length}`;
+  }
   const result = await db.query(
     `SELECT DISTINCT ON ("game_key") "game_key", "total", "spread", "observed_at", "source"
      FROM "game_odds_snapshots"
-     WHERE "season" = $1 AND "week" = $2 AND "source" = $3
+     WHERE ${where}
      ORDER BY "game_key", "observed_at" DESC`,
-    [season, week, ESPN_ODDS_SOURCE]
+    params
   );
   const map = new Map();
   for (const row of result.rows) {

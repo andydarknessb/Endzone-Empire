@@ -205,6 +205,61 @@ test('getWeeklyOdds: reads only the newest snapshot per game (criterion 3), filt
   fake.assertClean();
 });
 
+test('getWeeklyOdds: observedAtOrBefore bounds the read - the earlier snapshot wins when it is bound, the later one wins when it is not (#1268, ADR 0039)', async (t) => {
+  const earlier = new Date('2026-09-11T10:00:00.000Z');
+  const bound = new Date('2026-09-11T18:00:00.000Z');
+
+  const bounded = createFakePool([
+    [select('game_odds_snapshots'), (text, params) => {
+      // The bound is filtered in SQL, before the newest-per-game pick runs -
+      // the fake just returns the row a correct query would have kept.
+      assert.match(text, /"observed_at" <= \$4/);
+      assert.deepEqual(params, [2026, 2, ESPN_ODDS_SOURCE, bound]);
+      return {
+        rows: [{
+          game_key: '2026_02_BUF_MIA', total: '47.5', spread: '-3.5',
+          observed_at: earlier, source: 'espn',
+        }],
+      };
+    }],
+  ]).install(t);
+  const odds = await getWeeklyOdds({ season: 2026, week: 2, observedAtOrBefore: bound });
+  assert.equal(odds.get('2026_02_BUF_MIA').observedAt, earlier.toISOString(), 'the earlier, in-bound snapshot is returned');
+  bounded.assertClean();
+});
+
+test('getWeeklyOdds: absent bound issues no observed_at filter and reads the newest snapshot regardless', async (t) => {
+  const later = new Date('2026-09-11T20:00:00.000Z');
+  const fake = createFakePool([
+    [select('game_odds_snapshots'), (text, params) => {
+      assert.doesNotMatch(text, /"observed_at" <=/);
+      assert.deepEqual(params, [2026, 2, ESPN_ODDS_SOURCE]);
+      return {
+        rows: [{
+          game_key: '2026_02_BUF_MIA', total: '47.5', spread: '-3.5',
+          observed_at: later, source: 'espn',
+        }],
+      };
+    }],
+  ]).install(t);
+  const odds = await getWeeklyOdds({ season: 2026, week: 2 });
+  assert.equal(odds.get('2026_02_BUF_MIA').observedAt, later.toISOString(), 'the later snapshot wins with no bound');
+  fake.assertClean();
+});
+
+test('getWeeklyOdds: a game whose only snapshots are after the bound is absent from the map, never a null quote', async (t) => {
+  createFakePool([
+    // The bound excluded every row for this game in SQL, so the query
+    // legitimately returns nothing for it.
+    [select('game_odds_snapshots'), () => ({ rows: [] })],
+  ]).install(t);
+  const odds = await getWeeklyOdds({
+    season: 2026, week: 2, observedAtOrBefore: new Date('2026-09-11T00:00:00.000Z'),
+  });
+  assert.equal(odds.has('2026_02_BUF_MIA'), false);
+  assert.equal(odds.size, 0);
+});
+
 test('getWeeklyOdds: no snapshots for the week is an empty map, not an error', async (t) => {
   createFakePool([
     [select('game_odds_snapshots'), () => ({ rows: [] })],

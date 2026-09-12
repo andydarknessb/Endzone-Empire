@@ -1284,6 +1284,30 @@ test('an observed kickoff EARLIER than the manifest deadline tightens the cutoff
   );
 });
 
+test('every arm passes its effective capture cutoff as the odds seam bound - never input_cutoff, never the untightened manifest deadline (#1268, ADR 0039)', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  // Same fixture as "an observed kickoff EARLIER than the manifest deadline
+  // tightens the cutoff": the tightened cutoff (BASE - 2h) differs from both
+  // the raw manifest deadline (BASE) and the untightened schedule.
+  const earlier = shiftRows(WEEK1, -2 * 3600 * 1000);
+  const tightenedCutoff = new Date(BASE - 2 * 3600 * 1000);
+  const db = fakeDb(dbArgs({ schedule: earlier, clock: () => new Date(BASE - 3 * 3600 * 1000) }));
+
+  const out = await holdout.snapshotWeek(captureArgs(db));
+
+  assert.equal(out.inserted, 3);
+  assert.equal(seen.length, 3, 'one projection run per arm');
+  for (const args of seen) {
+    assert.equal(
+      args.oddsObservedAtOrBefore instanceof Date ? args.oddsObservedAtOrBefore.getTime() : args.oddsObservedAtOrBefore,
+      tightenedCutoff.getTime(),
+      'the odds bound carried by every arm is the TIGHTENED effective cutoff'
+    );
+  }
+  assert.notEqual(tightenedCutoff.getTime(), new Date(BASE).getTime(), 'sanity: the tightened value truly differs from the raw manifest deadline');
+});
+
 test('reconciliation judges missed against the manifest deadline, not stored kickoffs', async (t) => {
   withOnlyFixtureManifest(t);
   const g0Key = WEEK1[0].game_key;
