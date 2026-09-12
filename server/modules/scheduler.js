@@ -612,14 +612,26 @@ const SYNC_RUN_JOBS = [
 // outcome: null rather than inventing a value (#1205).
 const SYNC_RUN_OUTCOMES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
 
-/** `{ finishedAt, ok, outcome }` for one `lastRun(job).latest` row, or null. */
+/**
+ * `{ finishedAt, ok, outcome, failedWeeks }` for one `lastRun(job).latest`
+ * row, or null. `failedWeeks` (#1242) is `detail.failedWeeks.length` when
+ * `detail` is an object and `detail.failedWeeks` is an array, else `null` -
+ * the key absent, present but not an array, or `detail` itself null, missing,
+ * or not an object (a legacy row) all read as `null`, never a throw. It is
+ * read-only and never feeds `outcome`: an `ok` run with 13 failed weeks still
+ * reports `outcome: 'ok'`.
+ */
 function toLatestStatus(latest) {
   if (!latest) return null;
-  const reason = latest.detail && latest.detail.reason;
+  const detail = latest.detail;
+  const isDetailObject = detail !== null && typeof detail === 'object';
+  const reason = isDetailObject && detail.reason;
+  const failedWeeks = isDetailObject && Array.isArray(detail.failedWeeks) ? detail.failedWeeks.length : null;
   return {
     finishedAt: latest.finishedAt,
     ok: latest.ok,
     outcome: latest.ok ? 'ok' : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
+    failedWeeks,
   };
 }
 
@@ -659,8 +671,10 @@ async function readSyncRunStatus(job) {
  * from the same `lastRun('adp')` read `syncRuns.adp` uses, not a second query.
  *
  * `syncRuns` (#1205) is new: an object keyed by job literal (`SYNC_RUN_JOBS`),
- * each value `{ latest, latestOk }`. `latest` is `{ finishedAt, ok, outcome }`
- * or null when the job has never run (or its migration has not landed:
+ * each value `{ latest, latestOk }`. `latest` is
+ * `{ finishedAt, ok, outcome, failedWeeks }` (`failedWeeks` added by #1242,
+ * see `toLatestStatus`) or null when the job has never run (or its migration
+ * has not landed:
  * nothing to read is indistinguishable from nothing recorded yet). `latestOk`
  * is `{ finishedAt }` or null. This widens only the admin route and the
  * worker heartbeat's job status - `publishSchedulerStatus`
