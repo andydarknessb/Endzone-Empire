@@ -298,4 +298,9 @@ module.exports = {
   averageOf,
   impliedTotalForTeam,
   usageEntryFromStats,
+  // Exported for playerCard.service.js (#1306 Ruling item 3): the card's
+  // `usage` tile is this function's `{ weeks, seasonAverage } | null` verbatim,
+  // not the body's four-field sketch, so the Lineup card's Usage tile (ADR
+  // 0037) stays the one producer.
+  loadUsage,
 };
