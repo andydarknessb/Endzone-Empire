@@ -155,7 +155,7 @@ test('heat cell bucket is also visible without colour (#1298, WCAG 1.4.1): each 
   // only on the inner fill, so the cell itself is never faded.
   expect(byWeek(1)).toHaveStyle({ opacity: '1' });
   expect(byWeek(4)).toHaveStyle({ opacity: '1' });
-  expect(fillOf(byWeek(1))).toHaveStyle({ opacity: '0.35' });
+  expect(fillOf(byWeek(1))).toHaveStyle({ opacity: '0.75' });
 });
 
 test('heat cell track: a played-but-scored-0 week (h1) and a not-played week share the same base track, distinguished by the presence of a fill (#1298 risk review)', () => {
