@@ -13,8 +13,9 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * successful save leaves the standings cache (`entities/pickem-standings`)
  * stale, since saved picks change the standings' made/pending counts, but
  * clearing it is NOT this hook's job: sibling entities do not import each
- * other (ADR 0029), so the composer that reads both entities - LeaguePickem.jsx
- * - clears it when `savePicks` resolves `{ ok: true }`.
+ * other (ADR 0029), so the composer that reads both entities -
+ * `pages/pickem` (#1267), via `widgets/pickem-board`'s `onSaved` callback -
+ * clears it when `savePicks` resolves `{ ok: true }`.
  */
 export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
   const [data, setData] = useState(null);

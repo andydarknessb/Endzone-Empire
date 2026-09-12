@@ -42,8 +42,17 @@ import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
  * tint (the pressed "All weeks" button). No new pairing is composed. The
  * chevrons are inline stroke SVG on the canvas's 20px grid, aria-hidden, so
  * each icon button's accessible name is its aria-label alone.
+ *
+ * `ref` forwards to the weeks SegmentedControl's own ref (the
+ * `role="radiogroup"` node, per `shared/ui/SegmentedControl`'s own
+ * `forwardRef`): a composer that VETOES a picked week (a dirty-draft guard,
+ * `pages/pickem` #1267) needs it to move DOM focus back onto the segment
+ * that is still actually checked once the veto is confirmed - the roving
+ * arrow-key move already carried focus onto the neighbour before reporting
+ * it (SegmentedControl.jsx's own contract), so a rejected value otherwise
+ * leaves focus on an unchecked segment.
  */
-export default function PickWeek({ weeks, value, onChange, fill = false }) {
+const PickWeek = React.forwardRef(function PickWeek({ weeks, value, onChange, fill = false }, ref) {
   const list = Array.isArray(weeks) ? weeks : [];
   const isAll = value === 'All';
   const index = isAll || value == null ? -1 : list.indexOf(Number(value));
@@ -100,6 +109,7 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
         </IconButton>
 
         <SegmentedControl
+          ref={ref}
           aria-label="Week"
           data-testid="pick-week-weeks"
           options={options}
@@ -133,7 +143,9 @@ export default function PickWeek({ weeks, value, onChange, fill = false }) {
       {fill ? null : allWeeks}
     </Box>
   );
-}
+});
+
+export default PickWeek;
 
 // The canvas's `.btn.icon`: a 38px square ghost button, hairline border, dim
 // chevron that lifts to ink on hover. Mobile grows it to the 44px touch target.

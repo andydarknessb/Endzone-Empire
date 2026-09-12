@@ -28,7 +28,7 @@ import QuickActions from '../../widgets/quick-actions';
 import ChatPanel from '../../components/ChatPanel/ChatPanel';
 import RecapCard from '../../components/RecapCard/RecapCard';
 import TrophyCase from '../../components/TrophyCase/TrophyCase';
-import PickemStandings from '../../components/LeaguePickem/PickemStandings';
+import PickemStandings from '../../widgets/pickem-standings';
 import Countdown from '../../components/Countdown/Countdown';
 import {
   applyTeamProfileUpdate,
@@ -299,7 +299,7 @@ export default function LeagueDashboardPage() {
            content of a pick'em league, and as a bare section it was a nameless
            region with no heading between the h1 and the quick-actions h2. */
         <Card data-testid="dashboard-pickem-standings" title="Pick'em Standings">
-          <PickemStandings leagueId={leagueId} season={league.current_season} />
+          <PickemStandings leagueId={leagueId} />
         </Card>
       ) : (
         <>

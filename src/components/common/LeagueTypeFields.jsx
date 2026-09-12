@@ -3,7 +3,7 @@ import {
   Box, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Typography,
 } from '@mui/material';
 import { LEAGUE_TYPE_OPTIONS, includesPickem } from '../../lib/leagueType';
-import { PICKEM_MODE_OPTIONS } from '../LeaguePickem/PickemSettingsPanel';
+import { PICKEM_MODE_OPTIONS } from '../../widgets/pickem-settings';
 
 /**
  * The league-type choice at the top of both create dialogs, plus the pick'em
