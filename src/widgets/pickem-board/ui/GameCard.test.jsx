@@ -82,6 +82,29 @@ test('state 2: picked, confidence assigned', async () => {
   expect(onSetConfidence).toHaveBeenCalledWith('NYJ|TEN', 3);
 });
 
+test('confidence stays disabled until a team is picked for that game (#1327)', () => {
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: null })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  const combobox = screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' });
+  expect(combobox).toHaveAttribute('aria-disabled', 'true');
+
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).not.toHaveAttribute('aria-disabled');
+});
+
 test('state 3: picked, straight-up mode - no confidence chip', () => {
   render(<GameCard view={baseView({ myPick: 'NYJ', pickedCount: 8 })} mode="straight" totalManagers={10} />);
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument();

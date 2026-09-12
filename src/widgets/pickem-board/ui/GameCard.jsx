@@ -84,7 +84,7 @@ export default function GameCard({
             value={view.confidence}
             max={slateSize}
             disabledValues={confidenceUsedBy}
-            disabled={view.lock}
+            disabled={view.lock || view.myPick == null}
             bad={flagged}
             onChange={(value) => onSetConfidence?.(view.gameKey, value)}
             // A confidence slate is up to sixteen games; the shared "Confidence"
