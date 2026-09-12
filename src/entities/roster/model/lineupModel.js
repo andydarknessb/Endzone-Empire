@@ -115,6 +115,17 @@ function playerFromLineupEntry(row) {
  * From the lineup body (`GET /api/team/lineup?leagueId=<id>&week=<week>`).
  * A null/undefined body maps to the empty shape (no entries, zero counts)
  * rather than throwing, matching the entities layer's other builders.
+ *
+ * `rosterSlots`, `benchSlots`, `irSlots` and `currentWeek` (#1237) are the
+ * wire's own already-resolved slot configuration (server/services/
+ * lineup.service.js's `parseLineupSettings`: the league's `roster_slots`
+ * with the standard 7-slot shape as its fallback, never re-resolved here) and
+ * the server's own idea of "this week" - passed through unchanged rather than
+ * re-derived, so a page building the Lineup surface reads them off this one
+ * model instead of the raw wire body directly. `lineupEntries` below already
+ * takes a caller-supplied `rosterSlots`; this is that same array, sourced
+ * from the response `lineupEntries`'s own caller would otherwise have to
+ * fetch a second time.
  */
 export function lineupModel(body) {
   const b = body || {};
@@ -132,6 +143,10 @@ export function lineupModel(body) {
     week: b.week ?? null,
     season: b.season ?? null,
     teamId: b.teamId ?? null,
+    currentWeek: b.currentWeek ?? null,
+    rosterSlots: Array.isArray(b.rosterSlots) ? b.rosterSlots : [],
+    benchSlots: Number.isInteger(b.benchSlots) ? b.benchSlots : null,
+    irSlots: Number.isInteger(b.irSlots) ? b.irSlots : null,
     entries,
     starters,
     benchCount,
@@ -280,8 +295,11 @@ function availabilityFor(entry) {
  *
  * The shape: `{ playerId, name, position, nflTeam, slot, slotIndex,
  * eligibleSlots, locked, availability: { available, reason }, unavailable,
- * projectedPoints, projection, floor, ceiling, opponent, kickoff, gameKey,
- * edge: { kind, text } }`. `slotIndex` is the entry's position in the
+ * projectedPoints, projection, floor, ceiling, points, opponent, kickoff,
+ * gameKey, edge: { kind, text }, irAttested, validStash, spent }`. `points`
+ * (#1237) is the entry's actual/live fantasy points, null before kickoff or
+ * when the week has no stats yet - the Ledger row's points cell reads this,
+ * never `projectedPoints`. `slotIndex` is the entry's position in the
  * league's own slot order; a slot the entries carry that the order does not
  * name (BENCH, IR, or a stray key) is appended after the ordered slots, in
  * the order first seen, mirroring `pairStartersBySlot`'s same rule. The
@@ -320,6 +338,12 @@ export function lineupEntries(rosterWire, league) {
     const projection = r.projection == null ? NaN : Number(r.projection);
     const floor = r.floor == null ? NaN : Number(r.floor);
     const ceiling = r.ceiling == null ? NaN : Number(r.ceiling);
+    // The entry's actual/live fantasy points (#1237, formal review
+    // ac2-points-cell-always-a-dash): the server's own `actualPoints`
+    // (lineup.service.js's `calculateFantasyPoints` over the week's stats
+    // row), null before kickoff or when the week has no stats yet - never
+    // derived here.
+    const actualPoints = r.actualPoints == null ? NaN : Number(r.actualPoints);
     const entry = {
       playerId: r.id ?? null,
       name: r.name ?? null,
@@ -330,6 +354,7 @@ export function lineupEntries(rosterWire, league) {
       projection: Number.isFinite(projection) ? projection : null,
       floor: Number.isFinite(floor) ? floor : null,
       ceiling: Number.isFinite(ceiling) ? ceiling : null,
+      points: Number.isFinite(actualPoints) ? actualPoints : null,
       injuryStatus: r.injury_status ?? null,
       opponent: r.opponent ?? null,
       // `kickoff` and `gameKey` (#1235) are passed through exactly as the
@@ -338,6 +363,21 @@ export function lineupEntries(rosterWire, league) {
       kickoff: r.kickoff ?? null,
       gameKey: r.game_key ?? null,
       onBye: Boolean(r.onBye),
+      // The IR slot's own facts (CONTEXT.md's Attested stash and
+      // IR-eligible; #1237): `irAttested` is the commissioner's vouch for
+      // this stash (`lineup_entries.ir_attested`), and `validStash` is the
+      // server's own answer to "is this stash still valid" (IR-eligible OR
+      // attested), read alongside rather than re-derived from injuryStatus
+      // here - the server already applies the attestation-ends-on-any-move
+      // rule this entity does not model.
+      irAttested: Boolean(r.ir_attested),
+      validStash: Boolean(r.valid_stash),
+      // CONTEXT.md's Lineup entry: a spent row is a settled week's record of
+      // a departed starter's slot and starts nobody today - `lineupModel`'s
+      // `starters` already excludes it on this same flag; this per-entry
+      // model exposes it too so a surface rendering ALL entries (starters,
+      // bench and IR together) can mark it inert rather than a live row.
+      spent: Boolean(r.spent),
     };
     return {
       ...entry,

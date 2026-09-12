@@ -99,6 +99,24 @@ describe('lineupModel: the one shape from the lineup body', () => {
     });
   });
 
+  test('passes through rosterSlots, benchSlots, irSlots and currentWeek unchanged (#1237)', () => {
+    const rosterSlots = [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }];
+    const model = lineupModel({ ...body, rosterSlots, benchSlots: 6, irSlots: 1 });
+    expect(model.rosterSlots).toBe(rosterSlots);
+    expect(model.benchSlots).toBe(6);
+    expect(model.irSlots).toBe(1);
+    expect(model.currentWeek).toBe(4);
+  });
+
+  test('a missing rosterSlots/benchSlots/irSlots/currentWeek reads as the empty shape, never throws', () => {
+    const { rosterSlots, benchSlots, irSlots, currentWeek, ...rest } = body;
+    const model = lineupModel(rest);
+    expect(model.rosterSlots).toEqual([]);
+    expect(model.benchSlots).toBeNull();
+    expect(model.irSlots).toBeNull();
+    expect(model.currentWeek).toBeNull();
+  });
+
   test('a non-null opponent on the wire produces the same value on the modeled entry and the corresponding starter', () => {
     const model = lineupModel({
       ...body,
@@ -207,24 +225,21 @@ describe('lineupModel: the one shape from the lineup body', () => {
   });
 
   test('a null/missing body maps to the empty shape rather than throwing', () => {
-    expect(lineupModel(null)).toEqual({
+    const empty = {
       week: null,
       season: null,
       teamId: null,
+      currentWeek: null,
+      rosterSlots: [],
+      benchSlots: null,
+      irSlots: null,
       entries: [],
       starters: [],
       benchCount: 0,
       questionable: 0,
-    });
-    expect(lineupModel(undefined)).toEqual({
-      week: null,
-      season: null,
-      teamId: null,
-      entries: [],
-      starters: [],
-      benchCount: 0,
-      questionable: 0,
-    });
+    };
+    expect(lineupModel(null)).toEqual(empty);
+    expect(lineupModel(undefined)).toEqual(empty);
   });
 
   test('a projected_points wire string (a pg decimal) coerces to a number', () => {
@@ -519,6 +534,19 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(entries[0]).toMatchObject({ projection: null, floor: null, ceiling: null });
   });
 
+  test('points carries through from the wire\'s actualPoints, coerced the same way projectedPoints already is (#1237)', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'QB', actualPoints: '18.50' })], league);
+    expect(entries[0].points).toBe(18.5);
+  });
+
+  test('a null or missing actualPoints reads as points: null, never 0', () => {
+    const withNull = lineupEntries([row({ id: 1, slot: 'QB', actualPoints: null })], league);
+    expect(withNull[0].points).toBeNull();
+    const { actualPoints, ...rowWithoutActualPoints } = row({ id: 1, slot: 'QB' });
+    const withoutKey = lineupEntries([rowWithoutActualPoints], league);
+    expect(withoutKey[0].points).toBeNull();
+  });
+
   test('kickoff and gameKey pass through exactly as opponent already does', () => {
     const withSchedule = lineupEntries(
       [row({ id: 1, slot: 'QB', kickoff: '2026-11-01T18:00:00Z', game_key: 'BUF-MIA' })],
@@ -553,5 +581,27 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
   test('a wire row without an edge key at all produces edge: null', () => {
     const entries = lineupEntries([row({ id: 1, slot: 'QB' })], league);
     expect(entries[0].edge).toBeNull();
+  });
+
+  test('irAttested and validStash pass through as booleans (#1237)', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'IR', ir_attested: true, valid_stash: true })],
+      league
+    );
+    expect(entries[0].irAttested).toBe(true);
+    expect(entries[0].validStash).toBe(true);
+  });
+
+  test('a wire row without ir_attested/valid_stash keys reads both as false', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'IR' })], league);
+    expect(entries[0].irAttested).toBe(false);
+    expect(entries[0].validStash).toBe(false);
+  });
+
+  test('spent passes through as a boolean (#1237)', () => {
+    const entries = lineupEntries([row({ id: 1, slot: 'WR', spent: true })], league);
+    expect(entries[0].spent).toBe(true);
+    const notSpent = lineupEntries([row({ id: 1, slot: 'WR' })], league);
+    expect(notSpent[0].spent).toBe(false);
   });
 });

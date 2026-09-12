@@ -130,13 +130,16 @@ test('"/discover" is protected: LoginPage when logged out, LeagueDiscovery when 
   expect(await screen.findByRole('heading', { name: 'Discover Leagues' })).toBeInTheDocument();
 });
 
-test('"/team" is protected: LoginPage when logged out, Team Lineup when logged in', async () => {
+test('"/team" is protected: LoginPage when logged out, the Lineup page when logged in', async () => {
   const { unmount } = renderApp('#/team', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
 
+  // The default apiClient mock resolves every GET (including /api/league,
+  // the Lineup page's own league inventory read) to an empty array, so the
+  // page renders its no-leagues empty state rather than a team header.
   renderApp('#/team', { user: loggedIn });
-  expect(await screen.findByRole('heading', { name: 'My Team' })).toBeInTheDocument();
+  expect(await screen.findByText(/not in a fantasy league yet/i)).toBeInTheDocument();
 });
 
 test('"/player" is protected: LoginPage when logged out, PlayerManagement when logged in', async () => {
@@ -195,7 +198,7 @@ test('"/league/:leagueId/lineup" is protected and redirects to Team with the Lea
       return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByRole('heading', { name: 'My Team' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { level: 1, name: 'Lineup' })).toBeInTheDocument();
   expect(window.location.hash).toBe('#/team?leagueId=1');
 });
 
@@ -211,7 +214,7 @@ test('"/league/:leagueId/lineup" carries a Bench what-if swap through to Team', 
       return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByRole('heading', { name: 'My Team' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { level: 1, name: 'Lineup' })).toBeInTheDocument();
   expect(window.location.hash).toBe('#/team?swapOut=11&swapIn=12&leagueId=1');
 });
 
