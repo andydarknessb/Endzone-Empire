@@ -249,7 +249,7 @@ test('every team button is a real button with an aria-label naming the team, and
 });
 
 test('house style: no em-dash and no "insight" anywhere on the card', () => {
-  const { container } = render(
+  render(
     <GameCard
       view={baseView({
         phase: 'final',
@@ -264,6 +264,7 @@ test('house style: no em-dash and no "insight" anywhere on the card', () => {
       totalManagers={10}
     />
   );
-  expect(container.textContent).not.toMatch(/—/);
-  expect(container.textContent.toLowerCase()).not.toMatch(/insight/);
+  const card = screen.getByTestId('game-card');
+  expect(card.textContent).not.toMatch(/—/);
+  expect(card.textContent.toLowerCase()).not.toMatch(/insight/);
 });

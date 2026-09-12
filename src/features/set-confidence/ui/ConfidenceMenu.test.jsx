@@ -31,8 +31,8 @@ test('a number already used by another game is disabled, except this menu\'s own
   render(<ConfidenceMenu value={2} max={4} disabledValues={[2, 3]} />);
   await user.click(screen.getByRole('combobox'));
   const listbox = screen.getByRole('listbox');
-  expect(within(listbox).getByText('3').closest('li')).toHaveAttribute('aria-disabled', 'true');
-  expect(within(listbox).getByText('2').closest('li')).not.toHaveAttribute('aria-disabled', 'true');
+  expect(within(listbox).getByRole('option', { name: '3' })).toHaveAttribute('aria-disabled', 'true');
+  expect(within(listbox).getByRole('option', { name: '2' })).not.toHaveAttribute('aria-disabled', 'true');
 });
 
 test('never says "rank"', () => {

@@ -129,7 +129,7 @@ test('pickWinner reflects immediately in the view (draft-aware) before any save'
   expect(result.current.pickedCount).toBe(1);
 });
 
-test('confidenceUsedByFor excludes a game\'s own current confidence but names other games\' ', async () => {
+test('confidenceUsedByFor excludes a game\'s own current confidence but names other games\'', async () => {
   mockGetByUrl({
     '/api/league/1': leagueResponse(),
     '/api/pickem/league/1/week/3': weekResponse({
