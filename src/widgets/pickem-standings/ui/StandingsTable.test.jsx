@@ -136,6 +136,31 @@ test('heat cell bucket is also visible without colour (#1298, WCAG 1.4.1): each 
   expect(fillOf(byWeek(1))).toHaveStyle({ opacity: '0.35' });
 });
 
+test('heat cell track: a played-but-scored-0 week (h1) and a not-played week share the same base track, distinguished by the presence of a fill (#1298 risk review)', () => {
+  mockStandings({
+    standings: [
+      // Best week is week 2 at 100 pts, so week 1's 0 points buckets h1
+      // (heatBuckets.js) rather than landing outside the strip entirely.
+      baseRow({ teamId: 1, weekly: { 1: 0, 2: 100 } }),
+    ],
+  });
+  render(<StandingsTable leagueId={7} />);
+
+  const cells = screen.getAllByTestId('pickem-standings-heat-cell');
+  const byWeek = (week) => cells.find((cell) => cell.getAttribute('data-week') === String(week));
+  const fillOf = (cell) => within(cell).queryByTestId('pickem-standings-heat-cell-fill');
+
+  const scoredZero = byWeek(1);
+  const notPlayed = byWeek(5);
+  expect(scoredZero).toHaveAttribute('data-bucket', 'h1');
+  expect(notPlayed).toHaveAttribute('data-bucket', 'not-played');
+
+  // Same neutral track on both, so the ONLY visible difference is the fill.
+  expect(scoredZero).toHaveStyle({ backgroundColor: notPlayed.style.backgroundColor });
+  expect(fillOf(scoredZero)).toBeInTheDocument();
+  expect(fillOf(notPlayed)).not.toBeInTheDocument();
+});
+
 test('trend arrows: up, down, flat and null each render their own mark', () => {
   mockStandings({
     standings: [

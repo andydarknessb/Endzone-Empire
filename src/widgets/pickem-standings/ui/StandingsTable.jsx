@@ -352,8 +352,16 @@ function heatCellLabel(cell, currentWeek) {
 // a quarter, h2 half, h3 three-quarters, h4 full), so bucket reads by shape
 // as well as tint. The tint and its per-bucket opacity move onto that inner
 // fill so the outer cell's hairline border and the best-week outline are
-// never themselves faded. A not-played cell renders no inner fill at all -
-// an empty outlined square, unchanged from before.
+// never themselves faded. Every cell (bucketed or not) shares the same
+// dash-surface3 track as its base: an earlier version left a bucketed
+// cell's own background transparent, which put the h1/h2 fill directly on
+// the row's own backdrop (worst case: the viewer row's accent-soft tint,
+// the same hue as the fill) and made the new height channel nearly
+// invisible right where it matters most - the faintest buckets. A shared
+// opaque track fixes that (verified by rendering both at 14px) and, as a
+// side effect, keeps a "0 points" h1 cell visibly distinct from a
+// not-played cell: the latter is the bare track, the former is the same
+// track with a small fill on it. A not-played cell renders no inner fill.
 function HeatStrip({ heat, currentWeek }) {
   return (
     <Box data-testid="pickem-standings-heat" sx={{ display: 'flex', gap: '3px' }}>
@@ -374,7 +382,7 @@ function HeatStrip({ heat, currentWeek }) {
             border: '1px solid var(--dash-line)',
             boxSizing: 'border-box',
             overflow: 'hidden',
-            backgroundColor: cell.bucket ? 'transparent' : 'var(--dash-surface3)',
+            backgroundColor: 'var(--dash-surface3)',
             opacity: 1,
             outline: cell.isBest ? '2px solid var(--dash-warning)' : 'none',
             outlineOffset: '1px',
