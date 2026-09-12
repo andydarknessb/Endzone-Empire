@@ -110,6 +110,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     nfl_team: 'KC',
     injury_status: null,
     injury_detail: null,
+    photo_url: null,
     slot: 'QB',
   };
   const projectionCalls = [];
@@ -167,6 +168,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     nfl_team: 'KC',
     injury_status: null,
     injury_detail: null,
+    photo_url: null,
     slot: 'QB',
     spent: true,
     bye_week: null,

@@ -65,6 +65,10 @@ describe('lineupModel: the one shape from the lineup body', () => {
     entries: [...starterRows, ...benchRows, irRow],
   };
 
+  test('photo_url arrives as photoUrl, null when the wire carries none', () => {
+    const withPhoto = lineupModel({ ...body, entries: [row({ id: 1, slot: 'QB', photo_url: 'https://cdn.example/1.png' }), row({ id: 2, slot: 'RB', position: 'RB' })] });
+    expect(withPhoto.entries.map((e) => e.photoUrl)).toEqual(['https://cdn.example/1.png', null]);
+  });
   test('maps nine starters, benchCount 6, and the projected points as numbers', () => {
     const model = lineupModel(body);
 
@@ -94,6 +98,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       slot: 'QB',
       projectedPoints: 10,
       injuryStatus: null,
+      photoUrl: null,
       spent: false,
       opponent: 'KC',
     });
@@ -173,6 +178,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       slot: 'WR',
       projectedPoints: null,
       injuryStatus: null,
+      photoUrl: null,
       spent: true,
       opponent: 'NYJ',
     });

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
+  Avatar,
   Box,
   Button,
   Drawer,
@@ -183,7 +184,7 @@ export default function PlayerDecisionCard({
 
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
-              <HeaderAvatar name={entry.name} nflTeam={entry.nflTeam} />
+              <HeaderAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
               <Box sx={{ minWidth: 0 }}>
                 <Typography id="decision-card-title" component="h2" sx={{ fontSize: 18, fontWeight: 700 }} noWrap>
                   {entry.name}
@@ -443,19 +444,21 @@ function DragHandle() {
 // that stays fixed across light and dark mode. One 4.5:1 rule covers this
 // 20px bold header too - the stricter normal-text threshold costs nothing
 // here and keeps a single helper for all three monogram sites.
-function HeaderAvatar({ name, nflTeam }) {
+// The headshot (`photoUrl`, the lineup entry's own field) sits on top of
+// that monogram the same way the Ledger row's avatar does: MUI's Avatar
+// renders its children whenever `src` is absent or fails to load, so a team
+// defense and a broken image both fall back to the initials.
+function HeaderAvatar({ name, nflTeam, photoUrl }) {
   const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
   return (
-    <Box
+    <Avatar
       aria-hidden="true"
+      src={photoUrl || undefined}
+      imgProps={{ loading: 'lazy', 'data-testid': 'decision-card-headshot' }}
       sx={{
         width: 56,
         height: 56,
-        borderRadius: '50%',
         flex: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         fontSize: 20,
         fontWeight: 700,
         bgcolor: kit.jersey,
@@ -463,7 +466,7 @@ function HeaderAvatar({ name, nflTeam }) {
       }}
     >
       {initialsFor(name)}
-    </Box>
+    </Avatar>
   );
 }
 

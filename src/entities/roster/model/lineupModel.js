@@ -14,7 +14,7 @@
  * together, CONTEXT.md's Roster), each mapped to the one player shape:
  *
  *   { playerId, name, position, nflTeam, slot, projectedPoints,
- *     injuryStatus, spent, opponent }
+ *     injuryStatus, photoUrl, spent, opponent }
  *
  * `opponent` arrived with #1132 (server/services/lineup.service.js
  * `annotateLineupEntries`): the wire's own `opponentByTeam.get(...) ?? null`,
@@ -106,6 +106,7 @@ function playerFromLineupEntry(row) {
     slot: r.slot ?? null,
     projectedPoints: Number.isFinite(points) ? points : null,
     injuryStatus: r.injury_status ?? null,
+    photoUrl: r.photo_url ?? null,
     spent: !!r.spent,
     opponent: r.opponent ?? null,
   };
