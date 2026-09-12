@@ -176,6 +176,10 @@ test('bench options list eligible bench players by projection, and a swap sends 
   const section = await screen.findByTestId('decision-card-bench-options');
   const names = within(section).getAllByText(/Bench (Low|High)/).map((n) => n.textContent);
   expect(names).toEqual(['Bench High', 'Bench Low']);
+  // Review finding: every Swap button shared the name "Swap"; each now
+  // names the player it swaps in.
+  expect(within(section).getByRole('button', { name: 'Swap in Bench High' })).toBeInTheDocument();
+  expect(within(section).getByRole('button', { name: 'Swap in Bench Low' })).toBeInTheDocument();
 
   const user = userEvent.setup();
   await user.click(within(section).getByTestId('decision-card-bench-swap-3'));
@@ -253,7 +257,7 @@ test('Trade links to the existing trade flow', async () => {
   expect(await screen.findByTestId('decision-card-trade')).toHaveAttribute('href', '/league/7/trades');
 });
 
-test('Compare shows two cards side by side, and can be cleared', async () => {
+test('Compare shows two cards side by side, each named by its own heading, with no duplicated content, and can be cleared', async () => {
   const starter = entry();
   const other = entry({ playerId: 2, name: 'Compare Target' });
   renderCard({ entry: starter, entries: [starter, other] });
@@ -263,11 +267,37 @@ test('Compare shows two cards side by side, and can be cleared', async () => {
   await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
 
   const compare = await screen.findByTestId('decision-card-compare');
-  expect(within(compare).getByText('Josh Allen')).toBeInTheDocument();
-  expect(within(compare).getByText('Compare Target')).toBeInTheDocument();
+  expect(within(compare).getByRole('heading', { name: 'Josh Allen', level: 3 })).toBeInTheDocument();
+  expect(within(compare).getByRole('heading', { name: 'Compare Target', level: 3 })).toBeInTheDocument();
+  // Review finding: an earlier revision rendered the primary player's own
+  // sections twice (once above the grid, once inside it), so this would
+  // have found three RangeBars instead of the correct two - one per panel.
+  expect(within(compare).getAllByTestId('decision-card-range-bar')).toHaveLength(2);
+  expect(screen.getAllByTestId('decision-card-range-bar')).toHaveLength(2);
 
   await user.click(screen.getByRole('button', { name: 'Clear compare' }));
   expect(screen.queryByTestId('decision-card-compare')).not.toBeInTheDocument();
+  // Focus returns to the Compare button rather than being dropped (review finding).
+  expect(screen.getByTestId('decision-card-compare-action')).toHaveFocus();
+});
+
+test('the Start and Compare menu triggers expose popup state, and the menus carry an accessible name', async () => {
+  const bench = entry({ slot: 'BENCH', eligibleSlots: ['BENCH', 'QB', 'FLEX'] });
+  renderCard({ entry: bench, entries: [bench, entry({ playerId: 2, name: 'Other' })] });
+
+  const startButton = await screen.findByTestId('decision-card-start-action');
+  expect(startButton).toHaveAttribute('aria-haspopup', 'menu');
+  expect(startButton).toHaveAttribute('aria-expanded', 'false');
+  const user = userEvent.setup();
+  await user.click(startButton);
+  expect(startButton).toHaveAttribute('aria-expanded', 'true');
+  expect(await screen.findByRole('menu', { name: 'Eligible starting slots' })).toBeInTheDocument();
+  await user.keyboard('{Escape}');
+
+  const compareButton = screen.getByTestId('decision-card-compare-action');
+  expect(compareButton).toHaveAttribute('aria-haspopup', 'menu');
+  await user.click(compareButton);
+  expect(await screen.findByRole('menu', { name: 'Players to compare' })).toBeInTheDocument();
 });
 
 test('the phone sheet carries the drag handle and the sheet variant; desktop is the drawer variant', async () => {
@@ -290,4 +320,21 @@ test('the close control calls onClose', async () => {
   renderCard({ onClose });
   await userEvent.click(await screen.findByTestId('decision-card-close'));
   expect(onClose).toHaveBeenCalled();
+});
+
+test('a locked player carries a Locked indicator on the card itself, not only a disabled control', async () => {
+  renderCard({ entry: entry({ locked: true }) });
+  expect(await screen.findByTestId('decision-card-locked')).toHaveTextContent('Locked');
+});
+
+test('a spent player carries a Spent indicator on the card itself', async () => {
+  renderCard({ entry: entry({ spent: true }) });
+  expect(await screen.findByTestId('decision-card-spent')).toHaveTextContent('Spent');
+});
+
+test('an unlocked, unspent player shows neither indicator', async () => {
+  renderCard();
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-locked')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-spent')).not.toBeInTheDocument();
 });

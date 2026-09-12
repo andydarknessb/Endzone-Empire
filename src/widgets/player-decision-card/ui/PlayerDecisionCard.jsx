@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
@@ -68,6 +68,7 @@ export default function PlayerDecisionCard({
   const [startMenuAnchor, setStartMenuAnchor] = useState(null);
   const [compareMenuAnchor, setCompareMenuAnchor] = useState(null);
   const [compareId, setCompareId] = useState(null);
+  const compareButtonRef = useRef(null);
 
   const list = Array.isArray(entries) ? entries : [];
   const isOpen = Boolean(open && entry);
@@ -92,6 +93,14 @@ export default function PlayerDecisionCard({
     setCompareMenuAnchor(null);
     setCompareId(null);
     onClose?.(event, reason);
+  };
+
+  // Clearing Compare unmounts the control that had focus; move focus back to
+  // the Compare button rather than leaving it to Modal's own focus-trap
+  // recovery (which lands on the drawer root, not a control - review finding).
+  const clearCompare = () => {
+    setCompareId(null);
+    compareButtonRef.current?.focus();
   };
 
   const isStarting = entry ? entry.slot !== 'BENCH' && entry.slot !== 'IR' : false;
@@ -134,10 +143,28 @@ export default function PlayerDecisionCard({
                 <Typography id="decision-card-title" component="h2" sx={{ fontSize: 18, fontWeight: 700 }} noWrap>
                   {entry.name}
                 </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
                   <PosChip position={entry.slot} />
                   <InjuryTag status={entry.injuryStatus} />
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{entry.nflTeam}</Typography>
+                  {isLocked && (
+                    <Typography
+                      component="span"
+                      data-testid="decision-card-locked"
+                      sx={{ fontSize: 11, fontWeight: 700, color: 'var(--dash-faint)' }}
+                    >
+                      Locked
+                    </Typography>
+                  )}
+                  {entry.spent && (
+                    <Typography
+                      component="span"
+                      data-testid="decision-card-spent"
+                      sx={{ fontSize: 11, fontWeight: 700, color: 'var(--dash-warning)' }}
+                    >
+                      Spent
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             </Box>
@@ -163,6 +190,8 @@ export default function PlayerDecisionCard({
                 size="small"
                 variant="outlined"
                 disabled={startTargets.length === 0}
+                aria-haspopup={startTargets.length > 1 ? 'menu' : undefined}
+                aria-expanded={startTargets.length > 1 ? Boolean(startMenuAnchor) : undefined}
                 onClick={(event) =>
                   startTargets.length === 1
                     ? onSwap?.(movesToStart(entry, startTargets[0], list))
@@ -174,7 +203,12 @@ export default function PlayerDecisionCard({
                 Start
               </Button>
             )}
-            <Menu anchorEl={startMenuAnchor} open={Boolean(startMenuAnchor)} onClose={() => setStartMenuAnchor(null)}>
+            <Menu
+              anchorEl={startMenuAnchor}
+              open={Boolean(startMenuAnchor)}
+              onClose={() => setStartMenuAnchor(null)}
+              MenuListProps={{ 'aria-label': 'Eligible starting slots' }}
+            >
               {startTargets.map((slot) => (
                 <MenuItem
                   key={slot}
@@ -189,15 +223,23 @@ export default function PlayerDecisionCard({
             </Menu>
 
             <Button
+              ref={compareButtonRef}
               size="small"
               variant="outlined"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(compareMenuAnchor)}
               onClick={(event) => setCompareMenuAnchor(event.currentTarget)}
               sx={MIN_TOUCH_TARGET_SX}
               data-testid="decision-card-compare-action"
             >
               {compareEntry ? 'Change compare' : 'Compare'}
             </Button>
-            <Menu anchorEl={compareMenuAnchor} open={Boolean(compareMenuAnchor)} onClose={() => setCompareMenuAnchor(null)}>
+            <Menu
+              anchorEl={compareMenuAnchor}
+              open={Boolean(compareMenuAnchor)}
+              onClose={() => setCompareMenuAnchor(null)}
+              MenuListProps={{ 'aria-label': 'Players to compare' }}
+            >
               {compareCandidates.length === 0 ? (
                 <MenuItem disabled>No other players to compare</MenuItem>
               ) : (
@@ -240,13 +282,16 @@ export default function PlayerDecisionCard({
             </Button>
           </Box>
 
-          <InjurySection entry={entry} />
-          <GameSection entry={entry} line={line} weather={weather} />
-          <ProjectionSection entry={entry} />
-          <UsageSection usage={usage} />
-          <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} />
-
-          {compareEntry && (
+          {compareEntry ? (
+            // AC7: two cards side by side (stacked on a phone). The primary
+            // player's own sections render ONCE, inside this grid's left
+            // column - review finding: an earlier revision also rendered
+            // them again above the grid via a second `ComparePlayerPanel`,
+            // duplicating every heading, table and RangeBar. Each panel's
+            // own name is a heading (`h3`) so a screen reader's heading
+            // navigation can tell the two players' Game/Usage/Weekly
+            // projection headings apart; the sections nested under it step
+            // down to `h4` to keep that outline properly nested.
             <Box
               data-testid="decision-card-compare"
               sx={{
@@ -255,15 +300,37 @@ export default function PlayerDecisionCard({
                 borderTop: '2px solid var(--dash-line)',
               }}
             >
-              <ComparePlayerPanel entry={entry} line={line} weather={weather} usage={usage} />
-              <ComparePlayerPanel
-                entry={compareEntry}
-                line={compareLine}
-                weather={compareWeather}
-                usage={compareUsage}
-                onClear={() => setCompareId(null)}
-              />
+              <Box data-testid={`decision-card-compare-panel-${entry.playerId}`}>
+                <Typography component="h3" sx={{ fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
+                <InjurySection entry={entry} level="h4" />
+                <GameSection entry={entry} line={line} weather={weather} level="h4" />
+                <ProjectionSection entry={entry} level="h4" />
+                <UsageSection usage={usage} level="h4" />
+                <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} level="h4" />
+              </Box>
+              <Box
+                data-testid={`decision-card-compare-panel-${compareEntry.playerId}`}
+                sx={{ borderTop: { xs: '1px solid var(--dash-line)', md: 0 }, borderLeft: { md: '1px solid var(--dash-line)' } }}
+              >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pt: 1.5 }}>
+                  <Typography component="h3" sx={{ fontWeight: 700 }}>{compareEntry.name}</Typography>
+                  <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+                <ProjectionSection entry={compareEntry} level="h4" />
+                <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
+                <UsageSection usage={compareUsage} level="h4" />
+              </Box>
             </Box>
+          ) : (
+            <>
+              <InjurySection entry={entry} />
+              <GameSection entry={entry} line={line} weather={weather} />
+              <ProjectionSection entry={entry} />
+              <UsageSection usage={usage} />
+              <BenchOptionsSection entry={entry} entries={list} onSwap={onSwap} />
+            </>
           )}
         </>
       )}
@@ -319,12 +386,12 @@ function HeaderAvatar({ name, nflTeam }) {
   );
 }
 
-function Section({ title, testId, children }) {
+function Section({ title, testId, level = 'h3', children }) {
   return (
     <Box data-testid={testId} sx={{ px: 2, py: 1.5, borderTop: '1px solid var(--dash-line)' }}>
       {title && (
         <Typography
-          component="h3"
+          component={level}
           sx={{
             fontSize: 12,
             fontWeight: 700,
@@ -344,11 +411,11 @@ function Section({ title, testId, children }) {
 
 // AC2/AC3: the injury designation and the feed's detail, hidden entirely for
 // a healthy player (null source).
-function InjurySection({ entry }) {
+function InjurySection({ entry, level }) {
   const view = injuryTileView(entry);
   if (!view) return null;
   return (
-    <Section title="Injury" testId="decision-card-injury">
+    <Section title="Injury" testId="decision-card-injury" level={level}>
       <Typography sx={{ fontSize: 14 }}>{view.name}</Typography>
       {view.detail && (
         <Typography sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: 0.5 }}>{view.detail}</Typography>
@@ -359,14 +426,14 @@ function InjurySection({ entry }) {
 
 // AC2/AC3: opponent, kickoff, Line, Implied team total (both hidden together
 // on a null Line) and weather with indoor (hidden on a null weather).
-function GameSection({ entry, line, weather }) {
+function GameSection({ entry, line, weather, level }) {
   const hasOpponent = entry.opponent != null;
   const kickoff = formatKickoff(entry.kickoff);
   const showLine = line != null;
   const showWeather = weather != null;
   if (!hasOpponent && !showLine && !showWeather) return null;
   return (
-    <Section title="Game" testId="decision-card-game">
+    <Section title="Game" testId="decision-card-game" level={level}>
       {hasOpponent && (
         <Typography sx={{ fontSize: 14 }} data-testid="decision-card-opponent">
           {`vs ${entry.opponent}${kickoff ? ` · ${kickoff}` : ''}`}
@@ -404,10 +471,10 @@ function GameSection({ entry, line, weather }) {
 // AC2: mean, Floor, Ceiling on the shared RangeBar, and the largest Factor's
 // explanation (the Edge line's own text when its kind is 'factor' - hidden
 // otherwise, the tile's own null-source rule).
-function ProjectionSection({ entry }) {
+function ProjectionSection({ entry, level }) {
   const factorText = entry.edge && entry.edge.kind === 'factor' ? entry.edge.text : null;
   return (
-    <Section title="Weekly projection" testId="decision-card-projection">
+    <Section title="Weekly projection" testId="decision-card-projection" level={level}>
       <RangeBar
         floor={entry.floor}
         ceiling={entry.ceiling}
@@ -431,14 +498,14 @@ function ProjectionSection({ entry }) {
 
 // AC2/AC3: the last three weeks beside the season average, hidden entirely
 // on empty usage (his team had no played week yet).
-function UsageSection({ usage }) {
+function UsageSection({ usage, level }) {
   if (!usage || !Array.isArray(usage.weeks) || usage.weeks.length === 0) return null;
   const rows = [
     ...usage.weeks.map((w) => ({ ...w, isAverage: false })),
     { ...usage.seasonAverage, isAverage: true },
   ];
   return (
-    <Section title="Usage" testId="decision-card-usage">
+    <Section title="Usage" testId="decision-card-usage" level={level}>
       <Table size="small" aria-label="Usage" data-testid="decision-card-usage-table">
         <TableHead>
           <TableRow>
@@ -472,11 +539,11 @@ function UsageSection({ usage }) {
 // performs for every other action here) and a locked candidate disabled
 // with the lock shown as text, matching LedgerRow's own lock treatment in
 // spirit without duplicating its SVG glyph.
-function BenchOptionsSection({ entry, entries, onSwap }) {
+function BenchOptionsSection({ entry, entries, onSwap, level }) {
   const options = benchOptionsForSlot(entries, entry.slot);
   if (options.length === 0) return null;
   return (
-    <Section title="Bench options" testId="decision-card-bench-options">
+    <Section title="Bench options" testId="decision-card-bench-options" level={level}>
       <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: 1 }}>
         {options.map(({ entry: candidate, locked: candidateLocked }) => (
           <Box
@@ -502,6 +569,7 @@ function BenchOptionsSection({ entry, entries, onSwap }) {
               size="small"
               variant="outlined"
               disabled={candidateLocked}
+              aria-label={`Swap in ${candidate.name}`}
               onClick={() =>
                 onSwap?.([
                   { playerId: candidate.playerId, slot: entry.slot },
@@ -517,26 +585,5 @@ function BenchOptionsSection({ entry, entries, onSwap }) {
         ))}
       </Box>
     </Section>
-  );
-}
-
-// AC7: Compare's own compact panel - header, projection, game and usage,
-// omitting the actions row and bench options so comparing never nests a
-// second card's own management controls inside the first.
-function ComparePlayerPanel({ entry, line, weather, usage, onClear }) {
-  return (
-    <Box data-testid={`decision-card-compare-panel-${entry.playerId}`} sx={{ p: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography sx={{ fontWeight: 700 }}>{entry.name}</Typography>
-        {onClear && (
-          <IconButton size="small" aria-label="Clear compare" onClick={onClear} sx={MIN_TOUCH_TARGET_SX}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        )}
-      </Box>
-      <ProjectionSection entry={entry} />
-      <GameSection entry={entry} line={line} weather={weather} />
-      <UsageSection usage={usage} />
-    </Box>
   );
 }
