@@ -421,6 +421,12 @@ test('the Start/sit panel renders a suggestion with both players\' Floor/Ceiling
   await within(panel).findByText('Derrick King');
   expect(within(panel).getByText('Bench Guy')).toBeInTheDocument();
   expect(within(panel).getAllByTestId('suggestion-range-bar')).toHaveLength(2);
+  // Formal review finding f3: the length-2 assertion above would still pass
+  // with both bars empty. Pin the actual Floor/projection/Ceiling figures
+  // (the advice fixture's own distribution.p10/p90) in each bar's own
+  // accessible name, from `adviceSuggestion()` above.
+  expect(within(panel).getByRole('img', { name: 'Derrick King, Floor 3.0, Projection 8.0, Ceiling 13.0' })).toBeInTheDocument();
+  expect(within(panel).getByRole('img', { name: 'Bench Guy, Floor 9.0, Projection 14.5, Ceiling 20.0' })).toBeInTheDocument();
 });
 
 test('a too-close-to-call suggestion shows that chip, never a lean', async () => {
