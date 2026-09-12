@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
-import PositionChip from '../PlayerQuickView/PositionChip';
+import PositionChip from '../../shared/ui/PositionChip';
 import { positionGroupKey } from '../../lib/draftSim/cpuBrain';
 
 const BASE_FILTERS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];

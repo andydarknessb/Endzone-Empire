@@ -2,8 +2,7 @@ import React, { useId } from 'react';
 import { Box, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
-import { Card, InjuryTag, PosChip } from '../../../shared/ui';
-import PlayerAvatar from '../../../components/PlayerQuickView/PlayerAvatar';
+import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
 import {
   columnTotals,
   formatPoints,

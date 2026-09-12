@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Autocomplete, TextField, Box, CircularProgress } from '@mui/material';
 import apiClient from '../../api/apiClient';
-import PositionChip from '../PlayerQuickView/PositionChip';
+import PositionChip from '../../shared/ui/PositionChip';
 
 // The quick view is a heavy dialog (player summary, stats, projections) that
 // only matters once a result is picked; this search sits in the always-mounted

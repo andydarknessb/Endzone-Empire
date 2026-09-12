@@ -3,7 +3,7 @@ import {
   Alert, AlertTitle, Box, Button, Chip, Divider, Paper, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Typography,
 } from '@mui/material';
-import PositionChip from '../PlayerQuickView/PositionChip';
+import PositionChip from '../../shared/ui/PositionChip';
 import CTABanner from '../public/kit/CTABanner';
 import { templateFor } from '../../lib/draftSim/templates';
 

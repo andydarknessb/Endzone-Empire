@@ -47,7 +47,7 @@ const DRAFT_POOL_IDP_LIMIT = 90;
 // scoring.service.normalizeTank01Stats / normalizeTank01DstStats /
 // normalizeTank01IdpStats output. Offensive and defensive keys never co-occur
 // on one row, so a single ordered list serves every position.
-// Keep in sync with src/components/PlayerQuickView/statLine.js.
+// Keep in sync with src/shared/ui/statLine.js.
 const STAT_LINE_FIELDS = [
   ['passingYards', 'pass yds'],
   ['passingTDs', 'pass TD'],
