@@ -242,11 +242,17 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
  * requireMember throws MembershipError(403) when the caller holds no team.
  */
 async function getPlayerCard({ leagueId, userId, playerId, week }) {
+  // requireMember runs FIRST (a risk-review catch, #1306): `teams.league_id`
+  // references `leagues.id` ON DELETE CASCADE, so a team row can never
+  // outlive its league, and this ordering means a non-member gets the exact
+  // same 403 whether the league exists or not - the reverse order let a
+  // caller distinguish "no such league" (404) from "not your league" (403),
+  // an oracle `/summary` (requireMember first) never had.
+  const team = await requireMember(pool, { leagueId, userId });
+
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new PlayerCardError(404, 'league not found');
-
-  const team = await requireMember(pool, { leagueId, userId });
 
   const playerResult = await pool.query(`SELECT * FROM "players" WHERE "id" = $1`, [playerId]);
   const player = playerResult.rows[0];

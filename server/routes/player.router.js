@@ -16,7 +16,11 @@ const {
 const { requireMember } = require('../services/leagueMembership.service');
 const irPolicy = require('../services/irPolicy.service');
 const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
-const { getPlayerCard } = require('../services/playerCard.service');
+// Kept whole (not destructured): a test seam a route test replaces with
+// `t.mock.method`, same convention as playerCard.service.js's own
+// cross-module calls - a destructured binding is captured at require time
+// and can no longer be mocked afterwards.
+const playerCardService = require('../services/playerCard.service');
 
 const router = express.Router();
 
@@ -738,8 +742,16 @@ router.get('/:id/summary', requireAuth, async (req, res) => {
 // is the Weekly projection under the league's own scoring (never Pool
 // projection); `upgrade` is null in a best-ball league and for a player
 // already on the caller's roster. Supersedes `/summary`, which is deleted
-// with PlayerQuickView in a later ticket and is left untouched here. Cached
-// the same 30s TTL, keyed per player and league like `/summary`.
+// with PlayerQuickView in a later ticket and is left untouched here.
+//
+// `requireMember` runs BEFORE the cache is ever read (a risk-review catch,
+// #1306): the payload is per-CALLER, not per-league (availability.state,
+// faabRemaining, waiverPriority, rosterCount/Capacity and upgrade all read
+// the caller's own team), so serving a cache hit to an unauthenticated-for-
+// this-league caller would both skip the 403 and leak one manager's FAAB
+// budget and roster context to another. The cache key is scoped by the
+// caller's own team id and by week for the same reason - a key of player+
+// league alone is a cross-team leak even AFTER the membership check.
 router.get('/:id/card', requireAuth, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
     return res
@@ -755,19 +767,29 @@ router.get('/:id/card', requireAuth, async (req, res) => {
       .json({ error: 'leagueId must be a positive integer' });
   }
 
+  const rawWeek = req.query.week;
+  if (
+    rawWeek !== undefined
+    && (!/^\d+$/.test(String(rawWeek)) || Number(rawWeek) < 1 || Number(rawWeek) > REG_SEASON_WEEKS)
+  ) {
+    return res.status(400).json({ error: `week must be between 1 and ${REG_SEASON_WEEKS}` });
+  }
+  const week = rawWeek !== undefined ? Number(rawWeek) : undefined;
+
   try {
-    const cacheKey = `card:${playerId}|${leagueId}`;
+    const team = await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+    const cacheKey = `card:${playerId}|${leagueId}|${team.id}|${week ?? 'cur'}`;
     const cached = summaryCacheGet(cacheKey);
     if (cached) {
       res.set('Cache-Control', 'private, max-age=30');
       return res.json(cached);
     }
 
-    const payload = await getPlayerCard({
+    const payload = await playerCardService.getPlayerCard({
       leagueId: Number(leagueId),
       userId: req.user.id,
       playerId,
-      week: req.query.week ? Number(req.query.week) : undefined,
+      week,
     });
 
     summaryCacheSet(cacheKey, payload);
