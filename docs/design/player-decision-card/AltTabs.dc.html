@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap">
+  <style>
+    body { margin: 0; font-family: "Patrick Hand", "Comic Sans MS", "Segoe Print", cursive; }
+    a { color: #1a2129; } a:hover { color: #1e5bb8; }
+  </style>
+</helmet>
+<div style="width: 600px; min-height: 760px; background: #fbfbf9; color: #1a2129; font-size: 16px; line-height: 1.4; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; border: 2px solid #1a2129; border-radius: 12px;">
+  <div style="display: flex; flex-direction: row; align-items: baseline; gap: 12px;">
+    <span style="font-size: 22px; font-weight: 700;">Option B · Tabbed card</span>
+    <span style="color: #586472;">low-fi alternate, not the recommendation</span>
+  </div>
+
+  <div style="display: flex; flex-direction: row; gap: 12px; align-items: center;">
+    <div style="width: 64px; height: 64px; border-radius: 999px; border: 2px dashed #586472; display: flex; align-items: center; justify-content: center; color: #586472;">photo</div>
+    <div style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1;">
+      <div style="height: 22px; width: 220px; border: 2px solid #1a2129; border-radius: 4px;"></div>
+      <div style="display: flex; flex-direction: row; gap: 6px;">
+        <div style="height: 20px; width: 40px; border: 2px solid #1a2129; border-radius: 999px;"></div>
+        <div style="height: 20px; width: 40px; border: 2px solid #1a2129; border-radius: 999px;"></div>
+        <div style="height: 20px; width: 28px; border: 2px solid #8a5a00; border-radius: 999px;"></div>
+        <span style="color: #586472; font-size: 14px;">bye 14</span>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+      <span style="font-size: 26px; font-weight: 700;">12.8</span>
+      <span style="color: #586472; font-size: 14px;">proj Wk 2</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; gap: 0; border-bottom: 2px solid #1a2129;">
+    <div style="padding: 8px 14px; border: 2px solid #1a2129; border-bottom: none; border-radius: 8px 8px 0 0; background: #ffffff; font-weight: 700;">Decide</div>
+    <div style="padding: 8px 14px; color: #586472;">Weeks</div>
+    <div style="padding: 8px 14px; color: #586472;">Game log</div>
+    <div style="padding: 8px 14px; color: #586472;">News</div>
+    <div style="padding: 8px 14px; color: #586472;">Bio</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+    <div style="border: 2px dashed #586472; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="color: #586472; font-size: 14px;">Rest of season</span>
+      <span style="font-size: 24px; font-weight: 700;">176 · WR28</span>
+    </div>
+    <div style="border: 2px dashed #586472; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="color: #586472; font-size: 14px;">Rostered</span>
+      <span style="font-size: 24px; font-weight: 700;">41% rising</span>
+    </div>
+    <div style="border: 2px solid #1e5bb8; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="color: #586472; font-size: 14px;">Upgrade over your FLEX</span>
+      <span style="font-size: 24px; font-weight: 700;">+4.1 per week</span>
+    </div>
+    <div style="border: 2px dashed #586472; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="color: #586472; font-size: 14px;">Depth chart</span>
+      <span style="font-size: 24px; font-weight: 700;">WR2</span>
+    </div>
+  </div>
+
+  <div style="border: 2px dashed #586472; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="font-weight: 700;">Drop candidate</span>
+    <span>Josh Palmer · WR LAC · proj 8.7 · ROS 122 · rostered 39% falling</span>
+    <span style="color: #586472; font-size: 14px;">card suggests the drop inline so the claim is one tap</span>
+  </div>
+
+  <div style="display: flex; flex-direction: row; gap: 8px; margin-top: auto;">
+    <div style="height: 44px; flex-grow: 1; border: 2px solid #1a2129; border-radius: 8px; background: #1a2129; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700;">Claim for Palmer · bid $</div>
+    <div style="height: 44px; width: 100px; border: 2px solid #1a2129; border-radius: 8px; display: flex; align-items: center; justify-content: center;">Watch</div>
+  </div>
+
+  <div style="border-top: 2px solid #1a2129; padding-top: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 15px;">
+    <span><strong>Why it could win:</strong> the first screen is only the decision, so it is shorter on a phone and the drop suggestion sits next to the claim.</span>
+    <span><strong>Tradeoff:</strong> weekly bars, news and injury detail are one tap away, so a manager comparing two players flips tabs on each; the recommended card keeps them on one scroll.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
