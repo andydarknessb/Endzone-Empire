@@ -352,6 +352,7 @@ export default function LineupPage() {
                     advice={advice}
                     worstByeCluster={worstCluster}
                     scoreEvent={scoreEvent}
+                    bestBall={bestBall}
                   />
 
                   {swap.selectedEntry && (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import TeamSummaryStrip from '../index';
@@ -176,6 +176,109 @@ test('no worst cluster at all renders no attention row', async () => {
   renderStrip({ lineup: lineup([]) });
   await screen.findByTestId('strip-advice');
   expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+});
+
+// #1330: the questionable-starter and starter-on-bye attention chips.
+describe('the questionable-starter and starter-on-bye attention chips (#1330)', () => {
+  const lamb = (over = {}) => starter({
+    playerId: 1,
+    name: 'CeeDee Lamb',
+    injuryStatus: 'Q',
+    injuryDetail: 'ankle',
+    ...over,
+  });
+  const hubbard = (over = {}) => starter({
+    playerId: 2,
+    name: 'Sam Hubbard',
+    onBye: true,
+    ...over,
+  });
+
+  test('no starter carries a questionable or bye flag renders no attention row', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([starter({ playerId: 1, name: 'Josh Allen' })]) });
+    await screen.findByTestId('strip-advice');
+    expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+  });
+
+  test('a Questionable starter with a detail renders "<Last name> Q · <detail>"', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([lamb()]) });
+    const chip = await screen.findByTestId('attention-chip-questionable-1');
+    expect(chip).toHaveTextContent('Lamb Q · ankle');
+    expect(chip).toHaveAttribute('data-variant', 'warning');
+  });
+
+  test('a Questionable starter without a detail renders "<Last name> Q" alone', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([lamb({ injuryDetail: null })]) });
+    expect(await screen.findByTestId('attention-chip-questionable-1')).toHaveTextContent('Lamb Q');
+  });
+
+  test('a Doubtful starter renders "<Last name> D"', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([lamb({ injuryStatus: 'D', injuryDetail: null })]) });
+    expect(await screen.findByTestId('attention-chip-questionable-1')).toHaveTextContent('Lamb D');
+  });
+
+  test('an Out starter produces no questionable chip (Out is Unavailable, not questionable)', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([lamb({ injuryStatus: 'O', injuryDetail: null })]) });
+    await screen.findByTestId('strip-advice');
+    expect(screen.queryByTestId(/attention-chip-questionable/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+  });
+
+  test('a bench player carrying Q produces no chip', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([lamb({ slot: 'BENCH' })]) });
+    await screen.findByTestId('strip-advice');
+    expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+  });
+
+  test('a starter on bye renders "<Last name> on bye"', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([hubbard()]) });
+    const chip = await screen.findByTestId('attention-chip-bye-2');
+    expect(chip).toHaveTextContent('Hubbard on bye');
+    expect(chip).toHaveAttribute('data-variant', 'warning');
+  });
+
+  // Red-tell: all three kinds together, in order questionable, on bye, Bye
+  // cluster - removing either new chip turns this red and no other case red.
+  test('all three kinds together render in order: questionable, on bye, Bye cluster', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({
+      lineup: lineup([lamb(), hubbard()]),
+      worstByeCluster: { week: 5, count: 3, players: [] },
+    });
+    const row = await screen.findByTestId('strip-attention');
+    const badges = within(row).getAllByTestId(/^attention-chip-/);
+    expect(badges.map((b) => b.textContent)).toEqual([
+      'Lamb Q · ankle',
+      'Hubbard on bye',
+      'Wk 5 · 3 byes',
+    ]);
+    expect(badges[0]).toHaveAttribute('data-variant', 'warning');
+    expect(badges[1]).toHaveAttribute('data-variant', 'warning');
+  });
+
+  test('a past week hides the whole attention row, including questionable and bye chips', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({
+      lineup: { week: 2, currentWeek: 3, entries: [lamb(), hubbard()] },
+      worstByeCluster: { week: 5, count: 3, players: [] },
+    });
+    await screen.findByTestId('strip-advice');
+    expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+  });
+
+  test('best ball shows the injury chip but never the on-bye chip', async () => {
+    mockGetByUrl({ [LIST_URL]: { data: [] } });
+    renderStrip({ lineup: lineup([lamb(), hubbard()]), bestBall: true });
+    expect(await screen.findByTestId('attention-chip-questionable-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('attention-chip-bye-2')).not.toBeInTheDocument();
+  });
 });
 
 // #1241 AC2: a socket score update moves the strip's own totals, the same
