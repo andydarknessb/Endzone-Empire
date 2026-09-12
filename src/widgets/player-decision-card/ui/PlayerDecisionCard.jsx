@@ -24,6 +24,7 @@ import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
 import { locked } from '../../../entities/roster';
 import { useDecisionCardLine } from '../../../entities/line';
 import { useDecisionCardUsage } from '../../../entities/player-usage';
+import { isEligibleMove } from '../../../features/swap-players';
 import { injuryTileView } from '../lib/injuryTile';
 import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/slotActions';
 
@@ -59,6 +60,7 @@ export default function PlayerDecisionCard({
   leagueId,
   week,
   bestBall,
+  leagueUnsettled,
   onSwap,
   onRequestDrop,
   canDropEntry,
@@ -106,31 +108,34 @@ export default function PlayerDecisionCard({
   const isStarting = entry ? entry.slot !== 'BENCH' && entry.slot !== 'IR' : false;
   const isLocked = entry ? locked(entry) : false;
   const isSpent = Boolean(entry?.spent);
-  const benchAllowed = isStarting && !bestBall && !isLocked;
-  const startTargets = entry && !isStarting && !bestBall && !isLocked && !isSpent ? startTargetSlots(entry, list) : [];
+  // f1/r1/r2/r3 (formal review, round 2): Bench and Start now ask the SAME
+  // eligibility rule the row path uses (`isEligibleMove`, exported from
+  // `swap-players`) rather than a hand-enumerated set of conditions - the
+  // enumeration had already missed a spent starter's Bench button, a spent
+  // Start target, and the whole rule while the league is unsettled, three
+  // of `onRowClick`'s own refusals a second, independent copy could not
+  // help drifting out of sync with. `startTargetSlots` checks every current
+  // occupant of a slot type, not just the first one found (r5), so a slot
+  // type with more than one instance is no longer disabled outright by a
+  // single locked or spent occupant.
+  const benchAllowed = entry
+    ? isEligibleMove({ selectedEntry: entry, targetEntry: null, targetSlot: 'BENCH', bestBall, leagueUnsettled })
+    : false;
+  const startTargets = entry && !isStarting
+    ? startTargetSlots(entry, list, { bestBall, leagueUnsettled })
+    : [];
   const dropAllowed = entry ? Boolean(!isSpent && canDropEntry?.(entry)) : false;
   const compareCandidates = entry ? list.filter((e) => e && e.playerId !== entry.playerId) : [];
-  // f1(a)/(c)/(d) (formal review, round 2): the row path refuses a swap
-  // ENTIRELY for a locked, spent, or (in best ball) starting-slot opened
-  // player before a target is even chosen (useSwapPlayers.js onRowClick's
-  // own early returns). Bench options must never offer a move the row would
-  // refuse - but AC4's own wording ("a locked player's options are disabled
-  // with the lock shown") is literally achievable for locked and spent:
-  // render the list, disable every Swap, and let the header's Locked/Spent
-  // indicator (`decision-card-locked`/`decision-card-spent`, added for the
-  // accessibility risk review) carry "the lock shown" for THIS player - the
-  // join between those two findings, and the reason there is no duplicate
-  // per-row note for it (that note stays reserved for a locked CANDIDATE,
-  // an independent fact `BenchOptionsSection` already carries). Disabling
-  // rather than hiding also keeps the manager's view of who WOULD have been
-  // available, which hiding would have thrown away.
-  //
-  // Best ball is the one exception that still hides: a best-ball lineup is
-  // not manually managed at all, and the page already hides the Start/sit
-  // panel entirely rather than disabling it for the same reason
-  // (LineupPage.test.jsx, "best ball hides the Start/sit panel entirely") -
-  // this section follows that precedent instead of inventing a new one.
-  const benchSwapForceDisabled = isLocked || isSpent;
+  // Best ball still hides bench options entirely (a best-ball lineup isn't
+  // manually managed at all, matching how the page hides the Start/sit
+  // panel rather than disabling it - LineupPage.test.jsx, "best ball hides
+  // the Start/sit panel entirely"). A locked or spent OPENED player no
+  // longer hides the section (round 2): it renders with every Swap's own
+  // eligibility computed per candidate via `isEligibleMove`, and "the lock
+  // shown" for THIS player is the header's Locked/Spent indicator just
+  // below, not a duplicate per-row note (that note stays reserved for a
+  // locked CANDIDATE, an independent fact `BenchOptionsSection` still
+  // carries on its own).
   const benchOptionsHidden = isStarting && bestBall;
 
   return (
@@ -223,7 +228,7 @@ export default function PlayerDecisionCard({
                 aria-expanded={startTargets.length > 1 ? Boolean(startMenuAnchor) : undefined}
                 onClick={(event) =>
                   startTargets.length === 1
-                    ? onSwap?.(movesToStart(entry, startTargets[0], list))
+                    ? onSwap?.(movesToStart(entry, startTargets[0], list, { bestBall, leagueUnsettled }))
                     : setStartMenuAnchor(event.currentTarget)
                 }
                 sx={MIN_TOUCH_TARGET_SX}
@@ -243,7 +248,7 @@ export default function PlayerDecisionCard({
                   key={slot}
                   onClick={() => {
                     setStartMenuAnchor(null);
-                    onSwap?.(movesToStart(entry, slot, list));
+                    onSwap?.(movesToStart(entry, slot, list, { bestBall, leagueUnsettled }));
                   }}
                 >
                   {slot}
@@ -355,7 +360,8 @@ export default function PlayerDecisionCard({
                   onSwap={onSwap}
                   level="h4"
                   hidden={benchOptionsHidden}
-                  forceDisableSwap={benchSwapForceDisabled}
+                  bestBall={bestBall}
+                  leagueUnsettled={leagueUnsettled}
                 />
               </Box>
               <Box
@@ -385,7 +391,8 @@ export default function PlayerDecisionCard({
                 entries={list}
                 onSwap={onSwap}
                 hidden={benchOptionsHidden}
-                forceDisableSwap={benchSwapForceDisabled}
+                bestBall={bestBall}
+                leagueUnsettled={leagueUnsettled}
               />
             </>
           )}
@@ -610,29 +617,27 @@ function UsageSection({ usage, level }) {
 // with the lock shown as text, matching LedgerRow's own lock treatment in
 // spirit without duplicating its SVG glyph.
 //
-// `hidden`/`forceDisableSwap` (formal review finding f1(a)/(c)/(d), round
-// 2): the row path (useSwapPlayers.js's onRowClick) refuses to even start a
-// swap on a locked, spent, or (in best ball) starting-slot opened player,
-// before any target is chosen - this section must never offer a move the
-// row would refuse. For locked and spent, AC4's own wording ("a locked
-// player's options are disabled with the lock shown") is literally
-// achievable: `forceDisableSwap` renders the list and disables every Swap
-// regardless of the candidate's own lock, while "the lock shown" for THIS
-// (the opened) player is the header's Locked/Spent indicator, not a
-// duplicate per-row note - that note stays reserved below for a locked
-// CANDIDATE, an independent fact. Best ball is the exception that still
-// hides (`hidden`): a best-ball lineup isn't manually managed at all, the
-// same reason the page hides the Start/sit panel entirely rather than
-// disabling it (LineupPage.test.jsx, "best ball hides the Start/sit panel
-// entirely").
-function BenchOptionsSection({ entry, entries, onSwap, level, hidden, forceDisableSwap }) {
+// `hidden` (formal review round 2): a best-ball lineup isn't manually
+// managed at all, matching how the page hides the Start/sit panel entirely
+// rather than disabling it (LineupPage.test.jsx, "best ball hides the
+// Start/sit panel entirely"), so this section still hides outright in that
+// case. Locked or spent no longer hides the section (round 2, r1/r3): each
+// candidate's own `swapEligible` (from `benchOptionsForSlot`, itself built
+// on `isEligibleMove` - the same rule `onRowClick` uses) already accounts
+// for the OPENED player being locked, spent, or league-unsettled, alongside
+// the candidate's own state, so passing `bestBall`/`leagueUnsettled` through
+// here is what makes that true rather than a second, separate gate. AC4's
+// "the lock shown" for the opened player himself is the header's Locked/
+// Spent indicator, not a duplicate per-row note - that note stays reserved
+// below for a locked CANDIDATE specifically, an independent fact.
+function BenchOptionsSection({ entry, entries, onSwap, level, hidden, bestBall, leagueUnsettled }) {
   if (hidden) return null;
-  const options = benchOptionsForSlot(entries, entry.slot);
+  const options = benchOptionsForSlot(entries, entry.slot, { entry, bestBall, leagueUnsettled });
   if (options.length === 0) return null;
   return (
     <Section title="Bench options" testId="decision-card-bench-options" level={level}>
       <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: 1 }}>
-        {options.map(({ entry: candidate, locked: candidateLocked }) => (
+        {options.map(({ entry: candidate, locked: candidateLocked, swapEligible }) => (
           <Box
             component="li"
             key={candidate.playerId}
@@ -655,7 +660,7 @@ function BenchOptionsSection({ entry, entries, onSwap, level, hidden, forceDisab
             <Button
               size="small"
               variant="outlined"
-              disabled={candidateLocked || forceDisableSwap}
+              disabled={!swapEligible}
               aria-label={`Swap in ${candidate.name}`}
               onClick={() =>
                 onSwap?.([

@@ -69,6 +69,7 @@ function renderCard(props = {}) {
     leagueId: 1,
     week: 4,
     bestBall: false,
+    leagueUnsettled: false,
     onSwap: jest.fn(),
     onRequestDrop: jest.fn(),
     canDropEntry: () => true,
@@ -245,11 +246,64 @@ test('f1(d): a spent opened player shows bench options, every Swap disabled, the
   expect(within(section).getByRole('button', { name: 'Swap in Bench Guy' })).toBeDisabled();
 });
 
+// r1 (round 2): the header's own Bench button, not just bench options, must
+// refuse a spent opened starter - CONTEXT.md's #627 rule, and a move the
+// row path refuses outright.
+test('r1: the header Bench button is disabled for a spent opened starter', async () => {
+  renderCard({ entry: entry({ spent: true }) });
+  expect(await screen.findByTestId('decision-card-bench-action')).toBeDisabled();
+});
+
 test('f1(b): Start never offers a slot whose current occupant is locked', async () => {
   const bench = entry({ slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
   const lockedStarter = entry({ playerId: 9, name: 'Locked Starter', slot: 'QB', locked: true });
   renderCard({ entry: bench, entries: [bench, lockedStarter] });
   expect(await screen.findByTestId('decision-card-start-action')).toBeDisabled();
+});
+
+// r2 (round 2): the same refusal for a SPENT occupant, not just a locked one.
+test('r2: Start never offers a slot whose current occupant is spent', async () => {
+  const bench = entry({ slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const spentStarter = entry({ playerId: 9, name: 'Spent Starter', slot: 'QB', spent: true });
+  renderCard({ entry: bench, entries: [bench, spentStarter] });
+  expect(await screen.findByTestId('decision-card-start-action')).toBeDisabled();
+});
+
+// r3 (round 2): the league-unsettled window reaches the card and refuses
+// every write action on it, the same as the row path.
+test('r3: an unsettled league disables Bench, Start and bench-option Swaps', async () => {
+  const onSwap = jest.fn();
+  const starter = entry();
+  const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  renderCard({ entry: starter, entries: [starter, bench], leagueUnsettled: true, onSwap });
+  expect(await screen.findByTestId('decision-card-bench-action')).toBeDisabled();
+  const section = await screen.findByTestId('decision-card-bench-options');
+  expect(within(section).getByRole('button', { name: 'Swap in Bench Guy' })).toBeDisabled();
+});
+
+// r4 (round 2): Start into IR must not displace an occupant who isn't
+// himself IR-eligible - the row path's own reciprocal-eligibility check.
+test('r4: Start on an IR player does not offer to displace a non-IR-eligible starter', async () => {
+  const irEntry = entry({ slot: 'IR', eligibleSlots: ['BENCH', 'IR', 'RB'] });
+  const healthyStarter = entry({ playerId: 9, name: 'Healthy Starter', slot: 'RB', eligibleSlots: ['BENCH', 'RB'] });
+  renderCard({ entry: irEntry, entries: [irEntry, healthyStarter] });
+  expect(await screen.findByTestId('decision-card-start-action')).toBeDisabled();
+});
+
+// r5 (round 2): a slot type with two instances, one locked and one open,
+// must still offer Start - a single find() used to disable the whole slot
+// type if the locked instance was found first.
+test('r5: Start still offers a slot type with one locked and one open instance', async () => {
+  const onSwap = jest.fn();
+  const bench = entry({ slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const lockedQb = entry({ playerId: 8, name: 'Locked QB', slot: 'QB', locked: true, eligibleSlots: ['BENCH', 'QB'] });
+  const openQb = entry({ playerId: 9, name: 'Open QB', slot: 'QB', locked: false, eligibleSlots: ['BENCH', 'QB'] });
+  renderCard({ entry: bench, entries: [bench, lockedQb, openQb], onSwap });
+  await userEvent.click(await screen.findByTestId('decision-card-start-action'));
+  expect(onSwap).toHaveBeenCalledWith([
+    { playerId: 1, slot: 'QB' },
+    { playerId: 9, slot: 'BENCH' },
+  ]);
 });
 
 test('Bench moves a starter to BENCH with one move', async () => {

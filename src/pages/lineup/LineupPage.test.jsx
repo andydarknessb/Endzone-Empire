@@ -404,11 +404,7 @@ const decisionContextUrl = (playerId) => `/api/team/lineup/${playerId}/context?l
 test('the player name opens the Decision card with the row\'s own fields, and every section fills in once its context resolves', async () => {
   const user = userEvent.setup();
   renderPage({
-    // Formal review finding f6: AC8's "every section with data" case must
-    // cover the injury tile at page level too, not only in the widget's own
-    // suite - Bench Guy (id 10) already carries an injury designation and
-    // the matching injury Edge line in the shared fixture.
-    [decisionContextUrl(10)]: {
+    [decisionContextUrl(1)]: {
       data: {
         line: { spread: -3, total: 47, impliedTeamTotal: 22, observedAt: '2026-09-14T00:00:00Z' },
         weather: { indoor: false, temperatureF: 45, windSpeedMph: 10, windGustMph: 18, precipitationProbability: 20, shortForecast: 'Cloudy' },
@@ -419,20 +415,37 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
       },
     },
   });
-  // Bench Guy (id 10) already carries an injury designation and the
-  // matching injury Edge line in the shared fixture.
-  await user.click(await screen.findByRole('button', { name: 'Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
 
   const card = await screen.findByTestId('decision-card');
-  expect(within(card).getByRole('heading', { name: 'Bench Guy' })).toBeInTheDocument();
+  expect(within(card).getByRole('heading', { name: 'Josh Allen' })).toBeInTheDocument();
   // The row's own fields (AC1: paints immediately, before the extras load).
-  expect(within(card).getByTestId('decision-card-range-bar')).toBeInTheDocument();
-  expect(within(card).getByTestId('decision-card-injury')).toHaveTextContent('Out');
+  // Formal review round 2 finding r6: this is the one page-level case that
+  // must carry a genuinely populated mean (Josh Allen's fixture projection
+  // is 24.3), not just prove the RangeBar mounted - a null-projection
+  // subject would pass this assertion even with the mean broken.
+  expect(within(card).getByTestId('decision-card-range-bar')).toHaveAttribute(
+    'aria-label',
+    'Josh Allen, Floor 5.0, Projection 24.3, Ceiling 15.0'
+  );
 
   expect(await within(card).findByTestId('decision-card-line')).toHaveTextContent('Line: -3 / 47');
   expect(within(card).getByTestId('decision-card-implied-total')).toHaveTextContent('22.0');
   expect(within(card).getByTestId('decision-card-weather')).toHaveTextContent('45°F');
   expect(within(card).getByTestId('decision-card-usage-table')).toHaveTextContent('Wk 3');
+});
+
+// Formal review finding f6 (round 1) / r6 (round 2): the injury tile is its
+// own case, on its own subject (Bench Guy, id 10, already carries an
+// injury designation and the matching injury Edge line in the shared
+// fixture) - kept separate from the populated-projection case above so
+// neither subject has to serve both jobs at once.
+test('the injury tile renders at page level', async () => {
+  const user = userEvent.setup();
+  renderPage({ [decisionContextUrl(10)]: { data: { line: null, weather: null, usage: null } } });
+  await user.click(await screen.findByRole('button', { name: 'Bench Guy' }));
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByTestId('decision-card-injury')).toHaveTextContent('Out');
 });
 
 // Formal review finding f6: the opponent/kickoff line and the Factor line,

@@ -404,6 +404,7 @@ export default function LineupPage() {
         leagueId={selectedLeagueId}
         week={lineup?.week}
         bestBall={bestBall}
+        leagueUnsettled={leagueUnsettled}
         onSwap={swap.performMove}
         onRequestDrop={drop.requestDrop}
         canDropEntry={canDropEntry}

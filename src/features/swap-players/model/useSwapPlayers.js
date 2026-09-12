@@ -26,6 +26,42 @@ function canResolveLockedIrStash(entry, targetSlot, bestBall) {
 }
 
 /**
+ * The full "may `selectedEntry` move into `targetSlot`, currently held by
+ * `targetEntry` (or empty when null)" rule - exported as one pure function
+ * (#1240, formal review round 2, findings r1/r2/r3/r4/r5) so a caller other
+ * than a Ledger row click can ask the exact question `onRowClick` answers,
+ * rather than keeping its own copy that drifts out of sync with this one.
+ * That is precisely what had gone wrong: `player-decision-card`'s own
+ * enumerated conditions had already missed a spent starter's Bench button,
+ * a spent Start target, and the whole rule while the league is unsettled -
+ * three of `onRowClick`'s own early refusals, each added here first and
+ * copied there second.
+ *
+ * It is the union of `onRowClick`'s own early refusals (`leagueUnsettled`;
+ * a best-ball-unmanaged slot on EITHER end, not just the target; a spent
+ * entry on either end) and this hook's own former `isEligibleTarget` body
+ * (the locked-source exception, a locked target, and the reciprocal
+ * `eligibleSlots` check). `isEligibleTarget` below is now a thin wrapper
+ * that closes over this hook's own `selectedEntry`/`bestBall`/
+ * `leagueUnsettled`; nothing about the Ledger's own behaviour changes.
+ */
+export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBall, leagueUnsettled }) {
+  if (leagueUnsettled) return false;
+  if (!selectedEntry) return false;
+  if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(selectedEntry.slot)) return false;
+  if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(targetSlot)) return false;
+  if (selectedEntry.spent) return false;
+  if (targetEntry?.spent) return false;
+  if (locked(selectedEntry) && !canResolveLockedIrStash(selectedEntry, targetSlot, bestBall)) return false;
+  if (!targetEntry) return selectedEntry.eligibleSlots.includes(targetSlot);
+  if (locked(targetEntry)) return false;
+  return (
+    selectedEntry.eligibleSlots.includes(targetEntry.slot) &&
+    targetEntry.eligibleSlots.includes(selectedEntry.slot)
+  );
+}
+
+/**
  * swap-players feature (#1237, ADR 0019: Lineup is the sole team management
  * surface): select-then-target swap, slot-first quick pick, and the
  * optimistic PUT with the offline queue, restated from LineupScreen.jsx's
@@ -74,19 +110,11 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   };
 
   // Whether `targetEntry` (or an empty slot when null) is a legal landing
-  // spot for the currently selected player, byte-for-byte
-  // LineupScreen.jsx's `isEligibleTarget`.
-  const isEligibleTarget = (targetEntry, slotType) => {
-    if (!selectedEntry) return false;
-    if (locked(selectedEntry) && !canResolveLockedIrStash(selectedEntry, slotType, bestBall)) return false;
-    if (targetEntry?.spent) return false;
-    if (!targetEntry) return selectedEntry.eligibleSlots.includes(slotType);
-    if (locked(targetEntry)) return false;
-    return (
-      selectedEntry.eligibleSlots.includes(targetEntry.slot) &&
-      targetEntry.eligibleSlots.includes(selectedEntry.slot)
-    );
-  };
+  // spot for the currently selected player - a thin wrapper closing over
+  // this hook's own state/props around the exported `isEligibleMove` (#1240
+  // round 2), which used to be this function's entire body inline.
+  const isEligibleTarget = (targetEntry, slotType) =>
+    isEligibleMove({ selectedEntry, targetEntry, targetSlot: slotType, bestBall, leagueUnsettled });
 
   const closeQuickPick = () => setQuickPick(null);
 

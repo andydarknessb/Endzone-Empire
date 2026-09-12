@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { LINEUP_MUTATION_REPLAYED_EVENT, PENDING_LINEUP_MUTATIONS_KEY, readPendingLineupMutations } from '../../../lib/pendingLineupMutations';
-import { useSwapPlayers } from './useSwapPlayers';
+import { isEligibleMove, useSwapPlayers } from './useSwapPlayers';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -240,6 +240,39 @@ test('a connectivity failure queues the move locally and notifies "saved offline
   );
   expect(readPendingLineupMutations()).toHaveLength(1);
   expect(JSON.stringify(readPendingLineupMutations()[0])).toContain('"playerId":2');
+});
+
+// isEligibleMove (#1240, formal review round 2, r1/r2/r3): the exported
+// pure rule the player-decision-card widget also calls. `isEligibleTarget`
+// above already exercises its reciprocal-eligibility and locked-source/
+// locked-target behaviour through the hook; these cover the three
+// refusals `isEligibleTarget`'s OLD body did not itself check (leagueUnsettled,
+// a spent SELECTED entry, and a best-ball-unmanaged slot on the selected
+// entry's own side, not just the target's).
+describe('isEligibleMove', () => {
+  const qb = entry({ playerId: 1, slot: 'QB', eligibleSlots: ['BENCH', 'QB'] });
+  const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+
+  test('refuses everything while the league is unsettled', () => {
+    expect(isEligibleMove({ selectedEntry: qb, targetEntry: null, targetSlot: 'BENCH', bestBall: false, leagueUnsettled: true })).toBe(false);
+  });
+
+  test('refuses a spent selected entry, even into an otherwise-open BENCH', () => {
+    const spentQb = entry({ playerId: 1, slot: 'QB', spent: true, eligibleSlots: ['BENCH', 'QB'] });
+    expect(isEligibleMove({ selectedEntry: spentQb, targetEntry: null, targetSlot: 'BENCH', bestBall: false, leagueUnsettled: false })).toBe(false);
+  });
+
+  test('refuses moving a starting-slot entry at all in best ball, regardless of target', () => {
+    expect(isEligibleMove({ selectedEntry: qb, targetEntry: null, targetSlot: 'BENCH', bestBall: true, leagueUnsettled: false })).toBe(false);
+  });
+
+  test('allows a BENCH/IR-managed source into BENCH even in best ball', () => {
+    expect(isEligibleMove({ selectedEntry: bench, targetEntry: null, targetSlot: 'BENCH', bestBall: true, leagueUnsettled: false })).toBe(true);
+  });
+
+  test('allows an ordinary eligible move with nothing unsettled or spent', () => {
+    expect(isEligibleMove({ selectedEntry: qb, targetEntry: null, targetSlot: 'BENCH', bestBall: false, leagueUnsettled: false })).toBe(true);
+  });
 });
 
 // AC9 coverage gap: a queued mutation's later replay (reconnect) notifies
