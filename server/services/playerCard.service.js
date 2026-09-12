@@ -76,7 +76,10 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       );
       return result.rows;
     },
-    { label: 'decision' }
+    // Distinct from decision.service.js's own 'decision' label - the guard
+    // (scripts/handRolledTransactionGuard.test.js) requires every
+    // withTransaction call site to carry a unique label.
+    { label: 'player-card' }
   );
 
   const rosterResult = await pool.query(
