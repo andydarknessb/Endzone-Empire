@@ -526,3 +526,91 @@ test('the Outlook tab: the phone view control toggles which column is hidden bel
   expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: none');
   expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: grid');
 });
+
+// #1239 AC1-AC7: the Bye cluster grid and its attention chip. The default
+// fixture's own entries carry no bye_week, so these tests add extraEntries
+// with one explicitly set - fromWeek is the fixture's own week: 4, so the
+// grid covers weeks 5 through 11.
+
+test('no cluster: every tile in the grid reads quiet, no naming line, no attention chip', async () => {
+  renderPage();
+  const grid = await screen.findByTestId('bye-cluster-grid');
+  const tiles = within(grid).getAllByTestId('bye-cluster-tile');
+  expect(tiles).toHaveLength(7);
+  expect(tiles.every((t) => t.getAttribute('data-severity') === 'quiet')).toBe(true);
+  expect(within(grid).queryByTestId('bye-cluster-line')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('attention-chip-bye-cluster')).not.toBeInTheDocument();
+});
+
+test('a cluster of two is notable: the tile, the naming line, but no attention chip', async () => {
+  renderPage({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [
+          entryRow({ id: 30, name: 'Bye A', slot: 'BENCH', position: 'RB', bye_week: 6 }),
+          entryRow({ id: 31, name: 'Bye B', slot: 'BENCH', position: 'WR', bye_week: 6 }),
+        ],
+      }),
+    },
+  });
+  const grid = await screen.findByTestId('bye-cluster-grid');
+  const wk6 = within(grid).getAllByTestId('bye-cluster-tile').find((t) => t.getAttribute('data-week') === '6');
+  expect(wk6).toHaveAttribute('data-severity', 'notable');
+  expect(within(wk6).getByText('2')).toBeInTheDocument();
+  expect(within(grid).getByTestId('bye-cluster-line')).toHaveTextContent('Week 6: Bye A and Bye B sit.');
+  expect(screen.queryByTestId('attention-chip-bye-cluster')).not.toBeInTheDocument();
+});
+
+// The league fixture below deliberately carries a NON-default
+// waiver_period_hours (48, not the byeClusterCopy fallback of 24) - formal
+// review finding f4: with the default value, the naming line's "24 hours"
+// text is produced by the copy helper's own `?? 24` fallback regardless of
+// whether league.waiver_period_hours actually reaches the page, so a broken
+// prop chain would pass unnoticed. Asserting 48 here proves the wiring.
+test('a cluster of three is a warning: the tile, the named players and waiver copy, and the summary strip chip', async () => {
+  renderPage({
+    [LEAGUE_URL]: leagueResponse({ waiver_period_hours: 48 }),
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [
+          entryRow({ id: 30, name: 'Robinson', slot: 'BENCH', position: 'RB', bye_week: 5 }),
+          entryRow({ id: 31, name: 'Hubbard', slot: 'BENCH', position: 'RB', bye_week: 5 }),
+          entryRow({ id: 32, name: 'Reed', slot: 'BENCH', position: 'WR', bye_week: 5 }),
+        ],
+      }),
+    },
+  });
+  const grid = await screen.findByTestId('bye-cluster-grid');
+  const wk5 = within(grid).getAllByTestId('bye-cluster-tile').find((t) => t.getAttribute('data-week') === '5');
+  expect(wk5).toHaveAttribute('data-severity', 'warning');
+  expect(within(wk5).getByText('3')).toBeInTheDocument();
+  expect(within(grid).getByTestId('bye-cluster-line')).toHaveTextContent(
+    'Week 5: Robinson, Hubbard and Reed sit. Waivers clear in 48 hours.'
+  );
+  expect(await screen.findByTestId('attention-chip-bye-cluster')).toHaveTextContent('Wk 5 · 3 byes');
+});
+
+test('an IR player sharing the worst week is excluded from the count and the naming line', async () => {
+  renderPage({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [
+          entryRow({ id: 30, name: 'Robinson', slot: 'BENCH', position: 'RB', bye_week: 5 }),
+          entryRow({ id: 31, name: 'Hubbard', slot: 'BENCH', position: 'RB', bye_week: 5 }),
+          entryRow({ id: 32, name: 'Reed', slot: 'BENCH', position: 'WR', bye_week: 5 }),
+          entryRow({ id: 33, name: 'Stashed', slot: 'IR', position: 'TE', injury_status: 'IR', bye_week: 5 }),
+        ],
+      }),
+    },
+  });
+  const grid = await screen.findByTestId('bye-cluster-grid');
+  const wk5 = within(grid).getAllByTestId('bye-cluster-tile').find((t) => t.getAttribute('data-week') === '5');
+  expect(within(wk5).getByText('3')).toBeInTheDocument();
+  expect(within(grid).getByTestId('bye-cluster-line')).not.toHaveTextContent('Stashed');
+});
+
+test('a past week (already played) shows no Bye cluster grid at all', async () => {
+  renderPage({ [LINEUP_URL]: { data: lineupBody({ body: { week: 2, currentWeek: 4 } }) } });
+  await screen.findByText('Josh Allen');
+  expect(screen.queryByTestId('bye-cluster-grid')).not.toBeInTheDocument();
+});

@@ -156,3 +156,24 @@ test('the advice tile renders even when the matchup read errors, never hidden be
   });
   expect(await screen.findByTestId('strip-advice')).toHaveTextContent('+6.5 pts · 1 swap');
 });
+
+// #1239 AC4: the Bye cluster attention chip.
+test('a worst cluster of three or more shows a "Wk N · N byes" attention chip', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), worstByeCluster: { week: 5, count: 3, players: [] } });
+  expect(await screen.findByTestId('attention-chip-bye-cluster')).toHaveTextContent('Wk 5 · 3 byes');
+});
+
+test('a worst cluster of only two does not earn an attention chip (notable, not a warning)', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]), worstByeCluster: { week: 5, count: 2, players: [] } });
+  await screen.findByTestId('strip-advice');
+  expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+});
+
+test('no worst cluster at all renders no attention row', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [] } });
+  renderStrip({ lineup: lineup([]) });
+  await screen.findByTestId('strip-advice');
+  expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
+});

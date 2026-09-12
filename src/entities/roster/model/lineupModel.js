@@ -363,6 +363,15 @@ export function lineupEntries(rosterWire, league) {
       kickoff: r.kickoff ?? null,
       gameKey: r.game_key ?? null,
       onBye: Boolean(r.onBye),
+      // The player's own NFL bye week (#1239, CONTEXT.md's Bye cluster):
+      // passed through exactly as kickoff/gameKey already are, coerced to a
+      // number the same way projectedPoints is - lineup.service.js's
+      // annotateLineupEntries computes this for every row regardless of
+      // slot, so it is never derived here, only read. Distinct from `onBye`
+      // (whether THIS row's bye week equals the currently selected week):
+      // the bye-cluster widget needs the actual week number to group
+      // entries across the seven weeks after the one selected.
+      byeWeek: r.bye_week == null ? null : Number(r.bye_week),
       // The IR slot's own facts (CONTEXT.md's Attested stash and
       // IR-eligible; #1237): `irAttested` is the commissioner's vouch for
       // this stash (`lineup_entries.ir_attested`), and `validStash` is the

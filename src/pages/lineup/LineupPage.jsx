@@ -5,11 +5,13 @@ import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../share
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
+import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useSwapPlayers, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import { useApplyAdvice } from '../../features/apply-advice';
@@ -39,8 +41,19 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * plus a page-owned "Roster / Outlook" segmented control below `sm` that
  * shows either the Ledger (Starters/Bench, its own existing tab bar
  * unchanged) or the rail (start-sit-panel and matchup-preview, otherwise
- * hidden below `md`). Ticket 7 stacks the Bye cluster grid into the same
- * Outlook tab.
+ * hidden below `md`).
+ *
+ * Ticket 7 (#1239) stacks the bye-cluster widget's grid into the same
+ * Outlook tab, under start-sit-panel, computed off `lineup.entries` with no
+ * new endpoint (`shared/lib`'s `computeByeClusters`/`worstByeCluster` -
+ * promoted there, not kept below the island, since it is domain-meaningful
+ * and this page and the bye-cluster widget both reach it, ADR 0031). The
+ * page and the widget each call that shared pure function independently
+ * (the widget already holds the raw entries and computes its own grid); the
+ * page's OWN answer is handed only to the team-summary-strip's attention
+ * chip, which has no other way to reach a bye-cluster widget's internals.
+ * Hidden entirely on a past week (`isPastWeek` below): a settled week is a
+ * record, not an outlook.
  *
  * Deliberately deferred, per the issue's own scope: the live Game cell's
  * full Situation treatment (ticket 9 - this ticket's Game cell shows clock
@@ -154,6 +167,19 @@ export default function LineupPage() {
   const draftInProgress = phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING;
   const canDropEntry = () => Boolean(lineup && lineup.week != null && lineup.week === lineup.currentWeek);
   const emptyRoster = !lineupLoading && lineup != null && lineup.entries.length === 0;
+
+  // The Bye cluster grid (#1239, AC5): "past weeks show no grid (the week as
+  // played has no outlook)" - a week strictly before the league's current
+  // week is a settled record, never an outlook. `worstCluster` is computed
+  // here, not inside team-summary-strip, because that widget cannot reach
+  // the bye-cluster widget's own internals (a widget may not import
+  // another widget's - ADR 0020/0029); it calls the SAME shared pure
+  // function (`shared/lib`'s `computeByeClusters`/`worstByeCluster`) the
+  // bye-cluster widget itself independently calls on the raw entries this
+  // page already passes it.
+  const isPastWeek = Boolean(lineup && lineup.week != null && lineup.currentWeek != null && lineup.week < lineup.currentWeek);
+  const byeClusters = !isPastWeek && lineup ? computeByeClusters({ entries: lineup.entries, fromWeek: lineup.week }) : [];
+  const worstCluster = worstByeCluster(byeClusters);
 
   return (
     <Box sx={{ maxWidth: 1180, mx: 'auto', px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 } }}>
@@ -300,6 +326,7 @@ export default function LineupPage() {
                     viewerTeamId={viewerTeamId}
                     lineup={lineup}
                     advice={advice}
+                    worstByeCluster={worstCluster}
                   />
 
                   {swap.selectedEntry && (
@@ -344,6 +371,12 @@ export default function LineupPage() {
                     entries={lineup?.entries}
                     bestBall={bestBall}
                     onApply={applyAdvice.apply}
+                  />
+                  <ByeClusterGrid
+                    entries={lineup?.entries}
+                    fromWeek={lineup?.week}
+                    isPastWeek={isPastWeek}
+                    waiverPeriodHours={league?.waiver_period_hours}
                   />
                   <MatchupPreview leagueId={selectedLeagueId} />
                 </Box>
