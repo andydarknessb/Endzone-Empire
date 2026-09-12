@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: var(--accent); } a:hover { color: var(--ink); }
+    .t-light {
+      --bg: #eef2f6; --surface: #ffffff; --surface2: #f4f7fa; --surface3: #e6ecf2;
+      --line: rgba(31, 45, 58, 0.12); --line-strong: rgba(31, 45, 58, 0.22);
+      --ink: #141b23; --dim: #55636f; --faint: #5e6a74;
+      --accent: #0f6a41; --accent-soft: rgba(15, 106, 65, 0.12); --accent-line: rgba(15, 106, 65, 0.32); --on-accent: #ffffff;
+      --home: #1e5bb8; --home-soft: rgba(30, 91, 184, 0.10); --away: #1b7d4f; --away-soft: rgba(27, 125, 79, 0.08);
+      --danger: #c62828; --danger-soft: rgba(198, 40, 40, 0.10);
+      --warning: #8a5a00; --warning-soft: rgba(138, 90, 0, 0.12);
+      --silver: #9aa5b1; --bronze: #a56a3a;
+      --shadow-1: 0 1px 2px rgba(16, 24, 32, 0.08);
+    }
+    .t-dark {
+      --bg: #0b1015; --surface: #141b23; --surface2: #1b242f; --surface3: #222e3b;
+      --line: rgba(154, 183, 211, 0.12); --line-strong: rgba(154, 183, 211, 0.22);
+      --ink: #e8eef4; --dim: #93a4b5; --faint: #8a9bad;
+      --accent: #2fd97b; --accent-soft: rgba(47, 217, 123, 0.12); --accent-line: rgba(47, 217, 123, 0.35); --on-accent: #0b1015;
+      --home: #7eaaff; --home-soft: rgba(126, 170, 255, 0.16); --away: #7ee2a8; --away-soft: rgba(126, 226, 168, 0.16);
+      --danger: #ff6b6b; --danger-soft: rgba(255, 107, 107, 0.14);
+      --warning: #f0b34e; --warning-soft: rgba(240, 179, 78, 0.14);
+      --silver: #b8c0c9; --bronze: #c98a54;
+      --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+    }
+    .board { font-family: "Archivo", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.45; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+    .display { font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; }
+    .tile { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; min-width: 120px; background: var(--surface2); border: 1px solid var(--line); border-radius: 10px; }
+    .tile .l { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+    .tile .v { font-size: 22px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .tile .v small { font-size: 12px; color: var(--faint); font-weight: 500; }
+    .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface2); border: 1px solid var(--line); border-radius: 9px; }
+    .seg .opt { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border: 0; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 600; color: var(--dim); background: transparent; }
+    .seg .opt.on { color: var(--ink); background: var(--surface); box-shadow: var(--shadow-1); }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-1); overflow: hidden; }
+    .card-h { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+    .card-h .t { font-family: "Barlow Condensed", Impact, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; font-size: 17px; font-weight: 600; }
+    .card-h .c { font-size: 12px; font-weight: 600; color: var(--faint); }
+    .card-h .tail { margin-left: auto; font-size: 12px; color: var(--faint); }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface2); white-space: nowrap; }
+    th.r, td.r { text-align: right; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; vertical-align: middle; }
+    tr:nth-of-type(even) td { background: var(--surface2); }
+    tr.you td { background: var(--accent-soft); }
+    tr.you td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    .rank { font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 18px; width: 28px; display: inline-block; }
+    .medal { display: inline-flex; width: 22px; height: 22px; border-radius: 999px; align-items: center; justify-content: center; font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 13px; color: #ffffff; }
+    .team { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .av { flex: none; width: 28px; height: 28px; border-radius: 999px; background: var(--surface3); color: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+    .tn { font-weight: 600; white-space: nowrap; }
+    .you-pill { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+    .pts { font-family: "Barlow Condensed", Impact, sans-serif; font-weight: 700; font-size: 20px; }
+    .heat { display: flex; gap: 3px; }
+    .heat span { width: 16px; height: 16px; border-radius: 4px; background: var(--surface3); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: var(--on-accent); }
+    .heat .h1 { background: var(--accent); opacity: 0.35; }
+    .heat .h2 { background: var(--accent); opacity: 0.6; }
+    .heat .h3 { background: var(--accent); opacity: 0.85; }
+    .heat .h4 { background: var(--accent); }
+    .heat .best { outline: 2px solid var(--warning); outline-offset: 1px; }
+    .trend { font-size: 12px; font-weight: 600; }
+    .trend.up { color: var(--away); } .trend.down { color: var(--danger); } .trend.flat { color: var(--faint); }
+    .acc { display: inline-flex; align-items: center; gap: 8px; }
+    .acc .bar { width: 64px; height: 6px; border-radius: 999px; background: var(--surface3); overflow: hidden; }
+    .acc .bar span { display: block; height: 100%; background: var(--home); }
+  </style>
+</helmet>
+<div class="board {{themeClass}}" style="min-height: 1180px; padding: 32px 80px 48px 80px; box-sizing: border-box;">
+  <div style="max-width: 1280px; margin: 0 auto;">
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--faint); margin-bottom: 8px;">
+      <span>Sunday Funday League</span><span>/</span><span style="color: var(--dim);">Pick'em</span>
+    </div>
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 20px;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <h1 class="display" style="margin: 0; font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: 0.04em;">Pick'em</h1>
+        <div style="font-size: 13px; color: var(--dim);">2026 season · through Week 9 · Confidence scoring</div>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <div class="tile"><span class="l">Your rank</span><span class="v">3rd <small>of 10</small></span></div>
+        <div class="tile"><span class="l">Behind leader</span><span class="v">-14 <small>pts</small></span></div>
+        <div class="tile"><span class="l">Your accuracy</span><span class="v">66% <small>83 of 126</small></span></div>
+        <div class="tile"><span class="l">Best week</span><span class="v">Wk 6 <small>112 pts</small></span></div>
+      </div>
+    </div>
+
+    <div class="card" style="display: flex; align-items: center; gap: 16px; padding: 12px 16px; flex-wrap: wrap; margin-bottom: 16px;">
+      <div class="seg" role="radiogroup" aria-label="Section">
+        <button class="opt" type="button">Picks</button>
+        <button class="opt on" type="button">Standings</button>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="Season">
+        <button class="opt on" type="button">2026</button>
+        <button class="opt" type="button">2025</button>
+      </div>
+      <span style="margin-left: auto; font-size: 12px; color: var(--faint);">Ties in points break on correct picks, then team name. Tied games credit nobody.</span>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="t">Standings</span><span class="c">10 teams</span><span class="tail">Week 9 column shows this week's points so far · 3 games pending</span></div>
+      <div style="overflow-x: auto;">
+        <table aria-label="Standings">
+          <thead>
+            <tr>
+              <th style="width: 48px;">Rank</th>
+              <th>Team</th>
+              <th class="r">Points</th>
+              <th class="r">Wk 9</th>
+              <th class="r">Correct</th>
+              <th class="r">Missed</th>
+              <th class="r">Pending</th>
+              <th>Accuracy</th>
+              <th>Weekly points · Wk 1 to 18</th>
+              <th class="r">Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="medal" style="background: var(--warning);">1</span></td><td><div class="team"><span class="av">GG</span><span class="tn">Gridiron Gamblers</span></div></td><td class="r"><span class="pts">826</span></td><td class="r">71</td><td class="r">92</td><td class="r">31</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 75%;"></span></span>75%</span></td><td><div class="heat"><span class="h3"></span><span class="h4 best"></span><span class="h3"></span><span class="h2"></span><span class="h4"></span><span class="h3"></span><span class="h3"></span><span class="h2"></span><span class="h2"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend flat">-</span></td></tr>
+            <tr><td><span class="medal" style="background: var(--silver);">2</span></td><td><div class="team"><span class="av">BB</span><span class="tn">Blitz Brothers</span></div></td><td class="r"><span class="pts">803</span></td><td class="r">64</td><td class="r">88</td><td class="r">35</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 72%;"></span></span>72%</span></td><td><div class="heat"><span class="h2"></span><span class="h3"></span><span class="h4 best"></span><span class="h3"></span><span class="h2"></span><span class="h3"></span><span class="h4"></span><span class="h3"></span><span class="h2"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend up">+1</span></td></tr>
+            <tr class="you"><td><span class="medal" style="background: var(--bronze);">3</span></td><td><div class="team"><span class="av">CA</span><span class="tn">Cory's Army<span class="you-pill">YOU</span></span></div></td><td class="r"><span class="pts">812</span></td><td class="r">58</td><td class="r">83</td><td class="r">40</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 66%;"></span></span>66%</span></td><td><div class="heat"><span class="h2"></span><span class="h3"></span><span class="h2"></span><span class="h3"></span><span class="h3"></span><span class="h4 best"></span><span class="h2"></span><span class="h3"></span><span class="h2"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend down">-1</span></td></tr>
+            <tr><td><span class="rank">4</span></td><td><div class="team"><span class="av">HM</span><span class="tn">Hail Mary Heroes</span></div></td><td class="r"><span class="pts">771</span></td><td class="r">66</td><td class="r">81</td><td class="r">42</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 64%;"></span></span>64%</span></td><td><div class="heat"><span class="h3"></span><span class="h2"></span><span class="h2"></span><span class="h4 best"></span><span class="h2"></span><span class="h2"></span><span class="h3"></span><span class="h3"></span><span class="h3"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend up">+2</span></td></tr>
+            <tr><td><span class="rank">5</span></td><td><div class="team"><span class="av">RZ</span><span class="tn">Red Zone Raiders</span></div></td><td class="r"><span class="pts">748</span></td><td class="r">49</td><td class="r">79</td><td class="r">44</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 63%;"></span></span>63%</span></td><td><div class="heat"><span class="h2"></span><span class="h2"></span><span class="h3"></span><span class="h2"></span><span class="h3"></span><span class="h2"></span><span class="h4 best"></span><span class="h2"></span><span class="h1"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend down">-1</span></td></tr>
+            <tr><td><span class="rank">6</span></td><td><div class="team"><span class="av">FF</span><span class="tn">Fourth and Forever</span></div></td><td class="r"><span class="pts">722</span></td><td class="r">55</td><td class="r">77</td><td class="r">46</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 61%;"></span></span>61%</span></td><td><div class="heat"><span class="h3"></span><span class="h1"></span><span class="h2"></span><span class="h2"></span><span class="h4 best"></span><span class="h2"></span><span class="h2"></span><span class="h3"></span><span class="h2"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend flat">-</span></td></tr>
+            <tr><td><span class="rank">7</span></td><td><div class="team"><span class="av">PP</span><span class="tn">Pigskin Prophets</span></div></td><td class="r"><span class="pts">701</span></td><td class="r">44</td><td class="r">74</td><td class="r">49</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 59%;"></span></span>59%</span></td><td><div class="heat"><span class="h2"></span><span class="h3 best"></span><span class="h1"></span><span class="h2"></span><span class="h2"></span><span class="h3"></span><span class="h1"></span><span class="h2"></span><span class="h1"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend down">-2</span></td></tr>
+            <tr><td><span class="rank">8</span></td><td><div class="team"><span class="av">TD</span><span class="tn">Touchdown Titans</span></div></td><td class="r"><span class="pts">680</span></td><td class="r">61</td><td class="r">72</td><td class="r">51</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 58%;"></span></span>58%</span></td><td><div class="heat"><span class="h1"></span><span class="h2"></span><span class="h2"></span><span class="h1"></span><span class="h2"></span><span class="h2"></span><span class="h3"></span><span class="h4 best"></span><span class="h3"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend up">+1</span></td></tr>
+            <tr><td><span class="rank">9</span></td><td><div class="team"><span class="av">SB</span><span class="tn">Sunday Bench Warmers</span></div></td><td class="r"><span class="pts">633</span></td><td class="r">38</td><td class="r">68</td><td class="r">55</td><td class="r">3</td><td><span class="acc"><span class="bar"><span style="width: 55%;"></span></span>55%</span></td><td><div class="heat"><span class="h2"></span><span class="h1"></span><span class="h2"></span><span class="h3 best"></span><span class="h1"></span><span class="h2"></span><span class="h1"></span><span class="h2"></span><span class="h1"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend flat">-</span></td></tr>
+            <tr><td><span class="rank">10</span></td><td><div class="team"><span class="av">LC</span><span class="tn">Late Coin Flippers</span></div></td><td class="r"><span class="pts">590</span></td><td class="r">0</td><td class="r">63</td><td class="r">56</td><td class="r">0</td><td><span class="acc"><span class="bar"><span style="width: 53%;"></span></span>53%</span></td><td><div class="heat"><span class="h1"></span><span class="h2"></span><span class="h1"></span><span class="h2"></span><span class="h3 best"></span><span class="h1"></span><span class="h2"></span><span class="h1"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></td><td class="r"><span class="trend down">-1</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="display: flex; gap: 16px; align-items: center; padding: 10px 18px; font-size: 12px; color: var(--faint); border-top: 1px solid var(--line);">
+        <span>Weekly cells shade by points earned that week.</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px;"><span style="width: 12px; height: 12px; border-radius: 3px; outline: 2px solid var(--warning); outline-offset: 1px;"></span>Best week</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px;"><span style="width: 12px; height: 12px; border-radius: 3px; background: var(--surface3);"></span>Not played</span>
+        <span style="margin-left: auto;">Late Coin Flippers made no picks in Week 9: 0 points, nothing pending.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Board"},"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? 'light') === 'dark' ? 't-dark' : 't-light' };
+  }
+}
+</script>
+</body>
+</html>

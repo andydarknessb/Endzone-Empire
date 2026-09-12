@@ -241,6 +241,12 @@ The scheduled start of an NFL game. It is the clock every time-sensitive rule
 keys off: lineup locks, pick'em locks and holdout capture deadlines.
 _Avoid_: game time, start time
 
+**Kickoff window**:
+The games on a slate that share a kickoff time, read as a group: Thursday
+night, Sunday early, Sunday late, Sunday night, Monday night. The board groups
+picks by it, and "the window locks" means every game in it has kicked off.
+_Avoid_: slot, wave, time slot
+
 **Bye week**:
 A week in which an NFL team does not play, so none of its players can score.
 Derived from the season schedule rather than supplied.
@@ -248,7 +254,8 @@ Derived from the season schedule rather than supplied.
 **Situation**:
 Where an in-progress NFL game stands beyond its clock and score: which team
 has the ball, the down and distance, whether the ball is in the red zone,
-and the last play. Read from the same scoreboard poll as the clock and
+the last play, and the home side's win probability as the scoreboard
+computes it after that play. Read from the same scoreboard poll as the clock and
 carried on the same live game row, so it reaches clients the way the clock
 does.
 _Avoid_: game state (the clock row as a whole), drive, play-by-play (the
@@ -260,6 +267,22 @@ from the free scoreboard once an hour as its own Sync run. A line is a
 snapshot with a time; the newest one is the line.
 _Avoid_: odds (the provider vocabulary), Vegas, over/under (the total's
 market name, fine in copy, not as the term)
+
+**Record**:
+A team's win-loss summary going into a game, in three cuts: total, home and
+road. The cut that informs a pick is the one the team is about to play in
+(road for the visitor, home for the host), so a Venue that is neutral drops
+the split and keeps the total.
+_Avoid_: standing (that is the league table), form
+
+**Venue**:
+Where an NFL game is played: the stadium, whether it is indoor (weather does
+not apply) and whether it is a neutral site (neither team is at home).
+_Avoid_: stadium (fine in copy, not as the term), location
+
+**Broadcast**:
+The national network or service carrying an NFL game.
+_Avoid_: channel, TV, coverage
 
 **Implied team total**:
 The points a Line expects one team to score: half the total, plus or minus
@@ -1006,6 +1029,26 @@ The pick-the-winners game: every manager picks the winner of every NFL game on
 the week's slate. A side game in a fantasy league, or the whole game in a
 pick'em league. Independent of rosters and matchups; each pick locks at its
 own game's kickoff.
+
+**Pick**:
+A manager's chosen winner for one game on the slate. It locks at that game's
+kickoff, is revealed to the rest of the league at lock and never before, and
+in Confidence mode carries a confidence.
+_Avoid_: selection, bet, choice
+
+**Scoring mode**:
+How a league's pick'em turns correct picks into points, chosen by the
+commissioner before the season's first pick and fixed after. **Straight-up**:
+one point per correct pick. **Confidence**: each pick carries a confidence
+and a correct pick earns that many points. A tied game credits nobody in
+either mode.
+_Avoid_: format, game type
+
+**Confidence**:
+The number, 1 up to the slate size, a manager attaches to a pick in
+Confidence mode, each number used at most once across the week. A correct
+pick earns exactly its confidence in points.
+_Avoid_: rank, weight, points (what it becomes, not what it is)
 
 ### The projection engine
 
