@@ -15,9 +15,11 @@
  *   - `hooks/useResilientLineupMutation` - a helper WITH domain meaning (the
  *     lineup write's optimistic-save/offline-queue/replay contract), reached
  *     here as its SECOND island consumer (`swap-players`' own
- *     `useSwapPlayers.js` is the first) - past the promotion threshold this
- *     amendment sets, and #1272 already tracks promoting it (to an entity or
- *     `shared/lib`, per that ticket's own list) rather than this ticket
- *     doing so out of scope.
+ *     `useSwapPlayers.js` is the first), so the promotion threshold fires on
+ *     THIS PR. #1272 as cut lists this module as staying below the island
+ *     (it had one consumer when #1269 measured it) and excludes it; a scope
+ *     correction is raised on #1272 (comment of 2026-09-12T01:11Z), and
+ *     whether this hook is plumbing or domain-meaning is Cory's call, not
+ *     this ticket's.
  */
 export { useApplyAdvice } from './model/useApplyAdvice';
