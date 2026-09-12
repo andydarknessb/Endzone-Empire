@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const model = require('../services/projectionModel');
 const vegas = require('../services/vegasOdds.provider');
+const projection = require('../services/projection.service');
 
 // ---------------------------------------------------------------------------
 // The inert-merge contract
@@ -276,17 +277,31 @@ test('the shipped odds provider is a no-op and says so', async () => {
 });
 
 test('a provider can be installed and removed through the seam', async () => {
+  const calls = [];
   try {
     vegas.setVegasOddsProvider({
       name: 'test-book',
       available: true,
-      async getWeeklyOdds() {
+      async getWeeklyOdds(args) {
+        calls.push(args);
         return new Map([['2026_08_BUF_MIA', { total: 47, spread: -3, source: 'test-book' }]]);
       },
     });
     assert.deepEqual(vegas.vegasCoverage(), { status: 'available', source: 'test-book' });
     const odds = await vegas.getVegasOddsProvider().getWeeklyOdds();
     assert.equal(odds.get('2026_08_BUF_MIA').total, 47);
+
+    // The live path (#1268, ADR 0039): generateProjections with no cutoff of
+    // its own reaches the seam carrying no `observedAtOrBefore` at all -
+    // only a holdout capture ever passes one. `playerIds: []` short-circuits
+    // `loadFeatureBundle` before it touches the injected `client`, so this
+    // exercises the real live path with no database at all.
+    await projection.generateProjections({
+      season: 2026, week: 8, rules: {}, playerIds: [], hashValue: 'x',
+      client: {}, weatherService: false,
+    });
+    const liveCall = calls[calls.length - 1];
+    assert.equal(liveCall.observedAtOrBefore, null, 'the live path passes no odds bound');
   } finally {
     vegas.setVegasOddsProvider();
   }

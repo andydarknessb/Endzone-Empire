@@ -495,6 +495,13 @@ async function generateProjections({
   // Overridable so scripts/backtest-weekly-projections.js can sweep
   // half-life / shrinkage alternatives against the same weeks.
   modelConstants = model.MODEL_CONSTANTS,
+  // The odds seam's read bound, and NOTHING else (#1268, ADR 0039): forwarded
+  // untouched to `getWeeklyOdds({ observedAtOrBefore })`. `input_cutoff` (the
+  // week's first kickoff) is never this value. `holdout.service.js`'s
+  // `snapshotWeek` is the only caller that passes one, its own effective
+  // capture cutoff; the live path and the versioned cache path below both
+  // pass nothing, so the odds read stays newest-wins with no bound there.
+  oddsObservedAtOrBefore = null,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
   // unchanged into every per-player projectFromBundle call. Validated at the
   // top of the function body, before ANY other logic - so an empty
@@ -538,7 +545,9 @@ async function generateProjections({
   try {
     const oddsProvider = getVegasOddsProvider();
     if (oddsProvider.available) {
-      oddsByGameKey = await oddsProvider.getWeeklyOdds({ season, week, client });
+      oddsByGameKey = await oddsProvider.getWeeklyOdds({
+        season, week, client, observedAtOrBefore: oddsObservedAtOrBefore,
+      });
     }
   } catch (err) {
     console.error('projections: odds lookup failed, continuing without it:', err.message);

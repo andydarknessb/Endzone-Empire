@@ -12,10 +12,14 @@
  * per game would reproduce precisely the defect `holdout.service.js` was built
  * to eliminate — an evaluation whose inputs have moved since the model spoke,
  * so the numbers being judged are not the numbers the model actually had.
- * Rows here are therefore INSERT-only and carry `observed_at`; a projection
- * run reads the latest snapshot at or before its own `input_cutoff`, which is
- * what makes a stored projection auditable against the "no future information"
- * rule the projection_runs table already enforces for every other input.
+ * Rows here are therefore INSERT-only and carry `observed_at`. The read
+ * contract is newest-wins (CONTEXT.md's Line: "the newest one is the line";
+ * ADR 0039) — a projection run reads the latest snapshot per game, full
+ * stop. A holdout capture additionally bounds that read by its own capture
+ * cutoff (never by `input_cutoff`, which is the week's first kickoff, not an
+ * odds bound), which is what makes a stored holdout snapshot auditable
+ * against the "no future information" rule the projection_runs table already
+ * enforces for every other input; a live run passes no bound at all.
  *
  * `game_key` is the same stable both-perspectives identifier `nfl_games` and
  * `game_weather_snapshots` already use (`2026_03_BUF_MIA`, nflverse's own
@@ -53,7 +57,8 @@ exports.up = async function (knex) {
     // One quote per game per source per instant. A re-fetch that returns an
     // unchanged line is idempotent; a genuine line move is a new row.
     t.unique(['game_key', 'source', 'observed_at']);
-    // The read path: newest quote at or before a run's input_cutoff.
+    // The read path: newest-wins per game; a holdout capture additionally
+    // bounds this by its own capture cutoff (ADR 0039), a live run does not.
     t.index(['season', 'week', 'observed_at']);
     t.index(['game_key', 'observed_at']);
   });
