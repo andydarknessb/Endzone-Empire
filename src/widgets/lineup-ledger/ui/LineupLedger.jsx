@@ -29,8 +29,8 @@ import LedgerRow from './LedgerRow';
  * The Bench card also carries AC5's bench-points-left line (this widget's
  * own `useBenchPointsLeft` read of the existing hindsight endpoint, keyed
  * off `leagueId` plus the `lineup` prop's own `teamId`/`season`), and
- * `onOpenQuickView` is forwarded to every occupied row so its player name
- * can open the page-owned Quick View dialog (see `../index.js`'s
+ * `onOpenDecisionCard` is forwarded to every occupied row so its player name
+ * can open the page-owned Decision card (#1240; see `../index.js`'s
  * below-island edges note for why that control lives below the island).
  */
 export default function LineupLedger({
@@ -46,7 +46,7 @@ export default function LineupLedger({
   onRowClick,
   canDropEntry,
   onRequestDrop,
-  onOpenQuickView,
+  onOpenDecisionCard,
 }) {
   const [mobileTab, setMobileTab] = useState('starters');
   const entries = Array.isArray(lineup?.entries) ? lineup.entries : [];
@@ -84,7 +84,7 @@ export default function LineupLedger({
       canDrop: Boolean(entry && !entry.spent && canDropEntry?.(entry)),
       onClick: (event) => onRowClick?.(entry, row.slotType, event),
       onRequestDrop,
-      onOpenQuickView,
+      onOpenDecisionCard,
     };
   };
 

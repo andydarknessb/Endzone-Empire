@@ -112,7 +112,7 @@ function PlayerAvatar({ name, nflTeam }) {
  * own swap-select action is an invisible `<button>` absolutely covering the
  * row, UNDER the visible content, which is `pointer-events: none` except two
  * reclaimed islands - the player's name (a real `PlayerNameLink`, opening
- * the Quick View the page owns) and the Drop control - each independently
+ * the Decision card the page owns, #1240) and the Drop control - each independently
  * focusable and clickable without being a DOM descendant of the covering
  * button. That is what keeps `role`less nested-interactive controls out of
  * a widget role, restores the name as a real link (dropped without a
@@ -142,7 +142,7 @@ export default function LedgerRow({
   onClick,
   onRequestDrop,
   canDrop,
-  onOpenQuickView = () => {},
+  onOpenDecisionCard = () => {},
   'data-testid': testId,
 }) {
   const isEmpty = !entry;
@@ -246,7 +246,7 @@ export default function LedgerRow({
                 <PlayerNameLink
                   name={entry.name}
                   playerId={entry.playerId}
-                  onOpen={onOpenQuickView}
+                  onOpen={onOpenDecisionCard}
                   sx={{
                     pointerEvents: 'auto',
                     fontSize: '14px',

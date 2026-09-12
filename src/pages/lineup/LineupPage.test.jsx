@@ -397,12 +397,111 @@ test('the bench points left on the table line reads the hindsight endpoint', asy
 });
 
 // Formal review finding legacy-controls-dropped-without-a-criterion:
-// restored controls.
-test('the player name reopens the Quick View dialog', async () => {
+// restored controls. #1240 AC1/AC8: the player name now opens the Decision
+// card (replacing the earlier Quick View wiring on Lineup only).
+const decisionContextUrl = (playerId) => `/api/team/lineup/${playerId}/context?leagueId=1&week=4`;
+
+test('the player name opens the Decision card with the row\'s own fields, and every section fills in once its context resolves', async () => {
   const user = userEvent.setup();
-  renderPage({ '/api/players/1/summary': { data: {} } });
+  renderPage({
+    [decisionContextUrl(1)]: {
+      data: {
+        line: { spread: -3, total: 47, impliedTeamTotal: 22, observedAt: '2026-09-14T00:00:00Z' },
+        weather: { indoor: false, temperatureF: 45, windSpeedMph: 10, windGustMph: 18, precipitationProbability: 20, shortForecast: 'Cloudy' },
+        usage: {
+          weeks: [{ season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, targetShare: 0.23, fantasyPoints: 12.4 }],
+          seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, targetShare: 0.21, fantasyPoints: 10.2 },
+        },
+      },
+    },
+  });
   await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
-  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { name: 'Josh Allen' })).toBeInTheDocument();
+  // The row's own fields (AC1: paints immediately, before the extras load).
+  expect(within(card).getByTestId('decision-card-range-bar')).toBeInTheDocument();
+
+  expect(await within(card).findByTestId('decision-card-line')).toHaveTextContent('Line: -3 / 47');
+  expect(within(card).getByTestId('decision-card-implied-total')).toHaveTextContent('22.0');
+  expect(within(card).getByTestId('decision-card-weather')).toHaveTextContent('45°F');
+  expect(within(card).getByTestId('decision-card-usage-table')).toHaveTextContent('Wk 3');
+});
+
+test('with no Line, weather or usage from the context endpoint, those tiles are hidden - AC3\'s null-source rule', async () => {
+  const user = userEvent.setup();
+  renderPage(); // no decisionContextUrl mock: the context GET rejects, leaving line/weather/usage null
+  await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
+
+  const card = await screen.findByTestId('decision-card');
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(decisionContextUrl(1)));
+  expect(within(card).queryByTestId('decision-card-line')).not.toBeInTheDocument();
+  expect(within(card).queryByTestId('decision-card-weather')).not.toBeInTheDocument();
+  expect(within(card).queryByTestId('decision-card-usage')).not.toBeInTheDocument();
+  // Josh Allen's own fixture edge is null, so no factor tile either.
+  expect(within(card).queryByTestId('decision-card-factor')).not.toBeInTheDocument();
+});
+
+test('a swap from bench options moves the opened starter and the chosen bench player, and a locked option is disabled', async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [
+          entryRow({ id: 40, name: 'Bench RB Fast', slot: 'BENCH', position: 'RB', nfl_team: 'MIA', projection: 9 }),
+          entryRow({ id: 41, name: 'Bench RB Locked', slot: 'BENCH', position: 'RB', nfl_team: 'NYJ', projection: 20, locked: true }),
+        ],
+      }),
+    },
+  });
+  // Derrick King (id 2) starts at RB; both new bench RBs are eligible for his slot.
+  await user.click(await screen.findByRole('button', { name: 'Derrick King' }));
+  const card = await screen.findByTestId('decision-card');
+  const benchOptions = await within(card).findByTestId('decision-card-bench-options');
+
+  expect(within(benchOptions).getByTestId('decision-card-bench-option-lock')).toHaveTextContent('Locked');
+  expect(within(benchOptions).getByTestId('decision-card-bench-swap-41')).toBeDisabled();
+
+  await user.click(within(benchOptions).getByTestId('decision-card-bench-swap-40'));
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/team/lineup', {
+      leagueId: 1,
+      week: 4,
+      moves: [
+        { playerId: 40, slot: 'RB' },
+        { playerId: 2, slot: 'BENCH' },
+      ],
+    })
+  );
+});
+
+test('the sheet at a narrow width carries the drag handle and the sheet variant', async () => {
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: true,
+    media: query,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
+  const user = userEvent.setup();
+  renderPage();
+  await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
+  const card = await screen.findByTestId('decision-card');
+  expect(card).toHaveAttribute('data-variant', 'sheet');
+  expect(screen.getByTestId('decision-card-drag-handle')).toBeInTheDocument();
+});
+
+test('closing the Decision card returns focus to the row that opened it', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  const nameButton = await screen.findByRole('button', { name: 'Josh Allen' });
+  await user.click(nameButton);
+  await screen.findByTestId('decision-card');
+  await user.click(screen.getByTestId('decision-card-close'));
+  await waitFor(() => expect(nameButton).toHaveFocus());
 });
 
 test('an empty roster (no draft in progress) shows the Browse Players empty state', async () => {

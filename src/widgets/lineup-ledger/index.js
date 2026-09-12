@@ -11,9 +11,10 @@
  *     colour lookup, the same external-data allowlist entry the
  *     color-literals guard names.
  *   - `src/components/PlayerQuickView/PlayerNameLink` (`ui/LedgerRow.jsx`):
- *     the existing player-name-opens-Quick-View control, reused as-is
- *     rather than rebuilt; the page owns the Quick View dialog itself and
- *     hands this widget only the `onOpenQuickView` callback.
+ *     the existing name-link control, reused as-is rather than rebuilt; the
+ *     page owns the Decision card dialog itself (#1240, replacing the Quick
+ *     View this link used to open, on Lineup only) and hands this widget
+ *     only the `onOpenDecisionCard` callback.
  */
 export { default } from './ui/LineupLedger';
 export { buildLedgerSections } from './model/buildLedgerSections';
