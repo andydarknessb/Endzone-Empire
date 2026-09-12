@@ -24,11 +24,15 @@ import { DashButton } from '../../../shared/ui';
  * focusable set, so an unmanaged focus would fall to `<body>` and strand a
  * keyboard user (accessibility risk review, #1265). This bar owns the click
  * instead of leaving it to the caller: once `onSave` resolves `{ ok: true
- * }`, it shows an announced (`role="status"`) confirmation and moves focus
- * onto it (WCAG 4.1.3 - a save otherwise has no confirmation at all beyond
- * the button greying out). The confirmation clears itself the moment
- * `isDirty` goes true again (a new edit), so it never lingers stale over a
- * pick made after the save.
+ * }`, it moves focus onto a confirmation (WCAG 4.1.3 - a save otherwise has
+ * no confirmation at all beyond the button greying out). No `role="status"`
+ * on it: a focused element carrying text is announced on its own, and a
+ * live region on TOP of the focus move would announce the same "Picks
+ * saved" twice (formal review, #1265 - the same duplicate-announcement
+ * shape this PR's own accessibility fixes elsewhere removed, GameCard.jsx's
+ * win-probability line and KickoffWindowGroup's section label). The
+ * confirmation clears itself the moment `isDirty` goes true again (a new
+ * edit), so it never lingers stale over a pick made after the save.
  */
 export default function SaveBar({
   pickedCount = 0,
@@ -112,7 +116,6 @@ export default function SaveBar({
       {justSaved && (
         <Typography
           ref={statusRef}
-          role="status"
           tabIndex={-1}
           data-testid="save-bar-success"
           sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-accent)', outline: 'none' }}

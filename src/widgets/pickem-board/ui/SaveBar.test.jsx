@@ -62,7 +62,10 @@ test('a successful save announces a confirmation and moves focus onto it, so a k
 
   const status = await screen.findByTestId('save-bar-success');
   expect(status).toHaveTextContent('Picks saved');
-  expect(status).toHaveAttribute('role', 'status');
+  // No role="status" here on purpose (formal review, #1265): a focused
+  // element carrying text is already announced, and a live region on top of
+  // the focus move would announce "Picks saved" twice.
+  expect(status).not.toHaveAttribute('role');
   expect(status).toHaveFocus();
 });
 

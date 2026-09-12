@@ -142,6 +142,16 @@ test('picking a winner then saving round-trips through the save bar', async () =
     '/api/pickem/league/1/week/3/picks',
     { picks: [{ gameKey: 'NYJ|TEN', pickedTeam: 'TEN', confidence: null }] }
   );
+
+  // The outbound leg alone proves nothing about what the manager sees: this
+  // is the one place the real useSavePicks (not a mocked resolve) clears its
+  // draft on success, which is also what disables the button the click still
+  // holds (formal review, #1265, formal-1265-f2) - so the round trip has to
+  // carry through to that user-visible result, not stop at the PUT call.
+  const confirmation = await screen.findByTestId('save-bar-success');
+  expect(confirmation).toHaveTextContent('Picks saved');
+  expect(confirmation).toHaveFocus();
+  expect(screen.getByTestId('save-bar-save')).toBeDisabled();
 });
 
 test('the week stepper grows to the 44px touch target on a phone, matching every other page that composes it', async () => {

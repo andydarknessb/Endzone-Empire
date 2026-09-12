@@ -266,6 +266,10 @@ test('house style: no em-dash and no "insight" anywhere on the card', () => {
     />
   );
   const card = screen.getByTestId('game-card');
-  expect(card.textContent).not.toMatch(/—/);
+  // A raw em-dash character in a regex literal is byte-identical to a look-
+  // alike substitution in every editor, diff and `git show` (formal review,
+  // #1265), so - matching NflGameStrip.test.jsx's own deliberate escape -
+  // this names the codepoint instead of pasting the character.
+  expect(card.textContent).not.toMatch(/\u2014/);
   expect(card.textContent.toLowerCase()).not.toMatch(/insight/);
 });
