@@ -677,9 +677,10 @@ _Avoid_: inactive, injured
 The single row presentation every occupied Lineup row uses, whether
 Starter, Bench, or IR: slot, profile image with the NFL team's colour, name
 with injury designation and lock, position and Team code, the Game cell,
-the Edge line, projection and points. Tapping a row opens the Decision
-card; the one action on the row itself is swap. Trade, Drop and acquisition
-detail live on the Decision card, and Undo stays a toast after a drop. It
+the Edge line, projection and points. Tapping a player's name opens the
+Decision card; the one tap on the row itself is swap-select, on every form
+factor (#1240 ruling). Trade, Drop and acquisition detail live on the
+Decision card, and Undo stays a toast after a drop. It
 names a row shape, not a screen: it is distinct from Roster (everything a
 team holds) and Lineup (the surface that presents rows in this shape). It
 supersedes the Roster Management presentation, which descended from the
