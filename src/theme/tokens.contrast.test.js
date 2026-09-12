@@ -508,8 +508,9 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 // `monogramInk` rather than a fixed literal; this lane only certifies the
 // function.
 //
-// Per ADR 0010 ("the guard certifies exactly the pairings it lists"), this
-// is not a blanket certification of every `kit.jersey` consumer: at least
+// Per ADR 0010 ("A green check certifies exactly what that check reads, and
+// nothing adjacent"), this is not a blanket certification of every
+// `kit.jersey` consumer: at least
 // two others (`LedgerRow.jsx`'s `PlayerAvatar`, `PlayerDecisionCard.jsx`)
 // paint text on the same external table using a themed `text-inverse`
 // token rather than `monogramInk`, and are outside this ticket's scope -

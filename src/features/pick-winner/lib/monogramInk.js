@@ -17,11 +17,11 @@ const BLACK = '#000000';
  * light/dark mode - the same reasoning `TeamPickButton` already applies to
  * `kit.jersey` itself.
  *
- * The dark ink is literal black, not a near-black: the four jerseys that
- * fail white (CIN, MIA, CAR, LAC) sit at mid luminance, where a near-black
- * such as `#101820` only clears CAR (4.44) and LAC (4.18) - both too close
- * to the 4.5:1 floor to trust. Literal `#000000` clears all four (CIN 6.23,
- * MIA 5.32, CAR 5.21, LAC 4.90) and the neutral fallback kit (14.85).
+ * The dark ink is literal black, not a near-black: a near-black such as
+ * `#101820` still fails two of the four jerseys white fails - CAR (4.44) and
+ * LAC (4.18) - even though it clears CIN (5.31) and MIA (4.53). Literal
+ * `#000000` clears all four (CIN 6.23, MIA 5.32, CAR 5.21, LAC 4.90) and the
+ * neutral fallback kit (14.85).
  *
  * Reuses `contrastRatio` from `src/theme/contrast.js` rather than a second
  * compositing path (#354); brand hex values in `nflTeamColors.js` stay at
