@@ -33,9 +33,14 @@ test('lastPlayoffWeek: two leagues with different playoff lengths end on differe
     '14 regular weeks + 2 rounds'
   );
   assert.equal(
-    lastPlayoffWeek({ regular_season_weeks: 13, playoff_teams: 6 }),
-    16,
-    '13 regular weeks + 3 rounds'
+    lastPlayoffWeek({ regular_season_weeks: 14, playoff_teams: 8 }),
+    17,
+    '14 regular weeks + 3 rounds: the SAME regular season, a longer bracket'
+  );
+  assert.equal(
+    lastPlayoffWeek({ regular_season_weeks: 13, playoff_teams: 2 }),
+    14,
+    '13 regular weeks + 1 round: a shorter regular season AND a shorter bracket'
   );
 });
 

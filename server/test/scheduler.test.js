@@ -1104,6 +1104,27 @@ test('a season with no week-18 rows on file is held (and warned about), never co
 });
 
 // ---- nightly projection run (#1305) -----------------------------------
+// All `now` values below land inside NIGHTLY_PROJECTION_FILL_UTC_HOUR (9
+// UTC, scheduler.js) and use distinct calendar days: the once-a-day stamp is
+// shared module state across every test in this file, same as
+// lastAdpSyncDay above.
+
+test('runNightlyProjectionFill only runs inside its own off-peak UTC hour', async (t) => {
+  const calls = [];
+  createFakePool([
+    [/FROM "leagues"/, () => { calls.push('leagues'); return { rows: [] }; }],
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T08:59:00Z') }), null);
+  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T10:00:00Z') }), null);
+  assert.equal(calls.length, 0, 'no query at all outside the window, not even the eligibility read');
+
+  assert.deepEqual(
+    await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T09:30:00Z') }),
+    { weeksGenerated: 0, weeksSkipped: 0, leagues: 0 }
+  );
+});
 
 test('runNightlyProjectionFill queries leagues with the same live-season eligibility the hourly syncs use', async (t) => {
   const fake = createFakePool([
@@ -1115,8 +1136,8 @@ test('runNightlyProjectionFill queries leagues with the same live-season eligibi
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]);
   fake.install(t);
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-12T06:00:00Z') });
-  assert.deepEqual(result, { weeksGenerated: 0, weeksSkipped: 0, failed: [] });
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-12T09:00:00Z') });
+  assert.deepEqual(result, { weeksGenerated: 0, weeksSkipped: 0, leagues: 0 });
 });
 
 test('runNightlyProjectionFill fills every week from each league\'s current week through its OWN last playoff week', async (t) => {
@@ -1131,8 +1152,11 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
       rows: [
         // 14 regular weeks + 2 rounds (4 playoff teams) -> last playoff week 16.
         { id: 1, current_season: 2026, current_week: 15, regular_season_weeks: 14, playoff_teams: 4 },
-        // 13 regular weeks + 3 rounds (6 playoff teams, a bye in round one) -> also week 16.
-        { id: 2, current_season: 2026, current_week: 10, regular_season_weeks: 13, playoff_teams: 6 },
+        // 13 regular weeks + 1 round (2 playoff teams, a straight final) -> last
+        // playoff week 14: a genuinely DIFFERENT stop from league 1's (#1305 f1),
+        // so a bug that shared one through-week across the whole pass would fail
+        // this test rather than pass it by coincidence.
+        { id: 2, current_season: 2026, current_week: 10, regular_season_weeks: 13, playoff_teams: 2 },
       ],
     })],
     [/FROM "team_players" WHERE "league_id" = \$1/, (text, params) => ({
@@ -1141,17 +1165,15 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
 
-  // A day of its own: the day-stamp gate is shared module state across every
-  // test in this file, same as lastAdpSyncDay above.
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T06:00:00Z') });
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T09:00:00Z') });
 
   const league1Weeks = calls.filter((c) => c.leagueId === 1).map((c) => c.week);
   const league2Weeks = calls.filter((c) => c.leagueId === 2).map((c) => c.week);
   assert.deepEqual(league1Weeks, [15, 16]);
-  assert.deepEqual(league2Weeks, [10, 11, 12, 13, 14, 15, 16]);
+  assert.deepEqual(league2Weeks, [10, 11, 12, 13, 14]);
   assert.equal(result.weeksGenerated, league1Weeks.length + league2Weeks.length);
   assert.equal(result.weeksSkipped, 0);
-  assert.equal(result.failed.length, 0);
+  assert.equal(result.leagues, 2);
 });
 
 test('runNightlyProjectionFill skips a week every rostered player already has cached, and runs at most once per local day', async (t) => {
@@ -1170,21 +1192,23 @@ test('runNightlyProjectionFill skips a week every rostered player already has ca
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
 
-  const first = new Date('2026-09-16T06:00:00Z');
+  const first = new Date('2026-09-16T09:05:00Z');
   const result = await scheduler.runNightlyProjectionFill({ now: first });
   assert.equal(result.weeksSkipped, 1);
   assert.equal(result.weeksGenerated, 1);
   assert.equal(call, 2);
 
-  // Same local day: the pass does not run again.
-  const laterSameDay = new Date('2026-09-16T20:00:00Z');
+  // Same local day, still inside the window: the pass does not run again.
+  const laterSameDay = new Date('2026-09-16T09:40:00Z');
   assert.equal(await scheduler.runNightlyProjectionFill({ now: laterSameDay }), null);
   assert.equal(call, 2, 'no further getWeeklyProjections calls on the second same-day tick');
 });
 
-test('one league\'s failure does not stop another\'s fill, and the day is still stamped', async (t) => {
+test('one league\'s failure does not stop another\'s fill; the day stays unstamped so the window keeps retrying (#1305 f3)', async (t) => {
   const projection = require('../services/projection.service');
+  const seen = [];
   t.mock.method(projection, 'getWeeklyProjections', async ({ league, playerIds }) => {
+    seen.push(league.id);
     if (league.id === 1) throw new Error('feature bundle unavailable');
     return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
   });
@@ -1201,19 +1225,19 @@ test('one league\'s failure does not stop another\'s fill, and the day is still 
   const errors = [];
   t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
 
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T06:00:00Z') });
-  assert.deepEqual(result.failed.map((f) => f.leagueId), [1]);
-  assert.equal(result.weeksGenerated, 1, 'league 2 still filled despite league 1 failing');
-  // console.error's own %s substitution is not performed by this mock, so the
-  // logged line is the literal format string with its args space-joined
-  // after it, not interpolated into it.
-  assert.ok(errors.some((e) => e.includes('nightly projection fill failed for league') && e.includes('feature bundle unavailable')));
+  const first = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T09:05:00Z') });
+  assert.equal(first, null, 'runSyncJob rethrows the unit failure; the pass is never recorded as this day\'s success');
+  assert.deepEqual(seen, [1, 2], 'league 2 was still attempted, and its week already committed on its own transaction, despite league 1 throwing first');
+  assert.ok(errors.some((e) => e.includes('nightly projection fill failed') && e.includes('feature bundle unavailable')));
 
-  // The day is still stamped: a same-day retry does not re-run the pass.
-  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T08:00:00Z') }), null);
+  // The day was never stamped, so a later tick inside the SAME window retries
+  // everything rather than losing the whole night to one transient failure.
+  const second = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T09:15:00Z') });
+  assert.equal(second, null, 'league 1 keeps failing in this fixture, so it still does not stamp');
+  assert.deepEqual(seen, [1, 2, 1, 2], 'the retry re-attempted both leagues');
 });
 
-test('records one Sync run for the whole pass, counting (league, week) pairs generated and skipped', async (t) => {
+test('records one Sync run through runSyncJob for the whole pass, detail carrying the weeks generated and skipped (#1305 f3)', async (t) => {
   const projection = require('../services/projection.service');
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
     { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
@@ -1227,17 +1251,20 @@ test('records one Sync run for the whole pass, counting (league, week) pairs gen
   ]);
   fake.install(t);
 
-  await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-14T06:00:00Z') });
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-14T09:00:00Z') });
+  assert.deepEqual(result, { weeksGenerated: 1, weeksSkipped: 0, leagues: 1 });
+
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
-  assert.ok(inserted, 'one data_sync_runs row is written');
+  assert.ok(inserted, 'one data_sync_runs row is written, by runSyncJob itself');
   assert.equal(inserted.params[0], 'nightly-projection-run');
+  assert.equal(inserted.params[2], true, 'ok: every unit (one league) succeeded');
   const detail = JSON.parse(inserted.params[3]);
+  assert.equal(detail.leagueId, 1);
   assert.equal(detail.weeksGenerated, 1);
   assert.equal(detail.weeksSkipped, 0);
-  assert.equal(detail.leagues, 1);
 });
 
-test('tickUnlocked runs the nightly projection fill right after the holdout snapshot pass, in its own containment', () => {
+test('tickUnlocked runs the nightly projection fill LAST, after every time-sensitive duty, in its own containment (#1305 f2)', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
@@ -1246,7 +1273,13 @@ test('tickUnlocked runs the nightly projection fill right after the holdout snap
     source.indexOf('async function runRetention')
   );
   assert.match(tickBody, /try \{\s*await runNightlyProjectionFill\(\);\s*\} catch/);
-  const holdoutAt = tickBody.indexOf('runHoldoutSnapshots();');
-  const fillAt = tickBody.indexOf('runNightlyProjectionFill();');
-  assert.ok(holdoutAt !== -1 && fillAt !== -1 && holdoutAt < fillAt, 'holdout runs before the fill, never after');
+  const fillAt = tickBody.indexOf('await runNightlyProjectionFill();');
+  const retentionAt = tickBody.indexOf('await runRetention();');
+  const waiversAt = tickBody.indexOf('processAllDueWaivers()');
+  const tradesAt = tickBody.indexOf('processDueTrades()');
+  const lastTickErrorAt = tickBody.indexOf('lastTickError = null;');
+  assert.ok(fillAt !== -1 && retentionAt !== -1, 'both calls are present');
+  assert.ok(retentionAt < fillAt, 'the fill runs beside runRetention, the other once-a-day housekeeping pass, never ahead of it');
+  assert.ok(waiversAt < fillAt && tradesAt < fillAt, 'every time-sensitive duty (waivers, trades, ...) runs before the fill, never after');
+  assert.ok(fillAt < lastTickErrorAt, 'the fill is the LAST duty in the tick');
 });
