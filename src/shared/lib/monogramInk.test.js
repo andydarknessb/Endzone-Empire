@@ -1,5 +1,5 @@
 import { monogramInk } from './monogramInk';
-import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
+import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../lib/nflTeamColors';
 
 test('white ink for a jersey that clears 4.5:1 against white', () => {
   expect(monogramInk(NFL_TEAM_COLORS.DET.jersey)).toBe('#ffffff');

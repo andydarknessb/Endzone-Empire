@@ -2,7 +2,7 @@ import React from 'react';
 import { Avatar, Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
-import { formatPoints, initialsFor, unavailableLabel } from '../../../shared/lib';
+import { formatPoints, initialsFor, monogramInk, unavailableLabel } from '../../../shared/lib';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
 import PlayerNameLink from '../../../components/PlayerQuickView/PlayerNameLink';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
@@ -133,19 +133,21 @@ function EdgeLine({ edge, gameCellKind }) {
 
 // The player's avatar: initials on the NFL team's jersey colour (CONTEXT.md's
 // Ledger row, "avatar with the NFL team colour"). No photo plumbing on this
-// endpoint yet, matching the entity's own scope. The label ink is the design
-// system's `text-inverse` token (src/theme/tokens.js) - the same token
-// PosChip already paints its own label on a solid fill with - not a literal:
-// `src/lib/nflTeamColors.js` is the one file the color-literals guard
-// allowlists for real NFL hex values (external data), and this file is not
-// it, so the background alone stays a raw hex value from that lookup while
-// the text on top of it goes through a token.
+// endpoint yet, matching the entity's own scope. The label ink is
+// `monogramInk(kit.jersey)` (`shared/lib`, #1301/#1317), not a themed token: a
+// themed token is the wrong ink for a background the theme does not change -
+// `kit.jersey` is a real external NFL brand color
+// (`src/lib/nflTeamColors.js`, the one file the color-literals guard
+// allowlists for real NFL hex values) that stays the same fixed hex across
+// light and dark mode, so the ink drawn on it has to stay fixed alongside it
+// too. The themed text-inverse token this replaces failed 29 of 32 jerseys
+// below 4.5:1 in dark mode before this fix.
 function PlayerAvatar({ name, nflTeam }) {
   const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
   return (
     <Avatar
       aria-hidden="true"
-      sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: 'var(--text-inverse)' }}
+      sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
     >
       {initialsFor(name)}
     </Avatar>

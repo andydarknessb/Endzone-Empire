@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { getTeamKit } from '../../../lib/nflTeamColors';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { getTeamName } from '../lib/teamNames';
-import { monogramInk } from '../lib/monogramInk';
+import { monogramInk } from '../../../shared/lib';
 
 /**
  * pick-winner feature (#1265, ADR 0038 "What to build"): one team's row on a

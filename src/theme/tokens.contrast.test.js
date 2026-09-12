@@ -1,7 +1,7 @@
 import { colorTokens, scaleTokens } from './tokens';
 import { contrastRatio } from './contrast';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../lib/nflTeamColors';
-import { monogramInk } from '../features/pick-winner/lib/monogramInk';
+import { monogramInk } from '../shared/lib/monogramInk';
 
 // WCAG 2.1 AA thresholds: 4.5:1 for normal body text, 3:1 for large text and
 // UI component text (e.g. button labels). Each pairing below is a
@@ -510,13 +510,15 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
 //
 // Per ADR 0010 ("A green check certifies exactly what that check reads, and
 // nothing adjacent"), this is not a blanket certification of every
-// `kit.jersey` consumer: at least
-// two others (`LedgerRow.jsx`'s `PlayerAvatar`, `PlayerDecisionCard.jsx`)
-// paint text on the same external table using a themed `text-inverse`
-// token rather than `monogramInk`, and are outside this ticket's scope -
-// surfaced to the project lead rather than folded in here silently. The
-// next external palette (a sponsor table, an opponent kit) gets its own
-// lane by adding to this map.
+// `kit.jersey` consumer - only of `monogramInk` itself. `LedgerRow.jsx`'s
+// `PlayerAvatar` and `PlayerDecisionCard.jsx`'s `HeaderAvatar` both call
+// `monogramInk(kit.jersey)` too (#1317, the second and third consumers that
+// triggered this function's promotion to `shared/lib`), but each component's
+// own test file (`LedgerRow.test.jsx`, `PlayerDecisionCard.test.jsx`) is what
+// pins IT to actually calling `monogramInk`, the same division of labour
+// `TeamPickButton.test.jsx` already has with this lane. The next external
+// palette (a sponsor table, an opponent kit) gets its own lane by adding to
+// this map.
 describe('external color data: monogram ink on kit.jersey', () => {
   const jerseysByLabel = {
     ...NFL_TEAM_COLORS,
