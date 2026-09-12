@@ -76,11 +76,13 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
         // omitting `entry` used to fail OPEN, re-enabling a locked
         // candidate's own Swap. (Omitting only `bestBall`/`leagueUnsettled`
         // with `entry` still supplied is NOT the same failure: those two
-        // just drop their own two refusals - `isEligibleMove`'s candidate-
+        // just drop their own guard clauses - `isEligibleMove`'s candidate-
         // lock check, `locked(targetEntry)`, is unconditional and always
         // refuses a locked candidate regardless of what else is omitted.)
         // The candidate's own lock is the floor when `entry` itself is
-        // absent, matching what `isEligibleMove` would enforce anyway.
+        // absent; `isEligibleMove` would refuse outright there (its own
+        // `!selectedEntry` guard), so this fallback is deliberately more
+        // permissive than a call would be, not equivalent to one.
         swapEligible: entry
           ? isEligibleMove({ selectedEntry: entry, targetEntry: candidate, targetSlot: slot, bestBall, leagueUnsettled })
           : !candidateLocked,
