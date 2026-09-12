@@ -38,16 +38,21 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * warning threshold (three or more byes), not at two (CONTEXT.md's Bye
  * cluster: two is merely notable).
  *
+ * `scoreEvent` (#1241 AC2): the page's own live-scores read (`useLiveScores`),
+ * passed straight through to `useTeamSummaryStrip` so the strip's live
+ * totals move with the same scores socket the Ledger's points cell does.
+ *
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens already
  * registered in tokens.contrast.test.js (the stat-tile faint/ink pair, the
  * card surface, the Badge `danger` variant's tint pair).
  */
-export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, advice, worstByeCluster }) {
+export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, advice, worstByeCluster, scoreEvent }) {
   const { status, viewer, opponent, winProbability, lockedStarters, totalStarters } = useTeamSummaryStrip({
     leagueId,
     week,
     viewerTeamId,
     lineup,
+    scoreEvent,
   });
 
   const suggestionCount = Array.isArray(advice?.suggestions) ? advice.suggestions.length : 0;

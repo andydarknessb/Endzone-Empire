@@ -177,3 +177,30 @@ test('no worst cluster at all renders no attention row', async () => {
   await screen.findByTestId('strip-advice');
   expect(screen.queryByTestId('strip-attention')).not.toBeInTheDocument();
 });
+
+// #1241 AC2: a socket score update moves the strip's own totals, the same
+// scores:updated feed the Ledger's points cell reads (entities/matchup's
+// applyScoreEvent, applied by useTeamSummaryStrip).
+test('a scoreEvent prop patches the score/projected figures on top of the list read', async () => {
+  mockGetByUrl({
+    [LIST_URL]: {
+      data: [row({ home_expected_final: '95.4', away_expected_final: '88.1' })],
+    },
+  });
+  renderStrip({
+    lineup: lineup([]),
+    scoreEvent: { scored: [{ matchupId: 55, homeScore: 14, awayScore: 7 }] },
+  });
+  expect(await screen.findByTestId('strip-score')).toHaveTextContent('14.0 / 95.4');
+});
+
+// An event for a different matchup is a no-op (entities/matchup's own
+// applyScoreEvent contract).
+test('a scoreEvent for a different matchup never patches this one', async () => {
+  mockGetByUrl({ [LIST_URL]: { data: [row({ home_expected_final: '95.4' })] } });
+  renderStrip({
+    lineup: lineup([]),
+    scoreEvent: { scored: [{ matchupId: 999, homeScore: 14, awayScore: 7 }] },
+  });
+  expect(await screen.findByTestId('strip-score')).toHaveTextContent('0.0 / 95.4');
+});

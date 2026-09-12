@@ -154,11 +154,11 @@ test('a final Game cell shows the final score', () => {
   expect(cell).toHaveTextContent('Final 27-20');
 });
 
-test('a live Game cell shows the clock and score (placeholder, no situation)', () => {
+test('a live Game cell shows the clock and score, points in the live colour, and no Situation line when the row carries none', () => {
   render(
     <LedgerRow
       slotLabel="QB"
-      entry={entry()}
+      entry={entry({ points: 12.4 })}
       liveRow={{
         game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
         current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
@@ -171,6 +171,73 @@ test('a live Game cell shows the clock and score (placeholder, no situation)', (
   expect(cell).toHaveAttribute('data-game-state', 'live');
   expect(cell).toHaveTextContent('14-10');
   expect(cell).toHaveTextContent('Q2 4:15');
+  expect(screen.queryByTestId('ledger-situation-line')).toBeNull();
+  // #1241 AC2: the points cell paints in the live colour while the game is
+  // in progress.
+  expect(screen.getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-danger)' });
+});
+
+// #1241 AC1: the Situation line (possession, down/distance) renders under
+// the live state chip, with a red zone marker when the flag is set.
+test('a live Game cell with Situation data shows possession, down/distance and a red zone marker', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry()}
+      liveRow={{
+        game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+        current_score_home: 10, current_score_away: 14, quarter: 'Q2', time_remaining: '4:15',
+        possession: 'BUF', down_distance: '2nd & 7', is_red_zone: true,
+      }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  const situation = screen.getByTestId('ledger-situation-line');
+  expect(situation).toHaveTextContent('BUF ball');
+  expect(situation).toHaveTextContent('2nd & 7');
+  expect(screen.getByTestId('ledger-red-zone-marker')).toBeInTheDocument();
+});
+
+// A null Situation (the poll landed before ESPN's own situation object did)
+// renders no line at all - never the literal word "null" - and no red zone
+// marker.
+test('a live Game cell with a null Situation renders no Situation line and no "null" text', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry()}
+      liveRow={{
+        game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+        current_score_home: 0, current_score_away: 0, quarter: null, time_remaining: null,
+      }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.queryByTestId('ledger-situation-line')).toBeNull();
+  expect(screen.queryByTestId('ledger-red-zone-marker')).toBeNull();
+  expect(screen.getByTestId('row')).not.toHaveTextContent('null');
+});
+
+// A pre-kickoff or final Game cell never paints the points cell in the live
+// colour, even when the wire happens to carry a points value.
+test('a pre-kickoff Game cell keeps the points cell in the faint colour, never the live colour', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-faint)' });
+});
+
+test('a final Game cell keeps the points cell in the faint colour, not the live colour', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry({ points: 27 })}
+      liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-points')).toHaveStyle({ color: 'var(--dash-faint)' });
 });
 
 test('the Edge line renders the server-computed kind and text', () => {
@@ -190,6 +257,39 @@ test('the Edge line renders the server-computed kind and text', () => {
 test('an edge of kind "none" renders no Edge line', () => {
   render(<LedgerRow slotLabel="QB" entry={entry({ edge: { kind: 'none', text: null } })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-edge-line')).toBeNull();
+});
+
+// #1241 AC3: a server-computed "pace" kind transitions to "result" the
+// instant the Realtime live game row reads final, even though the server's
+// own edge text (still "pace"-flavoured here) has not been refetched yet -
+// the cell must never show a stale kind.
+test('a "pace" Edge line displays as "result" once the Game cell reads final, without waiting for a refetch', () => {
+  render(
+    <LedgerRow
+      slotLabel="RB"
+      entry={entry({ edge: { kind: 'pace', text: '62% of projection so far' } })}
+      liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-edge-line')).toHaveAttribute('data-edge-kind', 'result');
+});
+
+// A higher-priority kind (injury, bench-above-starter, factor) is a fact
+// about the player, not the game clock, and is never overridden by the live
+// game state.
+test('an "injury" Edge line is never overridden by the live game state', () => {
+  render(
+    <LedgerRow
+      slotLabel="RB"
+      entry={entry({ edge: { kind: 'injury', text: 'Questionable: ankle' } })}
+      liveRow={{ game_status: 'final', home_team: 'KC', away_team: 'BUF', current_score_home: 20, current_score_away: 27 }}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-edge-line')).toHaveAttribute('data-edge-kind', 'injury');
 });
 
 test('an IR row with an attested stash shows the ATTESTED indicator', () => {
