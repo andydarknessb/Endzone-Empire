@@ -1,5 +1,5 @@
 import { useEndpoint, matchupWinProbability, finite } from '../../../shared/lib';
-import { matchupFromListRow } from '../../../entities/matchup';
+import { matchupFromListRow, applyScoreEvent } from '../../../entities/matchup';
 
 /**
  * Data model for the team-summary-strip widget (#1237 AC4): "live score
@@ -33,16 +33,33 @@ import { matchupFromListRow } from '../../../entities/matchup';
  * ac1-widgets-reach-below-the-island): a League is a domain concept, and
  * ADR 0029's below-island exception is for plumbing with no domain meaning,
  * not for a second reach at the same league row the page already holds.
+ *
+ * `scoreEvent` (#1241 AC2, ADR 0037 ticket 9) is the page's own
+ * `useLiveScores` read of the scores socket - the same "value two widgets
+ * both need is passed down by the page" rule this widget already follows
+ * for `lineup`. It is the whole `scores:updated` payload, applied here
+ * through `entities/matchup`'s own `applyScoreEvent` (never re-derived) onto
+ * the Matchup this widget already reads from the list, so the live score,
+ * Expected final and win probability all move together, the same figures
+ * the Ledger's points cell moves with. The list read never polls on its
+ * own, so reapplying the latest event on top of a freshly-derived Matchup
+ * every render is always safe: `applyScoreEvent` sets each side's absolute
+ * score rather than accumulating a delta, so it is idempotent regardless of
+ * how many renders replay it.
  */
-export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup }) {
+export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scoreEvent }) {
   const listUrl = leagueId != null && week != null ? `/api/league/${leagueId}/matchups?week=${week}` : null;
   const list = useEndpoint(listUrl);
 
   const rows = Array.isArray(list.data) ? list.data.map(matchupFromListRow) : [];
-  const myMatchup =
+  const myMatchupFromList =
     viewerTeamId != null
       ? rows.find((m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)) || null
       : null;
+  const scoredEntry = scoreEvent && myMatchupFromList
+    ? (scoreEvent.scored || []).find((s) => s.matchupId === myMatchupFromList.id)
+    : null;
+  const myMatchup = scoredEntry ? applyScoreEvent(myMatchupFromList, scoredEntry) : myMatchupFromList;
   const opponentId = myMatchup
     ? myMatchup.home.teamId === viewerTeamId
       ? myMatchup.away.teamId
