@@ -1,0 +1,20 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "title": "Decision card · waivers context · desktop drawer 560", "x": 0, "y": 0, "w": 560, "h": 1160 },
+    { "file": "Mobile.dc.html", "title": "Decision card · waivers context · phone sheet 390", "x": 700, "y": 0, "w": 390, "h": 844, "expand": "fill" },
+    { "file": "AltTabs.dc.html", "title": "Option B · tabbed card (low-fi)", "x": 1190, "y": 0, "w": 600, "h": 760 },
+    { "file": "CardStates.dc.html", "title": "Card action bar · free agent, waivers, rostered, my team", "x": 1190, "y": 900, "w": 600, "h": 760 },
+    { "file": "Players.dc.html", "title": "Players list · all availability states 1080", "x": 0, "y": 1320, "w": 1080, "h": 600 },
+    { "file": "Row.dc.html", "title": "Waiver list rows · desktop 1080", "x": 0, "y": 2040, "w": 1080, "h": 460 },
+    { "file": "RowMobile.dc.html", "title": "List rows · phone 390", "x": 1190, "y": 2040, "w": 390, "h": 640 },
+    { "file": "Plan.dc.html", "title": "Plan · FSD slices and data flow", "x": 0, "y": 2840, "w": 1180, "h": 900 }
+  ],
+  "annotations": [
+    { "id": "brief", "x": 0, "y": -260, "w": 560, "text": "Decision card, availability contexts · for waiver and free agent decisions (grilled 2026-09-12: one card on every surface but the Draft room)\n\nMatched the app: Inter, tokens.js light and dark palettes, radius 10 and 16, pill chips at weight 600, MUI Button 40 px, position colors, the accent table header from PlayerQuickView. Width 560 matches the shipped Decision card.\n\nRecommended: Main (desktop) and the phone sheet, one scroll, decision first. Option B is a low-fi alternate. Static mockups; the theme chip above Main flips dark mode." },
+    { "id": "decision-strip", "x": 700, "y": 900, "w": 380, "text": "Decision strip order is deliberate: this week, rest of season, rostered trend, depth chart, upgrade over your weakest starter, usage. Upgrade is the only highlighted tile because it is the number a manager acts on.\n\nSample values throughout; ranks and points are illustrative, not real data." },
+    { "id": "players-list", "x": 1190, "y": 1720, "w": 420, "text": "Free agents and all players\n\nToday /player is the only list: Pos rank, ADP, pool projection, a state chip, and Add, Claim, Lineup or a disabled Rostered button. The redesign keeps that one list and makes state do the work: a segmented availability control, a Status column with the owning team, and an action that follows the state (Add, Claim, Trade, Lineup). Rostered players get a Trade button that opens Trade Center prefilled, which does not exist today." },
+    { "id": "data-gaps", "x": 1190, "y": 2840, "w": 420, "text": "What the repo cannot show today\n\n1. Rostered % and 7 day change: no ownership data anywhere. Plan pulls ESPN fantasy ownership daily.\n2. Depth chart rank: not stored. ESPN depth charts per team.\n3. Age, height, college, draft: not stored. ESPN athlete v3 by espn_id (Tank01 already provides espnID).\n4. Weekly bars for every remaining week: projections are computed lazily per requested week, so a nightly run for weeks W to 18 is needed.\n5. Owning team on a rostered player: the players route returns only availability.state; add teamId and team name.\n6. Snap and target share: Tank01 or nflverse weekly stats; keep it last, it is nice to have." },
+    { "id": "espn-caveat", "x": 1190, "y": 3260, "w": 420, "text": "ESPN endpoints are unofficial and keyless. Call them server side only (the scoreboard already does), cache hard, and fall back to stored Tank01 fields when they 403. Never call from the browser; never through tank01Client." }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    body { margin: 0; font-family: "Inter", "Roboto", "Helvetica", "Arial", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; } a:hover { color: var(--accent-hover); text-decoration: underline; }
+    .num { font-variant-numeric: tabular-nums; }
+    .bar:hover { filter: brightness(1.12); }
+  </style>
+</helmet>
+<div style="{{ vars }}; width: 560px; min-height: 1160px; background: var(--surface); color: var(--text-primary); display: flex; flex-direction: column; font-size: 14px; line-height: 1.55; box-sizing: border-box; position: relative; border-radius: 16px; border: 1px solid var(--border-subtle); box-shadow: var(--shadow-3); overflow: hidden;">
+
+  <div style="display: flex; flex-direction: row; align-items: flex-start; gap: 16px; padding: 24px 24px 0 24px;">
+    <div aria-hidden="true" style="width: 72px; height: 72px; border-radius: 999px; background: var(--pos-wr); color: var(--text-inverse); display: flex; align-items: center; justify-content: center; font-size: 28.8px; font-weight: 600; flex-shrink: 0;">JJ</div>
+    <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0;">
+      <div style="display: flex; flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 1.125rem; line-height: 1.35; font-weight: 700;">Jauan Jennings</h2>
+        <span style="color: var(--text-muted); font-weight: 600;">#15</span>
+        <span style="margin-left: auto; font-size: 0.75rem; color: var(--text-muted);">On waivers · clears Wed 3:00 AM</span>
+      </div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; background: var(--pos-wr); color: var(--text-inverse); font-size: 0.8125rem; font-weight: 600;">WR</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 4px; border-radius: 999px; border: 1px solid var(--border-strong); font-size: 0.8125rem; font-weight: 600;"><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 999px; background: #aa0000; display: inline-block;"></span>SF</span>
+        <span aria-label="Injury status: questionable" style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; background: var(--warning); color: var(--text-inverse); font-size: 0.8125rem; font-weight: 600;">Q</span>
+        <span style="font-size: 0.8125rem; color: var(--text-muted);">Bye 14</span>
+      </div>
+      <div style="font-size: 0.8125rem; color: var(--text-muted); display: flex; flex-direction: row; gap: 6px; flex-wrap: wrap;">
+        <span>29 yrs</span><span aria-hidden="true">·</span><span>6 ft 3</span><span aria-hidden="true">·</span><span>212 lb</span><span aria-hidden="true">·</span><span>7th season</span><span aria-hidden="true">·</span><span>Tennessee</span><span aria-hidden="true">·</span><span>2020 Rd 7</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 20px 24px 0 24px;">
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--surface-sunken);">
+      <span style="font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);">Proj · Wk 2</span>
+      <span class="num" style="font-size: 1.375rem; font-weight: 700; line-height: 1.2;">12.8</span>
+      <span style="font-size: 0.75rem; color: var(--text-muted);">vs DAL · 24th vs WR</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--surface-sunken);">
+      <span style="font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);">Rest of season</span>
+      <span class="num" style="font-size: 1.375rem; font-weight: 700; line-height: 1.2;">176</span>
+      <span style="font-size: 0.75rem; color: var(--text-muted);">WR28 · 11.8 per game</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--surface-sunken);">
+      <span style="font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);">Ownership</span>
+      <span class="num" style="font-size: 1.375rem; font-weight: 700; line-height: 1.2;">41%</span>
+      <span class="num" style="font-size: 0.75rem; color: var(--success); font-weight: 600;">+18.2 this week</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--surface-sunken);">
+      <span style="font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);">Depth chart</span>
+      <span class="num" style="font-size: 1.375rem; font-weight: 700; line-height: 1.2;">WR2</span>
+      <span style="font-size: 0.75rem; color: var(--text-muted);">behind Aiyuk · ahead of Pearsall</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--accent-soft); border: 1px solid var(--accent);">
+      <span style="font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);">Lineup upgrade</span>
+      <span class="num" style="font-size: 1.375rem; font-weight: 700; line-height: 1.2; color: var(--success);">+4.1</span>
+      <span style="font-size: 0.75rem; color: var(--text-muted);">over Josh Palmer at FLEX</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 10px; background: var(--surface-sunken);">
+      <span style="font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);">Usage · Wk 1</span>
+      <span class="num" style="font-size: 1.375rem; font-weight: 700; line-height: 1.2;">8 tgt</span>
+      <span style="font-size: 0.75rem; color: var(--text-muted);">24% target share · 3 wk avg 7.3</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 12px; margin: 20px 24px 0 24px; padding: 16px; border-radius: 10px; border: 1px solid var(--border-subtle);">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <span style="font-weight: 600; font-size: 0.9375rem;">Weekly points</span>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 12px; margin-left: auto; font-size: 0.75rem; color: var(--text-muted);">
+        <span style="display: inline-flex; align-items: center; gap: 6px;"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: var(--chart-actual); display: inline-block;"></span>Actual</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px;"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: var(--chart-proj); display: inline-block;"></span>Projected</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px;"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; border: 1px dashed var(--border-strong); display: inline-block; box-sizing: border-box;"></span>Bye</span>
+      </div>
+    </div>
+    <div style="position: relative; display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); gap: 4px; align-items: end; height: 96px; border-bottom: 1px solid var(--border-subtle);">
+      <sc-for list="{{ weeks }}" as="wk" hint-placeholder-count="18">
+        <div style="display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; height: 96px; position: relative;">
+          <sc-if value="{{ wk.isNow }}" hint-placeholder-val="{{ false }}">
+            <div role="tooltip" style="position: absolute; bottom: 100%; left: 50%; transform: translateX(-30%); margin-bottom: 6px; padding: 6px 8px; border-radius: 6px; background: var(--text-primary); color: var(--surface); font-size: 0.6875rem; line-height: 1.3; white-space: nowrap; box-shadow: var(--shadow-2); z-index: 2;"><strong>Wk 2 vs DAL</strong><br>12.8 projected · 24th vs WR</div>
+          </sc-if>
+          <sc-if value="{{ wk.isBye }}" hint-placeholder-val="{{ false }}">
+            <div title="Week 14 · bye" style="height: 96px; border-radius: 4px 4px 0 0; border: 1px dashed var(--border-strong); border-bottom: none; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 0.5625rem; font-weight: 600; color: var(--text-muted); writing-mode: vertical-rl;">BYE</div>
+          </sc-if>
+          <sc-if value="{{ wk.hasBar }}" hint-placeholder-val="{{ true }}">
+            <div class="bar" title="{{ wk.title }}" style="height: {{ wk.h }}px; border-radius: 4px 4px 0 0; background: {{ wk.bg }}; outline: {{ wk.ring }};"></div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); gap: 4px; margin-top: -6px;">
+      <sc-for list="{{ weeks }}" as="wk" hint-placeholder-count="18">
+        <span class="num" style="font-size: 0.625rem; text-align: center; color: {{ wk.labelColor }}; font-weight: {{ wk.labelWeight }};">{{ wk.w }}</span>
+      </sc-for>
+    </div>
+    <span style="font-size: 0.6875rem; color: var(--text-muted);">Endzone Forecast weekly projections under this league's scoring · Wk 1 actual 16.4 · hover a bar for opponent and rank</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 20px 24px 0 24px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span style="font-weight: 600; font-size: 0.9375rem;">Latest</span>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 0.875rem; font-weight: 600; line-height: 1.4; text-wrap: pretty;">Jennings (ankle) full participant Friday, expected to play Sunday</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">ESPN · 2h ago</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 0.875rem; font-weight: 600; line-height: 1.4; text-wrap: pretty;">Led 49ers with 8 targets in the Week 1 win at Seattle</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">ESPN · 5d ago</span>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <span style="font-weight: 600; font-size: 0.9375rem;">Injury report</span>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: var(--surface-sunken);">
+        <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
+          <span aria-label="Injury status: questionable" style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; background: var(--warning); color: var(--text-inverse); font-size: 0.8125rem; font-weight: 600;">Q</span>
+          <span style="font-weight: 600;">Ankle</span>
+        </div>
+        <span style="font-size: 0.8125rem; color: var(--text-muted);">Full practice Fri · Expected back Wk 2</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">Updated Sep 11, 4:10 PM</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px; padding: 20px 24px 0 24px;">
+    <div style="display: flex; flex-direction: row; align-items: baseline; gap: 8px;">
+      <span style="font-weight: 600; font-size: 0.9375rem;">Game log</span>
+      <a href="#" style="margin-left: auto; font-size: 0.8125rem; font-weight: 600;">Full profile</a>
+    </div>
+    <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 72px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-subtle); font-size: 0.8125rem;">
+      <div style="padding: 8px 12px; background: var(--accent); color: var(--on-accent); font-weight: 700;">Week</div>
+      <div style="padding: 8px 12px; background: var(--accent); color: var(--on-accent); font-weight: 700;">Stat line</div>
+      <div style="padding: 8px 12px; background: var(--accent); color: var(--on-accent); font-weight: 700; text-align: right;">Pts</div>
+      <div class="num" style="padding: 8px 12px;">1 @ SEA</div>
+      <div style="padding: 8px 12px;">5 rec · 68 yds · 1 TD</div>
+      <div class="num" style="padding: 8px 12px; text-align: right; font-weight: 600;">16.4</div>
+      <div class="num" style="padding: 8px 12px; background: var(--row-stripe); color: var(--text-muted);">2025</div>
+      <div style="padding: 8px 12px; background: var(--row-stripe); color: var(--text-muted);">17 G · 77 rec · 975 yds · 6 TD</div>
+      <div class="num" style="padding: 8px 12px; background: var(--row-stripe); text-align: right; font-weight: 600; color: var(--text-muted);">11.2 / G</div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: auto; padding: 16px 24px; border-top: 1px solid var(--border-subtle); background: var(--surface);">
+    <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: none; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Claim · bid $</button>
+    <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Watch</button>
+    <button type="button" style="height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: transparent; color: var(--accent); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Compare</button>
+    <span class="num" style="margin-left: auto; font-size: 0.75rem; color: var(--text-muted);">FAAB left $62 · priority #4</span>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Theme"},"$preview":{"width":560,"height":1160}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = (this.props.theme ?? 'light') === 'dark';
+    const T = dark ? {
+      'bg-page':'#0f1419', surface:'#1a2129', 'surface-raised':'#222c37', 'surface-sunken':'#0b0f13',
+      'text-primary':'#e6edf3', 'text-muted':'#9aa7b4', 'text-inverse':'#0f1419',
+      'border-subtle':'#2a3441', 'border-strong':'#3a4756',
+      accent:'#7eaaff', 'accent-hover':'#a9c6ff', 'accent-soft':'rgba(126, 170, 255, 0.16)', 'on-accent':'#0b1220',
+      success:'#7ee2a8', danger:'#ff6b6b', warning:'#f0b34e',
+      'pos-wr':'#7fb0ff', 'row-stripe':'#1e2732',
+      'chart-proj':'#4f86d9', 'chart-actual':'#3aa870',
+      'shadow-2':'0 6px 16px rgba(0, 0, 0, 0.5)', 'shadow-3':'0 14px 32px rgba(0, 0, 0, 0.6)'
+    } : {
+      'bg-page':'#f4f6f8', surface:'#ffffff', 'surface-raised':'#ffffff', 'surface-sunken':'#eceff2',
+      'text-primary':'#1a2129', 'text-muted':'#586472', 'text-inverse':'#ffffff',
+      'border-subtle':'#dde2e7', 'border-strong':'#c3ccd4',
+      accent:'#1e5bb8', 'accent-hover':'#17498f', 'accent-soft':'rgba(30, 91, 184, 0.10)', 'on-accent':'#ffffff',
+      success:'#1b7d4f', danger:'#c62828', warning:'#8a5a00',
+      'pos-wr':'#1e5bb8', 'row-stripe':'#f7f9fb',
+      'chart-proj':'#1e5bb8', 'chart-actual':'#1b7d4f',
+      'shadow-2':'0 4px 12px rgba(16, 24, 32, 0.10)', 'shadow-3':'0 12px 28px rgba(16, 24, 32, 0.16)'
+    };
+    const vars = Object.entries(T).map(([k, v]) => `--${k}: ${v}`).join('; ');
+    const pts = [16.4, 12.8, 11.2, 13.5, 10.9, 12.1, 9.8, 11.6, 12.4, 10.2, 11.9, 13.1, 10.6, null, 12.2, 11.4, 12.7, 11.0];
+    const opp = ['@ SEA','vs DAL','@ ARI','vs LAR','vs GB','@ TB','vs ATL','@ NYG','vs CHI','@ LAR','vs SEA','@ CAR','vs ARI',null,'@ IND','vs TEN','@ DEN','vs LV'];
+    const now = 2;
+    const weeks = pts.map((v, i) => {
+      const w = i + 1;
+      const isBye = v === null;
+      const actual = w < now;
+      return {
+        w, isBye, hasBar: !isBye, isNow: w === now,
+        h: isBye ? 0 : Math.max(4, Math.round(v / 17 * 88)),
+        bg: actual ? T['chart-actual'] : T['chart-proj'],
+        ring: w === now ? `2px solid ${T['text-primary']}` : 'none',
+        title: isBye ? 'Week 14 · bye' : `Week ${w} ${opp[i]} · ${v} ${actual ? 'actual' : 'projected'}`,
+        labelColor: w === now ? T['text-primary'] : T['text-muted'],
+        labelWeight: w === now ? 700 : 400,
+      };
+    });
+    return { vars, weeks };
+  }
+}
+</script>
+</body>
+</html>
