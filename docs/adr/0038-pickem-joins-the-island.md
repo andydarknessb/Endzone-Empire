@@ -59,3 +59,14 @@ Archivo, which makes the app tokens the minority on league pages and brings
 the "merge or diverge" question in `tokens.js` closer; five new nullable
 columns and one JSON column on `live_game_states`; and the Pick'em week
 endpoint grows from four fields per game to a dozen, all optional.
+
+## Amendment (2026-09-12, #1279): the hourly run is the game-context job
+
+PR #1278 renamed the hourly run this ADR calls the Line Sync run: the job that
+writes Record, Venue and Broadcast is now the `game-context` job,
+`syncGameContext()` in `server/services/gameContextSync.service.js`. It is a
+separate hourly job from the Line's own Sync run (job `odds`, in
+`espnOdds.provider.js`), which keeps writing the Line as before; "game
+context" names the group of Record, Venue and Broadcast, not the glossary's
+Line. Which columns are written on the hourly cadence versus the
+thirty-second poll is unchanged from the ruling above.

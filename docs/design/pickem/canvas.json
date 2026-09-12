@@ -14,7 +14,7 @@
   "annotations": [
     { "id": "brief", "x": 0, "y": -340, "w": 520, "page": "screens", "text": "Pick'em redesign, 2026-09-11.\nMatches the League Dashboard / Game Center island: Barlow Condensed display, Archivo body, dash-* tokens, 14px card radius, 10px tile radius, 9px button radius.\nSlate is the real Week 1 2026 scoreboard. League picks, my picks, confidences and standings are SAMPLE values.\nClick a team on the desktop or phone board to pick it. Tweaks above each board switch light/dark and confidence/straight.\nRulings 2026-09-11: league picks reveal at lock only (a count before), Line and forecast reuse existing snapshots, no 'insight' or 'rank' vocabulary." },
     { "id": "mobile-note", "x": 1540, "y": -300, "w": 390, "page": "screens", "text": "Phone: teams stack into rows, the confidence chip moves down beside the pick count, and the save bar sticks to the bottom with the progress meter." },
-    { "id": "arch-note", "x": 1500, "y": 0, "w": 360, "page": "architecture", "text": "Server change: five nullable columns and one JSON column on the live game row, written by the hourly Line Sync run and the 30 s clock poll. The week endpoint exposes them as separate optional fields. The client never calls ESPN." }
+    { "id": "arch-note", "x": 1500, "y": 0, "w": 360, "page": "architecture", "text": "Server change: five nullable columns and one JSON column on the live game row, written by the hourly game-context run and the 30 s clock poll. The week endpoint exposes them as separate optional fields. The client never calls ESPN." }
   ],
   "launch": { "view": "canvas", "page": "screens" }
 }

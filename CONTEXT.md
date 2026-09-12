@@ -284,6 +284,17 @@ _Avoid_: stadium (fine in copy, not as the term), location
 The national network or service carrying an NFL game.
 _Avoid_: channel, TV, coverage
 
+**Linescore**:
+A side's points by period on the live game row, written once the game is
+final.
+_Avoid_: box score (the full stat line, not this), score (the running total,
+not the by-period breakdown)
+
+**Headline**:
+The scoreboard's one-line summary of a final game, written once the game is
+final.
+_Avoid_: summary, recap (implies prose, not the scoreboard's one line)
+
 **Implied team total**:
 The points a Line expects one team to score: half the total, plus or minus
 half the spread. Shown on the Decision card, never on a Ledger row.
