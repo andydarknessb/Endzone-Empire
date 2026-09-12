@@ -11,7 +11,10 @@ import { getTeamName } from '../lib/teamNames';
  * picked the one number that informs this pick), the FAV tag, and the
  * team's own trailing figure, which the caller supplies rather than this
  * component inferring: a radio dot before kickoff, a live/final score once
- * one exists (`score`).
+ * one exists (`score`). `won` borders a settled winner even when it was not
+ * the manager's pick; `dim` fades a settled loser regardless of whether it
+ * was picked - both are the caller's own settled-game facts, never derived
+ * here from `score` or `picked`.
  *
  * A real `<button>` for every state, per the acceptance criteria: its
  * accessible name is the team's full name (falling back to the Team code
@@ -35,6 +38,7 @@ export default function TeamPickButton({
   favorite = false,
   picked = false,
   won = false,
+  dim = false,
   disabled = false,
   score = null,
   scoreLost = false,
@@ -67,11 +71,11 @@ export default function TeamPickButton({
         width: '100%',
         p: '8px 10px',
         border: '1px solid',
-        borderColor: picked ? 'var(--dash-accent)' : 'var(--dash-line-strong)',
+        borderColor: picked ? 'var(--dash-accent)' : won ? 'var(--dash-away)' : 'var(--dash-line-strong)',
         borderRadius: '10px',
         backgroundColor: picked ? 'var(--dash-accent-soft)' : 'var(--dash-surface)',
         boxShadow: picked ? 'inset 0 0 0 1px var(--dash-accent)' : 'none',
-        opacity: disabled && !picked && !hasScore ? 0.7 : 1,
+        opacity: dim ? 0.7 : 1,
         font: 'inherit',
         textAlign: 'left',
         cursor: disabled ? 'default' : 'pointer',

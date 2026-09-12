@@ -70,6 +70,18 @@ test('carries the 44px minimum touch target at every width', () => {
   expect(button).toHaveStyle({ minHeight: '64px' });
 });
 
+test('a winning team is bordered even when it is not the pick', () => {
+  render(<TeamPickButton team="DET" fullName="Detroit Lions" won />);
+  expect(screen.getByRole('button', { name: 'Detroit Lions' })).toHaveStyle({
+    borderColor: 'var(--dash-away)',
+  });
+});
+
+test('a losing team dims regardless of whether it was picked', () => {
+  render(<TeamPickButton team="DET" fullName="Detroit Lions" picked dim score={7} />);
+  expect(screen.getByRole('button', { name: 'Detroit Lions' })).toHaveStyle({ opacity: 0.7 });
+});
+
 test('possession shows a decorative dot, absent otherwise', () => {
   const { rerender } = render(<TeamPickButton team="DET" fullName="Detroit Lions" possession />);
   expect(screen.getByTestId('possession-dot')).toBeInTheDocument();
