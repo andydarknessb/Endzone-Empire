@@ -18,7 +18,7 @@ import {
 // 0031's #1146 amendment) - the index would pull the whole kit, and
 // shared/lib's useEndpoint through it, into this bundle.
 import TeamAvatar from '../../shared/ui/TeamAvatar';
-import { usePickemStandings } from '../../hooks/usePickemStandings';
+import { usePickemStandings } from '../../entities/pickem-standings';
 import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
 
 /**

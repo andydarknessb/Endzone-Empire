@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import apiClient from '../../api/apiClient';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
-import { readHttpFailure } from '../../lib/httpFailure';
+import apiClient from '../../../api/apiClient';
+import { clearPickemStandingsCache } from '../../pickem-standings';
+import { readHttpFailure } from '../../../lib/httpFailure';
 
 /**
  * One week of Pick'em: the slate, my picks, and the picks of everyone else

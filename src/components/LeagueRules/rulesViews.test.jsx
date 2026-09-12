@@ -5,7 +5,7 @@ import RosterRulesView from './RosterRulesView';
 import WaiverTradeRulesView from './WaiverTradeRulesView';
 import PlayoffRulesView from './PlayoffRulesView';
 import PickemRulesView from './PickemRulesView';
-import { clearPickemSettingsCache, setPickemSettings } from '../../hooks/usePickemSettings';
+import { clearPickemSettingsCache, setPickemSettings } from '../../entities/pickem-game';
 
 // Each view's section titles are the level below "League Rules" (h4, in
 // LeagueRules.jsx) since none of these views nest a card or tab heading of

@@ -1,9 +1,9 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import apiClient from '../api/apiClient';
-import { invalidate } from '../lib/resourceCache';
+import apiClient from '../../../api/apiClient';
+import { invalidate } from '../../../lib/resourceCache';
 import { clearPickemStandingsCache, usePickemStandings } from './usePickemStandings';
 
-jest.mock('../api/apiClient', () => ({
+jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
 }));

@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { dropSessionCaches } from './sessionCaches';
 import { useLeague } from './hooks/useLeague';
-import { usePickemStandings } from './hooks/usePickemStandings';
+import { usePickemStandings } from './entities/pickem-standings';
 import { invalidate, setResource } from './lib/resourceCache';
 import apiClient from './api/apiClient';
 

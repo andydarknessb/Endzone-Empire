@@ -3,8 +3,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import { clearLeagueCache } from '../../hooks/useLeague';
-import { clearPickemStandingsCache } from '../../hooks/usePickemStandings';
-import { clearPickemSettingsCache } from '../../hooks/usePickemSettings';
+import { clearPickemStandingsCache } from '../../entities/pickem-standings';
+import { clearPickemSettingsCache } from '../../entities/pickem-game';
 import LeaguePickem from './LeaguePickem';
 import apiClient from '../../api/apiClient';
 
