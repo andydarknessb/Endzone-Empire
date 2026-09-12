@@ -140,8 +140,8 @@ function EdgeLine({ edge, gameCellKind }) {
 // (`src/lib/nflTeamColors.js`, the one file the color-literals guard
 // allowlists for real NFL hex values) that stays the same fixed hex across
 // light and dark mode, so the ink drawn on it has to stay fixed alongside it
-// too. `var(--text-inverse)` failed 29 of 32 jerseys below 4.5:1 in dark mode
-// (CHI, NO, PIT and HOU all under 1.1:1) before this fix.
+// too. The themed text-inverse token this replaces failed 29 of 32 jerseys
+// below 4.5:1 in dark mode before this fix.
 function PlayerAvatar({ name, nflTeam }) {
   const kit = NFL_TEAM_COLORS[nflTeam] || FALLBACK_KIT;
   return (

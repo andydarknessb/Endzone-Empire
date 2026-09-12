@@ -1,7 +1,11 @@
 import { contrastRatio } from '../../theme/contrast';
 
-// WCAG 1.4.3's normal-text threshold. The monogram glyph is 14px/700, below
-// the 18.66px bold cutoff for "large text", so 4.5:1 applies (issue #1301).
+// WCAG 1.4.3's normal-text threshold (4.5:1), applied uniformly to every
+// monogram site this helper serves - including PlayerDecisionCard's 20px/700
+// header avatar, which clears WCAG's own 18.66px bold "large text" cutoff and
+// so would only need 3:1 on its own. One rule for all three sites costs
+// nothing and keeps a single helper (issue #1301, promoted to shared/lib and
+// this rule confirmed for every consumer at #1317).
 const AA_TEXT = 4.5;
 
 const WHITE = '#ffffff';
