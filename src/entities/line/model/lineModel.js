@@ -12,6 +12,11 @@
  * week at all (a bye, or an unsynced slate) — the server's own distinction,
  * carried through unchanged.
  *
+ * This shape is read independently of `entities/pickem-game/model/gameDetailModel`'s
+ * own Weather read (CONTEXT.md, Weather; #1294, ADR 0038 amendment) — they
+ * mirror two different server contracts and converge only behind a shared
+ * wire shape, not here.
+ *
  * This module is pure: it imports nothing at all.
  */
 
