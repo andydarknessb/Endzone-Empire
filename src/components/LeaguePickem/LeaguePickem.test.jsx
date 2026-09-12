@@ -469,6 +469,41 @@ test('saving picks invalidates the cached standings so the Standings tab reflect
   await waitFor(() => expect(standingsCalls()).toHaveLength(2));
 });
 
+// #1264: the invalidation moved from usePickemWeek (entities/pickem-game)
+// into this page, the composer of both entities (sibling entities do not
+// import each other, ADR 0029). A rejected save - PICKEM_LOCKED, nothing
+// actually saved - must not clear a cache nothing changed.
+test('a rejected save does not invalidate the cached standings', async () => {
+  const user = userEvent.setup();
+  mockRequests();
+  apiClient.put.mockRejectedValue({
+    response: {
+      data: { error: 'those games have already kicked off', code: 'PICKEM_LOCKED', gameKeys: ['BUF|MIA'] },
+    },
+  });
+  renderPage();
+
+  await screen.findByRole('button', { name: 'BUF' });
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  await screen.findByRole('table', { name: 'Standings' });
+  expect(standingsCalls()).toHaveLength(1);
+
+  await user.click(screen.getByRole('tab', { name: 'Picks' }));
+  await user.click(await screen.findByRole('button', { name: 'BUF' }));
+  await user.click(screen.getAllByRole('button', { name: /Save picks/i })[0]);
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+
+  // A picked-but-unsaved board is dirty and normally parks navigation behind
+  // a discard confirmation; a PICKEM_LOCKED rejection is not that case here
+  // (it is orthogonal to the standings assertion), so clear it if it appears.
+  await user.click(screen.getByRole('tab', { name: 'Standings' }));
+  const dialog = screen.queryByRole('dialog', { name: /Discard unsaved picks/i });
+  if (dialog) await user.click(within(dialog).getByRole('button', { name: 'Discard picks' }));
+  await screen.findByRole('table', { name: 'Standings' });
+  // Still served from cache: nothing was saved, so nothing should invalidate.
+  expect(standingsCalls()).toHaveLength(1);
+});
+
 test('a deep link straight to the Standings tab requests once, with the league season, before the week view resolves', async () => {
   let resolveWeek;
   apiClient.get.mockImplementation((url) => {

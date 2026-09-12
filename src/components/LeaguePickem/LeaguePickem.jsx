@@ -125,6 +125,16 @@ export default function LeaguePickem() {
     { enabled: enabled && week != null }
   );
 
+  // usePickemWeek (entities/pickem-game) cannot clear the standings cache
+  // itself (entities/pickem-standings): sibling entities do not import each
+  // other (ADR 0029). This page composes both, so it does the invalidation
+  // here, only on an actual save (a PICKEM_LOCKED rejection saved nothing).
+  const handleSavePicks = async (picks) => {
+    const result = await savePicks(picks);
+    if (result.ok) clearPickemStandingsCache(leagueId);
+    return result;
+  };
+
   const handleSaveSettings = async (patch) => {
     setSavingSettings(true);
     setSettingsSaveError(null);
@@ -258,7 +268,7 @@ export default function LeaguePickem() {
         view={data}
         saving={saving}
         saveError={saveError}
-        onSave={savePicks}
+        onSave={handleSavePicks}
         onDirtyChange={onDirtyChange}
       />
     );
