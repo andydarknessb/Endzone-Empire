@@ -91,8 +91,12 @@ test('confidence stays disabled until a team is picked for that game (#1327)', (
       totalManagers={10}
     />
   );
-  const combobox = screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' });
+  const combobox = screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN, pick a team first' });
   expect(combobox).toHaveAttribute('aria-disabled', 'true');
+  // A disabled MUI trigger drops out of tab order entirely (no tabindex),
+  // not merely announced as disabled - the keyboard-reachability half of
+  // this gate, not just its ARIA half (#1327 risk review).
+  expect(combobox).not.toHaveAttribute('tabindex');
 
   rerender(
     <GameCard
@@ -102,7 +106,9 @@ test('confidence stays disabled until a team is picked for that game (#1327)', (
       totalManagers={10}
     />
   );
-  expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).not.toHaveAttribute('aria-disabled');
+  const enabledCombobox = screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' });
+  expect(enabledCombobox).not.toHaveAttribute('aria-disabled');
+  expect(enabledCombobox).toHaveAttribute('tabindex', '0');
 });
 
 test('state 3: picked, straight-up mode - no confidence chip', () => {

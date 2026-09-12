@@ -93,7 +93,12 @@ export default function GameCard({
             // title-less Card (deliberately not an announced landmark,
             // shared/ui/Card.jsx) and the combobox precedes both team buttons
             // in reading order (accessibility risk review, #1265).
-            aria-label={`Confidence for ${awayTeam} at ${homeTeam}`}
+            //
+            // #1327 risk review: disabling this control before a team is
+            // picked (below) is otherwise silent - no lock badge explains it
+            // the way the live-phase "Locked" chip does - so the name says
+            // why while that's the reason.
+            aria-label={`Confidence for ${awayTeam} at ${homeTeam}${!view.lock && view.myPick == null ? ', pick a team first' : ''}`}
           />
         )}
       </Box>
