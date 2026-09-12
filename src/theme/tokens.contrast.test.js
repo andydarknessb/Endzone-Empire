@@ -1,5 +1,7 @@
 import { colorTokens, scaleTokens } from './tokens';
 import { contrastRatio } from './contrast';
+import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../lib/nflTeamColors';
+import { monogramInk } from '../features/pick-winner/lib/monogramInk';
 
 // WCAG 2.1 AA thresholds: 4.5:1 for normal body text, 3:1 for large text and
 // UI component text (e.g. button labels). Each pairing below is a
@@ -489,6 +491,31 @@ describe.each(['light', 'dark'])('%s theme contrast', (mode) => {
       const over = backdrop === undefined ? undefined : tokens[backdrop] ?? backdrop;
       const ratio = contrastRatio(tokens[fg], tokens[bg], over);
       expect(ratio).toBeGreaterThanOrEqual(min);
+    }
+  );
+});
+
+// External-data lane (issue #1301, ADR 0010): every PAIRINGS row above
+// resolves its background through this file's own `tokens` map, so a
+// pairing whose background comes from an external table - a brand color this
+// app does not control - has no lane at all. `NFL_TEAM_COLORS` (plus its
+// `FALLBACK_KIT`) is exactly that: the Pick'em team monogram
+// (`TeamPickButton.jsx`) paints `monogramInk(jersey)` on `kit.jersey`, and
+// this describe is the guard for that pairing, theme-independent since both
+// colors are fixed literals rather than `--dash-*` tokens. The next external
+// palette (a sponsor table, an opponent kit) gets the same lane by adding to
+// this map, per ADR 0010: the convention ships with its consumer.
+describe('external color data: monogram ink on kit.jersey', () => {
+  const jerseysByLabel = {
+    ...NFL_TEAM_COLORS,
+    FALLBACK_KIT: FALLBACK_KIT,
+  };
+
+  test.each(Object.entries(jerseysByLabel))(
+    "monogramInk clears AA (4.5:1) on %s's jersey",
+    (_label, kit) => {
+      const ink = monogramInk(kit.jersey);
+      expect(contrastRatio(ink, kit.jersey)).toBeGreaterThanOrEqual(AA_TEXT);
     }
   );
 });
