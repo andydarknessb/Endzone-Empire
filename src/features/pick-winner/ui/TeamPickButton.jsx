@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { getTeamKit } from '../../../lib/nflTeamColors';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { getTeamName } from '../lib/teamNames';
 
 /**
  * pick-winner feature (#1265, ADR 0038 "What to build"): one team's row on a
@@ -41,7 +42,8 @@ export default function TeamPickButton({
   onSelect,
   'data-testid': testId,
 }) {
-  const label = fullName || team;
+  const resolvedFullName = fullName || getTeamName(team);
+  const label = resolvedFullName || team;
   const kit = getTeamKit(team);
   const hasScore = score != null;
 
@@ -147,7 +149,7 @@ export default function TeamPickButton({
             />
           )}
         </Typography>
-        {fullName && (
+        {resolvedFullName && (
           <Typography
             component="span"
             sx={{
@@ -158,7 +160,7 @@ export default function TeamPickButton({
               textOverflow: 'ellipsis',
             }}
           >
-            {fullName}
+            {resolvedFullName}
           </Typography>
         )}
         {record && (

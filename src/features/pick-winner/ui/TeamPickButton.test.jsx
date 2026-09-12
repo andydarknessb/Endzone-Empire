@@ -8,9 +8,14 @@ test('is a real button whose accessible name is the team\'s full name', () => {
   expect(screen.getByRole('button', { name: 'Detroit Lions' })).toBeInTheDocument();
 });
 
-test('falls back to the Team code when no full name is known', () => {
+test('derives the full name from the Team code when none is given', () => {
   render(<TeamPickButton team="DET" />);
-  expect(screen.getByRole('button', { name: 'DET' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Detroit Lions' })).toBeInTheDocument();
+});
+
+test('falls back to the bare Team code for an unrecognized one', () => {
+  render(<TeamPickButton team="ZZZ" />);
+  expect(screen.getByRole('button', { name: 'ZZZ' })).toBeInTheDocument();
 });
 
 test('clicking reports the team code', async () => {
