@@ -738,13 +738,30 @@ The player detail a manager opens from any surface that names a player: a
 drawer on desktop, a sheet on a phone. It carries the injury designation and
 detail, the game with implied team total and weather, the Weekly projection
 with its Floor and Ceiling, the largest Factor's explanation, Usage, Rest of
-season, Ownership, the eighteen-week bars, and an action bar that follows the
-player's Availability: bench options with Trade and Drop on your own player,
-Add, Claim or Propose trade on anyone else's. It replaces the player quick
-view on every surface but the Draft room, where quick view stays until a
-draft context exists (ADR 0040).
+season, Ownership, the Season summary for every season on record, the
+eighteen-week bars and game log for the season the manager picks, and an
+action bar that follows the player's Availability: bench options with Trade
+and Drop on your own player, Add, Claim or Propose trade on anyone else's. It
+replaces the player quick view on every surface but the Draft room, where
+quick view stays until a draft context exists (ADR 0040).
 _Avoid_: player drawer, player sheet, player card, quick view (outside the
 Draft room)
+
+**Season summary**:
+One season of a player in five numbers under this league's scoring: games,
+points per game, season points, position rank and ADP. The Decision card
+lists one per season on record, newest first, so a season in progress reads
+beside the finished ones in the same points. ADP is the draft market's
+number for that season and is not rescored; a season with no ADP on record
+shows none.
+_Avoid_: season stats (the raw stat line), career, totals
+
+**Season pick**:
+The season a manager has chosen on the Decision card, from a row of season
+chips under the Season summary; the eighteen-week bars and the game log
+follow it. The current season is picked when the card opens. A past season
+has actual weeks only.
+_Avoid_: season toggle, season tab, year filter
 
 **Usage**:
 A player's opportunity counts from the week stats feed, shown on the
@@ -901,6 +918,14 @@ over seven days. A fact about the wider fantasy world read from ESPN once a
 day, never about this league (ADR 0041).
 _Avoid_: rostered % (Rostered is a state here), percent owned (the field),
 popularity
+
+**In your leagues**:
+The block on a player's public profile that a signed-in manager sees and a
+visitor does not: one line per league the manager plays in whose rosters
+exist, naming the player's Availability there (on your team, Rostered by a
+named Team, Free agent, On waivers). A line opens the Decision card in that
+league's context; the profile itself offers no action.
+_Avoid_: owner line, who has him, league status
 
 **Upgrade**:
 The Weekly projection a player would add this week over the weakest starter
