@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardActions, Box, Typography, Chip, Avatar, Button, Stack, Tooltip } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { PlayerNameLink } from '../../entities/player';
 // Concrete module path, not the shared/ui barrel: a legacy consumer (ADR
 // 0031's #1146 amendment) - the index would pull the whole kit, and
 // shared/lib's useEndpoint through it, into this bundle.

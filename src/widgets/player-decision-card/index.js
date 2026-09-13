@@ -1,7 +1,8 @@
 /**
  * Public surface of the player-decision-card widget (#1240, ADR 0037; #1307,
- * ADR 0040 extends it with an availability `context`). The Lineup page,
- * WaiverWire and PlayerManagement import from HERE only.
+ * ADR 0040 extends it with an availability `context`; #1311 adds
+ * `contextFromCard`). The Lineup page, WaiverWire, PlayerManagement,
+ * TradeCenter, TransactionLog and MatchupPage import from HERE only.
  *
  * Below-island edges (ADR 0031's 2026-09-11 amendment #1269: "every
  * below-island edge, of either kind, is named with its reason in the

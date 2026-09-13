@@ -38,8 +38,8 @@ import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../lib/leagueType';
 import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
+import { PlayerNameLink } from '../../entities/player';
 import { formatRelative } from '../../utils/formatRelative';
 
 const PAGE_SIZE = 30;
@@ -100,17 +100,26 @@ function dayLabel(dateLike) {
 
 // The Activity read model's `sentence` (src/entities/activity, #1100) is a
 // flat string, but a player's name inside it has always been a clickable
-// PlayerNameLink that opens the shared PlayerQuickView (#1100 escalation:
-// dropping that cost the app-wide convention and its only test). Matching
-// player names back against the flat sentence text is unsound (a suffixed
-// name, a Team name containing a surname, two same-named players — #1112),
-// so TransactionLog never does that: it renders the model's own `segments`
-// in order, a `PlayerNameLink` at each player part and plain text at each
-// text part, so a name is a link because it IS one, not because it matched.
+// PlayerNameLink that opens the player's Decision card (#1311: PlayerQuickView
+// is gone from here; #1100 escalation: dropping the link entirely cost the
+// app-wide convention and its only test). Matching player names back against
+// the flat sentence text is unsound (a suffixed name, a Team name containing
+// a surname, two same-named players — #1112), so TransactionLog never does
+// that: it renders the model's own `segments` in order, a `PlayerNameLink` at
+// each player part and plain text at each text part, so a name is a link
+// because it IS one, not because it matched. The segment already carries both
+// `playerId` and `name` - the whole entry the card needs (ADR 0040 ruling d) -
+// so `onOpenPlayer` takes the pair directly rather than the id alone
+// PlayerNameLink's own `onOpen(playerId)` callback would otherwise hand back.
 function renderSegments(segments, onOpenPlayer) {
   return segments.map((seg, i) =>
     seg.type === 'player' ? (
-      <PlayerNameLink key={`${seg.playerId}-${i}`} name={seg.name} playerId={seg.playerId} onOpen={onOpenPlayer} />
+      <PlayerNameLink
+        key={`${seg.playerId}-${i}`}
+        name={seg.name}
+        playerId={seg.playerId}
+        onOpen={() => onOpenPlayer({ playerId: seg.playerId, name: seg.name })}
+      />
     ) : (
       <React.Fragment key={i}>{seg.value}</React.Fragment>
     )
@@ -184,7 +193,7 @@ function TransactionLog() {
   const typeFilter = filterOptions.some((opt) => opt.value === selectedType) ? selectedType : 'all';
   const [teamFilter, setTeamFilter] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [quickViewId, setQuickViewId] = useState(null);
+  const [quickViewEntry, setQuickViewEntry] = useState(null);
 
   useEffect(() => {
     // Filters and rows are per league: an in-place league switch (hash edit
@@ -357,7 +366,7 @@ function TransactionLog() {
                       <ActivityFeedItem
                         key={txn.id}
                         txn={txn}
-                        onOpenPlayer={setQuickViewId}
+                        onOpenPlayer={setQuickViewEntry}
                         isLast={i === group.items.length - 1}
                       />
                     ))}
@@ -374,11 +383,12 @@ function TransactionLog() {
         </>
       )}
 
-      <PlayerQuickView
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+      <PlayerDecisionCard
+        open={quickViewEntry != null}
+        onClose={() => setQuickViewEntry(null)}
+        entry={quickViewEntry}
         leagueId={Number(leagueId)}
+        contextFromCard
       />
     </Container>
   );

@@ -31,8 +31,8 @@ import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
 import { isLeagueCreator } from '../../lib/teamIdentity';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
+import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
 import TradeProposalCard from './TradeProposalCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
@@ -400,6 +400,26 @@ function TradeCenter() {
   const myRoster = rosters.find((r) => r.teamId === myTeamId);
   const otherTeams = rosters.filter((r) => r.teamId !== myTeamId);
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
+
+  // The Decision card's entry for whichever player a PlayerNameLink opened
+  // (#1311, ADR 0040 ruling d): looked up first off a roster row (the fuller
+  // shape RosterColumn/SummaryChipRow already read), falling back to the
+  // trade item itself (name/position/nfl_team, all a trade row carries) for
+  // a player on neither roster the viewer has loaded (e.g. a third team's in
+  // a veto vote). `context` is 'my_team' only when the player sits on the
+  // viewer's own roster, else 'rostered' - TradeCenter never opens the card
+  // for a free agent or a waivers player.
+  const quickViewPlayer = quickViewId == null
+    ? null
+    : rosters.flatMap((r) => r.players || []).find((p) => p.id === quickViewId)
+      || (() => {
+        const item = trades?.flatMap((t) => t.items || []).find((i) => i.player_id === quickViewId);
+        return item
+          ? { id: item.player_id, name: item.name, position: item.position, nfl_team: item.nfl_team }
+          : null;
+      })();
+  const quickViewEntry = toDecisionCardEntry(quickViewPlayer);
+  const quickViewContext = (myRoster?.players || []).some((p) => p.id === quickViewId) ? 'my_team' : 'rostered';
   // The creator's Team against the reader's own, both from league detail
   // (#113): the same question as before, with no account id in the client.
   const isCommissioner = !!(league && (league.is_commissioner || isLeagueCreator(league, viewerTeamId)));
@@ -633,11 +653,12 @@ function TradeCenter() {
         </DialogActions>
       </Dialog>
 
-      <PlayerQuickView
+      <PlayerDecisionCard
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+        entry={quickViewEntry}
         leagueId={Number(leagueId)}
+        context={quickViewContext}
       />
     </Container>
   );

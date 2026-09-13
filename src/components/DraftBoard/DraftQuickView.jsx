@@ -146,7 +146,7 @@ function StatCardList({ label, rows }) {
  *                   reachable by keyboard, with activation suppressed and
  *                   its text shown as the explanation (issue #120).
  */
-function PlayerQuickView({
+function DraftQuickView({
   open,
   onClose,
   playerId,
@@ -650,4 +650,4 @@ function PlayerQuickView({
   );
 }
 
-export default PlayerQuickView;
+export default DraftQuickView;

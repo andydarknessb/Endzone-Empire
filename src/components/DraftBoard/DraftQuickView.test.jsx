@@ -5,7 +5,7 @@ import {
 } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
-import PlayerQuickView from './PlayerQuickView';
+import DraftQuickView from './DraftQuickView';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -71,7 +71,7 @@ const summaryResponse = (overrides = {}) => ({
 
 const renderQuickView = (props = {}) =>
   renderWithProviders(
-    <PlayerQuickView open onClose={jest.fn()} playerId={7} {...props} />
+    <DraftQuickView open onClose={jest.fn()} playerId={7} {...props} />
   );
 
 // Desktop by default so every existing assertion keeps hitting the table branch.
@@ -212,7 +212,7 @@ test('Compare pins the first player and renders two stat lines after navigation'
   function Harness() {
     const [playerId, setPlayerId] = React.useState(7);
     return (
-      <PlayerQuickView
+      <DraftQuickView
         open
         onClose={jest.fn()}
         playerId={playerId}
@@ -267,7 +267,7 @@ test('a pinned player survives closing the modal and opening another row', async
     return (
       <>
         <button type="button" onClick={() => openPlayer(9)}>Open JaMarr Chase</button>
-        <PlayerQuickView
+        <DraftQuickView
           open={open}
           onClose={() => setOpen(false)}
           playerId={playerId}
@@ -346,7 +346,7 @@ test('carries a Draft room origin through the full-profile navigation', async ()
         <Route
           path="/league/:leagueId/draft"
           element={(
-            <PlayerQuickView
+            <DraftQuickView
               open
               onClose={jest.fn()}
               playerId={7}

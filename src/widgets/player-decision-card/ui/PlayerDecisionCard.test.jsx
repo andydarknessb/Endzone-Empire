@@ -213,6 +213,61 @@ describe('context (#1307, ADR 0040)', () => {
   });
 });
 
+// #1311, ADR 0040 ruling (c): TransactionLog cannot derive `context` itself
+// (its activity segments carry only `{ playerId, name }`, no roster fact),
+// so it passes `contextFromCard` instead and omits `context` entirely.
+describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
+  test('renders no action bar until the card payload answers', async () => {
+    apiClient.get.mockImplementation(() => new Promise(() => {})); // the card never resolves
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Breece Hall' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+    });
+
+    expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
+    expect(screen.getByText('Breece Hall')).toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+
+  test('derives context from the card payload once it answers, and the header fills team/position from it', async () => {
+    mockCardRoute({
+      player: { teamCode: 'MIN', photoUrl: null, position: 'WR', injury: { designation: null, detail: null } },
+      availability: { state: 'rostered' },
+    });
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Justin Jefferson' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+      leagueId: 7,
+    });
+
+    // No `availability` prop is passed (TransactionLog has none to give), so
+    // the rostering team's name is absent - only the header fields the card
+    // payload itself supplies are asserted here.
+    expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
+    expect(screen.getByText('MIN')).toBeInTheDocument();
+    expect(screen.getByText('WR')).toBeInTheDocument();
+  });
+
+  test('an existing caller passing a full entry and a real leagueId/playerId is untouched (context stays the prop, not the card)', async () => {
+    mockCardRoute({ availability: { state: 'waivers' } });
+    renderCard({ context: 'my_team' }); // contextFromCard defaults false
+
+    await screen.findByTestId('decision-card-bench-action');
+    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
+  });
+});
+
 describe('prev/next over the opening list (formal review round 1, f5)', () => {
   test('shows the position in the list and navigates with Previous/Next', async () => {
     const onNavigate = jest.fn();

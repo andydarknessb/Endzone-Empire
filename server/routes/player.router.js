@@ -47,10 +47,13 @@ const POSITIONS = [
   'DB',
 ];
 
-// Short-lived in-memory cache for the player summary. Keyed by player + league
-// (scoring rules differ per league), so a draft room hammering this endpoint
-// serves most reads from memory. TTL is intentionally small — a 30s-stale
-// injury/stat line during a live draft is harmless.
+// Short-lived in-memory cache for buildPlayerSummary, the Decision card's
+// game-log producer (#1311: read by the card route below and, until #1313
+// removes it, by the /:id/summary route the Draft room's DraftQuickView
+// still calls). Keyed by player + league (scoring rules differ per league),
+// so a draft room or the Decision card hammering this endpoint serves most
+// reads from memory. TTL is intentionally small — a 30s-stale injury/stat
+// line during a live draft is harmless.
 const SUMMARY_TTL_MS = 30_000;
 const summaryCache = new Map();
 

@@ -1,7 +1,7 @@
 import React, { useId, useMemo } from 'react';
 import { Paper, Box, Typography, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { PlayerNameLink } from '../../entities/player';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
 

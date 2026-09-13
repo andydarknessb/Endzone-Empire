@@ -31,7 +31,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { visuallyHidden } from '@mui/utils';
 import InjuryBadge from '../../shared/ui/InjuryBadge';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { PlayerNameLink } from '../../entities/player';
 import PositionChip from '../../shared/ui/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../../shared/ui/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';

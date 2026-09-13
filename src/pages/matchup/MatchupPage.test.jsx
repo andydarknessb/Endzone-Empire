@@ -112,8 +112,11 @@ const MATCHUP_URL = '/api/league/1/matchups/9';
 
 // Every GET the page issues, answered by URL: the detail body, the touchdown
 // celebration preference, the standings (records) and, when a test hands one
-// in, the hindsight read and the player summary.
-function mockApi({ matchup = matchupResponse(), prefs = { touchdownCelebrations: true }, standings = [], hindsight, summary } = {}) {
+// in, the hindsight read. A player's Decision card read
+// (`/api/players/:id/card`) falls through to the empty-object default, same
+// as any other unlisted URL - PlayerDecisionCard's own suite covers its
+// payload handling; this page's tests only need the request to resolve.
+function mockApi({ matchup = matchupResponse(), prefs = { touchdownCelebrations: true }, standings = [], hindsight } = {}) {
   apiClient.get.mockImplementation((url) => {
     if (url.startsWith('/api/league/') && url.includes('/matchups/')) return Promise.resolve(matchup);
     if (url === '/api/notifications/prefs') return Promise.resolve({ data: prefs });
@@ -122,7 +125,6 @@ function mockApi({ matchup = matchupResponse(), prefs = { touchdownCelebrations:
       if (typeof hindsight === 'function') return hindsight(url);
       return Promise.reject({ response: { status: 404 } });
     }
-    if (/\/api\/players\/\d+\/summary/.test(url)) return Promise.resolve({ data: summary || { player: null } });
     return Promise.resolve({ data: {} });
   });
 }
@@ -1157,23 +1159,38 @@ test('the hindsight read fires once per team however many score entries settle t
 
 // --- the player quick view --------------------------------------------------
 
-test('a starter\'s name opens PlayerQuickView for that player in this league', async () => {
-  mockApi({
-    summary: {
-      player: { id: 5, name: 'P. Mahomes', position: 'QB', team: 'KC' },
-      fantasy: {},
-      currentSeason: null,
-      previousSeasons: [],
-    },
-  });
+test('a starter\'s name opens the Decision card for that player in this league, in my_team context', async () => {
+  mockApi();
   renderPage();
   await screen.findByTestId('slot-comparison');
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card')).not.toBeInTheDocument();
 
+  // P. Mahomes (id 5) is the default home starter, and home is the viewer's
+  // own team (viewerTeamId 1 === home.teamId 1) - the my_team context reads
+  // as the Bench/Start bar being absent (no onSwap wired here) and instead
+  // an Open lineup link (PlayerDecisionCard's own my_team-with-no-lineup-
+  // wiring case).
   await userEvent.click(screen.getByRole('button', { name: 'P. Mahomes' }));
 
-  expect(await screen.findByRole('dialog')).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledWith('/api/players/5/summary', { params: { leagueId: 1 } });
+  expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
+  expect(screen.getByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/1/lineup');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players/5/card?leagueId=1');
+});
+
+// #1311, ADR 0040 ruling (d): the opponent's starter opens in 'rostered'
+// context (a Propose trade link, not the viewer's own Open lineup link).
+test('an opponent\'s starter name opens the Decision card in rostered context', async () => {
+  mockApi();
+  renderPage();
+  await screen.findByTestId('slot-comparison');
+
+  // D. Adams (id 6) is the default away starter; away (team 2) is not the
+  // viewer's team (viewerTeamId 1).
+  await userEvent.click(screen.getByRole('button', { name: 'D. Adams' }));
+
+  expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/1/trades');
+  expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players/6/card?leagueId=1');
 });
 
 // --- mobile ------------------------------------------------------------------
