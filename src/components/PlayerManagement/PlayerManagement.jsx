@@ -41,9 +41,10 @@ import SwapVertIcon from "@mui/icons-material/SwapVert";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard from "../../widgets/player-decision-card";
+import { toDecisionCardEntry } from "../../entities/player";
+import { useAddPlayer } from "../../features/add-player";
 import PlayerAvatar from "../../shared/ui/PlayerAvatar";
 import PositionChip from "../../shared/ui/PositionChip";
-import { useSnackbar } from "../Snackbar/SnackbarProvider";
 import AbbreviationTooltip from "../../shared/ui/AbbreviationTooltip";
 import { rosterActionForPhase } from "../../lib/leaguePhase";
 import { isPickemOnly } from "../../lib/leagueType";
@@ -145,25 +146,6 @@ function availabilityOf(player) {
   return player.availability?.state || "free_agent";
 }
 
-// The Decision card's generic entry shape (#1307, ADR 0040) - restated from
-// WaiverWire's own copy of the same mapping (FSD: these are two different
-// components, not a feature/entity to share it through). No lineup fields
-// (slot/locked/spent/eligibleSlots) exist for a Player Browser row, so those
-// are simply absent rather than guessed.
-function toDecisionCardEntry(player) {
-  return player
-    ? {
-        playerId: player.id,
-        name: player.name,
-        position: player.position,
-        nflTeam: player.nfl_team,
-        slot: player.position,
-        injuryStatus: player.injury_status ?? null,
-        photoUrl: player.photo_url ?? null,
-      }
-    : null;
-}
-
 function AvailabilityChip({ state }) {
   const props = {
     free_agent: { label: "Free agent", color: "success" },
@@ -224,7 +206,11 @@ function PlayerManagement() {
   const [error, setError] = useState(null);
   const [quickViewId, setQuickViewId] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const notify = useSnackbar();
+  // Formal review round 1, f3: the Decision card's free-agent action bar
+  // needs the caller's own roster for its at-capacity drop pick (the same
+  // read WaiverWire already makes) - without it the required Select has no
+  // options and Add never enables.
+  const [roster, setRoster] = useState([]);
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -286,6 +272,27 @@ function PlayerManagement() {
     })();
   }, [report, selectedLeague, updateParams]);
 
+  const fetchRoster = useCallback(async () => {
+    if (!selectedLeague) {
+      setRoster([]);
+      return;
+    }
+    try {
+      const response = await apiClient.get(
+        `/api/team/roster?leagueId=${Number(selectedLeague)}`,
+      );
+      setRoster(response.data || []);
+    } catch (err) {
+      // Best-effort, like WaiverWire's own upgrade suggestions: a failed
+      // roster read only means the at-capacity drop pick has no options,
+      // never a page-level error.
+      setRoster([]);
+    }
+  }, [selectedLeague]);
+  useEffect(() => {
+    fetchRoster();
+  }, [fetchRoster]);
+
   const fetchPlayers = useCallback(async () => {
     if (!leaguesLoaded) return;
     try {
@@ -345,21 +352,18 @@ function PlayerManagement() {
       page: 1,
     });
   };
+  // Formal review round 1, f4: the row's own Add action now consumes the
+  // SAME implementation the Decision card's free-agent bar does, rather than
+  // a parallel POST that could drift from it (the lead correction's own
+  // wording: "PlayerManagement then consumes the feature").
+  const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: fetchPlayers });
   const addToRoster = useCallback(
     async (player) => {
-      try {
-        setError(null);
-        await apiClient.post(`/api/team/roster/${player.id}`, {
-          leagueId: Number(selectedLeague),
-        });
-        notify(`Added ${player.name} to your roster`);
-        await fetchPlayers();
-      } catch (err) {
-        report(err);
-        notify(readHttpFailure(err).message || err.message, { severity: "error" });
-      }
+      setError(null);
+      const { ok, message } = await addPlayer({ playerId: player.id, playerName: player.name });
+      if (!ok) setError(message);
     },
-    [fetchPlayers, notify, report, selectedLeague],
+    [addPlayer],
   );
   const actionForPlayer = useCallback(
     (player) => {
@@ -963,7 +967,10 @@ function PlayerManagement() {
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
         context={quickViewContext}
         availability={quickViewAvailability}
+        roster={roster}
         onActionDone={fetchPlayers}
+        playerIds={players.map((player) => player.id)}
+        onNavigate={setQuickViewId}
       />
     </Box>
   );

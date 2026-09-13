@@ -18,12 +18,12 @@ test('submits a claim with no drop and no bid, then calls onDone', async () => {
   const onDone = jest.fn();
   const { result } = renderHook(() => useClaimPlayer({ leagueId: 1, onDone }), { wrapper });
 
-  let ok;
+  let outcome;
   await act(async () => {
-    ok = await result.current.submitClaim({ playerId: 7 });
+    outcome = await result.current.submitClaim({ playerId: 7 });
   });
 
-  expect(ok).toBe(true);
+  expect(outcome).toEqual({ ok: true });
   expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', {
     leagueId: 1,
     playerId: 7,
@@ -49,16 +49,16 @@ test('submits a claim with a drop pick and a FAAB bid', async () => {
   });
 });
 
-test('a failed claim reports the failure and returns false', async () => {
+test('a failed claim reports the failure and returns ok:false with the message', async () => {
   apiClient.post.mockRejectedValue({ response: { data: { message: 'Waivers have already cleared' } } });
   const onDone = jest.fn();
   const { result } = renderHook(() => useClaimPlayer({ leagueId: 1, onDone }), { wrapper });
 
-  let ok;
+  let outcome;
   await act(async () => {
-    ok = await result.current.submitClaim({ playerId: 7 });
+    outcome = await result.current.submitClaim({ playerId: 7 });
   });
 
-  expect(ok).toBe(false);
+  expect(outcome).toEqual({ ok: false, message: 'Waivers have already cleared' });
   expect(onDone).not.toHaveBeenCalled();
 });

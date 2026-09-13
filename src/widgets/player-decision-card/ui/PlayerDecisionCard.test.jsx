@@ -183,6 +183,76 @@ describe('context (#1307, ADR 0040)', () => {
     expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
     expect(screen.getByText('Rostered by Polk High Legends')).toBeInTheDocument();
   });
+
+  // Formal review round 1, f1 (blocker): PlayerManagement opens the card for
+  // the caller's own player too (context="my_team" with no lineup wiring at
+  // all - no entries, no onSwap, no onRequestDrop), which used to crash in
+  // isEligibleMove on an entry with no eligibleSlots.
+  test('context="my_team" with no lineup wiring (opened from a non-Lineup surface) renders an Open lineup link instead of crashing', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'my_team',
+      entry: availabilityEntry({ slot: 'RB' }),
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+      leagueId: 9,
+    });
+
+    expect(await screen.findByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/9/lineup');
+    expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+  });
+
+  test('context="my_team" WITH lineup wiring (the base Lineup case) still renders the Bench/Start/Compare/Trade/Drop bar, not the Open lineup link', async () => {
+    renderCard(); // the suite's own default props: entry+entries+onSwap+onRequestDrop+canDropEntry
+    await screen.findByTestId('decision-card-bench-action');
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+});
+
+describe('prev/next over the opening list (formal review round 1, f5)', () => {
+  test('shows the position in the list and navigates with Previous/Next', async () => {
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    expect(await screen.findByLabelText('Player 1 of 3')).toBeInTheDocument();
+    const prev = screen.getByTestId('decision-card-prev');
+    const next = screen.getByTestId('decision-card-next');
+    expect(prev).toBeDisabled();
+    expect(next).toBeEnabled();
+
+    await userEvent.click(next);
+    expect(onNavigate).toHaveBeenCalledWith(2);
+  });
+
+  test('Right/Left arrow keys navigate when not typing in a control', async () => {
+    const onNavigate = jest.fn();
+    renderCard({ entry: entry({ playerId: 2 }), playerIds: [1, 2, 3], onNavigate });
+    await screen.findByLabelText('Player 2 of 3');
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onNavigate).toHaveBeenCalledWith(3);
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(onNavigate).toHaveBeenCalledWith(1);
+  });
+
+  test('no playerIds prop renders no prev/next controls', async () => {
+    renderCard();
+    await screen.findByRole('heading', { name: 'Josh Allen' });
+    expect(screen.queryByTestId('decision-card-prev')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-next')).not.toBeInTheDocument();
+  });
+});
+
+// Formal review round 1, f6: the body and ADR 0040 say 560px, not the 420 this
+// shipped at.
+test('the desktop drawer is 560px wide (760px is now 1040px with Compare open)', async () => {
+  renderCard();
+  const card = await screen.findByTestId('decision-card');
+  expect(card).toHaveStyle({ width: '560px' });
 });
 
 test('opens with the row\'s own fields immediately, before the context endpoint resolves', async () => {

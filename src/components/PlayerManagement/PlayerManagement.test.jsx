@@ -40,9 +40,11 @@ function mockBrowser({
   totalPages = 1,
   total = players.length,
   context,
+  roster = [],
 } = {}) {
   apiClient.get.mockImplementation((url) => {
     if (url === "/api/league") return Promise.resolve({ data: leagues });
+    if (url.startsWith("/api/team/roster")) return Promise.resolve({ data: roster });
     if (url === "/api/players")
       return Promise.resolve({
         data: {
@@ -105,6 +107,55 @@ test("clicking a free-agent player's name opens the Decision card with an Add-to
   expect(within(card).getByRole("heading", { name: "Free Roamer" })).toBeInTheDocument();
   expect(within(card).getByTestId("add-player-action")).toBeInTheDocument();
   expect(screen.queryByTestId("quickview-content")).not.toBeInTheDocument();
+});
+
+// Formal review round 1, f1 (blocker): opening one of the caller's OWN
+// players (availability.state "my_team") used to crash in isEligibleMove
+// on an entry with no eligibleSlots, since this page has no lineup wiring
+// at all to give the card.
+test("clicking one of the caller's own players' name opens the Decision card without crashing, and renders an Open lineup link", async () => {
+  mockBrowser({
+    players: [player({ id: 5, name: "My Own Guy", availability: { state: "my_team" } })],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "My Own Guy" }));
+
+  const card = await screen.findByTestId("decision-card");
+  expect(within(card).getByRole("heading", { name: "My Own Guy" })).toBeInTheDocument();
+  expect(within(card).getByTestId("decision-card-open-lineup")).toHaveAttribute(
+    "href",
+    "/league/1/lineup",
+  );
+  expect(within(card).queryByTestId("decision-card-bench-action")).not.toBeInTheDocument();
+});
+
+// Formal review round 1, f3: without a roster prop, the required drop pick
+// at capacity has no options and Add never enables.
+test("at roster capacity, the free-agent drop pick lists the caller's own roster", async () => {
+  mockBrowser({
+    players: [player({ id: 6, name: "Waiting Room" })],
+    context: {
+      leagueName: "Sunday Ballers",
+      rosterCount: 16,
+      rosterCapacity: 16,
+      waiverType: "faab",
+      faabRemaining: 72,
+    },
+    roster: [
+      { id: 30, name: "Bench Guy", position: "WR", projected_weekly_points: 3.2 },
+      { id: 31, name: "Star Player", position: "RB", projected_weekly_points: 22 },
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Waiting Room" }));
+  const action = await screen.findByTestId("add-player-action");
+  await userEvent.click(within(action).getByLabelText("Drop a player"));
+
+  const options = await screen.findAllByRole("option");
+  expect(within(options[1]).getByText(/Bench Guy/)).toBeInTheDocument();
+  expect(within(options[2]).getByText(/Star Player/)).toBeInTheDocument();
 });
 
 test("renders the server-authoritative availability actions without disclosing another Team", async () => {
@@ -252,7 +303,11 @@ test("keeps player browsing available without a fantasy league while withholding
   expect(
     await screen.findByText(/not in a fantasy league yet/i),
   ).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Select league" })).toBeDisabled();
+  // findByRole (not getByRole): the player row's own action button depends on
+  // the SEPARATE /api/players fetch, which now races the roster fetch this
+  // ticket adds - both settle, but not necessarily in the order the "no
+  // league" alert (leagues-only) does.
+  expect(await screen.findByRole("button", { name: "Select league" })).toBeDisabled();
 });
 
 // #970: player management reads its failures through readHttpFailure. The

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
-import { useAddPlayer, sortRosterForDrop } from '../model/useAddPlayer';
+import { sortRosterForDrop } from '../../../shared/lib';
+import { useAddPlayer } from '../model/useAddPlayer';
 
 /**
  * The Decision card's free-agent action bar (#1307, ADR 0040 CardStates):

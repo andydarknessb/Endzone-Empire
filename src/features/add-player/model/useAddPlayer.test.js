@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import React from 'react';
 import apiClient from '../../../api/apiClient';
 import { SnackbarProvider } from '../../../components/Snackbar/SnackbarProvider';
-import { useAddPlayer, sortRosterForDrop } from './useAddPlayer';
+import { useAddPlayer } from './useAddPlayer';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -15,30 +15,18 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-describe('sortRosterForDrop', () => {
-  test('sorts worst weekly projection first, unprojected last', () => {
-    const roster = [
-      { id: 1, projected_weekly_points: 15 },
-      { id: 2, projected_weekly_points: 3.2 },
-      { id: 3, projected_weekly_points: null },
-      { id: 4, projected_weekly_points: 8 },
-    ];
-    expect(sortRosterForDrop(roster).map((p) => p.id)).toEqual([2, 4, 1, 3]);
-  });
-});
-
 describe('useAddPlayer', () => {
   test('adds a player with no drop: only one POST, then onDone', async () => {
     apiClient.post.mockResolvedValue({});
     const onDone = jest.fn();
     const { result } = renderHook(() => useAddPlayer({ leagueId: 4, onDone }), { wrapper });
 
-    let ok;
+    let outcome;
     await act(async () => {
-      ok = await result.current.addPlayer({ playerId: 9, playerName: 'Josh Palmer' });
+      outcome = await result.current.addPlayer({ playerId: 9, playerName: 'Josh Palmer' });
     });
 
-    expect(ok).toBe(true);
+    expect(outcome).toEqual({ ok: true });
     expect(apiClient.delete).not.toHaveBeenCalled();
     expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/9', { leagueId: 4 });
     expect(onDone).toHaveBeenCalled();
@@ -59,17 +47,58 @@ describe('useAddPlayer', () => {
     expect(deleteOrder).toBeLessThan(postOrder);
   });
 
-  test('a failed add reports the failure and returns false without calling onDone', async () => {
+  test('a failed add with no drop reports the failure and returns ok:false without calling onDone', async () => {
     apiClient.post.mockRejectedValue({ response: { data: { message: 'Roster is full' } } });
     const onDone = jest.fn();
     const { result } = renderHook(() => useAddPlayer({ leagueId: 4, onDone }), { wrapper });
 
-    let ok;
+    let outcome;
     await act(async () => {
-      ok = await result.current.addPlayer({ playerId: 9 });
+      outcome = await result.current.addPlayer({ playerId: 9 });
     });
 
-    expect(ok).toBe(false);
+    expect(outcome).toEqual({ ok: false, message: 'Roster is full' });
     expect(onDone).not.toHaveBeenCalled();
+    expect(apiClient.post).not.toHaveBeenCalledWith(expect.stringContaining('undo-drop'), expect.anything());
+  });
+
+  // Formal review round 1, f2: the drop already committed by the time the add
+  // fails, so the manager must not be left one player down.
+  test('a failed add AFTER a successful drop calls undo-drop for the dropped player and still reports the add failure', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockImplementation((url) => {
+      if (url === '/api/team/roster/9') return Promise.reject({ response: { data: { message: 'Player already claimed' } } });
+      return Promise.resolve({});
+    });
+    const onDone = jest.fn();
+    const { result } = renderHook(() => useAddPlayer({ leagueId: 4, onDone }), { wrapper });
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.addPlayer({ playerId: 9, dropPlayerId: 20 });
+    });
+
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/team/roster/20?leagueId=4');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/team/roster/20/undo-drop', { leagueId: 4 });
+    expect(outcome).toEqual({ ok: false, message: 'Player already claimed' });
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  // The recovery call's own failure must never mask the original add error.
+  test('an undo-drop that itself fails still reports the original add failure', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockImplementation((url) => {
+      if (url === '/api/team/roster/9') return Promise.reject({ response: { data: { message: 'Player already claimed' } } });
+      if (url === '/api/team/roster/20/undo-drop') return Promise.reject(new Error('undo window expired'));
+      return Promise.resolve({});
+    });
+    const { result } = renderHook(() => useAddPlayer({ leagueId: 4 }), { wrapper });
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.addPlayer({ playerId: 9, dropPlayerId: 20 });
+    });
+
+    expect(outcome).toEqual({ ok: false, message: 'Player already claimed' });
   });
 });

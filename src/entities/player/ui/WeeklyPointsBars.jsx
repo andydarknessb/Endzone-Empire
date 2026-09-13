@@ -11,9 +11,11 @@ import { formatPoints } from '../../../shared/lib';
  * `bye` is a dashed, unfilled column, and `unavailable` shows its `reason`
  * text instead of a bar - never a fabricated number (ADR 0040: "Unavailable
  * players show the reason, never a number"). `currentWeek`'s column carries
- * the accessible current marker (`aria-current` plus a visible pill, the
- * `success`-on-`accent-soft` pairing tokens.contrast.test.js now certifies);
- * `seasonEnd` (ADR 0042's last playoff week) is marked with a dashed
+ * the accessible current marker (`aria-current` plus a visible pill, `success`
+ * outlined on the card's own `surface` - a risk-review finding moved this
+ * off an `accent-soft` tint, which measured under AA_TEXT); the pairing is
+ * the one tokens.contrast.test.js now certifies. `seasonEnd` (ADR 0042's
+ * last playoff week) is marked with a dashed
  * divider rather than folded into the bar itself. Each column also carries
  * an HTML `title` (the issue's "per-bar title") so a mouse hover states the
  * week in full, alongside the same text as its accessible name.

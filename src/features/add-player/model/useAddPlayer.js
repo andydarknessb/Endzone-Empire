@@ -12,27 +12,24 @@ import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
  * `POST /api/team/roster/:playerId` just fails there, per ADR 0040's Plan).
  * There is no combined add-and-drop endpoint, so a chosen drop runs as its
  * own `DELETE /api/team/roster/:dropPlayerId` FIRST, and only once that
- * succeeds does the add POST run - the same order WaiverWire's claim already
- * effectively achieves server-side in one transaction; here it is two calls
- * because free-agency has no single wire shape for both at once.
+ * succeeds does the add POST run.
  *
- * `roster` is the caller's own roster (the same shape WaiverWire's
- * `sortRosterForDrop` already sorts by), sorted worst weekly projection
- * first here too (the issue's own wording), so the drop-pick list reads a
- * consistent order everywhere this app offers one.
+ * Formal review round 1 (f2): a failed add after a successful drop used to
+ * leave the manager one player down with only an error toast - the drop had
+ * already committed and nothing reversed it. `POST
+ * /api/team/roster/:dropPlayerId/undo-drop` exists for exactly this (bypasses
+ * the waiver hold a plain re-add would hit, team.router.js), so a failed add
+ * now calls it before reporting the original failure; the undo call's own
+ * failure is swallowed (best-effort - the original add error is what the
+ * manager needs to see, not a second one about the recovery attempt).
+ *
+ * BELOW-ISLAND EDGES (ADR 0031 amendment): `api/apiClient` (the app's HTTP
+ * client, not a domain concept), `lib/httpFailure` (the shared refusal-
+ * envelope reader, #970's shape (b): a machine code and a manager-facing
+ * message), and `components/Snackbar/SnackbarProvider` (`useSnackbar`, the
+ * app-wide toast, the same plumbing `drop-player` already reaches for the
+ * identical reason).
  */
-export function sortRosterForDrop(roster) {
-  const projectionOf = (p) => (p.projected_weekly_points != null ? Number(p.projected_weekly_points) : null);
-  return [...(roster || [])].sort((a, b) => {
-    const av = projectionOf(a);
-    const bv = projectionOf(b);
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    return av - bv;
-  });
-}
-
 export function useAddPlayer({ leagueId, onDone }) {
   const notify = useSnackbar();
   const [pending, setPending] = useState(false);
@@ -43,13 +40,23 @@ export function useAddPlayer({ leagueId, onDone }) {
       if (dropPlayerId != null) {
         await apiClient.delete(`/api/team/roster/${dropPlayerId}?leagueId=${leagueId}`);
       }
-      await apiClient.post(`/api/team/roster/${playerId}`, { leagueId: Number(leagueId) });
+      try {
+        await apiClient.post(`/api/team/roster/${playerId}`, { leagueId: Number(leagueId) });
+      } catch (addErr) {
+        if (dropPlayerId != null) {
+          await apiClient
+            .post(`/api/team/roster/${dropPlayerId}/undo-drop`, { leagueId: Number(leagueId) })
+            .catch(() => {}); // best-effort recovery; the add's own failure is what gets reported
+        }
+        throw addErr;
+      }
       notify(playerName ? `Added ${playerName} to your roster` : 'Added to your roster');
       await onDone?.();
-      return true;
+      return { ok: true };
     } catch (err) {
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
-      return false;
+      const message = readHttpFailure(err).message || err.message;
+      notify(message, { severity: 'error' });
+      return { ok: false, message };
     } finally {
       setPending(false);
     }

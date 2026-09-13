@@ -12,6 +12,7 @@
  */
 export { playerCardFromResponse } from './model/playerCardModel';
 export { usePlayerCard } from './model/usePlayerCard';
+export { toDecisionCardEntry } from './model/decisionCardEntry';
 export { default as DecisionStrip } from './ui/DecisionStrip';
 export { default as WeeklyPointsBars } from './ui/WeeklyPointsBars';
 export { default as GameLogTable } from './ui/GameLogTable';

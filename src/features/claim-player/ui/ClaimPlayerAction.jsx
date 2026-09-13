@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
-import { useClaimPlayer, sortRosterForDrop } from '../model/useClaimPlayer';
+import { sortRosterForDrop } from '../../../shared/lib';
+import { useClaimPlayer } from '../model/useClaimPlayer';
 
 /**
  * The Decision card's waivers action bar (#1307, ADR 0040 CardStates):
