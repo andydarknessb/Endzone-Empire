@@ -343,7 +343,36 @@ test('signed in with two leagues renders two lines with the exact glossary copy'
   // AC: "Each line's own rules carry min-height: 44px."
   expect(line1).toHaveStyle('min-height: 44px');
   expect(line2).toHaveStyle('min-height: 44px');
+  // Risk review finding 2: a real league/team name is unbounded text, unlike
+  // every other DashButton caller's short fixed label - the row has to wrap
+  // it rather than inherit DashButton's own single-line default.
+  expect(line1).toHaveStyle('white-space: normal');
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues');
+});
+
+test('drops a league line whose Availability state this page does not recognize, rather than an unlabeled button', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) {
+      return Promise.resolve({
+        data: {
+          leagues: [
+            ...IN_YOUR_LEAGUES_RESPONSE.leagues,
+            { leagueId: 13, leagueName: 'Gamma League', phase: 'in-season', availability: { state: 'commissioner_only' } },
+          ],
+        },
+      });
+    }
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await screen.findByRole('button', { name: 'On your team in Alpha League' });
+  // Every button in the block has a real accessible name - none rendered
+  // for the unrecognized state.
+  const buttons = screen.getAllByRole('button').filter((el) => el.getAttribute('data-variant') === 'ghost');
+  expect(buttons).toHaveLength(2);
+  buttons.forEach((button) => expect(button).toHaveAccessibleName());
 });
 
 test('clicking the Rostered by line opens the Decision card with that league\'s id', async () => {
@@ -362,6 +391,39 @@ test('clicking the Rostered by line opens the Decision card with that league\'s 
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByRole('heading', { name: 'Alpha Back' })).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
+});
+
+test('shows an aria-busy loading region for a signed-in viewer before the leagues read resolves', async () => {
+  apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves - pins the loading state
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  const heading = await screen.findByText('In your leagues');
+  // eslint-disable-next-line testing-library/no-node-access -- asserting on the owning region, same pattern LoadingRows' own consumers use
+  expect(heading.closest('section')).toHaveAttribute('aria-busy', 'true');
+});
+
+test('closing the card holds its context through the exit transition, not the my_team default', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
+  const dialog = await screen.findByRole('dialog');
+  await within(dialog).findByTestId('decision-card-propose-trade'); // confirms the rostered action bar rendered
+
+  await userEvent.click(within(dialog).getByTestId('decision-card-close'));
+
+  // Risk review finding 4: nulling every card prop at once on close used to
+  // flip `context` to the widget's `my_team` default mid-exit (the Drawer's
+  // own 120ms exit transition), swapping in a plain "Open lineup" link under
+  // a still focus-trapped user. `openLine` now survives the close, so the
+  // rostered action bar - never "Open lineup" - is what's still there.
+  expect(screen.getByTestId('decision-card-propose-trade')).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
 });
 
 test('an errored in-your-leagues read renders the profile with no block and no error text', async () => {

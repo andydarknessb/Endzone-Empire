@@ -164,7 +164,13 @@ function InYourLeaguesBlock({ player }) {
     () => apiClient.get(`/api/players/${player.playerId}/in-your-leagues`).then((r) => r.data),
     [player.playerId]
   );
+  // `openLine` is kept through the close/exit transition (risk review finding
+  // 4): nulling every card prop the instant Close is clicked flips the card
+  // to its `context` default mid-exit, briefly swapping the action bar under
+  // a focus-trapped user. `cardOpen` alone drives visibility; `openLine`
+  // keeps naming the SAME league throughout the 120ms Drawer exit.
   const [openLine, setOpenLine] = useState(null);
+  const [cardOpen, setCardOpen] = useState(false);
 
   const entry = toDecisionCardEntry({
     id: player.playerId,
@@ -176,11 +182,16 @@ function InYourLeaguesBlock({ player }) {
   });
 
   if (error) return null;
-  const leagues = data?.leagues || [];
+  // Risk review finding 3: a league whose Availability state this page
+  // doesn't recognize has no glossary copy, and rendering it anyway would be
+  // a 44px button with no accessible name. Drop it rather than guess at
+  // copy - today's contract only emits the four known states, so this is a
+  // defensive filter, not an expected case.
+  const leagues = (data?.leagues || []).filter((line) => inYourLeaguesCopy(line) != null);
   if (!loading && leagues.length === 0) return null;
 
   return (
-    <Box component="section" sx={{ mb: 3 }}>
+    <Box component="section" sx={{ mb: 3 }} aria-busy={loading || undefined}>
       <Typography variant="h5" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>In your leagues</Typography>
       {loading ? (
         <Skeleton variant="rounded" height={44} />
@@ -190,8 +201,19 @@ function InYourLeaguesBlock({ player }) {
             <DashButton
               key={line.leagueId}
               variant="ghost"
-              onClick={() => setOpenLine(line)}
-              sx={{ ...MIN_TOUCH_TARGET_SX, width: '100%', justifyContent: 'flex-start' }}
+              onClick={() => { setOpenLine(line); setCardOpen(true); }}
+              sx={{
+                ...MIN_TOUCH_TARGET_SX,
+                width: '100%',
+                justifyContent: 'flex-start',
+                // The label is real league/team names, unbounded and
+                // caller-supplied - DashButton's BASE_SX default
+                // (`whiteSpace: nowrap`) fits its short fixed labels
+                // elsewhere, but here it would let a long line overflow
+                // the row instead of wrapping (risk review finding 2).
+                whiteSpace: 'normal',
+                textAlign: 'left',
+              }}
             >
               {inYourLeaguesCopy(line)}
             </DashButton>
@@ -199,8 +221,8 @@ function InYourLeaguesBlock({ player }) {
         </Stack>
       )}
       <PlayerDecisionCard
-        open={openLine != null}
-        onClose={() => setOpenLine(null)}
+        open={cardOpen}
+        onClose={() => setCardOpen(false)}
         entry={entry}
         leagueId={openLine?.leagueId}
         context={openLine?.availability?.state}
