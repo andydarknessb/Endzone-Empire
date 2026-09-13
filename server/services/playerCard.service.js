@@ -46,6 +46,26 @@ function pointsOf(projections, playerId) {
 }
 
 /**
+ * Classifies one `getWeeklyProjections` result for one week (formal review
+ * f3): unavailable, with the 'on IR' | 'out' reason, or a point value
+ * (median falling back to mean, `null` when the producer had neither).
+ * Shared by `buildWeeksForPage` (the list, #1309) and `buildWeeklyBars` (the
+ * card, #1306) so the two never classify the same projection two different
+ * ways - the list and the card must agree here (spec #1303, story 7).
+ */
+function classifyWeekProjection(projection) {
+  const unavailable = !!(projection
+    && projection.factors
+    && projection.factors.availability
+    && projection.factors.availability.available === false);
+  if (unavailable) {
+    return { unavailable: true, reason: projection.factors.availability.reason === 'ir' ? 'on IR' : 'out' };
+  }
+  const point = projection ? (projection.median != null ? projection.median : projection.mean) : null;
+  return { unavailable: false, points: point == null ? null : Number(point) };
+}
+
+/**
  * `Map<playerId, identityIds[]>` for every id in `playerIds`, under the SAME
  * partition `player.router.js`'s `player_identities` CTE uses (normalized
  * name + position + Team code): every `players` row a duplicate-source sync
@@ -384,18 +404,12 @@ async function buildWeeksForPage({ league, players, season, currentWeek, byeWeek
         weeksByPlayer.get(id).push({ week: wk, reason: 'on bye' });
         continue;
       }
-      const projection = run.projections.get(id);
-      const unavailable = !!(projection
-        && projection.factors
-        && projection.factors.availability
-        && projection.factors.availability.available === false);
-      if (unavailable) {
-        const reason = projection.factors.availability.reason === 'ir' ? 'on IR' : 'out';
-        weeksByPlayer.get(id).push({ week: wk, reason });
+      const classified = classifyWeekProjection(run.projections.get(id));
+      if (classified.unavailable) {
+        weeksByPlayer.get(id).push({ week: wk, reason: classified.reason });
         continue;
       }
-      const point = projection ? (projection.median != null ? projection.median : projection.mean) : null;
-      weeksByPlayer.get(id).push({ week: wk, points: point == null ? null : Number(point) });
+      weeksByPlayer.get(id).push({ week: wk, points: classified.points });
     }
   }
   return weeksByPlayer;
@@ -446,18 +460,12 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
     // call per remaining week, by design (Ruling item 5); the nightly run
     // (#1305) has already filled every one of these for an in-season league.
     const run = await projectionService.getWeeklyProjections({ season, week: wk, league, playerIds: [player.id] });
-    const projection = run.projections.get(player.id);
-    const unavailable = !!(projection
-      && projection.factors
-      && projection.factors.availability
-      && projection.factors.availability.available === false);
-    if (unavailable) {
-      const reason = projection.factors.availability.reason === 'ir' ? 'on IR' : 'out';
-      weeks.push({ week: wk, opponent, kind: 'unavailable', reason });
+    const classified = classifyWeekProjection(run.projections.get(player.id));
+    if (classified.unavailable) {
+      weeks.push({ week: wk, opponent, kind: 'unavailable', reason: classified.reason });
       continue;
     }
-    const point = projection ? (projection.median != null ? projection.median : projection.mean) : null;
-    weeks.push({ week: wk, opponent, kind: 'projected', points: point == null ? null : Number(point) });
+    weeks.push({ week: wk, opponent, kind: 'projected', points: classified.points });
   }
   return weeks;
 }

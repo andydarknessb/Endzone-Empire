@@ -2,14 +2,23 @@
 // Decision-card-shaped per-row fields on the paginated list, and the new
 // `upgrade` sort key.
 //
-// `playerCardService.availabilityForMany` and `.upgradesFor` are mocked here
-// (kept-whole cross-module requires, the same test seam convention the
-// router's own comments document) - their query-count contracts belong to
-// `server/services/playerCard.service.js`'s own suite, out of this ticket's
-// Scope. `buildWeeksForPage` is exercised for REAL (it is new in this
-// ticket): it only ever calls `projectionService.getWeeklyProjections`, no
-// pool access, so mocking that one seam is enough to drive it, including the
-// "one call per week for the whole page" query-count red-tell.
+// Most tests below mock `playerCardService.availabilityForMany`/`.upgradesFor`
+// wholesale (kept-whole cross-module requires, the same test seam convention
+// the router's own comments document) to pin the ROUTER's wiring - which
+// field goes where, the sort order, the leagueId gate - without needing the
+// full producer machinery. `buildWeeksForPage` is exercised for REAL
+// throughout (it is new in this ticket): it only ever calls
+// `projectionService.getWeeklyProjections`, no pool access.
+//
+// Formal review round 1 (formal-1309-f1) caught that this left the batch
+// producers' OWN query-count contract (Ruling item 11) unpinned - the mocks
+// bypass the SQL entirely. The "real producers" tests near the bottom of this
+// file run `availabilityForMany` and `upgradesFor` for real, over a fake pool
+// (`./helpers/fakePool`, which also covers the pooled CLIENT the lineup
+// transaction inside `upgradesFor` uses), and assert the call counts don't
+// scale with page/pool size. formal-1309-f2 then asked for a parity case
+// between the N=1 and batch SQL forms those two functions fork into - also
+// below, calling `playerCardService` directly rather than through the route.
 const { after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
@@ -20,6 +29,9 @@ const playerRouter = require('../routes/player.router');
 const playerCardService = require('../services/playerCard.service');
 const projectionService = require('../services/projection.service');
 const irPolicy = require('../services/irPolicy.service');
+const lineupService = require('../services/lineup.service');
+const decisionService = require('../services/decision.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'player-cards-view-route-test-secret';
@@ -284,4 +296,184 @@ test('view=cards + sort=upgrade in a best_ball league: still never returns proje
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.ok(res.body.players.every((p) => !('projected_points' in p)));
   assert.ok(res.body.players.every((p) => p.upgrade === null));
+});
+
+// ---------------------------------------------------------------------------
+// Real producers (formal-1309-f1): availabilityForMany and upgradesFor run
+// for real over a fake pool, so their own query-count contract (Ruling
+// item 11) is actually exercised, not bypassed by a mock.
+// ---------------------------------------------------------------------------
+
+/** Every query `availabilityForMany`/`upgradesFor` can issue over this
+ * fixture's players, none of whom are rostered, on waivers, or a starter -
+ * so `upgrade` resolves through `decisionService.upgradeFor` (mocked) for
+ * every one of them, and the identity/roster/waiver reads all come back
+ * empty. Built for COUNTING calls, not for asserting particular values. */
+function realProducerHandlers({ league, players }) {
+  const positionById = new Map(players.map((p) => [p.id, p.position]));
+  return [
+    [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2$/, () => ({ rows: [TEAM] })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS "roster_count" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [{ roster_count: 0 }] })],
+    // upgradesFor's lineup transaction: no current starters.
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    // upgradesFor's own-roster check: nobody on the caller's roster.
+    [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
+    [/^SELECT "id", "position" FROM "players" WHERE "id" = ANY/, (text, params) => ({
+      rows: params[0].map((id) => ({ id, position: positionById.get(id) ?? null })),
+    })],
+    // loadIdentityIdsFor: no duplicate identity rows here (see the parity
+    // tests below for that case) - single form returns the scalar id,
+    // batch form maps every requested id to itself 1:1.
+    [/^WITH "target" AS \(/, (text, params) => (text.includes('ANY($1::int[])')
+      ? { rows: params[0].map((id) => ({ requested_id: id, identity_id: id })) }
+      : { rows: [{ id: params[0] }] })],
+    // Roster-with-team-name and waiver reads, single and batch forms alike:
+    // nobody rostered, nobody on waivers.
+    [/^SELECT "team_players"\."team_id"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    // The default (non-cards) view's attachLeagueAvailability, reached by the
+    // plain sort=upgrade case below.
+    [/^SELECT "team_id", "player_id" FROM "team_players"/, () => ({ rows: [] })],
+  ];
+}
+
+function mockRealProducerServices(t, { seasonEnd = 17 } = {}) {
+  t.mock.method(irPolicy, 'rosterCapacity', async () => 16);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
+  t.mock.method(decisionService, 'upgradeFor', () => ({ points: 1, overPlayer: { id: 9, name: 'Bench' }, slot: 'RB' }));
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
+    projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
+  }));
+  t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => new Map(
+    playerIds.map((id) => [id, { total: 10, perGame: 2 }]),
+  ));
+  t.mock.method(projectionService, 'lastPlayoffWeek', () => seasonEnd);
+}
+
+/** Runs one request over a fresh fake pool and returns its call counts,
+ * split by seam: `pool` is `pool.query` directly, `client` is a query issued
+ * on a checked-out client (the lineup transaction inside `upgradesFor` -
+ * BEGIN/COMMIT excluded, they are transaction bookkeeping, not reads). */
+async function countCallsFor(t, { league, players, qs }) {
+  const fake = createFakePool(realProducerHandlers({ league, players })).install(t);
+  mockRealProducerServices(t);
+
+  const res = await request(app).get(`/api/players?${qs}`).set('Authorization', TOKEN());
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  fake.assertClean();
+  t.mock.restoreAll();
+
+  return {
+    pool: fake.calls.filter((c) => c.via === 'pool').length,
+    client: fake.calls.filter((c) => c.via === 'client' && c.text !== 'BEGIN' && c.text !== 'COMMIT').length,
+  };
+}
+
+test('view=cards: pool.query and lineup-transaction call counts are the same for a 25-row page and a 1-row page, with the real availabilityForMany/upgradesFor/buildWeeksForPage running', async (t) => {
+  const league = makeLeague({ currentWeek: 17 });
+  const bigCounts = await countCallsFor(t, { league, players: makePlayers(25), qs: 'view=cards&leagueId=1' });
+  const smallCounts = await countCallsFor(t, { league, players: makePlayers(1), qs: 'view=cards&leagueId=1' });
+
+  assert.equal(bigCounts.pool, smallCounts.pool, `pool.query calls: 25-row (${bigCounts.pool}) vs 1-row (${smallCounts.pool})`);
+  // The lineup transaction upgradesFor opens runs through a pooled CLIENT,
+  // not pool.query directly - counted separately per the same "batched, not
+  // per player" contract (Ruling item 11).
+  assert.equal(bigCounts.client, smallCounts.client, `lineup transaction reads: 25-row (${bigCounts.client}) vs 1-row (${smallCounts.client})`);
+  assert.ok(bigCounts.pool > 0 && bigCounts.client > 0, 'both seams were actually exercised, not skipped entirely');
+});
+
+test('sort=upgrade: pool.query and lineup-transaction call counts are the same for an eligible pool of 25 and a pool of 1, with the real upgradesFor running', async (t) => {
+  const league = makeLeague({ currentWeek: 17 });
+  const bigCounts = await countCallsFor(t, { league, players: makePlayers(25), qs: 'sort=upgrade&leagueId=1' });
+  const smallCounts = await countCallsFor(t, { league, players: makePlayers(1), qs: 'sort=upgrade&leagueId=1' });
+
+  assert.equal(bigCounts.pool, smallCounts.pool, `pool.query calls: pool of 25 (${bigCounts.pool}) vs pool of 1 (${smallCounts.pool})`);
+  assert.equal(bigCounts.client, smallCounts.client, `lineup transaction reads: pool of 25 (${bigCounts.client}) vs pool of 1 (${smallCounts.client})`);
+  assert.ok(bigCounts.pool > 0 && bigCounts.client > 0, 'both seams were actually exercised, not skipped entirely');
+});
+
+// ---------------------------------------------------------------------------
+// N=1 vs batch parity (formal-1309-f2): loadIdentityIdsFor and
+// availabilityForMany each fork on `players.length === 1` into a hand-copied
+// scalar SQL branch (forced by playerCard.service.test.js's out-of-Scope
+// fixtures, which only tolerate that exact query shape). This fixture
+// answers BOTH shapes from one in-memory table, so the same duplicate-
+// identity player can be resolved through either path and compared.
+// ---------------------------------------------------------------------------
+
+/** One real athlete with TWO `players` rows (id 1, its duplicate-source
+ * sibling id 101), rostered by another team (id 55) under the sibling id -
+ * exactly the case formal review f1 (on #1306) exists for: a duplicate row
+ * must still resolve to the same Availability as the canonical one. */
+function duplicateIdentityHandlers() {
+  const identityOf = { 1: [1, 101], 2: [2], 3: [3] };
+  return [
+    [/^WITH "target" AS \(/, (text, params) => {
+      if (text.includes('ANY($1::int[])')) {
+        const rows = [];
+        for (const id of params[0]) {
+          for (const identityId of (identityOf[id] || [id])) rows.push({ requested_id: id, identity_id: identityId });
+        }
+        return { rows };
+      }
+      return { rows: (identityOf[params[0]] || [params[0]]).map((id) => ({ id })) };
+    }],
+    [/^SELECT "team_players"\."team_id", "team_players"\."player_id", "teams"\."name"/, (text, params) => ({
+      rows: params[1].includes(101) ? [{ team_id: 55, player_id: 101, team_name: 'Other Team' }] : [],
+    })],
+    [/^SELECT "team_players"\."team_id", "teams"\."name"/, (text, params) => ({
+      rows: params[1].includes(101) ? [{ team_id: 55, team_name: 'Other Team' }] : [],
+    })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
+    [/^SELECT "id", "position" FROM "players" WHERE "id" = ANY/, (text, params) => ({
+      rows: params[0].map((id) => ({ id, position: 'RB' })),
+    })],
+  ];
+}
+
+test('formal-1309-f2: availabilityForMany over [p] and over [p, q, r] return the same entry for p, including a duplicate identity row', async (t) => {
+  const league = makeLeague();
+  createFakePool(duplicateIdentityHandlers()).install(t);
+
+  const p = { id: 1 };
+  const single = await playerCardService.availabilityForMany({ league, team: TEAM, players: [p] });
+  t.mock.restoreAll();
+  createFakePool(duplicateIdentityHandlers()).install(t);
+  const batch = await playerCardService.availabilityForMany({ league, team: TEAM, players: [p, { id: 2 }, { id: 3 }] });
+
+  const expected = { state: 'rostered', teamId: 55, teamName: 'Other Team', availableAt: null };
+  assert.deepEqual(single.get(1), expected, 'the N=1 SQL shape resolves the duplicate identity row');
+  assert.deepEqual(batch.get(1), expected, 'the batch SQL shape resolves the SAME duplicate identity row the same way');
+});
+
+test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is on the caller\'s own roster, in the batch form', async (t) => {
+  const league = makeLeague();
+  // Same identity table as above, but player 1's sibling identity (101) is
+  // on the CALLER's own roster this time - the own-roster handler goes FIRST
+  // so it overrides duplicateIdentityHandlers()'s empty-rows default (fakePool
+  // tries handlers in order and takes the first pattern match).
+  const handlers = [
+    [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [{ player_id: 101 }] })],
+    ...duplicateIdentityHandlers(),
+  ];
+  createFakePool(handlers).install(t);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
+  t.mock.method(decisionService, 'upgradeFor', () => ({ points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' }));
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+
+  const upgrades = await playerCardService.upgradesFor({
+    league, team: TEAM, season: 2026, week: 1, playerIds: [1, 2, 3],
+  });
+
+  assert.equal(upgrades.get(1), null, 'player 1 is already on the caller\'s roster via its duplicate identity row 101');
+  assert.notEqual(upgrades.get(2), null, 'an unrelated candidate still gets a real Upgrade value');
 });
