@@ -185,6 +185,25 @@ test('a Trade deep-link (?receivingTeamId=&playerId=) preselects the receiving t
   expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
 });
 
+// Formal review formal-1310-f4: a stale/mistyped playerId (traded, dropped,
+// or simply wrong) must not land in receiveIds uncheckably - RosterColumn
+// never renders a checkbox for an id absent from the team's own roster, yet
+// handleSendOffer would still send it.
+test('a Trade deep-link whose playerId is not on the receiving team\'s roster preselects the team with nothing checked', async () => {
+  mockGetSequence({ trades: [] });
+
+  renderWithProviders(<TradeCenter />, {
+    path: '/league/:leagueId/trades',
+    route: '/league/1/trades?receivingTeamId=20&playerId=999999',
+    state: { user: { id: 1, username: 'alice' } },
+  });
+
+  await screen.findByText('No Pending Trades');
+
+  expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
+  expect(screen.getByRole('button', { name: 'Send Offer' })).toBeDisabled();
+});
+
 test('shows empty state when there are no trades', async () => {
   mockGetSequence({ trades: [] });
 

@@ -90,9 +90,35 @@ test("renders a league-scoped Player Browser without duplicate roster management
   ).not.toBeInTheDocument();
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith("/api/players", {
-      params: { page: 1, position: "All", sort: "adp", leagueId: 1, view: "cards" },
+      // Formal review formal-1310-f1: Upgrade is the default sort once a
+      // league is selected in a non-best-ball league.
+      params: { page: 1, position: "All", sort: "upgrade", leagueId: 1, view: "cards" },
     }),
   );
+});
+
+test("formal-1310-f1: Upgrade is the default sort only with a selected, non-best-ball league; no league or best ball stays ADP; an explicit ?sort= still wins", async () => {
+  mockBrowser({ leagues: [{ ...league, best_ball: true }] });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByTestId("player-row");
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.sort).toBe("adp");
+  });
+});
+
+test("formal-1310-f1: an explicit ?sort= wins over the contextual Upgrade default", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />, {
+    route: "/player?league=1&sort=name",
+    path: "/player",
+  });
+
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.sort).toBe("name");
+  });
 });
 
 // #1307, ADR 0040: PlayerManagement opens the Decision card (context derived
@@ -229,6 +255,31 @@ test("Claim submits a waiver claim directly, through the same claim-player featu
   );
 });
 
+// Formal review formal-1310-f3: the busy state used to be page-wide (every
+// row's Claim relabeled/disabled while ANY one was in flight). It must be
+// scoped to the one row the manager actually tapped.
+test("formal-1310-f3: only the tapped row's Claim goes busy, not every waivers row", async () => {
+  let resolvePost;
+  apiClient.post.mockImplementation(() => new Promise((resolve) => { resolvePost = resolve; }));
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "First Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+      player({ id: 3, name: "Second Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const claimButtons = await screen.findAllByRole("button", { name: "Claim" });
+  expect(claimButtons).toHaveLength(2);
+  await userEvent.click(claimButtons[0]);
+
+  expect(await screen.findByRole("button", { name: "Claiming…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Claim" })).toBeEnabled();
+
+  resolvePost({});
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Claim" })).toHaveLength(2));
+});
+
 test("adds a Free agent then refreshes the server-authoritative browser state", async () => {
   mockBrowser({ players: [player({ id: 8, name: "Free Agent" })] });
   apiClient.post.mockResolvedValue({});
@@ -278,7 +329,9 @@ test("uses URL-backed availability filters through the segmented control", async
       params: {
         page: 1,
         position: "All",
-        sort: "adp",
+        // Formal review formal-1310-f1: Upgrade is the default sort once a
+        // league is selected in a non-best-ball league.
+        sort: "upgrade",
         leagueId: 1,
         view: "cards",
         availability: "free_agent",

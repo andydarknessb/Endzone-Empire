@@ -291,9 +291,18 @@ function TradeCenter() {
     if (!team) return;
     dealLinkAppliedRef.current = true;
     const playerIdParam = searchParams.get('playerId');
+    // Formal review formal-1310-f4: a stale or mistyped playerId (the player
+    // has since been traded/dropped) must not land in `receiveIds` uncheck-
+    // able - RosterColumn only renders a checkbox for a player actually on
+    // `team.players`, so a playerId that fails this same test would sit in
+    // receiveIds with no checkbox to represent it, yet still ride along in
+    // handleSendOffer's `[...sendIds, ...receiveIds]`. Preselect it only when
+    // the receiving team's own roster actually carries that id.
+    const playerId = playerIdParam ? Number(playerIdParam) : null;
+    const playerOnTeam = playerId != null && (team.players || []).some((p) => p.id === playerId);
     setSelectedTeamId(teamId);
     setSendIds(new Set());
-    setReceiveIds(playerIdParam ? new Set([Number(playerIdParam)]) : new Set());
+    setReceiveIds(playerOnTeam ? new Set([playerId]) : new Set());
     setCounterTradeId(null);
     setDialogOpen(true);
     setSearchParams((current) => {

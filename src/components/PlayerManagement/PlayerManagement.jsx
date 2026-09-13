@@ -45,7 +45,6 @@ import { rosterActionForPhase } from "../../lib/leaguePhase";
 import { isPickemOnly } from "../../lib/leagueType";
 import {
   SORT_FIELDS,
-  SORT_FIELDS_BY_KEY,
   wireSortName,
 } from "../DraftBoard/sortFields";
 
@@ -102,28 +101,35 @@ const SORT_OPTIONS = SORT_FIELDS.map((field) => ({
   label: OPTION_LABEL_OVERRIDES[field.label] || field.label,
 }));
 
-// The Player Browser's default sort. Omitted from the URL rather than written
-// into it (see updateParams' empty-value deletion), so `?sort=` absent means
-// this key. It is the same default wireSortName falls back to.
-//
-// #1310 leaves the API's own `sort=upgrade` (view=cards' new default-sort
-// candidate per the issue body) off this control: it requires a leagueId the
-// URL-restored state can't always guarantee ahead of the league fetch, and
-// no acceptance criterion here tests a default sort order - a dedicated
-// "Sort by Upgrade" control is a follow-up, not this ticket's Ruling.
+// The absolute fallback sort - used whenever no league is selected (or the
+// league is best ball, where Upgrade is never a real ranking) and whenever an
+// unrecognized, non-empty `?sort=` value reaches sortKeyFromParam. It is the
+// same default wireSortName falls back to.
 const DEFAULT_SORT_KEY = "adp";
 
-// The `?sort=` URL param, resolved to a sortFields KEY.
+// Formal review formal-1310-f1: the issue body's "Upgrade (default sort...)"
+// is a real default, not a follow-up - the server gates `view=cards` and
+// `sort=upgrade` on the identical `leagueId` condition (player.router.js),
+// which fetchPlayers below already tests before sending either. So the
+// CONTEXTUAL default (computed in the component, where selectedLeague and
+// bestBall are known) is "upgrade" whenever a league is selected and it is
+// not best ball, else DEFAULT_SORT_KEY - never a fixed constant.
+const PAGE_SORT_KEYS = new Set([...SORT_FIELDS.map((field) => field.key), "upgrade"]);
+
+// The `?sort=` URL param, resolved to a sortFields KEY (or "upgrade", the one
+// page-local sort key that isn't a sortFields.js entry). Returns null when the
+// param is absent, so the caller can fall back to its own CONTEXTUAL default
+// instead of a fixed one.
 //
 // The param carried WIRE names before #1002, and one field's wire name differs
 // from its key, so a bookmark or a shared link made before this change would
 // otherwise resolve to the default and silently re-sort the page. A wire name
 // is therefore still accepted on READ and mapped back to its key; only keys are
-// ever WRITTEN into the URL. Anything else falls back to the default rather
-// than reaching the API verbatim.
+// ever WRITTEN into the URL. Anything unrecognized falls back to DEFAULT_SORT_KEY
+// rather than reaching the API verbatim.
 function sortKeyFromParam(value) {
-  if (!value) return DEFAULT_SORT_KEY;
-  if (SORT_FIELDS_BY_KEY[value]) return value;
+  if (!value) return null;
+  if (PAGE_SORT_KEYS.has(value)) return value;
   const legacy = SORT_FIELDS.find((field) => field.wire === value);
   return legacy ? legacy.key : DEFAULT_SORT_KEY;
 }
@@ -172,14 +178,26 @@ function PlayerManagement() {
   const positionFilter = searchParams.get("pos") || "All";
   const availabilityFilter = searchParams.get("availability") || "all";
   const search = searchParams.get("q") || "";
-  const sort = sortKeyFromParam(searchParams.get("sort"));
   const dir = searchParams.get("dir") || "asc";
-  const [searchInput, setSearchInput] = useState(search);
   const activeLeague = leagues.find(
     (league) => String(league.id) === selectedLeague,
   );
   const rosterAction = rosterActionForPhase(activeLeague);
   const bestBall = !!activeLeague?.best_ball;
+  // Formal review formal-1310-f1: Upgrade is the default sort whenever a
+  // league is selected and it is not best ball (the same condition the
+  // server gates `view=cards`/`sort=upgrade` on) - an explicit `?sort=`
+  // still wins over it.
+  const contextualDefaultSort = selectedLeague && !bestBall ? "upgrade" : DEFAULT_SORT_KEY;
+  const sort = sortKeyFromParam(searchParams.get("sort")) || contextualDefaultSort;
+  // The Sort dropdown's own options: Upgrade joins the list only when it is a
+  // real, selectable sort (a league is selected and it is not best ball) -
+  // otherwise the Select's controlled `value` could hold "upgrade" with no
+  // matching MenuItem, which MUI renders blank.
+  const sortOptions = selectedLeague && !bestBall
+    ? [...SORT_OPTIONS, { key: "upgrade", label: "Upgrade" }]
+    : SORT_OPTIONS;
+  const [searchInput, setSearchInput] = useState(search);
 
   const updateParams = useCallback(
     (updates) => {
@@ -254,10 +272,13 @@ function PlayerManagement() {
       // `?sort=` field name (issue #1002). Every request the Player Browser
       // sent before this change still carries the identical value; only the
       // place the wire name is produced moved, from six literals to here.
+      // "upgrade" is the one sort key that isn't a sortFields.js entry (it
+      // has no wire-name translation to make - the server's own `?sort=`
+      // value is the literal key).
       const params = {
         page: pageNumber,
         position: positionFilter,
-        sort: wireSortName(sort),
+        sort: sort === "upgrade" ? "upgrade" : wireSortName(sort),
       };
       // view=cards (#1309/#1310) requires leagueId - without a selected
       // league (browsing with no fantasy league yet) the request stays the
@@ -311,15 +332,25 @@ function PlayerManagement() {
     () => Promise.all([fetchPlayers(), fetchRoster()]),
     [fetchPlayers, fetchRoster],
   );
+  // Formal review formal-1310-f3: `useAddPlayer`/`useClaimPlayer` each hold
+  // ONE page-wide `pending` boolean, so applying it to every row's action
+  // (the original risk-review fix for the double-submit gap) relabeled and
+  // disabled every waivers/free-agent row at once - a screen-reader user on
+  // player B heard a claim in progress for a player they never touched.
+  // Tracked here instead, by the ONE player id whose request is in flight,
+  // so only that row's button goes busy.
+  const [pendingPlayerId, setPendingPlayerId] = useState(null);
   // Formal review round 1, f4: the row's own Add action now consumes the
   // SAME implementation the Decision card's free-agent bar does, rather than
   // a parallel POST that could drift from it (the lead correction's own
   // wording: "PlayerManagement then consumes the feature").
-  const { addPlayer, pending: addPending } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const addToRoster = useCallback(
     async (player) => {
       setError(null);
+      setPendingPlayerId(player.id);
       const { ok, message } = await addPlayer({ playerId: player.id, playerName: player.name });
+      setPendingPlayerId(null);
       if (!ok) setError(message);
     },
     [addPlayer],
@@ -330,11 +361,13 @@ function PlayerManagement() {
   // list, the row-level counterpart to Add's own direct call above. A
   // manager who needs a drop pick or a FAAB bid still reaches the fuller
   // Decision card action bar by opening the row's own Quick view.
-  const { submitClaim, pending: claimPending } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
       setError(null);
+      setPendingPlayerId(player.id);
       const { ok, message } = await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
+      setPendingPlayerId(null);
       if (!ok) setError(message);
     },
     [submitClaim],
@@ -342,6 +375,9 @@ function PlayerManagement() {
   const actionForPlayer = useCallback(
     (player) => {
       const state = availabilityOf(player);
+      // Formal review formal-1310-f3: busy state is scoped to THIS row's own
+      // player id, never the page-wide pending booleans the hooks return.
+      const rowPending = pendingPlayerId === player.id;
       if (!selectedLeague)
         return {
           kind: "button",
@@ -357,9 +393,9 @@ function PlayerManagement() {
           // first request's snackbar ever appeared - disabling for the
           // request's own duration is the same guard Add already gets below
           // from `rosterAction.disabled`.
-          label: claimPending ? "Claiming…" : "Claim",
+          label: rowPending ? "Claiming…" : "Claim",
           onClick: () => claimFromRow(player),
-          disabled: claimPending,
+          disabled: rowPending,
           helper: "Submit a waiver claim for this player.",
         };
       if (state === "my_team")
@@ -386,14 +422,14 @@ function PlayerManagement() {
         };
       return {
         kind: "button",
-        label: addPending ? "Adding…" : rosterAction.label,
+        label: rowPending ? "Adding…" : rosterAction.label,
         onClick: () => addToRoster(player),
-        disabled: rosterAction.disabled || addPending,
+        disabled: rosterAction.disabled || rowPending,
         variant: "contained",
         helper: rosterAction.helper,
       };
     },
-    [addPending, addToRoster, claimFromRow, claimPending, rosterAction, selectedLeague],
+    [addToRoster, claimFromRow, pendingPlayerId, rosterAction, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -488,14 +524,14 @@ function PlayerManagement() {
             onChange={(event) =>
               updateParams({
                 sort:
-                  event.target.value === DEFAULT_SORT_KEY
+                  event.target.value === contextualDefaultSort
                     ? ""
                     : event.target.value,
                 page: 1,
               })
             }
           >
-            {SORT_OPTIONS.map((option) => (
+            {sortOptions.map((option) => (
               <MenuItem key={option.key} value={option.key}>
                 {option.label}
               </MenuItem>
