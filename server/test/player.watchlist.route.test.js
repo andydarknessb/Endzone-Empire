@@ -139,7 +139,7 @@ test('GET /:id/card carries watching: true after a PUT and watching: false after
 test('GET /:id/card reads watching fresh even on a cache hit for the SAME player', async (t) => {
   const world = watchlistWorld(new Map([[7, TEAM_A]]));
   createFakePool(world.handlers).install(t);
-  t.mock.method(playerCardService, 'getPlayerCard', async () => (
+  const getPlayerCardMock = t.mock.method(playerCardService, 'getPlayerCard', async () => (
     { player: { id: 60 }, availability: { state: 'my_team' }, decision: {} }
   ));
 
@@ -149,12 +149,12 @@ test('GET /:id/card reads watching fresh even on a cache hit for the SAME player
   await request(app).put('/api/players/60/watch?leagueId=1').set('Authorization', tokenFor(7));
 
   // Second read of the SAME player+league+team+week: a cache hit on the rest
-  // of the payload (getPlayerCard is not re-invoked - the mock above would
-  // throw if node:test's mock call-count assertion caught a second call, but
-  // more directly: this is the exact cache key the first read populated),
-  // yet `watching` reflects the PUT that just happened.
+  // of the payload, proven directly (formal review f5) by the underlying
+  // getPlayerCard mock's own call count, not an inference - yet `watching`
+  // still reflects the PUT that just happened.
   const second = await request(app).get('/api/players/60/card?leagueId=1').set('Authorization', tokenFor(7));
   assert.equal(second.status, 200);
+  assert.equal(getPlayerCardMock.mock.callCount(), 1, 'the second read must be a cache hit, not a second getPlayerCard call');
   assert.equal(second.body.watching, true, 'a cache hit must not serve a stale watching value');
 });
 

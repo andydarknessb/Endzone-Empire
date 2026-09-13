@@ -860,6 +860,24 @@ router.get('/:id/card', requireAuth, async (req, res) => {
   }
 });
 
+// Shared validation for PUT/DELETE /:id/watch (formal review f6): both
+// handlers accept the same two inputs and refuse them the same way, so one
+// parser is the single source rather than two copies free to drift. Writes
+// the 400 itself and returns null on a refusal, so a caller's own early
+// `return` is the only control flow it needs.
+function parseWatchParams(req, res) {
+  if (!/^\d+$/.test(req.params.id)) {
+    res.status(400).json({ error: 'player id must be a positive integer' });
+    return null;
+  }
+  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
+  if (!leagueId || !/^\d+$/.test(leagueId)) {
+    res.status(400).json({ error: 'leagueId must be a positive integer' });
+    return null;
+  }
+  return { playerId: Number(req.params.id), leagueId: Number(leagueId) };
+}
+
 // PUT/DELETE /api/players/:id/watch?leagueId=N — add/remove this player from
 // the caller's own team-scoped watchlist (#1312, ADR 0040 follow-up, grill
 // ruling Q6). `requireMember` resolves the caller's own team the same way
@@ -869,16 +887,11 @@ router.get('/:id/card', requireAuth, async (req, res) => {
 // Idempotent: watching an already-watched player, or unwatching one never
 // watched, is a 200 with the settled state, not an error.
 router.put('/:id/watch', requireAuth, async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) {
-    return res.status(400).json({ error: 'player id must be a positive integer' });
-  }
-  const playerId = Number(req.params.id);
-  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
-  if (!leagueId || !/^\d+$/.test(leagueId)) {
-    return res.status(400).json({ error: 'leagueId must be a positive integer' });
-  }
+  const params = parseWatchParams(req, res);
+  if (!params) return;
+  const { playerId, leagueId } = params;
   try {
-    const team = await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
     const outcome = await playerWatchlistService.watch({ teamId: team.id, playerId });
     res.json(outcome);
   } catch (error) {
@@ -892,16 +905,11 @@ router.put('/:id/watch', requireAuth, async (req, res) => {
 });
 
 router.delete('/:id/watch', requireAuth, async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) {
-    return res.status(400).json({ error: 'player id must be a positive integer' });
-  }
-  const playerId = Number(req.params.id);
-  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
-  if (!leagueId || !/^\d+$/.test(leagueId)) {
-    return res.status(400).json({ error: 'leagueId must be a positive integer' });
-  }
+  const params = parseWatchParams(req, res);
+  if (!params) return;
+  const { playerId, leagueId } = params;
   try {
-    const team = await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
     const outcome = await playerWatchlistService.unwatch({ teamId: team.id, playerId });
     res.json(outcome);
   } catch (error) {

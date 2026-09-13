@@ -29,10 +29,14 @@ export function useWatchPlayer({ leagueId, onDone } = {}) {
     try {
       if (watching) {
         await apiClient.delete(`/api/players/${playerId}/watch`, { params: { leagueId: Number(leagueId) } });
-        notify('Removed from watchlist');
+        // Formal review f2: "watchlist" is CONTEXT.md's own _Avoid_ term for
+        // this word (it names the Queue's wrong synonym, not this feature) -
+        // the Ruling's copy is Watch/Watching, so both toasts stay in that
+        // vocabulary.
+        notify('No longer watching');
       } else {
         await apiClient.put(`/api/players/${playerId}/watch`, null, { params: { leagueId: Number(leagueId) } });
-        notify('Watching player');
+        notify('Now watching');
       }
       await onDone?.();
       return { ok: true, watching: !watching };
