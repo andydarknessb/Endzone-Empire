@@ -129,3 +129,69 @@ test('a live/final row that names neither side as the entry\'s team scores null 
 test('a null entry never throws', () => {
   expect(gameCellView(null, null)).toBeNull();
 });
+
+// #1329 (ADR 0037): the pre-kickoff cell's Line/weather text, off the
+// entry's own `line`/`weather` fields.
+describe('pre-kickoff lineText and weatherText', () => {
+  test('a null line produces a null lineText, and a null weather a null weatherText', () => {
+    const view = gameCellView(entry({ line: null, weather: null }), null);
+    expect(view.lineText).toBeNull();
+    expect(view.weatherText).toBeNull();
+  });
+
+  test('a full line renders "<favoured> -<spread> · O/U <total>"', () => {
+    const view = gameCellView(
+      entry({ line: { spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2026-09-14T12:00:00Z', favoured: 'KC' } }),
+      null
+    );
+    expect(view.lineText).toBe('KC -3.5 · O/U 49.5');
+  });
+
+  test('a null favoured produces a null lineText even when spread and total are present', () => {
+    const view = gameCellView(
+      entry({ line: { spread: 0, total: 49.5, impliedTeamTotal: 26.5, observedAt: null, favoured: null } }),
+      null
+    );
+    expect(view.lineText).toBeNull();
+  });
+
+  test('an indoor game reads "Dome" regardless of any other weather field', () => {
+    const view = gameCellView(
+      entry({ weather: { indoor: true, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null } }),
+      null
+    );
+    expect(view.weatherText).toBe('Dome');
+  });
+
+  test('temperature, a rain word and wind at 10+ mph join with a middot', () => {
+    const view = gameCellView(
+      entry({ weather: { indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: 20, precipitationProbability: 60, shortForecast: 'Light Rain' } }),
+      null
+    );
+    expect(view.weatherText).toBe('58° · rain · wind 12');
+  });
+
+  test('a snow forecast reads "snow", not "rain"', () => {
+    const view = gameCellView(
+      entry({ weather: { indoor: false, temperatureF: 28, windSpeedMph: 5, windGustMph: null, precipitationProbability: 40, shortForecast: 'Snow Showers' } }),
+      null
+    );
+    expect(view.weatherText).toBe('28° · snow');
+  });
+
+  test('wind under 10 mph contributes no wind part', () => {
+    const view = gameCellView(
+      entry({ weather: { indoor: false, temperatureF: 84, windSpeedMph: 9, windGustMph: null, precipitationProbability: 0, shortForecast: 'Sunny' } }),
+      null
+    );
+    expect(view.weatherText).toBe('84°');
+  });
+
+  test('a fields-null weather object with no snapshot yet reads a null weatherText', () => {
+    const view = gameCellView(
+      entry({ weather: { indoor: false, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null } }),
+      null
+    );
+    expect(view.weatherText).toBeNull();
+  });
+});

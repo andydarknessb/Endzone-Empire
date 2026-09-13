@@ -86,7 +86,24 @@ function GameCell({ view }) {
   }
   if (view.kind === 'pre') {
     const label = view.opponent ? `vs ${view.opponent}${view.kickoff ? ` · ${view.kickoff}` : ''}` : (view.kickoff || 'Bye');
-    return <GameStateChip state="pre" data-testid="ledger-game-cell">{label}</GameStateChip>;
+    // The Line/weather faint second line (#1329, ADR 0037): text only, no
+    // glyph (Ruling: "the glyph is not in this ticket - none exists"),
+    // rendered under the chip only when either piece has something to show.
+    const detail = [view.lineText, view.weatherText].filter(Boolean).join(' · ');
+    return (
+      <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
+        <GameStateChip state="pre" data-testid="ledger-game-cell">{label}</GameStateChip>
+        {detail && (
+          <Typography
+            component="span"
+            data-testid="ledger-game-detail"
+            sx={{ fontSize: '10.5px', color: 'var(--dash-faint)' }}
+          >
+            {detail}
+          </Typography>
+        )}
+      </Box>
+    );
   }
   if (view.kind === 'live') {
     const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore} · ` : '';

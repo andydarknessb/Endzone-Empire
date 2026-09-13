@@ -152,6 +152,45 @@ test('the pre-kickoff Game cell shows the opponent and kickoff', () => {
   expect(cell).toHaveTextContent('vs KC');
 });
 
+// #1329 (ADR 0037): the pre-kickoff Game cell's second, faint line - the
+// Line and weather, text only (no glyph, per the Ruling). Red-tell: dropping
+// this line from LedgerRow.jsx turns only the "both" case below red.
+const LINE = { spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2026-09-14T12:00:00Z', favoured: 'KC' };
+const WEATHER = { indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: null, precipitationProbability: 60, shortForecast: 'Light Rain' };
+
+test('a Line only renders the detail line with just lineText', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: LINE, weather: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('KC -3.5 · O/U 49.5');
+});
+
+test('weather only renders the detail line with just weatherText', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: null, weather: WEATHER })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('58° · rain · wind 12');
+});
+
+test('both Line and weather render together on the detail line', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: LINE, weather: WEATHER })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('KC -3.5 · O/U 49.5');
+  expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('58° · rain · wind 12');
+});
+
+test('neither Line nor weather renders no detail line at all', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ line: null, weather: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.queryByTestId('ledger-game-detail')).toBeNull();
+});
+
+test('an indoor game reads "Dome" on the detail line', () => {
+  render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry({ line: null, weather: { indoor: true, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null } })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-game-detail')).toHaveTextContent('Dome');
+});
+
 test('a final Game cell shows the final score', () => {
   render(
     <LedgerRow
