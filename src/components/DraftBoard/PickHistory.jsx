@@ -1,7 +1,10 @@
 import React, { useId, useMemo } from 'react';
 import { Paper, Box, Typography, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { PlayerNameLink } from '../../entities/player';
+// Direct file import (#1311, draft-harness-coverage guard) - see DraftRail.jsx's
+// identical comment: the entities/player barrel would pull usePlayerCard's
+// non-literal apiClient.get call into the Draft room's import closure.
+import PlayerNameLink from '../../entities/player/ui/PlayerNameLink';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
 

@@ -31,7 +31,10 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { visuallyHidden } from '@mui/utils';
 import InjuryBadge from '../../shared/ui/InjuryBadge';
-import { PlayerNameLink } from '../../entities/player';
+// Direct file import (#1311, draft-harness-coverage guard) - see DraftRail.jsx's
+// identical comment: the entities/player barrel would pull usePlayerCard's
+// non-literal apiClient.get call into the Draft room's import closure.
+import PlayerNameLink from '../../entities/player/ui/PlayerNameLink';
 import PositionChip from '../../shared/ui/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../../shared/ui/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
