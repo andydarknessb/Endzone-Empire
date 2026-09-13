@@ -953,19 +953,22 @@ describe('Season summary and Season pick (#1358)', () => {
 
     const table = await screen.findByTestId('decision-card-seasons');
     const rows = within(table).getAllByRole('row').slice(1); // drop the header row
-    expect(rows.map((r) => within(r).getAllByRole('cell')[0].textContent)).toEqual(['2026', '2025', '2024']);
+    // The Season cell is a row header (risk review, accessibility), so it
+    // reads via `rowheader`, not `cell` - the remaining `cell`s are
+    // G/FPTS-per-G/Pts/Pos-rank/ADP, in that order.
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026', '2025', '2024']);
 
     // Red tell: the 2024 row's ADP cell is a dash, with the reason available
     // to a screen reader, never a bare "-" or a raw null.
     const row2024 = within(rows[2]);
-    expect(row2024.getAllByRole('cell')[5]).toHaveTextContent('-');
+    expect(row2024.getAllByRole('cell')[4]).toHaveTextContent('-');
     expect(row2024.getByText('no ADP on record')).toBeInTheDocument();
 
     // #1356 correction 3: the current season's Pos rank is always null
     // (player_season_stats holds only completed seasons) - never "null of
     // null".
     const row2026 = within(rows[0]);
-    expect(row2026.getAllByRole('cell')[4]).toHaveTextContent('-');
+    expect(row2026.getAllByRole('cell')[3]).toHaveTextContent('-');
     expect(row2026.getByText('no rank on record')).toBeInTheDocument();
 
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
@@ -1037,6 +1040,28 @@ describe('Season summary and Season pick (#1358)', () => {
 
     await screen.findByTestId('decision-card-seasons');
     expect(await screen.findByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
+  });
+
+  // Risk review (accessibility, #1358): the Season pick's own SegmentedControl
+  // preventDefault()s ArrowLeft/ArrowRight to move the roving selection
+  // (shared/ui/SegmentedControl.jsx) but never stops the keydown from
+  // bubbling - the card's own global prev/next handler (isTypingTarget) must
+  // treat a focused season chip the same way it already treats
+  // WeeklyPointsBars' scroll strip and a MUI ToggleButtonGroup, or an
+  // ArrowRight meant to pick the next season instead silently navigates to
+  // the next PLAYER and discards the pick.
+  test('arrow keys on a focused season chip move the pick, never the prev/next player', async () => {
+    mockCardRoute(threeSeasonCard);
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    within(radiogroup).getByRole('radio', { name: '2026' }).focus();
+
+    await userEvent.keyboard('{ArrowRight}');
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');
   });
 
   test('navigating prev/next resets the pick to the current season', async () => {

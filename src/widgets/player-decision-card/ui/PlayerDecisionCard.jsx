@@ -69,7 +69,14 @@ function isTypingTarget(el) {
   if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (el.getAttribute && el.getAttribute('role') === 'combobox') return true;
   if (el.dataset && el.dataset.arrowScrollRegion === 'true' && el.scrollWidth > el.clientWidth) return true;
-  return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
+  if (el.closest && el.closest('.MuiToggleButtonGroup-root')) return true;
+  // Risk review (accessibility, #1358): the Season pick's SegmentedControl
+  // (shared/ui) preventDefault()s ArrowLeft/Right/Up/Down to move its own
+  // roving radio selection but never stops the keydown bubbling to window -
+  // the same "focused composite widget with its own arrow-key semantics"
+  // case the ToggleButtonGroup check above exists for, so a radiogroup gets
+  // the identical exemption rather than a SegmentedControl-specific one.
+  return !!(el.closest && el.closest('[role="radiogroup"]'));
 }
 
 /**
@@ -1068,7 +1075,11 @@ function SeasonSummarySection({ seasons }) {
         <TableBody>
           {seasons.map((row) => (
             <TableRow key={row.season}>
-              <TableCell>{row.season}</TableCell>
+              {/* Risk review (accessibility, #1358) nit: a row header, not a
+                  plain cell, so a screen reader reading down a numeric
+                  column (e.g. three "no ADP on record" dashes in a row)
+                  still announces which season each one belongs to. */}
+              <TableCell component="th" scope="row">{row.season}</TableCell>
               <TableCell align="right">{row.games}</TableCell>
               <TableCell align="right">{formatPoints(row.pointsPerGame)}</TableCell>
               <TableCell align="right">{formatPoints(row.points)}</TableCell>
