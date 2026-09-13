@@ -17,6 +17,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
 import { InjuryTag, PosChip, RangeBar } from '../../../shared/ui';
 import { formatKickoff, formatPoints, initialsFor, monogramInk } from '../../../shared/lib';
@@ -224,7 +225,15 @@ export default function PlayerDecisionCard({
   // #1307: the one Decision-card payload, read in every context (ADR 0040's
   // decision strip and eighteen-week bars are additive to `my_team`'s
   // existing entry-based sections above, not a replacement for them).
-  const { card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+  const { status: cardStatus, card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+  // Risk review (#1311): every OTHER caller hands a full `entry`, so the
+  // drawer always paints real content immediately even while this read is
+  // still in flight (ADR 0037: "the row's own fields paint immediately").
+  // `contextFromCard`'s minimal `{ playerId, name }` entry is the one case
+  // where the whole action bar, and every section but the bare name, waits
+  // on this SAME read - so that wait needs its own announcement, the way
+  // PlayerQuickView's `quickview-skeleton` region announced its own load.
+  const awaitingCard = contextFromCard && cardStatus === 'loading';
 
   // #1311, ADR 0040 ruling (c): a `contextFromCard` caller (TransactionLog)
   // supplies no `context` of its own - the effective context is the card
@@ -343,6 +352,7 @@ export default function PlayerDecisionCard({
         role: 'dialog',
         'aria-modal': true,
         'aria-labelledby': entry ? 'decision-card-title' : undefined,
+        'aria-busy': awaitingCard || undefined,
         'data-testid': 'decision-card',
         'data-variant': isMobile ? 'sheet' : 'drawer',
         sx: {
@@ -369,6 +379,17 @@ export default function PlayerDecisionCard({
         <>
           {isMobile && <DragHandle />}
 
+          {/* Risk review (#1311): the ONE case where the whole card waits on
+              this read (contextFromCard, before the payload answers) gets its
+              own announcement, restated from PlayerQuickView's identical
+              loading region - every other caller's `entry` already paints
+              real content, so it needs none. */}
+          {awaitingCard && (
+            <Typography sx={visuallyHidden} role="status" aria-live="polite">
+              Loading player details
+            </Typography>
+          )}
+
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
               <HeaderAvatar name={displayEntry.name} nflTeam={displayEntry.nflTeam} photoUrl={displayEntry.photoUrl} />
@@ -388,7 +409,10 @@ export default function PlayerDecisionCard({
                   {displayEntry.name}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
-                  <PosChip position={displayEntry.slot} />
+                  {/* Risk review (#1311), nit: PosChip has no null guard of
+                      its own and would otherwise paint an empty swatch while
+                      `contextFromCard` awaits the payload for a position. */}
+                  {displayEntry.slot && <PosChip position={displayEntry.slot} />}
                   <InjuryTag status={displayEntry.injuryStatus} />
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (

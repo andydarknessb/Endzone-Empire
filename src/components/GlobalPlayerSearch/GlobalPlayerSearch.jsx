@@ -130,7 +130,11 @@ function GlobalPlayerSearch({
         if (reason !== 'reset') setInput(value);
       }}
       value={null}
-      blurOnSelect
+      // Risk review (#1311): `blurOnSelect` used to be harmless because
+      // PlayerQuickView's Dialog immediately took focus back; now selecting
+      // navigates away with nothing else to receive it, which would drop
+      // focus to <body> with no announcement. Leaving focus on this labelled,
+      // still-mounted input keeps it reachable instead.
       clearOnBlur
       onChange={(e, value) => {
         if (value) {

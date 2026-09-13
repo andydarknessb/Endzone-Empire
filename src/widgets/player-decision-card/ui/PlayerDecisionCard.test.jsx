@@ -228,8 +228,14 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
       canDropEntry: undefined,
     });
 
-    expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
+    const card = await screen.findByTestId('decision-card');
+    expect(card).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('Breece Hall')).toBeInTheDocument();
+    // Risk review (#1311): the ONE case where the whole card waits on this
+    // read gets its own polite announcement, and a positionless header
+    // renders no empty PosChip swatch.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading player details');
+    expect(screen.queryByTestId('pos-chip')).not.toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
     expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
     expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
@@ -257,6 +263,9 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
     expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
     expect(screen.getByText('MIN')).toBeInTheDocument();
     expect(screen.getByText('WR')).toBeInTheDocument();
+    // The loading announcement and aria-busy clear once the payload answers.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('decision-card')).not.toHaveAttribute('aria-busy');
   });
 
   test('an existing caller passing a full entry and a real leagueId/playerId is untouched (context stays the prop, not the card)', async () => {
