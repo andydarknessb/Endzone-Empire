@@ -15,6 +15,7 @@ const {
 } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const irPolicy = require('../services/irPolicy.service');
+const projectionService = require('../services/projection.service');
 const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
 // Kept whole (not destructured): a test seam a route test replaces with
 // `t.mock.method`, same convention as playerCard.service.js's own
@@ -224,6 +225,19 @@ router.get('/', requireAuth, async (req, res) => {
     });
   }
 
+  // view=cards (ADR 0040 slice 6, #1309): the Decision-card-shaped per-row
+  // fields (projWeek, ros, ownership, trend, depth, upgrade, weeks[], the
+  // rostered availability.teamId/teamName). Both this and the `upgrade` sort
+  // key are meaningless outside the caller's own league and lineup (Ruling
+  // item 10), so both require leagueId up front, in the style of the
+  // `availability` check above.
+  const view = req.query.view === 'cards' ? 'cards' : null;
+  if ((view === 'cards' || req.query.sort === 'upgrade') && !leagueId) {
+    return res
+      .status(400)
+      .json({ error: 'view=cards and sort=upgrade require leagueId' });
+  }
+
   // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
   // across the FULL eligible pool below (not just the current page) — see
   // `needsFullPool`. Comma-separated integers in 1..REG_SEASON_WEEKS; anything
@@ -292,6 +306,11 @@ router.get('/', requireAuth, async (req, res) => {
   // below), so it can't be an ORDER BY target in this query — like
   // projectionSort, it needs the full matching pool fetched and sorted in JS.
   const byeSort = sortField === 'bye_week';
+  // Like byeSort/projectionSort: Upgrade is computed per candidate against
+  // the caller's own lineup, not a stored column, so it also needs the full
+  // matching pool assembled and sorted in JS before pagination (Ruling
+  // item 2). Always descending with nulls last - never toggled by `dir`.
+  const upgradeSort = sortField === 'upgrade';
   let orderBy;
   if (sortField === 'name') {
     orderBy = `"name" ${dir}, "id"`;
@@ -308,7 +327,7 @@ router.get('/', requireAuth, async (req, res) => {
   // and/or filtered) before pagination, rather than a plain SQL LIMIT/OFFSET
   // page — a computed field (pace, bye) or a post-fetch filter (bye weeks)
   // can't be decided by the database a page at a time.
-  const needsFullPool = projectionSort || byeSort || byeWeeksFilter.length > 0;
+  const needsFullPool = projectionSort || byeSort || upgradeSort || byeWeeksFilter.length > 0;
 
   const params = [];
   const where = [];
@@ -517,25 +536,114 @@ router.get('/', requireAuth, async (req, res) => {
       );
     }
 
+    // sort=upgrade (Ruling item 2): a best-ball league has no Upgrade concept
+    // (ADR 0040), so it falls back to the projected_points ordering above,
+    // still computed for ordering only and never returned (item 7). Outside
+    // best ball, the full eligible pool's ids go to `upgradesFor` in ONE
+    // call; rows sort by upgrade.points descending, nulls last, then id -
+    // never toggled by `dir`.
+    const upgradeBestBallFallback = upgradeSort && Boolean(league && league.best_ball);
+    if (upgradeBestBallFallback) {
+      await attachProjectedPoints(settled, {
+        projectionRules,
+        currentSeasonYear,
+      });
+      settled.sort(nullsLastComparator((p) => Number(p.projected_points), -1));
+    } else if (upgradeSort) {
+      const upgrades = await playerCardService.upgradesFor({
+        league,
+        team: memberTeam,
+        season: currentSeasonYear,
+        week: league.current_week,
+        playerIds: settled.map((p) => p.id),
+      });
+      for (const p of settled) p.upgrade = upgrades.get(p.id) ?? null;
+      settled.sort(nullsLastComparator((p) => p.upgrade?.points, -1));
+    }
+
     const pagePlayers = needsFullPool
       ? settled.slice(offset, offset + PAGE_SIZE)
       : settled;
-    if (!projectionSort) {
+    if (!projectionSort && !upgradeBestBallFallback) {
+      // upgradeBestBallFallback already computed projected_points for the
+      // FULL pool above, and pagePlayers is a slice of those same objects -
+      // re-fetching here would just re-set the same value from a second query.
       await attachProjectedPoints(pagePlayers, {
         projectionRules,
         currentSeasonYear,
       });
     }
 
-    if (memberTeam)
+    if (memberTeam && view !== 'cards') {
       await attachLeagueAvailability(pagePlayers, {
         leagueId: Number(leagueId),
         teamId: memberTeam.id,
         blanketWaiversOpen,
       });
-    const responsePlayers = pagePlayers.map(
-      ({ identity_ids, ...player }) => player,
-    );
+    }
+
+    // view=cards (#1309): the Decision-card-shaped per-row fields, all scoped
+    // to just this page - `memberTeam`/`league` are guaranteed here since
+    // view=cards required leagueId up front, which always resolves both or
+    // throws before this point is ever reached.
+    if (view === 'cards' && memberTeam && league) {
+      const byeWeekByPlayerId = new Map(pagePlayers.map((p) => [p.id, p.bye_week]));
+      const seasonEnd = projectionService.lastPlayoffWeek(league);
+
+      const [availabilityMap, weeksByPlayer, rosMap] = await Promise.all([
+        playerCardService.availabilityForMany({ league, team: memberTeam, players: pagePlayers }),
+        playerCardService.buildWeeksForPage({
+          league,
+          players: pagePlayers,
+          season: currentSeasonYear,
+          currentWeek: league.current_week,
+          byeWeekByPlayerId,
+        }),
+        projectionService.getRestOfSeason(pagePlayers.map((p) => p.id), Number(leagueId)),
+      ]);
+
+      for (const p of pagePlayers) {
+        p.availability = availabilityMap.get(p.id)
+          || { state: 'free_agent', teamId: null, teamName: null, availableAt: null };
+        const weeks = weeksByPlayer.get(p.id) || [];
+        p.weeks = weeks;
+        p.projWeek = weeks[0] || null;
+        const ros = rosMap.get(p.id) || { total: 0, perGame: 0 };
+        p.ros = { points: ros.total, perGame: ros.perGame, posRank: null, throughWeek: seasonEnd };
+        p.ownership = null;
+        p.trend = null;
+        p.depth = null;
+      }
+
+      // `upgrade` per row (item 1): best ball is always null; otherwise reuse
+      // the full-pool computation above when sort=upgrade already produced it
+      // for every one of these same rows, else compute fresh for just the page.
+      if (league.best_ball) {
+        for (const p of pagePlayers) p.upgrade = null;
+      } else if (!(upgradeSort && !upgradeBestBallFallback)) {
+        const upgrades = await playerCardService.upgradesFor({
+          league,
+          team: memberTeam,
+          season: currentSeasonYear,
+          week: league.current_week,
+          playerIds: pagePlayers.map((p) => p.id),
+        });
+        for (const p of pagePlayers) p.upgrade = upgrades.get(p.id) ?? null;
+      }
+    }
+
+    const responsePlayers = pagePlayers.map(({ identity_ids, ...player }) => {
+      // Pool projection never appears under view=cards (item 7, ADR 0040) -
+      // even when computed above for the best-ball upgrade-sort fallback.
+      // Outside view=cards, `upgrade` is a sort-computation side effect, not
+      // part of that shape, so it's stripped there instead.
+      if (view === 'cards') {
+        const { projected_points, ...rest } = player;
+        return rest;
+      }
+      const { upgrade, ...rest } = player;
+      return rest;
+    });
     let context = null;
     if (memberTeam && league) {
       const rosterCountResult = await pool.query(

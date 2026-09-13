@@ -24,6 +24,12 @@ const ACCEPTED_SORT_FIELDS = Object.freeze([
   'nfl_team',
   'projected_points',
   'bye_week',
+  // #1309 Ruling item 2: computed like projected_points/bye_week (full pool,
+  // sorted in JS - not a stored column), but always descending with nulls
+  // last, never toggled by `dir`. Requires `leagueId` (player.router.js's
+  // "view=cards and sort=upgrade require leagueId" 400): Upgrade has no
+  // meaning outside the caller's own league and lineup.
+  'upgrade',
 ]);
 
 module.exports = { ACCEPTED_SORT_FIELDS };

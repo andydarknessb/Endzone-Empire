@@ -46,31 +46,79 @@ function pointsOf(projections, playerId) {
 }
 
 /**
- * The identity set `playerId` belongs to, under the SAME partition
- * `player.router.js`'s `player_identities` CTE uses (normalized name +
- * position + Team code): every `players` row a duplicate-source sync could
- * have produced for one real athlete. `playerId` itself is always included,
- * even when no duplicate exists. A plain `players` row never carries
- * `identity_ids` (that field only exists as the CTE's window alias), so
- * both `availabilityFor` and the own-roster Upgrade check resolve it here
- * rather than reading a field that was never on the row (formal review f1).
+ * `Map<playerId, identityIds[]>` for every id in `playerIds`, under the SAME
+ * partition `player.router.js`'s `player_identities` CTE uses (normalized
+ * name + position + Team code): every `players` row a duplicate-source sync
+ * could have produced for one real athlete. Every requested id is present in
+ * the map even when it has no duplicate (falling back to itself). A plain
+ * `players` row never carries `identity_ids` (that field only exists as the
+ * CTE's window alias), so `availabilityForMany` and the own-roster Upgrade
+ * check both resolve it here rather than reading a field that was never on
+ * the row (formal review f1).
+ *
+ * The single-id case (the Decision card's own call, always N=1) runs the
+ * exact scalar-`WHERE "id" = $1` query this function has always run - not
+ * the `= ANY($1)` batch form - so `getPlayerCard`'s query shape and count are
+ * unchanged (`server/test/playerCard.service.test.js`'s fakePool mocks match
+ * on that literal SQL prefix, and its fixtures return `{ id }` rows with no
+ * `requested_id` column, which only the single-id shape produces).
  */
-async function loadIdentityIds(playerId) {
+async function loadIdentityIdsFor(playerIds) {
+  const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
+  const map = new Map();
+  if (ids.length === 0) return map;
+
+  if (ids.length === 1) {
+    const [id] = ids;
+    const result = await pool.query(
+      `WITH "target" AS (
+         SELECT LOWER(REGEXP_REPLACE(TRIM("name"), '\\s+', ' ', 'g')) AS "name_key",
+                "position",
+                COALESCE(fn_normalize_nfl_team("nfl_team"), '') AS "team_key"
+         FROM "players" WHERE "id" = $1
+       )
+       SELECT "players"."id" FROM "players", "target"
+       WHERE LOWER(REGEXP_REPLACE(TRIM("players"."name"), '\\s+', ' ', 'g')) = "target"."name_key"
+         AND "players"."position" = "target"."position"
+         AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"`,
+      [id]
+    );
+    const found = result.rows.map((r) => r.id);
+    map.set(id, found.length > 0 ? found : [id]);
+    return map;
+  }
+
   const result = await pool.query(
     `WITH "target" AS (
-       SELECT LOWER(REGEXP_REPLACE(TRIM("name"), '\\s+', ' ', 'g')) AS "name_key",
+       SELECT "id" AS "requested_id",
+              LOWER(REGEXP_REPLACE(TRIM("name"), '\\s+', ' ', 'g')) AS "name_key",
               "position",
               COALESCE(fn_normalize_nfl_team("nfl_team"), '') AS "team_key"
-       FROM "players" WHERE "id" = $1
+       FROM "players" WHERE "id" = ANY($1::int[])
      )
-     SELECT "players"."id" FROM "players", "target"
-     WHERE LOWER(REGEXP_REPLACE(TRIM("players"."name"), '\\s+', ' ', 'g')) = "target"."name_key"
-       AND "players"."position" = "target"."position"
-       AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"`,
-    [playerId]
+     SELECT "target"."requested_id" AS "requested_id", "players"."id" AS "identity_id"
+     FROM "target"
+     JOIN "players"
+       ON LOWER(REGEXP_REPLACE(TRIM("players"."name"), '\\s+', ' ', 'g')) = "target"."name_key"
+      AND "players"."position" = "target"."position"
+      AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"`,
+    [ids]
   );
-  const ids = result.rows.map((r) => r.id);
-  return ids.length > 0 ? ids : [playerId];
+  for (const row of result.rows) {
+    if (!map.has(row.requested_id)) map.set(row.requested_id, []);
+    map.get(row.requested_id).push(row.identity_id);
+  }
+  for (const id of ids) {
+    if (!map.has(id) || map.get(id).length === 0) map.set(id, [id]);
+  }
+  return map;
+}
+
+/** Single-id convenience wrapper over `loadIdentityIdsFor` - always the
+ * one-query scalar form above. */
+async function loadIdentityIds(playerId) {
+  const map = await loadIdentityIdsFor([playerId]);
+  return map.get(playerId) || [playerId];
 }
 
 /**
@@ -135,15 +183,19 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     projection: pointsOf(projections, r.player_id),
   }));
 
+  // One identity read for every requested id (Ruling item 3a) rather than one
+  // per id: `upgradesFor` over N ids is now the lineup transaction, the
+  // roster read, the position read, one identity read and one
+  // `getWeekProjections` call, whatever N is.
+  const identityIdsById = await loadIdentityIdsFor(ids);
+
   const upgrades = new Map();
   for (const id of ids) {
     if (league.best_ball) {
       upgrades.set(id, null);
       continue;
     }
-    // eslint-disable-next-line no-await-in-loop -- one identity lookup per
-    // requested candidate; ids.length is 1 for the card's own call site.
-    const identityIds = await loadIdentityIds(id);
+    const identityIds = identityIdsById.get(id) || [id];
     if (identityIds.some((identityId) => ownRosterIds.has(identityId))) {
       upgrades.set(id, null);
       continue;
@@ -178,53 +230,175 @@ async function upgradesFor({ league, team, season, week, playerIds }) {
  * `waiverPriority`) are the same ones the players-list `context` object
  * already publishes for the caller's own team.
  */
-async function availabilityFor({ league, team, player }) {
-  const identityIds = await loadIdentityIds(player.id);
-
-  const [rosterResult, waiverResult, rosterCountResult, rosterCapacity] = await Promise.all([
-    pool.query(
-      `SELECT "team_players"."team_id", "teams"."name" AS "team_name"
-       FROM "team_players" JOIN "teams" ON "teams"."id" = "team_players"."team_id"
-       WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = ANY($2)`,
-      [league.id, identityIds]
-    ),
-    pool.query(
-      `SELECT "available_at" FROM "waiver_players"
-       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
-      [league.id, identityIds]
-    ),
-    pool.query(`SELECT COUNT(*)::int AS "roster_count" FROM "team_players" WHERE "team_id" = $1`, [team.id]),
-    irPolicy.rosterCapacity(pool, { league, teamId: team.id }),
-  ]);
+/**
+ * `Map<playerId, { state, teamId, teamName, availableAt }>` for every player
+ * in `players` (Ruling item 3b), the given league and the CALLER's team
+ * (`teamId`/`teamName` describe who rosters the player, `team` says who's
+ * asking - `state` is 'my_team' only when those are the same team).
+ *
+ * The single-player case (the Decision card's own call, via `availabilityFor`
+ * below) runs the exact two queries `availabilityFor` has always run, with
+ * the exact same row shape (`server/test/playerCard.service.test.js`'s
+ * fakePool fixtures - `rosteredBy`/`waiverRow` - carry no `player_id` column,
+ * which only this single-player shape tolerates). The batch form (players
+ * list, #1309) is exactly three reads for any page: the identity set below,
+ * the roster-with-team-name query and the waiver query, each `= ANY` over the
+ * union of every player's identity ids.
+ */
+async function availabilityForMany({ league, team, players }) {
+  if (players.length === 0) return new Map();
 
   const blanketWaiversOpen = Boolean(
     league.waivers_clear_at && new Date(league.waivers_clear_at) > new Date()
   );
 
-  const rosteredBy = rosterResult.rows[0] || null;
-  let state;
-  let teamId = null;
-  let teamName = null;
-  let availableAt = null;
-  if (rosteredBy) {
-    teamId = rosteredBy.team_id;
-    teamName = rosteredBy.team_name;
-    state = teamId === team.id ? 'my_team' : 'rostered';
-  } else {
-    availableAt = waiverResult.rows[0] ? waiverResult.rows[0].available_at : null;
-    state = availableAt || blanketWaiversOpen ? 'waivers' : 'free_agent';
+  if (players.length === 1) {
+    const [player] = players;
+    const identityIds = await loadIdentityIds(player.id);
+    const [rosterResult, waiverResult] = await Promise.all([
+      pool.query(
+        `SELECT "team_players"."team_id", "teams"."name" AS "team_name"
+         FROM "team_players" JOIN "teams" ON "teams"."id" = "team_players"."team_id"
+         WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = ANY($2)`,
+        [league.id, identityIds]
+      ),
+      pool.query(
+        `SELECT "available_at" FROM "waiver_players"
+         WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+        [league.id, identityIds]
+      ),
+    ]);
+    const rosteredBy = rosterResult.rows[0] || null;
+    if (rosteredBy) {
+      return new Map([[player.id, {
+        state: rosteredBy.team_id === team.id ? 'my_team' : 'rostered',
+        teamId: rosteredBy.team_id,
+        teamName: rosteredBy.team_name,
+        availableAt: null,
+      }]]);
+    }
+    const availableAt = waiverResult.rows[0] ? waiverResult.rows[0].available_at : null;
+    return new Map([[player.id, {
+      state: availableAt || blanketWaiversOpen ? 'waivers' : 'free_agent',
+      teamId: null,
+      teamName: null,
+      availableAt,
+    }]]);
   }
 
+  const ids = players.map((p) => p.id);
+  const identityIdsById = await loadIdentityIdsFor(ids);
+  const allIdentityIds = [...new Set([...identityIdsById.values()].flat())];
+  const result = new Map();
+  if (allIdentityIds.length === 0) return result;
+
+  const [rosterResult, waiverResult] = await Promise.all([
+    pool.query(
+      `SELECT "team_players"."team_id", "team_players"."player_id", "teams"."name" AS "team_name"
+       FROM "team_players" JOIN "teams" ON "teams"."id" = "team_players"."team_id"
+       WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = ANY($2)`,
+      [league.id, allIdentityIds]
+    ),
+    pool.query(
+      `SELECT "player_id", "available_at" FROM "waiver_players"
+       WHERE "league_id" = $1 AND "player_id" = ANY($2) AND "available_at" > now()`,
+      [league.id, allIdentityIds]
+    ),
+  ]);
+  const rosterByIdentityId = new Map(
+    rosterResult.rows.map((row) => [row.player_id, { teamId: row.team_id, teamName: row.team_name }])
+  );
+  const waiverByIdentityId = new Map(
+    waiverResult.rows.map((row) => [row.player_id, row.available_at])
+  );
+
+  for (const player of players) {
+    const identityIds = identityIdsById.get(player.id) || [player.id];
+    const rostered = identityIds.map((id) => rosterByIdentityId.get(id)).find(Boolean);
+    if (rostered) {
+      result.set(player.id, {
+        state: rostered.teamId === team.id ? 'my_team' : 'rostered',
+        teamId: rostered.teamId,
+        teamName: rostered.teamName,
+        availableAt: null,
+      });
+      continue;
+    }
+    const availableAt = identityIds.map((id) => waiverByIdentityId.get(id)).find(Boolean) || null;
+    result.set(player.id, {
+      state: availableAt || blanketWaiversOpen ? 'waivers' : 'free_agent',
+      teamId: null,
+      teamName: null,
+      availableAt,
+    });
+  }
+  return result;
+}
+
+/**
+ * `availability` for one player (Ruling item 6/3b): `availabilityForMany` of
+ * one, plus the four team-level fields the players-list `context` object
+ * already publishes for the caller's own team - so this payload is
+ * byte-for-byte what it was before the batch split.
+ */
+async function availabilityFor({ league, team, player }) {
+  const [stateMap, rosterCountResult, rosterCapacity] = await Promise.all([
+    availabilityForMany({ league, team, players: [player] }),
+    pool.query(`SELECT COUNT(*)::int AS "roster_count" FROM "team_players" WHERE "team_id" = $1`, [team.id]),
+    irPolicy.rosterCapacity(pool, { league, teamId: team.id }),
+  ]);
+  const state = stateMap.get(player.id);
+
   return {
-    state,
-    teamId,
-    teamName,
-    availableAt,
+    ...state,
     rosterCapacity,
     rosterCount: Number(rosterCountResult.rows[0]?.roster_count || 0),
     faabRemaining: league.waiver_type === 'faab' ? team.faab_remaining : null,
     waiverPriority: league.waiver_type === 'priority' ? team.waiver_priority : null,
   };
+}
+
+/**
+ * `Map<playerId, weeks[]>` for a whole page (#1309 Ruling item 4): `weeks[]`
+ * runs from `currentWeek` through 18, one `getWeeklyProjections({ season,
+ * week, league, playerIds })` call per week for the WHOLE page - never per
+ * player, so a 25-row page and a 1-row page make the same number of calls
+ * (the nightly run, #1305, has already filled every one of these for an
+ * in-season league). Each entry is `{ week, points }` under the league's own
+ * scoring, or `{ week, reason }` ('on bye' | 'out' | 'on IR') with no
+ * `points` for a week the player is unavailable; `projWeek` is simply the
+ * first (current-week) entry.
+ */
+async function buildWeeksForPage({ league, players, season, currentWeek, byeWeekByPlayerId }) {
+  const playerIds = players.map((p) => p.id);
+  const weeksByPlayer = new Map(playerIds.map((id) => [id, []]));
+  if (playerIds.length === 0) return weeksByPlayer;
+
+  for (let wk = currentWeek; wk <= 18; wk++) {
+    // eslint-disable-next-line no-await-in-loop -- one call per remaining
+    // week for the WHOLE page, not per player (Ruling item 4/11: the query
+    // count is part of the contract).
+    const run = await projectionService.getWeeklyProjections({ season, week: wk, league, playerIds });
+    for (const id of playerIds) {
+      if (byeWeekByPlayerId.get(id) === wk) {
+        weeksByPlayer.get(id).push({ week: wk, reason: 'on bye' });
+        continue;
+      }
+      const projection = run.projections.get(id);
+      const unavailable = !!(projection
+        && projection.factors
+        && projection.factors.availability
+        && projection.factors.availability.available === false);
+      if (unavailable) {
+        const reason = projection.factors.availability.reason === 'ir' ? 'on IR' : 'out';
+        weeksByPlayer.get(id).push({ week: wk, reason });
+        continue;
+      }
+      const point = projection ? (projection.median != null ? projection.median : projection.mean) : null;
+      weeksByPlayer.get(id).push({ week: wk, points: point == null ? null : Number(point) });
+    }
+  }
+  return weeksByPlayer;
 }
 
 /**
@@ -423,4 +597,6 @@ module.exports = {
   getPlayerCard,
   upgradesFor,
   availabilityFor,
+  availabilityForMany,
+  buildWeeksForPage,
 };
