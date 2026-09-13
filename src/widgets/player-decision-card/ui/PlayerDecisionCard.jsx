@@ -485,7 +485,7 @@ export default function PlayerDecisionCard({
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
-              <DecisionStrip decision={card?.decision} usage={card?.decision?.usage} />
+              <DecisionStripSection decision={card?.decision} usage={card?.decision?.usage} />
               <WeeklyPointsBars
                 weeks={card?.weeks}
                 currentWeek={card?.decision?.projWeek?.week}
@@ -716,6 +716,27 @@ function UsageSection({ usage, level }) {
           ))}
         </TableBody>
       </Table>
+    </Section>
+  );
+}
+
+// #1307, ADR 0040: the decision strip, titled and headed like every
+// neighbouring section - a risk-review finding: the bare `DecisionStrip`
+// spliced in with no heading left a screen-reader user navigating by
+// heading with an unannounced run of numbers between Usage and Game log.
+// `hasContent` restates `DecisionStrip`'s own per-tile null checks (the
+// same duplicated-on-purpose shape `GameLogSection` below already uses)
+// rather than rendering an empty, still-titled Section around nothing.
+function DecisionStripSection({ decision, usage }) {
+  const hasContent =
+    (decision?.projWeek && decision.projWeek.points != null) ||
+    (decision?.ros && decision.ros.points != null) ||
+    (decision?.upgrade != null && decision.upgrade.points != null) ||
+    (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null);
+  if (!hasContent) return null;
+  return (
+    <Section title="Decision strip" testId="decision-card-strip-section">
+      <DecisionStrip decision={decision} usage={usage} />
     </Section>
   );
 }

@@ -34,6 +34,15 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd }) {
       data-testid="weekly-points-bars"
       role="list"
       aria-label="Weekly points, actual and projected"
+      // Risk-review finding (accessibility): 18 columns overflow their own
+      // box well before 390px (the current-week pill and an unavailable
+      // week's reason text both widen a column past its 14px floor), and an
+      // `overflow: auto` region with no focusable descendant is unreachable
+      // by keyboard (WCAG 2.1.1, axe `scrollable-region-focusable`).
+      // `tabIndex={0}` makes the strip itself the scroll target, so Tab
+      // reaches it and the browser's own arrow-key scrolling takes over -
+      // the same fix MUI's own `TableContainer` applies to itself.
+      tabIndex={0}
       sx={{
         display: 'flex',
         alignItems: 'flex-end',
@@ -118,6 +127,11 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
         />
       )}
       {isCurrent && (
+        // Risk-review finding (accessibility): a tinted (`accent-soft`)
+        // fill measured 4.44:1 in light mode, under AA_TEXT's 4.5 - `success`
+        // on the card's own opaque `surface` (an outline, not a fill) clears
+        // it with room to spare in both themes and is the pairing
+        // tokens.contrast.test.js now certifies.
         <Box
           data-testid={`weekly-bar-${week.week}-current`}
           sx={{
@@ -126,7 +140,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
             textTransform: 'uppercase',
             letterSpacing: '0.03em',
             color: 'var(--success)',
-            bgcolor: 'var(--accent-soft)',
+            border: '1px solid var(--success)',
             borderRadius: 'var(--radius-pill)',
             px: 0.5,
           }}

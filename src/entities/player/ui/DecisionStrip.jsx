@@ -45,6 +45,12 @@ export default function DecisionStrip({ decision, usage }) {
   if (decision?.upgrade != null && decision.upgrade.points != null) {
     tiles.push(
       <Tile key="upgrade" label="Upgrade" testId="decision-strip-upgrade">
+        {/* Risk-review finding (accessibility): a tinted (`accent-soft`)
+            fill measured 4.44:1 in light mode at this pill's 15px/700 size,
+            under AA_TEXT's 4.5 (15px bold is not WCAG "large text", which
+            needs >=18.66px bold) - an outline in the card's own opaque
+            `surface` clears it comfortably in both themes, the same fix
+            WeeklyPointsBars' current-week marker uses. */}
         <Box
           component="span"
           data-testid="decision-strip-upgrade-pill"
@@ -52,7 +58,7 @@ export default function DecisionStrip({ decision, usage }) {
             display: 'inline-flex',
             px: 0.75,
             borderRadius: 'var(--radius-pill)',
-            bgcolor: 'var(--accent-soft)',
+            border: '1px solid var(--success)',
             color: 'var(--success)',
             fontWeight: 700,
           }}

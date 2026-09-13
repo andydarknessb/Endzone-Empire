@@ -46,13 +46,38 @@ function probeWidth(selector: string) {
   return { found: true, scrollWidth, clientWidth, worst };
 }
 
-/** Every button/link/[role=button] inside `selector`'s box size, smallest first. */
+/**
+ * Every tappable control inside `selector`'s box size, smallest first.
+ * Risk-review finding: the original selector (`button, a[href],
+ * [role="button"]`) missed MUI's `Select` (a `div[role="combobox"]`, not a
+ * `<button>`) and plain `<input>`/`<textarea>` fields entirely, so the FAAB
+ * bid field and both drop-pick selects went unmeasured.
+ */
 function probeTapTargets(selector: string) {
   const root = document.querySelector(selector);
   if (!root) return { found: false, boxes: [] as Array<{ name: string; width: number; height: number }> };
-  const controls = Array.from(root.querySelectorAll('button, a[href], [role="button"]')) as HTMLElement[];
+  const controls = Array.from(
+    root.querySelectorAll('button, a[href], [role="button"], [role="combobox"], input, select, textarea')
+  ) as HTMLElement[];
+  const seen = new Set<Element>();
   const boxes = controls
     .filter((el) => getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length > 0)
+    .map((el) => {
+      // A plain `<input>`/`<textarea>` (a MUI TextField's own field element)
+      // renders with no vertical padding of its own - the padding that makes
+      // the whole box clickable lives on its `.MuiInputBase-root` wrapper, so
+      // the INPUT's bare box understates its true tap target. Measure that
+      // wrapper once (never the input a second time under its own name).
+      const target = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.closest('.MuiInputBase-root')
+        ? (el.closest('.MuiInputBase-root') as HTMLElement)
+        : el;
+      return target;
+    })
+    .filter((el) => {
+      if (seen.has(el)) return false;
+      seen.add(el);
+      return true;
+    })
     .map((el) => {
       const r = el.getBoundingClientRect();
       const name = el.getAttribute('aria-label') || (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase();

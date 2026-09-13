@@ -162,16 +162,18 @@ const PAIRINGS = [
   // asserted above.)
   pairing('text-primary', 'accent-soft', AA_TEXT, 'cell text on an accent-tinted row', 'surface'),
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
-  // The Decision card's WeeklyPointsBars (#1307, ADR 0040): the current
-  // week's bar carries an accessible "Current" marker, a small (11px/700,
-  // uppercase) pill of success-colored text on the accent tint, sitting
-  // inside the card (`surface`) - the same small-bold-label shape as the
-  // "button label on accent" row above, so AA_LARGE, not AA_TEXT (measured
-  // 4.44 light, under AA_TEXT's 4.5 by a hair). New per the issue's
+  // The Decision card (#1307, ADR 0040): the WeeklyPointsBars current-week
+  // marker (a 9px/700 pill) and the DecisionStrip Upgrade pill (15px/700 -
+  // not WCAG "large text" either, which needs >=18.66px bold) both paint
+  // `success` text in an outline on the card's own opaque `surface`, one
+  // pairing since neither carries a fill (a risk-review finding: the
+  // original design tinted BOTH with `accent-soft`, which measured 4.44 in
+  // light mode, under AA_TEXT's 4.5 - the outline-on-surface pairing here
+  // clears it comfortably: 5.13 light, 10.31 dark). New per the issue's
   // premise-check ruling item 4 - the other two Decision-card pairings it
   // names (`on-accent`/`accent`, `text-inverse`/`warning`) were already
   // registered above.
-  pairing('success', 'accent-soft', AA_LARGE, 'the Decision card current-week marker pill', 'surface'),
+  pairing('success', 'surface', AA_TEXT, 'the Decision card current-week marker and Upgrade pill'),
   // #354 sweep: every other `accent-soft` consumer checked below sits on
   // `surface` (already covered by the two rows above) or has no text on it.
   // Five do not:

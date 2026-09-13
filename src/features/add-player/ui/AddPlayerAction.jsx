@@ -31,7 +31,12 @@ export default function AddPlayerAction({ player, leagueId, availability, roster
   return (
     <Box data-testid="add-player-action" sx={{ display: 'flex', flexDirection: 'column', gap: 1, px: 2, pb: 1.5 }}>
       {atCapacity && (
-        <FormControl size="small" fullWidth>
+        // Risk-review finding (accessibility): `size="small"` shrinks MUI's
+        // OutlinedInput to 40px, under the 44px minimum every Button on this
+        // card already carries via MIN_TOUCH_TARGET_SX - default size clears
+        // it without one, the same way WaiverWire's own analogous drop-pick
+        // Select already does.
+        <FormControl fullWidth>
           <InputLabel id="add-player-drop-label">Drop a player</InputLabel>
           <Select
             labelId="add-player-drop-label"

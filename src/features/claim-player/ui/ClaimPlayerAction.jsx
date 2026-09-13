@@ -31,7 +31,11 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
 
   return (
     <Box data-testid="claim-player-action" sx={{ display: 'flex', flexDirection: 'column', gap: 1, px: 2, pb: 1.5 }}>
-      <FormControl size="small" fullWidth>
+      {/* Risk-review finding (accessibility): `size="small"` shrinks MUI's
+          OutlinedInput to 40px, under the 44px minimum every Button on this
+          card already carries via MIN_TOUCH_TARGET_SX - default size clears
+          it without one, matching WaiverWire's own analogous claim dialog. */}
+      <FormControl fullWidth>
         <InputLabel id="claim-player-drop-label">Drop a player (optional)</InputLabel>
         <Select
           labelId="claim-player-drop-label"
@@ -52,7 +56,6 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
         <TextField
           label="Bid"
           type="number"
-          size="small"
           fullWidth
           value={bid}
           onChange={(e) => setBid(e.target.value)}
