@@ -162,6 +162,16 @@ const PAIRINGS = [
   // asserted above.)
   pairing('text-primary', 'accent-soft', AA_TEXT, 'cell text on an accent-tinted row', 'surface'),
   pairing('text-muted', 'accent-soft', AA_TEXT, 'muted cell text on an accent-tinted row', 'surface'),
+  // The Decision card's WeeklyPointsBars (#1307, ADR 0040): the current
+  // week's bar carries an accessible "Current" marker, a small (11px/700,
+  // uppercase) pill of success-colored text on the accent tint, sitting
+  // inside the card (`surface`) - the same small-bold-label shape as the
+  // "button label on accent" row above, so AA_LARGE, not AA_TEXT (measured
+  // 4.44 light, under AA_TEXT's 4.5 by a hair). New per the issue's
+  // premise-check ruling item 4 - the other two Decision-card pairings it
+  // names (`on-accent`/`accent`, `text-inverse`/`warning`) were already
+  // registered above.
+  pairing('success', 'accent-soft', AA_LARGE, 'the Decision card current-week marker pill', 'surface'),
   // #354 sweep: every other `accent-soft` consumer checked below sits on
   // `surface` (already covered by the two rows above) or has no text on it.
   // Five do not:
