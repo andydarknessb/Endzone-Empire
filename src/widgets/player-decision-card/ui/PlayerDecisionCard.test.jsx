@@ -81,6 +81,251 @@ function renderCard(props = {}) {
   return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
 }
 
+// #1307 (ADR 0040): a non-lineup player row, the shape WaiverWire and
+// PlayerManagement map their own rows into - no slot/locked/spent/
+// eligibleSlots, since neither surface has a lineup to read those from.
+const availabilityEntry = (over = {}) => ({
+  playerId: 7,
+  name: 'Breece Hall',
+  position: 'RB',
+  nflTeam: 'NYJ',
+  slot: 'RB',
+  injuryStatus: null,
+  opponent: 'KC',
+  kickoff: '2026-09-14T17:00:00Z',
+  ...over,
+});
+
+// Routes `apiClient.get` by URL so the same suite can stub the lineup-
+// context endpoint (`line`/`weather`/`usage`) and the card route
+// (`/api/players/:id/card`, #1306/#1331) with different bodies.
+function mockCardRoute(card) {
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
+    return Promise.resolve({ data: { line: null, weather: null, usage: null } });
+  });
+}
+
+describe('context (#1307, ADR 0040)', () => {
+  // Red tell: this is the FIRST context test, against a widget whose
+  // `context` prop did not exist before this ticket.
+  test('context="waivers" renders Claim and the news list, and no bench options', async () => {
+    mockCardRoute({ news: [{ headline: 'Questionable for Sunday', publishedAt: null }] });
+    renderCard({
+      context: 'waivers',
+      entry: availabilityEntry(),
+      entries: undefined,
+      availability: { waiverPriority: 3 },
+    });
+
+    expect(await screen.findByTestId('claim-player-action')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim' })).toBeInTheDocument();
+    expect(await screen.findByText('Questionable for Sunday')).toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
+  });
+
+  test('context="my_team" (the default) renders bench options and no news', async () => {
+    mockCardRoute({ news: [{ headline: 'Should not show for your own player' }] });
+    const starter = entry();
+    const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+    renderCard({ entry: starter, entries: [starter, bench] });
+
+    await screen.findByTestId('decision-card-bench-options');
+    expect(screen.queryByTestId('decision-card-news-section')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
+  });
+
+  test('context="free_agent" at capacity renders the inline drop pick', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'free_agent',
+      entry: availabilityEntry(),
+      entries: undefined,
+      availability: { rosterCount: 16, rosterCapacity: 16 },
+      roster: [{ id: 20, name: 'Bench Guy', position: 'WR', projected_weekly_points: 3.2 }],
+    });
+
+    const action = await screen.findByTestId('add-player-action');
+    expect(within(action).getByLabelText('Drop a player')).toBeInTheDocument();
+    expect(within(action).getByTestId('add-player-submit')).toHaveTextContent('Add and drop');
+  });
+
+  test('a null Upgrade renders no Upgrade tile and no empty label', async () => {
+    mockCardRoute({
+      decision: { projWeek: { week: 4, points: 12 }, ros: { points: 90 }, upgrade: null },
+      news: [],
+    });
+    renderCard({
+      context: 'waivers',
+      entry: availabilityEntry(),
+      entries: undefined,
+      availability: { waiverPriority: 1 },
+    });
+
+    await screen.findByTestId('decision-strip');
+    expect(screen.queryByTestId('decision-strip-upgrade')).not.toBeInTheDocument();
+    expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument();
+  });
+
+  test('context="rostered" shows a Propose trade link and the rostering team', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'rostered',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 7,
+      availability: { teamName: 'Polk High Legends' },
+    });
+
+    expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
+    expect(screen.getByText('Rostered by Polk High Legends')).toBeInTheDocument();
+  });
+
+  // Formal review round 1, f1 (blocker): PlayerManagement opens the card for
+  // the caller's own player too (context="my_team" with no lineup wiring at
+  // all - no entries, no onSwap, no onRequestDrop), which used to crash in
+  // isEligibleMove on an entry with no eligibleSlots.
+  test('context="my_team" with no lineup wiring (opened from a non-Lineup surface) renders an Open lineup link instead of crashing', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'my_team',
+      entry: availabilityEntry({ slot: 'RB' }),
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+      leagueId: 9,
+    });
+
+    expect(await screen.findByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/9/lineup');
+    expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+  });
+
+  test('context="my_team" WITH lineup wiring (the base Lineup case) still renders the Bench/Start/Compare/Trade/Drop bar, not the Open lineup link', async () => {
+    renderCard(); // the suite's own default props: entry+entries+onSwap+onRequestDrop+canDropEntry
+    await screen.findByTestId('decision-card-bench-action');
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+});
+
+describe('prev/next over the opening list (formal review round 1, f5)', () => {
+  test('shows the position in the list and navigates with Previous/Next', async () => {
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    expect(await screen.findByLabelText('Player 1 of 3')).toBeInTheDocument();
+    const prev = screen.getByTestId('decision-card-prev');
+    const next = screen.getByTestId('decision-card-next');
+    expect(prev).toBeDisabled();
+    expect(next).toBeEnabled();
+
+    await userEvent.click(next);
+    expect(onNavigate).toHaveBeenCalledWith(2);
+  });
+
+  test('Right/Left arrow keys navigate when not typing in a control', async () => {
+    const onNavigate = jest.fn();
+    renderCard({ entry: entry({ playerId: 2 }), playerIds: [1, 2, 3], onNavigate });
+    await screen.findByLabelText('Player 2 of 3');
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onNavigate).toHaveBeenCalledWith(3);
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(onNavigate).toHaveBeenCalledWith(1);
+  });
+
+  test('no playerIds prop renders no prev/next controls', async () => {
+    renderCard();
+    await screen.findByRole('heading', { name: 'Josh Allen' });
+    expect(screen.queryByTestId('decision-card-prev')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-next')).not.toBeInTheDocument();
+  });
+
+  // Second risk review (accessibility, round 1 fix delta), finding 4: the
+  // caption is a status region with a real accessible name, not a bare
+  // <span> only jsdom's aria-label matcher could "see".
+  test('the position caption carries the status role', async () => {
+    renderCard({ playerIds: [1, 2, 3], onNavigate: jest.fn() });
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('1 of 3');
+  });
+
+  // Second risk review, finding 2: a Prev/Next click that disables that same
+  // button (an end of the list) must not drop focus to the document body -
+  // it moves to the title, which also announces the new player's name.
+  test('focus moves to the title heading after navigating, even at an end of the list', async () => {
+    // A small stateful wrapper stands in for WaiverWire/PlayerManagement,
+    // which own `quickViewId` and re-render the card with a new `entry` on
+    // `onNavigate` - a plain `rerender()` call would instead replace the
+    // whole MemoryRouter tree `renderWithProviders` wraps this in.
+    function NavigatingCard(props) {
+      const [current, setCurrent] = React.useState(props.entry);
+      return (
+        <PlayerDecisionCard
+          {...props}
+          entry={current}
+          onNavigate={(id) => setCurrent(entry({ playerId: id }))}
+        />
+      );
+    }
+    renderWithProviders(
+      <NavigatingCard
+        open
+        onClose={jest.fn()}
+        entry={entry({ playerId: 1 })}
+        entries={[entry({ playerId: 1 })]}
+        leagueId={1}
+        week={4}
+        bestBall={false}
+        leagueUnsettled={false}
+        onSwap={jest.fn()}
+        onRequestDrop={jest.fn()}
+        canDropEntry={() => true}
+        playerIds={[1, 2]}
+      />
+    );
+    await screen.findByLabelText('Player 1 of 2');
+
+    await userEvent.click(screen.getByTestId('decision-card-next'));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Josh Allen' })).toHaveFocus());
+    expect(await screen.findByLabelText('Player 2 of 2')).toBeInTheDocument();
+  });
+
+  // Second risk review, finding 1: the global ArrowLeft/ArrowRight handler
+  // must not steal the keys from a FOCUSED, horizontally-scrollable region -
+  // WeeklyPointsBars' own tabIndex={0} strip (the prior risk round's own
+  // keyboard-scroll fix, WCAG 2.1.1) is exactly such a region.
+  test('arrow keys are left alone for a focused, horizontally-scrollable region', async () => {
+    mockCardRoute({
+      weeks: Array.from({ length: 18 }, (_, i) => ({ week: i + 1, kind: 'projected', points: 10 })),
+    });
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    const strip = await screen.findByTestId('weekly-points-bars');
+    Object.defineProperty(strip, 'scrollWidth', { value: 500, configurable: true });
+    Object.defineProperty(strip, 'clientWidth', { value: 358, configurable: true });
+    strip.focus();
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+});
+
+// Formal review round 1, f6: the body and ADR 0040 say 560px, not the 420 this
+// shipped at.
+test('the desktop drawer is 560px wide (760px is now 1040px with Compare open)', async () => {
+  renderCard();
+  const card = await screen.findByTestId('decision-card');
+  expect(card).toHaveStyle({ width: '560px' });
+});
+
 test('opens with the row\'s own fields immediately, before the context endpoint resolves', async () => {
   apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
   renderCard();

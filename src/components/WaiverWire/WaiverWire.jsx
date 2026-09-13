@@ -33,11 +33,14 @@ import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
+import { toDecisionCardEntry } from '../../entities/player';
+import { useClaimPlayer } from '../../features/claim-player';
 import WaiverClaimItem from './WaiverClaimItem';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { formatRelative } from '../../utils/formatRelative';
+import { sortRosterForDrop } from '../../shared/lib';
 
 // Mirrors DraftBoard's sticky-action-column pattern, but this table has no
 // zebra striping to inherit an opaque background from, so both the header and
@@ -50,23 +53,6 @@ const stickyActionHeadSx = {
   zIndex: 3,
 };
 const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
-
-// Worst-projection-first so the natural cut order comes first; roster entries
-// without a weekly projection sort after ones that have it and fall back to
-// server order (position, name) among themselves.
-function sortRosterForDrop(roster) {
-  const projectionOf = (p) => (
-    p.projected_weekly_points != null ? Number(p.projected_weekly_points) : null
-  );
-  return [...roster].sort((a, b) => {
-    const av = projectionOf(a);
-    const bv = projectionOf(b);
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    return av - bv;
-  });
-}
 
 function WaiverWire() {
   const { leagueId } = useParams();
@@ -167,6 +153,12 @@ function WaiverWire() {
     }
   };
 
+  // Formal review round 1, f4: the submission itself is the one
+  // implementation `claim-player` and this dialog now share - the dialog
+  // stays as this page's own UI, and its `?playerId=` deep link above is
+  // untouched.
+  const { submitClaim } = useClaimPlayer({ leagueId, onDone: fetchAll });
+
   // Default to the upgrade-desc sort once suggestions are available, but only
   // until the user manually touches the sort control themselves.
   useEffect(() => {
@@ -223,22 +215,14 @@ function WaiverWire() {
   };
 
   const handleSubmitClaim = async () => {
-    try {
-      setError(null);
-      await apiClient.post('/api/waivers/claim', {
-        leagueId: Number(leagueId),
-        playerId: claimPlayer.id,
-        dropPlayerId: dropPlayerId === '' ? null : Number(dropPlayerId),
-        bid: isFaab ? Number(bid) : 0,
-      });
-      notify('Waiver claim submitted');
-      setClaimPlayer(null);
-      await fetchAll();
-    } catch (err) {
-      const message = readHttpFailure(err).message || err.message;
-      setError(message);
-      notify(message, { severity: 'error' });
-    }
+    setError(null);
+    const { ok, message } = await submitClaim({
+      playerId: claimPlayer.id,
+      dropPlayerId: dropPlayerId === '' ? null : dropPlayerId,
+      bid: isFaab ? Number(bid) : 0,
+    });
+    if (ok) setClaimPlayer(null);
+    else setError(message);
   };
 
   const handleCancelClaim = async (claim) => {
@@ -475,11 +459,27 @@ function WaiverWire() {
         </DialogActions>
       </Dialog>
 
-      <PlayerQuickView
+      <PlayerDecisionCard
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+        entry={toDecisionCardEntry(
+          data?.onWaivers.find((p) => p.id === quickViewId) ||
+            (claimPlayer && claimPlayer.id === quickViewId ? claimPlayer : null)
+        )}
         leagueId={Number(leagueId)}
+        context="waivers"
+        availability={{
+          waiverPriority: !isFaab ? data?.myTeam?.waiver_priority : undefined,
+          faabRemaining: isFaab ? faabRemaining : undefined,
+        }}
+        roster={roster}
+        onActionDone={fetchAll}
+        // Second risk review, finding 3: the table renders `sortedOnWaivers`
+        // (the Upgrade sort, on by default once suggestions load), not the
+        // raw fetch order - `playerIds` must name the SAME order or the
+        // "Player N of M" caption and Next both point at the wrong row.
+        playerIds={data ? sortedOnWaivers.map((p) => p.id) : []}
+        onNavigate={setQuickViewId}
       />
     </Container>
   );
