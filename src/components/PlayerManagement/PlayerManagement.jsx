@@ -7,8 +7,10 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Drawer,
   FormControl,
+  FormControlLabel,
   InputAdornment,
   InputLabel,
   MenuItem,
@@ -173,6 +175,12 @@ function PlayerManagement() {
   const selectedLeague = searchParams.get("league") || "";
   const positionFilter = searchParams.get("pos") || "All";
   const availabilityFilter = searchParams.get("availability") || "all";
+  // #1312 Ruling: "The Players list gains a Watching toggle that filters
+  // client-side on that flag" - not a fifth Availability segment (ADR 0040),
+  // and never sent to the server: `fetchPlayers` below has no `watching`
+  // param, so toggling this never triggers a refetch, only a re-filter of
+  // the page already on hand.
+  const watchingOnly = searchParams.get("watching") === "true";
   const search = searchParams.get("q") || "";
   const dir = searchParams.get("dir") || "asc";
   const activeLeague = leagues.find(
@@ -476,6 +484,10 @@ function PlayerManagement() {
       : undefined;
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
   const columnCount = playerRowColumnCount(bestBall);
+  // #1312 Ruling: the Watching toggle's own client-side filter, applied to
+  // the page already fetched - never a second server read, never a fifth
+  // Availability segment.
+  const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
   const controls = (
     <Stack spacing={1.5}>
       <FormControl size="small" fullWidth>
@@ -531,6 +543,19 @@ function PlayerManagement() {
         // Filters drawer, a touch surface, so its segments need the same
         // 44px minimum every other action on this page carries.
         sx={{ "& [role='radio']": { minHeight: 44 } }}
+      />
+      {/* #1312 Ruling: the Watching toggle - client-side only, never a
+          fifth Availability segment (ADR 0040's ownership axis stays
+          exactly those four states). */}
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={watchingOnly}
+            onChange={(event) => updateParams({ watching: event.target.checked || "" })}
+            sx={{ minWidth: 44, minHeight: 44 }}
+          />
+        }
+        label="Watching"
       />
       <Stack direction="row" spacing={1}>
         <FormControl size="small" fullWidth>
@@ -773,20 +798,22 @@ function PlayerManagement() {
               <PlayerRowTableHead bestBall={bestBall} currentWeek={currentWeek} sx={headCellSx} />
             </TableHead>
             <TableBody>
-              {players.length === 0 && (
+              {visiblePlayers.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={columnCount}
                     align="center"
                     sx={{ py: 6, color: "text.secondary" }}
                   >
-                    {search
+                    {watchingOnly
+                      ? "No watched players on this page"
+                      : search
                       ? `No players matching “${search}”`
                       : "No players found"}
                   </TableCell>
                 </TableRow>
               )}
-              {players.map((player) => (
+              {visiblePlayers.map((player) => (
                 <PlayerRow
                   key={player.id}
                   player={player}
@@ -802,19 +829,21 @@ function PlayerManagement() {
       )}
       {isMobile && (
         <Stack spacing={1.25}>
-          {players.length === 0 && (
+          {visiblePlayers.length === 0 && (
             <Paper
               variant="outlined"
               sx={{ p: 4, textAlign: "center", borderRadius: 3 }}
             >
               <Typography color="text.secondary">
-                {search
+                {watchingOnly
+                  ? "No watched players on this page"
+                  : search
                   ? `No players matching “${search}”`
                   : "No players found"}
               </Typography>
             </Paper>
           )}
-          {players.map((player) => (
+          {visiblePlayers.map((player) => (
             <PlayerRow
               key={player.id}
               player={player}

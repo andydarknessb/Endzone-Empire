@@ -557,3 +557,42 @@ test("no league selected: the row renders no Watch toggle", async () => {
   await screen.findByRole("button", { name: "Select league" });
   expect(screen.queryByTestId("player-row-watch")).not.toBeInTheDocument();
 });
+
+// #1312 Ruling: "The Players list gains a Watching toggle that filters
+// client-side on that flag" - never a fifth Availability segment, and never
+// a second server read (the toggle carries no leagueId/position/etc. of its
+// own, so it never appears in the /api/players params).
+test("the Watching toggle filters the list to only watched players, client-side, with no extra fetch", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 1, name: "Watched Guy", watching: true }),
+      player({ id: 2, name: "Unwatched Guy", watching: false }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText("Watched Guy");
+  expect(screen.getByText("Unwatched Guy")).toBeInTheDocument();
+  const callsBeforeToggle = apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+
+  await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+  expect(screen.getByText("Watched Guy")).toBeInTheDocument();
+  expect(screen.queryByText("Unwatched Guy")).not.toBeInTheDocument();
+  expect(
+    apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+  ).toBe(callsBeforeToggle);
+
+  await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+  expect(screen.getByText("Unwatched Guy")).toBeInTheDocument();
+});
+
+test("the Watching toggle, with nothing watched on the page, shows its own empty state", async () => {
+  mockBrowser({ players: [player({ id: 1, name: "Unwatched Guy", watching: false })] });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText("Unwatched Guy");
+  await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+  expect(await screen.findByText("No watched players on this page")).toBeInTheDocument();
+});
