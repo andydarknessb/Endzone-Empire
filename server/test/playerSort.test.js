@@ -5,7 +5,7 @@ const request = require('supertest');
 const pool = require('../modules/pool');
 const { signToken } = require('../modules/auth');
 const playerRouter = require('../routes/player.router');
-const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
+const { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS } = require('../services/playerSort');
 
 /**
  * ACCEPTED_SORT_FIELDS is the named authority for the `?sort=` values
@@ -127,6 +127,11 @@ test('every ACCEPTED_SORT_FIELDS value reaches a real ordering branch, not the i
 
   assert.ok(ACCEPTED_SORT_FIELDS.length > 0, 'the list is not empty');
   for (const field of ACCEPTED_SORT_FIELDS) {
+    // #1309 amended Ruling item 2: a LEAGUE_SCOPED_SORT_FIELDS value 400s
+    // without leagueId (player.router.js item 10), so it never reaches an
+    // ordering branch in THIS no-league loop - its own branch is pinned
+    // league-scoped in player.cards-view.route.test.js instead.
+    if (LEAGUE_SCOPED_SORT_FIELDS.includes(field)) continue;
     const settled = await orderingFor(t, field);
     const isFallback = settled.orderBy === fallback.orderBy
       && settled.paginatedInSql === fallback.paginatedInSql;
@@ -150,6 +155,7 @@ test('each ACCEPTED_SORT_FIELDS value settles through the path its kind requires
   const JS_SORTED = new Set(['projected_points', 'bye_week']);
 
   for (const field of ACCEPTED_SORT_FIELDS) {
+    if (LEAGUE_SCOPED_SORT_FIELDS.includes(field)) continue;
     const settled = await orderingFor(t, field);
     if (JS_SORTED.has(field)) {
       assert.equal(
@@ -166,6 +172,33 @@ test('each ACCEPTED_SORT_FIELDS value settles through the path its kind requires
         `"${field}" is a stored column, so the emitted ORDER BY should name it; got: ${settled.orderBy}`
       );
     }
+  }
+});
+
+test('every LEAGUE_SCOPED_SORT_FIELDS value is accepted but 400s without leagueId', async (t) => {
+  // #1309 amended Ruling item 2: LEAGUE_SCOPED_SORT_FIELDS is a subset of
+  // ACCEPTED_SORT_FIELDS (a league-scoped value the router doesn't otherwise
+  // accept would be a silent no-op, never reaching this 400), and each one
+  // answers item 10's 400 with no query reached - the same pool mock as
+  // `orderingFor` above proves it: an unmatched query throws, so a query
+  // reaching the mock at all would fail this test.
+  assert.ok(LEAGUE_SCOPED_SORT_FIELDS.length > 0, 'the list is not empty');
+  for (const field of LEAGUE_SCOPED_SORT_FIELDS) {
+    assert.ok(
+      ACCEPTED_SORT_FIELDS.includes(field),
+      `LEAGUE_SCOPED_SORT_FIELDS lists "${field}", but it is not in ACCEPTED_SORT_FIELDS`
+    );
+
+    t.mock.method(pool, 'query', async (sql) => {
+      throw new Error(`unexpected query: ${String(sql)}`);
+    });
+    const response = await request(app)
+      .get(`/api/players?sort=${encodeURIComponent(field)}`)
+      .set('Authorization', `Bearer ${TOKEN()}`);
+    t.mock.restoreAll();
+
+    assert.equal(response.status, 400, `?sort=${field} with no leagueId answers 400`);
+    assert.match(response.body.error, /view=cards and sort=upgrade require leagueId/);
   }
 });
 

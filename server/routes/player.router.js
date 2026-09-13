@@ -16,7 +16,7 @@ const {
 const { requireMember } = require('../services/leagueMembership.service');
 const irPolicy = require('../services/irPolicy.service');
 const projectionService = require('../services/projection.service');
-const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
+const { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS } = require('../services/playerSort');
 // Kept whole (not destructured): a test seam a route test replaces with
 // `t.mock.method`, same convention as playerCard.service.js's own
 // cross-module calls - a destructured binding is captured at require time
@@ -232,7 +232,7 @@ router.get('/', requireAuth, async (req, res) => {
   // item 10), so both require leagueId up front, in the style of the
   // `availability` check above.
   const view = req.query.view === 'cards' ? 'cards' : null;
-  if ((view === 'cards' || req.query.sort === 'upgrade') && !leagueId) {
+  if ((view === 'cards' || LEAGUE_SCOPED_SORT_FIELDS.includes(req.query.sort)) && !leagueId) {
     return res
       .status(400)
       .json({ error: 'view=cards and sort=upgrade require leagueId' });

@@ -27,9 +27,18 @@ const ACCEPTED_SORT_FIELDS = Object.freeze([
   // #1309 Ruling item 2: computed like projected_points/bye_week (full pool,
   // sorted in JS - not a stored column), but always descending with nulls
   // last, never toggled by `dir`. Requires `leagueId` (player.router.js's
-  // "view=cards and sort=upgrade require leagueId" 400): Upgrade has no
-  // meaning outside the caller's own league and lineup.
+  // "view=cards and sort=upgrade require leagueId" 400, item 10): Upgrade has
+  // no meaning outside the caller's own league and lineup - see
+  // LEAGUE_SCOPED_SORT_FIELDS below.
   'upgrade',
 ]);
 
-module.exports = { ACCEPTED_SORT_FIELDS };
+// #1309 amended Ruling item 2 (issuecomment-5651223819): the subset of
+// ACCEPTED_SORT_FIELDS that is meaningless without a league (currently just
+// `upgrade`) and 400s without `leagueId` (player.router.js, item 10). A named
+// export rather than a value `playerSort.test.js` hardcodes, so that file
+// never re-encodes which fields are league-scoped - the same one-authority
+// pattern ACCEPTED_SORT_FIELDS itself follows (see the file header above).
+const LEAGUE_SCOPED_SORT_FIELDS = Object.freeze(['upgrade']);
+
+module.exports = { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS };

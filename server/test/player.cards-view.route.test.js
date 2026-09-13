@@ -59,14 +59,17 @@ function makePlayers(n) {
   }));
 }
 
-function mockBasePool(t, { league, players }) {
+function mockBasePool(t, { league, players, poolQueries = [] }) {
   return t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2')) {
       return { rows: [TEAM] };
     }
     if (text.startsWith('SELECT * FROM "leagues"')) return { rows: [league] };
-    if (text.includes('FROM "players" AS "source"')) return { rows: players };
+    if (text.includes('FROM "players" AS "source"')) {
+      poolQueries.push(text);
+      return { rows: players };
+    }
     if (text.includes('FROM "nfl_games"')) return { rows: [] };
     if (text.includes('FROM "player_season_stats"')) return { rows: [] };
     if (text.includes('COUNT(*)::int AS "roster_count"')) return { rows: [{ roster_count: 0 }] };
@@ -189,7 +192,8 @@ test('view=cards: buildWeeksForPage makes one getWeeklyProjections call per week
 test('sort=upgrade: rows sort by upgrade.points descending, nulls last', async (t) => {
   const league = makeLeague();
   const players = makePlayers(4);
-  mockBasePool(t, { league, players });
+  const poolQueries = [];
+  mockBasePool(t, { league, players, poolQueries });
   mockCardServices(t, {
     availability: new Map(players.map((p) => [p.id, { state: 'free_agent', teamId: null, teamName: null, availableAt: null }])),
     upgrades: new Map([
@@ -206,6 +210,10 @@ test('sort=upgrade: rows sort by upgrade.points descending, nulls last', async (
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(res.body.players.map((p) => p.id), [3, 4, 1, 2]);
+  // #1309 amended Ruling item 3: upgrade is a full-pool JS sort, like
+  // projected_points/bye_week - not `ORDER BY "id"` SQL-paged with a LIMIT.
+  assert.equal(poolQueries.length, 1);
+  assert.ok(!poolQueries[0].includes('LIMIT $'), 'sort=upgrade fetches the full pool, no SQL LIMIT');
 });
 
 test('sort=upgrade in a best_ball league falls back to projected_points, descending', async (t) => {
