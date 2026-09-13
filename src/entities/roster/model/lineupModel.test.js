@@ -596,6 +596,22 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(onBye[0]).toMatchObject({ kickoff: null, gameKey: null });
   });
 
+  // #1329 (ADR 0037): `line` and `weather` pass through exactly as
+  // kickoff/gameKey already do - never derived here.
+  test('line and weather pass through exactly as kickoff/gameKey already do', () => {
+    const line = { spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2026-11-01T18:00:00Z', favoured: 'KC' };
+    const weather = { indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: null, precipitationProbability: 60, shortForecast: 'Light Rain' };
+    const withBoth = lineupEntries([row({ id: 1, slot: 'QB', line, weather })], league);
+    expect(withBoth[0]).toMatchObject({ line, weather });
+
+    const withNeither = lineupEntries([row({ id: 1, slot: 'QB', line: null, weather: null })], league);
+    expect(withNeither[0]).toMatchObject({ line: null, weather: null });
+
+    const { line: _l, weather: _w, ...rowWithoutEither } = row({ id: 1, slot: 'QB' });
+    const withoutKeys = lineupEntries([rowWithoutEither], league);
+    expect(withoutKeys[0]).toMatchObject({ line: null, weather: null });
+  });
+
   // #1239: byeWeek is the player's own NFL bye week (a week number), distinct
   // from onBye (whether that week is the one currently selected) - the
   // bye-cluster widget groups entries by this across future weeks.
