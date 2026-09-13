@@ -223,6 +223,24 @@ test("adds a Free agent then refreshes the server-authoritative browser state", 
   );
 });
 
+// Formal review round 2, f11: the roster read (f3's fix, for the at-capacity
+// drop pick) must refresh alongside the players list after an add, or a
+// later drop pick still lists a player who is no longer on the roster.
+test("adding a Free agent also re-reads the caller's own roster", async () => {
+  mockBrowser({ players: [player({ id: 8, name: "Free Agent" })] });
+  apiClient.post.mockResolvedValue({});
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Add free agent" }),
+  );
+  await waitFor(() =>
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url.startsWith("/api/team/roster")).length,
+    ).toBeGreaterThan(1),
+  );
+});
+
 test("uses URL-backed availability filters and labels the stored value Pool projection", async () => {
   mockBrowser({ players: [player({ projected_points: 211.4 })] });
   renderWithProviders(<PlayerManagement />);

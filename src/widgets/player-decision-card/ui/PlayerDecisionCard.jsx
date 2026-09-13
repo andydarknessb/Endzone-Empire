@@ -41,16 +41,28 @@ import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/sl
 // Left/Right from a FOCUSED, horizontally-scrollable region - specifically
 // `WeeklyPointsBars`' own `tabIndex={0}` strip, whose arrow-key scrolling
 // was the first risk round's fix for the identical keyboard-trap failure
-// mode. `scrollWidth > clientWidth` catches any such region generically
-// (not just this one strip by selector), and a MUI `Select`'s combobox div
-// needs the same exclusion the `<SELECT>` tag check already gives a plain
-// HTML select.
+// mode. A MUI `Select`'s combobox div needs the same exclusion the
+// `<SELECT>` tag check already gives a plain HTML select.
+//
+// Formal review round 2, f10: a bare `scrollWidth > clientWidth` ALSO
+// matches the `noWrap` title after the prev/next focus-management fix moves
+// focus there - `noWrap` is `overflow: hidden` (MUI's Typography), so a
+// long, truncated name reports `scrollWidth > clientWidth` despite nothing
+// being scrollable, and the whole handler then goes dead on it (jsdom
+// reports 0 for both widths, which is why no jsdom test caught this - a
+// real-browser check is `tests/e2e/player-decision-card.spec.ts`'s job).
+// The computed `overflow-x` is what actually distinguishes "this scrolls"
+// from "this truncates": only `auto`/`scroll` means arrow keys have
+// somewhere to go, `hidden` (or `visible`) never does.
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
   if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (el.getAttribute && el.getAttribute('role') === 'combobox') return true;
-  if (el.scrollWidth > el.clientWidth) return true;
+  if (el.scrollWidth > el.clientWidth) {
+    const overflowX = typeof getComputedStyle === 'function' ? getComputedStyle(el).overflowX : '';
+    if (overflowX === 'auto' || overflowX === 'scroll') return true;
+  }
   return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
 }
 

@@ -13,13 +13,23 @@ const USER_ID = 51;
 const PLAYER_ID = 9001;
 export const PLAYER_NAME = 'Breece Hall';
 
+// Formal review round 2, f10: three players, one with a long enough name to
+// truncate in the sheet's title column (`noWrap`), so Prev/Next's focus-
+// management fix (risk round 2) lands focus on a REAL truncated title, not
+// a synthetic one - the exact shape the jsdom suite cannot reach (jsdom
+// reports 0 for scrollWidth/clientWidth) but a real browser can.
+const LONG_NAME_PLAYER_ID = 9002;
+export const LONG_NAME_PLAYER_NAME = 'Christopher Aleksander Worthington-Fitzgerald';
+const THIRD_PLAYER_ID = 9003;
+export const THIRD_PLAYER_NAME = 'Sam Cook';
+
 export const WAIVERS_URL = `/#/league/${LEAGUE_ID}/waivers`;
 
 // A full card payload (#1306/#1331 shape), rich enough to exercise every
 // section this ticket adds - the decision strip, all 18 weekly bars, a
 // game log row and a news item - so the 390px guard measures real content,
 // not an empty drawer.
-function cardPayload() {
+function cardPayload(id: number, name: string) {
   const weeks = [];
   for (let week = 1; week <= 18; week++) {
     if (week === 9) weeks.push({ week, opponent: null, kind: 'bye' });
@@ -29,8 +39,8 @@ function cardPayload() {
   }
   return {
     player: {
-      id: PLAYER_ID,
-      name: PLAYER_NAME,
+      id,
+      name,
       position: 'RB',
       teamCode: 'NYJ',
       jerseyNumber: 20,
@@ -70,12 +80,20 @@ function cardPayload() {
   };
 }
 
+const CARD_PAYLOAD_BY_ID = {
+  [PLAYER_ID]: cardPayload(PLAYER_ID, PLAYER_NAME),
+  [LONG_NAME_PLAYER_ID]: cardPayload(LONG_NAME_PLAYER_ID, LONG_NAME_PLAYER_NAME),
+  [THIRD_PLAYER_ID]: cardPayload(THIRD_PLAYER_ID, THIRD_PLAYER_NAME),
+};
+
 function waiversResponse() {
   return {
     league: { waiver_type: 'faab', waiver_period_hours: 24, faab_budget: 100, waivers_clear_at: null },
     myTeam: { id: 500, waiver_priority: null, faab_remaining: 85 },
     onWaivers: [
       { id: PLAYER_ID, name: PLAYER_NAME, position: 'RB', nfl_team: 'New York Jets', available_at: '2026-09-17T07:00:00.000Z' },
+      { id: LONG_NAME_PLAYER_ID, name: LONG_NAME_PLAYER_NAME, position: 'WR', nfl_team: 'Miami Dolphins', available_at: '2026-09-17T07:00:00.000Z' },
+      { id: THIRD_PLAYER_ID, name: THIRD_PLAYER_NAME, position: 'RB', nfl_team: 'Minnesota Vikings', available_at: '2026-09-17T07:00:00.000Z' },
     ],
     myClaims: [],
   };
@@ -99,8 +117,12 @@ async function fulfilApi(route: Route) {
   if (method === 'GET' && pathname === '/api/waivers') return json(route, 200, waiversResponse());
   if (method === 'GET' && pathname === '/api/waivers/suggestions') return json(route, 200, { suggestions: [] });
   if (method === 'GET' && pathname === '/api/team/roster') return json(route, 200, rosterRows());
-  if (method === 'GET' && pathname === `/api/players/${PLAYER_ID}/card`) return json(route, 200, cardPayload());
-  if (method === 'GET' && pathname === `/api/team/lineup/${PLAYER_ID}/context`) {
+  const cardMatch = pathname.match(/^\/api\/players\/(\d+)\/card$/);
+  if (method === 'GET' && cardMatch && CARD_PAYLOAD_BY_ID[Number(cardMatch[1])]) {
+    return json(route, 200, CARD_PAYLOAD_BY_ID[Number(cardMatch[1])]);
+  }
+  const contextMatch = pathname.match(/^\/api\/team\/lineup\/(\d+)\/context$/);
+  if (method === 'GET' && contextMatch && CARD_PAYLOAD_BY_ID[Number(contextMatch[1])]) {
     return json(route, 200, { line: null, weather: null, usage: null });
   }
 

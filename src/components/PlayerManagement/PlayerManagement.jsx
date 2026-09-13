@@ -352,11 +352,19 @@ function PlayerManagement() {
       page: 1,
     });
   };
+  // Formal review round 2, f11: an add or a drop-and-add both change the
+  // caller's own roster, so the drop pick a LATER at-capacity add offers
+  // must be refreshed alongside the players list - WaiverWire's own
+  // `fetchAll` already re-reads both for the identical reason.
+  const refreshAfterAction = useCallback(
+    () => Promise.all([fetchPlayers(), fetchRoster()]),
+    [fetchPlayers, fetchRoster],
+  );
   // Formal review round 1, f4: the row's own Add action now consumes the
   // SAME implementation the Decision card's free-agent bar does, rather than
   // a parallel POST that could drift from it (the lead correction's own
   // wording: "PlayerManagement then consumes the feature").
-  const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: fetchPlayers });
+  const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const addToRoster = useCallback(
     async (player) => {
       setError(null);
@@ -968,7 +976,7 @@ function PlayerManagement() {
         context={quickViewContext}
         availability={quickViewAvailability}
         roster={roster}
-        onActionDone={fetchPlayers}
+        onActionDone={refreshAfterAction}
         playerIds={players.map((player) => player.id)}
         onNavigate={setQuickViewId}
       />

@@ -316,6 +316,24 @@ describe('prev/next over the opening list (formal review round 1, f5)', () => {
     await userEvent.keyboard('{ArrowRight}');
     expect(onNavigate).not.toHaveBeenCalled();
   });
+
+  // Formal review round 2, f10: a truncated (`noWrap`, `overflow: hidden`)
+  // title also reports scrollWidth > clientWidth, but nothing about it
+  // scrolls - only a REAL scroll region (`overflow-x: auto`/`scroll`, e.g.
+  // WeeklyPointsBars) should swallow the arrow keys. Focus lands on the
+  // title after every navigation (the risk-002 f2 fix), so this is exactly
+  // where the regression would show up.
+  test('arrow keys still navigate when focus is on a truncated (not scrollable) title', async () => {
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+    const title = await screen.findByRole('heading', { name: 'Josh Allen' });
+    Object.defineProperty(title, 'scrollWidth', { value: 300, configurable: true });
+    Object.defineProperty(title, 'clientWidth', { value: 120, configurable: true });
+    title.focus();
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onNavigate).toHaveBeenCalledWith(2);
+  });
 });
 
 // Formal review round 1, f6: the body and ADR 0040 say 560px, not the 420 this

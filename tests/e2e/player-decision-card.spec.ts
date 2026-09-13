@@ -17,7 +17,13 @@
  * so a real overflow or an under-sized control has somewhere to hide.
  */
 import { expect, test } from '@playwright/test';
-import { setupDecisionCardLayoutGuard, PLAYER_NAME, WAIVERS_URL } from './fixtures/decisionCardFixtures';
+import {
+  setupDecisionCardLayoutGuard,
+  PLAYER_NAME,
+  LONG_NAME_PLAYER_NAME,
+  THIRD_PLAYER_NAME,
+  WAIVERS_URL,
+} from './fixtures/decisionCardFixtures';
 
 const WIDTH = 390;
 const HEIGHT = 844;
@@ -129,6 +135,33 @@ test('the Decision card sheet at 390px: no horizontal scroll, tap targets at lea
     expect(box.width, `"${box.name}" is ${box.width}x${box.height}, under the 44px minimum`).toBeGreaterThanOrEqual(44);
     expect(box.height, `"${box.name}" is ${box.width}x${box.height}, under the 44px minimum`).toBeGreaterThanOrEqual(44);
   }
+});
+
+// Formal review round 2, f10: `isTypingTarget`'s scroll-region guard (risk
+// round 2's own fix) must not ALSO swallow the arrow keys once focus lands
+// on a truncated (not scrollable) title - jsdom reports 0 for scrollWidth/
+// clientWidth on every element, so only a real browser can prove a genuinely
+// truncated name still leaves ArrowLeft/ArrowRight working.
+test('arrow keys still navigate after Prev/Next focuses a genuinely truncated title', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+
+  await page.getByRole('button', { name: PLAYER_NAME }).click();
+  await expect(page.getByTestId('decision-card')).toBeVisible();
+
+  await page.getByTestId('decision-card-next').click();
+  const title = page.getByRole('heading', { name: LONG_NAME_PLAYER_NAME });
+  await expect(title).toBeVisible();
+  await expect(title).toBeFocused();
+
+  // Confirm the premise: this name really is truncated in the sheet's title
+  // column, not merely long in the DOM.
+  const truncated = await title.evaluate((el) => el.scrollWidth > el.clientWidth);
+  expect(truncated, 'the long name must actually overflow its title column for this test to mean anything').toBe(true);
+
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('heading', { name: THIRD_PLAYER_NAME })).toBeVisible();
 });
 
 // Permanent negative control (matching game-center-matchup-layout.spec.ts's
