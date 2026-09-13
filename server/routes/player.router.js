@@ -17,6 +17,7 @@ const { requireMember } = require('../services/leagueMembership.service');
 const irPolicy = require('../services/irPolicy.service');
 const projectionService = require('../services/projection.service');
 const { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS } = require('../services/playerSort');
+const { deriveLeaguePhase, LEAGUE_PHASE } = require('../services/leaguePhase');
 // Kept whole (not destructured): a test seam a route test replaces with
 // `t.mock.method`, same convention as playerCard.service.js's own
 // cross-module calls - a destructured binding is captured at require time
@@ -914,6 +915,76 @@ router.get('/:id/card', requireAuth, async (req, res) => {
       return res.status(error.statusCode).json({ error: error.message });
     console.error('Error building player card', error);
     res.status(500).json({ error: 'failed to fetch player card' });
+  }
+});
+
+// GET /api/players/:id/in-your-leagues — the viewer's own leagues, each with
+// this player's Availability there (#1357, parent #1354). The viewer's
+// leagues are the same `"teams"."owner_id"` join `GET /api/league/` uses
+// (league.router.js:294): a commissioner with no team in a league has no
+// Availability to name there, so that league is simply absent, same as a
+// pre-draft league (via `deriveLeaguePhase`). `availabilityFor` is the
+// Decision card's own function (playerCard.service.js) — same four states,
+// same rostering-team identity — projected down to the three fields this
+// response actually carries; its wider fields (rosterCapacity, faabRemaining,
+// ...) are the Decision card's business, not this one's.
+router.get('/:id/in-your-leagues', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res
+      .status(400)
+      .json({ error: 'player id must be a positive integer' });
+  }
+  const playerId = Number(req.params.id);
+
+  try {
+    const playerResult = await pool.query(
+      `SELECT * FROM "players" WHERE "id" = $1`,
+      [playerId],
+    );
+    const player = playerResult.rows[0];
+    if (!player) return res.status(404).json({ error: 'player not found' });
+
+    const leaguesResult = await pool.query(
+      `SELECT "leagues".*, "teams"."id" AS "team_id",
+              "teams"."faab_remaining" AS "team_faab_remaining",
+              "teams"."waiver_priority" AS "team_waiver_priority"
+         FROM "leagues"
+         JOIN "teams" ON "teams"."league_id" = "leagues"."id"
+        WHERE "teams"."owner_id" = $1
+        ORDER BY "leagues"."name" ASC`,
+      [req.user.id],
+    );
+
+    const leagues = await Promise.all(
+      leaguesResult.rows
+        .filter((league) => deriveLeaguePhase(league) !== LEAGUE_PHASE.PRE_DRAFT)
+        .map(async (league) => {
+          const team = {
+            id: league.team_id,
+            faab_remaining: league.team_faab_remaining,
+            waiver_priority: league.team_waiver_priority,
+          };
+          const availability = await playerCardService.availabilityFor({ league, team, player });
+          return {
+            leagueId: league.id,
+            leagueName: league.name,
+            phase: deriveLeaguePhase(league),
+            availability: {
+              state: availability.state,
+              teamId: availability.teamId,
+              teamName: availability.teamName,
+            },
+          };
+        })
+    );
+
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ leagues });
+  } catch (error) {
+    if (error.statusCode)
+      return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error building in-your-leagues availability', error);
+    res.status(500).json({ error: 'failed to fetch in-your-leagues availability' });
   }
 });
 
