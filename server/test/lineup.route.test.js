@@ -11,6 +11,7 @@ const request = require('supertest');
 const { signToken } = require('../modules/auth');
 const projectionService = require('../services/projection.service');
 const scoringService = require('../services/scoring.service');
+const { setVegasOddsProvider } = require('../services/vegasOdds.provider');
 const { createFakePool } = require('./helpers/fakePool');
 const teamRouter = require('../routes/team.router');
 
@@ -47,10 +48,13 @@ test("GET /api/team/lineup carries each entry's week opponent on the wire (#1132
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
       rows: [{ nfl_team: 'MIN', opponent: 'GB', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIN-GB' }],
     })],
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    // #1329: no odds provider installed here, so only weekWeather reaches the
+    // db, for MIN-GB (the only entry with a game this week).
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
   ]).install(t);
 
   const token = signToken({ id: 7, username: 'member' });
@@ -139,7 +143,7 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
     [/^SELECT "players"\."position"/, () => ({ rows: [spentRow] })], // spentStartingSlots (f2)
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })], // kickedOffTeams: nobody locked
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks: nobody on bye here (#1235's bye/opponent-null case is covered in lineup.service.test.js)
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
       rows: [
         { nfl_team: 'KC', opponent: 'DEN', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'KC-DEN' },
         { nfl_team: 'DAL', opponent: 'PHI', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'DAL-PHI' },
@@ -158,6 +162,9 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
         { home_team: 'NE', away_team: 'MIA', game_status: 'final' },
       ],
     })],
+    // #1329: no odds provider installed here, so only weekWeather reaches the
+    // db, for the eight game keys above.
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
   ]).install(t);
 
   const token = signToken({ id: 7, username: 'member' });
@@ -244,7 +251,7 @@ test('GET /api/team/lineup: with no live_game_states row, the Edge line falls ba
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
       rows: [
         { nfl_team: 'SEA', opponent: 'LAR', kickoff_at: sixHoursAgo, game_key: 'SEA-LAR' },
         { nfl_team: 'ARI', opponent: 'DAL', kickoff_at: oneHourAgo, game_key: 'ARI-DAL' },
@@ -253,6 +260,9 @@ test('GET /api/team/lineup: with no live_game_states row, the Edge line falls ba
     // No live row for either game: the poller has not (yet, or ever) upserted
     // one, which is exactly the gap #1235's f1 finding was about.
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    // #1329: no odds provider installed here, so only weekWeather reaches the
+    // db, for the two game keys above.
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
   ]).install(t);
 
   const token = signToken({ id: 7, username: 'member' });
@@ -272,5 +282,88 @@ test('GET /api/team/lineup: with no live_game_states row, the Edge line falls ba
     { kind: 'pace', text: '67% of projection so far (8 of 12 pts)' },
     'kickoff 1h ago, inside the no-live-row bound: still in progress'
   );
+  fake.assertClean();
+});
+
+/**
+ * #1329 (ADR 0037, ADR 0039): the Ledger row's own Line and weather, on the
+ * wire. An entry with an odds quote and a weather snapshot carries both; an
+ * entry with no game this week (a bye, or an unsynced slate) carries null
+ * for both; a dome game carries `weather.indoor: true` with every other
+ * weather field null, whatever the odds seam says.
+ */
+test('GET /api/team/lineup carries Line and weather per entry: both, neither, and indoor (#1329)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Both Guy', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
+    // No schedule row this week at all: never a stale week's line or an
+    // empty object, the same rule opponent/kickoff/game_key already follow.
+    { id: 2, name: 'No Game Guy', position: 'WR', nfl_team: 'BUF', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Dome Guy', position: 'WR', nfl_team: 'MIA', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
+  ];
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  setVegasOddsProvider({
+    name: 'test-book',
+    available: true,
+    // No quote for MIA-NE: the dome case must read line: null regardless.
+    async getWeeklyOdds() {
+      return new Map([
+        ['KC-DEN', { total: 49.5, spread: -3.5, source: 'test-book', observedAt: '2026-11-01T12:00:00Z' }],
+      ]);
+    },
+  });
+  t.after(() => setVegasOddsProvider());
+
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
+      rows: [
+        { nfl_team: 'KC', opponent: 'DEN', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'KC-DEN', roof: 'outdoor', home_away: 'home' },
+        // BUF has no row here: id 2's "no game this week" case.
+        { nfl_team: 'MIA', opponent: 'NE', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIA-NE', roof: 'dome', home_away: 'away' },
+      ],
+    })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
+      rows: [
+        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain' },
+      ],
+    })],
+  ]).install(t);
+
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/team/lineup?leagueId=5')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  const byId = new Map(response.body.entries.map((entry) => [entry.id, entry]));
+
+  assert.deepEqual(byId.get(1).line, {
+    spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2026-11-01T12:00:00Z', favoured: 'KC',
+  });
+  assert.deepEqual(byId.get(1).weather, {
+    indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: 20, precipitationProbability: 60, shortForecast: 'Light Rain',
+  });
+
+  assert.equal(byId.get(2).line, null, 'no game this week: line null');
+  assert.equal(byId.get(2).weather, null, 'no game this week: weather null');
+
+  assert.equal(byId.get(3).line, null, 'no odds quote for this game key: line null');
+  assert.deepEqual(byId.get(3).weather, {
+    indoor: true, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null,
+  });
+
   fake.assertClean();
 });
