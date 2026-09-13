@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Card,
+  CardActionArea,
   CardContent,
   Chip,
   Stack,
@@ -54,7 +55,14 @@ function StatusDetail({ player }) {
   }
   if (state === 'waivers' && availability.availableAt) {
     return (
-      <Tooltip title={new Date(availability.availableAt).toLocaleString()}>
+      // Risk-review finding (accessibility): `describeChild` keeps this
+      // Typography's own visible text ("Clears in 3 days") as its
+      // accessible name and links the absolute timestamp in as an
+      // `aria-describedby` instead - without it, MUI's default Tooltip
+      // behavior overwrites the accessible name with the raw
+      // `toLocaleString()` string, so a screen reader announces the
+      // timestamp in place of the relative text a sighted user reads.
+      <Tooltip title={new Date(availability.availableAt).toLocaleString()} describeChild>
         <Typography data-testid="player-row-status-detail" sx={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {`Clears ${formatRelative(availability.availableAt)}`}
         </Typography>
@@ -129,13 +137,27 @@ function OwnershipCell({ ownership }) {
   return <span>{`${value}%`}</span>;
 }
 
-function PlayerIdentity({ player, onOpenPlayer }) {
+// `nameAsLink` is false for the card variant: its whole identity block sits
+// inside a CardActionArea (below) that already opens the Decision card, so
+// the name renders as plain text there rather than a second, nested
+// interactive element (a <button> inside a <button> is invalid HTML, and
+// the OLD mobile card never gave the name its own separate target either -
+// risk-review finding: without this, the mobile card's ONLY route into the
+// Decision card was the name's own ~24px-tall inline link, far under the
+// 44px minimum every other action on this card carries).
+function PlayerIdentity({ player, onOpenPlayer, nameAsLink = true }) {
   return (
     <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
       <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} />
       <Box sx={{ minWidth: 0 }}>
         <Stack direction="row" spacing={0.75} alignItems="center">
-          <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} />
+          {nameAsLink ? (
+            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} />
+          ) : (
+            <Typography sx={{ fontWeight: 600 }} noWrap>
+              {player.name}
+            </Typography>
+          )}
           {player.injury_status && (
             <Chip size="small" color="warning" label={player.injury_status} />
           )}
@@ -182,7 +204,11 @@ function ActionControl({ action }) {
         {action.label}
       </Button>
     );
-  return action.helper ? <Tooltip title={action.helper}><span>{control}</span></Tooltip> : control;
+  // describeChild (the same risk-review finding as StatusDetail's Clears
+  // tooltip): keeps the control's own accessible name (its label) intact
+  // and links the helper sentence in as a description, rather than MUI's
+  // default of overwriting the name with the helper text outright.
+  return action.helper ? <Tooltip title={action.helper} describeChild><span>{control}</span></Tooltip> : control;
 }
 
 /**
@@ -207,11 +233,15 @@ export default function PlayerRow({ player, action, bestBall = false, variant = 
   if (variant === 'card') {
     return (
       <Card variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }} data-testid="player-row-card">
-        <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-            <PlayerIdentity player={player} onOpenPlayer={onOpenPlayer} />
-            <StatusCell player={player} />
-          </Stack>
+        <CardActionArea onClick={() => onOpenPlayer?.(player.id)} sx={{ textAlign: 'left' }}>
+          <Box sx={{ p: 2, pb: 1.25 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+              <PlayerIdentity player={player} onOpenPlayer={onOpenPlayer} nameAsLink={false} />
+              <StatusCell player={player} />
+            </Stack>
+          </Box>
+        </CardActionArea>
+        <CardContent sx={{ pt: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             <Box>
               <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>

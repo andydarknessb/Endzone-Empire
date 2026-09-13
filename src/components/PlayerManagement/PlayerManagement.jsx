@@ -315,7 +315,7 @@ function PlayerManagement() {
   // SAME implementation the Decision card's free-agent bar does, rather than
   // a parallel POST that could drift from it (the lead correction's own
   // wording: "PlayerManagement then consumes the feature").
-  const { addPlayer } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  const { addPlayer, pending: addPending } = useAddPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const addToRoster = useCallback(
     async (player) => {
       setError(null);
@@ -330,7 +330,7 @@ function PlayerManagement() {
   // list, the row-level counterpart to Add's own direct call above. A
   // manager who needs a drop pick or a FAAB bid still reaches the fuller
   // Decision card action bar by opening the row's own Quick view.
-  const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  const { submitClaim, pending: claimPending } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
       setError(null);
@@ -352,8 +352,14 @@ function PlayerManagement() {
       if (state === "waivers")
         return {
           kind: "button",
-          label: "Claim",
+          // Risk-review finding: a one-tap claim with no busy state let a
+          // repeated Enter/click fire the same waiver claim twice before the
+          // first request's snackbar ever appeared - disabling for the
+          // request's own duration is the same guard Add already gets below
+          // from `rosterAction.disabled`.
+          label: claimPending ? "Claiming…" : "Claim",
           onClick: () => claimFromRow(player),
+          disabled: claimPending,
           helper: "Submit a waiver claim for this player.",
         };
       if (state === "my_team")
@@ -380,14 +386,14 @@ function PlayerManagement() {
         };
       return {
         kind: "button",
-        label: rosterAction.label,
+        label: addPending ? "Adding…" : rosterAction.label,
         onClick: () => addToRoster(player),
-        disabled: rosterAction.disabled,
+        disabled: rosterAction.disabled || addPending,
         variant: "contained",
         helper: rosterAction.helper,
       };
     },
-    [addToRoster, claimFromRow, rosterAction, selectedLeague],
+    [addPending, addToRoster, claimFromRow, claimPending, rosterAction, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -459,18 +465,19 @@ function PlayerManagement() {
           ))}
         </Select>
       </FormControl>
-      <Box>
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-          Availability
-        </Typography>
-        <SegmentedControl
-          aria-label="Availability"
-          options={AVAILABILITY_FILTERS}
-          value={availabilityFilter}
-          onChange={(value) => updateParams({ availability: value, page: 1 })}
-          scrollable
-        />
-      </Box>
+      <SegmentedControl
+        aria-label="Availability"
+        options={AVAILABILITY_FILTERS}
+        value={availabilityFilter}
+        onChange={(value) => updateParams({ availability: value, page: 1 })}
+        scrollable
+        // Risk-review finding (accessibility): SegmentedControl's own
+        // segments are 30px tall - fine at its other (pointer-driven)
+        // call sites, but this control also renders inside the mobile
+        // Filters drawer, a touch surface, so its segments need the same
+        // 44px minimum every other action on this page carries.
+        sx={{ "& [role='radio']": { minHeight: 44 } }}
+      />
       <Stack direction="row" spacing={1}>
         <FormControl size="small" fullWidth>
           <InputLabel id="pm-sort-label">Sort</InputLabel>

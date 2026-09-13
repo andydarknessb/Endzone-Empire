@@ -1,5 +1,6 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Table, TableBody } from '@mui/material';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import PlayerRow from './PlayerRow';
@@ -99,6 +100,45 @@ test('a positive Upgrade renders as a pill outside best ball', () => {
   });
 
   expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1');
+});
+
+// Risk-review finding (accessibility): the mobile card's only route into the
+// Decision card used to be the ~24px-tall name link - under the 44px minimum
+// every other action on this card carries, and easy to miss entirely. The
+// whole identity/status block is a CardActionArea now, so ANY tap there
+// opens it, not just the name glyphs.
+test('card variant: tapping anywhere in the identity block opens the Decision card, not just the name', async () => {
+  const onOpenPlayer = jest.fn();
+  renderWithProviders(
+    <PlayerRow player={player()} action={{ kind: 'button', label: 'Add', onClick: jest.fn() }} variant="card" onOpenPlayer={onOpenPlayer} />,
+  );
+
+  await userEvent.click(within(screen.getByTestId('player-row-card')).getByText('Kansas City Chiefs'));
+
+  expect(onOpenPlayer).toHaveBeenCalledWith(1);
+  // The name is plain text here, not a second nested interactive element
+  // (a <button> inside the card's own action-area <button> is invalid HTML).
+  expect(screen.queryByRole('button', { name: 'Patrick Mahomes' })).not.toBeInTheDocument();
+});
+
+test("a waivers row's Clears tooltip keeps the visible relative time as its accessible name, not the absolute timestamp", () => {
+  renderRow({
+    player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: '2026-09-17T07:00:00.000Z' } }),
+    action: { kind: 'button', label: 'Claim', onClick: jest.fn() },
+  });
+
+  const detail = screen.getByTestId('player-row-status-detail');
+  expect(detail).not.toHaveAttribute('aria-label');
+  expect(detail).toHaveTextContent(/Clears/);
+});
+
+test("an action's helper tooltip keeps the button's own label as its accessible name", () => {
+  renderRow({
+    player: player(),
+    action: { kind: 'button', label: 'Add free agent', onClick: jest.fn(), helper: 'Add this available player immediately.' },
+  });
+
+  expect(screen.getByRole('button', { name: 'Add free agent' })).toBeInTheDocument();
 });
 
 test('card variant renders the same row content in a stacked layout', () => {
