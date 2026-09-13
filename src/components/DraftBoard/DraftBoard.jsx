@@ -633,11 +633,18 @@ function DraftBoard() {
 
   // Context facts for the Decision card's `draft` context (#1313): Draft /
   // Queue the currently-viewed available player, mirroring the row buttons -
-  // same rules, same shared confirmation dialog. `quickViewAvail` is null for
-  // a player opened from the Board matrix or Pick history (already drafted,
-  // no longer in the pool); `quickViewPick` (flat name/position/nfl_team/adp,
-  // entities/draft's own normalized shape) stands in for those.
-  const quickViewAvail = availablePlayers.find((p) => p.id === quickViewId);
+  // same rules, same shared confirmation dialog. Formal review f1: the queue
+  // rail opens by id from useDraftQueue's own independent list
+  // (setQuickViewId, not handleSelectFromPool), so a queued player the
+  // pool's current filter/search/paging doesn't currently include has to
+  // resolve the SAME way `findKnownPlayer` above already does for a Pick
+  // (pool first, queue fallback) or the card never opens at all - `entry`
+  // stays null and `isOpen` (PlayerDecisionCard.jsx) is false. `quickViewAvail`
+  // is undefined only for a player opened from the Board matrix or Pick
+  // history (already drafted, in neither list); `quickViewPick` (flat
+  // name/position/nfl_team/adp, entities/draft's own normalized shape)
+  // stands in for those.
+  const quickViewAvail = findKnownPlayer(quickViewId);
   const quickViewRow =
     quickViewAvail ||
     (quickViewPick

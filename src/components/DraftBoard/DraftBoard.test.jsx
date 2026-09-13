@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -1990,6 +1990,15 @@ test('clicking a player name opens the Decision card and never drafts the player
 // #1313 red-tell (b): the Decision card's own cadence rule (ADR 0025/0040 -
 // one fetch per open, no polling) holds for the Draft room the same as every
 // other surface.
+// Formal review f2: fake timers have to be running BEFORE the card opens, or
+// an interval registered on open would run on the real clock the later
+// advance never touches - and the assertion has to be the mock's TOTAL call
+// count, or a poll to some OTHER endpoint would pass unnoticed. `fireEvent`
+// (synchronous), not `userEvent` (which awaits real delays internally under
+// v14 and would hang once fake timers are active), drives the click; the
+// mocked fetch promises still drain on the microtask queue, which fake timers
+// never intercept, so two flushes settle both the card and the line/usage
+// reads without advancing any timer.
 test('opening the Decision card issues exactly one /card request and never polls', async () => {
   apiClient.get.mockImplementation((url) =>
     url.startsWith('/api/players/1/card') ? Promise.resolve(cardResponse()) : Promise.resolve(playersPage())
@@ -1997,16 +2006,43 @@ test('opening the Decision card issues exactly one /card request and never polls
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
 
-  await userEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
-  await screen.findByRole('dialog');
-
-  const cardCalls = () =>
-    apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/players/1/card')).length;
-  await waitFor(() => expect(cardCalls()).toBe(1));
-
   jest.useFakeTimers();
+  fireEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  const cardCallsSettled = apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/players/1/card')).length;
+  expect(cardCallsSettled).toBe(1);
+
+  const totalCallsSettled = apiClient.get.mock.calls.length;
   act(() => jest.advanceTimersByTime(60_000));
-  expect(cardCalls()).toBe(1);
+  expect(apiClient.get.mock.calls.length).toBe(totalCallsSettled);
+});
+
+// Formal review f1 (blocker): the queue rail opens a player by id from
+// useDraftQueue's own independent list (bare setQuickViewId, DraftBoard.jsx),
+// never from the pool - so a queued player the pool's current filter/search/
+// paging doesn't currently include has to resolve the same way
+// `findKnownPlayer` already does for a manual Pick (pool first, queue
+// fallback), or `entry` stays null and the card never opens at all.
+test('opening the Decision card from the queue rail works even when the player is outside the current pool page (f1)', async () => {
+  mockGets({
+    players: playersPage([{ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' }]),
+    queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }],
+  });
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  // Bijan Robinson is queued but absent from the mocked pool page - the
+  // regression this pins left the card silently unopened here.
+  await userEvent.click(screen.getByRole('button', { name: 'Bijan Robinson' }));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('heading', { name: 'Bijan Robinson' })).toBeInTheDocument();
 });
 
 // #1313 red-tell (c): "Best available #N" is the row's own position in the
