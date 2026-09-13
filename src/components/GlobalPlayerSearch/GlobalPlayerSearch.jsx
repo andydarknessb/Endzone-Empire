@@ -27,12 +27,18 @@ function isTypingTarget(el) {
  * that focus: it is forwarded to the text field so the field grabs focus when
  * the drawer content mounts, since the drawer's children do not exist while it
  * is closed.
+ *
+ * `onSelect` fires right after `navigate`, with the selected option, so a host
+ * that needs to react to a hit (the nav drawer closing itself, #1362) has a
+ * way to hear about it - this component has no other way to tell the host a
+ * selection navigated.
  */
 function GlobalPlayerSearch({
   inDrawer = false,
   enableShortcut = false,
   autoFocus = false,
   onShortcutMiss,
+  onSelect,
 }) {
   const [input, setInput] = useState('');
   const [options, setOptions] = useState([]);
@@ -140,6 +146,7 @@ function GlobalPlayerSearch({
         if (value) {
           navigate(`/players/${value.id}`);
           setInput('');
+          if (onSelect) onSelect(value);
         }
       }}
       renderOption={(props, option) => (

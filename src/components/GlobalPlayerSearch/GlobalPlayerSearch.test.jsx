@@ -45,6 +45,22 @@ test('searches players and navigates to the player profile page on select', asyn
   expect(mockNavigate).toHaveBeenCalledWith('/players/7');
 });
 
+// #1362: the host has no other way to hear that a hit navigated (the drawer
+// instance in Nav needs this to close itself), so onSelect fires right after
+// navigate with the selected option.
+test('calls onSelect with the selected option after navigating (#1362)', async () => {
+  const onSelect = jest.fn();
+  renderWithProviders(<GlobalPlayerSearch onSelect={onSelect} />);
+
+  await userEvent.type(screen.getByLabelText('Search players'), 'jeff');
+  const option = await screen.findByText('Justin Jefferson');
+
+  await userEvent.click(option);
+
+  expect(mockNavigate).toHaveBeenCalledWith('/players/7');
+  expect(onSelect).toHaveBeenCalledWith(JJ);
+});
+
 test('"/" focuses the search when the shortcut is enabled', async () => {
   renderWithProviders(<GlobalPlayerSearch enableShortcut />);
 
