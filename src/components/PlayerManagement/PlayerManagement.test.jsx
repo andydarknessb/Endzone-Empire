@@ -508,7 +508,10 @@ test("the row's Watch toggle PUTs, then re-reads the players list (no optimistic
   apiClient.put.mockResolvedValue({});
   renderWithProviders(<PlayerManagement />);
 
-  const toggle = await screen.findByRole("button", { name: "Watch" });
+  // Risk review (accessibility): the icon-only toggle's accessible name
+  // folds in the player's own name, so a multi-row page never exposes
+  // several identically named controls.
+  const toggle = await screen.findByRole("button", { name: "Watch Watch Target" });
   expect(toggle).toHaveAttribute("aria-pressed", "false");
 
   await userEvent.click(toggle);
@@ -532,7 +535,7 @@ test("a watched row renders \"Watching\" and DELETEs on click", async () => {
   apiClient.delete.mockResolvedValue({});
   renderWithProviders(<PlayerManagement />);
 
-  const toggle = await screen.findByRole("button", { name: "Watching" });
+  const toggle = await screen.findByRole("button", { name: "Watching Watch Target" });
   expect(toggle).toHaveAttribute("aria-pressed", "true");
 
   await userEvent.click(toggle);

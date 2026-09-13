@@ -20,6 +20,13 @@ exports.up = async function (knex) {
     // Unique on the pair (Ruling): a team either watches a player or does
     // not - there is no second row to collapse.
     t.unique(['team_id', 'player_id']);
+    // The composite unique above is team_id-leading, so it does not serve a
+    // lookup by player_id alone - the same gap team_players' own `t.index
+    // ('team_id')` exists for on its mirror-shaped table (its unique is
+    // league_id+player_id), added here for the identical reason: a DELETE
+    // FROM players cascade would otherwise seq-scan this table to find the
+    // rows to remove.
+    t.index('player_id');
   });
 };
 

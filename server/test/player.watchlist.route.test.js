@@ -131,6 +131,33 @@ test('GET /:id/card carries watching: true after a PUT and watching: false after
   assert.equal(unwatched.body.watching, false);
 });
 
+// Risk review: `watching` used to be baked into the cached payload
+// (summaryCacheSet), so a PUT/DELETE between two reads of the SAME
+// player+league+team+week within the 30s TTL showed the pre-write value on
+// the second read - reproduced and fixed by reading `watching` fresh on
+// every request, cache hit or miss.
+test('GET /:id/card reads watching fresh even on a cache hit for the SAME player', async (t) => {
+  const world = watchlistWorld(new Map([[7, TEAM_A]]));
+  createFakePool(world.handlers).install(t);
+  t.mock.method(playerCardService, 'getPlayerCard', async () => (
+    { player: { id: 60 }, availability: { state: 'my_team' }, decision: {} }
+  ));
+
+  const first = await request(app).get('/api/players/60/card?leagueId=1').set('Authorization', tokenFor(7));
+  assert.equal(first.body.watching, false);
+
+  await request(app).put('/api/players/60/watch?leagueId=1').set('Authorization', tokenFor(7));
+
+  // Second read of the SAME player+league+team+week: a cache hit on the rest
+  // of the payload (getPlayerCard is not re-invoked - the mock above would
+  // throw if node:test's mock call-count assertion caught a second call, but
+  // more directly: this is the exact cache key the first read populated),
+  // yet `watching` reflects the PUT that just happened.
+  const second = await request(app).get('/api/players/60/card?leagueId=1').set('Authorization', tokenFor(7));
+  assert.equal(second.status, 200);
+  assert.equal(second.body.watching, true, 'a cache hit must not serve a stale watching value');
+});
+
 // GET ?view=cards - #1309 row attaches `watching` for the CALLER's own team,
 // scoped so a second team's own read never sees the first team's watch.
 function makeLeague() {

@@ -217,21 +217,29 @@ function ActionControl({ action }) {
 /**
  * The Watch toggle (#1312, ADR 0040 follow-up, grill ruling Q6): a compact
  * icon control, not a second full-text action button crowding the row's own
- * Action column - `aria-label`/`aria-pressed` carry the same "Watch"/
- * "Watching" copy (issue ruling) the Decision card's own full-text button
- * uses, so a screen reader gets the identical name and state either way.
- * `watchAction` is a plain data object the caller builds (`{ watching,
- * onClick, pending }`), the SAME "page builds the action, widget renders it"
- * shape `action` already uses on this row - hidden entirely when the caller
- * omits it (no league selected, or a consumer, like WaiverWire, that has not
- * wired watch state in).
+ * Action column - copy "Watch"/"Watching" (issue ruling), the same words the
+ * Decision card's own full-text button uses. `watchAction` is a plain data
+ * object the caller builds (`{ watching, onClick, pending }`), the SAME
+ * "page builds the action, widget renders it" shape `action` already uses on
+ * this row - hidden entirely when the caller omits it (no league selected,
+ * or a consumer, like WaiverWire, that has not wired watch state in).
+ *
+ * Risk review (accessibility): the icon carries no visible text, so a bare
+ * "Watch"/"Watching" accessible name is identical across every row in a
+ * multi-row page - a Voice Control/Dragon user saying "click Watch" gets a
+ * numbered-overlay guess, and a screen reader's elements list reads
+ * "Watch, Watch, Watch...". `playerName` folds the player's own name into
+ * the name (`aria-label="Watch Josh Allen"`) so each row's control is
+ * unique, the same disambiguation `PlayerNameLink`'s own accessible name
+ * already gives the identity column.
  */
-function WatchToggle({ watchAction }) {
+function WatchToggle({ watchAction, playerName }) {
   if (!watchAction) return null;
   const Icon = watchAction.watching ? StarIcon : StarBorderIcon;
+  const label = watchAction.watching ? 'Watching' : 'Watch';
   return (
     <IconButton
-      aria-label={watchAction.watching ? 'Watching' : 'Watch'}
+      aria-label={playerName ? `${label} ${playerName}` : label}
       aria-pressed={watchAction.watching}
       onClick={watchAction.onClick}
       disabled={watchAction.pending}
@@ -304,7 +312,7 @@ export default function PlayerRow({ player, action, watchAction, bestBall = fals
           </Stack>
           {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} />}
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5 }}>
-            <WatchToggle watchAction={watchAction} />
+            <WatchToggle watchAction={watchAction} playerName={player.name} />
             <ActionControl action={action} />
           </Box>
         </CardContent>
@@ -337,7 +345,7 @@ export default function PlayerRow({ player, action, watchAction, bestBall = fals
       </TableCell>
       <TableCell align="right">
         <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
-          <WatchToggle watchAction={watchAction} />
+          <WatchToggle watchAction={watchAction} playerName={player.name} />
           <ActionControl action={action} />
         </Stack>
       </TableCell>

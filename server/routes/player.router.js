@@ -826,8 +826,14 @@ router.get('/:id/card', requireAuth, async (req, res) => {
     const cacheKey = `card:${playerId}|${leagueId}|${team.id}|${week ?? 'cur'}`;
     const cached = summaryCacheGet(cacheKey);
     if (cached) {
+      // #1312 risk review: `watching` is deliberately read fresh here rather
+      // than baked into the cached value below - a PUT/DELETE /:id/watch
+      // never invalidates this 30s summary cache, so a cached `watching`
+      // would show the manager's own Watch/Unwatch as reverted for up to
+      // 30s on the very next card open (reproduced in review).
+      const watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
       res.set('Cache-Control', 'private, max-age=30');
-      return res.json(cached);
+      return res.json({ ...cached, watching });
     }
 
     const payload = await playerCardService.getPlayerCard({
@@ -836,16 +842,16 @@ router.get('/:id/card', requireAuth, async (req, res) => {
       playerId,
       week,
     });
+    summaryCacheSet(cacheKey, payload);
+
     // #1312 Ruling: `watching` rides the same #1306 card payload every
     // Availability context reads - attached at the ROUTE (not
     // playerCard.service.js, outside this ticket's Scope) using the SAME
-    // team this handler already resolved above. Baked into the cached value
-    // like every other field here, so it shares that 30s TTL.
-    payload.watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
-
-    summaryCacheSet(cacheKey, payload);
+    // team this handler already resolved above, and read fresh on every
+    // request rather than cached (see the cache-hit branch above).
+    const watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
     res.set('Cache-Control', 'private, max-age=30');
-    res.json(payload);
+    res.json({ ...payload, watching });
   } catch (error) {
     if (error.statusCode)
       return res.status(error.statusCode).json({ error: error.message });

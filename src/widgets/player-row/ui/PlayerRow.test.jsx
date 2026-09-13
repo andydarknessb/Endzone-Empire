@@ -158,7 +158,10 @@ test('watchAction: the button label flips from "Watch" to "Watching" from the ro
     watchAction: { watching: false, onClick },
   });
 
-  const toggle = screen.getByRole('button', { name: 'Watch' });
+  // Risk review (accessibility): the accessible name folds in the player's
+  // own name (`Watch Patrick Mahomes`) so a multi-row page never exposes
+  // several identically named icon-only controls.
+  const toggle = screen.getByRole('button', { name: 'Watch Patrick Mahomes' });
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await userEvent.click(toggle);
   expect(onClick).toHaveBeenCalled();
@@ -171,7 +174,7 @@ test('watchAction: watching renders "Watching" and a disabled toggle while pendi
     watchAction: { watching: true, onClick: jest.fn(), pending: true },
   });
 
-  const toggle = screen.getByRole('button', { name: 'Watching' });
+  const toggle = screen.getByRole('button', { name: 'Watching Patrick Mahomes' });
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
   expect(toggle).toBeDisabled();
 });
