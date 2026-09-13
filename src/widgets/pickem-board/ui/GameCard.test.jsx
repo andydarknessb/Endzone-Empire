@@ -111,6 +111,71 @@ test('confidence stays disabled until a team is picked for that game (#1327)', (
   expect(enabledCombobox).toHaveAttribute('tabindex', '0');
 });
 
+test('a pick landing while focus is inside this card moves focus to the now-enabled confidence trigger (#1340)', async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: null })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  await user.click(screen.getByRole('button', { name: /Jets/i }));
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).toHaveFocus();
+});
+
+test('a pick landing while nothing in this card is focused never steals focus (#1340)', () => {
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: null })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  document.body.focus();
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).not.toHaveFocus();
+});
+
+test('changing an existing pick never steals focus from the team button (#1340)', () => {
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  const tenButton = screen.getByRole('button', { name: /Titans/i });
+  tenButton.focus();
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'TEN' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(tenButton).toHaveFocus();
+});
+
 test('state 3: picked, straight-up mode - no confidence chip', () => {
   render(<GameCard view={baseView({ myPick: 'NYJ', pickedCount: 8 })} mode="straight" totalManagers={10} />);
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
