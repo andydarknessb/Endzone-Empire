@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Box, Card, CardContent, Chip, Stack, Typography, Avatar, Table, TableBody,
+  Box, ButtonBase, Card, CardContent, Chip, Stack, Typography, Avatar, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Breadcrumbs, Link, Tooltip,
   ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
@@ -15,7 +15,12 @@ import { positionColorVar } from '../kit/positionColor';
 import { sortGamesByWeek } from '../kit/gameLog';
 import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor, hasFormatVariants } from '../kit/scoringFormat';
 import publicApiClient from '../../../api/publicApiClient';
+import apiClient from '../../../api/apiClient';
 import { STAT_DEFINITIONS } from '../../../shared/ui/AbbreviationTooltip';
+import { hasSessionHint } from '../../../lib/sessionHint';
+import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { toDecisionCardEntry } from '../../../entities/player';
+import PlayerDecisionCard from '../../../widgets/player-decision-card';
 
 // `testId` is an optional test-only seam: a stat card is a layout container
 // with no role, so the value and its label share no queryable ancestor.
@@ -112,6 +117,141 @@ function PeerLinks({ player, navigation }) {
   );
 }
 
+// Glossary copy (CONTEXT.md: Availability, In your leagues) - never the word
+// "owner". Chosen by `availability.state`, one of the four Availability
+// states the Decision card itself already speaks.
+function inYourLeaguesCopy({ leagueName, availability }) {
+  switch (availability?.state) {
+    case 'my_team':
+      return `On your team in ${leagueName}`;
+    case 'rostered':
+      return `Rostered by ${availability.teamName} in ${leagueName}`;
+    case 'free_agent':
+      return `Free agent in ${leagueName}`;
+    case 'waivers':
+      return `On waivers in ${leagueName}`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * In your leagues (#1359, parent #1354; CONTEXT.md's "In your leagues"): a
+ * signed-in viewer's own leagues for this player, one line per league naming
+ * their Availability there. Mounted ONLY while `hasSessionHint()` is true
+ * (see `PlayerProfilePage` below) so an anonymous render never even
+ * constructs this component, let alone calls the authenticated endpoint.
+ *
+ * Ruling on #1359 (the body's original "read `store.user`" premise doesn't
+ * hold: `PublicApp` mounts as its own document with no `FETCH_USER` and no
+ * persisted token, so `store.user` is never populated there): the hint from
+ * `src/lib/sessionHint` is the public tree's own signed-in signal, same as
+ * `PublicHeader`'s "My Dashboard" vs "Log In". This read is the one place
+ * the hint gates more than copy - a stale hint just costs one `apiClient`
+ * call whose 401 the interceptor already recovers from (or, on a failed
+ * refresh, clears the hint and hides the block, same as any other error).
+ *
+ * Reads the AUTHENTICATED `apiClient` (never `publicApiClient`) against
+ * `GET /api/players/:id/in-your-leagues` (#1357). A failed read hides the
+ * whole block rather than surfacing an error - the profile must never fail
+ * because this extra read did (issue body). A viewer with no eligible
+ * leagues renders nothing at all, not an empty heading.
+ *
+ * Each line opens the SAME `PlayerDecisionCard` WaiverWire/PlayerManagement
+ * open, with `entry` mapped from this page's own (camelCase) player payload
+ * into `toDecisionCardEntry`'s snake_case input shape (lead correction 2 -
+ * `toDecisionCardEntry` itself is untouched). `availability` is the line's
+ * own payload as-is and `roster` is not passed (lead correction 3): both are
+ * safe, and the deliberate consequence - a Free agent/Waivers card here
+ * shows no drop list, roster count, FAAB field or priority - is the "the
+ * card does the rest; the profile adds no action" boundary the issue body
+ * names, not a bug to fix here.
+ *
+ * Components stay on the theme's APP tokens throughout (Ruling): `LoadingRows`
+ * (already used elsewhere on this page) for the loading line, and a plain
+ * `ButtonBase` per row - never a `shared/ui` component scoped to the League
+ * Dashboard island's `dash-*` tokens (ADR 0020), the wrong palette for a page
+ * that runs on the app theme.
+ */
+function InYourLeaguesBlock({ player }) {
+  const { loading, error, data } = usePublicResource(
+    () => apiClient.get(`/api/players/${player.playerId}/in-your-leagues`).then((r) => r.data),
+    [player.playerId]
+  );
+  // `openLine` is kept through the close/exit transition (risk review finding
+  // 4): nulling every card prop the instant Close is clicked flips the card
+  // to its `context` default mid-exit, briefly swapping the action bar under
+  // a focus-trapped user. `cardOpen` alone drives visibility; `openLine`
+  // keeps naming the SAME league throughout the 120ms Drawer exit.
+  const [openLine, setOpenLine] = useState(null);
+  const [cardOpen, setCardOpen] = useState(false);
+
+  const entry = toDecisionCardEntry({
+    id: player.playerId,
+    name: player.name,
+    position: player.position,
+    nfl_team: player.nflTeam,
+    injury_status: player.injuryStatus,
+    photo_url: player.photoUrl,
+  });
+
+  if (error) return null;
+  // Risk review finding 3: a league whose Availability state this page
+  // doesn't recognize has no glossary copy, and rendering it anyway would be
+  // a 44px button with no accessible name. Drop it rather than guess at
+  // copy - today's contract only emits the four known states, so this is a
+  // defensive filter, not an expected case.
+  const leagues = (data?.leagues || []).filter((line) => inYourLeaguesCopy(line) != null);
+  if (!loading && leagues.length === 0) return null;
+
+  return (
+    <Box component="section" sx={{ mb: 3 }}>
+      <Typography variant="h5" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>In your leagues</Typography>
+      {loading ? (
+        <LoadingRows rows={1} height={44} />
+      ) : (
+        <Stack spacing={1}>
+          {leagues.map((line) => (
+            <ButtonBase
+              key={line.leagueId}
+              data-testid="in-your-leagues-line"
+              onClick={() => { setOpenLine(line); setCardOpen(true); }}
+              sx={{
+                ...MIN_TOUCH_TARGET_SX,
+                width: '100%',
+                justifyContent: 'flex-start',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'divider',
+                typography: 'body2',
+                fontWeight: 600,
+                // The label is a real league/team name, unbounded and
+                // caller-supplied - has to wrap rather than overflow the row
+                // on a narrow viewport (risk review finding 2).
+                whiteSpace: 'normal',
+                textAlign: 'left',
+                '&:hover': { backgroundColor: 'action.hover' },
+              }}
+            >
+              {inYourLeaguesCopy(line)}
+            </ButtonBase>
+          ))}
+        </Stack>
+      )}
+      <PlayerDecisionCard
+        open={cardOpen}
+        onClose={() => setCardOpen(false)}
+        entry={entry}
+        leagueId={openLine?.leagueId}
+        context={openLine?.availability?.state}
+        availability={openLine?.availability}
+      />
+    </Box>
+  );
+}
+
 /** Season switcher: complete seasons are selectable; a pending upcoming season
  * is shown so users see it's coming, and selecting it reveals a not-started state. */
 function SeasonToggle({ seasons, active, onChange }) {
@@ -193,6 +333,11 @@ export function ProfileBody({
   breadcrumbTo = '/rankings',
   showBreadcrumb = true,
   relatedPlayerNavigation,
+  // #1359: a node rendered under the hero and above the season controls.
+  // Only the public `PlayerProfilePage` below passes this (its own signed-in
+  // "In your leagues" block); `AuthenticatedPlayerProfilePage`'s call site
+  // never does, so this defaulting to nothing leaves that page untouched.
+  belowHero = null,
 }) {
   const [format, setFormat] = useState(initialFormat);
   useEffect(() => {
@@ -221,7 +366,7 @@ export function ProfileBody({
         />
       )}
       {/* Hero band */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
+      <Card variant="outlined" sx={{ mb: 3 }} data-testid="profile-hero">
         <CardContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems={{ xs: 'flex-start', sm: 'center' }}>
             <Avatar src={player.photoUrl || undefined} alt="" sx={{ width: 96, height: 96, bgcolor: 'var(--surface-sunken)', color: 'text.primary', fontSize: 32 }}>
@@ -256,6 +401,8 @@ export function ProfileBody({
         </CardContent>
       </Card>
 
+      {belowHero}
+
       {/* Season + scoring-format controls */}
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
@@ -288,7 +435,7 @@ export function ProfileBody({
       ) : (
         <>
           {/* Stat cards (fractional md — five across on desktop) */}
-          <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid container spacing={2} sx={{ mb: 3 }} data-testid="stat-grid">
             <Grid xs={6} md={2.4}><StatCard label="Games" value={s?.gamesPlayed} /></Grid>
             <Grid xs={6} md={2.4}><StatCard label="FPTS/G" value={perGame} tooltip={STAT_DEFINITIONS['FPTS/G']} /></Grid>
             <Grid xs={6} md={2.4}><StatCard label="Season points" value={seasonPoints} /></Grid>
@@ -351,6 +498,11 @@ export function ProfileBody({
 
 function PlayerProfilePage() {
   const { id } = useParams();
+  // In your leagues (#1359) is signed-in only. Ruling on #1359: the public
+  // tree has no redux user (`PublicApp` mounts as its own document, with no
+  // `FETCH_USER` and no persisted access token), so `hasSessionHint()` -
+  // `PublicHeader`'s own signed-in signal - is the gate, not `store.user`.
+  const isSignedIn = hasSessionHint();
   // Season lives in the URL so a shared/crawled link like ?season=2024 is
   // honored (and the server echoes it back, not the default). Absent = default.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -389,7 +541,13 @@ function PlayerProfilePage() {
       {loading && <LoadingRows rows={6} height={60} />}
       {!loading && error && <ErrorState message="We couldn't load this player." onRetry={retry} />}
       {!loading && !error && !data && <EmptyState message="Player not found." />}
-      {!loading && !error && data && <ProfileBody player={data} onSeasonChange={setSeason} />}
+      {!loading && !error && data && (
+        <ProfileBody
+          player={data}
+          onSeasonChange={setSeason}
+          belowHero={isSignedIn ? <InYourLeaguesBlock player={data} /> : null}
+        />
+      )}
     </PublicLayout>
   );
 }
