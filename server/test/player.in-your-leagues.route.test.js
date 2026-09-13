@@ -43,7 +43,7 @@ const PLAYER_LOOKUP_HANDLER = [/^SELECT \* FROM "players" WHERE "id" = \$1$/, ()
 
 const LEAGUES_JOIN_PATTERN = /FROM "leagues" JOIN "teams" ON "teams"\."league_id" = "leagues"\."id" WHERE "teams"\."owner_id" = \$1/;
 
-function leagueRow({ id, name, draftStatus, seasonStatus, teamId }) {
+function leagueRow({ id, name, draftStatus, seasonStatus, teamId, pickemOnly = false }) {
   return {
     id,
     name,
@@ -51,7 +51,7 @@ function leagueRow({ id, name, draftStatus, seasonStatus, teamId }) {
     waivers_clear_at: null,
     draft_status: draftStatus,
     season_status: seasonStatus,
-    pickem_only: false,
+    pickem_only: pickemOnly,
     roster_limit: 16,
     ir_slots: 0,
     team_id: teamId,
@@ -109,6 +109,10 @@ test('three leagues (pre-draft, my_team, rostered) return two entries, in league
   // caller's id from the verified JWT, never by anything a client could send
   // (a query param, a body field). Pins req.user.id, not just "some" $1.
   assert.equal(fake.matching(LEAGUES_JOIN_PATTERN)[0].params[0], VIEWER_ID);
+  // The title's "in league-name order" claim: the fixture already seeds
+  // Alpha/Beta/Gamma sorted, so only pinning the SQL itself (not response
+  // order, which would stay green with the ORDER BY removed) actually tests it.
+  assert.match(fake.matching(LEAGUES_JOIN_PATTERN)[0].text, /ORDER BY "leagues"\."name" ASC/);
 });
 
 test('an unrostered player returns free_agent or waivers exactly as availabilityFor decides', async (t) => {
@@ -185,11 +189,36 @@ test('a viewer with no leagues gets an empty array', async (t) => {
   assert.deepEqual(res.body.leagues, []);
 });
 
-// The public profile route sits in the same file (server/routes/public.router.js)
-// and must keep its own, very different, Cache-Control: this endpoint is
-// viewer-scoped (private, no-store) while the public profile is CDN-cacheable
-// (public, s-maxage). Pinned here so a change to one can't silently move onto
-// the other.
+test('a pick\'em-only league is omitted: it has no roster, so no Availability to name there', async (t) => {
+  // A pick'em-only league still has a `teams` row for the viewer (the same
+  // join GET /api/league/ uses returns it), and deriveLeaguePhase resolves it
+  // to IN_SEASON/COMPLETE, never PRE_DRAFT — so the PRE_DRAFT filter alone
+  // would leave it in. It must be dropped on league type instead.
+  const leagueRows = [
+    leagueRow({ id: 6, name: 'Zeta Pick\'em', draftStatus: 'pending', seasonStatus: 'in_season', teamId: 206, pickemOnly: true }),
+  ];
+
+  createFakePool([
+    PLAYER_LOOKUP_HANDLER,
+    [LEAGUES_JOIN_PATTERN, () => ({ rows: leagueRows })],
+    // No availability-lookup handlers seeded: an unexpected query here (i.e.
+    // the route still calling availabilityFor for the pick'em-only league)
+    // throws "unexpected query", failing the test.
+  ]).install(t);
+
+  const res = await request(app)
+    .get('/api/players/55/in-your-leagues')
+    .set('Authorization', authed);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.leagues, []);
+});
+
+// The public profile route (server/routes/public.router.js) must keep its own,
+// very different, Cache-Control, asserted in THIS test file per the issue's
+// criteria: this endpoint is viewer-scoped (private, no-store) while the
+// public profile is CDN-cacheable (public, s-maxage). Pinned here so a change
+// to one can't silently move onto the other.
 test("the public profile route's Cache-Control is unchanged", async (t) => {
   createFakePool([
     [select('players'), () => ({ rows: [{

@@ -18,6 +18,7 @@ const irPolicy = require('../services/irPolicy.service');
 const projectionService = require('../services/projection.service');
 const { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS } = require('../services/playerSort');
 const { deriveLeaguePhase, LEAGUE_PHASE } = require('../services/leaguePhase');
+const { isPickemOnly } = require('../services/leagueType');
 // Kept whole (not destructured): a test seam a route test replaces with
 // `t.mock.method`, same convention as playerCard.service.js's own
 // cross-module calls - a destructured binding is captured at require time
@@ -957,7 +958,13 @@ router.get('/:id/in-your-leagues', requireAuth, async (req, res) => {
 
     const leagues = await Promise.all(
       leaguesResult.rows
-        .filter((league) => deriveLeaguePhase(league) !== LEAGUE_PHASE.PRE_DRAFT)
+        // A pick'em-only league has no roster (CONTEXT.md: In your leagues
+        // covers leagues "whose rosters exist"; Membership: a pick'em-only
+        // member holds none), so it never has an Availability to name —
+        // `deriveLeaguePhase` never resolves it to PRE_DRAFT (it is
+        // IN_SEASON/COMPLETE from creation, leaguePhase.js's isPickemOnly
+        // branch), so that filter alone would leave it in.
+        .filter((league) => deriveLeaguePhase(league) !== LEAGUE_PHASE.PRE_DRAFT && !isPickemOnly(league))
         .map(async (league) => {
           const team = {
             id: league.team_id,
