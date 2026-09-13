@@ -635,36 +635,22 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   // ignores this league's scoring) - a season with a rollup row but no
   // weekly rows on file reports zero rather than a number under the wrong
   // rules.
+  //
+  // `seasons[0]` is ALWAYS `league.current_season` (Cory's ruling on #1356,
+  // 2026-09-13): the "one entry per season on record" reading left almost
+  // every in-season card with no current-season entry at all (the rollup and
+  // most weekly rows land after the season completes), and #1358's "current
+  // season checked on open" needs one to read. `season` is unioned in
+  // explicitly so it is present even with zero rows either side; the
+  // `s === season` branch below builds it from the top-level `weeks`/
+  // `log.current` regardless (byte-identical, and correct even when
+  // `summary.currentSeason` is null - a player with NO stats rows at all now
+  // returns exactly that one entry, never `[]`, restating criterion 4).
   const allSeasons = [...new Set([
+    season,
     ...weeklyResult.rows.map((r) => r.season),
     ...seasonResult.rows.map((r) => r.season),
   ])].sort((a, b) => b - a);
-  const pastSeasons = allSeasons.filter((s) => s !== season);
-
-  // One combined schedule query for every past season (the current season's
-  // schedule is already `opponentByWeek` above) rather than one per season -
-  // unlike the bye and position-rank lookups below, a season column on the
-  // same table lets one query answer for all of them at once.
-  const pastScheduleResult = pastSeasons.length > 0
-    ? await pool.query(
-        `SELECT "season", "week", "opponent" FROM "nfl_games"
-         WHERE "season" = ANY($1::int[]) AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($2)`,
-        [pastSeasons, player.nfl_team]
-      )
-    : { rows: [] };
-  const opponentByWeekBySeason = new Map([[season, opponentByWeek]]);
-  for (const row of pastScheduleResult.rows) {
-    if (!opponentByWeekBySeason.has(row.season)) opponentByWeekBySeason.set(row.season, new Map());
-    opponentByWeekBySeason.get(row.season).set(Number(row.week), normalizeNflTeam(row.opponent));
-  }
-
-  const byeWeekBySeason = new Map([[season, byeWeek]]);
-  for (const s of pastSeasons) {
-    // eslint-disable-next-line no-await-in-loop -- one bye lookup per past
-    // season (Ruling: computed once per request per season, the same shape
-    // the position rank below takes).
-    byeWeekBySeason.set(s, await byeService.computeByeWeek(player.nfl_team, s));
-  }
 
   const seasons = [];
   for (const s of allSeasons) {
@@ -686,12 +672,47 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       });
       continue;
     }
+
     const weeklyRowsForSeason = weeklyResult.rows.filter((r) => r.season === s);
     const points = Math.round(
       weeklyRowsForSeason.reduce((sum, r) => sum + scoringService.calculateFantasyPoints(r.stats, rules), 0) * 100
     ) / 100;
     const games = weeklyRowsForSeason.length;
-    const opponentByWeekForSeason = opponentByWeekBySeason.get(s) || new Map();
+
+    // #1356 formal review f2: a past season's schedule and bye week come
+    // from the TEAM the player actually played for THAT season - nflverse's
+    // per-row `stats.gameTeam` (the most-common value that season), falling
+    // back to today's `player.nfl_team` only when no row carries one - never
+    // today's team. `buildWeeklyBars` checks the bye week before it looks at
+    // stats, so a traded player's old-team week must never fall on his new
+    // team's bye and render with no points.
+    const teamCounts = new Map();
+    for (const row of weeklyRowsForSeason) {
+      const gameTeam = row.stats && row.stats.gameTeam;
+      if (!gameTeam) continue;
+      teamCounts.set(gameTeam, (teamCounts.get(gameTeam) || 0) + 1);
+    }
+    let seasonTeam = player.nfl_team;
+    let seasonTeamCount = 0;
+    for (const [team, count] of teamCounts) {
+      if (count > seasonTeamCount) { seasonTeam = team; seasonTeamCount = count; }
+    }
+
+    // eslint-disable-next-line no-await-in-loop -- one schedule query and one
+    // bye lookup per past season (computed once per request per season, the
+    // same shape the position rank above takes).
+    const [seasonScheduleResult, seasonByeWeek] = await Promise.all([
+      pool.query(
+        `SELECT "week", "opponent" FROM "nfl_games"
+         WHERE "season" = $1 AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($2)`,
+        [s, seasonTeam]
+      ),
+      byeService.computeByeWeek(seasonTeam, s),
+    ]);
+    const opponentByWeekForSeason = new Map(
+      seasonScheduleResult.rows.map((r) => [Number(r.week), normalizeNflTeam(r.opponent)])
+    );
+
     seasons.push({
       season: s,
       games,
@@ -703,11 +724,16 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       // every season but the league's current one (#1356 body).
       adp: null,
       weeks: await buildWeeklyBars({ // eslint-disable-line no-await-in-loop -- one call per past season
-        league, player, season: s, currentWeek: 19, opponentByWeek: opponentByWeekForSeason, byeWeek: byeWeekBySeason.get(s) ?? null, rules,
+        league, player, season: s, currentWeek: 19, opponentByWeek: opponentByWeekForSeason, byeWeek: seasonByeWeek, rules,
       }),
       log: weeklyRowsForSeason.map((r) => ({
         week: r.week,
-        opponent: opponentByWeekForSeason.get(Number(r.week)) ?? null,
+        // f2: a log row prefers its OWN `stats.gameOpponent` (that specific
+        // game's opponent) over the derived season schedule, which can only
+        // answer for the team `seasonTeam` played the most that year.
+        opponent: (r.stats && r.stats.gameOpponent)
+          ? normalizeNflTeam(r.stats.gameOpponent)
+          : (opponentByWeekForSeason.get(Number(r.week)) ?? null),
         statLine: r.stats,
         points: scoringService.calculateFantasyPoints(r.stats, rules),
       })),
