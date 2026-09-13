@@ -934,13 +934,25 @@ describe('Season summary and Season pick (#1358)', () => {
       seasonRow(2026, {
         posRank: null,
         posRankOf: null,
-        adp: 12.3,
+        // formal-001-f4: a value formatPoints actually rounds, so the
+        // rendered "34.3" proves the ADP cell goes through it rather than
+        // printing the raw wire number.
+        adp: 34.25,
         weeks: [weekRow(4, { kind: 'projected', points: 20 })],
         log: [logRow(4, { opponent: 'KC' })],
       }),
       seasonRow(2025, {
         adp: null,
-        weeks: [weekRow(3, { kind: 'actual', points: 18 })],
+        // formal-001-f2: week 4 (the current week) and week 17 (seasonEnd)
+        // are IN this past season's own weeks, so a reverted guard (passing
+        // currentWeek/seasonEnd through for a picked-but-not-current season)
+        // would wrongly mark one of them - a fixture with neither week could
+        // never catch that regression.
+        weeks: [
+          weekRow(3, { kind: 'actual', points: 18 }),
+          weekRow(4, { kind: 'actual', points: 16 }),
+          weekRow(17, { kind: 'actual', points: 9 }),
+        ],
         log: [logRow(3, { opponent: 'DAL' })],
       }),
       seasonRow(2024, { adp: null, weeks: [weekRow(2)], log: [logRow(2, { opponent: 'MIA' })] }),
@@ -970,6 +982,9 @@ describe('Season summary and Season pick (#1358)', () => {
     const row2026 = within(rows[0]);
     expect(row2026.getAllByRole('cell')[3]).toHaveTextContent('-');
     expect(row2026.getByText('no rank on record')).toBeInTheDocument();
+    // formal-001-f4: the ADP cell goes through formatPoints, so a raw wire
+    // value of 34.25 renders as the rounded "34.3", not "34.25".
+    expect(row2026.getAllByRole('cell')[4]).toHaveTextContent('34.3');
 
     const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
     expect(within(radiogroup).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
@@ -978,7 +993,7 @@ describe('Season summary and Season pick (#1358)', () => {
     expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
   });
 
-  test('clicking the 2025 chip redraws the bars and game log from the 2025 season, with no current marker; clicking 2026 restores both', async () => {
+  test('clicking the 2025 chip redraws the bars and game log from the 2025 season, with no current marker, no projected bar and no season-end marker; clicking 2026 restores both', async () => {
     mockCardRoute(threeSeasonCard);
     renderCard();
 
@@ -989,9 +1004,13 @@ describe('Season summary and Season pick (#1358)', () => {
     await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
 
     expect(await screen.findByTestId('weekly-bar-3')).toBeInTheDocument();
-    expect(screen.queryByTestId('weekly-bar-4')).not.toBeInTheDocument();
-    // A past season draws no current-week marker and no projected bar.
-    expect(screen.queryByTestId('weekly-bar-3-current')).not.toBeInTheDocument();
+    // The 2025 season's own weeks (formal-001-f2) deliberately include week
+    // 4 (the current week) and week 17 (seasonEnd), so these three
+    // assertions would fail if the current-season guard were ever reverted
+    // (currentWeek/seasonEnd passed through for a picked past season).
+    expect(screen.getByTestId('weekly-bar-4')).toHaveAttribute('data-kind', 'actual'); // no projected bar
+    expect(screen.queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument(); // no current-week marker
+    expect(screen.getByTestId('weekly-bar-17')).toHaveStyle({ borderRight: 'none' }); // no season-end marker
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
     expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
 
@@ -1029,14 +1048,15 @@ describe('Season summary and Season pick (#1358)', () => {
     expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
   });
 
-  test('the summary and pick render in the waivers and free-agent contexts too, not only my_team', async () => {
+  // formal-001-f3: this used to render only `waivers`; `free_agent` is its
+  // own branch (AddPlayerAction vs ClaimPlayerAction) and needs its own
+  // assertion, not just a shared claim it covers both.
+  test.each([
+    ['waivers', () => ({ context: 'waivers', availability: { waiverPriority: 3 } })],
+    ['free_agent', () => ({ context: 'free_agent', availability: { rosterCount: 14, rosterCapacity: 16 } })],
+  ])('the summary and pick render in the %s context too, not only my_team', async (_context, propsFor) => {
     mockCardRoute({ seasons: [seasonRow(2026), seasonRow(2025)] });
-    renderCard({
-      context: 'waivers',
-      entry: availabilityEntry(),
-      entries: undefined,
-      availability: { waiverPriority: 3 },
-    });
+    renderCard({ ...propsFor(), entry: availabilityEntry(), entries: undefined });
 
     await screen.findByTestId('decision-card-seasons');
     expect(await screen.findByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
@@ -1114,28 +1134,5 @@ describe('Season summary and Season pick (#1358)', () => {
 
     const radiogroupAfterNav = await screen.findByRole('radiogroup', { name: 'Season' });
     expect(within(radiogroupAfterNav).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
-  });
-
-  // CI regression (PR #1367, browser-security e2e gate): the Decision-card
-  // e2e fixture (tests/e2e/fixtures/decisionCardFixtures.ts) predates
-  // #1356/#1358 and ships a card payload with top-level `weeks`/`log` but no
-  // `seasons` at all. A real payload never omits `seasons` (#1356's ruling),
-  // but a card shaped this way is still a real shape - hiding the bars and
-  // the game log outright for it, rather than falling back to the top-level
-  // fields, would be a silent regression for any payload like it.
-  test('a payload with no seasons array still renders the bars and game log from the top-level fields, with no summary or pick', async () => {
-    mockCardRoute({
-      decision: { projWeek: { week: 4, points: 12 } },
-      seasonEnd: 17,
-      weeks: [weekRow(4, { kind: 'projected', points: 20 })],
-      log: { current: [logRow(4, { opponent: 'KC' })] },
-    });
-    renderCard();
-
-    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
-    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
-    expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
-    expect(screen.queryByTestId('decision-card-seasons')).not.toBeInTheDocument();
-    expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
   });
 });

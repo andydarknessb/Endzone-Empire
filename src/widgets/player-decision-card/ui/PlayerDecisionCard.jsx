@@ -253,18 +253,6 @@ export default function PlayerDecisionCard({
   const isCurrentSeasonSelected = Boolean(
     selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
   );
-  // CI red (PR #1367, browser-security gate): the e2e fixture's card payload
-  // predates #1356/#1358 and carries no `seasons` at all - a real payload
-  // never does this (#1356's ruling: `seasons[0]` is always present, even a
-  // rookie's single entry), but a card WITH weeks/log and no seasons is a
-  // real shape too (any producer that hasn't caught up yet), and hiding the
-  // bars/game log outright for it is a regression this ticket must not
-  // ship. Falling back to the top-level fields exactly reproduces this
-  // widget's pre-#1358 behaviour whenever `seasons` is absent or empty.
-  const barsWeeks = selectedSeasonEntry ? selectedSeasonEntry.weeks : card?.weeks;
-  const barsCurrentWeek = (!selectedSeasonEntry || isCurrentSeasonSelected) ? card?.decision?.projWeek?.week : undefined;
-  const barsSeasonEnd = (!selectedSeasonEntry || isCurrentSeasonSelected) ? card?.seasonEnd : undefined;
-  const gameLog = selectedSeasonEntry ? { current: selectedSeasonEntry.log ?? [] } : card?.log;
   // Risk review (#1311): every OTHER caller hands a full `entry`, so the
   // drawer always paints real content immediately even while this read is
   // still in flight (ADR 0037: "the row's own fields paint immediately").
@@ -802,13 +790,17 @@ export default function PlayerDecisionCard({
                 value={selectedSeasonEntry?.season ?? null}
                 onChange={setPickedSeason}
               />
-              <WeeklyPointsBars weeks={barsWeeks} currentWeek={barsCurrentWeek} seasonEnd={barsSeasonEnd} />
+              <WeeklyPointsBars
+                weeks={selectedSeasonEntry?.weeks}
+                currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
+                seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
+              />
               {/* `card.seasons[i].log` is already the row array
                   `GameLogTable` reads as `log.current` (lead correction on
                   the issue thread) - wrapped here rather than changing
                   GameLogSection/GameLogTable, which live outside this
                   ticket's reservation. */}
-              <GameLogSection log={gameLog} />
+              <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
               <Bio bio={card?.bio} />
               {lineupManaged && (
                 <BenchOptionsSection
@@ -1069,7 +1061,18 @@ function SeasonSummarySection({ seasons }) {
   if (!Array.isArray(seasons) || seasons.length === 0) return null;
   return (
     <Section title="Season summary" testId="decision-card-season-summary-section">
-      <Table size="small" aria-label="Season summary" data-testid="decision-card-seasons">
+      {/* Six columns at the 390px sheet's own width (ADR 0040's premise-check
+          ruling item 5, tests/e2e/player-decision-card.spec.ts): MUI's
+          default TableCell horizontal padding (16px each side) alone sums to
+          more than the sheet's available width across six columns, forcing
+          a real horizontal scrollbar on the whole card. Tightening it here
+          is local to this table, not a `shared/ui` change. */}
+      <Table
+        size="small"
+        aria-label="Season summary"
+        data-testid="decision-card-seasons"
+        sx={{ '& .MuiTableCell-root': { px: 1 } }}
+      >
         <TableHead>
           <TableRow>
             <TableCell>Season</TableCell>
@@ -1103,7 +1106,7 @@ function SeasonSummarySection({ seasons }) {
                 )}
               </TableCell>
               <TableCell align="right">
-                {row.adp != null ? row.adp : <DashValue label="no ADP on record" />}
+                {row.adp != null ? formatPoints(row.adp) : <DashValue label="no ADP on record" />}
               </TableCell>
             </TableRow>
           ))}
