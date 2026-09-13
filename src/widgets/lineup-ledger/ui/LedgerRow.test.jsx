@@ -407,6 +407,15 @@ test('canDrop renders a drop control that calls onRequestDrop without triggering
   expect(onClick).not.toHaveBeenCalled();
 });
 
+// Red-tell (mobile review): the drop control rendered at 26x26px (MUI's
+// IconButton size="small" default), under the repo's 44px touch-target
+// standard - dropping the MIN_TOUCH_TARGET_SX override turns this case red.
+test('canDrop renders a drop control that meets the 44px touch target', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} canDrop onRequestDrop={jest.fn()} data-testid="row" />);
+  const drop = screen.getByRole('button', { name: /drop josh allen/i });
+  expect(drop).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
+});
+
 test('canDrop=false renders no drop control', () => {
   render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByRole('button', { name: /drop/i })).toBeNull();
@@ -460,4 +469,20 @@ test('the drop control is a sibling of the select button, not nested inside it (
   const dropButton = screen.getByRole('button', { name: /drop josh allen/i });
   const selectButton = screen.getByTestId('row-select');
   expect(selectButton).not.toContainElement(dropButton);
+});
+
+// The headshot rides the lineup entry's own `photoUrl` (the players row's
+// `photo_url`, selected by getLineup). With one, the avatar is the image;
+// without one (a team defense, or a player the sync never resolved) it is
+// the initials monogram on the jersey colour, exactly as before.
+test('an entry with a photoUrl renders the headshot image', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ photoUrl: 'https://cdn.example/josh-allen.png' })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
+  expect(screen.queryByText('JA')).toBeNull();
+});
+
+test('an entry without a photoUrl falls back to the initials monogram', () => {
+  render(<LedgerRow slotLabel="D/ST" entry={entry({ name: 'Denver Broncos', position: 'DEF', nflTeam: 'DEN', photoUrl: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.queryByTestId('ledger-headshot')).toBeNull();
+  expect(screen.getByText('DB')).toBeInTheDocument();
 });

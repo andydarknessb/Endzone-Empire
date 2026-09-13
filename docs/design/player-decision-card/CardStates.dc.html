@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: "Inter", "Roboto", "Helvetica", "Arial", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #1e5bb8; text-decoration: none; } a:hover { color: #17498f; text-decoration: underline; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+<div style="width: 600px; min-height: 760px; background: #f4f6f8; color: #1a2129; font-size: 14px; line-height: 1.55; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+  <div style="display: flex; flex-direction: column; gap: 2px;">
+    <span style="font-size: 1.125rem; font-weight: 700; line-height: 1.35;">Card action bar by availability</span>
+    <span style="font-size: 0.8125rem; color: #586472;">Same card, one bar. The status line above the bar tells the manager which world they are in before they read the buttons.</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; border-radius: 16px; background: #ffffff; border: 1px solid #dde2e7; overflow: hidden;">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 10px 20px; background: rgba(27, 125, 79, 0.12); font-size: 0.8125rem; font-weight: 600; color: #1b7d4f;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #1b7d4f; display: inline-block;"></span>Free agent<span style="margin-left: auto; font-weight: 400; color: #586472;">Roster 15 of 16</span></div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 16px 20px;">
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: none; background: #1e5bb8; color: #ffffff; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Add to roster</button>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #1e5bb8; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Watch</button>
+      <button type="button" style="height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Compare</button>
+      <span style="margin-left: auto; font-size: 0.75rem; color: #586472;">Adds immediately, no waiver window</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; border-radius: 16px; background: #ffffff; border: 1px solid #dde2e7; overflow: hidden;">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 10px 20px; background: rgba(27, 125, 79, 0.12); font-size: 0.8125rem; font-weight: 600; color: #1b7d4f;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #1b7d4f; display: inline-block;"></span>Free agent<span style="margin-left: auto; font-weight: 400; color: #586472;">Roster full · 16 of 16</span></div>
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 16px 20px;">
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
+        <span style="font-size: 0.8125rem; color: #586472; white-space: nowrap;">Drop</span>
+        <div role="button" aria-haspopup="listbox" style="display: flex; flex-direction: row; align-items: center; gap: 10px; height: 40px; flex-grow: 1; padding: 0 12px; border-radius: 10px; border: 1px solid #c3ccd4; box-sizing: border-box; cursor: pointer;">
+          <div aria-hidden="true" style="width: 24px; height: 24px; border-radius: 999px; background: #1e5bb8; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 9.6px; font-weight: 600;">JP</div>
+          <span style="font-weight: 600;">Josh Palmer</span>
+          <span style="font-size: 0.75rem; color: #586472;">WR · LAC · FLEX · 8.7 proj · 39% rostered, falling</span>
+          <svg style="margin-left: auto;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#586472" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
+        <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: none; background: #1e5bb8; color: #ffffff; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Add and drop Palmer</button>
+        <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #1e5bb8; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Watch</button>
+        <span class="num" style="margin-left: auto; font-size: 0.75rem; color: #1b7d4f; font-weight: 600;">+4.1 per week at FLEX</span>
+      </div>
+      <span style="font-size: 0.75rem; color: #586472;">Drop list is sorted worst projection first, the same order the waiver claim dialog uses today.</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; border-radius: 16px; background: #ffffff; border: 1px solid #dde2e7; overflow: hidden;">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 10px 20px; background: rgba(138, 90, 0, 0.12); font-size: 0.8125rem; font-weight: 600; color: #8a5a00;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #8a5a00; display: inline-block;"></span>On waivers<span style="margin-left: auto; font-weight: 400; color: #586472;">Clears Wed 3:00 AM · 3 claims pending</span></div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 16px 20px;">
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: none; background: #1e5bb8; color: #ffffff; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Claim · bid $</button>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #1e5bb8; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Watch</button>
+      <button type="button" style="height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Compare</button>
+      <span class="num" style="margin-left: auto; font-size: 0.75rem; color: #586472;">FAAB left $62 · priority #4</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; border-radius: 16px; background: #ffffff; border: 1px solid #dde2e7; overflow: hidden;">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 10px 20px; background: #eceff2; font-size: 0.8125rem; font-weight: 600; color: #586472;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #586472; display: inline-block;"></span>Rostered · Polk High Legends<span style="margin-left: auto; font-weight: 400;">They start him at WR1 · their weakest slot is TE</span></div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 16px 20px;">
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #1e5bb8; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Propose trade</button>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #1e5bb8; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Watch</button>
+      <button type="button" style="height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Compare</button>
+      <span style="margin-left: auto; font-size: 0.75rem; color: #586472;">Opens Trade Center with team and player filled in</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; border-radius: 16px; background: #ffffff; border: 1px solid #dde2e7; overflow: hidden;">
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 10px 20px; background: rgba(30, 91, 184, 0.10); font-size: 0.8125rem; font-weight: 600; color: #1e5bb8;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #1e5bb8; display: inline-block;"></span>Your team<span style="margin-left: auto; font-weight: 400; color: #586472;">Starting at FLEX · Wk 2</span></div>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 16px 20px;">
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: none; background: #1e5bb8; color: #ffffff; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Open lineup</button>
+      <button type="button" style="height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid #c62828; background: transparent; color: #c62828; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Drop</button>
+      <button type="button" style="height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: transparent; color: #1e5bb8; font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;">Compare</button>
+      <span style="margin-left: auto; font-size: 0.75rem; color: #586472;">Drop asks to confirm and names the best free agent to replace him</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

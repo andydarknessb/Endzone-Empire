@@ -734,13 +734,17 @@ _Avoid_: insight, note, reason column, matchup rank (the engine's opponent
 Factor is the source, not a separate defense-versus-position table)
 
 **Decision card**:
-The player detail a manager opens from a Ledger row: a drawer on desktop, a
-sheet on a phone. It carries the injury designation and detail, the game
-with implied team total and weather, the Weekly projection with its Floor
-and Ceiling, the largest Factor's explanation, usage, the bench options for
-the player's slot, and the Trade and Drop actions. It replaces the player
-quick view on the Lineup surface only; quick view stays elsewhere.
-_Avoid_: player drawer, player sheet, quick view (on Lineup)
+The player detail a manager opens from any surface that names a player: a
+drawer on desktop, a sheet on a phone. It carries the injury designation and
+detail, the game with implied team total and weather, the Weekly projection
+with its Floor and Ceiling, the largest Factor's explanation, Usage, Rest of
+season, Ownership, the eighteen-week bars, and an action bar that follows the
+player's Availability: bench options with Trade and Drop on your own player,
+Add, Claim or Propose trade on anyone else's. It replaces the player quick
+view on every surface but the Draft room, where quick view stays until a
+draft context exists (ADR 0040).
+_Avoid_: player drawer, player sheet, player card, quick view (outside the
+Draft room)
 
 **Usage**:
 A player's opportunity counts from the week stats feed, shown on the
@@ -879,6 +883,39 @@ ties in FAAB ones. Lower is better.
 **Trade**:
 A swap of players between two teams, optionally subject to a review window in
 which uninvolved managers can vote to veto.
+
+**Availability**:
+Which of four states a player is in for one team's manager: Free agent, on
+waivers, Rostered by another team, or on your team. The action a surface
+offers follows the state: Add, Claim, Propose trade, or the lineup.
+_Avoid_: status (the column), ownership (a different fact, below)
+
+**Rostered**:
+An Availability state: on some team's roster in this league. Never a
+percentage; the percentage is Ownership.
+_Avoid_: owned, taken
+
+**Ownership**:
+The share of public ESPN fantasy leagues rostering a player, with its change
+over seven days. A fact about the wider fantasy world read from ESPN once a
+day, never about this league (ADR 0041).
+_Avoid_: rostered % (Rostered is a state here), percent owned (the field),
+popularity
+
+**Upgrade**:
+The Weekly projection a player would add this week over the weakest starter
+at a slot he is eligible for. Undefined in a best ball league, where the
+column and tile are hidden. The same number for a free agent, a waiver
+candidate or another team's player, so it doubles as a trade-target score.
+_Avoid_: delta, gain (that is the Start/sit advice's word), improvement
+
+**News**:
+A dated headline about a player. Two producers: the ESPN news list read on
+card open, and the feed sync's single note on the player row. The ESPN list
+wins when present and the note is the one fallback item. Shown on the
+Decision card in every Availability context except your own player (ADR
+0037).
+_Avoid_: alert, update, headline (a Pick'em term)
 
 ### Scoring and the week
 
