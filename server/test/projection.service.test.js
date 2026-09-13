@@ -399,6 +399,74 @@ test('#1342: the opponent Factor carries rank/of, 1 = fewest points allowed (tou
   );
 });
 
+test('#1342 f1: the opponent allowing the FEWEST points ranks 1, not last (pins the sort direction)', () => {
+  // The rank-2-of-3 case above is symmetric under a descending sort too (the
+  // middle value is always rank 2 either way), so it cannot by itself catch a
+  // flipped comparator. Anchoring on the extreme value can: only an ASCENDING
+  // sort puts the softest defense (fewest points allowed) at rank 1.
+  const minGames = model.MODEL_CONSTANTS.opponent.minGames;
+  const allowedByDefense = new Map([
+    ['A', { allowedPerGame: 10, games: minGames }],
+    ['B', { allowedPerGame: 20, games: minGames }],
+    ['C', { allowedPerGame: 30, games: minGames }],
+  ]);
+  const bundle = bundleWithAllowedByDefense(allowedByDefense, { opponentTeam: 'A' });
+
+  const result = projection.projectFromBundle({
+    playerId: 1, bundle, rules: SCORING_RULES, season: SEASON, week: 6, hashValue: 'h',
+  });
+
+  assert.equal(result.factors.opponent.rank, 1);
+  assert.equal(result.factors.opponent.of, 3);
+});
+
+test('#1342 f1: a tie shares the lower rank (10/20/20/30, the opponent at 20 is rank 2 of 4)', () => {
+  // Pins "ties share the lower rank" against BOTH a rank that ignores ties
+  // entirely (indexOf and lastIndexOf disagree here: lastIndexOf would put
+  // this opponent at rank 3) and a dense-rank reading (which would also give
+  // 2 here, but only because this is the first tie group — the `of` on the
+  // same fixture is what a dense-rank implementation gets wrong, since dense
+  // ranking is silent on `of` yet a reviewer confusing the two ranking rules
+  // is exactly what this case exists to catch).
+  const minGames = model.MODEL_CONSTANTS.opponent.minGames;
+  const allowedByDefense = new Map([
+    ['A', { allowedPerGame: 10, games: minGames }],
+    ['B', { allowedPerGame: 20, games: minGames }],
+    ['C', { allowedPerGame: 20, games: minGames }],
+    ['D', { allowedPerGame: 30, games: minGames }],
+  ]);
+  const bundle = bundleWithAllowedByDefense(allowedByDefense, { opponentTeam: 'B' });
+
+  const result = projection.projectFromBundle({
+    playerId: 1, bundle, rules: SCORING_RULES, season: SEASON, week: 6, hashValue: 'h',
+  });
+
+  assert.equal(result.factors.opponent.rank, 2);
+  assert.equal(result.factors.opponent.of, 4);
+});
+
+test('#1342 f1: `of` counts every defense in the map, including one below minGames itself', () => {
+  // The opponent (B) clears minGames and gets ranked; C never would on its
+  // own (it is below minGames), but it still occupies a slot in
+  // allowedByDefense and must still count toward `of` and toward B's rank -
+  // `of` is the size of the map, never a count restricted to ranked defenses.
+  const minGames = model.MODEL_CONSTANTS.opponent.minGames;
+  const allowedByDefense = new Map([
+    ['A', { allowedPerGame: 10, games: minGames }],
+    ['B', { allowedPerGame: 20, games: minGames }],
+    ['C', { allowedPerGame: 5, games: minGames - 1 }],
+  ]);
+  const bundle = bundleWithAllowedByDefense(allowedByDefense, { opponentTeam: 'B' });
+
+  const result = projection.projectFromBundle({
+    playerId: 1, bundle, rules: SCORING_RULES, season: SEASON, week: 6, hashValue: 'h',
+  });
+
+  assert.equal(result.factors.opponent.available, true);
+  assert.equal(result.factors.opponent.rank, 3, 'C (5, sub-minGames) still sorts ahead of B (20)');
+  assert.equal(result.factors.opponent.of, 3, 'of counts C even though C itself is never rankable');
+});
+
 test('#1342: an insufficient sample against the opponent yields no rank or of key', () => {
   const minGames = model.MODEL_CONSTANTS.opponent.minGames;
   const allowedByDefense = new Map([

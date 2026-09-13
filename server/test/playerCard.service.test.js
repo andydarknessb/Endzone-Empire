@@ -147,6 +147,9 @@ test('getPlayerCard: a player on bye in week N yields weeks[N-1].kind === "bye" 
   assert.equal(card.weeks[4].week, 5);
   assert.equal(card.weeks[4].kind, 'bye');
   assert.equal('points' in card.weeks[4], false);
+  // f2: opponentRankVsPosition is a `kind: 'projected'` field (Ruling item 3);
+  // a bye row carries no such key, not even a null one.
+  assert.equal('opponentRankVsPosition' in card.weeks[4], false);
 });
 
 test('getPlayerCard: a rostered player yields availability.teamId and teamName', async (t) => {
