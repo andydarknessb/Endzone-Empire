@@ -105,6 +105,10 @@ test('three leagues (pre-draft, my_team, rostered) return two entries, in league
   ]);
   assert.equal(res.headers['cache-control'], 'private, no-store');
   assert.equal(fake.matching(/FROM "team_players" JOIN "teams"/).length, 2, 'one availability lookup per non-pre-draft league');
+  // Security-critical: the leagues join must be scoped by the AUTHENTICATED
+  // caller's id from the verified JWT, never by anything a client could send
+  // (a query param, a body field). Pins req.user.id, not just "some" $1.
+  assert.equal(fake.matching(LEAGUES_JOIN_PATTERN)[0].params[0], VIEWER_ID);
 });
 
 test('an unrostered player returns free_agent or waivers exactly as availabilityFor decides', async (t) => {
