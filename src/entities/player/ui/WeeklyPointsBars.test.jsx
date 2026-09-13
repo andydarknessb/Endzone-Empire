@@ -36,14 +36,14 @@ test('the bye week cell carries a dashed, unfilled column and states "bye" in it
   const bye = screen.getByTestId('weekly-bar-8');
   expect(bye).toHaveAttribute('title', expect.stringContaining('bye'));
   expect(within(bye).getByTestId('weekly-bar-8-bye')).toBeInTheDocument();
-  expect(bye.querySelector('[data-testid="weekly-bar-8-fill"]')).not.toBeInTheDocument();
+  expect(within(bye).queryByTestId('weekly-bar-8-fill')).not.toBeInTheDocument();
 });
 
 test('an unavailable week shows its reason instead of a number', () => {
   render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} />);
   const unavailable = screen.getByTestId('weekly-bar-3');
   expect(within(unavailable).getByTestId('weekly-bar-3-reason')).toHaveTextContent('out');
-  expect(unavailable.querySelector('[data-testid="weekly-bar-3-fill"]')).not.toBeInTheDocument();
+  expect(within(unavailable).queryByTestId('weekly-bar-3-fill')).not.toBeInTheDocument();
 });
 
 test('the current week carries the accessible current marker', () => {
@@ -52,8 +52,9 @@ test('the current week carries the accessible current marker', () => {
   expect(current).toHaveAttribute('aria-current', 'true');
   expect(within(current).getByTestId('weekly-bar-5-current')).toHaveTextContent('Current');
   // No other week carries the marker.
-  expect(screen.getByTestId('weekly-bar-4')).not.toHaveAttribute('aria-current');
-  expect(screen.getByTestId('weekly-bar-4').querySelector('[data-testid$="-current"]')).toBeNull();
+  const other = screen.getByTestId('weekly-bar-4');
+  expect(other).not.toHaveAttribute('aria-current');
+  expect(within(other).queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument();
 });
 
 test('actual and projected weeks fill by points and carry a per-bar title', () => {
