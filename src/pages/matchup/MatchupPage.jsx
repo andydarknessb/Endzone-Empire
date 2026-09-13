@@ -103,7 +103,7 @@ export default function MatchupPage() {
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
-  const [quickViewId, setQuickViewId] = useState(null);
+  const [decisionCardPlayerId, setDecisionCardPlayerId] = useState(null);
   const [benchOpen, setBenchOpen] = useState(false);
   // The view toggle's group element, and a one-shot request to focus its
   // checked option once the view has swapped (the Full comparison action).
@@ -113,7 +113,7 @@ export default function MatchupPage() {
   const toggleRow = useCallback((id) => {
     setExpandedId((current) => (current === id ? null : id));
   }, []);
-  const openPlayer = useCallback((id) => setQuickViewId(id), []);
+  const openPlayer = useCallback((id) => setDecisionCardPlayerId(id), []);
   // "Full comparison" swaps the view and asks for focus on the toggle: its own
   // button unmounts with the Scoreboard view, so focus would drop to the body.
   const showStandard = useCallback(() => {
@@ -150,25 +150,25 @@ export default function MatchupPage() {
   // `context` is 'my_team' only on the viewer's own team's side.
   const homePlayers = starterRows.map((row) => row.home).concat(benches.home || []);
   const awayPlayers = starterRows.map((row) => row.away).concat(benches.away || []);
-  const quickViewSide = quickViewId == null
+  const decisionCardSide = decisionCardPlayerId == null
     ? null
-    : homePlayers.some((p) => p?.id === quickViewId)
+    : homePlayers.some((p) => p?.id === decisionCardPlayerId)
       ? 'home'
-      : awayPlayers.some((p) => p?.id === quickViewId)
+      : awayPlayers.some((p) => p?.id === decisionCardPlayerId)
         ? 'away'
         : null;
-  const quickViewPlayer = quickViewSide === 'home'
-    ? homePlayers.find((p) => p?.id === quickViewId) || null
-    : quickViewSide === 'away'
-      ? awayPlayers.find((p) => p?.id === quickViewId) || null
+  const decisionCardPlayer = decisionCardSide === 'home'
+    ? homePlayers.find((p) => p?.id === decisionCardPlayerId) || null
+    : decisionCardSide === 'away'
+      ? awayPlayers.find((p) => p?.id === decisionCardPlayerId) || null
       : null;
-  const quickViewEntry = toDecisionCardEntry(quickViewPlayer);
-  const quickViewTeamId = quickViewSide === 'home'
+  const decisionCardEntry = toDecisionCardEntry(decisionCardPlayer);
+  const decisionCardTeamId = decisionCardSide === 'home'
     ? matchup?.home?.teamId
-    : quickViewSide === 'away'
+    : decisionCardSide === 'away'
       ? matchup?.away?.teamId
       : null;
-  const quickViewContext = viewerTeamId != null && quickViewTeamId === viewerTeamId ? 'my_team' : 'rostered';
+  const decisionCardContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId ? 'my_team' : 'rostered';
   const whatIfCard = isLive ? (
     <BenchWhatIf whatIf={whatIf} hasRoster={viewerHasRoster} leagueId={leagueId} headingLevel={2} />
   ) : null;
@@ -246,11 +246,11 @@ export default function MatchupPage() {
       <CelebrateTouchdown celebration={celebration} />
 
       <PlayerDecisionCard
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        entry={quickViewEntry}
+        open={decisionCardPlayerId != null}
+        onClose={() => setDecisionCardPlayerId(null)}
+        entry={decisionCardEntry}
         leagueId={Number(leagueId)}
-        context={quickViewContext}
+        context={decisionCardContext}
       />
     </Shell>
   );

@@ -193,7 +193,7 @@ function TransactionLog() {
   const typeFilter = filterOptions.some((opt) => opt.value === selectedType) ? selectedType : 'all';
   const [teamFilter, setTeamFilter] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [quickViewEntry, setQuickViewEntry] = useState(null);
+  const [decisionCardEntry, setDecisionCardEntry] = useState(null);
 
   useEffect(() => {
     // Filters and rows are per league: an in-place league switch (hash edit
@@ -366,7 +366,7 @@ function TransactionLog() {
                       <ActivityFeedItem
                         key={txn.id}
                         txn={txn}
-                        onOpenPlayer={setQuickViewEntry}
+                        onOpenPlayer={setDecisionCardEntry}
                         isLast={i === group.items.length - 1}
                       />
                     ))}
@@ -384,9 +384,9 @@ function TransactionLog() {
       )}
 
       <PlayerDecisionCard
-        open={quickViewEntry != null}
-        onClose={() => setQuickViewEntry(null)}
-        entry={quickViewEntry}
+        open={decisionCardEntry != null}
+        onClose={() => setDecisionCardEntry(null)}
+        entry={decisionCardEntry}
         leagueId={Number(leagueId)}
         contextFromCard
       />

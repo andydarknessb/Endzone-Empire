@@ -318,6 +318,33 @@ test("the Decision card derives its context from the /card payload once it answe
   expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
 });
 
+// Formal review round 1, f2: the sibling case - a log entry about the
+// viewer's OWN player (availability.state 'my_team') renders the other
+// branch, Open lineup, not Propose trade.
+test("the Decision card renders Open lineup for a viewer's own player (availability my_team)", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/transactions')) {
+      return Promise.resolve({
+        data: [txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } })],
+      });
+    }
+    if (/\/api\/league\/\d+$/.test(url)) {
+      return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', pickem_only: false }, teams: [] } });
+    }
+    if (url.includes('/card?')) {
+      return Promise.resolve({ data: { availability: { state: 'my_team' } } });
+    }
+    return new Promise(() => {});
+  });
+  renderScreen();
+
+  await screen.findByTestId('txn-1');
+  await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
+
+  expect(await screen.findByTestId('decision-card-open-lineup')).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
+});
+
 // Regression (#1112): TransactionLog used to find a player's link position
 // by matching its name against the flat sentence, which resolved the wrong
 // player whenever one name prefixed another. A waiver claiming "Josh Allen"

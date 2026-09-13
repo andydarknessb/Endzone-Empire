@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
+  Alert,
   Avatar,
   Box,
   Button,
@@ -234,6 +235,12 @@ export default function PlayerDecisionCard({
   // on this SAME read - so that wait needs its own announcement, the way
   // PlayerQuickView's `quickview-skeleton` region announced its own load.
   const awaitingCard = contextFromCard && cardStatus === 'loading';
+  // Formal review round 1, f1: the error half of the SAME gap - a failed
+  // /card read on this path used to leave a silent, near-empty dialog
+  // forever (no action bar, since effectiveContext stays null on error too,
+  // and no explanation). Restated from PlayerQuickView's own
+  // `!loading && error && <Alert severity="error">`.
+  const cardFailed = contextFromCard && cardStatus === 'error';
 
   // #1311, ADR 0040 ruling (c): a `contextFromCard` caller (TransactionLog)
   // supplies no `context` of its own - the effective context is the card
@@ -482,6 +489,18 @@ export default function PlayerDecisionCard({
               </IconButton>
             </Box>
           </Box>
+
+          {/* Formal review round 1, f1: restated from PlayerQuickView's own
+              `!loading && error && <Alert severity="error">` - the one path
+              whose entire content depends on this read gets a visible
+              explanation on failure, not a permanently near-empty dialog.
+              MUI's Alert carries role="alert" itself. No action bar renders
+              either way, since effectiveContext stays null on error too. */}
+          {cardFailed && (
+            <Alert severity="error" sx={{ mx: 2, mb: 2 }} data-testid="decision-card-load-error">
+              {"Couldn't load this player's details."}
+            </Alert>
+          )}
 
           {effectiveContext === 'my_team' && !lineupManaged && (
             // f1 (formal review round 1, blocker): a my_team open with no

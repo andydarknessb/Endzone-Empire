@@ -234,7 +234,7 @@ function TradeCenter() {
   const [sendIds, setSendIds] = useState(new Set());
   const [receiveIds, setReceiveIds] = useState(new Set());
   const [counterTradeId, setCounterTradeId] = useState(null);
-  const [quickViewId, setQuickViewId] = useState(null);
+  const [decisionCardPlayerId, setDecisionCardPlayerId] = useState(null);
   const [tab, setTab] = useState(0);
 
   useEffect(() => {
@@ -409,17 +409,17 @@ function TradeCenter() {
   // a veto vote). `context` is 'my_team' only when the player sits on the
   // viewer's own roster, else 'rostered' - TradeCenter never opens the card
   // for a free agent or a waivers player.
-  const quickViewPlayer = quickViewId == null
+  const decisionCardPlayer = decisionCardPlayerId == null
     ? null
-    : rosters.flatMap((r) => r.players || []).find((p) => p.id === quickViewId)
+    : rosters.flatMap((r) => r.players || []).find((p) => p.id === decisionCardPlayerId)
       || (() => {
-        const item = trades?.flatMap((t) => t.items || []).find((i) => i.player_id === quickViewId);
+        const item = trades?.flatMap((t) => t.items || []).find((i) => i.player_id === decisionCardPlayerId);
         return item
           ? { id: item.player_id, name: item.name, position: item.position, nfl_team: item.nfl_team }
           : null;
       })();
-  const quickViewEntry = toDecisionCardEntry(quickViewPlayer);
-  const quickViewContext = (myRoster?.players || []).some((p) => p.id === quickViewId) ? 'my_team' : 'rostered';
+  const decisionCardEntry = toDecisionCardEntry(decisionCardPlayer);
+  const decisionCardContext = (myRoster?.players || []).some((p) => p.id === decisionCardPlayerId) ? 'my_team' : 'rostered';
   // The creator's Team against the reader's own, both from league detail
   // (#113): the same question as before, with no account id in the client.
   const isCommissioner = !!(league && (league.is_commissioner || isLeagueCreator(league, viewerTeamId)));
@@ -507,7 +507,7 @@ function TradeCenter() {
         leftItems={leftItems}
         rightLabel={rightLabel}
         rightItems={rightItems}
-        onOpenPlayer={setQuickViewId}
+        onOpenPlayer={setDecisionCardPlayerId}
         canAccept={isReceivingTeam && trade.status === 'pending'}
         onAccept={() => handleAccept(trade)}
         canReject={isReceivingTeam && trade.status === 'pending'}
@@ -519,7 +519,7 @@ function TradeCenter() {
             receivingTeamId={trade.receiving_team_id}
             offeredPlayerIds={itemsFromProposing.map((i) => i.player_id)}
             requestedPlayerIds={itemsFromReceiving.map((i) => i.player_id)}
-            onOpenPlayer={setQuickViewId}
+            onOpenPlayer={setDecisionCardPlayerId}
           />
         }
       />
@@ -629,7 +629,7 @@ function TradeCenter() {
               receivingTeamId={selectedTeamId}
               offeredPlayerIds={[...sendIds]}
               requestedPlayerIds={[...receiveIds]}
-              onOpenPlayer={setQuickViewId}
+              onOpenPlayer={setDecisionCardPlayerId}
               autoRun
             />
           )}
@@ -654,11 +654,11 @@ function TradeCenter() {
       </Dialog>
 
       <PlayerDecisionCard
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        entry={quickViewEntry}
+        open={decisionCardPlayerId != null}
+        onClose={() => setDecisionCardPlayerId(null)}
+        entry={decisionCardEntry}
         leagueId={Number(leagueId)}
-        context={quickViewContext}
+        context={decisionCardContext}
       />
     </Container>
   );

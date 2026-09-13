@@ -242,6 +242,30 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
     expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
   });
 
+  // Formal review round 1, f1: the error half of risk-001-f3 - a failed
+  // /card read used to leave a silent, near-empty dialog forever.
+  test('a failed /card read shows a visible error, never an action bar or the loading announcement', async () => {
+    apiClient.get.mockRejectedValue(new Error('network error'));
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Breece Hall' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+    });
+
+    expect(await screen.findByTestId('decision-card-load-error')).toHaveTextContent(
+      "Couldn't load this player's details."
+    );
+    const card = screen.getByTestId('decision-card');
+    expect(card).not.toHaveAttribute('aria-busy');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+
   test('derives context from the card payload once it answers, and the header fills team/position from it', async () => {
     mockCardRoute({
       player: { teamCode: 'MIN', photoUrl: null, position: 'WR', injury: { designation: null, detail: null } },
@@ -266,6 +290,25 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
     // The loading announcement and aria-busy clear once the payload answers.
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByTestId('decision-card')).not.toHaveAttribute('aria-busy');
+  });
+
+  // Formal review round 1, f2: the other three contextFromCard tests only
+  // exercise availability.state 'rostered'; 'my_team' (the viewer's own
+  // player) is the other direction TradeCenter/MatchupPage already cover.
+  test('a my_team payload with no lineup wiring renders Open lineup, not Propose trade', async () => {
+    mockCardRoute({ availability: { state: 'my_team' } });
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Breece Hall' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+      leagueId: 7,
+    });
+
+    expect(await screen.findByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/7/lineup');
+    expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
   });
 
   test('an existing caller passing a full entry and a real leagueId/playerId is untouched (context stays the prop, not the card)', async () => {
