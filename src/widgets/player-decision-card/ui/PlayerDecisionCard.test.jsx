@@ -245,6 +245,77 @@ describe('prev/next over the opening list (formal review round 1, f5)', () => {
     expect(screen.queryByTestId('decision-card-prev')).not.toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-next')).not.toBeInTheDocument();
   });
+
+  // Second risk review (accessibility, round 1 fix delta), finding 4: the
+  // caption is a status region with a real accessible name, not a bare
+  // <span> only jsdom's aria-label matcher could "see".
+  test('the position caption carries the status role', async () => {
+    renderCard({ playerIds: [1, 2, 3], onNavigate: jest.fn() });
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('1 of 3');
+  });
+
+  // Second risk review, finding 2: a Prev/Next click that disables that same
+  // button (an end of the list) must not drop focus to the document body -
+  // it moves to the title, which also announces the new player's name.
+  test('focus moves to the title heading after navigating, even at an end of the list', async () => {
+    // A small stateful wrapper stands in for WaiverWire/PlayerManagement,
+    // which own `quickViewId` and re-render the card with a new `entry` on
+    // `onNavigate` - a plain `rerender()` call would instead replace the
+    // whole MemoryRouter tree `renderWithProviders` wraps this in.
+    function NavigatingCard(props) {
+      const [current, setCurrent] = React.useState(props.entry);
+      return (
+        <PlayerDecisionCard
+          {...props}
+          entry={current}
+          onNavigate={(id) => setCurrent(entry({ playerId: id }))}
+        />
+      );
+    }
+    renderWithProviders(
+      <NavigatingCard
+        open
+        onClose={jest.fn()}
+        entry={entry({ playerId: 1 })}
+        entries={[entry({ playerId: 1 })]}
+        leagueId={1}
+        week={4}
+        bestBall={false}
+        leagueUnsettled={false}
+        onSwap={jest.fn()}
+        onRequestDrop={jest.fn()}
+        canDropEntry={() => true}
+        playerIds={[1, 2]}
+      />
+    );
+    await screen.findByLabelText('Player 1 of 2');
+
+    await userEvent.click(screen.getByTestId('decision-card-next'));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Josh Allen' })).toHaveFocus());
+    expect(await screen.findByLabelText('Player 2 of 2')).toBeInTheDocument();
+  });
+
+  // Second risk review, finding 1: the global ArrowLeft/ArrowRight handler
+  // must not steal the keys from a FOCUSED, horizontally-scrollable region -
+  // WeeklyPointsBars' own tabIndex={0} strip (the prior risk round's own
+  // keyboard-scroll fix, WCAG 2.1.1) is exactly such a region.
+  test('arrow keys are left alone for a focused, horizontally-scrollable region', async () => {
+    mockCardRoute({
+      weeks: Array.from({ length: 18 }, (_, i) => ({ week: i + 1, kind: 'projected', points: 10 })),
+    });
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    const strip = await screen.findByTestId('weekly-points-bars');
+    Object.defineProperty(strip, 'scrollWidth', { value: 500, configurable: true });
+    Object.defineProperty(strip, 'clientWidth', { value: 358, configurable: true });
+    strip.focus();
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
 });
 
 // Formal review round 1, f6: the body and ADR 0040 say 560px, not the 420 this

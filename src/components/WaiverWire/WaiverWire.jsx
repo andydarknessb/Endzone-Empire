@@ -474,7 +474,11 @@ function WaiverWire() {
         }}
         roster={roster}
         onActionDone={fetchAll}
-        playerIds={data ? data.onWaivers.map((p) => p.id) : []}
+        // Second risk review, finding 3: the table renders `sortedOnWaivers`
+        // (the Upgrade sort, on by default once suggestions load), not the
+        // raw fetch order - `playerIds` must name the SAME order or the
+        // "Player N of M" caption and Next both point at the wrong row.
+        playerIds={data ? sortedOnWaivers.map((p) => p.id) : []}
         onNavigate={setQuickViewId}
       />
     </Container>

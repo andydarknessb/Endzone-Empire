@@ -35,10 +35,22 @@ import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/sl
 // Don't hijack arrow keys while the user is typing or roving a control -
 // restated from `PlayerQuickView.jsx`'s identical guard (FSD: a widget
 // duplicates a tiny pure helper rather than importing a legacy component).
+//
+// Second risk review (accessibility, round 1 fix delta): the bare
+// PlayerQuickView guard let this card's own prev/next handler steal
+// Left/Right from a FOCUSED, horizontally-scrollable region - specifically
+// `WeeklyPointsBars`' own `tabIndex={0}` strip, whose arrow-key scrolling
+// was the first risk round's fix for the identical keyboard-trap failure
+// mode. `scrollWidth > clientWidth` catches any such region generically
+// (not just this one strip by selector), and a MUI `Select`'s combobox div
+// needs the same exclusion the `<SELECT>` tag check already gives a plain
+// HTML select.
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
   if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.getAttribute && el.getAttribute('role') === 'combobox') return true;
+  if (el.scrollWidth > el.clientWidth) return true;
   return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
 }
 
@@ -125,6 +137,8 @@ export default function PlayerDecisionCard({
   const [compareMenuAnchor, setCompareMenuAnchor] = useState(null);
   const [compareId, setCompareId] = useState(null);
   const compareButtonRef = useRef(null);
+  const titleRef = useRef(null);
+  const prevPlayerIdRef = useRef(entry?.playerId ?? null);
 
   const list = Array.isArray(entries) ? entries : [];
   const isOpen = Boolean(open && entry);
@@ -159,6 +173,25 @@ export default function PlayerDecisionCard({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, navIds, goPrev, goNext]);
+
+  // Second risk review (accessibility, round 1 fix delta), finding 2: a
+  // Prev/Next click that lands on an end of the list disables that same
+  // button (MUI removes it from the tab order), dropping focus to the
+  // document body - Modal's own focus-trap recovery lands on the drawer
+  // root, not a control, the identical failure Compare's `clearCompare`
+  // already works around below. Moving focus to the title on every
+  // navigation both restores it AND is the announcement a screen-reader
+  // user gets of the swap (nothing else here states the new player's name
+  // out loud). Skipped on the FIRST render (the ref starts equal to the
+  // initial `entry`) so opening the card doesn't steal focus from whatever
+  // opened it.
+  useEffect(() => {
+    const currentId = entry?.playerId ?? null;
+    if (isOpen && navIds && prevPlayerIdRef.current !== currentId) {
+      titleRef.current?.focus();
+    }
+    prevPlayerIdRef.current = currentId;
+  }, [entry?.playerId, isOpen, navIds]);
 
   const { line, weather } = useDecisionCardLine({ leagueId, playerId: entry?.playerId ?? null, week });
   const { usage } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
@@ -289,7 +322,18 @@ export default function PlayerDecisionCard({
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
               <HeaderAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
               <Box sx={{ minWidth: 0 }}>
-                <Typography id="decision-card-title" component="h2" sx={{ fontSize: 18, fontWeight: 700 }} noWrap>
+                <Typography
+                  id="decision-card-title"
+                  ref={titleRef}
+                  component="h2"
+                  // Second risk review, finding 2: `tabIndex={-1}` makes a
+                  // heading programmatically focusable (never tab-reachable,
+                  // never in the natural tab order) so the prev/next effect
+                  // above can move real focus here on navigation.
+                  tabIndex={-1}
+                  sx={{ fontSize: 18, fontWeight: 700 }}
+                  noWrap
+                >
                   {entry.name}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
@@ -321,8 +365,15 @@ export default function PlayerDecisionCard({
               {navIds && (
                 <>
                   {navIndex >= 0 && (
+                    // Second risk review, finding 4: a bare <span> (what
+                    // `variant="caption"` renders) does not support ARIA
+                    // naming, so no browser reads the `aria-label` here -
+                    // only jsdom's `findByLabelText` did. `role="status"`
+                    // both makes the name real and, as a polite live
+                    // region, announces the position on every navigation.
                     <Typography
                       variant="caption"
+                      role="status"
                       aria-label={`Player ${navIndex + 1} of ${navIds.length}`}
                       sx={{ color: 'var(--dash-faint)', whiteSpace: 'nowrap', px: 0.5 }}
                     >
