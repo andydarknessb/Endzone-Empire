@@ -2,8 +2,11 @@ import React from 'react';
 import { Link } from '@mui/material';
 
 /**
- * A player's name rendered as an accessible, link-styled button that opens the
- * PlayerQuickView dialog. Deliberately a real <button> (not a nav Link) with
+ * A player's name rendered as an accessible, link-styled button that opens
+ * the caller's player detail (the Decision card everywhere but the Draft
+ * room, `DraftQuickView` there - #1311, ADR 0040). `onOpen(playerId)` is the
+ * caller's own open handler; this component knows nothing about which dialog
+ * answers it. Deliberately a real <button> (not a nav Link) with
  * stopPropagation so a click can never bubble to a row/Draft handler — in the
  * draft room the name is a separate click target from the Draft/Queue buttons.
  */

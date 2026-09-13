@@ -18,3 +18,4 @@ export { default as WeeklyPointsBars } from './ui/WeeklyPointsBars';
 export { default as GameLogTable } from './ui/GameLogTable';
 export { default as NewsList } from './ui/NewsList';
 export { default as Bio } from './ui/Bio';
+export { default as PlayerNameLink } from './ui/PlayerNameLink';

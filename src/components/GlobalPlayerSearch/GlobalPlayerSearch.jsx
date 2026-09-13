@@ -1,13 +1,8 @@
-import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Autocomplete, TextField, Box, CircularProgress } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import PositionChip from '../../shared/ui/PositionChip';
-
-// The quick view is a heavy dialog (player summary, stats, projections) that
-// only matters once a result is picked; this search sits in the always-mounted
-// AppBar, so the dialog is fetched on first open rather than shipped in the
-// initial bundle.
-const PlayerQuickView = lazy(() => import('../PlayerQuickView/PlayerQuickView'));
 
 // Don't hijack "/" while the user is typing somewhere.
 function isTypingTarget(el) {
@@ -17,10 +12,13 @@ function isTypingTarget(el) {
 }
 
 /**
- * App-wide player search. Debounces against the players search API and opens
- * the shared PlayerQuickView on select. Rendered in the AppBar (desktop) and
- * the nav drawer (mobile). Pass `enableShortcut` on the always-mounted desktop
- * instance so "/" focuses it from anywhere.
+ * App-wide player search. Debounces against the players search API and, on
+ * select, navigates to the player's profile page (#1311, ADR 0040: no dialog
+ * here any more - `/players/:playerId`, `AuthenticatedPlayerProfilePage`, the
+ * app's one league-free player detail; a league-scoped Decision card needs a
+ * `leagueId` this AppBar-wide search never has). Rendered in the AppBar
+ * (desktop) and the nav drawer (mobile). Pass `enableShortcut` on the
+ * always-mounted desktop instance so "/" focuses it from anywhere.
  *
  * `onShortcutMiss` is called when "/" fires but this instance cannot take focus
  * (it is CSS-hidden below the desktop breakpoint): that is the "no inline search
@@ -39,10 +37,7 @@ function GlobalPlayerSearch({
   const [input, setInput] = useState('');
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [quickViewId, setQuickViewId] = useState(null);
-  // Once the dialog has been opened it stays mounted (closed) like any MUI
-  // Dialog, so its close transition still plays; only the first open fetches it.
-  const [quickViewMounted, setQuickViewMounted] = useState(false);
+  const navigate = useNavigate();
   const inputRef = useRef(null);
   // Keep the shortcut's window listener registered exactly once (on mount), yet
   // always call the latest onShortcutMiss. If the callback identity were a
@@ -122,88 +117,80 @@ function GlobalPlayerSearch({
   }, [enableShortcut]);
 
   return (
-    <>
-      <Autocomplete
-        size="small"
-        options={options}
-        loading={loading}
-        includeInputInList
-        filterOptions={(x) => x} // results are already server-filtered
-        getOptionLabel={(o) => o.name || ''}
-        isOptionEqualToValue={(o, v) => o.id === v.id}
-        noOptionsText={input.trim() ? 'No players found' : 'Type to search players'}
-        onInputChange={(e, value, reason) => {
-          if (reason !== 'reset') setInput(value);
-        }}
-        value={null}
-        blurOnSelect
-        clearOnBlur
-        onChange={(e, value) => {
-          if (value) {
-            setQuickViewMounted(true);
-            setQuickViewId(value.id);
-            setInput('');
-          }
-        }}
-        renderOption={(props, option) => (
-          <Box component="li" {...props} key={option.id} sx={{ gap: 1 }}>
-            <PositionChip position={option.position} />
-            <Box component="span" sx={{ fontWeight: 600 }}>{option.name}</Box>
-            <Box component="span" sx={{ color: 'text.secondary', ml: 'auto' }}>
-              {option.nfl_team}
-            </Box>
+    <Autocomplete
+      size="small"
+      options={options}
+      loading={loading}
+      includeInputInList
+      filterOptions={(x) => x} // results are already server-filtered
+      getOptionLabel={(o) => o.name || ''}
+      isOptionEqualToValue={(o, v) => o.id === v.id}
+      noOptionsText={input.trim() ? 'No players found' : 'Type to search players'}
+      onInputChange={(e, value, reason) => {
+        if (reason !== 'reset') setInput(value);
+      }}
+      value={null}
+      // Risk review (#1311): `blurOnSelect` used to be harmless because
+      // PlayerQuickView's Dialog immediately took focus back; now selecting
+      // navigates away with nothing else to receive it, which would drop
+      // focus to <body> with no announcement. Leaving focus on this labelled,
+      // still-mounted input keeps it reachable instead.
+      clearOnBlur
+      onChange={(e, value) => {
+        if (value) {
+          navigate(`/players/${value.id}`);
+          setInput('');
+        }
+      }}
+      renderOption={(props, option) => (
+        <Box component="li" {...props} key={option.id} sx={{ gap: 1 }}>
+          <PositionChip position={option.position} />
+          <Box component="span" sx={{ fontWeight: 600 }}>{option.name}</Box>
+          <Box component="span" sx={{ color: 'text.secondary', ml: 'auto' }}>
+            {option.nfl_team}
           </Box>
-        )}
-        renderInput={(params) => (
-          <TextField
-            {...params}
-            autoFocus={autoFocus}
-            inputRef={inputRef}
-            placeholder="Search players..."
-            inputProps={{ ...params.inputProps, 'aria-label': 'Search players' }}
-            InputProps={{
-              ...params.InputProps,
-              endAdornment: (
-                <>
-                  {loading && <CircularProgress color="inherit" size={16} />}
-                  {!loading && enableShortcut && !input && (
-                    <Box
-                      component="kbd"
-                      aria-hidden="true"
-                      sx={{
-                        px: 0.6,
-                        py: 0.1,
-                        fontSize: 12,
-                        lineHeight: 1.6,
-                        fontFamily: 'inherit',
-                        color: 'text.secondary',
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        borderRadius: 1,
-                        bgcolor: 'action.hover',
-                      }}
-                    >
-                      /
-                    </Box>
-                  )}
-                  {params.InputProps.endAdornment}
-                </>
-              ),
-            }}
-          />
-        )}
-        sx={{ width: inDrawer ? '100%' : { xs: 160, lg: 240 } }}
-      />
-      {quickViewMounted && (
-        <Suspense fallback={null}>
-          <PlayerQuickView
-            open={quickViewId != null}
-            onClose={() => setQuickViewId(null)}
-            playerId={quickViewId}
-          />
-        </Suspense>
+        </Box>
       )}
-    </>
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          autoFocus={autoFocus}
+          inputRef={inputRef}
+          placeholder="Search players..."
+          inputProps={{ ...params.inputProps, 'aria-label': 'Search players' }}
+          InputProps={{
+            ...params.InputProps,
+            endAdornment: (
+              <>
+                {loading && <CircularProgress color="inherit" size={16} />}
+                {!loading && enableShortcut && !input && (
+                  <Box
+                    component="kbd"
+                    aria-hidden="true"
+                    sx={{
+                      px: 0.6,
+                      py: 0.1,
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                      fontFamily: 'inherit',
+                      color: 'text.secondary',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      bgcolor: 'action.hover',
+                    }}
+                  >
+                    /
+                  </Box>
+                )}
+                {params.InputProps.endAdornment}
+              </>
+            ),
+          }}
+        />
+      )}
+      sx={{ width: inDrawer ? '100%' : { xs: 160, lg: 240 } }}
+    />
   );
 }
 

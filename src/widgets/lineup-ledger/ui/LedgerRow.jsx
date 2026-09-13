@@ -5,7 +5,7 @@ import { GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
 import { formatPoints, initialsFor, monogramInk, unavailableLabel } from '../../../shared/lib';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
-import PlayerNameLink from '../../../components/PlayerQuickView/PlayerNameLink';
+import { PlayerNameLink } from '../../../entities/player';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';

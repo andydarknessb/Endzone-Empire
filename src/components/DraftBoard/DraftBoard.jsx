@@ -12,7 +12,7 @@ import { useTheme } from '@mui/material/styles';
 import Grid from '@mui/material/Unstable_Grid2';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
+import DraftQuickView from './DraftQuickView';
 import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import useDraftSocket from './useDraftSocket';
@@ -1168,7 +1168,7 @@ function DraftBoard() {
         </Box>
       ) : panesLayout}
 
-      <PlayerQuickView
+      <DraftQuickView
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         playerId={quickViewId}

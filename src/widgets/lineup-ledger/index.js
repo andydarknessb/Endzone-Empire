@@ -10,11 +10,13 @@
  *   - `src/lib/nflTeamColors` (`ui/LedgerRow.jsx`): the static NFL team
  *     colour lookup, the same external-data allowlist entry the
  *     color-literals guard names.
- *   - `src/components/PlayerQuickView/PlayerNameLink` (`ui/LedgerRow.jsx`):
- *     the existing name-link control, reused as-is rather than rebuilt; the
- *     page owns the Decision card dialog itself (#1240, replacing the Quick
- *     View this link used to open, on Lineup only) and hands this widget
- *     only the `onOpenDecisionCard` callback.
+ *
+ * `ui/LedgerRow.jsx` also imports `PlayerNameLink` from `entities/player`
+ * (#1311: moved out of `components/PlayerQuickView`, which is no longer a
+ * below-island edge - an entity import is ordinary layering) - reused as-is
+ * rather than rebuilt; the page owns the Decision card dialog itself (#1240,
+ * replacing the Quick View this link used to open, on Lineup only) and hands
+ * this widget only the `onOpenDecisionCard` callback.
  */
 export { default } from './ui/LineupLedger';
 export { buildLedgerSections } from './model/buildLedgerSections';

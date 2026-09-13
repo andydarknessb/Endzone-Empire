@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
+  Alert,
   Avatar,
   Box,
   Button,
@@ -17,6 +18,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
 import { InjuryTag, PosChip, RangeBar } from '../../../shared/ui';
 import { formatKickoff, formatPoints, initialsFor, monogramInk } from '../../../shared/lib';
@@ -127,6 +129,17 @@ function isTypingTarget(el) {
  * `playerIds`/`onNavigate` (f5): prev/next over the caller's own opening
  * list, restated from `PlayerQuickView`'s identical contract so WaiverWire
  * and PlayerManagement lose nothing by switching to this card.
+ *
+ * #1311, ADR 0040 ruling (c): `contextFromCard` (default false) is for a
+ * caller that cannot derive `context` itself - TransactionLog's activity
+ * segments carry only `{ playerId, name }`, no roster fact to classify by.
+ * When true, the effective context is `card.availability.state` instead of
+ * the `context` prop (which such a caller then omits), so no action bar
+ * renders until the `/card` payload answers - `effectiveContext` is `null`
+ * before that, matching none of the four context branches below. The
+ * header's own display fields (team, headshot, slot/position, injury) fall
+ * back to the SAME payload's `player` block whenever `entry` doesn't carry
+ * them, so a minimal entry still paints a real header once the card arrives.
  */
 export default function PlayerDecisionCard({
   open,
@@ -141,6 +154,7 @@ export default function PlayerDecisionCard({
   onRequestDrop,
   canDropEntry,
   context = 'my_team',
+  contextFromCard = false,
   availability,
   roster,
   onActionDone,
@@ -158,8 +172,6 @@ export default function PlayerDecisionCard({
 
   const list = Array.isArray(entries) ? entries : [];
   const isOpen = Boolean(open && entry);
-  // f1 (formal review round 1, blocker): see the docblock above.
-  const lineupManaged = context === 'my_team' && typeof onSwap === 'function';
 
   // f5 (formal review round 1): prev/next over the caller's own opening
   // list, restated from PlayerQuickView.jsx's identical contract.
@@ -214,7 +226,46 @@ export default function PlayerDecisionCard({
   // #1307: the one Decision-card payload, read in every context (ADR 0040's
   // decision strip and eighteen-week bars are additive to `my_team`'s
   // existing entry-based sections above, not a replacement for them).
-  const { card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+  const { status: cardStatus, card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+  // Risk review (#1311): every OTHER caller hands a full `entry`, so the
+  // drawer always paints real content immediately even while this read is
+  // still in flight (ADR 0037: "the row's own fields paint immediately").
+  // `contextFromCard`'s minimal `{ playerId, name }` entry is the one case
+  // where the whole action bar, and every section but the bare name, waits
+  // on this SAME read - so that wait needs its own announcement, the way
+  // PlayerQuickView's `quickview-skeleton` region announced its own load.
+  const awaitingCard = contextFromCard && cardStatus === 'loading';
+  // Formal review round 1, f1: the error half of the SAME gap - a failed
+  // /card read on this path used to leave a silent, near-empty dialog
+  // forever (no action bar, since effectiveContext stays null on error too,
+  // and no explanation). Restated from PlayerQuickView's own
+  // `!loading && error && <Alert severity="error">`.
+  const cardFailed = contextFromCard && cardStatus === 'error';
+
+  // #1311, ADR 0040 ruling (c): a `contextFromCard` caller (TransactionLog)
+  // supplies no `context` of its own - the effective context is the card
+  // payload's own availability fact, and stays null (matching none of the
+  // branches below) until that payload answers, so no action bar renders on
+  // a bare `{ playerId, name }` entry before then.
+  const effectiveContext = contextFromCard ? (card?.availability?.state ?? null) : context;
+  // f1 (formal review round 1, blocker): see the docblock above.
+  const lineupManaged = effectiveContext === 'my_team' && typeof onSwap === 'function';
+
+  // The header's display fields fall back to the card payload's own `player`
+  // block whenever `entry` doesn't carry them (ruling (d): TransactionLog's
+  // entry is only `{ playerId, name }`), so a minimal entry still paints a
+  // real team/headshot/position/injury once the card arrives. A caller that
+  // already supplies these (every lineup-managed and Availability-context
+  // caller) is untouched - nullish coalescing only fills a gap.
+  const displayEntry = entry
+    ? {
+        ...entry,
+        nflTeam: entry.nflTeam ?? card?.player?.teamCode ?? null,
+        photoUrl: entry.photoUrl ?? card?.player?.photoUrl ?? null,
+        slot: entry.slot ?? card?.player?.position ?? null,
+        injuryStatus: entry.injuryStatus ?? card?.player?.injury?.designation ?? null,
+      }
+    : entry;
 
   const compareEntry = compareId != null ? list.find((e) => e.playerId === compareId) || null : null;
   const { line: compareLine, weather: compareWeather } = useDecisionCardLine({
@@ -308,6 +359,7 @@ export default function PlayerDecisionCard({
         role: 'dialog',
         'aria-modal': true,
         'aria-labelledby': entry ? 'decision-card-title' : undefined,
+        'aria-busy': awaitingCard || undefined,
         'data-testid': 'decision-card',
         'data-variant': isMobile ? 'sheet' : 'drawer',
         sx: {
@@ -334,9 +386,20 @@ export default function PlayerDecisionCard({
         <>
           {isMobile && <DragHandle />}
 
+          {/* Risk review (#1311): the ONE case where the whole card waits on
+              this read (contextFromCard, before the payload answers) gets its
+              own announcement, restated from PlayerQuickView's identical
+              loading region - every other caller's `entry` already paints
+              real content, so it needs none. */}
+          {awaitingCard && (
+            <Typography sx={visuallyHidden} role="status" aria-live="polite">
+              Loading player details
+            </Typography>
+          )}
+
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
-              <HeaderAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
+              <HeaderAvatar name={displayEntry.name} nflTeam={displayEntry.nflTeam} photoUrl={displayEntry.photoUrl} />
               <Box sx={{ minWidth: 0 }}>
                 <Typography
                   id="decision-card-title"
@@ -350,12 +413,15 @@ export default function PlayerDecisionCard({
                   sx={{ fontSize: 18, fontWeight: 700 }}
                   noWrap
                 >
-                  {entry.name}
+                  {displayEntry.name}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
-                  <PosChip position={entry.slot} />
-                  <InjuryTag status={entry.injuryStatus} />
-                  <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{entry.nflTeam}</Typography>
+                  {/* Risk review (#1311), nit: PosChip has no null guard of
+                      its own and would otherwise paint an empty swatch while
+                      `contextFromCard` awaits the payload for a position. */}
+                  {displayEntry.slot && <PosChip position={displayEntry.slot} />}
+                  <InjuryTag status={displayEntry.injuryStatus} />
+                  <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (
                     <Typography
                       component="span"
@@ -424,7 +490,19 @@ export default function PlayerDecisionCard({
             </Box>
           </Box>
 
-          {context === 'my_team' && !lineupManaged && (
+          {/* Formal review round 1, f1: restated from PlayerQuickView's own
+              `!loading && error && <Alert severity="error">` - the one path
+              whose entire content depends on this read gets a visible
+              explanation on failure, not a permanently near-empty dialog.
+              MUI's Alert carries role="alert" itself. No action bar renders
+              either way, since effectiveContext stays null on error too. */}
+          {cardFailed && (
+            <Alert severity="error" sx={{ mx: 2, mb: 2 }} data-testid="decision-card-load-error">
+              {"Couldn't load this player's details."}
+            </Alert>
+          )}
+
+          {effectiveContext === 'my_team' && !lineupManaged && (
             // f1 (formal review round 1, blocker): a my_team open with no
             // lineup wiring (PlayerManagement's own-player case) gets a
             // link that actually works, restated from the base behaviour
@@ -561,7 +639,7 @@ export default function PlayerDecisionCard({
               no lineup slot - WaiverWire and PlayerManagement map their raw
               player row into the same generic id/name/position/nflTeam shape
               the header and injury tile already read. */}
-          {context === 'free_agent' && (
+          {effectiveContext === 'free_agent' && (
             <AddPlayerAction
               player={entry}
               leagueId={leagueId}
@@ -570,7 +648,7 @@ export default function PlayerDecisionCard({
               onAdded={onActionDone}
             />
           )}
-          {context === 'waivers' && (
+          {effectiveContext === 'waivers' && (
             <ClaimPlayerAction
               player={entry}
               leagueId={leagueId}
@@ -579,7 +657,7 @@ export default function PlayerDecisionCard({
               onClaimed={onActionDone}
             />
           )}
-          {context === 'rostered' && (
+          {effectiveContext === 'rostered' && (
             <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5, alignItems: 'center' }}>
               <Button
                 size="small"
@@ -599,7 +677,7 @@ export default function PlayerDecisionCard({
               )}
             </Box>
           )}
-          {context !== 'my_team' && <NewsSection news={card?.news} />}
+          {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
 
           {compareEntry ? (
             // AC7: two cards side by side (stacked on a phone). The primary
@@ -667,7 +745,7 @@ export default function PlayerDecisionCard({
             </Box>
           ) : (
             <>
-              <InjurySection entry={entry} />
+              <InjurySection entry={displayEntry} />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
               {lineupManaged && <ProjectionSection entry={entry} />}
               {lineupManaged && <UsageSection usage={usage} />}
