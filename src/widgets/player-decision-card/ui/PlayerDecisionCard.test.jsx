@@ -184,6 +184,101 @@ describe('context (#1307, ADR 0040)', () => {
     expect(screen.getByText('Rostered by Polk High Legends')).toBeInTheDocument();
   });
 
+  // #1313 (ADR 0040's own follow-up, grill ruling Q32): the Draft room's own
+  // context, not an Availability state - Draft/Queue mirror DraftBoard.jsx's
+  // identical pool-row actions.
+  test('context="draft" renders Draft and Queue for an undrafted player, and calls onDraft/onQueue', async () => {
+    mockCardRoute(null);
+    const onDraft = jest.fn();
+    const onQueue = jest.fn();
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: true,
+      queued: false,
+      onDraft,
+      onQueue,
+    });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Draft' }));
+    expect(onDraft).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Queue' }));
+    expect(onQueue).toHaveBeenCalledTimes(1);
+  });
+
+  test('context="draft" omits Draft when canDraft is false, and disables Queue once queued', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: false,
+      queued: true,
+    });
+
+    expect(await screen.findByRole('button', { name: 'Queued' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  });
+
+  test('context="draft" shows Draft as focusable aria-disabled with the given reason, and suppresses activation', async () => {
+    mockCardRoute(null);
+    const onDraft = jest.fn();
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: true,
+      draftUnavailableReason: "You can only Pick when it's your turn and the draft isn't paused.",
+      onDraft,
+    });
+
+    const draftAction = await screen.findByRole('button', { name: 'Draft' });
+    expect(draftAction).not.toBeDisabled();
+    expect(draftAction).toHaveAttribute('aria-disabled', 'true');
+
+    await userEvent.click(draftAction);
+    expect(onDraft).not.toHaveBeenCalled();
+  });
+
+  test('context="draft" replaces the action bar with a Drafted by line once draftedBy is set', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      draftedBy: 'Polk High Legends',
+      canDraft: true,
+      queued: false,
+    });
+
+    expect(await screen.findByText('Drafted by Polk High Legends')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument();
+  });
+
+  test('context="draft" shows the pool ADP and Best available tiles from the playerIds index', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry({ playerId: 7 }),
+      entries: undefined,
+      leagueId: 3,
+      adp: 3.2,
+      canDraft: true,
+      playerIds: [5, 7, 9],
+      onNavigate: jest.fn(),
+    });
+
+    expect(await screen.findByText('ADP 3.2')).toBeInTheDocument();
+    expect(screen.getByText('Best available #2')).toBeInTheDocument();
+  });
+
   // Formal review round 1, f1 (blocker): PlayerManagement opens the card for
   // the caller's own player too (context="my_team" with no lineup wiring at
   // all - no entries, no onSwap, no onRequestDrop), which used to crash in

@@ -5,6 +5,7 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   Drawer,
   IconButton,
   Menu,
@@ -14,6 +15,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
   useMediaQuery,
 } from '@mui/material';
@@ -147,6 +149,18 @@ function isTypingTarget(el) {
  * header's own display fields (team, headshot, slot/position, injury) fall
  * back to the SAME payload's `player` block whenever `entry` doesn't carry
  * them, so a minimal entry still paints a real header once the card arrives.
+ *
+ * #1313 (ADR 0040's own follow-up, grill ruling Q32): a fifth context,
+ * `draft`, for the Draft room's last surviving `PlayerQuickView` copy - not
+ * an Availability state (the other four), so it is never a
+ * `contextFromCard` target. Its action bar (`canDraft`/`draftUnavailableReason`/
+ * `queued`/`onDraft`/`onQueue`) and its `draftedBy` line mirror the room's own
+ * pool-row actions exactly (DraftBoard.jsx), and its `adp`/pool-rank tiles
+ * (the latter from the SAME `playerIds` prev/next already reads, never a new
+ * server ranking) are the "Best available" facts the room already has. No
+ * new fetch: the one `/card` read every context makes is the whole of it, so
+ * the Draft room's own cadence rule (ADR 0025: refetch `draft:state` on
+ * reconnect, nothing else polls) is untouched.
  */
 export default function PlayerDecisionCard({
   open,
@@ -167,6 +181,15 @@ export default function PlayerDecisionCard({
   onActionDone,
   playerIds,
   onNavigate,
+  // #1313: the draft context's own action bar and pool facts, driven by
+  // DraftBoard's own live draft state - see the docblock above.
+  draftedBy,
+  adp,
+  canDraft,
+  draftUnavailableReason,
+  queued,
+  onDraft,
+  onQueue,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
@@ -703,6 +726,55 @@ export default function PlayerDecisionCard({
               )}
             </Box>
           )}
+          {/* #1313: the Draft room's own action bar - Draft/Queue for an
+              undrafted pool player, restated from DraftBoard.jsx's identical
+              actions (matching what the room's pool row already offers);
+              `draftedBy` set replaces the whole bar with a plain attribution
+              line, the same treatment `rostered`'s Availability line gets
+              above. */}
+          {effectiveContext === 'draft' && (
+            draftedBy ? (
+              <Box data-testid="decision-card-actions" sx={{ px: 2, pb: 1.5 }}>
+                <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }} data-testid="decision-card-drafted-by">
+                  {`Drafted by ${draftedBy}`}
+                </Typography>
+              </Box>
+            ) : (
+              <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
+                {canDraft && (
+                  <Tooltip title={draftUnavailableReason || ''}>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        aria-disabled={draftUnavailableReason ? true : undefined}
+                        onClick={() => {
+                          if (draftUnavailableReason) return; // suppressed activation
+                          onDraft?.();
+                        }}
+                        sx={MIN_TOUCH_TARGET_SX}
+                        data-testid="decision-card-draft-action"
+                      >
+                        Draft
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={queued}
+                  onClick={() => onQueue?.()}
+                  sx={MIN_TOUCH_TARGET_SX}
+                  data-testid="decision-card-queue-action"
+                >
+                  {queued ? 'Queued' : 'Queue'}
+                </Button>
+              </Box>
+            )
+          )}
+          {effectiveContext === 'draft' && <DraftPoolSection adp={adp} poolRank={navIndex >= 0 ? navIndex + 1 : null} />}
           {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
 
           {compareEntry ? (
@@ -1147,6 +1219,32 @@ function SeasonPickSection({ seasons, value, onChange }) {
         onChange={onChange}
         sx={{ '& [role="radio"]': { minHeight: 44 } }}
       />
+    </Box>
+  );
+}
+
+// #1313: the two draft-pool facts the ruling calls "tiles" - ADP (the wider
+// market's number, CONTEXT.md's ADP) and Best available #N (the player's own
+// position in the pool's current sort order, from the `playerIds` index the
+// card's own prev/next already reads - never a new server ranking). Plain
+// Chips, matching the fantasy strip the room's old PlayerQuickView rendered
+// for the identical facts. Hidden entirely with neither fact to show (a
+// player the market has not ranked, opened outside the pool's own order).
+function DraftPoolSection({ adp, poolRank }) {
+  if (adp == null && poolRank == null) return null;
+  return (
+    <Box data-testid="decision-card-draft-pool" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
+      {adp != null && (
+        <Chip size="small" variant="outlined" label={`ADP ${adp}`} data-testid="decision-card-draft-adp" />
+      )}
+      {poolRank != null && (
+        <Chip
+          size="small"
+          variant="outlined"
+          label={`Best available #${poolRank}`}
+          data-testid="decision-card-draft-best-available"
+        />
+      )}
     </Box>
   );
 }

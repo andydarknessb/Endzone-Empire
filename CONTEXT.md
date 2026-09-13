@@ -740,12 +740,11 @@ detail, the game with implied team total and weather, the Weekly projection
 with its Floor and Ceiling, the largest Factor's explanation, Usage, Rest of
 season, Ownership, the Season summary for every season on record, the
 eighteen-week bars and game log for the season the manager picks, and an
-action bar that follows the player's Availability: bench options with Trade
-and Drop on your own player, Add, Claim or Propose trade on anyone else's. It
-replaces the player quick view on every surface but the Draft room, where
-quick view stays until a draft context exists (ADR 0040).
-_Avoid_: player drawer, player sheet, player card, quick view (outside the
-Draft room)
+action bar that follows the player's context: bench options with Trade and
+Drop on your own player, Add, Claim or Propose trade on anyone else's, and
+Draft with Queue in the Draft room. It replaces the player quick view on
+every surface, the Draft room included (#1313, ADR 0040).
+_Avoid_: player drawer, player sheet, player card, quick view
 
 **Season summary**:
 One season of a player in five numbers under this league's scoring: games,
