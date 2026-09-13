@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: "Inter", "Roboto", "Helvetica", "Arial", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #1e5bb8; text-decoration: none; } a:hover { color: #17498f; text-decoration: underline; }
+    .num { font-variant-numeric: tabular-nums; }
+    .row:hover { background: #eaeff4 !important; }
+  </style>
+</helmet>
+<div style="width: 1080px; min-height: 460px; background: #ffffff; color: #1a2129; font-size: 14px; line-height: 1.55; box-sizing: border-box; border-radius: 16px; border: 1px solid #dde2e7; overflow: hidden; display: flex; flex-direction: column;">
+
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #dde2e7;">
+    <span style="font-size: 1.125rem; font-weight: 700; line-height: 1.35;">On waivers</span>
+    <span style="font-size: 0.8125rem; color: #586472;">24 players · clears Wed 3:00 AM</span>
+    <div style="margin-left: auto; display: flex; flex-direction: row; gap: 8px;">
+      <span style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 999px; background: #1e5bb8; color: #ffffff; font-size: 0.8125rem; font-weight: 600;">All</span>
+      <span style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #c3ccd4; font-size: 0.8125rem; font-weight: 600;">RB</span>
+      <span style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #c3ccd4; font-size: 0.8125rem; font-weight: 600;">WR</span>
+      <span style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #c3ccd4; font-size: 0.8125rem; font-weight: 600;">TE</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #c3ccd4; font-size: 0.8125rem; font-weight: 600;">Hide bye 14<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+    </div>
+  </div>
+
+  <div role="table" style="display: flex; flex-direction: column;">
+    <div role="row" style="display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 108px 104px 168px 108px 104px; align-items: center; gap: 12px; padding: 0 20px; height: 40px; font-size: 0.75rem; font-weight: 600; color: #586472; border-bottom: 1px solid #dde2e7;">
+      <span>Player</span>
+      <span class="num" style="text-align: right;">Proj Wk 2</span>
+      <span class="num" style="text-align: right;">ROS</span>
+      <span class="num" style="text-align: right;">Ownership</span>
+      <span style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; color: #1a2129;">Upgrade<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></span>
+      <span>Weeks 2 to 18</span>
+      <span>Clears</span>
+      <span aria-hidden="true"></span>
+    </div>
+    <sc-for list="{{ rows }}" as="p" hint-placeholder-count="4">
+      <div role="row" class="row" style="display: grid; grid-template-columns: minmax(0, 1fr) 84px 84px 108px 104px 168px 108px 104px; align-items: center; gap: 12px; padding: 0 20px; height: 64px; background: {{ p.bg }}; border-bottom: 1px solid #dde2e7;">
+        <div style="display: flex; flex-direction: row; align-items: center; gap: 12px; min-width: 0;">
+          <div aria-hidden="true" style="width: 36px; height: 36px; border-radius: 999px; background: {{ p.posColor }}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 14.4px; font-weight: 600; flex-shrink: 0;">{{ p.initials }}</div>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <div style="display: flex; flex-direction: row; align-items: center; gap: 8px;">
+              <a href="#" style="font-weight: 600; color: #1a2129; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ p.name }}</a>
+              <sc-if value="{{ p.injured }}" hint-placeholder-val="{{ false }}">
+                <span aria-label="{{ p.injuryLabel }}" style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 999px; background: {{ p.injuryBg }}; color: #ffffff; font-size: 0.6875rem; font-weight: 600;">{{ p.injury }}</span>
+              </sc-if>
+            </div>
+            <div style="display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 0.75rem; color: #586472;">
+              <span style="display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; background: {{ p.posColor }}; color: #ffffff; font-size: 0.6875rem; font-weight: 600;">{{ p.pos }}</span>
+              <span>{{ p.team }}</span><span aria-hidden="true">·</span><span>{{ p.depth }}</span><span aria-hidden="true">·</span><span>Bye {{ p.bye }}</span>
+            </div>
+          </div>
+        </div>
+        <span class="num" style="text-align: right; font-weight: 600;">{{ p.proj }}</span>
+        <span class="num" style="text-align: right;">{{ p.ros }}</span>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0;">
+          <span class="num" style="font-weight: 600;">{{ p.rostered }}</span>
+          <span class="num" style="font-size: 0.75rem; font-weight: 600; color: {{ p.trendColor }};">{{ p.trend }}</span>
+        </div>
+        <div style="display: flex; justify-content: flex-end;">
+          <span class="num" style="display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; background: {{ p.upBg }}; color: {{ p.upColor }}; font-size: 0.8125rem; font-weight: 600;">{{ p.upgrade }}</span>
+        </div>
+        <div title="{{ p.sparkTitle }}" style="display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); gap: 2px; align-items: end; height: 28px; border-bottom: 1px solid #dde2e7;">
+          <sc-for list="{{ p.weeks }}" as="wk" hint-placeholder-count="17">
+            <sc-if value="{{ wk.isBye }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 28px; border-left: 1px dashed #c3ccd4; border-right: 1px dashed #c3ccd4; box-sizing: border-box;"></div>
+            </sc-if>
+            <sc-if value="{{ wk.hasBar }}" hint-placeholder-val="{{ true }}">
+              <div style="height: {{ wk.h }}px; border-radius: 2px 2px 0 0; background: #1e5bb8;"></div>
+            </sc-if>
+          </sc-for>
+        </div>
+        <span class="num" style="font-size: 0.8125rem; color: #586472;">{{ p.clears }}</span>
+        <div style="display: flex; justify-content: flex-end;">
+          <button type="button" style="height: 36px; padding: 0 14px; border-radius: 10px; border: none; background: #1e5bb8; color: #ffffff; font: inherit; font-size: 0.8125rem; font-weight: 600; cursor: pointer;">Claim</button>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 12px 20px; font-size: 0.75rem; color: #586472;">
+    <span>Upgrade is projected points over your weakest starter at an eligible slot · Ownership is the share of public ESPN leagues rostering the player, change over 7 days</span>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1080,"height":460}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const POS = { QB: '#c62828', RB: '#15663f', WR: '#1e5bb8', TE: '#9a5100' };
+    const INJ = { Q: { bg: '#8a5a00', label: 'Injury status: questionable' }, D: { bg: '#8a5a00', label: 'Injury status: doubtful' }, O: { bg: '#c62828', label: 'Injury status: out' }, IR: { bg: '#c62828', label: 'Injury status: injured reserve' } };
+    const data = [
+      { name: 'Jauan Jennings', pos: 'WR', team: 'SF', depth: 'WR2', bye: 14, injury: 'Q', proj: 12.8, ros: 176, rostered: 41, trend: 18.2, upgrade: 4.1, clears: 'Wed 3:00 AM',
+        pts: [12.8, 11.2, 13.5, 10.9, 12.1, 9.8, 11.6, 12.4, 10.2, 11.9, 13.1, 10.6, null, 12.2, 11.4, 12.7, 11.0] },
+      { name: 'Tyler Allgeier', pos: 'RB', team: 'ATL', depth: 'RB2', bye: 5, injury: null, proj: 9.4, ros: 141, rostered: 58, trend: 6.1, upgrade: 1.9, clears: 'Wed 3:00 AM',
+        pts: [9.4, 8.8, null, 9.9, 10.4, 8.2, 9.0, 9.7, 8.6, 9.3, 10.1, 8.9, 9.5, 9.1, 9.8, 8.7, 9.2] },
+      { name: 'Isaiah Likely', pos: 'TE', team: 'BAL', depth: 'TE2', bye: 7, injury: null, proj: 8.7, ros: 129, rostered: 47, trend: 2.3, upgrade: 0.8, clears: 'Wed 3:00 AM',
+        pts: [8.7, 7.9, 8.4, 9.1, 7.6, null, 8.8, 8.2, 7.9, 8.6, 9.0, 8.1, 8.5, 7.8, 8.9, 8.3, 8.0] },
+      { name: 'Jalen McMillan', pos: 'WR', team: 'TB', depth: 'WR3', bye: 9, injury: 'IR', proj: 0.0, ros: 88, rostered: 33, trend: -12.4, upgrade: -3.0, clears: 'Wed 3:00 AM',
+        pts: [0, 0, 0, 0, 0, 0, 0, null, 9.8, 10.4, 11.0, 10.2, 11.3, 10.8, 11.6, 10.9, 11.1] },
+    ];
+    const rows = data.map((p, i) => {
+      const inj = p.injury ? INJ[p.injury] : null;
+      const up = p.upgrade;
+      const parts = p.name.split(' ');
+      return {
+        ...p,
+        initials: (parts[0][0] + parts[parts.length - 1][0]).toUpperCase(),
+        posColor: POS[p.pos],
+        injured: !!inj, injuryBg: inj ? inj.bg : 'transparent', injuryLabel: inj ? inj.label : '',
+        proj: p.injury === 'IR' ? 'on IR' : (p.injury === 'O' ? 'out' : p.proj.toFixed(1)), ros: String(p.ros),
+        rostered: `${p.rostered}%`,
+        trend: `${p.trend > 0 ? '+' : ''}${p.trend.toFixed(1)}`,
+        trendColor: p.trend > 0 ? '#1b7d4f' : '#c62828',
+        upgrade: `${up > 0 ? '+' : ''}${up.toFixed(1)}`,
+        upBg: up > 0 ? 'rgba(27, 125, 79, 0.12)' : '#eceff2',
+        upColor: up > 0 ? '#1b7d4f' : '#586472',
+        bg: i % 2 === 1 ? '#f7f9fb' : '#ffffff',
+        sparkTitle: `Weekly projections, weeks 2 to 18, bye week ${p.bye}`,
+        weeks: p.pts.map((v) => ({ isBye: v === null, hasBar: v !== null, h: v === null ? 0 : Math.max(2, Math.round(v / 14 * 26)) })),
+      };
+    });
+    return { rows };
+  }
+}
+</script>
+</body>
+</html>

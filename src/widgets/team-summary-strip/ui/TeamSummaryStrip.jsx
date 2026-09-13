@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { Badge, Card, Skeleton, StatTile } from '../../../shared/ui';
 import { formatPoints } from '../../../shared/lib';
+import { isQuestionable } from '../../../entities/roster';
 import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
 
 /**
@@ -22,14 +23,23 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * as "the swaps the advice wants" rather than the movePlan's own internal
  * move count (which also counts a solo bench demotion with no replacement).
  *
- * The attention chips (#1239, parent spec #1232 user story 19: "attention
- * chips for a questionable starter, a starter on bye and a Bye cluster"):
- * this ticket builds only the Bye cluster chip, since no acceptance
- * criterion here (or a page test scenario) names the other two, and no
- * prior ticket shipped them either - a "Needs attention" row that shows
- * only the chips this codebase actually computes, ready for the other two
- * to join it once a ticket builds them, rather than fabricating chips no
- * criterion asks for. `worstByeCluster` is the page's own read
+ * The attention chips (#1239 shipped the Bye cluster chip; #1330 adds the
+ * other two the parent spec #1232 user story 19 names: "attention chips for
+ * a questionable starter, a starter on bye and a Bye cluster"). The
+ * questionable and on-bye chips are computed HERE from `lineup.entries`
+ * (`entities/roster`'s `isQuestionable`, ADR 0029: a widget reads an
+ * entity's public surface) - one per starter (a non-BENCH, non-IR slot,
+ * never spent, mirroring `useTeamSummaryStrip`'s own `starters`) whose
+ * designation is questionable-class, and one per starter whose game this
+ * week is a bye (`onBye` or `availability.reason === 'bye'`). Best ball
+ * (`bestBall` prop, the page's `league.best_ball`) suppresses the on-bye
+ * chip only - the lineup sets itself, so "on bye" tells a best-ball manager
+ * nothing actionable, but an injury still might. The row (and both new
+ * chips) is absent entirely on a past week (`lineup.week < lineup.
+ * currentWeek`), the same rule the Bye cluster chip already follows one
+ * level up in `LineupPage.jsx`.
+ *
+ * `worstByeCluster` is the page's own read
  * (`shared/lib`'s `computeByeClusters`/`worstByeCluster` - promoted there,
  * not kept below the island, since a second island slice, the bye-cluster
  * widget, reaches it too, ADR 0031), passed down because this widget has no
@@ -46,7 +56,7 @@ import { useTeamSummaryStrip } from '../model/useTeamSummaryStrip';
  * registered in tokens.contrast.test.js (the stat-tile faint/ink pair, the
  * card surface, the Badge `danger` variant's tint pair).
  */
-export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, advice, worstByeCluster, scoreEvent }) {
+export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, advice, worstByeCluster, scoreEvent, bestBall }) {
   const { status, viewer, opponent, winProbability, lockedStarters, totalStarters } = useTeamSummaryStrip({
     leagueId,
     week,
@@ -71,6 +81,45 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
     worstByeCluster != null && worstByeCluster.count >= 3
       ? `Wk ${worstByeCluster.week} · ${worstByeCluster.count} byes`
       : null;
+
+  // #1330: a past week is a settled record, never an outlook - the same rule
+  // LineupPage.jsx already applies for the Bye cluster grid/chip, re-derived
+  // here since this widget's own questionable/on-bye chips read `lineup`
+  // directly rather than a page-computed flag.
+  const isPastWeek = Boolean(lineup && lineup.week != null && lineup.currentWeek != null && lineup.week < lineup.currentWeek);
+
+  // Starters (non-BENCH, non-IR, never spent - the same definition
+  // `useTeamSummaryStrip` already applies for lockedStarters/totalStarters
+  // above), the population both new chip kinds are drawn from.
+  const starters = !isPastWeek && Array.isArray(lineup?.entries)
+    ? lineup.entries.filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR' && !e.spent)
+    : [];
+
+  const questionableChips = starters.filter(isQuestionable).map((e) => ({
+    key: `questionable-${e.playerId}`,
+    testId: `attention-chip-questionable-${e.playerId}`,
+    label: `${lastNameOf(e.name)} ${e.injuryStatus}${e.injuryDetail ? ` · ${e.injuryDetail}` : ''}`,
+  }));
+
+  // Best ball leagues show the injury chips but never the on-bye chip - the
+  // lineup sets itself, so "on bye" names nothing a best-ball manager can act
+  // on, but an injury still might.
+  const byeChips = bestBall
+    ? []
+    : starters
+        .filter((e) => e.onBye || e.availability?.reason === 'bye')
+        .map((e) => ({
+          key: `bye-${e.playerId}`,
+          testId: `attention-chip-bye-${e.playerId}`,
+          label: `${lastNameOf(e.name)} on bye`,
+        }));
+
+  // The whole row - the Bye cluster chip included - is absent entirely on a
+  // past week (a settled record, never an outlook), not only the two new
+  // chip kinds: a `worstByeCluster` prop computed before the week changed
+  // (or a caller that has not yet re-derived it) must never survive into a
+  // past week's render here.
+  const hasAttentionRow = !isPastWeek && (questionableChips.length > 0 || byeChips.length > 0 || byeClusterAttention != null);
 
   return (
     <Card title="This week" data-testid="team-summary-strip" aria-busy={status === 'loading'}>
@@ -128,14 +177,26 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
           </Typography>
         )}
 
-        {byeClusterAttention && (
+        {hasAttentionRow && (
           <Box data-testid="strip-attention" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Typography sx={{ fontSize: '11px', fontWeight: 700, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
               Needs attention
             </Typography>
-            <Badge variant="danger" data-testid="attention-chip-bye-cluster">
-              {byeClusterAttention}
-            </Badge>
+            {questionableChips.map((chip) => (
+              <Badge key={chip.key} variant="warning" data-testid={chip.testId}>
+                {chip.label}
+              </Badge>
+            ))}
+            {byeChips.map((chip) => (
+              <Badge key={chip.key} variant="warning" data-testid={chip.testId}>
+                {chip.label}
+              </Badge>
+            ))}
+            {byeClusterAttention && (
+              <Badge variant="danger" data-testid="attention-chip-bye-cluster">
+                {byeClusterAttention}
+              </Badge>
+            )}
           </Box>
         )}
 
@@ -152,6 +213,17 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
       </Box>
     </Card>
   );
+}
+
+// The chip label's player name (e.g. "Lamb Q · ankle" for "CeeDee Lamb"): the
+// last whitespace-separated token of the entry's full name, matching the
+// design's own examples. No entity-layer helper does this today (every other
+// surface renders the full name), so it stays local to this widget rather
+// than a below-island promotion with one consumer (ADR 0031's threshold).
+function lastNameOf(name) {
+  if (!name) return '';
+  const parts = String(name).trim().split(/\s+/);
+  return parts[parts.length - 1];
 }
 
 // "112.3 / 108.5" when both are known, a single figure when only one is,

@@ -984,6 +984,9 @@ module.exports = {
   // free_baseline_v2
   getWeeklyProjections,
   getRestOfSeason,
+  // Re-exported for playerCard.service.js (#1306 Ruling item 4): `throughWeek`
+  // and `seasonEnd` are both the league's last playoff week.
+  lastPlayoffWeek,
   invalidateWeeklyProjectionRuns,
   generateProjections,
   projectFromBundle,

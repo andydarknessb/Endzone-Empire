@@ -501,3 +501,12 @@ test('an unlocked, unspent player shows neither indicator', async () => {
   expect(screen.queryByTestId('decision-card-locked')).not.toBeInTheDocument();
   expect(screen.queryByTestId('decision-card-spent')).not.toBeInTheDocument();
 });
+
+// The header avatar carries the same headshot the Ledger row does, off the
+// entry's own `photoUrl`, with the jersey-colour monogram as the fallback.
+test('the header avatar renders the headshot when the entry carries a photoUrl', async () => {
+  renderCard({ entry: entry({ photoUrl: 'https://cdn.example/josh-allen.png' }) });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.getByTestId('decision-card-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
+  expect(screen.queryByText('JA')).toBeNull();
+});

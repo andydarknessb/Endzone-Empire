@@ -518,6 +518,7 @@ if (!ENABLED) {
         // player has an injury_detail value or a player_stats row seeded
         // above, so both are null.
         injury_detail: null,
+        photo_url: null,
         slot: 'RB',
         spent: true,
         week_stats: null,

@@ -405,7 +405,7 @@ async function spentStartingSlots(client, { teamId, season, week }) {
   const result = await client.query(
     `SELECT "players"."position", "lineup_entries"."player_id" AS "spent_player_id",
             "players"."name", "players"."nfl_team",
-            "players"."injury_status", "players"."injury_detail",
+            "players"."injury_status", "players"."injury_detail", "players"."photo_url",
             "lineup_entries"."slot", "player_stats"."stats" AS "week_stats"
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -434,6 +434,7 @@ async function spentStartingSlots(client, { teamId, season, week }) {
     nfl_team: row.nfl_team,
     injury_status: row.injury_status,
     injury_detail: row.injury_detail,
+    photo_url: row.photo_url ?? null,
     slot: row.slot,
     spent: true,
     week_stats: row.week_stats,
@@ -1102,7 +1103,7 @@ async function getLineup({ leagueId, userId, week }) {
               "lineup_entries"."player_id"` : '';
       const entriesResult = await client.query(
         `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
-                "players"."injury_status", "players"."injury_detail",
+                "players"."injury_status", "players"."injury_detail", "players"."photo_url",
                 "lineup_entries"."slot", "lineup_entries"."ir_attested",
                 "player_stats"."stats" AS "week_stats"${asPlayedColumn}
          FROM "lineup_entries"

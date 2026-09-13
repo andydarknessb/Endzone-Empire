@@ -14,7 +14,7 @@
  * together, CONTEXT.md's Roster), each mapped to the one player shape:
  *
  *   { playerId, name, position, nflTeam, slot, projectedPoints,
- *     injuryStatus, spent, opponent }
+ *     injuryStatus, photoUrl, spent, opponent }
  *
  * `opponent` arrived with #1132 (server/services/lineup.service.js
  * `annotateLineupEntries`): the wire's own `opponentByTeam.get(...) ?? null`,
@@ -75,6 +75,16 @@ const POSITION_GROUPS = {
 // (irPolicy.service.js's IR_ELIGIBLE_DESIGNATIONS, CONTEXT.md's IR-eligible).
 const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
 
+// injury_status codes that are "questionable-class" rather than Unavailable
+// (#1330 ruling): the feed's `normalizeInjuryStatus`
+// (server/services/scoring.service.js) writes exactly four non-null codes -
+// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable
+// (IR_ELIGIBLE_DESIGNATIONS above, `availabilityFor` below), so the
+// remaining two, Q and D, are the whole set. This is the one spelling of
+// "questionable"; a widget reads it through `isQuestionable` below rather
+// than inventing its own designation list.
+const QUESTIONABLE_DESIGNATIONS = new Set(['Q', 'D']);
+
 function slotEligiblePositions(rosterSlots, slotKey) {
   const slot = (rosterSlots || []).find((s) => s.key === slotKey);
   if (!slot) return [];
@@ -106,6 +116,7 @@ function playerFromLineupEntry(row) {
     slot: r.slot ?? null,
     projectedPoints: Number.isFinite(points) ? points : null,
     injuryStatus: r.injury_status ?? null,
+    photoUrl: r.photo_url ?? null,
     spent: !!r.spent,
     opponent: r.opponent ?? null,
   };
@@ -235,6 +246,18 @@ export function locked(entry) {
 }
 
 /**
+ * Whether a lineup entry's injury designation is questionable-class (#1330
+ * ruling: Q or D, `QUESTIONABLE_DESIGNATIONS` above) - the feed's only two
+ * non-null, non-Unavailable codes. Reads the camelCase `injuryStatus` this
+ * module's builders produce, matching `eligibleSlots`'s and
+ * `availabilityFor`'s own reads of that field.
+ */
+export function isQuestionable(entry) {
+  const status = (entry && entry.injuryStatus) ?? null;
+  return QUESTIONABLE_DESIGNATIONS.has(status);
+}
+
+/**
  * Every slot key a player is eligible to occupy right now: BENCH always, IR
  * only when his injury designation qualifies (IR_ELIGIBLE_DESIGNATIONS), and
  * each of the league's configured starting slots whose eligiblePositions
@@ -356,6 +379,14 @@ export function lineupEntries(rosterWire, league) {
       ceiling: Number.isFinite(ceiling) ? ceiling : null,
       points: Number.isFinite(actualPoints) ? actualPoints : null,
       injuryStatus: r.injury_status ?? null,
+      // The feed's own free-text detail for the designation (#1330 ruling,
+      // precedent #1235's Edge line: "add no column, this ticket only adds
+      // the client pass-through of a column that already exists" -
+      // server/services/lineup.service.js selects `injury_detail` and
+      // `annotateLineupEntries` spreads it onto every row), a pass-through
+      // like `kickoff`/`opponent`: a missing key or an explicit `null` both
+      // land as `null`, never derived here.
+      injuryDetail: r.injury_detail ?? null,
       opponent: r.opponent ?? null,
       // `kickoff` and `gameKey` (#1235) are passed through exactly as the
       // opponent already was above: a missing key or an explicit `null` both
