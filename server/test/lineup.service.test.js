@@ -139,7 +139,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
     [/^SELECT "players"\."position"/, () => ({ rows: [spentEntry] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 
@@ -179,6 +179,10 @@ test('getLineup returns league-scored current-week projections and preserves una
     kickoff: null,
     game_key: null,
     unavailable: null,
+    // #1329: no game this week (weekOpponents carries no row for him here),
+    // so both are null - never a bare undefined.
+    line: null,
+    weather: null,
     // A spent row joins the one projection read (#1235, f2) and gets
     // projection/floor/ceiling and an Edge line by the same rule as any
     // other entry - here 'none', since he carries no injury, no live game
@@ -227,7 +231,7 @@ test("an injured player still carries the largest Factor's explanation, independ
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games" WHERE "season" = \$1 AND "week" = \$2 AND "kickoff_at"/, () => ({ rows: [] })], // kickedOffTeams
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
   ]).install(t);
 
@@ -275,14 +279,18 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
     // weekOpponents (#1132, #1235): one row per team with a game that week, no BUF row.
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
       rows: [
-        { nfl_team: 'MIN', opponent: 'GB', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIN-GB' },
-        { nfl_team: 'DEN', opponent: 'KC', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'DEN-KC' },
-        { nfl_team: 'MIA', opponent: 'WSH', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIA-WSH' },
+        { nfl_team: 'MIN', opponent: 'GB', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIN-GB', roof: 'outdoor', home_away: 'home' },
+        { nfl_team: 'DEN', opponent: 'KC', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'DEN-KC', roof: 'outdoor', home_away: 'away' },
+        { nfl_team: 'MIA', opponent: 'WSH', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'MIA-WSH', roof: 'outdoor', home_away: 'home' },
       ],
     })],
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
+    // #1329: no odds provider is installed in this test, so getWeeklyOdds is
+    // never called; weekWeather still runs once for the three game keys
+    // above, with nothing to report.
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
   ]).install(t);
 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
@@ -296,7 +304,7 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
   assert.equal(byId.get(1).game_key, 'MIN-GB', 'the game key rides the same schedule read');
   assert.equal(byId.get(3).kickoff, null, 'a team with no row that week carries kickoff: null too');
   assert.equal(
-    fake.matching(/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/).length,
+    fake.matching(/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/).length,
     1,
     'one schedule read for the opponent/kickoff/game-key join, not one per entry'
   );
@@ -2056,7 +2064,7 @@ function lineupWorld(t, {
       rows: Object.keys(L_SCHEDULE).map((nfl_team) => ({ nfl_team })),
     })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })],
-    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })], // weekOpponents (#1132, #1235)
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })], // #1235
   ]).install(t);
 }

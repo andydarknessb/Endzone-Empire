@@ -387,12 +387,21 @@ export function lineupEntries(rosterWire, league) {
       // like `kickoff`/`opponent`: a missing key or an explicit `null` both
       // land as `null`, never derived here.
       injuryDetail: r.injury_detail ?? null,
+      photoUrl: r.photo_url ?? null,
       opponent: r.opponent ?? null,
       // `kickoff` and `gameKey` (#1235) are passed through exactly as the
       // opponent already was above: a missing key or an explicit `null` both
       // land as `null`, never derived here.
       kickoff: r.kickoff ?? null,
       gameKey: r.game_key ?? null,
+      // `line` and `weather` (#1329, ADR 0037): passed through exactly as
+      // `kickoff`/`gameKey` already are - a missing key or an explicit
+      // `null` both land as `null`, never derived here. Both arrive already
+      // shaped by `server/services/lineup.service.js`'s `getLineup`
+      // (fields-null once a game exists, per the Decision card's own rule),
+      // so this entity draws no conclusions of its own about either.
+      line: r.line ?? null,
+      weather: r.weather ?? null,
       onBye: Boolean(r.onBye),
       // The player's own NFL bye week (#1239, CONTEXT.md's Bye cluster):
       // passed through exactly as kickoff/gameKey already are, coerced to a

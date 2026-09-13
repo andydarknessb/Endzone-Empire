@@ -127,6 +127,20 @@ test('shows skeleton placeholders before data arrives', () => {
   expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
+// #1307, ADR 0040: WaiverWire opens the Decision card (context="waivers")
+// instead of PlayerQuickView.
+test('clicking a player name opens the Decision card in the waivers context, not PlayerQuickView', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await userEvent.click(await screen.findByText('Breece Hall'));
+
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { name: 'Breece Hall' })).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'Claim' })).toBeInTheDocument();
+  expect(screen.queryByTestId('quickview-content')).not.toBeInTheDocument();
+});
+
 test('renders the on-waivers table and the priority chip', async () => {
   setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
   renderScreen();
@@ -588,6 +602,30 @@ test('defaults the on-waivers sort to upgrade-desc once suggestions arrive', asy
     const rows = screen.getAllByRole('row').slice(1); // drop the header row
     expect(within(rows[0]).getByText('Jaylen Warren')).toBeInTheDocument();
   });
+});
+
+// Second risk review (accessibility, round 1 fix delta), finding 3: prev/
+// next must follow the RENDERED (sorted) order, not the raw fetch order -
+// the sort here defaults to upgrade-desc, putting Jaylen Warren first.
+test('prev/next over the opening list follows the sorted table order, not the raw fetch order', async () => {
+  setupGet({
+    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
+    roster: rosterResponse(),
+    suggestions: twoPlayerSuggestions(),
+  });
+  renderScreen();
+
+  await waitFor(() => {
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('Jaylen Warren')).toBeInTheDocument();
+  });
+
+  await userEvent.click(screen.getByText('Jaylen Warren'));
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByLabelText('Player 1 of 2')).toBeInTheDocument();
+
+  await userEvent.click(within(card).getByTestId('decision-card-next'));
+  expect(within(card).getByRole('heading', { name: 'Breece Hall' })).toBeInTheDocument();
 });
 
 test('clicking the Upgrade column header toggles the default sort direction', async () => {

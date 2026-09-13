@@ -111,6 +111,113 @@ test('confidence stays disabled until a team is picked for that game (#1327)', (
   expect(enabledCombobox).toHaveAttribute('tabindex', '0');
 });
 
+test('a pick landing while focus is inside this card moves focus to the now-enabled confidence trigger (#1340)', async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: null })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  await user.click(screen.getByRole('button', { name: /Jets/i }));
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).toHaveFocus();
+});
+
+test('a pick landing while focus is on a real element outside this card never steals focus (#1340)', () => {
+  // A plain outside element, not document.body (which is already the
+  // active element by default and would make this test a no-op) - this
+  // is the shape the commit message actually claims: a refetch or another
+  // manager's save landing a pick while a manager is focused on the week
+  // stepper, another card, or any other control entirely.
+  const outsideButton = document.createElement('button');
+  outsideButton.textContent = 'Elsewhere';
+  document.body.appendChild(outsideButton);
+  outsideButton.focus();
+
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: null })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(outsideButton).toHaveFocus();
+  expect(screen.getByRole('combobox', { name: 'Confidence for NYJ at TEN' })).not.toHaveFocus();
+  outsideButton.remove();
+});
+
+test('changing an existing pick never steals focus from the team button (#1340)', () => {
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: 'NYJ' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  const tenButton = screen.getByRole('button', { name: /Titans/i });
+  tenButton.focus();
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'TEN' })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(tenButton).toHaveFocus();
+});
+
+test('a pick landing on an already-locked card never steals focus (#1340)', () => {
+  // A late server merge during the kickoff window can land a first pick
+  // (myPick null -> a team) at the same instant the game locks - the gate
+  // this ticket did not touch (#1327) must still win. Both team buttons are
+  // themselves disabled once locked, so this focuses an unrelated element
+  // rather than one this card would refuse to focus regardless.
+  const outsideButton = document.createElement('button');
+  outsideButton.textContent = 'Elsewhere';
+  document.body.appendChild(outsideButton);
+  outsideButton.focus();
+
+  const { rerender } = render(
+    <GameCard
+      view={baseView({ myPick: null, lock: true })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  rerender(
+    <GameCard
+      view={baseView({ myPick: 'NYJ', lock: true })}
+      mode="confidence"
+      slateSize={16}
+      totalManagers={10}
+    />
+  );
+  expect(outsideButton).toHaveFocus();
+  outsideButton.remove();
+});
+
 test('state 3: picked, straight-up mode - no confidence chip', () => {
   render(<GameCard view={baseView({ myPick: 'NYJ', pickedCount: 8 })} mode="straight" totalManagers={10} />);
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument();

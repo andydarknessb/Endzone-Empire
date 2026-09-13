@@ -25,7 +25,14 @@ jest.mock('../../api/apiClient', () => ({
  * already covered elsewhere (`pages/lineup`'s own precedent).
  */
 const LEAGUE_ID = 7;
-const hoursFromNow = (hours) => new Date(Date.now() + hours * 3600 * 1000).toISOString();
+// Fixed instant (#1351): a real-clock `hoursFromNow` made the fixture's
+// kickoff land outside Thu/Sun/Mon (kickoffWindowFor,
+// entities/pickem-game/model/kickoffWindow.js:31-39) on some calendar days,
+// dropping the game from every window and rendering `pickem-board-empty`.
+// NOW is a fixed Friday; +48h lands the fixture's game on a fixed Sunday
+// 12:00 EDT instant (the `sunday-early` window) on every run.
+const NOW = Date.parse('2026-09-11T16:00:00Z');
+const hoursFromNow = (hours) => new Date(NOW + hours * 3600 * 1000).toISOString();
 
 const league = (overrides = {}) => ({
   id: LEAGUE_ID,

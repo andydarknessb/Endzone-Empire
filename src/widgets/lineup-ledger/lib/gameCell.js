@@ -19,9 +19,16 @@ import { formatKickoff, unavailableLabel } from '../../../shared/lib';
  *   - `{ kind: 'unavailable', reason }` - entry.availability.available is
  *     false (on bye, out, on IR). Takes priority over every other state: an
  *     unavailable player's own game state is not the point of this cell.
- *   - `{ kind: 'pre', opponent, kickoff }` - opponent is a Team code or
- *     null (a bye or an unsynced slate, CONTEXT.md's opponent), kickoff is
- *     already formatted ("Sun 1:00 PM") or null.
+ *   - `{ kind: 'pre', opponent, kickoff, lineText, weatherText }` - opponent
+ *     is a Team code or null (a bye or an unsynced slate, CONTEXT.md's
+ *     opponent), kickoff is already formatted ("Sun 1:00 PM") or null.
+ *     `lineText` (#1329, ADR 0037) is `"<favoured> -<spread> · O/U <total>"`
+ *     off `entry.line`, null when `line` is null or any of `favoured`,
+ *     `spread` or `total` is null. `weatherText` is `"Dome"` when
+ *     `entry.weather.indoor`, else the temperature, a "rain"/"snow" word when
+ *     `shortForecast` names one, and `"wind <mph>"` at 10 mph or more,
+ *     middot-separated - null when `weather` is null or none of those parts
+ *     exists.
  *   - `{ kind: 'live', trailing, teamScore, opponentScore, possession,
  *     downDistance, redZone, lastPlay }` - trailing is "Q3 6:42" when both
  *     are known, else "Live"; either score is null when the row cannot be
@@ -59,7 +66,38 @@ export function gameCellView(entry, liveRow) {
       lastPlay: liveRow.last_play ?? null,
     };
   }
-  return { kind: 'pre', opponent: entry.opponent, kickoff: formatKickoff(entry.kickoff) };
+  return {
+    kind: 'pre',
+    opponent: entry.opponent,
+    kickoff: formatKickoff(entry.kickoff),
+    lineText: lineTextFor(entry.line),
+    weatherText: weatherTextFor(entry.weather),
+  };
+}
+
+// Pure: the pre-kickoff Line text (#1329, per the canvas: "KC -3.5 · O/U
+// 49.5"), or null when there is nothing to show. `favoured` is never
+// re-derived here - the server already resolved it against the game's own
+// home/away orientation (lineup.service.js's `lineFor`).
+function lineTextFor(line) {
+  if (!line || line.favoured == null || line.spread == null || line.total == null) return null;
+  return `${line.favoured} -${Math.abs(line.spread)} · O/U ${line.total}`;
+}
+
+// Pure: the pre-kickoff weather text (#1329, per the canvas: "58° · rain ·
+// wind 12"), or null when there is nothing to show. `Dome` short-circuits on
+// `indoor` before looking at any other field. Wind only appears at 10 mph or
+// more; a forecast naming rain or snow contributes at most one such word.
+function weatherTextFor(weather) {
+  if (!weather) return null;
+  if (weather.indoor) return 'Dome';
+  const parts = [];
+  if (weather.temperatureF != null) parts.push(`${weather.temperatureF}°`);
+  const forecast = weather.shortForecast ? String(weather.shortForecast).toLowerCase() : '';
+  if (forecast.includes('rain')) parts.push('rain');
+  else if (forecast.includes('snow')) parts.push('snow');
+  if (weather.windSpeedMph != null && weather.windSpeedMph >= 10) parts.push(`wind ${weather.windSpeedMph}`);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 // A finite score, or null (an absent row, a non-numeric value, or a team

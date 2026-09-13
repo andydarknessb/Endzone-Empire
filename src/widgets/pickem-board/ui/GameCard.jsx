@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Box, Typography } from '@mui/material';
 import { Badge, Card, GameStateChip, Skeleton, SplitBar } from '../../../shared/ui';
 import { formatKickoff } from '../../../shared/lib';
@@ -31,6 +31,38 @@ export default function GameCard({
   onPickWinner,
   onSetConfidence,
 }) {
+  // #1340: a keyboard regression the #1327 gate introduced. The confidence
+  // trigger carries no tabindex while `view.myPick` is null (a disabled MUI
+  // Select drops out of tab order, GameCard.test.jsx's own pin), so a
+  // manager who tabs to a team button and picks it never lands on the
+  // control that unlocks right there in the DOM - nothing moves focus to it
+  // and nothing announces it became reachable. `GameCard` owns that move:
+  // on the transition from no pick to a pick, with the card still holding
+  // focus (a pick landing from a refetch or another manager's save must
+  // never steal focus from elsewhere), it focuses the now-enabled trigger.
+  // The focus move is the announcement - the focused element's own
+  // accessible name is read, no live region on top (the #1265 SaveBar
+  // rule, SaveBar.jsx's own `justSaved` effect). `ConfidenceMenu` forwards
+  // no ref, so both wrappers below are transparent (`display: contents`)
+  // Boxes that exist only to hold a ref, never to affect layout.
+  const cardRef = useRef(null);
+  const confidenceRef = useRef(null);
+  const previousMyPickRef = useRef(view?.myPick);
+
+  useEffect(() => {
+    const previousMyPick = previousMyPickRef.current;
+    previousMyPickRef.current = view?.myPick;
+    if (
+      previousMyPick == null &&
+      view?.myPick != null &&
+      mode === 'confidence' &&
+      !view?.lock &&
+      cardRef.current?.contains(document.activeElement)
+    ) {
+      confidenceRef.current?.querySelector('[role="combobox"]')?.focus();
+    }
+  }, [view?.myPick, mode, view?.lock]);
+
   if (loading) return <GameCardSkeleton />;
 
   const [awayTeam, homeTeam] = view.teams;
@@ -60,66 +92,70 @@ export default function GameCard({
   };
 
   return (
-    <Card
-      data-testid="game-card"
-      data-phase={view.phase}
-      data-flagged={flagged || undefined}
-      sx={{
-        backgroundColor: isFinal ? 'var(--dash-surface2)' : 'var(--dash-surface)',
-        borderColor: flagged ? 'var(--dash-danger)' : undefined,
-        boxShadow: flagged ? '0 0 0 1px var(--dash-danger)' : undefined,
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', p: '10px 14px 0 14px', fontSize: '12px' }}>
-        <CardHeaderLead view={view} />
-        <Box sx={{ flex: 1 }} />
-        {isOpen && view.line && (
-          <Badge data-testid="odds-badge">
-            {`${view.favorite ?? ''} ${(-Math.abs(view.line.spread)).toFixed(1)} · O/U ${view.line.total}`}
-          </Badge>
+    <Box ref={cardRef} sx={{ display: 'contents' }}>
+      <Card
+        data-testid="game-card"
+        data-phase={view.phase}
+        data-flagged={flagged || undefined}
+        sx={{
+          backgroundColor: isFinal ? 'var(--dash-surface2)' : 'var(--dash-surface)',
+          borderColor: flagged ? 'var(--dash-danger)' : undefined,
+          boxShadow: flagged ? '0 0 0 1px var(--dash-danger)' : undefined,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', p: '10px 14px 0 14px', fontSize: '12px' }}>
+          <CardHeaderLead view={view} />
+          <Box sx={{ flex: 1 }} />
+          {isOpen && view.line && (
+            <Badge data-testid="odds-badge">
+              {`${view.favorite ?? ''} ${(-Math.abs(view.line.spread)).toFixed(1)} · O/U ${view.line.total}`}
+            </Badge>
+          )}
+          {isFinal && <OutcomeBadge outcome={view.outcome} confidence={view.confidence} myPick={view.myPick} />}
+          {mode === 'confidence' && !isFinal && (
+            <Box ref={confidenceRef} sx={{ display: 'contents' }}>
+              <ConfidenceMenu
+                value={view.confidence}
+                max={slateSize}
+                disabledValues={confidenceUsedBy}
+                disabled={view.lock || view.myPick == null}
+                bad={flagged}
+                onChange={(value) => onSetConfidence?.(view.gameKey, value)}
+                // A confidence slate is up to sixteen games; the shared "Confidence"
+                // default name (ConfidenceMenu.jsx) leaves every one of them
+                // indistinguishable to a screen reader, since this card is a
+                // title-less Card (deliberately not an announced landmark,
+                // shared/ui/Card.jsx) and the combobox precedes both team buttons
+                // in reading order (accessibility risk review, #1265).
+                //
+                // #1327 risk review: disabling this control before a team is
+                // picked (below) is otherwise silent - no lock badge explains it
+                // the way the live-phase "Locked" chip does - so the name says
+                // why while that's the reason.
+                aria-label={`Confidence for ${awayTeam} at ${homeTeam}${!view.lock && view.myPick == null ? ', pick a team first' : ''}`}
+              />
+            </Box>
+          )}
+        </Box>
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', p: '10px 14px 0 14px' }}>
+          <TeamPickButton {...sideProps(awayTeam, false)} />
+          <TeamPickButton {...sideProps(homeTeam, true)} />
+        </Box>
+
+        <MetaRow view={view} isLive={isLive} />
+
+        {flagged ? (
+          <ErrorRow message={flaggedMessage} />
+        ) : isFinal ? (
+          view.headline && <HeadlineRow headline={view.headline} />
+        ) : isLive ? (
+          <LiveFooter view={view} awayTeam={awayTeam} homeTeam={homeTeam} totalManagers={totalManagers} />
+        ) : (
+          <PreLockFooter pickedCount={view.pickedCount} totalManagers={totalManagers} />
         )}
-        {isFinal && <OutcomeBadge outcome={view.outcome} confidence={view.confidence} myPick={view.myPick} />}
-        {mode === 'confidence' && !isFinal && (
-          <ConfidenceMenu
-            value={view.confidence}
-            max={slateSize}
-            disabledValues={confidenceUsedBy}
-            disabled={view.lock || view.myPick == null}
-            bad={flagged}
-            onChange={(value) => onSetConfidence?.(view.gameKey, value)}
-            // A confidence slate is up to sixteen games; the shared "Confidence"
-            // default name (ConfidenceMenu.jsx) leaves every one of them
-            // indistinguishable to a screen reader, since this card is a
-            // title-less Card (deliberately not an announced landmark,
-            // shared/ui/Card.jsx) and the combobox precedes both team buttons
-            // in reading order (accessibility risk review, #1265).
-            //
-            // #1327 risk review: disabling this control before a team is
-            // picked (below) is otherwise silent - no lock badge explains it
-            // the way the live-phase "Locked" chip does - so the name says
-            // why while that's the reason.
-            aria-label={`Confidence for ${awayTeam} at ${homeTeam}${!view.lock && view.myPick == null ? ', pick a team first' : ''}`}
-          />
-        )}
-      </Box>
-
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', p: '10px 14px 0 14px' }}>
-        <TeamPickButton {...sideProps(awayTeam, false)} />
-        <TeamPickButton {...sideProps(homeTeam, true)} />
-      </Box>
-
-      <MetaRow view={view} isLive={isLive} />
-
-      {flagged ? (
-        <ErrorRow message={flaggedMessage} />
-      ) : isFinal ? (
-        view.headline && <HeadlineRow headline={view.headline} />
-      ) : isLive ? (
-        <LiveFooter view={view} awayTeam={awayTeam} homeTeam={homeTeam} totalManagers={totalManagers} />
-      ) : (
-        <PreLockFooter pickedCount={view.pickedCount} totalManagers={totalManagers} />
-      )}
-    </Card>
+      </Card>
+    </Box>
   );
 }
 
