@@ -1,15 +1,28 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
+import { Provider } from 'react-redux';
+import configureMockStore from 'redux-mock-store';
+import userEvent from '@testing-library/user-event';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import publicApiClient from '../../../api/publicApiClient';
+import apiClient from '../../../api/apiClient';
 import PlayerProfilePage from './PlayerProfilePage';
 
 jest.mock('../../../api/publicApiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
 }));
+
+// The authenticated client In your leagues (#1359) reads - NEVER
+// `publicApiClient`, which the anonymous read plumbing above still uses.
+jest.mock('../../../api/apiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
+}));
+
+const mockStore = configureMockStore([]);
 
 const COMPLETE_PROFILE = {
   playerId: 42,
@@ -72,20 +85,30 @@ beforeEach(() => {
     if (requested === 2024) return Promise.resolve({ data: NOT_AVAILABLE_PROFILE });
     return Promise.resolve({ data: COMPLETE_PROFILE });
   });
+  // Signed-out by default: a test that wants a signed-in render passes its
+  // own `state` to `renderPage` and its own `apiClient.get` implementation.
+  apiClient.get.mockImplementation(() => Promise.reject(new Error(
+    'apiClient (the authenticated client) should not be called from a signed-out render'
+  )));
 });
 
 afterEach(() => jest.clearAllMocks());
 
-const renderPage = (entry = '/players/42') => render(
-  <AppThemeProvider>
-    <HelmetProvider>
-      <MemoryRouter initialEntries={[entry]}>
-        <Routes>
-          <Route path="/players/:id" element={<PlayerProfilePage />} />
-        </Routes>
-      </MemoryRouter>
-    </HelmetProvider>
-  </AppThemeProvider>
+// `state` overrides the default signed-out redux `user: {}` (matching
+// `_root.reducer.js`'s own default) - a test that wants In your leagues
+// passes `{ state: { user: { id: 9 } } }`.
+const renderPage = (entry = '/players/42', { state } = {}) => render(
+  <Provider store={mockStore({ user: {}, ...state })}>
+    <AppThemeProvider>
+      <HelmetProvider>
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/players/:id" element={<PlayerProfilePage />} />
+          </Routes>
+        </MemoryRouter>
+      </HelmetProvider>
+    </AppThemeProvider>
+  </Provider>
 );
 
 test('defaults to half-PPR and updates every points readout when the format changes', async () => {
@@ -276,4 +299,102 @@ test('switching to the pending upcoming season renders a not-started state, not 
   // No stat cards / game table in the pending state.
   expect(screen.queryByText(/Weekly breakdown is partial/)).not.toBeInTheDocument();
   expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();
+});
+
+// #1359: the "In your leagues" block (parent #1354; CONTEXT.md's "In your
+// leagues" / "Availability" / "Rostered").
+const IN_YOUR_LEAGUES_RESPONSE = {
+  leagues: [
+    {
+      leagueId: 11,
+      leagueName: 'Alpha League',
+      phase: 'in-season',
+      availability: { state: 'my_team', teamId: 501, teamName: 'My Squad' },
+    },
+    {
+      leagueId: 12,
+      leagueName: 'Beta League',
+      phase: 'in-season',
+      availability: { state: 'rostered', teamId: 777, teamName: 'Rival Squad' },
+    },
+  ],
+};
+
+test('signed out renders no In your leagues block and never calls the authenticated endpoint', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalled();
+});
+
+test('signed in with two leagues renders two lines with the exact glossary copy', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  const line1 = await screen.findByRole('button', { name: 'On your team in Alpha League' });
+  const line2 = screen.getByRole('button', { name: 'Rostered by Rival Squad in Beta League' });
+  expect(line1).toBeInTheDocument();
+  expect(line2).toBeInTheDocument();
+  // AC: "Each line's own rules carry min-height: 44px."
+  expect(line1).toHaveStyle('min-height: 44px');
+  expect(line2).toHaveStyle('min-height: 44px');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues');
+});
+
+test('clicking the Rostered by line opens the Decision card with that league\'s id', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    // The Decision card's own internal reads (line/usage/card): this test
+    // only pins that ITS request carries the clicked league's id, not what
+    // the card does with a response - same pattern WaiverWire.test.jsx uses.
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('heading', { name: 'Alpha Back' })).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
+});
+
+test('an errored in-your-leagues read renders the profile with no block and no error text', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.reject(new Error('network error'));
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues'));
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
+  expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument();
+});
+
+test('a signed-in viewer with no eligible leagues renders no block, not an empty heading', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: { leagues: [] } });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  renderPage('/players/42', { state: { user: { id: 9 } } });
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues'));
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
+});
+
+test('renders the same anonymous hero and stat grid as before the In your leagues addition', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  expect(screen.getByTestId('profile-hero')).toMatchSnapshot();
+  expect(screen.getByTestId('stat-grid')).toMatchSnapshot();
+  // Nothing rendered between the hero and the stat grid for an anonymous view.
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
 });
