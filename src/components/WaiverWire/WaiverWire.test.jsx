@@ -30,6 +30,13 @@ const renderScreenWithToasts = (leagueId = 1) =>
     }
   );
 
+// PlayerRow's Status column renders "Clears in 3 days" as one text node
+// (StatusDetail), so an exact getByText on the bare relative time no longer
+// matches - this content matcher checks an element's full text instead, the
+// same pattern TradeCenter.test.jsx's own `byText` helper uses for a
+// PlayerNameLink's nested <button>.
+const byText = (text) => (_, element) => element?.textContent === text;
+
 const waiversResponse = (overrides = {}) => ({
   league: {
     waiver_type: 'priority',
@@ -38,15 +45,6 @@ const waiversResponse = (overrides = {}) => ({
     waivers_clear_at: null,
   },
   myTeam: { id: 10, waiver_priority: 3, faab_remaining: 85 },
-  onWaivers: [
-    {
-      id: 7,
-      name: 'Breece Hall',
-      position: 'RB',
-      nfl_team: 'New York Jets',
-      available_at: '2026-07-12T15:00:00.000Z',
-    },
-  ],
   myClaims: [],
   ...overrides,
 });
@@ -62,27 +60,47 @@ const rosterWithProjectionsResponse = () => [
   { id: 22, name: 'Bench Warmer', position: 'WR', nfl_team: 'Free Agent', projected_weekly_points: 3.2 },
 ];
 
-const suggestionsResponse = (overrides = {}) => ({
-  suggestions: [
-    {
-      playerId: 7,
-      name: 'Breece Hall',
-      position: 'RB',
-      nflTeam: 'New York Jets',
-      projection: 14.2,
-      weakestStarterProjection: 8.9,
-      upgradeDelta: 5.3,
-    },
-  ],
+// #1310 formal review f2: the On waivers table's own rows now come from
+// GET /api/players?view=cards&availability=waivers (the same shape
+// PlayerManagement's Players list renders), not /api/waivers's own raw
+// `onWaivers` rows.
+const cardsPlayer = (overrides = {}) => ({
+  id: 7,
+  name: 'Breece Hall',
+  position: 'RB',
+  nfl_team: 'New York Jets',
+  photo_url: null,
+  injury_status: null,
+  bye_week: null,
+  availability: { state: 'waivers', teamId: null, teamName: null, availableAt: '2026-07-12T15:00:00.000Z' },
+  projWeek: null,
+  ros: { points: null },
+  weeks: [],
+  ownership: null,
+  upgrade: null,
   ...overrides,
 });
 
-const setupGet = ({ waivers, roster, suggestions = { suggestions: [] }, claimTarget }) => {
-  apiClient.get.mockImplementation((url) => {
-    if (url.startsWith('/api/waivers/suggestions')) return Promise.resolve({ data: suggestions });
+const setupGet = ({ waivers, roster, cardsPlayers = [cardsPlayer()], cardsPages, suggestions, claimTarget }) => {
+  apiClient.get.mockImplementation((url, config) => {
+    if (url.startsWith('/api/waivers/suggestions')) {
+      // #1310 formal review f2: the on-waivers table no longer reads this
+      // endpoint at all (constraint 1: left in place server-side, just
+      // unused from here) - a test that still sets this up is asserting on
+      // dead code, not real behavior.
+      if (suggestions !== undefined) return Promise.resolve({ data: suggestions });
+      throw new Error('/api/waivers/suggestions should not be called by WaiverWire anymore (#1310 formal review f2)');
+    }
     if (url.startsWith('/api/waivers/claim-target')) return Promise.resolve({ data: { player: claimTarget } });
     if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waivers });
     if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: roster });
+    if (url === '/api/players') {
+      if (cardsPages) {
+        const page = config?.params?.page || 1;
+        return Promise.resolve({ data: cardsPages[page - 1] });
+      }
+      return Promise.resolve({ data: { players: cardsPlayers, totalPages: 1, total: cardsPlayers.length } });
+    }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
 };
@@ -95,8 +113,9 @@ test('opens a server-validated blanket-waiver target from the Player Browser', a
     nfl_team: 'DAL',
   };
   setupGet({
-    waivers: waiversResponse({ onWaivers: [], myClaims: [] }),
+    waivers: waiversResponse({ myClaims: [] }),
     roster: rosterResponse(),
+    cardsPlayers: [],
     claimTarget: blanketWaiverPlayer,
   });
   apiClient.post.mockResolvedValue({});
@@ -149,7 +168,7 @@ test('renders the on-waivers table and the priority chip', async () => {
   expect(screen.getByText('RB')).toBeInTheDocument();
   expect(screen.getByText('New York Jets')).toBeInTheDocument();
   expect(screen.getByText('Waiver priority: #3')).toBeInTheDocument();
-  expect(screen.getByText(formatRelative('2026-07-12T15:00:00.000Z'))).toBeInTheDocument();
+  expect(screen.getByText(byText(`Clears ${formatRelative('2026-07-12T15:00:00.000Z')}`))).toBeInTheDocument();
 });
 
 test('the Clears cell shows the absolute time in a tooltip', async () => {
@@ -157,7 +176,7 @@ test('the Clears cell shows the absolute time in a tooltip', async () => {
   renderScreen();
 
   await screen.findByText('Breece Hall');
-  const relativeText = screen.getByText(formatRelative('2026-07-12T15:00:00.000Z'));
+  const relativeText = screen.getByText(byText(`Clears ${formatRelative('2026-07-12T15:00:00.000Z')}`));
   await userEvent.hover(relativeText);
 
   expect(
@@ -329,24 +348,17 @@ test('drop-select options are sorted worst-weekly-projection-first with a weekly
   expect(within(options[3]).getByText(/Josh Allen \(QB\)/)).toBeInTheDocument();
 });
 
-test('preselects the roster player a waiver suggestion pairs with the claimed pickup', async () => {
+// #1310 formal review f2 constraint 2: the suggested drop pick used to come
+// from a separate /api/waivers/suggestions read (`dropPlayerId`); the
+// view=cards payload's own per-row `upgrade.overPlayer` carries the same
+// fact now (the starter this player would replace).
+test("preselects the roster player the row's own Upgrade pairs with the claimed pickup", async () => {
   setupGet({
     waivers: waiversResponse(),
     roster: rosterResponse(),
-    suggestions: suggestionsResponse({
-      suggestions: [
-        {
-          playerId: 7,
-          name: 'Breece Hall',
-          position: 'RB',
-          nflTeam: 'New York Jets',
-          projection: 14.2,
-          weakestStarterProjection: 8.9,
-          upgradeDelta: 5.3,
-          dropPlayerId: 21,
-        },
-      ],
-    }),
+    cardsPlayers: [
+      cardsPlayer({ upgrade: { points: 5.3, overPlayer: { id: 21, name: 'Tyreek Hill' }, slot: 'WR' } }),
+    ],
   });
   renderScreen();
 
@@ -356,24 +368,13 @@ test('preselects the roster player a waiver suggestion pairs with the claimed pi
   expect(await screen.findByText('Tyreek Hill (WR)')).toBeInTheDocument();
 });
 
-test('does not preselect a drop when the suggestion has no valid roster pairing', async () => {
+test("does not preselect a drop when the row's Upgrade pairs with a player not on this roster", async () => {
   setupGet({
     waivers: waiversResponse(),
     roster: rosterResponse(),
-    suggestions: suggestionsResponse({
-      suggestions: [
-        {
-          playerId: 7,
-          name: 'Breece Hall',
-          position: 'RB',
-          nflTeam: 'New York Jets',
-          projection: 14.2,
-          weakestStarterProjection: 8.9,
-          upgradeDelta: 5.3,
-          dropPlayerId: 999, // not on this roster
-        },
-      ],
-    }),
+    cardsPlayers: [
+      cardsPlayer({ upgrade: { points: 5.3, overPlayer: { id: 999, name: 'Not On Roster' }, slot: 'WR' } }),
+    ],
   });
   renderScreen();
 
@@ -448,8 +449,9 @@ test('a server error when submitting a claim is surfaced', async () => {
 
 test('shows empty states when there are no waiver players or claims', async () => {
   setupGet({
-    waivers: waiversResponse({ onWaivers: [], myClaims: [] }),
+    waivers: waiversResponse({ myClaims: [] }),
     roster: rosterResponse(),
+    cardsPlayers: [],
   });
   renderScreen();
 
@@ -459,8 +461,9 @@ test('shows empty states when there are no waiver players or claims', async () =
 
 test('empty waivers Browse Players opens the player pool filtered to available players', async () => {
   setupGet({
-    waivers: waiversResponse({ onWaivers: [], myClaims: [] }),
+    waivers: waiversResponse({ myClaims: [] }),
     roster: rosterResponse(),
+    cardsPlayers: [],
   });
   renderScreen();
 
@@ -481,64 +484,90 @@ test('shows an error alert when the initial fetch fails', async () => {
   expect(await screen.findByText('waivers unavailable')).toBeInTheDocument();
 });
 
-test('renders an Upgrade badge for a player with a suggested pickup', async () => {
-  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), suggestions: suggestionsResponse() });
+// #1310 formal review f2 constraint 3: a failed on-waivers read (the cards
+// fetch, part of the SAME Promise.all as the league/roster reads) must
+// surface the existing error alert - never a silently-empty table.
+test("a failed on-waivers read surfaces the existing error alert, not an empty table", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversResponse() });
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
+    if (url === '/api/players') return Promise.reject(new Error('players index unavailable'));
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  renderScreen();
+
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  expect(screen.queryByTestId('on-waivers-panel')).not.toBeInTheDocument();
+  expect(screen.queryByText('No players on waivers')).not.toBeInTheDocument();
+});
+
+// #1310 formal review f2 constraint 3: the on-waivers read pages at 25
+// server-side - this pins that a second (and no third) page is fetched and
+// every row from both pages renders.
+test('loops every on-waivers page and stops at the last one', async () => {
+  const pageOne = Array.from({ length: 25 }, (_, i) => cardsPlayer({ id: 100 + i, name: `Waiver Player ${i}` }));
+  const pageTwo = [cardsPlayer({ id: 200, name: 'Second Page Player' })];
+  setupGet({
+    waivers: waiversResponse(),
+    roster: rosterResponse(),
+    cardsPages: [
+      { players: pageOne, totalPages: 2, total: 26 },
+      { players: pageTwo, totalPages: 2, total: 26 },
+    ],
+  });
+  renderScreen();
+
+  await screen.findByText('Second Page Player');
+  const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === '/api/players');
+  expect(playerCalls).toHaveLength(2);
+  // header row + 26 player rows.
+  expect(screen.getAllByRole('row')).toHaveLength(27);
+});
+
+test('renders an Upgrade badge for a player with a nonzero Upgrade', async () => {
+  setupGet({
+    waivers: waiversResponse(),
+    roster: rosterResponse(),
+    cardsPlayers: [cardsPlayer({ upgrade: { points: 5.3, overPlayer: { id: 21, name: 'Tyreek Hill' }, slot: 'WR' } })],
+  });
   renderScreen();
 
   await screen.findByText('Breece Hall');
   expect(screen.getByText('+5.3')).toBeInTheDocument();
 });
 
-test('does not show an upgrade badge for a player without a suggestion', async () => {
-  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), suggestions: { suggestions: [] } });
+test('does not show an upgrade badge for a player with a null Upgrade', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), cardsPlayers: [cardsPlayer({ upgrade: null })] });
   renderScreen();
 
   await screen.findByText('Breece Hall');
   expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
 });
 
-test('a failed suggestions fetch is silently ignored (no badges, no error)', async () => {
-  apiClient.get.mockImplementation((url) => {
-    if (url.startsWith('/api/waivers/suggestions')) return Promise.reject(new Error('boom'));
-    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversResponse() });
-    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
-    return Promise.reject(new Error(`unexpected url ${url}`));
-  });
-  renderScreen();
+// Dropped (was: "a failed suggestions fetch is silently ignored (no badges,
+// no error)"): there is no separate, best-effort suggestions fetch left to
+// fail silently - Upgrade arrives as part of the required cards read, and a
+// failed READ now surfaces the error alert (constraint 3's own test above),
+// not a quietly-ignored one.
 
-  await screen.findByText('Breece Hall');
-  expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
-  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-});
-
-test('a best-ball league hides the Upgrade column and skips the suggestions fetch', async () => {
-  apiClient.get.mockImplementation((url) => {
-    if (url.startsWith('/api/waivers/suggestions')) {
-      throw new Error('suggestions should not be fetched for a best-ball league');
-    }
-    if (url.startsWith('/api/waivers')) {
-      return Promise.resolve({
-        data: waiversResponse({
-          league: {
-            waiver_type: 'priority',
-            waiver_period_hours: 24,
-            faab_budget: 100,
-            waivers_clear_at: null,
-            best_ball: true,
-          },
-        }),
-      });
-    }
-    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
-    return Promise.reject(new Error(`unexpected url ${url}`));
+test('a best-ball league hides the Upgrade column and sort', async () => {
+  setupGet({
+    waivers: waiversResponse({
+      league: {
+        waiver_type: 'priority',
+        waiver_period_hours: 24,
+        faab_budget: 100,
+        waivers_clear_at: null,
+        best_ball: true,
+      },
+    }),
+    roster: rosterResponse(),
   });
   renderScreen();
 
   await screen.findByText('Breece Hall');
   expect(screen.queryByText('Upgrade')).not.toBeInTheDocument();
-  expect(
-    apiClient.get.mock.calls.some(([url]) => url.startsWith('/api/waivers/suggestions'))
-  ).toBe(false);
 });
 
 test('a non-best-ball league still shows the Upgrade column', async () => {
@@ -549,52 +578,22 @@ test('a non-best-ball league still shows the Upgrade column', async () => {
   expect(screen.getByText('Upgrade')).toBeInTheDocument();
 });
 
-const twoWaiverPlayers = () => [
-  {
+const twoWaiverCardsPlayers = () => [
+  cardsPlayer({
     id: 7,
     name: 'Breece Hall',
-    position: 'RB',
-    nfl_team: 'New York Jets',
-    available_at: '2026-07-12T15:00:00.000Z',
-  },
-  {
+    upgrade: { points: 2.1, overPlayer: { id: 20, name: 'Josh Allen' }, slot: 'RB' },
+  }),
+  cardsPlayer({
     id: 8,
     name: 'Jaylen Warren',
-    position: 'RB',
     nfl_team: 'Pittsburgh Steelers',
-    available_at: '2026-07-12T15:00:00.000Z',
-  },
+    upgrade: { points: 6.1, overPlayer: { id: 20, name: 'Josh Allen' }, slot: 'RB' },
+  }),
 ];
 
-const twoPlayerSuggestions = () => ({
-  suggestions: [
-    {
-      playerId: 7,
-      name: 'Breece Hall',
-      position: 'RB',
-      nflTeam: 'New York Jets',
-      projection: 14.2,
-      weakestStarterProjection: 8.9,
-      upgradeDelta: 2.1,
-    },
-    {
-      playerId: 8,
-      name: 'Jaylen Warren',
-      position: 'RB',
-      nflTeam: 'Pittsburgh Steelers',
-      projection: 15.0,
-      weakestStarterProjection: 8.9,
-      upgradeDelta: 6.1,
-    },
-  ],
-});
-
-test('defaults the on-waivers sort to upgrade-desc once suggestions arrive', async () => {
-  setupGet({
-    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
-    roster: rosterResponse(),
-    suggestions: twoPlayerSuggestions(),
-  });
+test('defaults the on-waivers sort to upgrade-desc once the cards read loads', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), cardsPlayers: twoWaiverCardsPlayers() });
   renderScreen();
 
   await screen.findByText('Breece Hall');
@@ -608,11 +607,7 @@ test('defaults the on-waivers sort to upgrade-desc once suggestions arrive', asy
 // next must follow the RENDERED (sorted) order, not the raw fetch order -
 // the sort here defaults to upgrade-desc, putting Jaylen Warren first.
 test('prev/next over the opening list follows the sorted table order, not the raw fetch order', async () => {
-  setupGet({
-    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
-    roster: rosterResponse(),
-    suggestions: twoPlayerSuggestions(),
-  });
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), cardsPlayers: twoWaiverCardsPlayers() });
   renderScreen();
 
   await waitFor(() => {
@@ -629,11 +624,7 @@ test('prev/next over the opening list follows the sorted table order, not the ra
 });
 
 test('clicking the Upgrade column header toggles the default sort direction', async () => {
-  setupGet({
-    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
-    roster: rosterResponse(),
-    suggestions: twoPlayerSuggestions(),
-  });
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse(), cardsPlayers: twoWaiverCardsPlayers() });
   renderScreen();
 
   await screen.findByText('Breece Hall');
@@ -650,17 +641,20 @@ test('clicking the Upgrade column header toggles the default sort direction', as
   expect(within(rows[0]).getByText('Breece Hall')).toBeInTheDocument();
 });
 
-test('the sort toggle can still be engaged manually when there are no suggestions', async () => {
+test('the sort toggle can still be engaged manually when every row has nothing to rank', async () => {
   setupGet({
-    waivers: waiversResponse({ onWaivers: twoWaiverPlayers() }),
+    waivers: waiversResponse(),
     roster: rosterResponse(),
-    suggestions: { suggestions: [] },
+    cardsPlayers: [
+      cardsPlayer({ id: 7, name: 'Breece Hall' }),
+      cardsPlayer({ id: 8, name: 'Jaylen Warren', nfl_team: 'Pittsburgh Steelers' }),
+    ],
   });
   renderScreen();
 
   await screen.findByText('Breece Hall');
-  // No suggestions, so nothing auto-sorted; a manual click still works and
-  // doesn't crash with no upgrade data to rank against.
+  // No Upgrade values to rank by, so nothing meaningfully reorders; a manual
+  // click still works and doesn't crash with no upgrade data.
   await userEvent.click(screen.getByText('Upgrade'));
   const rows = screen.getAllByRole('row').slice(1);
   expect(within(rows[0]).getByText('Breece Hall')).toBeInTheDocument();

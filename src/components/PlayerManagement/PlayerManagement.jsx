@@ -36,7 +36,7 @@ import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
-import PlayerRow from "../../widgets/player-row";
+import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import SegmentedControl from "../../shared/ui/SegmentedControl";
 import { useAddPlayer } from "../../features/add-player";
 import { useClaimPlayer } from "../../features/claim-player";
@@ -149,11 +149,6 @@ const actionSx = {
 function availabilityOf(player) {
   return player.availability?.state || "free_agent";
 }
-
-// The Players list's own base column count (Player, Proj Wk, ROS, Ownership,
-// Weeks, Status, Action) - Upgrade adds one more, hidden outright in a best
-// ball league (#1310, ADR 0040 Lead correction item 5) rather than shown null.
-const BASE_COLUMN_COUNT = 7;
 
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
@@ -457,7 +452,7 @@ function PlayerManagement() {
         }
       : undefined;
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
-  const columnCount = BASE_COLUMN_COUNT + (bestBall ? 0 : 1);
+  const columnCount = playerRowColumnCount(bestBall);
   const controls = (
     <Stack spacing={1.5}>
       <FormControl size="small" fullWidth>
@@ -752,30 +747,7 @@ function PlayerManagement() {
         >
           <Table aria-label="Players" sx={{ minWidth: 960 }}>
             <TableHead>
-              <TableRow>
-                <TableCell sx={headCellSx}>Player</TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  {currentWeek != null ? `Proj Wk ${currentWeek}` : "Proj Wk"}
-                </TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  ROS
-                </TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  Ownership
-                </TableCell>
-                {!bestBall && (
-                  <TableCell sx={headCellSx} align="right">
-                    Upgrade
-                  </TableCell>
-                )}
-                <TableCell sx={headCellSx}>
-                  {currentWeek != null ? `Weeks ${currentWeek} to 18` : "Weeks"}
-                </TableCell>
-                <TableCell sx={headCellSx}>Status</TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  Action
-                </TableCell>
-              </TableRow>
+              <PlayerRowTableHead bestBall={bestBall} currentWeek={currentWeek} sx={headCellSx} />
             </TableHead>
             <TableBody>
               {players.length === 0 && (

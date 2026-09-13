@@ -17,3 +17,7 @@
 export { default as PlayerRow } from './ui/PlayerRow';
 export { default } from './ui/PlayerRow';
 export { weeksForSparkline } from './model/weeksAdapter';
+// The shared desktop table header (#1310 formal review f2): PlayerManagement
+// and WaiverWire's on-waivers table both render this instead of a
+// hand-copied header row.
+export { default as PlayerRowTableHead, playerRowColumnCount } from './ui/PlayerRowTableHead';
