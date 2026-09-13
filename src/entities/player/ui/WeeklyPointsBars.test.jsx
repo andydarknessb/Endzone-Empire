@@ -31,6 +31,16 @@ test('renders exactly 18 cells, one per week', () => {
   expect(screen.getAllByRole('listitem')).toHaveLength(18);
 });
 
+// Third risk review (round 3 nit): the Decision card's prev/next handler
+// opts a region INTO keeping its own arrow keys by this explicit mark,
+// never by inferring it from computed CSS (which the surrounding Drawer's
+// own Paper can satisfy too, incidentally - see PlayerDecisionCard.jsx's
+// isTypingTarget).
+test('carries the explicit arrow-scroll-region mark the Decision card looks for', () => {
+  render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} />);
+  expect(screen.getByTestId('weekly-points-bars')).toHaveAttribute('data-arrow-scroll-region', 'true');
+});
+
 test('the bye week cell carries a dashed, unfilled column and states "bye" in its title', () => {
   render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} />);
   const bye = screen.getByTestId('weekly-bar-8');

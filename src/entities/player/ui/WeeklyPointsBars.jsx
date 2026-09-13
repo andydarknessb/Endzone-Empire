@@ -45,6 +45,15 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd }) {
       // reaches it and the browser's own arrow-key scrolling takes over -
       // the same fix MUI's own `TableContainer` applies to itself.
       tabIndex={0}
+      // Third risk review (round 3 nit): the Decision card's own prev/next
+      // handler (PlayerDecisionCard.jsx `isTypingTarget`) must let a FOCUSED
+      // scroll region like this one keep its own arrow keys rather than
+      // navigate to another player. It opts in explicitly by this data
+      // attribute rather than by a computed `overflow-x` (which the
+      // surrounding Drawer's Paper can compute to `auto` too, incidentally,
+      // per CSS Overflow 3's visible-pairs-with-non-visible rule) - an
+      // explicit mark can never drift onto an element that doesn't mean it.
+      data-arrow-scroll-region="true"
       sx={{
         display: 'flex',
         alignItems: 'flex-end',

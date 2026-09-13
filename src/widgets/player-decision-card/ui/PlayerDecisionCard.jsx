@@ -51,18 +51,22 @@ import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/sl
 // being scrollable, and the whole handler then goes dead on it (jsdom
 // reports 0 for both widths, which is why no jsdom test caught this - a
 // real-browser check is `tests/e2e/player-decision-card.spec.ts`'s job).
-// The computed `overflow-x` is what actually distinguishes "this scrolls"
-// from "this truncates": only `auto`/`scroll` means arrow keys have
-// somewhere to go, `hidden` (or `visible`) never does.
+//
+// Third risk review (round 3 nit): a computed-`overflow-x` check has its own
+// trap - CSS Overflow 3 computes a `visible` axis to `auto` when its OTHER
+// axis is non-`visible`, so the Drawer's own Paper (`overflowY: 'auto'`,
+// `PaperProps` below) computes `overflow-x: auto` too despite never actually
+// scrolling horizontally (the 390px e2e guard enforces that today, but
+// nothing stops it drifting). An explicit opt-in mark, not CSS inference,
+// is what makes a region "this ticket's own arrow-key scroll strip" rather
+// than "happens to compute auto" - `WeeklyPointsBars` carries it, and nothing
+// else does.
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
   if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (el.getAttribute && el.getAttribute('role') === 'combobox') return true;
-  if (el.scrollWidth > el.clientWidth) {
-    const overflowX = typeof getComputedStyle === 'function' ? getComputedStyle(el).overflowX : '';
-    if (overflowX === 'auto' || overflowX === 'scroll') return true;
-  }
+  if (el.dataset && el.dataset.arrowScrollRegion === 'true' && el.scrollWidth > el.clientWidth) return true;
   return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
 }
 
