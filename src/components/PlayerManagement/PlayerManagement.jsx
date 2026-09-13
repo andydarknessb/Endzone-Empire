@@ -40,6 +40,7 @@ import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widge
 import SegmentedControl from "../../shared/ui/SegmentedControl";
 import { useAddPlayer } from "../../features/add-player";
 import { useClaimPlayer } from "../../features/claim-player";
+import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../lib/leaguePhase";
 import { isPickemOnly } from "../../lib/leagueType";
@@ -366,6 +367,28 @@ function PlayerManagement() {
       if (!ok) setError(message);
     },
     [submitClaim],
+  );
+  // #1312, ADR 0040 follow-up (grill ruling Q6): the row's own Watch toggle,
+  // the same one-tap shape `claimFromRow` already gives the row - its own
+  // per-row busy id, scoped separately from `pendingPlayerId` (Claim/Add's
+  // own tracker) since the two actions are independent and a manager may
+  // watch a row while an unrelated claim is still in flight.
+  const { toggleWatch } = useWatchPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  const [pendingWatchPlayerId, setPendingWatchPlayerId] = useState(null);
+  const watchActionForPlayer = useCallback(
+    (player) => {
+      if (!selectedLeague) return null;
+      return {
+        watching: Boolean(player.watching),
+        pending: pendingWatchPlayerId === player.id,
+        onClick: async () => {
+          setPendingWatchPlayerId(player.id);
+          await toggleWatch({ playerId: player.id, watching: Boolean(player.watching) });
+          setPendingWatchPlayerId(null);
+        },
+      };
+    },
+    [pendingWatchPlayerId, selectedLeague, toggleWatch],
   );
   const actionForPlayer = useCallback(
     (player) => {
@@ -768,6 +791,7 @@ function PlayerManagement() {
                   key={player.id}
                   player={player}
                   action={actionForPlayer(player)}
+                  watchAction={watchActionForPlayer(player)}
                   bestBall={bestBall}
                   onOpenPlayer={setQuickViewId}
                 />
@@ -795,6 +819,7 @@ function PlayerManagement() {
               key={player.id}
               player={player}
               action={actionForPlayer(player)}
+              watchAction={watchActionForPlayer(player)}
               bestBall={bestBall}
               variant="card"
               onOpenPlayer={setQuickViewId}

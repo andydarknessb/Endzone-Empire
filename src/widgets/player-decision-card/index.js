@@ -55,6 +55,13 @@
  *     lives. `isEligibleMove` is exported as a plain pure function (no
  *     hook, no side effect, no `useSwapPlayers` state), so this widget
  *     reads it without pulling in the hook's own React/state surface.
+ *
+ * A fifth instance, added with #1312 (ADR 0040 follow-up, grill ruling Q6):
+ *   - `src/features/watch-player` (`WatchPlayerAction`, `ui/
+ *     PlayerDecisionCard.jsx`): the Watch/Watching toggle, shown across
+ *     every Availability context (never `draft`) - the same widget-reads-a-
+ *     feature-through-its-own-public-index shape `add-player`/`claim-player`
+ *     already establish two paragraphs up.
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';

@@ -141,6 +141,41 @@ test("an action's helper tooltip keeps the button's own label as its accessible 
   expect(screen.getByRole('button', { name: 'Add free agent' })).toBeInTheDocument();
 });
 
+// #1312, ADR 0040 follow-up (grill ruling Q6): the Watch toggle - a plain
+// data object the caller builds, the same shape `action` already uses,
+// hidden entirely when the caller omits it.
+test('watchAction omitted: no Watch control renders', () => {
+  renderRow({ player: player(), action: { kind: 'button', label: 'Add', onClick: jest.fn() } });
+
+  expect(screen.queryByTestId('player-row-watch')).not.toBeInTheDocument();
+});
+
+test('watchAction: the button label flips from "Watch" to "Watching" from the row payload, no fetch', async () => {
+  const onClick = jest.fn();
+  renderRow({
+    player: player(),
+    action: { kind: 'button', label: 'Add', onClick: jest.fn() },
+    watchAction: { watching: false, onClick },
+  });
+
+  const toggle = screen.getByRole('button', { name: 'Watch' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await userEvent.click(toggle);
+  expect(onClick).toHaveBeenCalled();
+});
+
+test('watchAction: watching renders "Watching" and a disabled toggle while pending', () => {
+  renderRow({
+    player: player(),
+    action: { kind: 'button', label: 'Add', onClick: jest.fn() },
+    watchAction: { watching: true, onClick: jest.fn(), pending: true },
+  });
+
+  const toggle = screen.getByRole('button', { name: 'Watching' });
+  expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  expect(toggle).toBeDisabled();
+});
+
 test('card variant renders the same row content in a stacked layout', () => {
   renderWithProviders(
     <PlayerRow

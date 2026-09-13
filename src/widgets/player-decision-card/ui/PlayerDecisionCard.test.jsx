@@ -1231,3 +1231,59 @@ describe('Season summary and Season pick (#1358)', () => {
     expect(within(radiogroupAfterNav).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
   });
 });
+
+// #1312, ADR 0040 follow-up (grill ruling Q6): the Watch/Watching toggle,
+// shown across every Availability context, driven by the #1306 card
+// payload's own `watching` field.
+describe('Watch (#1312)', () => {
+  test('the button label flips from "Watch" to "Watching" from the card payload, no fetch', async () => {
+    mockCardRoute({ watching: false });
+    renderCard({ context: 'free_agent', entry: availabilityEntry(), entries: undefined });
+
+    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+
+    apiClient.put.mockResolvedValue({});
+    await userEvent.click(screen.getByRole('button', { name: 'Watch' }));
+
+    expect(apiClient.put).toHaveBeenCalledWith('/api/players/7/watch', null, { params: { leagueId: 1 } });
+    // The optimistic local override, not a second GET /card fetch: `get` is
+    // called only for the initial line/weather/usage + card reads.
+    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+  });
+
+  test('a watched player opens already showing "Watching", and DELETEs on click', async () => {
+    mockCardRoute({ watching: true });
+    renderCard({ context: 'waivers', entry: availabilityEntry(), entries: undefined, availability: { waiverPriority: 3 } });
+
+    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+
+    apiClient.delete.mockResolvedValue({});
+    await userEvent.click(screen.getByRole('button', { name: 'Watching' }));
+
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/players/7/watch', { params: { leagueId: 1 } });
+    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+  });
+
+  test('renders on the caller\'s own player (my_team) too, matching the design\'s four card states', async () => {
+    mockCardRoute({ watching: false });
+    const starter = entry();
+    renderCard({ entry: starter, entries: [starter] });
+
+    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+  });
+
+  test('never renders in the draft context, which is not an Availability state', async () => {
+    mockCardRoute({ watching: false });
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      canDraft: true,
+      onDraft: jest.fn(),
+      onQueue: jest.fn(),
+    });
+
+    await screen.findByTestId('decision-card-draft-action');
+    expect(screen.queryByTestId('watch-player-action')).not.toBeInTheDocument();
+  });
+});
