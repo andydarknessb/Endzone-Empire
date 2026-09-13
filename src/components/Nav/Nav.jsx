@@ -301,8 +301,11 @@ function Nav() {
                   hamburger open leaves focusDrawerSearch false so it does not
                   steal focus. The drawer is a temporary MUI Drawer with no
                   keepMounted, so this instance mounts fresh on each open and
-                  autoFocus fires against the current intent. */}
-              <GlobalPlayerSearch inDrawer autoFocus={focusDrawerSearch} />
+                  autoFocus fires against the current intent. onSelect closes
+                  the drawer (#1362): nothing else does once a search hit
+                  navigates - not even to the page already open, since the
+                  pathname staying put means a location effect would not fire. */}
+              <GlobalPlayerSearch inDrawer autoFocus={focusDrawerSearch} onSelect={closeDrawer} />
             </Box>
           )}
           {loggedIn ? (

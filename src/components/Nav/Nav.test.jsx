@@ -60,6 +60,38 @@ test('opens the authenticated mobile navigation drawer and closes it after navig
   await waitFor(() => expect(drawerHome).not.toBeVisible());
 });
 
+test('selecting a player in the drawer search closes the drawer (#1362)', async () => {
+  const user = userEvent.setup();
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players') {
+      return Promise.resolve({
+        data: { players: [{ id: 7, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN' }] },
+      });
+    }
+    return Promise.resolve({ data: { notifications: [], unread: 0 } });
+  });
+  // path: '/*' keeps Nav mounted across the navigate() the selection
+  // triggers, the same way it stays mounted across every other route change
+  // in the real app - otherwise Nav unmounting when the route stops
+  // matching "/" would make the drawer disappear regardless of whether the
+  // fix actually closes it.
+  renderWithProviders(<Nav />, { path: '/*', state: { user: { id: 1, username: 'alice' } } });
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+
+  await user.click(screen.getByRole('button', { name: /open navigation menu/i }));
+  const drawerNav = screen.getByRole('navigation', { name: 'Navigation menu' });
+
+  // jsdom resolves the AppBar instance's `display: none` below the `lg`
+  // breakpoint (window width defaults under 1200px), so only the drawer
+  // instance is in the accessibility tree here.
+  const drawerSearch = screen.getByRole('combobox', { name: 'Search players' });
+  await user.type(drawerSearch, 'jeff');
+  const option = await screen.findByText('Justin Jefferson');
+  await user.click(option);
+
+  await waitFor(() => expect(drawerNav).not.toBeVisible());
+});
+
 test('opening the drawer with the hamburger does not move focus into the search (#934)', async () => {
   const user = userEvent.setup();
   renderWithProviders(<Nav />, { state: { user: { id: 1, username: 'alice' } } });
