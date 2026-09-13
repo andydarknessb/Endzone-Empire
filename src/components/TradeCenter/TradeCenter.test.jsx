@@ -165,6 +165,45 @@ test('clicking a player name opens the Decision card, with context keyed off the
   expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
 });
 
+// #1310: the Players list row's Trade action deep-links here as
+// `?receivingTeamId=&playerId=` (src/features/propose-trade). TradeCenter
+// reads both off the URL to preselect the receiving team and check the
+// player, once its own rosters have loaded.
+test('a Trade deep-link (?receivingTeamId=&playerId=) preselects the receiving team and checks the player', async () => {
+  mockGetSequence({ trades: [] });
+
+  renderWithProviders(<TradeCenter />, {
+    path: '/league/:leagueId/trades',
+    route: '/league/1/trades?receivingTeamId=20&playerId=200',
+    state: { user: { id: 1, username: 'alice' } },
+  });
+
+  await screen.findByText('No Pending Trades');
+
+  const receiveColumn = await screen.findByTestId('roster-column-receive');
+  expect(within(receiveColumn).getByLabelText('Tyreek Hill (WR)')).toBeChecked();
+  expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
+});
+
+// Formal review formal-1310-f4: a stale/mistyped playerId (traded, dropped,
+// or simply wrong) must not land in receiveIds uncheckably - RosterColumn
+// never renders a checkbox for an id absent from the team's own roster, yet
+// handleSendOffer would still send it.
+test('a Trade deep-link whose playerId is not on the receiving team\'s roster preselects the team with nothing checked', async () => {
+  mockGetSequence({ trades: [] });
+
+  renderWithProviders(<TradeCenter />, {
+    path: '/league/:leagueId/trades',
+    route: '/league/1/trades?receivingTeamId=20&playerId=999999',
+    state: { user: { id: 1, username: 'alice' } },
+  });
+
+  await screen.findByText('No Pending Trades');
+
+  expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
+  expect(screen.getByRole('button', { name: 'Send Offer' })).toBeDisabled();
+});
+
 test('shows empty state when there are no trades', async () => {
   mockGetSequence({ trades: [] });
 

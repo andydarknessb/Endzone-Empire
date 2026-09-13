@@ -1,7 +1,6 @@
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, useLocation } from "react-router-dom";
 import renderWithProviders from "../../test-utils/renderWithProviders";
 import apiClient from "../../api/apiClient";
 import PlayerManagement from "./PlayerManagement";
@@ -16,7 +15,12 @@ const player = (overrides = {}) => ({
   name: "Patrick Mahomes",
   position: "QB",
   nfl_team: "Kansas City Chiefs",
-  availability: { state: "free_agent" },
+  availability: { state: "free_agent", teamId: null, teamName: null, availableAt: null },
+  projWeek: { week: 3, points: 22.4 },
+  ros: { points: 210.5, perGame: 17.5, posRank: null, throughWeek: 17 },
+  weeks: [{ week: 3, points: 22.4 }],
+  ownership: null,
+  upgrade: null,
   ...overrides,
 });
 const league = {
@@ -26,13 +30,9 @@ const league = {
   season_status: "regular",
   waiver_type: "faab",
   my_team_faab_remaining: 72,
+  best_ball: false,
 };
 const originalMatchMedia = window.matchMedia;
-
-function LocationProbe() {
-  const location = useLocation();
-  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
-}
 
 function mockBrowser({
   players = [player()],
@@ -90,9 +90,35 @@ test("renders a league-scoped Player Browser without duplicate roster management
   ).not.toBeInTheDocument();
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith("/api/players", {
-      params: { page: 1, position: "All", sort: "adp", leagueId: 1 },
+      // Formal review formal-1310-f1: Upgrade is the default sort once a
+      // league is selected in a non-best-ball league.
+      params: { page: 1, position: "All", sort: "upgrade", leagueId: 1, view: "cards" },
     }),
   );
+});
+
+test("formal-1310-f1: Upgrade is the default sort only with a selected, non-best-ball league; no league or best ball stays ADP; an explicit ?sort= still wins", async () => {
+  mockBrowser({ leagues: [{ ...league, best_ball: true }] });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByTestId("player-row");
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.sort).toBe("adp");
+  });
+});
+
+test("formal-1310-f1: an explicit ?sort= wins over the contextual Upgrade default", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />, {
+    route: "/player?league=1&sort=name",
+    path: "/player",
+  });
+
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.sort).toBe("name");
+  });
 });
 
 // #1307, ADR 0040: PlayerManagement opens the Decision card (context derived
@@ -115,7 +141,7 @@ test("clicking a free-agent player's name opens the Decision card with an Add-to
 // at all to give the card.
 test("clicking one of the caller's own players' name opens the Decision card without crashing, and renders an Open lineup link", async () => {
   mockBrowser({
-    players: [player({ id: 5, name: "My Own Guy", availability: { state: "my_team" } })],
+    players: [player({ id: 5, name: "My Own Guy", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } })],
   });
   renderWithProviders(<PlayerManagement />);
 
@@ -158,16 +184,19 @@ test("at roster capacity, the free-agent drop pick lists the caller's own roster
   expect(within(options[2]).getByText(/Star Player/)).toBeInTheDocument();
 });
 
-test("renders the server-authoritative availability actions without disclosing another Team", async () => {
+// #1310, ADR 0040: the row's action follows the state - Add, Claim, Trade,
+// Lineup - and NO row ever renders a disabled "Rostered" button (the red
+// tell this ticket replaces: a rostered player is always tradeable).
+test("renders the server-authoritative availability actions, state-driven", async () => {
   mockBrowser({
     players: [
       player({ id: 1, name: "Free Agent" }),
-      player({ id: 2, name: "On Waivers", availability: { state: "waivers" } }),
-      player({ id: 3, name: "My Starter", availability: { state: "my_team" } }),
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: "2026-09-17T07:00:00.000Z" } }),
+      player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } }),
       player({
         id: 4,
         name: "Rival Player",
-        availability: { state: "rostered" },
+        availability: { state: "rostered", teamId: 9, teamName: "Rival Squad", availableAt: null },
       }),
     ],
   });
@@ -176,31 +205,79 @@ test("renders the server-authoritative availability actions without disclosing a
   expect(
     await screen.findByRole("button", { name: "Claim" }),
   ).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "In lineup" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Rostered" })).toBeDisabled();
+  expect(screen.getByRole("link", { name: "Lineup" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Rostered" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Trade" })).toBeEnabled();
   expect(
     screen.getAllByRole("button", { name: "Add free agent" }),
   ).toHaveLength(1);
-  expect(
-    screen.queryByText(/Rival Team|Rival Manager/),
-  ).not.toBeInTheDocument();
+  // Status now names the owning team (ADR 0040 Lead correction item 2) -
+  // the opposite of the old PlayerQuickView-era rule this replaces.
+  expect(screen.getByText("Rival Squad")).toBeInTheDocument();
 });
 
-test("routes a waiver player to a claimable Waiver Wire target", async () => {
+test("a rostered row's Trade action deep-links into TradeCenter with the owning team and this player preselected", async () => {
   mockBrowser({
     players: [
-      player({ id: 2, name: "On Waivers", availability: { state: "waivers" } }),
+      player({
+        id: 4,
+        name: "Rival Player",
+        availability: { state: "rostered", teamId: 9, teamName: "Rival Squad", availableAt: null },
+      }),
     ],
   });
-  renderWithProviders(<PlayerManagement />, {
-    routes: <Route path="/league/:leagueId/waivers" element={<LocationProbe />} />,
+  renderWithProviders(<PlayerManagement />);
+
+  expect(await screen.findByRole("link", { name: "Trade" })).toHaveAttribute(
+    "href",
+    "/league/1/trades?receivingTeamId=9&playerId=4",
+  );
+});
+
+test("Claim submits a waiver claim directly, through the same claim-player feature WaiverWire's own dialog uses", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
   });
+  apiClient.post.mockResolvedValue({});
+  renderWithProviders(<PlayerManagement />);
 
   await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
 
-  expect(screen.getByTestId("location")).toHaveTextContent(
-    "/league/1/waivers?playerId=2",
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith("/api/waivers/claim", {
+      leagueId: 1,
+      playerId: 2,
+      dropPlayerId: null,
+      bid: 0,
+    }),
   );
+});
+
+// Formal review formal-1310-f3: the busy state used to be page-wide (every
+// row's Claim relabeled/disabled while ANY one was in flight). It must be
+// scoped to the one row the manager actually tapped.
+test("formal-1310-f3: only the tapped row's Claim goes busy, not every waivers row", async () => {
+  let resolvePost;
+  apiClient.post.mockImplementation(() => new Promise((resolve) => { resolvePost = resolve; }));
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "First Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+      player({ id: 3, name: "Second Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const claimButtons = await screen.findAllByRole("button", { name: "Claim" });
+  expect(claimButtons).toHaveLength(2);
+  await userEvent.click(claimButtons[0]);
+
+  expect(await screen.findByRole("button", { name: "Claiming…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Claim" })).toBeEnabled();
+
+  resolvePost({});
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Claim" })).toHaveLength(2));
 });
 
 test("adds a Free agent then refreshes the server-authoritative browser state", async () => {
@@ -241,23 +318,22 @@ test("adding a Free agent also re-reads the caller's own roster", async () => {
   );
 });
 
-test("uses URL-backed availability filters and labels the stored value Pool projection", async () => {
-  mockBrowser({ players: [player({ projected_points: 211.4 })] });
+test("uses URL-backed availability filters through the segmented control", async () => {
+  mockBrowser({ players: [player()] });
   renderWithProviders(<PlayerManagement />);
   await screen.findByRole("button", { name: "Add free agent" });
 
-  expect(screen.getByText("Pool projection")).toBeInTheDocument();
-  await userEvent.click(screen.getByLabelText("Availability"));
-  await userEvent.click(
-    await screen.findByRole("option", { name: "Free agents" }),
-  );
+  await userEvent.click(screen.getByRole("radio", { name: "Free agents" }));
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith("/api/players", {
       params: {
         page: 1,
         position: "All",
-        sort: "adp",
+        // Formal review formal-1310-f1: Upgrade is the default sort once a
+        // league is selected in a non-best-ball league.
+        sort: "upgrade",
         leagueId: 1,
+        view: "cards",
         availability: "free_agent",
       },
     }),
@@ -279,6 +355,7 @@ test("restores selected league, search, position, sort, direction, and page from
         position: "RB",
         sort: "name",
         leagueId: 1,
+        view: "cards",
         availability: "waivers",
         dir: "desc",
         search: "smith",
@@ -287,7 +364,7 @@ test("restores selected league, search, position, sort, direction, and page from
   );
 });
 
-test("uses rich player cards and a filter drawer at mobile widths", async () => {
+test("uses stacked player-row cards and a filter drawer at mobile widths", async () => {
   window.matchMedia = jest
     .fn()
     .mockImplementation(() => ({
@@ -297,14 +374,14 @@ test("uses rich player cards and a filter drawer at mobile widths", async () => 
       addEventListener: jest.fn(),
       removeEventListener: jest.fn(),
     }));
-  mockBrowser({ players: [player({ projected_points: 211.4 })] });
+  mockBrowser({ players: [player({ name: "Card Player" })] });
   renderWithProviders(<PlayerManagement />);
 
   expect(
     await screen.findByRole("button", { name: "Filters" }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
-  expect(await screen.findByText("211.4 pts")).toBeInTheDocument();
+  expect(await screen.findByTestId("player-row-card")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Filters" }));
   expect(
     await screen.findByRole("heading", { name: "Player filters" }),
@@ -326,6 +403,20 @@ test("keeps player browsing available without a fantasy league while withholding
   // ticket adds - both settle, but not necessarily in the order the "no
   // league" alert (leagues-only) does.
   expect(await screen.findByRole("button", { name: "Select league" })).toBeDisabled();
+});
+
+// A league fetched with no leagueId sends the plain (pre-view=cards) shape:
+// view=cards is a 400 without one (server ruling), so PlayerManagement never
+// sends it while no league is selected.
+test("never sends view=cards without a selected league", async () => {
+  mockBrowser({
+    leagues: [{ id: 5, name: "Office Pool", pickem_only: true }],
+    context: null,
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText(/not in a fantasy league yet/i);
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith("/api/players", { params: { page: 1, position: "All", sort: "adp" } }));
 });
 
 // #970: player management reads its failures through readHttpFailure. The
@@ -355,44 +446,27 @@ test("a load refusal carrying a code beside a message renders the message, not t
   expect(screen.queryByText("PLAYER_INDEX_UNAVAILABLE")).not.toBeInTheDocument();
 });
 
-// Issue #1002 acceptance criterion 2. The Player Browser's sort state now holds
-// sortFields.js KEYS and translates to the server's field name once, at the
-// fetch site, through wireSortName - the Draft room's own vocabulary instead of
-// this file's second, independent list of the same fields over the same
-// endpoint. Nothing the SERVER sees may change, so this pins the `?sort=` value
-// each column sends against the value it sent before the change (the PR body
-// carries the same table). Driven through the real header click rather than by
-// seeding the URL, so it fails if a header is wired to the wrong key.
-const SORT_PARAM_BY_COLUMN = [
-  ["Player", "name"],
-  ["Pos rank", "position_rank"],
-  ["ADP", "adp"],
-  ["Pool projection", "projected_points"],
-];
+// Issue #1002 acceptance criterion 2 / #1310: the Sort dropdown still
+// translates a sortFields KEY to the server's wire name at the fetch site,
+// unaffected by this ticket's removal of the old per-column header sort
+// (those columns - Pos rank, ADP, Pool projection - left the list itself,
+// ADR 0040: "Pool projection leaves waivers and the player list").
+test("choosing a Sort option sends the matching ?sort= wire name", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />);
+  await screen.findByRole("heading", { name: "Player Browser" });
 
-test.each(SORT_PARAM_BY_COLUMN)(
-  "sorting by the %s column sends the same ?sort= value it sent before the sortFields reconciliation",
-  async (column, expectedSortParam) => {
-    mockBrowser();
-    renderWithProviders(<PlayerManagement />);
-    await screen.findByRole("heading", { name: "Player Browser" });
+  await userEvent.click(screen.getByLabelText("Sort"));
+  expect(await screen.findByRole("option", { name: "Pool projection" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("option", { name: "Position rank" }));
 
-    // Scoped to the header row and matched on the visible column text: two of
-    // these headers wrap their label in an AbbreviationTooltip, whose nested
-    // aria-label makes the sort control's accessible name the whole
-    // "term: definition" sentence rather than the column text. Clicking the
-    // label bubbles to the TableSortLabel exactly as a real click does.
-    const headerRow = within(screen.getByRole("table")).getAllByRole("row")[0];
-    await userEvent.click(within(headerRow).getByText(column));
-
-    await waitFor(() => {
-      const playerCalls = apiClient.get.mock.calls.filter(
-        ([url]) => url === "/api/players",
-      );
-      expect(playerCalls.at(-1)[1].params.sort).toBe(expectedSortParam);
-    });
-  },
-);
+  await waitFor(() => {
+    const playerCalls = apiClient.get.mock.calls.filter(
+      ([url]) => url === "/api/players",
+    );
+    expect(playerCalls.at(-1)[1].params.sort).toBe("position_rank");
+  });
+});
 
 // The `?sort=` URL param carried WIRE names before #1002 and now carries keys,
 // and one field's two names differ, so a bookmark made before this change would
@@ -411,4 +485,16 @@ test("a pre-existing ?sort= bookmark holding the old wire name still sorts by th
     );
     expect(playerCalls.at(-1)[1].params.sort).toBe("projected_points");
   });
+});
+
+test("hides the Upgrade column entirely in a best ball league", async () => {
+  mockBrowser({
+    leagues: [{ ...league, best_ball: true }],
+    players: [player({ upgrade: { points: 4.1, overPlayer: { id: 9, name: "Bench" }, slot: "RB" } })],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByTestId("player-row");
+  expect(screen.queryByRole("columnheader", { name: "Upgrade" })).not.toBeInTheDocument();
+  expect(screen.queryByTestId("player-row-upgrade")).not.toBeInTheDocument();
 });
