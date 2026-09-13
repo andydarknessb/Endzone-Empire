@@ -6,8 +6,9 @@ const {
   tradeVerdict,
   tradeFairnessSummary,
   rankWaiverCandidates,
+  upgradeFor,
 } = require('../services/decision.service');
-const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
+const { DEFAULT_ROSTER_SLOTS, slotEligible } = require('../services/lineup.service');
 
 // ---------------------------------------------------------------------------
 // buildSuggestions
@@ -444,4 +445,53 @@ test('rankWaiverCandidates: caps results at 25', () => {
   const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.equal(ranked.length, 25);
   assert.equal(ranked[0].playerId, 40); // highest projection first
+});
+
+// ---------------------------------------------------------------------------
+// upgradeFor <-> rankWaiverCandidates (issue #1306 Ruling item 1: one Upgrade
+// producer - upgradeDelta and upgradeFor(...).points must never disagree)
+// ---------------------------------------------------------------------------
+
+test('upgradeFor: matches rankWaiverCandidates upgradeDelta for every ranked row, and names an eligible slot', () => {
+  const candidates = [
+    { playerId: 1, name: 'A', position: 'RB', nflTeam: 'DAL', projection: 12 },
+    { playerId: 2, name: 'B', position: 'TE', nflTeam: 'NYG', projection: 9 },
+    { playerId: 3, name: 'C', position: 'QB', nflTeam: 'PHI', projection: 18 }, // no eligible starter
+  ];
+  const currentStarters = [
+    { playerId: 10, slot: 'RB', name: 'Starter RB', projection: 10 },
+    { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
+    { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 },
+  ];
+  const ranked = rankWaiverCandidates(candidates, currentStarters, DEFAULT_ROSTER_SLOTS);
+  assert.equal(ranked.length, candidates.length);
+  for (const row of ranked) {
+    const candidate = candidates.find((c) => c.playerId === row.playerId);
+    const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+    assert.equal(row.upgradeDelta, upgrade.points);
+    if (upgrade.slot != null) {
+      assert.equal(slotEligible(upgrade.slot, candidate.position, DEFAULT_ROSTER_SLOTS), true);
+    }
+  }
+});
+
+test('upgradeFor: no starter at an eligible slot -> weakest is 0, overPlayer and slot are null', () => {
+  const candidate = { position: 'QB', projection: 18 };
+  const currentStarters = [{ playerId: 10, slot: 'RB', name: 'Starter RB', projection: 25 }];
+  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+  assert.equal(upgrade.points, 18);
+  assert.equal(upgrade.overPlayer, null);
+  assert.equal(upgrade.slot, null);
+});
+
+test('upgradeFor: names the weakest eligible starter as overPlayer', () => {
+  const candidate = { position: 'TE', projection: 10 };
+  const currentStarters = [
+    { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
+    { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 },
+  ];
+  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+  assert.equal(upgrade.points, 6);
+  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX' });
+  assert.equal(upgrade.slot, 'FLEX');
 });

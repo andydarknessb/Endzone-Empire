@@ -944,34 +944,75 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 // 4. Waiver suggestions
 // ---------------------------------------------------------------------------
 
+/** Pure: the roster slots (FLEX included) a position is eligible to start in, given `rosterSlots`. */
+function eligibleSlotsFor(position, rosterSlots) {
+  return rosterSlots
+    .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
+    .map((s) => s.key);
+}
+
+/**
+ * Pure: the caller's weakest starter among `currentStarters` sitting at a slot
+ * in `eligibleSlots`, or null when none does. Ties broken by `rosterSlots`
+ * order (the slot named earliest wins), then by player id.
+ */
+function weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots) {
+  const relevant = currentStarters.filter((s) => eligibleSlots.includes(s.slot));
+  if (relevant.length === 0) return null;
+  const slotOrder = new Map(rosterSlots.map((s, i) => [s.key, i]));
+  return relevant.reduce((weakest, s) => {
+    const weakestPoints = Number(weakest.projection) || 0;
+    const sPoints = Number(s.projection) || 0;
+    if (sPoints < weakestPoints) return s;
+    if (sPoints > weakestPoints) return weakest;
+    const weakestOrder = slotOrder.get(weakest.slot) ?? 0;
+    const sOrder = slotOrder.get(s.slot) ?? 0;
+    if (sOrder < weakestOrder) return s;
+    if (sOrder === weakestOrder && (s.playerId ?? 0) < (weakest.playerId ?? 0)) return s;
+    return weakest;
+  });
+}
+
+/**
+ * Pure: how much `candidate` (`{ position, projection }`) upgrades the
+ * caller's weakest current starter at a slot he is eligible for (FLEX
+ * included). `points` is the exact `upgradeDelta` math `rankWaiverCandidates`
+ * uses below, so the two never disagree. When no starter sits at an eligible
+ * slot the weakest is treated as 0 and `overPlayer`/`slot` are both null
+ * (issue #1306 Ruling item 1).
+ */
+function upgradeFor(candidate, currentStarters, rosterSlots) {
+  const eligibleSlots = eligibleSlotsFor(candidate.position, rosterSlots);
+  const weakest = weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots);
+  const weakestProjection = weakest ? (Number(weakest.projection) || 0) : 0;
+  const points = round2((Number(candidate.projection) || 0) - weakestProjection);
+  return {
+    points,
+    overPlayer: weakest ? { id: weakest.playerId, name: weakest.name ?? null } : null,
+    slot: weakest ? weakest.slot : null,
+  };
+}
+
 /**
  * Pure: rank free-agent candidates by how much they'd upgrade the weakest
  * current starter among the slots they're eligible for (FLEX included).
  * candidates: [{ playerId, name, position, nflTeam, projection }].
  * currentStarters: [{ playerId, slot, projection }] (starting slots only).
  * Returns the top 25, each annotated with weakestStarterProjection and
- * upgradeDelta, sorted by upgradeDelta descending.
+ * upgradeDelta, sorted by upgradeDelta descending. `upgradeDelta` is always
+ * `upgradeFor(candidate, currentStarters, rosterSlots).points` for the same
+ * row - both read the same `weakestEligibleStarter` helper.
  */
 function rankWaiverCandidates(candidates, currentStarters, rosterSlots) {
   const eligibleSlotsByPosition = new Map();
-  const eligibleSlotsFor = (position) => {
-    if (!eligibleSlotsByPosition.has(position)) {
-      eligibleSlotsByPosition.set(
-        position,
-        rosterSlots
-          .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
-          .map((s) => s.key)
-      );
-    }
-    return eligibleSlotsByPosition.get(position);
-  };
 
   const ranked = candidates.map((candidate) => {
-    const eligibleSlots = eligibleSlotsFor(candidate.position);
-    const relevant = currentStarters.filter((s) => eligibleSlots.includes(s.slot));
-    const weakestStarterProjection = relevant.length === 0
-      ? 0
-      : Math.min(...relevant.map((s) => Number(s.projection) || 0));
+    if (!eligibleSlotsByPosition.has(candidate.position)) {
+      eligibleSlotsByPosition.set(candidate.position, eligibleSlotsFor(candidate.position, rosterSlots));
+    }
+    const eligibleSlots = eligibleSlotsByPosition.get(candidate.position);
+    const weakest = weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots);
+    const weakestStarterProjection = weakest ? (Number(weakest.projection) || 0) : 0;
     const upgradeDelta = round2((Number(candidate.projection) || 0) - weakestStarterProjection);
     return { ...candidate, weakestStarterProjection: round2(weakestStarterProjection), upgradeDelta };
   });
@@ -1052,5 +1093,6 @@ module.exports = {
   tradeFairnessSummary,
   analyzeTrade,
   rankWaiverCandidates,
+  upgradeFor,
   waiverSuggestions,
 };
