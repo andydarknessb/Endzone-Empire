@@ -289,7 +289,7 @@ test.describe('existing draft behavior baseline (active fixture)', () => {
     await expect.poll(() => api.queueWrites.at(-1)?.playerIds).toEqual([1]);
   });
 
-  test('opens Quick View for a player without drafting them', async ({ page }) => {
+  test('opens the Decision card for a player without drafting them', async ({ page }) => {
     await setupActiveDraft(page);
 
     await page.getByRole('button', { name: 'Bijan Robinson' }).first().click();
@@ -612,7 +612,7 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
     ).toBeVisible();
   });
 
-  test('an offline-type draft never renders a manual Draft control from the row or Quick View', async ({ page }) => {
+  test('an offline-type draft never renders a manual Draft control from the row or the Decision card', async ({ page }) => {
     await installDraftSocketHarness(page, ACTIVE_OFFLINE_STATE);
     await installDraftRestApi(page, { league: ACTIVE_OFFLINE_STATE.league, picks: ACTIVE_PICKS });
     await gotoDraft(page);
@@ -621,10 +621,10 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
     await expect(page.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Bijan Robinson' }).first().click();
-    const quickView = page.getByRole('dialog');
-    await expect(quickView.getByRole('heading', { name: 'Bijan Robinson' })).toBeVisible();
-    await expect(quickView.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
-    await expect(quickView.getByRole('button', { name: 'Queue', exact: true })).toBeVisible();
+    const decisionCard = page.getByRole('dialog');
+    await expect(decisionCard.getByRole('heading', { name: 'Bijan Robinson' })).toBeVisible();
+    await expect(decisionCard.getByRole('button', { name: 'Draft', exact: true })).toHaveCount(0);
+    await expect(decisionCard.getByRole('button', { name: 'Queue', exact: true })).toBeVisible();
   });
 
   test('off-turn, Draft stays focusable but aria-disabled with the shared explanation, and clicking is a no-op', async ({ page }) => {
@@ -698,14 +698,14 @@ test.describe('pick-safe player actions across draft state (issue #120)', () => 
     await expect(page.getByText('Drafted Bijan Robinson!')).toBeVisible();
   });
 
-  test('Quick View exposes the same gated Draft action and confirmation as the row', async ({ page }) => {
+  test('the Decision card exposes the same gated Draft action and confirmation as the row', async ({ page }) => {
     await setupActiveDraft(page);
 
     await page.getByRole('button', { name: 'Bijan Robinson' }).first().click();
-    const quickView = page.getByRole('dialog');
-    await expect(quickView.getByRole('heading', { name: 'Bijan Robinson' })).toBeVisible();
+    const decisionCard = page.getByRole('dialog');
+    await expect(decisionCard.getByRole('heading', { name: 'Bijan Robinson' })).toBeVisible();
 
-    await quickView.getByRole('button', { name: 'Draft', exact: true }).click();
+    await decisionCard.getByRole('button', { name: 'Draft', exact: true }).click();
     const confirmDialog = page.getByRole('dialog').filter({ hasText: 'Draft Bijan Robinson?' });
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole('button', { name: 'Draft Bijan Robinson' }).click();

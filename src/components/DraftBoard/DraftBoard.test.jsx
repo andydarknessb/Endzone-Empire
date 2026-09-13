@@ -1,14 +1,12 @@
 import React from 'react';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route, useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket, onReconnect } from '../../api/socket';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
-import AuthenticatedPlayerProfilePage from '../PlayerDetail/AuthenticatedPlayerProfilePage';
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
 import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
 import DraftBoard from './DraftBoard';
@@ -166,6 +164,28 @@ const playersPage = (players = [{ id: 1, name: 'Patrick Mahomes', position: 'QB'
   data: { players, totalPages: 1 },
 });
 
+// A minimal `GET /api/players/:id/card` body (#1306/#1331 shape): the
+// Decision card's own read, replacing the deleted per-player summary
+// endpoint the Draft room's old DraftQuickView used to mock (#1313). Only
+// the fields the card's header/sections read are populated; `seasons: []`
+// hides Season summary/pick/bars/game log rather than fabricating a season
+// on record.
+const cardResponse = (player = { id: 1, name: 'Patrick Mahomes', position: 'QB', teamCode: 'KC' }) => ({
+  data: {
+    player: { jerseyNumber: null, photoUrl: null, byeWeek: null, injury: { designation: null, detail: null }, ...player },
+    availability: { state: 'draft', teamId: null, teamName: null },
+    decision: { projWeek: null, ros: null, upgrade: null, usage: null },
+    weeks: [],
+    seasons: [],
+    seasonEnd: 17,
+    news: [],
+    log: { current: [], previousSeasons: [] },
+    bio: null,
+    depth: null,
+    ownership: null,
+  },
+});
+
 const renderBoard = (leagueId = 1, state) =>
   renderWithProviders(<DraftBoard />, {
     path: '/league/:leagueId/draft',
@@ -263,116 +283,6 @@ test('ordinary Draft navigation does not claim focus or scroll the room', async 
 
   expect(screen.getByRole('main', { name: 'Draft Board' })).not.toHaveFocus();
   expect(scrollIntoView).not.toHaveBeenCalled();
-});
-
-test('returns through the real full profile to the exact freshly mounted Draft room', async () => {
-  const draftSearch = '?view=players&pos=QB&q=Patrick+Mahomes&sort=proj&dir=desc&showDrafted=1&byes=6%2C10';
-  let holdReturnedPlayerPool = false;
-  let releaseReturnedPlayerPool;
-  const returnedPlayerPool = new Promise((resolve) => {
-    releaseReturnedPlayerPool = () => resolve(playersPage());
-  });
-  apiClient.get.mockImplementation((url) => {
-    if (url === '/api/players' && holdReturnedPlayerPool) return returnedPlayerPool;
-    if (url === '/api/players/1/summary') {
-      return Promise.resolve({
-        data: {
-          player: {
-            id: 1,
-            name: 'Patrick Mahomes',
-            position: 'QB',
-            nfl_team: 'Kansas City Chiefs',
-          },
-          fantasy: null,
-          currentSeason: null,
-          previousSeasons: [],
-        },
-      });
-    }
-    if (url === '/api/public/players/1') {
-      return Promise.resolve({
-        data: {
-          playerId: 1,
-          name: 'Patrick Mahomes',
-          position: 'QB',
-          nflTeam: 'KC',
-          season: 2026,
-          seasons: [{ season: 2026, status: 'pending' }],
-          seasonSummary: null,
-          weeklyLogPartial: false,
-          recentGames: [],
-        },
-      });
-    }
-    if (url === '/api/league/10') {
-      return Promise.resolve({ data: { league: { id: 10, scoring_preset: 'ppr' } } });
-    }
-    return Promise.resolve(playersPage());
-  });
-
-  function DraftLocation() {
-    const location = useLocation();
-    return (
-      <output aria-label="Draft location">
-        {JSON.stringify({
-          pathname: location.pathname,
-          search: location.search,
-          state: location.state,
-        })}
-      </output>
-    );
-  }
-
-  renderWithProviders(<><DraftBoard /><DraftLocation /></>, {
-    path: '/league/:leagueId/draft',
-    route: `/league/10/draft${draftSearch}`,
-    routes: (
-      <Route
-        path="/players/:playerId"
-        element={<AuthenticatedPlayerProfilePage />}
-      />
-    ),
-  });
-
-  await userEvent.click(await screen.findByRole('button', { name: 'Patrick Mahomes' }));
-  await userEvent.click(await screen.findByRole('link', { name: /Full profile/i }));
-
-  expect(await screen.findByRole('link', { name: 'Draft room' })).toHaveAttribute(
-    'href',
-    `/league/10/draft${draftSearch}`
-  );
-  expect(createDraftSocket).toHaveBeenCalledTimes(1);
-
-  holdReturnedPlayerPool = true;
-  await userEvent.click(screen.getByRole('link', { name: 'Draft room' }));
-
-  const loadingMain = screen.getByRole('main');
-  expect(loadingMain).toHaveAttribute('data-testid', 'page-skeleton');
-  expect(loadingMain).not.toHaveFocus();
-  expect(scrollIntoView).not.toHaveBeenCalled();
-
-  await act(async () => releaseReturnedPlayerPool());
-  await screen.findByRole('button', { name: 'Patrick Mahomes' });
-  const draftMain = screen.getByRole('main', { name: 'Draft Board' });
-  await waitFor(() => expect(draftMain).toHaveFocus());
-  expect(scrollIntoView).toHaveBeenCalledTimes(1);
-  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
-  expect(screen.getByRole('status', { name: 'Draft location' })).toHaveTextContent(
-    JSON.stringify({
-      pathname: '/league/10/draft',
-      search: draftSearch,
-      state: null,
-    })
-  );
-  expect(createDraftSocket).toHaveBeenCalledTimes(2);
-
-  act(() => fakeSocket.trigger('draft:state', {
-    league: { name: 'Sunday Ballers', draft_status: 'pending' },
-    teams: [],
-    picks: [],
-    onTheClock: null,
-  }));
-  expect(scrollIntoView).toHaveBeenCalledTimes(1);
 });
 
 test('renders league state (name, on-the-clock, pick history) from a draft:state event', async () => {
@@ -2061,17 +1971,9 @@ test('shows projected points and injury badges in the available players table', 
   expect(screen.getByRole('button', { name: 'Patrick Mahomes' })).toBeInTheDocument();
 });
 
-test('clicking a player name opens the quick-view dialog and never drafts the player', async () => {
+test('clicking a player name opens the Decision card and never drafts the player', async () => {
   apiClient.get.mockImplementation((url) =>
-    url.endsWith('/summary')
-      ? Promise.resolve({
-          data: {
-            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
-            currentSeason: null,
-            previousSeasons: [],
-          },
-        })
-      : Promise.resolve(playersPage())
+    url.startsWith('/api/players/1/card') ? Promise.resolve(cardResponse()) : Promise.resolve(playersPage())
   );
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
@@ -2085,23 +1987,121 @@ test('clicking a player name opens the quick-view dialog and never drafts the pl
   ).toBe(false);
 });
 
+// #1313 red-tell (b): the Decision card's own cadence rule (ADR 0025/0040 -
+// one fetch per open, no polling) holds for the Draft room the same as every
+// other surface.
+// Formal review f2: fake timers have to be running BEFORE the card opens, or
+// an interval registered on open would run on the real clock the later
+// advance never touches - and the assertion has to be the mock's TOTAL call
+// count, or a poll to some OTHER endpoint would pass unnoticed. `fireEvent`
+// (synchronous), not `userEvent` (which awaits real delays internally under
+// v14 and would hang once fake timers are active), drives the click; the
+// mocked fetch promises still drain on the microtask queue, which fake timers
+// never intercept, so two flushes settle both the card and the line/usage
+// reads without advancing any timer.
+test('opening the Decision card issues exactly one /card request and never polls', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.startsWith('/api/players/1/card') ? Promise.resolve(cardResponse()) : Promise.resolve(playersPage())
+  );
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  jest.useFakeTimers();
+  fireEvent.click(screen.getByRole('button', { name: 'Patrick Mahomes' }));
+
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  const cardCallsSettled = apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/players/1/card')).length;
+  expect(cardCallsSettled).toBe(1);
+
+  const totalCallsSettled = apiClient.get.mock.calls.length;
+  act(() => jest.advanceTimersByTime(60_000));
+  expect(apiClient.get.mock.calls.length).toBe(totalCallsSettled);
+});
+
+// Formal review f1 (blocker): the queue rail opens a player by id from
+// useDraftQueue's own independent list (bare setQuickViewId, DraftBoard.jsx),
+// never from the pool - so a queued player the pool's current filter/search/
+// paging doesn't currently include has to resolve the same way
+// `findKnownPlayer` already does for a manual Pick (pool first, queue
+// fallback), or `entry` stays null and the card never opens at all.
+test('opening the Decision card from the queue rail works even when the player is outside the current pool page (f1)', async () => {
+  mockGets({
+    players: playersPage([{ id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs' }]),
+    queue: [{ id: 2, name: 'Bijan Robinson', position: 'RB', nfl_team: 'ATL', rank: 1 }],
+  });
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  // Bijan Robinson is queued but absent from the mocked pool page - the
+  // regression this pins left the card silently unopened here.
+  await userEvent.click(screen.getByRole('button', { name: 'Bijan Robinson' }));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('heading', { name: 'Bijan Robinson' })).toBeInTheDocument();
+});
+
+// #1313 red-tell (c): "Best available #N" is the row's own position in the
+// pool's current order (the `playerIds` prev/next already reads), and ADP is
+// the pool row's own market number - neither is a new server ranking.
+test('opening the Decision card from the pool shows the row ADP and its Best available position', async () => {
+  apiClient.get.mockImplementation((url) =>
+    url.startsWith('/api/players/2/card')
+      ? Promise.resolve(cardResponse({ id: 2, name: 'Josh Allen', position: 'QB', teamCode: 'BUF' }))
+      : Promise.resolve(
+          playersPage([
+            { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'Kansas City Chiefs', adp: 1.1 },
+            { id: 2, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills', adp: 2.4 },
+          ])
+        )
+  );
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Josh Allen' }));
+
+  expect(await screen.findByText('ADP 2.4')).toBeInTheDocument();
+  expect(screen.getByText('Best available #2')).toBeInTheDocument();
+});
+
+// #1313 red-tell (a): draftedBy replaces the whole Draft/Queue bar with a
+// plain attribution line, opened here from Pick history (not the pool, since
+// a drafted player is no longer in it).
+test('opening the Decision card for an already-drafted player shows Drafted by, never Draft or Queue', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', stateEvent(activeLeague(), {
+      picks: [{
+        pick_number: 1, teamId: 5, teamName: "Bob's Team",
+        player_id: 10, name: 'Josh Allen', position: 'QB', nfl_team: 'Buffalo Bills',
+      }],
+    }))
+  );
+
+  await openPickHistory();
+  await userEvent.click(screen.getByRole('button', { name: 'Josh Allen' }));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText("Drafted by Bob's Team")).toBeInTheDocument();
+  expect(within(dialog).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument();
+});
+
 // --- State-correct player actions, Pick-safe manual Draft (#120, parent #108) ---
 // status (pending/active/complete) x type (snake/linear/autopick/offline) x
 // turn ownership x pause x completion. Snake/linear are the same draft_type
 // ('snake') differing only in draft_rotation, which pickActionExists doesn't
 // key on; autopick and offline get their own coverage below.
 
-test('a pending draft never renders a manual Draft control in the pool table or Quick View, only Queue', async () => {
+test('a pending draft never renders a manual Draft control in the pool table or the Decision card, only Queue', async () => {
   apiClient.get.mockImplementation((url) =>
-    url.endsWith('/summary')
-      ? Promise.resolve({
-          data: {
-            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
-            currentSeason: null,
-            previousSeasons: [],
-          },
-        })
-      : Promise.resolve(playersPage())
+    url.startsWith('/api/players/1/card') ? Promise.resolve(cardResponse()) : Promise.resolve(playersPage())
   );
   renderBoard(1, { user: { id: 5 } });
   await screen.findByText('Patrick Mahomes');
@@ -2182,17 +2182,9 @@ test('an offline-type active draft never renders a manual Draft control from the
   expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
 });
 
-test('Quick View shows Draft as focusable aria-disabled with the shared explanation off-turn, and suppresses activation', async () => {
+test('the Decision card shows Draft as focusable aria-disabled with the shared explanation off-turn, and suppresses activation', async () => {
   apiClient.get.mockImplementation((url) =>
-    url.endsWith('/summary')
-      ? Promise.resolve({
-          data: {
-            player: { id: 1, name: 'Patrick Mahomes', position: 'QB', nfl_team: 'KC' },
-            currentSeason: null,
-            previousSeasons: [],
-          },
-        })
-      : Promise.resolve(playersPage())
+    url.startsWith('/api/players/1/card') ? Promise.resolve(cardResponse()) : Promise.resolve(playersPage())
   );
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');

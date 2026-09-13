@@ -3,13 +3,10 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const {
   rulesForLeague,
-  buildPlayerSummary,
   projectSeasonPoints,
-  getSeasonPositionRank,
   IDP_POSITIONS,
 } = require('../services/scoring.service');
 const {
-  computeByeWeek,
   computeByeWeeks,
   REG_SEASON_WEEKS,
 } = require('../services/bye.service');
@@ -49,13 +46,14 @@ const POSITIONS = [
   'DB',
 ];
 
-// Short-lived in-memory cache for buildPlayerSummary, the Decision card's
-// game-log producer (#1311: read by the card route below and, until #1313
-// removes it, by the /:id/summary route the Draft room's DraftQuickView
-// still calls). Keyed by player + league (scoring rules differ per league),
-// so a draft room or the Decision card hammering this endpoint serves most
-// reads from memory. TTL is intentionally small — a 30s-stale injury/stat
-// line during a live draft is harmless.
+// Short-lived in-memory cache for GET /:id/card, the Decision card's payload
+// in every context including the Draft room's own (#1306, #1313) - keyed by
+// player + league + caller team + week below, since the payload is per-
+// CALLER, not per-league. `buildPlayerSummary` (scoring.service.js) is one of
+// its producers, called from playerCard.service.js for the season/game-log
+// rows; the /:id/summary route that used to read it directly is gone (#1313,
+// the Draft room's last caller). TTL is intentionally small — a 30s-stale
+// injury/stat line is harmless.
 const SUMMARY_TTL_MS = 30_000;
 const summaryCache = new Map();
 
@@ -752,113 +750,14 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/players/:id/summary[?leagueId=N] — everything the quick-view dialog
-// needs in one aggressively-cached call: bio (+ photo, jersey, injury, bye),
-// current-season weekly lines with a running fantasy total, and previous-season
-// totals. Fantasy points are computed from raw stats under the given league's
-// scoring rules (default rules when no leagueId), so the same player reads
-// differently in a PPR vs. standard league.
-router.get('/:id/summary', requireAuth, async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) {
-    return res
-      .status(400)
-      .json({ error: 'player id must be a positive integer' });
-  }
-  const playerId = Number(req.params.id);
-
-  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
-  if (leagueId && !/^\d+$/.test(leagueId)) {
-    return res
-      .status(400)
-      .json({ error: 'leagueId must be a positive integer' });
-  }
-
-  try {
-    if (leagueId) await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
-    const cacheKey = `${playerId}|${leagueId || 'std'}`;
-    const cached = summaryCacheGet(cacheKey);
-    if (cached) {
-      res.set('Cache-Control', 'private, max-age=30');
-      return res.json(cached);
-    }
-    const playerResult = await pool.query(
-      `SELECT * FROM "players" WHERE "id" = $1`,
-      [playerId],
-    );
-    const player = playerResult.rows[0];
-    if (!player) return res.status(404).json({ error: 'player not found' });
-
-    // Scoring rules + current season: the named league's (if valid), else
-    // defaults / 2026. The current season decides which weekly lines count as
-    // "this season" vs. which roll up under Previous Seasons.
-    let rules = rulesForLeague(null);
-    let currentSeasonYear = 2026;
-    if (leagueId) {
-      const leagueResult = await pool.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1`,
-        [Number(leagueId)],
-      );
-      if (leagueResult.rows[0]) {
-        rules = rulesForLeague(leagueResult.rows[0]);
-        if (leagueResult.rows[0].current_season != null) {
-          currentSeasonYear = Number(leagueResult.rows[0].current_season);
-        }
-      }
-    }
-
-    const weeklyResult = await pool.query(
-      `SELECT "season", "week", "stats" FROM "player_stats"
-       WHERE "player_id" = $1 ORDER BY "season" DESC, "week"`,
-      [playerId],
-    );
-    const seasonResult = await pool.query(
-      `SELECT "season", "games_played", "stats" FROM "player_season_stats"
-       WHERE "player_id" = $1 ORDER BY "season" DESC`,
-      [playerId],
-    );
-    const byeWeek = await computeByeWeek(player.nfl_team, currentSeasonYear);
-
-    // Points-based rank within the position for the latest completed season
-    // (rows arrive season DESC, so find() takes the newest one).
-    const lastCompletedRow =
-      seasonResult.rows.find((r) => Number(r.season) < currentSeasonYear) ||
-      null;
-    const rankInfo = lastCompletedRow
-      ? await getSeasonPositionRank(
-          playerId,
-          player.position,
-          Number(lastCompletedRow.season),
-        )
-      : null;
-
-    const payload = buildPlayerSummary({
-      player,
-      weeklyRows: weeklyResult.rows,
-      seasonRows: seasonResult.rows,
-      rules,
-      byeWeek,
-      currentSeasonYear,
-      posRank: rankInfo
-        ? { season: Number(lastCompletedRow.season), ...rankInfo }
-        : null,
-    });
-
-    summaryCacheSet(cacheKey, payload);
-    res.set('Cache-Control', 'private, max-age=30');
-    res.json(payload);
-  } catch (error) {
-    console.error('Error building player summary', error);
-    res.status(500).json({ error: 'failed to fetch player summary' });
-  }
-});
-
 // GET /api/players/:id/card?leagueId=N — the Decision card payload for every
-// Availability context: free agent, on waivers, rostered by another team, or
-// on the caller's own team (#1306, ADR 0040 slice 3). Every projected number
-// is the Weekly projection under the league's own scoring (never Pool
-// projection); `upgrade` is null in a best-ball league and for a player
-// already on the caller's roster. Supersedes `/summary`, which is deleted
-// with PlayerQuickView in a later ticket and is left untouched here.
+// Availability context (free agent, on waivers, rostered by another team, or
+// on the caller's own team, #1306, ADR 0040 slice 3) and for the Draft
+// room's own `draft` context (#1313, not an Availability state). Every
+// projected number is the Weekly projection under the league's own scoring
+// (never Pool projection); `upgrade` is null in a best-ball league and for a
+// player already on the caller's roster. Supersedes `/summary`, deleted with
+// the Draft room's own PlayerQuickView copy (#1313), its last caller.
 //
 // `requireMember` runs BEFORE the cache is ever read (a risk-review catch,
 // #1306): the payload is per-CALLER, not per-league (availability.state,

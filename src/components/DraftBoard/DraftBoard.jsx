@@ -12,7 +12,8 @@ import { useTheme } from '@mui/material/styles';
 import Grid from '@mui/material/Unstable_Grid2';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import DraftQuickView from './DraftQuickView';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
+import { toDecisionCardEntry } from '../../entities/player';
 import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import useDraftSocket from './useDraftSocket';
@@ -54,7 +55,6 @@ import { draftRounds } from '../../lib/rosterShape';
 import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
 import { teamNameLabel } from '../../lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
-import { createDraftRoomProfileOrigin } from '../PlayerDetail/playerProfileNavigation';
 
 // The Draft page's one landmark structure: a single <main>, named by the
 // league-name H1 inside it, that the App-level skip link (see App.jsx)
@@ -631,48 +631,41 @@ function DraftBoard() {
     byeOverlapByWeek.get(week).push({ id: rosterPlayer.id, name: rosterPlayer.name });
   }
 
-  // Context actions for the quick-view: Draft / Queue the currently-viewed
-  // available player, mirroring the row buttons - same rules, same shared
-  // confirmation dialog. Hidden once the player is drafted (the "Drafted by"
-  // banner covers that case), and Draft itself is omitted entirely (not just
-  // disabled) whenever no manual Pick control exists in this draft's status/
-  // type at all (#120 acceptance criteria 1-2, 5).
-  const quickViewAvail = availablePlayers.find((p) => p.id === quickViewId);
+  // Context facts for the Decision card's `draft` context (#1313): Draft /
+  // Queue the currently-viewed available player, mirroring the row buttons -
+  // same rules, same shared confirmation dialog. Formal review f1: the queue
+  // rail opens by id from useDraftQueue's own independent list
+  // (setQuickViewId, not handleSelectFromPool), so a queued player the
+  // pool's current filter/search/paging doesn't currently include has to
+  // resolve the SAME way `findKnownPlayer` above already does for a Pick
+  // (pool first, queue fallback) or the card never opens at all - `entry`
+  // stays null and `isOpen` (PlayerDecisionCard.jsx) is false. `quickViewAvail`
+  // is undefined only for a player opened from the Board matrix or Pick
+  // history (already drafted, in neither list); `quickViewPick` (flat
+  // name/position/nfl_team/adp, entities/draft's own normalized shape)
+  // stands in for those.
+  const quickViewAvail = findKnownPlayer(quickViewId);
+  const quickViewRow =
+    quickViewAvail ||
+    (quickViewPick
+      ? { id: quickViewId, name: quickViewPick.name, position: quickViewPick.position, nfl_team: quickViewPick.nfl_team }
+      : null);
+  const quickViewEntry = toDecisionCardEntry(quickViewRow);
+  const quickViewAdp = quickViewAvail?.adp ?? quickViewPick?.adp ?? null;
   // The room's one pick-availability reading (issue #792 ruling 3): whether a
   // manual Pick exists in this draft at all, whether it is only temporarily
   // unavailable right now, and the one shared explanation for that. Derived once
   // from pickAvailability.js here and passed to the pool table, the queue rail
-  // and the Quick View actions below, so the three surfaces cannot answer the
-  // question differently. (confirmDraftPlayer above re-derives it against the
-  // LATEST live state, on purpose, for a dialog that sat open across a turn.)
+  // and the Decision card's draft action bar below, so the three surfaces
+  // cannot answer the question differently. (confirmDraftPlayer above
+  // re-derives it against the LATEST live state, on purpose, for a dialog
+  // that sat open across a turn.)
   const canManualPick = pickActionExists({ draftStatus: league?.draft_status, draftType: league?.draft_type });
   const pickState = {
     canManualPick,
     pickUnavailable: canManualPick && pickTemporarilyUnavailable({ isMyTurn, draftPaused: !!league?.draft_paused }),
     explanation: PICK_UNAVAILABLE_EXPLANATION,
   };
-  const quickViewActions =
-    quickViewAvail && !quickViewDraftedBy
-      ? [
-          ...(pickState.canManualPick
-            ? [
-                {
-                  label: 'Draft',
-                  variant: 'contained',
-                  color: 'success',
-                  unavailableReason: pickState.pickUnavailable ? pickState.explanation : null,
-                  onClick: () => requestDraftPlayer(quickViewAvail.id),
-                },
-              ]
-            : []),
-          {
-            label: queue.some((p) => p.id === quickViewAvail.id) ? 'Queued' : 'Queue',
-            variant: 'outlined',
-            disabled: queue.some((p) => p.id === quickViewAvail.id),
-            onClick: () => handleQueuePlayer(quickViewAvail),
-          },
-        ]
-      : [];
 
   // Shared by every PlayerPoolTable render below - built once instead of
   // duplicated between the desktop and mobile branches. The eleven-prop
@@ -1168,20 +1161,21 @@ function DraftBoard() {
         </Box>
       ) : panesLayout}
 
-      <DraftQuickView
+      <PlayerDecisionCard
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+        entry={quickViewEntry}
         leagueId={Number(leagueId)}
-        profileOrigin={createDraftRoomProfileOrigin({
-          leagueId,
-          pathname: location.pathname,
-          search: location.search,
-        })}
+        context="draft"
         draftedBy={quickViewDraftedBy}
+        adp={quickViewAdp}
+        canDraft={!!quickViewAvail && !quickViewDraftedBy && pickState.canManualPick}
+        draftUnavailableReason={pickState.pickUnavailable ? pickState.explanation : null}
+        queued={queue.some((p) => p.id === quickViewId)}
+        onDraft={() => quickViewAvail && requestDraftPlayer(quickViewAvail.id)}
+        onQueue={() => quickViewAvail && handleQueuePlayer(quickViewAvail)}
         playerIds={availablePlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
-        actions={quickViewActions}
       />
 
       <DraftPickConfirmDialog
