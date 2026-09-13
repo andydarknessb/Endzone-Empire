@@ -25,7 +25,10 @@ import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
 import { locked } from '../../../entities/roster';
 import { useDecisionCardLine } from '../../../entities/line';
 import { useDecisionCardUsage } from '../../../entities/player-usage';
+import { usePlayerCard, DecisionStrip, WeeklyPointsBars, GameLogTable, NewsList, Bio } from '../../../entities/player';
 import { isEligibleMove } from '../../../features/swap-players';
+import { AddPlayerAction } from '../../../features/add-player';
+import { ClaimPlayerAction } from '../../../features/claim-player';
 import { injuryTileView } from '../lib/injuryTile';
 import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/slotActions';
 
@@ -52,6 +55,26 @@ import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/sl
  * on the issue thread): the page swaps which dialog `LedgerRow`'s name link
  * opens, and `PlayerQuickView` itself is untouched - other surfaces still
  * render it.
+ *
+ * #1307 (ADR 0040) extends the SAME widget with `context`, derived by the
+ * caller from the player's Availability (`free_agent | waivers | rostered |
+ * my_team`; default `'my_team'` so every existing Lineup call site, which
+ * never passes it, is untouched - "my_team is the card as shipped"). Only
+ * `my_team` uses the `entries`/`onSwap`/`onRequestDrop`/`canDropEntry` bench-
+ * management props above; the other three swap the header's Bench/Start/
+ * Compare/Trade/Drop bar for the availability action bar (`add-player`,
+ * `claim-player`, or a plain Propose-trade link for `rostered` - prefilling
+ * Trade Center is a later slice, ADR 0040's Plan) and add the news list
+ * (CONTEXT.md's News: every context but your own player). `availability`
+ * and `roster` feed that action bar's copy and its drop-pick list; `entry`
+ * for these three contexts is a lighter shape (no `slot`/`locked`/`spent` -
+ * WaiverWire and PlayerManagement have no lineup to read those from).
+ *
+ * Every context also reads `entities/player`'s `usePlayerCard` (the
+ * `GET /api/players/:id/card` payload, #1306/#1331) for the decision strip,
+ * the eighteen-week bars, the game log and Bio - the fields ADR 0040 says
+ * every context adds, layered on top of what `my_team` already had from
+ * `entities/line`/`entities/player-usage` rather than replacing it.
  */
 export default function PlayerDecisionCard({
   open,
@@ -65,6 +88,10 @@ export default function PlayerDecisionCard({
   onSwap,
   onRequestDrop,
   canDropEntry,
+  context = 'my_team',
+  availability,
+  roster,
+  onActionDone,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
@@ -78,6 +105,10 @@ export default function PlayerDecisionCard({
 
   const { line, weather } = useDecisionCardLine({ leagueId, playerId: entry?.playerId ?? null, week });
   const { usage } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
+  // #1307: the one Decision-card payload, read in every context (ADR 0040's
+  // decision strip and eighteen-week bars are additive to `my_team`'s
+  // existing entry-based sections above, not a replacement for them).
+  const { card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
 
   const compareEntry = compareId != null ? list.find((e) => e.playerId === compareId) || null : null;
   const { line: compareLine, weather: compareWeather } = useDecisionCardLine({
@@ -119,10 +150,16 @@ export default function PlayerDecisionCard({
   // occupant of a slot type, not just the first one found (r5), so a slot
   // type with more than one instance is no longer disabled outright by a
   // single locked or spent occupant.
-  const benchAllowed = entry
+  // #1307: these bench/start eligibility reads assume a lineup entry's own
+  // `eligibleSlots`/`locked`/`spent` fields, which only the `my_team`
+  // context's caller (Lineup) ever populates - WaiverWire and
+  // PlayerManagement map a lighter shape with none of them, and the header
+  // action bar those three contexts use never reads these values, so they
+  // stay gated here rather than crashing on a missing `eligibleSlots`.
+  const benchAllowed = entry && context === 'my_team'
     ? isEligibleMove({ selectedEntry: entry, targetEntry: null, targetSlot: 'BENCH', bestBall, leagueUnsettled })
     : false;
-  const startTargets = entry && !isStarting
+  const startTargets = entry && context === 'my_team' && !isStarting
     ? startTargetSlots(entry, list, { bestBall, leagueUnsettled })
     : [];
   // Formal review round 3 finding s2: `movesToStart` returns `[]` as its own
@@ -219,6 +256,7 @@ export default function PlayerDecisionCard({
             </IconButton>
           </Box>
 
+          {context === 'my_team' && (
           <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
             {isStarting ? (
               <Button
@@ -327,6 +365,52 @@ export default function PlayerDecisionCard({
               Drop
             </Button>
           </Box>
+          )}
+
+          {/* #1307, ADR 0040: the other three Availability contexts swap the
+              bar above for the availability action bar. `entry` here carries
+              no lineup slot - WaiverWire and PlayerManagement map their raw
+              player row into the same generic id/name/position/nflTeam shape
+              the header and injury tile already read. */}
+          {context === 'free_agent' && (
+            <AddPlayerAction
+              player={entry}
+              leagueId={leagueId}
+              availability={availability}
+              roster={roster}
+              onAdded={onActionDone}
+            />
+          )}
+          {context === 'waivers' && (
+            <ClaimPlayerAction
+              player={entry}
+              leagueId={leagueId}
+              availability={availability}
+              roster={roster}
+              onClaimed={onActionDone}
+            />
+          )}
+          {context === 'rostered' && (
+            <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5, alignItems: 'center' }}>
+              <Button
+                size="small"
+                variant="outlined"
+                component={RouterLink}
+                to={`/league/${leagueId}/trades`}
+                onClick={handleClose}
+                sx={MIN_TOUCH_TARGET_SX}
+                data-testid="decision-card-propose-trade"
+              >
+                Propose trade
+              </Button>
+              {availability?.teamName && (
+                <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>
+                  {`Rostered by ${availability.teamName}`}
+                </Typography>
+              )}
+            </Box>
+          )}
+          {context !== 'my_team' && <NewsSection news={card?.news} />}
 
           {compareEntry ? (
             // AC7: two cards side by side (stacked on a phone). The primary
@@ -395,17 +479,30 @@ export default function PlayerDecisionCard({
           ) : (
             <>
               <InjurySection entry={entry} />
-              <GameSection entry={entry} line={line} weather={weather} />
-              <ProjectionSection entry={entry} />
-              <UsageSection usage={usage} />
-              <BenchOptionsSection
-                entry={entry}
-                entries={list}
-                onSwap={onSwap}
-                hidden={benchOptionsHidden}
-                bestBall={bestBall}
-                leagueUnsettled={leagueUnsettled}
+              {context === 'my_team' && <GameSection entry={entry} line={line} weather={weather} />}
+              {context === 'my_team' && <ProjectionSection entry={entry} />}
+              {context === 'my_team' && <UsageSection usage={usage} />}
+              {/* #1307, ADR 0040: "Every context adds the decision strip ...
+                  and the eighteen-week bars" - additive to my_team's own
+                  Game/Projection/Usage sections above, not a replacement. */}
+              <DecisionStrip decision={card?.decision} usage={card?.decision?.usage} />
+              <WeeklyPointsBars
+                weeks={card?.weeks}
+                currentWeek={card?.decision?.projWeek?.week}
+                seasonEnd={card?.seasonEnd}
               />
+              <GameLogSection log={card?.log} />
+              <Bio bio={card?.bio} />
+              {context === 'my_team' && (
+                <BenchOptionsSection
+                  entry={entry}
+                  entries={list}
+                  onSwap={onSwap}
+                  hidden={benchOptionsHidden}
+                  bestBall={bestBall}
+                  leagueUnsettled={leagueUnsettled}
+                />
+              )}
             </>
           )}
         </>
@@ -619,6 +716,32 @@ function UsageSection({ usage, level }) {
           ))}
         </TableBody>
       </Table>
+    </Section>
+  );
+}
+
+// #1307, ADR 0040/CONTEXT.md's News: shown for every Availability context
+// but the caller's own player, so the card only asks for it there; hidden
+// entirely on an empty list, `entities/player`'s NewsList's own rule.
+function NewsSection({ news }) {
+  if (!Array.isArray(news) || news.length === 0) return null;
+  return (
+    <Section title="News" testId="decision-card-news-section">
+      <NewsList news={news} />
+    </Section>
+  );
+}
+
+// #1307, ADR 0040: the game log is part of "every context adds ... the
+// eighteen-week bars" family of additions - restated from
+// `buildPlayerSummary`'s current-season weekly rows, the same producer
+// PlayerQuickView's own current-season table reads. Hidden with no played
+// week yet.
+function GameLogSection({ log }) {
+  if (!Array.isArray(log?.current) || log.current.length === 0) return null;
+  return (
+    <Section title="Game log" testId="decision-card-gamelog-section">
+      <GameLogTable log={log} />
     </Section>
   );
 }

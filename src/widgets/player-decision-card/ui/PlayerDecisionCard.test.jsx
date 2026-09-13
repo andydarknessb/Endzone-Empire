@@ -81,6 +81,110 @@ function renderCard(props = {}) {
   return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
 }
 
+// #1307 (ADR 0040): a non-lineup player row, the shape WaiverWire and
+// PlayerManagement map their own rows into - no slot/locked/spent/
+// eligibleSlots, since neither surface has a lineup to read those from.
+const availabilityEntry = (over = {}) => ({
+  playerId: 7,
+  name: 'Breece Hall',
+  position: 'RB',
+  nflTeam: 'NYJ',
+  slot: 'RB',
+  injuryStatus: null,
+  opponent: 'KC',
+  kickoff: '2026-09-14T17:00:00Z',
+  ...over,
+});
+
+// Routes `apiClient.get` by URL so the same suite can stub the lineup-
+// context endpoint (`line`/`weather`/`usage`) and the card route
+// (`/api/players/:id/card`, #1306/#1331) with different bodies.
+function mockCardRoute(card) {
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
+    return Promise.resolve({ data: { line: null, weather: null, usage: null } });
+  });
+}
+
+describe('context (#1307, ADR 0040)', () => {
+  // Red tell: this is the FIRST context test, against a widget whose
+  // `context` prop did not exist before this ticket.
+  test('context="waivers" renders Claim and the news list, and no bench options', async () => {
+    mockCardRoute({ news: [{ headline: 'Questionable for Sunday', publishedAt: null }] });
+    renderCard({
+      context: 'waivers',
+      entry: availabilityEntry(),
+      entries: undefined,
+      availability: { waiverPriority: 3 },
+    });
+
+    expect(await screen.findByTestId('claim-player-action')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim' })).toBeInTheDocument();
+    expect(await screen.findByText('Questionable for Sunday')).toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
+  });
+
+  test('context="my_team" (the default) renders bench options and no news', async () => {
+    mockCardRoute({ news: [{ headline: 'Should not show for your own player' }] });
+    const starter = entry();
+    const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+    renderCard({ entry: starter, entries: [starter, bench] });
+
+    await screen.findByTestId('decision-card-bench-options');
+    expect(screen.queryByTestId('decision-card-news-section')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
+  });
+
+  test('context="free_agent" at capacity renders the inline drop pick', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'free_agent',
+      entry: availabilityEntry(),
+      entries: undefined,
+      availability: { rosterCount: 16, rosterCapacity: 16 },
+      roster: [{ id: 20, name: 'Bench Guy', position: 'WR', projected_weekly_points: 3.2 }],
+    });
+
+    const action = await screen.findByTestId('add-player-action');
+    expect(within(action).getByLabelText('Drop a player')).toBeInTheDocument();
+    expect(within(action).getByTestId('add-player-submit')).toHaveTextContent('Add and drop');
+  });
+
+  test('a null Upgrade renders no Upgrade tile and no empty label', async () => {
+    mockCardRoute({
+      decision: { projWeek: { week: 4, points: 12 }, ros: { points: 90 }, upgrade: null },
+      news: [],
+    });
+    renderCard({
+      context: 'waivers',
+      entry: availabilityEntry(),
+      entries: undefined,
+      availability: { waiverPriority: 1 },
+    });
+
+    await screen.findByTestId('decision-strip');
+    expect(screen.queryByTestId('decision-strip-upgrade')).not.toBeInTheDocument();
+    expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument();
+  });
+
+  test('context="rostered" shows a Propose trade link and the rostering team', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'rostered',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 7,
+      availability: { teamName: 'Polk High Legends' },
+    });
+
+    expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
+    expect(screen.getByText('Rostered by Polk High Legends')).toBeInTheDocument();
+  });
+});
+
 test('opens with the row\'s own fields immediately, before the context endpoint resolves', async () => {
   apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves
   renderCard();
