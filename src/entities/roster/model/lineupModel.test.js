@@ -574,6 +574,14 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
   // #1330: injuryDetail is a plain pass-through of the wire's injury_detail,
   // like kickoff/gameKey/opponent - a row with a detail lands with it, a row
   // without lands as null.
+  // Red-tell (production 2026-09-13): the Ledger reads THIS model, not
+  // playerFromLineupEntry, so a photo mapped only there never reached a row.
+  test('photoUrl passes through the wire photo_url, null when absent', () => {
+    const withPhoto = lineupEntries([row({ id: 1, slot: 'QB', photo_url: 'https://cdn.example/1.png' })], league);
+    expect(withPhoto[0].photoUrl).toBe('https://cdn.example/1.png');
+    const withoutPhoto = lineupEntries([row({ id: 1, slot: 'QB' })], league);
+    expect(withoutPhoto[0].photoUrl).toBeNull();
+  });
   test('injuryDetail passes through the wire injury_detail, null when absent', () => {
     const withDetail = lineupEntries(
       [row({ id: 1, slot: 'QB', injury_status: 'Q', injury_detail: 'ankle' })],
@@ -594,6 +602,22 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
 
     const onBye = lineupEntries([row({ id: 1, slot: 'QB', kickoff: null, game_key: null })], league);
     expect(onBye[0]).toMatchObject({ kickoff: null, gameKey: null });
+  });
+
+  // #1329 (ADR 0037): `line` and `weather` pass through exactly as
+  // kickoff/gameKey already do - never derived here.
+  test('line and weather pass through exactly as kickoff/gameKey already do', () => {
+    const line = { spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2026-11-01T18:00:00Z', favoured: 'KC' };
+    const weather = { indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: null, precipitationProbability: 60, shortForecast: 'Light Rain' };
+    const withBoth = lineupEntries([row({ id: 1, slot: 'QB', line, weather })], league);
+    expect(withBoth[0]).toMatchObject({ line, weather });
+
+    const withNeither = lineupEntries([row({ id: 1, slot: 'QB', line: null, weather: null })], league);
+    expect(withNeither[0]).toMatchObject({ line: null, weather: null });
+
+    const { line: _l, weather: _w, ...rowWithoutEither } = row({ id: 1, slot: 'QB' });
+    const withoutKeys = lineupEntries([rowWithoutEither], league);
+    expect(withoutKeys[0]).toMatchObject({ line: null, weather: null });
   });
 
   // #1239: byeWeek is the player's own NFL bye week (a week number), distinct

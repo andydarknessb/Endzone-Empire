@@ -50,3 +50,9 @@ export { computeByeClusters, worstByeCluster } from './byeClusters';
 // `features/pick-winner/lib/monogramInk` once lineup-ledger and
 // player-decision-card (#1317) joined pick-winner as consumers.
 export { monogramInk } from './monogramInk';
+// Worst-weekly-projection-first roster sort (#1307, ADR 0031's 2026-09-11
+// amendment #1269): promoted once `features/add-player` and
+// `features/claim-player` both needed WaiverWire's original claim-dialog
+// drop-pick sort - the second-island-consumer threshold every promotion
+// above it crossed the same way.
+export { sortRosterForDrop } from './rosterDrop';

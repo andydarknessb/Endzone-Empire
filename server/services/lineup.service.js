@@ -10,6 +10,8 @@ const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
+const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
+const { isIndoorGame } = require('./nwsWeather.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -683,7 +685,7 @@ async function weekKickoffs(client, { season, week, kickoffCache = null }) {
  */
 async function weekOpponents(client, { season, week }) {
   const result = await client.query(
-    `SELECT "nfl_team", "opponent", "kickoff_at", "game_key" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
+    `SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
     [season, week]
   );
   const byTeam = new Map();
@@ -694,6 +696,14 @@ async function weekOpponents(client, { season, week }) {
         opponent: normalizeNflTeam(row.opponent),
         kickoffAt: row.kickoff_at ?? null,
         gameKey: row.game_key ?? null,
+        // #1329 (ADR 0037's Line/weather Ledger-row fields): `roof` and
+        // `home_away` ride the SAME schedule row every other field here
+        // already reads, rather than a second query - `lineFor`/`weatherFor`
+        // below are this query's only other consumers of either. Neither is
+        // a team spelling, so neither is folded, exactly like `kickoffAt`
+        // and `gameKey` above.
+        roof: row.roof ?? null,
+        homeAway: row.home_away ?? null,
       });
     }
   }
@@ -725,6 +735,109 @@ async function weekLiveGameStates(client, { season, week }) {
     }
   }
   return byTeam;
+}
+
+/**
+ * THE WEEK'S WEATHER, keyed by game key (#1329, ADR 0037's second Ledger-row
+ * field): the shortest-horizon `game_weather_snapshots` row per game, for
+ * only the distinct game keys this `getLineup` pass actually needs - never
+ * the whole table, and never one query per row. Mirrors the Decision card's
+ * own `loadWeather` read (`decisionCardContext.service.js`), batched over the
+ * week instead of fetched per player, since nine Ledger rows can share one
+ * game key. `gameKeys` empty short-circuits with no query at all - the same
+ * shape `playersNotHeldAt` uses for its own empty-input case.
+ */
+async function weekWeather(client, { gameKeys }) {
+  if (!gameKeys || gameKeys.length === 0) return new Map();
+  const result = await client.query(
+    `SELECT DISTINCT ON ("game_key") "game_key", "temperature_f", "wind_speed_mph", "wind_gust_mph", "precipitation_probability", "short_forecast"
+     FROM "game_weather_snapshots" WHERE "game_key" = ANY($1) ORDER BY "game_key", "horizon_hours" ASC`,
+    [gameKeys]
+  );
+  const byGameKey = new Map();
+  for (const row of result.rows) {
+    byGameKey.set(row.game_key, {
+      temperatureF: row.temperature_f == null ? null : Number(row.temperature_f),
+      windSpeedMph: row.wind_speed_mph == null ? null : Number(row.wind_speed_mph),
+      windGustMph: row.wind_gust_mph == null ? null : Number(row.wind_gust_mph),
+      precipitationProbability:
+        row.precipitation_probability == null ? null : Number(row.precipitation_probability),
+      shortForecast: row.short_forecast ?? null,
+    });
+  }
+  return byGameKey;
+}
+
+/**
+ * The Ledger row's own Line (#1329, ADR 0037, ADR 0039): the newest-wins odds
+ * seam's quote for this row's game (`oddsByGameKey`, `getLineup`'s own
+ * week-wide `getWeeklyOdds` read, no `observedAtOrBefore` per ADR 0039), in
+ * the SAME shape and null rule the Decision card's `loadLine` already
+ * established - `favoured` is the one field the card's own shape lacks
+ * (Ruling item (d): the row shows no per-player home/away context of its
+ * own the way the card's page does). Null when the row has no game this week
+ * or the week's odds map carries no quote for its game key; never a bare
+ * `undefined`.
+ *
+ * `favoured` is the Team code the spread favours - `spread` is home-relative
+ * (`vegasOdds.provider.js`: negative favours home) - resolved against THIS
+ * row's own home/away orientation (`schedule.homeAway`, from `weekOpponents`,
+ * never re-derived): the home team is `team` when the row's player is the
+ * home side, else `schedule.opponent`, and vice versa for away. Null on a
+ * zero or null spread, or when the row's own orientation is not `'home'` or
+ * `'away'` - never a guess.
+ */
+function lineFor(schedule, team, oddsByGameKey) {
+  if (!schedule || !schedule.gameKey) return null;
+  const quote = oddsByGameKey.get(schedule.gameKey);
+  if (!quote) return null;
+  const spread = quote.spread == null ? null : Number(quote.spread);
+  const total = quote.total == null ? null : Number(quote.total);
+  // Lazy for the same reason `projection.service`/`scoring.service` are lazy
+  // just below in `getLineup`: `decisionCardContext.service.js` requires
+  // `scoring.service.js`, which requires THIS module, so a top-level require
+  // here would cycle.
+  const { impliedTotalForTeam } = require('./decisionCardContext.service');
+  const impliedTeamTotal = impliedTotalForTeam(impliedTeamPoints({ total, spread }), schedule.homeAway);
+  let favoured = null;
+  if (spread && (schedule.homeAway === 'home' || schedule.homeAway === 'away')) {
+    const homeTeam = schedule.homeAway === 'home' ? team : schedule.opponent;
+    const awayTeam = schedule.homeAway === 'home' ? schedule.opponent : team;
+    favoured = spread < 0 ? homeTeam : awayTeam;
+  }
+  return { spread, total, impliedTeamTotal, observedAt: quote.observedAt ?? null, favoured };
+}
+
+/**
+ * The Ledger row's own weather (#1329, ADR 0037): the same fields-null shape
+ * the Decision card's `loadWeather` already established - never bare `null`
+ * once a game exists. `indoor` short-circuits on the game's own `roof`
+ * (`schedule.roof`, from `weekOpponents`) before touching the snapshot map at
+ * all, exactly as the card does. Null only when the row has no game this
+ * week; `weatherByGameKey` is the one week-wide read `getLineup` already made
+ * (`weekWeather`, above), never re-fetched per row.
+ */
+function weatherFor(schedule, weatherByGameKey) {
+  if (!schedule || !schedule.gameKey) return null;
+  if (isIndoorGame({ roof: schedule.roof })) {
+    return {
+      indoor: true,
+      temperatureF: null,
+      windSpeedMph: null,
+      windGustMph: null,
+      precipitationProbability: null,
+      shortForecast: null,
+    };
+  }
+  const snap = weatherByGameKey.get(schedule.gameKey) || null;
+  return {
+    indoor: false,
+    temperatureF: snap ? snap.temperatureF : null,
+    windSpeedMph: snap ? snap.windSpeedMph : null,
+    windGustMph: snap ? snap.windGustMph : null,
+    precipitationProbability: snap ? snap.precipitationProbability : null,
+    shortForecast: snap ? snap.shortForecast : null,
+  };
 }
 
 /**
@@ -933,11 +1046,14 @@ function unavailableReason(row, onBye) {
   return null;
 }
 
-function annotateLineupEntries(entries, { locked, byeByTeam, opponentByTeam = new Map(), selectedWeek }) {
+function annotateLineupEntries(entries, {
+  locked, byeByTeam, opponentByTeam = new Map(), oddsByGameKey = new Map(), weatherByGameKey = new Map(), selectedWeek,
+}) {
   return entries.map((row) => {
     const byeWeek = byeByTeam.get(row.nfl_team) ?? null;
     const onBye = !row.spent && byeWeek === selectedWeek;
-    const schedule = opponentByTeam.get(normalizeNflTeam(row.nfl_team)) ?? null;
+    const team = normalizeNflTeam(row.nfl_team);
+    const schedule = opponentByTeam.get(team) ?? null;
     return {
       ...row,
       bye_week: byeWeek,
@@ -948,6 +1064,11 @@ function annotateLineupEntries(entries, { locked, byeByTeam, opponentByTeam = ne
       kickoff: schedule?.kickoffAt ?? null,
       game_key: schedule?.gameKey ?? null,
       unavailable: unavailableReason(row, onBye),
+      // #1329 (ADR 0037): the Ledger row's own Line and weather, read once
+      // per distinct game key by `getLineup` and looked up here per row -
+      // never re-fetched or re-derived per row.
+      line: lineFor(schedule, team, oddsByGameKey),
+      weather: weatherFor(schedule, weatherByGameKey),
     };
   });
 }
@@ -1195,10 +1316,29 @@ async function getLineup({ leagueId, userId, week }) {
       // for the week, alongside the schedule read above.
       const liveByTeam = await weekLiveGameStates(client, { season, week: targetWeek });
 
+      // The Ledger row's Line and weather (#1329, ADR 0037, ADR 0039): read
+      // once per distinct game key across every row this pass annotates
+      // (`entries` and `spent` alike, the same population `opponentByTeam`
+      // already covers), never once per row. The odds read reuses the seam
+      // `projection.service.js` already calls, with no `observedAtOrBefore`
+      // (ADR 0039: a live read passes no cutoff, that bound is holdout
+      // capture's alone); the weather read is new, scoped to only the game
+      // keys this pass needs.
+      const gameKeysThisWeek = [...new Set(
+        allRows
+          .map((row) => opponentByTeam.get(normalizeNflTeam(row.nfl_team))?.gameKey)
+          .filter(Boolean)
+      )];
+      const oddsProvider = getVegasOddsProvider();
+      const oddsByGameKey = oddsProvider.available
+        ? await oddsProvider.getWeeklyOdds({ season, week: targetWeek, client })
+        : new Map();
+      const weatherByGameKey = await weekWeather(client, { gameKeys: gameKeysThisWeek });
+
       const settings = parseLineupSettings(league);
       const annotated = annotateLineupEntries(
         allRows,
-        { locked, byeByTeam, opponentByTeam, selectedWeek: targetWeek }
+        { locked, byeByTeam, opponentByTeam, oddsByGameKey, weatherByGameKey, selectedWeek: targetWeek }
       );
       // The Edge line itself, over every row - `entries` AND `spent` alike
       // (#1235, f2). Computed after `annotateLineupEntries` so every row
