@@ -574,6 +574,14 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
   // #1330: injuryDetail is a plain pass-through of the wire's injury_detail,
   // like kickoff/gameKey/opponent - a row with a detail lands with it, a row
   // without lands as null.
+  // Red-tell (production 2026-09-13): the Ledger reads THIS model, not
+  // playerFromLineupEntry, so a photo mapped only there never reached a row.
+  test('photoUrl passes through the wire photo_url, null when absent', () => {
+    const withPhoto = lineupEntries([row({ id: 1, slot: 'QB', photo_url: 'https://cdn.example/1.png' })], league);
+    expect(withPhoto[0].photoUrl).toBe('https://cdn.example/1.png');
+    const withoutPhoto = lineupEntries([row({ id: 1, slot: 'QB' })], league);
+    expect(withoutPhoto[0].photoUrl).toBeNull();
+  });
   test('injuryDetail passes through the wire injury_detail, null when absent', () => {
     const withDetail = lineupEntries(
       [row({ id: 1, slot: 'QB', injury_status: 'Q', injury_detail: 'ankle' })],
