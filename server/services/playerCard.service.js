@@ -24,10 +24,12 @@ const decisionCardContextService = require('./decisionCardContext.service');
  *
  * The Ruling on issue #1306 fixes nine pieces of this that the issue body
  * alone could not settle - see the numbered items on the issue for the
- * reasoning. `log` and `decision.projWeek.opponentRankVsPosition` are not
- * covered by that Ruling or by ADR 0040-0042's decision-strip list; this
- * file ships a conservative reading of both (see the functions below) and
- * the PR notes it as an open question rather than a settled one.
+ * reasoning. `log` is not covered by that Ruling or by ADR 0040-0042's
+ * decision-strip list; this file ships a conservative reading of it (see
+ * the functions below) and the PR notes it as an open question rather than
+ * a settled one. `decision.projWeek.opponentRankVsPosition` (and its
+ * `weeks[]` counterpart) IS settled, by the #1342 Ruling: the opponent
+ * Factor is the one producer, ranked (see `opponentRankOf` below).
  */
 
 class PlayerCardError extends Error {
@@ -43,6 +45,21 @@ function pointsOf(projections, playerId) {
   if (value == null) return 0;
   const raw = typeof value === 'object' ? value.points : value;
   return Number(raw) || 0;
+}
+
+/**
+ * `{ rank, of } | null` (#1342 Ruling): the opponent Factor is the one
+ * producer, so this reads `factors.opponent` off the SAME `getWeekProjections`
+ * entry `pointsOf` already reads `.points` from, rather than a second query.
+ * `null` whenever the factor carries no `rank` (no opponent data, an
+ * insufficient sample, or no projection at all) - never `0`, the same
+ * missing-data-hides rule the Decision card applies everywhere else.
+ */
+function opponentRankOf(projections, playerId) {
+  const value = projections.get(playerId);
+  const opponent = value && typeof value === 'object' && value.factors ? value.factors.opponent : null;
+  if (!opponent || opponent.rank == null) return null;
+  return { rank: opponent.rank, of: opponent.of };
 }
 
 /**
@@ -465,7 +482,18 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
       weeks.push({ week: wk, opponent, kind: 'unavailable', reason: classified.reason });
       continue;
     }
-    weeks.push({ week: wk, opponent, kind: 'projected', points: classified.points });
+    weeks.push({
+      week: wk,
+      opponent,
+      kind: 'projected',
+      points: classified.points,
+      // #1342 Ruling item 3: each projected week's own run carries its own
+      // opponent Factor (the canvas hover), read the same way `projWeek`
+      // reads its current week's - never `classifyWeekProjection`'s or
+      // `buildWeeksForPage`'s job (Lead correction item 3: that would change
+      // the byte-identical `GET /api/players?view=cards` payload).
+      opponentRankVsPosition: opponentRankOf(run.projections, player.id),
+    });
   }
   return weeks;
 }
@@ -574,12 +602,10 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         week: effectiveWeek,
         points: pointsOf(projections, player.id),
         opponent: opponentByWeek.get(Number(effectiveWeek)) ?? null,
-        // No producer exists for this and neither the Ruling nor ADR
-        // 0040-0042 addresses it (unlike `ros.posRank`, which the Ruling
-        // explicitly ships null "in this slice"); following that same
-        // missing-data-hides precedent (ADR 0040) rather than inventing a
-        // ranking rule nobody has approved.
-        opponentRankVsPosition: null,
+        // #1342 Ruling: the opponent Factor is the producer, ranked. Read off
+        // the same `getWeekProjections` entry `pointsOf` already draws
+        // `.points` from - no second query, no second producer.
+        opponentRankVsPosition: opponentRankOf(projections, player.id),
       },
       ros: {
         points: ros.total,

@@ -299,6 +299,26 @@ function playerResidualsFrom(priorGames) {
 }
 
 /**
+ * Pure (#1342 Ruling item 1): this opponent's rank within `allowedByDefense`
+ * for the player's position group, 1 = the defense allowing the FEWEST points
+ * per game (the toughest matchup — so `24th vs WR` reads as a soft one). Ties
+ * share the lower rank (standard competition ranking: values [10, 10, 30]
+ * rank as [1, 1, 3], never [1, 1, 2]), and `of` is the size of the map, not a
+ * count restricted to opponents with enough games. Returns null only when
+ * `opponentTeam` has no entry in the map at all, which does not happen on the
+ * caller's only call site (it is only ever called after `opponentEffect`
+ * already reported `available`, which itself requires that entry to exist).
+ */
+function rankOpponentDefense(allowedByDefense, opponentTeam) {
+  const target = allowedByDefense.get(opponentTeam);
+  if (!target) return null;
+  const sorted = [...allowedByDefense.values()]
+    .map((v) => v.allowedPerGame)
+    .sort((a, b) => a - b);
+  return { rank: sorted.indexOf(target.allowedPerGame) + 1, of: allowedByDefense.size };
+}
+
+/**
  * Assemble one player's projection from an already-loaded feature bundle.
  * Pure with respect to the database: everything it reads comes from `bundle`,
  * which is what lets the backtest script replay it over history and the tests
@@ -366,6 +386,18 @@ function projectFromBundle({
     opponentTeam,
     constants: constants.opponent,
   });
+  // #1342 Ruling item 1: rank is a read-side annotation on the opponent Factor
+  // the engine already computed, never a second producer. Only an `available`
+  // factor is guaranteed a resolvable entry in `allowedByDefense` (opponentEffect
+  // itself gates on `games >= constants.minGames`), so a NEUTRAL factor (no
+  // opponent data, insufficient sample) carries neither `rank` nor `of`.
+  if (opponent.available) {
+    const opponentRank = rankOpponentDefense(context.allowedByDefense, opponentTeam);
+    if (opponentRank) {
+      opponent.rank = opponentRank.rank;
+      opponent.of = opponentRank.of;
+    }
+  }
 
   const versusOpponent = model.versusOpponentEffect({
     meetings: features.buildVersusOpponentMeetings({

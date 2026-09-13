@@ -348,6 +348,75 @@ test('a soft opponent raises the projection and appears in the explanation', asy
   );
 });
 
+/**
+ * A directly-built bundle (like the onPreHomeAwayBaseline tests above) rather
+ * than a league-scan reconstruction: the #1342 Ruling's rank is read straight
+ * off `context.allowedByDefense`, so the fixture states that map's contents
+ * exactly instead of deriving them through the scan SQL.
+ */
+function bundleWithAllowedByDefense(allowedByDefense, { opponentTeam = 'B', group = 'WR' } = {}) {
+  return {
+    players: new Map([[1, player(1, group, { team_key: 'BUF' })]]),
+    leagueContext: new Map([[group, {
+      baselinePerGame: 12, // avoids projectPlayer's "no evidence" early return
+      allowedByDefense,
+      leagueAllowedPerGame: 20,
+      homeAway: { homeMean: null, homeGames: 0, awayMean: null, awayGames: 0 },
+      residuals: [],
+      efficiencyPerOpportunity: null,
+    }]]),
+    priorStatsByPlayer: new Map(),
+    opponentByTeamWeek: new Map(),
+    targetGames: new Map([['BUF', { opponent_key: opponentTeam, game_key: null, roof: null, home_away: null }]]),
+    byeByTeam: new Map(),
+    seasonRowsByPlayer: new Map(),
+  };
+}
+
+test('#1342: the opponent Factor carries rank/of, 1 = fewest points allowed (toughest)', () => {
+  const minGames = model.MODEL_CONSTANTS.opponent.minGames;
+  const allowedByDefense = new Map([
+    ['A', { allowedPerGame: 10, games: minGames }],
+    ['B', { allowedPerGame: 20, games: minGames }],
+    ['C', { allowedPerGame: 30, games: minGames }],
+  ]);
+  const bundle = bundleWithAllowedByDefense(allowedByDefense, { opponentTeam: 'B' });
+
+  const result = projection.projectFromBundle({
+    playerId: 1, bundle, rules: SCORING_RULES, season: SEASON, week: 6, hashValue: 'h',
+  });
+
+  assert.equal(result.factors.opponent.available, true);
+  assert.equal(result.factors.opponent.rank, 2);
+  assert.equal(result.factors.opponent.of, 3);
+  assert.deepEqual(
+    result.factors.opponent.effect,
+    model.opponentEffect({
+      allowedPerGame: 20, leagueAveragePerGame: 20, games: minGames, opponentTeam: 'B',
+      constants: model.MODEL_CONSTANTS.opponent,
+    }).effect,
+    'ranking is a read-side annotation; the effect itself is untouched'
+  );
+});
+
+test('#1342: an insufficient sample against the opponent yields no rank or of key', () => {
+  const minGames = model.MODEL_CONSTANTS.opponent.minGames;
+  const allowedByDefense = new Map([
+    ['A', { allowedPerGame: 10, games: minGames }],
+    ['B', { allowedPerGame: 20, games: minGames - 1 }],
+    ['C', { allowedPerGame: 30, games: minGames }],
+  ]);
+  const bundle = bundleWithAllowedByDefense(allowedByDefense, { opponentTeam: 'B' });
+
+  const result = projection.projectFromBundle({
+    playerId: 1, bundle, rules: SCORING_RULES, season: SEASON, week: 6, hashValue: 'h',
+  });
+
+  assert.equal(result.factors.opponent.available, false);
+  assert.equal('rank' in result.factors.opponent, false);
+  assert.equal('of' in result.factors.opponent, false);
+});
+
 test('home/away stays neutral while the schedule carries no orientation', async (t) => {
   mockPool(t, {
     players: [player(1, 'RB')],
