@@ -2,12 +2,11 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
-import { Provider } from 'react-redux';
-import configureMockStore from 'redux-mock-store';
 import userEvent from '@testing-library/user-event';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import publicApiClient from '../../../api/publicApiClient';
 import apiClient from '../../../api/apiClient';
+import { setSessionHint } from '../../../lib/sessionHint';
 import PlayerProfilePage from './PlayerProfilePage';
 
 jest.mock('../../../api/publicApiClient', () => ({
@@ -21,8 +20,6 @@ jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
 }));
-
-const mockStore = configureMockStore([]);
 
 const COMPLETE_PROFILE = {
   playerId: 42,
@@ -85,30 +82,32 @@ beforeEach(() => {
     if (requested === 2024) return Promise.resolve({ data: NOT_AVAILABLE_PROFILE });
     return Promise.resolve({ data: COMPLETE_PROFILE });
   });
-  // Signed-out by default: a test that wants a signed-in render passes its
-  // own `state` to `renderPage` and its own `apiClient.get` implementation.
+  // Signed-out by default: a test that wants a signed-in render calls
+  // `setSessionHint(true)` itself and provides its own `apiClient.get`
+  // implementation. `setSessionHint(false)` here (rather than assuming a
+  // clean slate) matters because `hasSessionHint` reads real
+  // `window.localStorage`, which persists across tests in the same file.
+  setSessionHint(false);
   apiClient.get.mockImplementation(() => Promise.reject(new Error(
     'apiClient (the authenticated client) should not be called from a signed-out render'
   )));
 });
 
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  jest.clearAllMocks();
+  setSessionHint(false);
+});
 
-// `state` overrides the default signed-out redux `user: {}` (matching
-// `_root.reducer.js`'s own default) - a test that wants In your leagues
-// passes `{ state: { user: { id: 9 } } }`.
-const renderPage = (entry = '/players/42', { state } = {}) => render(
-  <Provider store={mockStore({ user: {}, ...state })}>
-    <AppThemeProvider>
-      <HelmetProvider>
-        <MemoryRouter initialEntries={[entry]}>
-          <Routes>
-            <Route path="/players/:id" element={<PlayerProfilePage />} />
-          </Routes>
-        </MemoryRouter>
-      </HelmetProvider>
-    </AppThemeProvider>
-  </Provider>
+const renderPage = (entry = '/players/42') => render(
+  <AppThemeProvider>
+    <HelmetProvider>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/players/:id" element={<PlayerProfilePage />} />
+        </Routes>
+      </MemoryRouter>
+    </HelmetProvider>
+  </AppThemeProvider>
 );
 
 test('defaults to half-PPR and updates every points readout when the format changes', async () => {
@@ -333,7 +332,8 @@ test('signed in with two leagues renders two lines with the exact glossary copy'
     if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   const line1 = await screen.findByRole('button', { name: 'On your team in Alpha League' });
@@ -343,9 +343,9 @@ test('signed in with two leagues renders two lines with the exact glossary copy'
   // AC: "Each line's own rules carry min-height: 44px."
   expect(line1).toHaveStyle('min-height: 44px');
   expect(line2).toHaveStyle('min-height: 44px');
-  // Risk review finding 2: a real league/team name is unbounded text, unlike
-  // every other DashButton caller's short fixed label - the row has to wrap
-  // it rather than inherit DashButton's own single-line default.
+  // Risk review finding 2: a real league/team name is unbounded, unlike a
+  // typical button's short fixed label - the row has to wrap it rather than
+  // overflow on a narrow viewport.
   expect(line1).toHaveStyle('white-space: normal');
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues');
 });
@@ -364,15 +364,16 @@ test('drops a league line whose Availability state this page does not recognize,
     }
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   await screen.findByRole('button', { name: 'On your team in Alpha League' });
-  // Every button in the block has a real accessible name - none rendered
-  // for the unrecognized state.
-  const buttons = screen.getAllByRole('button').filter((el) => el.getAttribute('data-variant') === 'ghost');
-  expect(buttons).toHaveLength(2);
-  buttons.forEach((button) => expect(button).toHaveAccessibleName());
+  // Every league line in the block has a real accessible name - none
+  // rendered for the unrecognized state.
+  const lines = screen.getAllByTestId('in-your-leagues-line');
+  expect(lines).toHaveLength(2);
+  lines.forEach((line) => expect(line).toHaveAccessibleName());
 });
 
 test('clicking the Rostered by line opens the Decision card with that league\'s id', async () => {
@@ -383,7 +384,8 @@ test('clicking the Rostered by line opens the Decision card with that league\'s 
     // the card does with a response - same pattern WaiverWire.test.jsx uses.
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
@@ -393,14 +395,48 @@ test('clicking the Rostered by line opens the Decision card with that league\'s 
   expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
 });
 
+test('maps the public profile\'s camelCase fields into the Decision card entry (formal-001 f3)', async () => {
+  // toDecisionCardEntry (entities/player) reads snake_case (nfl_team,
+  // photo_url); the public payload is camelCase (nflTeam, photoUrl). A
+  // mapping bug at the call site would leave the card's team label blank
+  // and its headshot on the initials fallback while every OTHER assertion
+  // here (which only checks the dialog heading, i.e. entry.name) stayed
+  // green - this is the test that would actually catch that.
+  publicApiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/rankings')) return Promise.resolve({ data: { rankings: [] } });
+    return Promise.resolve({ data: { ...COMPLETE_PROFILE, photoUrl: 'https://cdn.example/alpha-back.jpg' } });
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('On your team in Alpha League'));
+  const dialog = await screen.findByRole('dialog');
+
+  expect(within(dialog).getByText('KC')).toBeInTheDocument();
+  expect(within(dialog).getByTestId('decision-card-headshot')).toHaveAttribute(
+    'src',
+    'https://cdn.example/alpha-back.jpg'
+  );
+});
+
 test('shows an aria-busy loading region for a signed-in viewer before the leagues read resolves', async () => {
   apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves - pins the loading state
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   const heading = await screen.findByText('In your leagues');
+  // LoadingRows (../kit/DataState) carries its own aria-busy/aria-live - the
+  // same loading contract every other reader on this page already uses.
+  // Scoped to this section: PeerLinks' own rankings read renders a second
+  // LoadingRows lower on the page.
   // eslint-disable-next-line testing-library/no-node-access -- asserting on the owning region, same pattern LoadingRows' own consumers use
-  expect(heading.closest('section')).toHaveAttribute('aria-busy', 'true');
+  expect(within(heading.closest('section')).getByTestId('loading-rows')).toHaveAttribute('aria-busy', 'true');
 });
 
 test('closing the card holds its context through the exit transition, not the my_team default', async () => {
@@ -408,7 +444,8 @@ test('closing the card holds its context through the exit transition, not the my
     if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
@@ -431,7 +468,8 @@ test('an errored in-your-leagues read renders the profile with no block and no e
     if (String(url).includes('/in-your-leagues')) return Promise.reject(new Error('network error'));
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues'));
@@ -444,7 +482,8 @@ test('a signed-in viewer with no eligible leagues renders no block, not an empty
     if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: { leagues: [] } });
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
-  renderPage('/players/42', { state: { user: { id: 9 } } });
+  setSessionHint(true);
+  renderPage('/players/42');
   await screen.findByRole('heading', { name: 'Alpha Back' });
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues'));

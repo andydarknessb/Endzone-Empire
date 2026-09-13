@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useSelector } from 'react-redux';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Box, Card, CardContent, Chip, Stack, Typography, Avatar, Table, TableBody,
+  Box, ButtonBase, Card, CardContent, Chip, Stack, Typography, Avatar, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Breadcrumbs, Link, Tooltip,
   ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
@@ -18,7 +17,7 @@ import { SCORING_FORMATS, DEFAULT_FORMAT, formatLabel, pointsFor, hasFormatVaria
 import publicApiClient from '../../../api/publicApiClient';
 import apiClient from '../../../api/apiClient';
 import { STAT_DEFINITIONS } from '../../../shared/ui/AbbreviationTooltip';
-import { Skeleton, DashButton } from '../../../shared/ui';
+import { hasSessionHint } from '../../../lib/sessionHint';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { toDecisionCardEntry } from '../../../entities/player';
 import PlayerDecisionCard from '../../../widgets/player-decision-card';
@@ -139,9 +138,18 @@ function inYourLeaguesCopy({ leagueName, availability }) {
 /**
  * In your leagues (#1359, parent #1354; CONTEXT.md's "In your leagues"): a
  * signed-in viewer's own leagues for this player, one line per league naming
- * their Availability there. Mounted ONLY while signed in (see
- * `PlayerProfilePage` below) so an anonymous render never even constructs
- * this component, let alone calls the authenticated endpoint.
+ * their Availability there. Mounted ONLY while `hasSessionHint()` is true
+ * (see `PlayerProfilePage` below) so an anonymous render never even
+ * constructs this component, let alone calls the authenticated endpoint.
+ *
+ * Ruling on #1359 (the body's original "read `store.user`" premise doesn't
+ * hold: `PublicApp` mounts as its own document with no `FETCH_USER` and no
+ * persisted token, so `store.user` is never populated there): the hint from
+ * `src/lib/sessionHint` is the public tree's own signed-in signal, same as
+ * `PublicHeader`'s "My Dashboard" vs "Log In". This read is the one place
+ * the hint gates more than copy - a stale hint just costs one `apiClient`
+ * call whose 401 the interceptor already recovers from (or, on a failed
+ * refresh, clears the hint and hides the block, same as any other error).
  *
  * Reads the AUTHENTICATED `apiClient` (never `publicApiClient`) against
  * `GET /api/players/:id/in-your-leagues` (#1357). A failed read hides the
@@ -158,6 +166,12 @@ function inYourLeaguesCopy({ leagueName, availability }) {
  * shows no drop list, roster count, FAAB field or priority - is the "the
  * card does the rest; the profile adds no action" boundary the issue body
  * names, not a bug to fix here.
+ *
+ * Components stay on the theme's APP tokens throughout (Ruling): `LoadingRows`
+ * (already used elsewhere on this page) for the loading line, and a plain
+ * `ButtonBase` per row - never a `shared/ui` component scoped to the League
+ * Dashboard island's `dash-*` tokens (ADR 0020), the wrong palette for a page
+ * that runs on the app theme.
  */
 function InYourLeaguesBlock({ player }) {
   const { loading, error, data } = usePublicResource(
@@ -191,32 +205,38 @@ function InYourLeaguesBlock({ player }) {
   if (!loading && leagues.length === 0) return null;
 
   return (
-    <Box component="section" sx={{ mb: 3 }} aria-busy={loading || undefined}>
+    <Box component="section" sx={{ mb: 3 }}>
       <Typography variant="h5" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>In your leagues</Typography>
       {loading ? (
-        <Skeleton variant="rounded" height={44} />
+        <LoadingRows rows={1} height={44} />
       ) : (
         <Stack spacing={1}>
           {leagues.map((line) => (
-            <DashButton
+            <ButtonBase
               key={line.leagueId}
-              variant="ghost"
+              data-testid="in-your-leagues-line"
               onClick={() => { setOpenLine(line); setCardOpen(true); }}
               sx={{
                 ...MIN_TOUCH_TARGET_SX,
                 width: '100%',
                 justifyContent: 'flex-start',
-                // The label is real league/team names, unbounded and
-                // caller-supplied - DashButton's BASE_SX default
-                // (`whiteSpace: nowrap`) fits its short fixed labels
-                // elsewhere, but here it would let a long line overflow
-                // the row instead of wrapping (risk review finding 2).
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'divider',
+                typography: 'body2',
+                fontWeight: 600,
+                // The label is a real league/team name, unbounded and
+                // caller-supplied - has to wrap rather than overflow the row
+                // on a narrow viewport (risk review finding 2).
                 whiteSpace: 'normal',
                 textAlign: 'left',
+                '&:hover': { backgroundColor: 'action.hover' },
               }}
             >
               {inYourLeaguesCopy(line)}
-            </DashButton>
+            </ButtonBase>
           ))}
         </Stack>
       )}
@@ -478,13 +498,11 @@ export function ProfileBody({
 
 function PlayerProfilePage() {
   const { id } = useParams();
-  // In your leagues (#1359) is signed-in only. Read the redux `user` store
-  // the exact way `ProtectedRoute.jsx` does - the public tree touches redux
-  // nowhere else, so this stays the one narrow read, and an anonymous
-  // visitor's `store.user` defaults to `{}` (see `_root.reducer.js`), same
-  // as a fresh unauthenticated session there.
-  const user = useSelector((store) => store.user);
-  const isSignedIn = !!user.id;
+  // In your leagues (#1359) is signed-in only. Ruling on #1359: the public
+  // tree has no redux user (`PublicApp` mounts as its own document, with no
+  // `FETCH_USER` and no persisted access token), so `hasSessionHint()` -
+  // `PublicHeader`'s own signed-in signal - is the gate, not `store.user`.
+  const isSignedIn = hasSessionHint();
   // Season lives in the URL so a shared/crawled link like ?season=2024 is
   // honored (and the server echoes it back, not the default). Absent = default.
   const [searchParams, setSearchParams] = useSearchParams();

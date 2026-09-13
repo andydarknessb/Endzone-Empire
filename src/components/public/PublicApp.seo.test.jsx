@@ -1,7 +1,5 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import { Provider } from 'react-redux';
-import configureMockStore from 'redux-mock-store';
 import publicApiClient from '../../api/publicApiClient';
 import PublicApp from './PublicApp';
 
@@ -9,19 +7,6 @@ jest.mock('../../api/publicApiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
 }));
-
-const mockStore = configureMockStore([]);
-
-// The real app always mounts `PublicApp` inside the redux `<Provider>`
-// (src/index.js -> RootRouter -> PublicApp) - #1359's signed-in-only "In
-// your leagues" read on PlayerProfilePage is the first thing under
-// `src/components/public` to reach into that store, via the same
-// `useSelector((store) => store.user)` `ProtectedRoute.jsx` uses. Signed out
-// (`user: {}`, matching `_root.reducer.js`'s own default) throughout: no
-// test here exercises a signed-in profile view.
-function renderApp(ui) {
-  return render(<Provider store={mockStore({ user: {} })}>{ui}</Provider>);
-}
 
 function canonical() {
   return document.head.querySelector('link[rel="canonical"]');
@@ -60,7 +45,7 @@ test('player profile emits its real canonical URL and points-based OG/Twitter me
   });
   window.history.pushState({}, '', '/players/42');
 
-  renderApp(<PublicApp />);
+  render(<PublicApp />);
 
   await screen.findByRole('heading', { name: 'Alpha Back' }, { timeout: 5000 });
   await waitFor(() => expect(document.title).toBe('Alpha Back: 45.6 Fantasy Points · Endzone Empire'));
@@ -83,7 +68,7 @@ test('the mock draft simulator is an indexable public page with its own canonica
   // state renders with no request at all.
   window.history.pushState({}, '', '/draft-simulator');
 
-  renderApp(<PublicApp />);
+  render(<PublicApp />);
 
   await screen.findByRole('heading', { name: 'Mock Draft Simulator' }, { timeout: 5000 });
   await waitFor(() =>
@@ -120,7 +105,7 @@ test('recap detail puts the final scoreboard in canonical OG metadata', async ()
   });
   window.history.pushState({}, '', '/recaps/20260112_KC@BUF');
 
-  renderApp(<PublicApp />);
+  render(<PublicApp />);
 
   await screen.findByText('Week 19 · 2026', {}, { timeout: 5000 });
   await waitFor(() => expect(document.title).toBe('KC 27–24 BUF Final · Endzone Empire'));
