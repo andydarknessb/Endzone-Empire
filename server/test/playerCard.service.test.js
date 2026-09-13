@@ -90,7 +90,13 @@ function mockServices(t, {
   t.mock.method(projectionService, 'getWeekProjections', async (options) => {
     weekProjectionCalls.push(options);
     const map = new Map();
-    for (const id of options.playerIds) map.set(id, { points: weekPoints.get(id) ?? 0 });
+    for (const id of options.playerIds) {
+      const value = weekPoints.get(id) ?? 0;
+      // #1342: a fixture may hand a bare number (every pre-existing test) or a
+      // full `{ points, factors }` entry (the opponentRankVsPosition cases),
+      // the same two shapes `toLegacyProjectionMap` actually produces.
+      map.set(id, typeof value === 'object' ? value : { points: value });
+    }
     return map;
   });
   t.mock.method(projectionService, 'getWeeklyProjections', async ({ week, playerIds }) => {
@@ -141,6 +147,9 @@ test('getPlayerCard: a player on bye in week N yields weeks[N-1].kind === "bye" 
   assert.equal(card.weeks[4].week, 5);
   assert.equal(card.weeks[4].kind, 'bye');
   assert.equal('points' in card.weeks[4], false);
+  // f2: opponentRankVsPosition is a `kind: 'projected'` field (Ruling item 3);
+  // a bye row carries no such key, not even a null one.
+  assert.equal('opponentRankVsPosition' in card.weeks[4], false);
 });
 
 test('getPlayerCard: a rostered player yields availability.teamId and teamName', async (t) => {
@@ -180,6 +189,60 @@ test('getPlayerCard: projWeek.points is the one getWeekProjections call for the 
   assert.ok(weekProjectionCalls[0].playerIds.includes(PLAYER.id));
   assert.equal(card.decision.projWeek.week, LEAGUE.current_week);
   assert.equal(card.decision.projWeek.points, 14.5);
+});
+
+// ---------------------------------------------------------------------------
+// #1342: decision.projWeek.opponentRankVsPosition (the opponent Factor is the
+// one producer, ranked - see projection.service.js's rankOpponentDefense)
+// ---------------------------------------------------------------------------
+
+test('getPlayerCard: projWeek.opponentRankVsPosition is { rank, of } read off the opponent Factor', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, {
+    weekPoints: new Map([[PLAYER.id, {
+      points: 14.5,
+      factors: { opponent: { available: true, rank: 24, of: 32 } },
+    }]]),
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.projWeek.opponentRankVsPosition, { rank: 24, of: 32 });
+});
+
+test('getPlayerCard: projWeek.opponentRankVsPosition is null when the opponent Factor is not available (never 0)', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, {
+    weekPoints: new Map([[PLAYER.id, {
+      points: 14.5,
+      factors: { opponent: { available: false } },
+    }]]),
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.decision.projWeek.opponentRankVsPosition, null);
+});
+
+test('getPlayerCard: weeks[] projected rows carry their OWN run\'s opponentRankVsPosition (Ruling item 3, the canvas hover)', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, {
+    weeklyProjection: (week) => ({
+      median: 5,
+      factors: {
+        availability: { available: true },
+        opponent: week === 1 ? { available: true, rank: 3, of: 32 } : { available: false },
+      },
+    }),
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.weeks[0].week, 1);
+  assert.equal(card.weeks[0].kind, 'projected');
+  assert.deepEqual(card.weeks[0].opponentRankVsPosition, { rank: 3, of: 32 });
+  assert.equal(card.weeks[1].kind, 'projected');
+  assert.equal(card.weeks[1].opponentRankVsPosition, null);
 });
 
 // ---------------------------------------------------------------------------
