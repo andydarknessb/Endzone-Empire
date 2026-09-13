@@ -51,3 +51,19 @@ nothing on the card blocks on ESPN.
 - The glossary gains Ownership and News; Rostered remains an availability
   state and never a percentage.
 - If ESPN closes these endpoints the card loses tiles, not numbers.
+
+## Amendments
+
+- 2026-09-13 (#1308 Ruling). "Cached in the resource cache" above names a
+  client module: the resource cache is `src/lib/resourceCache.js` (ADR 0004),
+  part of the browser bundle, and nothing under `server/` imports it. The
+  server-side reads this ADR requires are cached as follows. Profile and
+  overview: an in-process TTL map inside `server/modules/espnAthleteClient.js`,
+  the `summaryCache` shape the player router already uses (key by kind and
+  athlete id, `{ value, expires }`, bounded), a success held six hours and a
+  failure (403, timeout, non-JSON) held five minutes as a `null` entry so a
+  blocked host is not re-fetched on every card open. Depth charts and
+  Ownership are not cached in memory at all: the daily Sync runs write them to
+  `player_depth_chart` and `player_ownership`, and the card reads the latest
+  `captured_date` row. The six-hour and one-day durations above stand; only
+  the store they named changes.
