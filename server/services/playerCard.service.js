@@ -499,6 +499,46 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
 }
 
 /**
+ * `{ rank, groupSize } | null` for one player at one position/season (#1356):
+ * RANK() semantics (ties share a rank) over the position's whole
+ * `player_season_stats` group for that season, rescored under the LEAGUE'S
+ * OWN rules - `scoring.service.js`'s `getSeasonPositionRank` ranks the
+ * stored (always half-PPR) `fantasy_points` column, so it can't answer a
+ * league-scored rank (#1356 body). `null` when the player has no rollup row
+ * for that season (most commonly the in-progress current season, whose
+ * rollup doesn't exist until the season completes) or the position/season
+ * group is empty - the same "hide rather than guess" rule
+ * `decision.ros.posRank` already applies.
+ *
+ * A DEF rollup rescores its STORED `fantasy_points` rather than the
+ * aggregate `stats` blob (`hasTeamDefenseTiers`): the teamDefense
+ * pointsAllowed/yardsAllowed rules are per-game tiers, so tier-matching a
+ * season AGGREGATE once would misprice it - the same accepted deviation
+ * `projectSeasonPoints` documents (custom league DEF tiers don't move this
+ * number).
+ */
+async function getRescoredPositionRank({ playerId, position, season, rules }) {
+  if (!position || !Number.isInteger(Number(season))) return null;
+  const result = await pool.query(
+    `SELECT "pss"."player_id", "pss"."stats", "pss"."fantasy_points"
+     FROM "player_season_stats" "pss"
+     JOIN "players" "p" ON "p"."id" = "pss"."player_id"
+     WHERE "p"."position" = $1 AND "pss"."season" = $2`,
+    [position, season]
+  );
+  const scored = result.rows.map((row) => ({
+    playerId: row.player_id,
+    points: scoringService.hasTeamDefenseTiers(row.stats)
+      ? Number(row.fantasy_points)
+      : scoringService.calculateFantasyPoints(row.stats, rules),
+  }));
+  const mine = scored.find((row) => row.playerId === playerId);
+  if (!mine) return null;
+  const rank = 1 + scored.filter((row) => row.points > mine.points).length;
+  return { rank, groupSize: scored.length };
+}
+
+/**
  * The full Decision-card payload for one player in one league (issue #1306).
  * Throws PlayerCardError(404) when the league or player does not exist;
  * requireMember throws MembershipError(403) when the caller holds no team.
@@ -582,8 +622,97 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       statLine: w.stats,
       points: w.fantasy_points,
     })),
-    previousSeasons: summary.previousSeasons,
   };
+
+  // `seasons[]` (#1356): one entry per season on record for the player - the
+  // union of DISTINCT season over player_season_stats and player_stats
+  // (`weeklyResult`/`seasonResult` above already select every season for
+  // this player, unfiltered, so no extra query is needed for the union
+  // itself - the same union `publicRead.service.js`'s player-profile read
+  // takes), newest first. `games`/`points`/`pointsPerGame` are ALWAYS scored
+  // from that season's WEEKLY player_stats rows under the league's own rules
+  // (never player_season_stats.fantasy_points, which is stored half-PPR and
+  // ignores this league's scoring) - a season with a rollup row but no
+  // weekly rows on file reports zero rather than a number under the wrong
+  // rules.
+  const allSeasons = [...new Set([
+    ...weeklyResult.rows.map((r) => r.season),
+    ...seasonResult.rows.map((r) => r.season),
+  ])].sort((a, b) => b - a);
+  const pastSeasons = allSeasons.filter((s) => s !== season);
+
+  // One combined schedule query for every past season (the current season's
+  // schedule is already `opponentByWeek` above) rather than one per season -
+  // unlike the bye and position-rank lookups below, a season column on the
+  // same table lets one query answer for all of them at once.
+  const pastScheduleResult = pastSeasons.length > 0
+    ? await pool.query(
+        `SELECT "season", "week", "opponent" FROM "nfl_games"
+         WHERE "season" = ANY($1::int[]) AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($2)`,
+        [pastSeasons, player.nfl_team]
+      )
+    : { rows: [] };
+  const opponentByWeekBySeason = new Map([[season, opponentByWeek]]);
+  for (const row of pastScheduleResult.rows) {
+    if (!opponentByWeekBySeason.has(row.season)) opponentByWeekBySeason.set(row.season, new Map());
+    opponentByWeekBySeason.get(row.season).set(Number(row.week), normalizeNflTeam(row.opponent));
+  }
+
+  const byeWeekBySeason = new Map([[season, byeWeek]]);
+  for (const s of pastSeasons) {
+    // eslint-disable-next-line no-await-in-loop -- one bye lookup per past
+    // season (Ruling: computed once per request per season, the same shape
+    // the position rank below takes).
+    byeWeekBySeason.set(s, await byeService.computeByeWeek(player.nfl_team, s));
+  }
+
+  const seasons = [];
+  for (const s of allSeasons) {
+    // eslint-disable-next-line no-await-in-loop -- one rescored rank query
+    // per season, by design (a few hundred player_season_stats rows for the
+    // position, computed once per request per season).
+    const posRank = await getRescoredPositionRank({ playerId: player.id, position: player.position, season: s, rules });
+    if (s === season) {
+      seasons.push({
+        season: s,
+        games: summary.currentSeason ? summary.currentSeason.games : 0,
+        points: summary.currentSeason ? summary.currentSeason.points : 0,
+        pointsPerGame: summary.currentSeason ? summary.currentSeason.perGame : 0,
+        posRank: posRank ? posRank.rank : null,
+        posRankOf: posRank ? posRank.groupSize : null,
+        adp: player.adp != null && Number.isFinite(Number(player.adp)) ? Number(player.adp) : null,
+        weeks,
+        log: log.current,
+      });
+      continue;
+    }
+    const weeklyRowsForSeason = weeklyResult.rows.filter((r) => r.season === s);
+    const points = Math.round(
+      weeklyRowsForSeason.reduce((sum, r) => sum + scoringService.calculateFantasyPoints(r.stats, rules), 0) * 100
+    ) / 100;
+    const games = weeklyRowsForSeason.length;
+    const opponentByWeekForSeason = opponentByWeekBySeason.get(s) || new Map();
+    seasons.push({
+      season: s,
+      games,
+      points,
+      pointsPerGame: games ? Math.round((points / games) * 10) / 10 : 0,
+      posRank: posRank ? posRank.rank : null,
+      posRankOf: posRank ? posRank.groupSize : null,
+      // `players.adp` is a single column, not per-season history - null for
+      // every season but the league's current one (#1356 body).
+      adp: null,
+      weeks: await buildWeeklyBars({ // eslint-disable-line no-await-in-loop -- one call per past season
+        league, player, season: s, currentWeek: 19, opponentByWeek: opponentByWeekForSeason, byeWeek: byeWeekBySeason.get(s) ?? null, rules,
+      }),
+      log: weeklyRowsForSeason.map((r) => ({
+        week: r.week,
+        opponent: opponentByWeekForSeason.get(Number(r.week)) ?? null,
+        statLine: r.stats,
+        points: scoringService.calculateFantasyPoints(r.stats, rules),
+      })),
+    });
+  }
 
   return {
     player: {
@@ -617,6 +746,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       usage,
     },
     weeks,
+    seasons,
     seasonEnd,
     news: player.news ? [{ headline: player.news, source: 'feed', publishedAt: null }] : [],
     log,

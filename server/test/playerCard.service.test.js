@@ -264,3 +264,160 @@ test('getPlayerCard: the caller\'s roster holding a SIBLING identity row (not th
   assert.equal(card.availability.state, 'my_team');
   assert.equal(card.decision.upgrade, null);
 });
+
+// ---------------------------------------------------------------------------
+// #1356: seasons[] - league-scored season summary, weeks and game log per
+// season on record for the player.
+// ---------------------------------------------------------------------------
+
+// Full PPR (reception: 1) rather than the app-default half-PPR (0.5) that
+// player_season_stats.fantasy_points is stored under - every points/rank
+// assertion below that leans on "differs from the stored column" needs the
+// league's rules to actually diverge from that default.
+const FULL_PPR_LEAGUE = { ...LEAGUE, scoring_rules: { receiving: { reception: 1 } } };
+
+/** One week's raw player_stats.stats: `receptions` receptions for `yards` receiving yards. */
+function receivingStats(receptions, yards) {
+  return { receptions, receivingYards: yards };
+}
+
+/**
+ * Extends `buildHandlers` with the season-scoped queries `seasons[]` adds:
+ * the per-season schedule union, and one player_season_stats position-group
+ * read per season (`getRescoredPositionRank`). `weeklyStatsBySeason` and
+ * `seasonRows` seed the two base player_stats/player_season_stats reads;
+ * `positionGroupBySeason` seeds the position-rank read for each season link
+ * checked (`Map<season, [{ player_id, stats, fantasy_points }]>`).
+ */
+function buildSeasonHandlers({
+  league = LEAGUE,
+  player = PLAYER,
+  weeklyRows = [], // { season, week, stats } across every season, newest first
+  seasonRows = [], // { season, games_played, stats } across every season
+  positionGroupBySeason = new Map(),
+} = {}) {
+  return [
+    // Overrides first: `handlers.find` takes the FIRST match, and
+    // `buildHandlers` below already answers the plain player_stats/
+    // player_season_stats/nfl_games patterns these seasons[] tests need to
+    // seed with real data instead.
+    [/^SELECT "season", "week", "stats" FROM "player_stats"/, () => ({ rows: weeklyRows })],
+    [/^SELECT "season", "games_played", "stats" FROM "player_season_stats"/, () => ({ rows: seasonRows })],
+    [/^SELECT "week", "stats" FROM "player_stats" WHERE "player_id" = \$1 AND "season" = \$2/, (text, params) => ({
+      rows: weeklyRows.filter((r) => r.season === params[1] && r.week < params[2]).map((r) => ({ week: r.week, stats: r.stats })),
+    })],
+    [/^SELECT "season", "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "pss"\."player_id"/, (text, params) => ({ rows: positionGroupBySeason.get(params[1]) || [] })],
+    ...buildHandlers({ league, player }),
+  ];
+}
+
+test('getPlayerCard: a player with 2024, 2025 and 2026 (current) rows returns three seasons entries newest first', async (t) => {
+  const league = { ...FULL_PPR_LEAGUE, current_season: 2026, current_week: 3 };
+  const weeklyRows = [
+    { season: 2026, week: 1, stats: receivingStats(4, 40) },
+    { season: 2026, week: 2, stats: receivingStats(3, 30) },
+    { season: 2025, week: 1, stats: receivingStats(5, 50) },
+    { season: 2025, week: 2, stats: receivingStats(6, 60) },
+    { season: 2024, week: 1, stats: receivingStats(2, 20) },
+  ];
+  const seasonRows = [
+    { season: 2025, games_played: 2, stats: receivingStats(11, 110), fantasy_points: 16.5 }, // stored half-PPR total
+    { season: 2024, games_played: 1, stats: receivingStats(2, 20), fantasy_points: 3 },
+  ];
+  createFakePool(buildSeasonHandlers({ league, weeklyRows, seasonRows })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.seasons.map((s) => s.season), [2026, 2025, 2024]);
+
+  // 2024: full-PPR points over its own weekly rows (2 receptions * 1 + 20 * 0.1 = 4),
+  // and that differs from the stored (half-PPR) fantasy_points column (3).
+  const y2024 = card.seasons.find((s) => s.season === 2024);
+  assert.equal(y2024.points, 4);
+  assert.notEqual(y2024.points, seasonRows[1].fantasy_points);
+  assert.equal(y2024.games, 1);
+  assert.equal(y2024.adp, null);
+  assert.ok(y2024.weeks.every((w) => w.kind !== 'projected'));
+});
+
+test('getPlayerCard: seasons[0] equals the top-level weeks and log.current byte-for-byte', async (t) => {
+  const league = { ...LEAGUE, current_season: 2026, current_week: 3 };
+  const weeklyRows = [
+    { season: 2026, week: 1, stats: receivingStats(4, 40) },
+    { season: 2026, week: 2, stats: receivingStats(3, 30) },
+  ];
+  createFakePool(buildSeasonHandlers({ league, weeklyRows })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.seasons[0].season, 2026);
+  assert.deepEqual(card.seasons[0].weeks, card.weeks);
+  assert.deepEqual(card.seasons[0].log, card.log.current);
+});
+
+test('getPlayerCard: adp is a number on the current-season entry and null on every past season', async (t) => {
+  const league = { ...LEAGUE, current_season: 2026, current_week: 3 };
+  const player = { ...PLAYER, adp: 12.4 };
+  const weeklyRows = [
+    { season: 2026, week: 1, stats: receivingStats(4, 40) },
+    { season: 2025, week: 1, stats: receivingStats(5, 50) },
+  ];
+  createFakePool(buildSeasonHandlers({ league, player, weeklyRows })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: player.id });
+
+  assert.equal(card.seasons.find((s) => s.season === 2026).adp, 12.4);
+  assert.equal(card.seasons.find((s) => s.season === 2025).adp, null);
+});
+
+test('getPlayerCard: posRank ranks a seeded position of three players by the RESCORED points under a TE-premium rule, not the stored column', async (t) => {
+  // TE-premium: a 2-point-per-reception bonus on top of the reception rate
+  // reorders a high-reception, low-yardage player above a low-reception,
+  // high-yardage one relative to the stored half-PPR ranking.
+  const league = { ...LEAGUE, current_season: 2026, current_week: 1, scoring_rules: { receiving: { reception: 2.5 } } };
+  const weeklyRows = [
+    { season: 2025, week: 1, stats: receivingStats(10, 40) }, // PLAYER (55): rescores highest
+  ];
+  const positionGroupBySeason = new Map([
+    [2025, [
+      { player_id: 55, stats: receivingStats(10, 40), fantasy_points: 24 }, // PLAYER: stored half-PPR rank 2nd
+      { player_id: 56, stats: receivingStats(2, 120), fantasy_points: 28 }, // stored half-PPR rank 1st
+      { player_id: 57, stats: receivingStats(1, 10), fantasy_points: 3.5 },
+    ]],
+  ]);
+  createFakePool(buildSeasonHandlers({ league, weeklyRows, positionGroupBySeason })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  const y2025 = card.seasons.find((s) => s.season === 2025);
+  // Rescored under reception: 2.5 -> PLAYER: 10*2.5 + 40*0.1 = 29; id56: 2*2.5 + 120*0.1 = 17.
+  // PLAYER now ranks 1st, reversing the stored (half-PPR) order where id56 led.
+  assert.equal(y2025.posRank, 1);
+  assert.equal(y2025.posRankOf, 3);
+});
+
+test('getPlayerCard: a rookie with only the current season returns one seasons entry', async (t) => {
+  const league = { ...LEAGUE, current_season: 2026, current_week: 2 };
+  const weeklyRows = [{ season: 2026, week: 1, stats: receivingStats(3, 30) }];
+  createFakePool(buildSeasonHandlers({ league, weeklyRows })).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.seasons.length, 1);
+  assert.equal(card.seasons[0].season, 2026);
+});
+
+test('getPlayerCard: a player with no stats rows at all returns seasons: [], never a throw', async (t) => {
+  createFakePool(buildSeasonHandlers()).install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.seasons, []);
+});
