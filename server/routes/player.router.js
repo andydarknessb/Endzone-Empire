@@ -564,10 +564,13 @@ router.get('/', requireAuth, async (req, res) => {
     const pagePlayers = needsFullPool
       ? settled.slice(offset, offset + PAGE_SIZE)
       : settled;
-    if (!projectionSort && !upgradeBestBallFallback) {
+    if (!projectionSort && !upgradeBestBallFallback && view !== 'cards') {
       // upgradeBestBallFallback already computed projected_points for the
       // FULL pool above, and pagePlayers is a slice of those same objects -
-      // re-fetching here would just re-set the same value from a second query.
+      // re-fetching here would just re-set the same value from a second
+      // query. view=cards never returns projected_points either way (item
+      // 7, ADR 0040 - Pool projection leaves the list), so there's no reason
+      // to pay for the query just to strip the field back out below.
       await attachProjectedPoints(pagePlayers, {
         projectionRules,
         currentSeasonYear,
