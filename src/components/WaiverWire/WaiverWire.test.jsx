@@ -127,6 +127,20 @@ test('shows skeleton placeholders before data arrives', () => {
   expect(screen.getByTestId('page-skeleton')).toBeInTheDocument();
 });
 
+// #1307, ADR 0040: WaiverWire opens the Decision card (context="waivers")
+// instead of PlayerQuickView.
+test('clicking a player name opens the Decision card in the waivers context, not PlayerQuickView', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await userEvent.click(await screen.findByText('Breece Hall'));
+
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { name: 'Breece Hall' })).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'Claim' })).toBeInTheDocument();
+  expect(screen.queryByTestId('quickview-content')).not.toBeInTheDocument();
+});
+
 test('renders the on-waivers table and the priority chip', async () => {
   setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
   renderScreen();

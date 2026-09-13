@@ -33,8 +33,8 @@ import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
 import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
 import WaiverClaimItem from './WaiverClaimItem';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { formatRelative } from '../../utils/formatRelative';
@@ -50,6 +50,26 @@ const stickyActionHeadSx = {
   zIndex: 3,
 };
 const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
+
+// The Decision card's generic entry shape (#1307, ADR 0040): the header,
+// injury tile and decision strip read this regardless of surface, so a raw
+// waivers-list player row maps into it the same way LineupPage already maps
+// its own rows before this widget shipped. No lineup fields (slot/locked/
+// spent/eligibleSlots) exist for an on-waivers player, so those are simply
+// absent rather than guessed.
+function toDecisionCardEntry(player) {
+  return player
+    ? {
+        playerId: player.id,
+        name: player.name,
+        position: player.position,
+        nflTeam: player.nfl_team,
+        slot: player.position,
+        injuryStatus: player.injury_status ?? null,
+        photoUrl: player.photo_url ?? null,
+      }
+    : null;
+}
 
 // Worst-projection-first so the natural cut order comes first; roster entries
 // without a weekly projection sort after ones that have it and fall back to
@@ -475,11 +495,21 @@ function WaiverWire() {
         </DialogActions>
       </Dialog>
 
-      <PlayerQuickView
+      <PlayerDecisionCard
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+        entry={toDecisionCardEntry(
+          data?.onWaivers.find((p) => p.id === quickViewId) ||
+            (claimPlayer && claimPlayer.id === quickViewId ? claimPlayer : null)
+        )}
         leagueId={Number(leagueId)}
+        context="waivers"
+        availability={{
+          waiverPriority: !isFaab ? data?.myTeam?.waiver_priority : undefined,
+          faabRemaining: isFaab ? faabRemaining : undefined,
+        }}
+        roster={roster}
+        onActionDone={fetchAll}
       />
     </Container>
   );

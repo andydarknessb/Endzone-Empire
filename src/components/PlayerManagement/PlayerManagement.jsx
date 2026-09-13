@@ -40,7 +40,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import SwapVertIcon from "@mui/icons-material/SwapVert";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
-import PlayerQuickView from "../PlayerQuickView/PlayerQuickView";
+import PlayerDecisionCard from "../../widgets/player-decision-card";
 import PlayerAvatar from "../../shared/ui/PlayerAvatar";
 import PositionChip from "../../shared/ui/PositionChip";
 import { useSnackbar } from "../Snackbar/SnackbarProvider";
@@ -143,6 +143,25 @@ const actionSx = {
 
 function availabilityOf(player) {
   return player.availability?.state || "free_agent";
+}
+
+// The Decision card's generic entry shape (#1307, ADR 0040) - restated from
+// WaiverWire's own copy of the same mapping (FSD: these are two different
+// components, not a feature/entity to share it through). No lineup fields
+// (slot/locked/spent/eligibleSlots) exist for a Player Browser row, so those
+// are simply absent rather than guessed.
+function toDecisionCardEntry(player) {
+  return player
+    ? {
+        playerId: player.id,
+        name: player.name,
+        position: player.position,
+        nflTeam: player.nfl_team,
+        slot: player.position,
+        injuryStatus: player.injury_status ?? null,
+        photoUrl: player.photo_url ?? null,
+      }
+    : null;
 }
 
 function AvailabilityChip({ state }) {
@@ -379,9 +398,6 @@ function PlayerManagement() {
     [addToRoster, navigate, rosterAction, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
-  const quickViewActions = quickViewPlayer
-    ? [actionForPlayer(quickViewPlayer)]
-    : [];
   const marketContext =
     context ||
     (activeLeague
@@ -392,6 +408,20 @@ function PlayerManagement() {
           waiverPriority: activeLeague.my_team_waiver_priority,
         }
       : null);
+  const quickViewContext = quickViewPlayer ? availabilityOf(quickViewPlayer) : "my_team";
+  // #1307, ADR 0040: the availability action bar's own copy (roster count
+  // for the drop-pick gate, priority/FAAB for a claim) - `rostered`'s team
+  // name isn't on this route yet (ADR 0040's Plan, a later slice), so its
+  // action bar renders the plain Propose-trade link with no team name line.
+  const quickViewAvailability =
+    quickViewContext === "free_agent"
+      ? { rosterCount: marketContext?.rosterCount, rosterCapacity: marketContext?.rosterCapacity }
+      : quickViewContext === "waivers"
+      ? {
+          waiverPriority: marketContext?.waiverType === "priority" ? marketContext?.waiverPriority : undefined,
+          faabRemaining: marketContext?.waiverType === "faab" ? marketContext?.faabRemaining : undefined,
+        }
+      : undefined;
   const controls = (
     <Stack spacing={1.5}>
       <FormControl size="small" fullWidth>
@@ -926,14 +956,14 @@ function PlayerManagement() {
           {search ? ` matching “${search}”` : ""}
         </Typography>
       </Stack>
-      <PlayerQuickView
+      <PlayerDecisionCard
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+        entry={toDecisionCardEntry(quickViewPlayer)}
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
-        playerIds={players.map((player) => player.id)}
-        onNavigate={setQuickViewId}
-        actions={quickViewActions}
+        context={quickViewContext}
+        availability={quickViewAvailability}
+        onActionDone={fetchPlayers}
       />
     </Box>
   );

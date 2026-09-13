@@ -93,6 +93,20 @@ test("renders a league-scoped Player Browser without duplicate roster management
   );
 });
 
+// #1307, ADR 0040: PlayerManagement opens the Decision card (context derived
+// from the row's own availability) instead of PlayerQuickView.
+test("clicking a free-agent player's name opens the Decision card with an Add-to-roster action, not PlayerQuickView", async () => {
+  mockBrowser({ players: [player({ id: 3, name: "Free Roamer" })] });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Free Roamer" }));
+
+  const card = await screen.findByTestId("decision-card");
+  expect(within(card).getByRole("heading", { name: "Free Roamer" })).toBeInTheDocument();
+  expect(within(card).getByTestId("add-player-action")).toBeInTheDocument();
+  expect(screen.queryByTestId("quickview-content")).not.toBeInTheDocument();
+});
+
 test("renders the server-authoritative availability actions without disclosing another Team", async () => {
   mockBrowser({
     players: [
