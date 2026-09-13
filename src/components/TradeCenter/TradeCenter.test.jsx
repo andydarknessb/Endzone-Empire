@@ -165,6 +165,26 @@ test('clicking a player name opens the Decision card, with context keyed off the
   expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
 });
 
+// #1310: the Players list row's Trade action deep-links here as
+// `?receivingTeamId=&playerId=` (src/features/propose-trade). TradeCenter
+// reads both off the URL to preselect the receiving team and check the
+// player, once its own rosters have loaded.
+test('a Trade deep-link (?receivingTeamId=&playerId=) preselects the receiving team and checks the player', async () => {
+  mockGetSequence({ trades: [] });
+
+  renderWithProviders(<TradeCenter />, {
+    path: '/league/:leagueId/trades',
+    route: '/league/1/trades?receivingTeamId=20&playerId=200',
+    state: { user: { id: 1, username: 'alice' } },
+  });
+
+  await screen.findByText('No Pending Trades');
+
+  const receiveColumn = await screen.findByTestId('roster-column-receive');
+  expect(within(receiveColumn).getByLabelText('Tyreek Hill (WR)')).toBeChecked();
+  expect(screen.getByRole('combobox', { name: 'Trade with' })).toHaveTextContent('Bob Squad');
+});
+
 test('shows empty state when there are no trades', async () => {
   mockGetSequence({ trades: [] });
 

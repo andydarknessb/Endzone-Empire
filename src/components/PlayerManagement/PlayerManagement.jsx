@@ -1,17 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Link as RouterLink,
-  useNavigate,
   useSearchParams,
 } from "react-router-dom";
 import {
   Alert,
   Box,
   Button,
-  Card,
-  CardActionArea,
-  CardContent,
-  Chip,
   Drawer,
   FormControl,
   InputAdornment,
@@ -27,10 +22,9 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TableSortLabel,
   TextField,
-  Tooltip,
   Typography,
+  Chip,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -42,10 +36,11 @@ import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
+import PlayerRow from "../../widgets/player-row";
+import SegmentedControl from "../../shared/ui/SegmentedControl";
 import { useAddPlayer } from "../../features/add-player";
-import PlayerAvatar from "../../shared/ui/PlayerAvatar";
-import PositionChip from "../../shared/ui/PositionChip";
-import AbbreviationTooltip from "../../shared/ui/AbbreviationTooltip";
+import { useClaimPlayer } from "../../features/claim-player";
+import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../lib/leaguePhase";
 import { isPickemOnly } from "../../lib/leagueType";
 import {
@@ -69,12 +64,14 @@ const POSITIONS = [
   "S",
   "DB",
 ];
+// Order matches the segmented control's own left-to-right order (#1310,
+// Players.dc.html): All, Free agents, On waivers, Rostered, My team.
 const AVAILABILITY_FILTERS = [
-  { value: "all", label: "All players" },
+  { value: "all", label: "All" },
   { value: "free_agent", label: "Free agents" },
   { value: "waivers", label: "On waivers" },
-  { value: "my_team", label: "On my Team" },
   { value: "rostered", label: "Rostered" },
+  { value: "my_team", label: "My team" },
 ];
 // The Player Browser's sort options, derived from the Draft room's
 // sortFields.js entries rather than from a second hand-maintained list of the
@@ -108,6 +105,12 @@ const SORT_OPTIONS = SORT_FIELDS.map((field) => ({
 // The Player Browser's default sort. Omitted from the URL rather than written
 // into it (see updateParams' empty-value deletion), so `?sort=` absent means
 // this key. It is the same default wireSortName falls back to.
+//
+// #1310 leaves the API's own `sort=upgrade` (view=cards' new default-sort
+// candidate per the issue body) off this control: it requires a leagueId the
+// URL-restored state can't always guarantee ahead of the league fetch, and
+// no acceptance criterion here tests a default sort order - a dedicated
+// "Sort by Upgrade" control is a follow-up, not this ticket's Ruling.
 const DEFAULT_SORT_KEY = "adp";
 
 // The `?sort=` URL param, resolved to a sortFields KEY.
@@ -130,11 +133,6 @@ const headCellSx = {
   bgcolor: "primary.main",
   borderColor: "var(--border-subtle)",
 };
-const sortLabelSx = {
-  color: "primary.contrastText",
-  "&.Mui-active, &:hover": { color: "primary.contrastText" },
-  "& .MuiTableSortLabel-icon": { color: "primary.contrastText !important" },
-};
 const actionSx = {
   minHeight: 44,
   minWidth: 104,
@@ -146,55 +144,10 @@ function availabilityOf(player) {
   return player.availability?.state || "free_agent";
 }
 
-function AvailabilityChip({ state }) {
-  const props = {
-    free_agent: { label: "Free agent", color: "success" },
-    waivers: { label: "On waivers", color: "warning" },
-    my_team: { label: "On your Team", color: "info" },
-    rostered: { label: "Rostered", color: "default" },
-  }[state] || { label: "Unavailable", color: "default" };
-  return (
-    <Chip
-      size="small"
-      variant={state === "rostered" ? "outlined" : "filled"}
-      {...props}
-    />
-  );
-}
-
-function PlayerFacts({ player, compact = false }) {
-  return (
-    <Stack
-      direction="row"
-      spacing={0.75}
-      useFlexGap
-      flexWrap="wrap"
-      alignItems="center"
-    >
-      <PositionChip position={player.position} size="small" />
-      <Typography variant="caption" color="text.secondary">
-        {player.nfl_team || "NFL team unavailable"}
-      </Typography>
-      {!compact && (
-        <Typography variant="caption" color="text.secondary">
-          ADP {player.adp ?? "-"}
-        </Typography>
-      )}
-      {player.bye_week != null && (
-        <Chip
-          size="small"
-          variant="outlined"
-          label={`Bye ${player.bye_week}`}
-        />
-      )}
-      {player.injury_status ? (
-        <Chip size="small" color="warning" label={player.injury_status} />
-      ) : (
-        <Chip size="small" variant="outlined" label="Healthy" />
-      )}
-    </Stack>
-  );
-}
+// The Players list's own base column count (Player, Proj Wk, ROS, Ownership,
+// Weeks, Status, Action) - Upgrade adds one more, hidden outright in a best
+// ball league (#1310, ADR 0040 Lead correction item 5) rather than shown null.
+const BASE_COLUMN_COUNT = 7;
 
 function PlayerManagement() {
   const [leagues, setLeagues] = useState([]);
@@ -211,7 +164,6 @@ function PlayerManagement() {
   // read WaiverWire already makes) - without it the required Select has no
   // options and Add never enables.
   const [roster, setRoster] = useState([]);
-  const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [searchParams, setSearchParams] = useSearchParams();
@@ -227,6 +179,7 @@ function PlayerManagement() {
     (league) => String(league.id) === selectedLeague,
   );
   const rosterAction = rosterActionForPhase(activeLeague);
+  const bestBall = !!activeLeague?.best_ball;
 
   const updateParams = useCallback(
     (updates) => {
@@ -306,7 +259,13 @@ function PlayerManagement() {
         position: positionFilter,
         sort: wireSortName(sort),
       };
-      if (selectedLeague) params.leagueId = Number(selectedLeague);
+      // view=cards (#1309/#1310) requires leagueId - without a selected
+      // league (browsing with no fantasy league yet) the request stays the
+      // plain shape it always was, and the row falls back to "Select league".
+      if (selectedLeague) {
+        params.leagueId = Number(selectedLeague);
+        params.view = "cards";
+      }
       if (availabilityFilter !== "all")
         params.availability = availabilityFilter;
       if (dir === "desc") params.dir = "desc";
@@ -344,14 +303,6 @@ function PlayerManagement() {
     setSearchInput(search);
   }, [search]);
 
-  const handleSort = (key) => {
-    const nextDesc = sort === key && dir === "asc";
-    updateParams({
-      sort: key === DEFAULT_SORT_KEY ? "" : key,
-      dir: nextDesc ? "desc" : "",
-      page: 1,
-    });
-  };
   // Formal review round 2, f11: an add or a drop-and-add both change the
   // caller's own roster, so the drop pick a LATER at-capacity add offers
   // must be refreshed alongside the players list - WaiverWire's own
@@ -373,41 +324,70 @@ function PlayerManagement() {
     },
     [addPlayer],
   );
+  // #1310, ADR 0040 Lead correction item 6: the row's Claim action goes
+  // through the SAME claim-player feature WaiverWire's own claim dialog
+  // submits with - a one-tap claim (no drop pick, no bid) straight from the
+  // list, the row-level counterpart to Add's own direct call above. A
+  // manager who needs a drop pick or a FAAB bid still reaches the fuller
+  // Decision card action bar by opening the row's own Quick view.
+  const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
+  const claimFromRow = useCallback(
+    async (player) => {
+      setError(null);
+      const { ok, message } = await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
+      if (!ok) setError(message);
+    },
+    [submitClaim],
+  );
   const actionForPlayer = useCallback(
     (player) => {
       const state = availabilityOf(player);
       if (!selectedLeague)
         return {
+          kind: "button",
           label: "Select league",
           disabled: true,
           helper: "Select a fantasy league to manage players.",
         };
       if (state === "waivers")
         return {
+          kind: "button",
           label: "Claim",
-          onClick: () => navigate(`/league/${selectedLeague}/waivers?playerId=${player.id}`),
-          helper: "Build this claim in Waiver Wire.",
+          onClick: () => claimFromRow(player),
+          helper: "Submit a waiver claim for this player.",
         };
       if (state === "my_team")
         return {
-          label: "In lineup",
-          onClick: () => navigate(`/league/${selectedLeague}/lineup`),
+          kind: "link",
+          to: `/league/${selectedLeague}/lineup`,
+          label: "Lineup",
+          variant: "text",
           helper: "Manage this player in Team Lineup.",
         };
       if (state === "rostered")
         return {
-          label: "Rostered",
-          disabled: true,
-          helper: "This player is rostered in this league.",
+          kind: "link",
+          to: proposeTradeHref({
+            leagueId: selectedLeague,
+            receivingTeamId: player.availability?.teamId,
+            playerId: player.id,
+          }),
+          label: "Trade",
+          variant: "outlined",
+          helper: player.availability?.teamName
+            ? `Propose a trade with ${player.availability.teamName}.`
+            : "Propose a trade for this player.",
         };
       return {
+        kind: "button",
         label: rosterAction.label,
         onClick: () => addToRoster(player),
         disabled: rosterAction.disabled,
+        variant: "contained",
         helper: rosterAction.helper,
       };
     },
-    [addToRoster, navigate, rosterAction, selectedLeague],
+    [addToRoster, claimFromRow, rosterAction, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -434,6 +414,8 @@ function PlayerManagement() {
           faabRemaining: marketContext?.waiverType === "faab" ? marketContext?.faabRemaining : undefined,
         }
       : undefined;
+  const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
+  const columnCount = BASE_COLUMN_COUNT + (bestBall ? 0 : 1);
   const controls = (
     <Stack spacing={1.5}>
       <FormControl size="small" fullWidth>
@@ -477,23 +459,18 @@ function PlayerManagement() {
           ))}
         </Select>
       </FormControl>
-      <FormControl size="small" fullWidth>
-        <InputLabel id="pm-availability-label">Availability</InputLabel>
-        <Select
-          labelId="pm-availability-label"
-          label="Availability"
+      <Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+          Availability
+        </Typography>
+        <SegmentedControl
+          aria-label="Availability"
+          options={AVAILABILITY_FILTERS}
           value={availabilityFilter}
-          onChange={(event) =>
-            updateParams({ availability: event.target.value, page: 1 })
-          }
-        >
-          {AVAILABILITY_FILTERS.map((filter) => (
-            <MenuItem key={filter.value} value={filter.value}>
-              {filter.label}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+          onChange={(value) => updateParams({ availability: value, page: 1 })}
+          scrollable
+        />
+      </Box>
       <Stack direction="row" spacing={1}>
         <FormControl size="small" fullWidth>
           <InputLabel id="pm-sort-label">Sort</InputLabel>
@@ -690,7 +667,7 @@ function PlayerManagement() {
               sx={{
                 display: "grid",
                 gridTemplateColumns:
-                  "minmax(170px, 1fr) minmax(130px, .7fr) minmax(145px, .8fr) minmax(170px, .8fr)",
+                  "minmax(170px, 1fr) minmax(130px, .7fr) minmax(220px, 1.1fr) minmax(170px, .8fr)",
                 gap: 1,
                 flex: 2,
               }}
@@ -730,57 +707,28 @@ function PlayerManagement() {
           variant="outlined"
           sx={{ borderRadius: 3 }}
         >
-          <Table aria-label="Players" sx={{ minWidth: 940 }}>
+          <Table aria-label="Players" sx={{ minWidth: 960 }}>
             <TableHead>
               <TableRow>
+                <TableCell sx={headCellSx}>Player</TableCell>
+                <TableCell sx={headCellSx} align="right">
+                  {currentWeek != null ? `Proj Wk ${currentWeek}` : "Proj Wk"}
+                </TableCell>
+                <TableCell sx={headCellSx} align="right">
+                  ROS
+                </TableCell>
+                <TableCell sx={headCellSx} align="right">
+                  Ownership
+                </TableCell>
+                {!bestBall && (
+                  <TableCell sx={headCellSx} align="right">
+                    Upgrade
+                  </TableCell>
+                )}
                 <TableCell sx={headCellSx}>
-                  <TableSortLabel
-                    active={sort === SORT_FIELDS_BY_KEY.name.key}
-                    direction={sort === SORT_FIELDS_BY_KEY.name.key ? dir : "asc"}
-                    onClick={() => handleSort(SORT_FIELDS_BY_KEY.name.key)}
-                    sx={sortLabelSx}
-                  >
-                    Player
-                  </TableSortLabel>
+                  {currentWeek != null ? `Weeks ${currentWeek} to 18` : "Weeks"}
                 </TableCell>
-                <TableCell sx={headCellSx}>NFL</TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  <TableSortLabel
-                    active={sort === SORT_FIELDS_BY_KEY.position_rank.key}
-                    direction={
-                      sort === SORT_FIELDS_BY_KEY.position_rank.key
-                        ? dir
-                        : "asc"
-                    }
-                    onClick={() =>
-                      handleSort(SORT_FIELDS_BY_KEY.position_rank.key)
-                    }
-                    sx={sortLabelSx}
-                  >
-                    <AbbreviationTooltip term="Pos rank" />
-                  </TableSortLabel>
-                </TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  <TableSortLabel
-                    active={sort === SORT_FIELDS_BY_KEY.adp.key}
-                    direction={sort === SORT_FIELDS_BY_KEY.adp.key ? dir : "asc"}
-                    onClick={() => handleSort(SORT_FIELDS_BY_KEY.adp.key)}
-                    sx={sortLabelSx}
-                  >
-                    <AbbreviationTooltip term="ADP" />
-                  </TableSortLabel>
-                </TableCell>
-                <TableCell sx={headCellSx} align="right">
-                  <TableSortLabel
-                    active={sort === SORT_FIELDS_BY_KEY.proj.key}
-                    direction={sort === SORT_FIELDS_BY_KEY.proj.key ? dir : "asc"}
-                    onClick={() => handleSort(SORT_FIELDS_BY_KEY.proj.key)}
-                    sx={sortLabelSx}
-                  >
-                    Pool projection
-                  </TableSortLabel>
-                </TableCell>
-                <TableCell sx={headCellSx}>Availability</TableCell>
+                <TableCell sx={headCellSx}>Status</TableCell>
                 <TableCell sx={headCellSx} align="right">
                   Action
                 </TableCell>
@@ -790,7 +738,7 @@ function PlayerManagement() {
               {players.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={columnCount}
                     align="center"
                     sx={{ py: 6, color: "text.secondary" }}
                   >
@@ -800,71 +748,15 @@ function PlayerManagement() {
                   </TableCell>
                 </TableRow>
               )}
-              {players.map((player) => {
-                const action = actionForPlayer(player);
-                return (
-                  <TableRow key={player.id} hover>
-                    <TableCell component="th" scope="row">
-                      <Stack direction="row" spacing={1.5} alignItems="center">
-                        <PlayerAvatar
-                          name={player.name}
-                          position={player.position}
-                          photoUrl={player.photo_url}
-                        />
-                        <Button
-                          variant="text"
-                          onClick={() => setQuickViewId(player.id)}
-                          sx={{
-                            p: 0,
-                            minWidth: 0,
-                            textTransform: "none",
-                            fontWeight: 800,
-                            justifyContent: "flex-start",
-                          }}
-                        >
-                          {player.name}
-                        </Button>
-                        <PositionChip position={player.position} size="small" />
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <PlayerFacts player={player} compact />
-                    </TableCell>
-                    <TableCell align="right">
-                      {player.position_rank != null
-                        ? `#${player.position_rank}`
-                        : "-"}
-                    </TableCell>
-                    <TableCell align="right">{player.adp ?? "-"}</TableCell>
-                    <TableCell align="right">
-                      {player.projected_points != null
-                        ? Number(player.projected_points).toFixed(1)
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <AvailabilityChip state={availabilityOf(player)} />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title={action.helper || ""}>
-                        <span>
-                          <Button
-                            variant={
-                              availabilityOf(player) === "free_agent"
-                                ? "contained"
-                                : "outlined"
-                            }
-                            onClick={action.onClick}
-                            disabled={action.disabled}
-                            sx={actionSx}
-                          >
-                            {action.label}
-                          </Button>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {players.map((player) => (
+                <PlayerRow
+                  key={player.id}
+                  player={player}
+                  action={actionForPlayer(player)}
+                  bestBall={bestBall}
+                  onOpenPlayer={setQuickViewId}
+                />
+              ))}
             </TableBody>
           </Table>
         </TableContainer>
@@ -883,77 +775,16 @@ function PlayerManagement() {
               </Typography>
             </Paper>
           )}
-          {players.map((player) => {
-            const action = actionForPlayer(player);
-            return (
-              <Card
-                key={player.id}
-                variant="outlined"
-                sx={{ borderRadius: 3, overflow: "hidden" }}
-              >
-                <CardActionArea
-                  onClick={() => setQuickViewId(player.id)}
-                  sx={{ textAlign: "left" }}
-                >
-                  <CardContent sx={{ pb: 1.25 }}>
-                    <Stack direction="row" spacing={1.5} alignItems="center">
-                      <PlayerAvatar
-                        name={player.name}
-                        position={player.position}
-                        photoUrl={player.photo_url}
-                      />
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography
-                          variant="subtitle1"
-                          component="p"
-                          sx={{ fontWeight: 900 }}
-                          noWrap
-                        >
-                          {player.name}
-                        </Typography>
-                        <PlayerFacts player={player} />
-                      </Box>
-                      <AvailabilityChip state={availabilityOf(player)} />
-                    </Stack>
-                  </CardContent>
-                </CardActionArea>
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  sx={{ px: 2, pb: 1.5 }}
-                >
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Pool projection
-                    </Typography>
-                    <Typography variant="subtitle2" component="span" sx={{ fontWeight: 900 }}>
-                      {player.projected_points != null
-                        ? Number(player.projected_points).toFixed(1)
-                        : "-"}{" "}
-                      pts
-                    </Typography>
-                  </Box>
-                  <Tooltip title={action.helper || ""}>
-                    <span>
-                      <Button
-                        variant={
-                          availabilityOf(player) === "free_agent"
-                            ? "contained"
-                            : "outlined"
-                        }
-                        onClick={action.onClick}
-                        disabled={action.disabled}
-                        sx={actionSx}
-                      >
-                        {action.label}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                </Stack>
-              </Card>
-            );
-          })}
+          {players.map((player) => (
+            <PlayerRow
+              key={player.id}
+              player={player}
+              action={actionForPlayer(player)}
+              bestBall={bestBall}
+              variant="card"
+              onOpenPlayer={setQuickViewId}
+            />
+          ))}
         </Stack>
       )}
       <Stack alignItems="center" spacing={0.75} sx={{ py: 3 }}>
