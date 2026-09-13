@@ -251,6 +251,23 @@ export default function PlayerDecisionCard({
     prevPlayerIdRef.current = currentId;
   }, [entry?.playerId, isOpen, navIds]);
 
+  // Risk review (accessibility, #1313): `draftedBy` is the one fact on this
+  // card that can flip WHILE the card sits open - a live pick landing on the
+  // very player it shows, not just a prev/next the viewer chose - and the
+  // action bar it replaces very likely held the control focus was on.
+  // Restated from the SAME pattern as the effect above and `clearCompare`
+  // below: move focus onto the replacement (the Alert just below, which
+  // announces itself via `role="alert"`) rather than let Modal's own focus-
+  // trap recovery drop it on the drawer root with nothing spoken.
+  const draftedByRef = useRef(null);
+  const prevDraftedByRef = useRef(draftedBy ?? null);
+  useEffect(() => {
+    if (isOpen && draftedBy && !prevDraftedByRef.current) {
+      draftedByRef.current?.focus();
+    }
+    prevDraftedByRef.current = draftedBy ?? null;
+  }, [draftedBy, isOpen]);
+
   const { line, weather } = useDecisionCardLine({ leagueId, playerId: entry?.playerId ?? null, week });
   const { usage } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
   // #1307: the one Decision-card payload, read in every context (ADR 0040's
@@ -728,16 +745,26 @@ export default function PlayerDecisionCard({
           )}
           {/* #1313: the Draft room's own action bar - Draft/Queue for an
               undrafted pool player, restated from DraftBoard.jsx's identical
-              actions (matching what the room's pool row already offers);
-              `draftedBy` set replaces the whole bar with a plain attribution
-              line, the same treatment `rostered`'s Availability line gets
-              above. */}
+              actions (matching what the room's pool row already offers).
+              `draftedBy` set replaces the whole bar with an Alert (risk
+              review, accessibility): unlike `rostered`'s plain Availability
+              line, this fact can change WHILE the card sits open (a live
+              pick landing on the viewed player), so it gets the SAME
+              `role="alert"` treatment the deleted DraftQuickView's identical
+              banner had, restated here rather than dropped - a plain line
+              would render silently for a screen-reader user with focus
+              already elsewhere. */}
           {effectiveContext === 'draft' && (
             draftedBy ? (
               <Box data-testid="decision-card-actions" sx={{ px: 2, pb: 1.5 }}>
-                <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }} data-testid="decision-card-drafted-by">
+                <Alert
+                  severity="warning"
+                  tabIndex={-1}
+                  ref={draftedByRef}
+                  data-testid="decision-card-drafted-by"
+                >
                   {`Drafted by ${draftedBy}`}
-                </Typography>
+                </Alert>
               </Box>
             ) : (
               <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
@@ -749,6 +776,17 @@ export default function PlayerDecisionCard({
                         variant="contained"
                         color="success"
                         aria-disabled={draftUnavailableReason ? true : undefined}
+                        // Risk review (accessibility, #1313): a string `title`
+                        // on MUI's Tooltip labels the wrapping <span> (needed
+                        // so the tooltip still fires while aria-disabled),
+                        // never the Button inside it - a generic, roleless
+                        // span carries no accessible name/description of its
+                        // own, so the reason never reached assistive tech.
+                        // `aria-describedby` on the BUTTON itself, pointing
+                        // at the same text rendered visually-hidden just
+                        // below, is what actually attaches it to the control
+                        // a screen-reader user is focused on.
+                        aria-describedby={draftUnavailableReason ? 'decision-card-draft-unavailable-reason' : undefined}
                         onClick={() => {
                           if (draftUnavailableReason) return; // suppressed activation
                           onDraft?.();
@@ -771,6 +809,11 @@ export default function PlayerDecisionCard({
                 >
                   {queued ? 'Queued' : 'Queue'}
                 </Button>
+                {draftUnavailableReason && (
+                  <Box id="decision-card-draft-unavailable-reason" sx={visuallyHidden}>
+                    {draftUnavailableReason}
+                  </Box>
+                )}
               </Box>
             )
           )}
