@@ -1115,4 +1115,27 @@ describe('Season summary and Season pick (#1358)', () => {
     const radiogroupAfterNav = await screen.findByRole('radiogroup', { name: 'Season' });
     expect(within(radiogroupAfterNav).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
   });
+
+  // CI regression (PR #1367, browser-security e2e gate): the Decision-card
+  // e2e fixture (tests/e2e/fixtures/decisionCardFixtures.ts) predates
+  // #1356/#1358 and ships a card payload with top-level `weeks`/`log` but no
+  // `seasons` at all. A real payload never omits `seasons` (#1356's ruling),
+  // but a card shaped this way is still a real shape - hiding the bars and
+  // the game log outright for it, rather than falling back to the top-level
+  // fields, would be a silent regression for any payload like it.
+  test('a payload with no seasons array still renders the bars and game log from the top-level fields, with no summary or pick', async () => {
+    mockCardRoute({
+      decision: { projWeek: { week: 4, points: 12 } },
+      seasonEnd: 17,
+      weeks: [weekRow(4, { kind: 'projected', points: 20 })],
+      log: { current: [logRow(4, { opponent: 'KC' })] },
+    });
+    renderCard();
+
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
+    expect(screen.queryByTestId('decision-card-seasons')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
+  });
 });

@@ -253,6 +253,18 @@ export default function PlayerDecisionCard({
   const isCurrentSeasonSelected = Boolean(
     selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
   );
+  // CI red (PR #1367, browser-security gate): the e2e fixture's card payload
+  // predates #1356/#1358 and carries no `seasons` at all - a real payload
+  // never does this (#1356's ruling: `seasons[0]` is always present, even a
+  // rookie's single entry), but a card WITH weeks/log and no seasons is a
+  // real shape too (any producer that hasn't caught up yet), and hiding the
+  // bars/game log outright for it is a regression this ticket must not
+  // ship. Falling back to the top-level fields exactly reproduces this
+  // widget's pre-#1358 behaviour whenever `seasons` is absent or empty.
+  const barsWeeks = selectedSeasonEntry ? selectedSeasonEntry.weeks : card?.weeks;
+  const barsCurrentWeek = (!selectedSeasonEntry || isCurrentSeasonSelected) ? card?.decision?.projWeek?.week : undefined;
+  const barsSeasonEnd = (!selectedSeasonEntry || isCurrentSeasonSelected) ? card?.seasonEnd : undefined;
+  const gameLog = selectedSeasonEntry ? { current: selectedSeasonEntry.log ?? [] } : card?.log;
   // Risk review (#1311): every OTHER caller hands a full `entry`, so the
   // drawer always paints real content immediately even while this read is
   // still in flight (ADR 0037: "the row's own fields paint immediately").
@@ -790,17 +802,13 @@ export default function PlayerDecisionCard({
                 value={selectedSeasonEntry?.season ?? null}
                 onChange={setPickedSeason}
               />
-              <WeeklyPointsBars
-                weeks={selectedSeasonEntry?.weeks}
-                currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
-                seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
-              />
+              <WeeklyPointsBars weeks={barsWeeks} currentWeek={barsCurrentWeek} seasonEnd={barsSeasonEnd} />
               {/* `card.seasons[i].log` is already the row array
                   `GameLogTable` reads as `log.current` (lead correction on
                   the issue thread) - wrapped here rather than changing
                   GameLogSection/GameLogTable, which live outside this
                   ticket's reservation. */}
-              <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
+              <GameLogSection log={gameLog} />
               <Bio bio={card?.bio} />
               {lineupManaged && (
                 <BenchOptionsSection
