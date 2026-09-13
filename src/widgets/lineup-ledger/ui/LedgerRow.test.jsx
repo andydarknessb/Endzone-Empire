@@ -153,8 +153,17 @@ test('the pre-kickoff Game cell shows the opponent and kickoff', () => {
 });
 
 // #1329 (ADR 0037): the pre-kickoff Game cell's second, faint line - the
-// Line and weather, text only (no glyph, per the Ruling). Red-tell: dropping
-// this line from LedgerRow.jsx turns only the "both" case below red.
+// Line and weather, text only (no glyph, per the Ruling).
+//
+// Red-tell (measured, formal review f2): dropping the whole detail block
+// (`const detail = null`) turns FOUR cases red - line-only, weather-only,
+// both and indoor all query `getByTestId('ledger-game-detail')`, which
+// throws once the block is gone; only "neither" (a queryByTestId) survives.
+// The mutation that reddens ONLY "both" is collapsing the join to just one
+// side (`view.lineText || view.weatherText` in place of the
+// `.filter(Boolean).join(' · ')` below): line-only, weather-only, neither
+// and indoor each carry at most one of the two texts, so `||` still picks
+// the right one for them, and only "both" loses its second half.
 const LINE = { spread: -3.5, total: 49.5, impliedTeamTotal: 26.5, observedAt: '2026-09-14T12:00:00Z', favoured: 'KC' };
 const WEATHER = { indoor: false, temperatureF: 58, windSpeedMph: 12, windGustMph: null, precipitationProbability: 60, shortForecast: 'Light Rain' };
 
