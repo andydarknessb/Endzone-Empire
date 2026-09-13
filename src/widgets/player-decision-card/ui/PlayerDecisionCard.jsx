@@ -20,7 +20,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
-import { InjuryTag, PosChip, RangeBar } from '../../../shared/ui';
+import { InjuryTag, PosChip, RangeBar, SegmentedControl } from '../../../shared/ui';
 import { formatKickoff, formatPoints, initialsFor, monogramInk } from '../../../shared/lib';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
@@ -69,7 +69,14 @@ function isTypingTarget(el) {
   if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (el.getAttribute && el.getAttribute('role') === 'combobox') return true;
   if (el.dataset && el.dataset.arrowScrollRegion === 'true' && el.scrollWidth > el.clientWidth) return true;
-  return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
+  if (el.closest && el.closest('.MuiToggleButtonGroup-root')) return true;
+  // Risk review (accessibility, #1358): the Season pick's SegmentedControl
+  // (shared/ui) preventDefault()s ArrowLeft/Right/Up/Down to move its own
+  // roving radio selection but never stops the keydown bubbling to window -
+  // the same "focused composite widget with its own arrow-key semantics"
+  // case the ToggleButtonGroup check above exists for, so a radiogroup gets
+  // the identical exemption rather than a SegmentedControl-specific one.
+  return !!(el.closest && el.closest('[role="radiogroup"]'));
 }
 
 /**
@@ -227,6 +234,25 @@ export default function PlayerDecisionCard({
   // decision strip and eighteen-week bars are additive to `my_team`'s
   // existing entry-based sections above, not a replacement for them).
   const { status: cardStatus, card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+
+  // #1358: the Season pick - which of `card.seasons` drives the bars and the
+  // game log. `null` means "no explicit pick yet", which resolves to
+  // `seasons[0]` below - the league's current season, per #1356's ruling
+  // that `seasons[0]` is always that season (CONTEXT.md's Season pick: "The
+  // current season is picked when the card opens"). Resetting to `null` on
+  // every `entry.playerId` change is what makes prev/next land back on the
+  // current season rather than carrying a stale pick onto the next player.
+  const [pickedSeason, setPickedSeason] = useState(null);
+  useEffect(() => {
+    setPickedSeason(null);
+  }, [entry?.playerId]);
+  const seasons = Array.isArray(card?.seasons) ? card.seasons : [];
+  const currentSeasonEntry = seasons[0] ?? null;
+  const selectedSeasonEntry =
+    (pickedSeason != null && seasons.find((s) => s.season === pickedSeason)) || currentSeasonEntry;
+  const isCurrentSeasonSelected = Boolean(
+    selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
+  );
   // Risk review (#1311): every OTHER caller hands a full `entry`, so the
   // drawer always paints real content immediately even while this read is
   // still in flight (ADR 0037: "the row's own fields paint immediately").
@@ -753,12 +779,28 @@ export default function PlayerDecisionCard({
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
               <DecisionStripSection decision={card?.decision} usage={card?.decision?.usage} />
-              <WeeklyPointsBars
-                weeks={card?.weeks}
-                currentWeek={card?.decision?.projWeek?.week}
-                seasonEnd={card?.seasonEnd}
+              {/* #1358: Season summary and Season pick, between the strip and
+                  the bars (the body's own section order). The bars and the
+                  game log below now read the PICKED season's own `weeks`/
+                  `log`, never the top-level `card.weeks`/`card.log` fields -
+                  those went away with this ticket. */}
+              <SeasonSummarySection seasons={seasons} />
+              <SeasonPickSection
+                seasons={seasons}
+                value={selectedSeasonEntry?.season ?? null}
+                onChange={setPickedSeason}
               />
-              <GameLogSection log={card?.log} />
+              <WeeklyPointsBars
+                weeks={selectedSeasonEntry?.weeks}
+                currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
+                seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
+              />
+              {/* `card.seasons[i].log` is already the row array
+                  `GameLogTable` reads as `log.current` (lead correction on
+                  the issue thread) - wrapped here rather than changing
+                  GameLogSection/GameLogTable, which live outside this
+                  ticket's reservation. */}
+              <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
               <Bio bio={card?.bio} />
               {lineupManaged && (
                 <BenchOptionsSection
@@ -1005,6 +1047,107 @@ function DecisionStripSection({ decision, usage }) {
     <Section title="Decision strip" testId="decision-card-strip-section">
       <DecisionStrip decision={decision} usage={usage} />
     </Section>
+  );
+}
+
+// #1358, CONTEXT.md's Season summary: "One season of a player in five
+// numbers under this league's scoring: games, points per game, season
+// points, position rank and ADP" - one row per `card.seasons` entry, in the
+// payload's own newest-first order. Hidden entirely with no season on
+// record (the card hasn't answered yet); the payload otherwise always
+// carries at least the current season, even for a rookie with no rows on
+// file (#1356 ruling).
+function SeasonSummarySection({ seasons }) {
+  if (!Array.isArray(seasons) || seasons.length === 0) return null;
+  return (
+    <Section title="Season summary" testId="decision-card-season-summary-section">
+      {/* Six columns at the 390px sheet's own width (ADR 0040's premise-check
+          ruling item 5, tests/e2e/player-decision-card.spec.ts): MUI's
+          default TableCell horizontal padding (16px each side) alone sums to
+          more than the sheet's available width across six columns, forcing
+          a real horizontal scrollbar on the whole card. Tightening it here
+          is local to this table, not a `shared/ui` change. */}
+      <Table
+        size="small"
+        aria-label="Season summary"
+        data-testid="decision-card-seasons"
+        sx={{ '& .MuiTableCell-root': { px: 1 } }}
+      >
+        <TableHead>
+          <TableRow>
+            <TableCell>Season</TableCell>
+            <TableCell align="right">G</TableCell>
+            <TableCell align="right">FPTS/G</TableCell>
+            <TableCell align="right">Pts</TableCell>
+            <TableCell align="right">Pos rank</TableCell>
+            <TableCell align="right">ADP</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {seasons.map((row) => (
+            <TableRow key={row.season}>
+              {/* Risk review (accessibility, #1358) nit: a row header, not a
+                  plain cell, so a screen reader reading down a numeric
+                  column (e.g. three "no ADP on record" dashes in a row)
+                  still announces which season each one belongs to. */}
+              <TableCell component="th" scope="row">{row.season}</TableCell>
+              <TableCell align="right">{row.games}</TableCell>
+              <TableCell align="right">{formatPoints(row.pointsPerGame)}</TableCell>
+              <TableCell align="right">{formatPoints(row.points)}</TableCell>
+              {/* #1356 correction 3: the current season's own posRank/
+                  posRankOf are always null (player_season_stats holds only
+                  completed seasons) - the null-ADP dash rule applies
+                  identically here so this never renders "null of null". */}
+              <TableCell align="right">
+                {row.posRank != null && row.posRankOf != null ? (
+                  `${row.posRank} of ${row.posRankOf}`
+                ) : (
+                  <DashValue label="no rank on record" />
+                )}
+              </TableCell>
+              <TableCell align="right">
+                {row.adp != null ? formatPoints(row.adp) : <DashValue label="no ADP on record" />}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Section>
+  );
+}
+
+// The null-ADP/null-Pos-rank dash (#1358 issue body): a visible dash plus a
+// visually hidden reason, so a screen reader gets more than silence where a
+// bare "-" would pass over the cell unannounced.
+function DashValue({ label }) {
+  return (
+    <>
+      <span aria-hidden="true">-</span>
+      <Box component="span" sx={visuallyHidden}>{label}</Box>
+    </>
+  );
+}
+
+// #1358, CONTEXT.md's Season pick: "a row of season chips under the Season
+// summary; the eighteen-week bars and the game log follow it." Hidden
+// entirely for a rookie (one season on record, issue AC4) - a single-option
+// radiogroup would let a manager pick nothing else anyway. Each segment is
+// at least 44px tall, the same `sx` override PickWeek and LineupPage's
+// mobile view toggle already apply to this same shared/ui control.
+function SeasonPickSection({ seasons, value, onChange }) {
+  if (!Array.isArray(seasons) || seasons.length < 2) return null;
+  const options = seasons.map((row) => ({ value: row.season, label: String(row.season) }));
+  return (
+    <Box sx={{ px: 2, pt: 1.5 }}>
+      <SegmentedControl
+        aria-label="Season"
+        data-testid="decision-card-season-pick"
+        options={options}
+        value={value}
+        onChange={onChange}
+        sx={{ '& [role="radio"]': { minHeight: 44 } }}
+      />
+    </Box>
   );
 }
 

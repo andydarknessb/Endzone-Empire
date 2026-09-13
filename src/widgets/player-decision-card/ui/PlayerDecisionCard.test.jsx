@@ -409,8 +409,21 @@ describe('prev/next over the opening list (formal review round 1, f5)', () => {
   // WeeklyPointsBars' own tabIndex={0} strip (the prior risk round's own
   // keyboard-scroll fix, WCAG 2.1.1) is exactly such a region.
   test('arrow keys are left alone for a focused, horizontally-scrollable region', async () => {
+    // #1358: WeeklyPointsBars now reads the picked season's own `weeks` off
+    // `card.seasons`, not the top-level `card.weeks` field (removed by this
+    // ticket) - a single-season payload still picks that season by default.
     mockCardRoute({
-      weeks: Array.from({ length: 18 }, (_, i) => ({ week: i + 1, kind: 'projected', points: 10 })),
+      seasons: [{
+        season: 2026,
+        games: 4,
+        points: 40,
+        pointsPerGame: 10,
+        posRank: null,
+        posRankOf: null,
+        adp: null,
+        weeks: Array.from({ length: 18 }, (_, i) => ({ week: i + 1, kind: 'projected', points: 10 })),
+        log: [],
+      }],
     });
     const onNavigate = jest.fn();
     renderCard({ playerIds: [1, 2, 3], onNavigate });
@@ -880,4 +893,246 @@ test('the header avatar renders the headshot when the entry carries a photoUrl',
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.getByTestId('decision-card-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
   expect(screen.queryByText('JA')).toBeNull();
+});
+
+// #1358: the Season summary table and Season pick chips (CONTEXT.md's Season
+// summary/Season pick), driving the bars and game log off `card.seasons`
+// rather than the top-level `weeks`/`log.current` fields. Lead corrections
+// on the issue thread: `seasons[0]` is always the current season (even a
+// rookie with no rows gets exactly one entry, never []); the current
+// season's own `posRank`/`posRankOf` are always null (player_season_stats
+// only holds completed seasons); `card.seasons[i].log` is already the row
+// array `GameLogTable` reads as `log.current`.
+describe('Season summary and Season pick (#1358)', () => {
+  function weekRow(week, over = {}) {
+    return { week, kind: 'actual', points: 10, opponent: 'KC', ...over };
+  }
+
+  function logRow(week, over = {}) {
+    return { week, opponent: 'KC', statLine: { passYds: 300 }, points: 22, ...over };
+  }
+
+  function seasonRow(season, over = {}) {
+    return {
+      season,
+      games: 10,
+      points: 150,
+      pointsPerGame: 15,
+      posRank: 5,
+      posRankOf: 40,
+      adp: null,
+      weeks: [weekRow(season % 100)],
+      log: [logRow(season % 100)],
+      ...over,
+    };
+  }
+
+  const threeSeasonCard = {
+    decision: { projWeek: { week: 4, points: 12 } },
+    seasonEnd: 17,
+    seasons: [
+      seasonRow(2026, {
+        posRank: null,
+        posRankOf: null,
+        // formal-001-f4: a value formatPoints actually rounds, so the
+        // rendered "34.3" proves the ADP cell goes through it rather than
+        // printing the raw wire number.
+        adp: 34.25,
+        weeks: [weekRow(4, { kind: 'projected', points: 20 })],
+        log: [logRow(4, { opponent: 'KC' })],
+      }),
+      seasonRow(2025, {
+        adp: null,
+        // formal-001-f2: week 4 (the current week) and week 17 (seasonEnd)
+        // are IN this past season's own weeks, so a reverted guard (passing
+        // currentWeek/seasonEnd through for a picked-but-not-current season)
+        // would wrongly mark one of them - a fixture with neither week could
+        // never catch that regression.
+        weeks: [
+          weekRow(3, { kind: 'actual', points: 18 }),
+          weekRow(4, { kind: 'actual', points: 16 }),
+          weekRow(17, { kind: 'actual', points: 9 }),
+        ],
+        log: [logRow(3, { opponent: 'DAL' })],
+      }),
+      seasonRow(2024, { adp: null, weeks: [weekRow(2)], log: [logRow(2, { opponent: 'MIA' })] }),
+    ],
+  };
+
+  test('renders three summary rows newest first, a dash for a null ADP and for the current season\'s null Pos rank, 2026 checked, and the 2026 weeks on the bars', async () => {
+    mockCardRoute(threeSeasonCard);
+    renderCard();
+
+    const table = await screen.findByTestId('decision-card-seasons');
+    const rows = within(table).getAllByRole('row').slice(1); // drop the header row
+    // The Season cell is a row header (risk review, accessibility), so it
+    // reads via `rowheader`, not `cell` - the remaining `cell`s are
+    // G/FPTS-per-G/Pts/Pos-rank/ADP, in that order.
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026', '2025', '2024']);
+
+    // Red tell: the 2024 row's ADP cell is a dash, with the reason available
+    // to a screen reader, never a bare "-" or a raw null.
+    const row2024 = within(rows[2]);
+    expect(row2024.getAllByRole('cell')[4]).toHaveTextContent('-');
+    expect(row2024.getByText('no ADP on record')).toBeInTheDocument();
+
+    // #1356 correction 3: the current season's Pos rank is always null
+    // (player_season_stats holds only completed seasons) - never "null of
+    // null".
+    const row2026 = within(rows[0]);
+    expect(row2026.getAllByRole('cell')[3]).toHaveTextContent('-');
+    expect(row2026.getByText('no rank on record')).toBeInTheDocument();
+    // formal-001-f4: the ADP cell goes through formatPoints, so a raw wire
+    // value of 34.25 renders as the rounded "34.3", not "34.25".
+    expect(row2026.getAllByRole('cell')[4]).toHaveTextContent('34.3');
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    expect(within(radiogroup).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
+
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+  });
+
+  test('clicking the 2025 chip redraws the bars and game log from the 2025 season, with no current marker, no projected bar and no season-end marker; clicking 2026 restores both', async () => {
+    mockCardRoute(threeSeasonCard);
+    renderCard();
+
+    await screen.findByTestId('weekly-bar-4');
+    expect(await screen.findByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
+
+    expect(await screen.findByTestId('weekly-bar-3')).toBeInTheDocument();
+    // The 2025 season's own weeks (formal-001-f2) deliberately include week
+    // 4 (the current week) and week 17 (seasonEnd), so these three
+    // assertions would fail if the current-season guard were ever reverted
+    // (currentWeek/seasonEnd passed through for a picked past season).
+    expect(screen.getByTestId('weekly-bar-4')).toHaveAttribute('data-kind', 'actual'); // no projected bar
+    expect(screen.queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument(); // no current-week marker
+    expect(screen.getByTestId('weekly-bar-17')).toHaveStyle({ borderRight: 'none' }); // no season-end marker
+    expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
+    expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
+
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2026' }));
+
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
+  });
+
+  // Same technique as LineupPage.test.jsx's "the phone Outlook toggle meets
+  // the 44px touch target" (byte-for-byte copy of its own local `rulesUnder`
+  // helper rather than a new shared util - that file's own precedent).
+  test('every pick radio carries the 44px touch-target rule', async () => {
+    mockCardRoute(threeSeasonCard);
+    renderCard();
+
+    const control = await screen.findByTestId('decision-card-season-pick');
+    const cls = Array.from(control.classList).find((c) => c.startsWith('css-'));
+    let tail = '';
+    Array.from(document.styleSheets).forEach((sheet) => {
+      Array.from(sheet.cssRules).forEach((rule) => {
+        if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+        tail += `${rule.selectorText.slice(`.${cls}`.length).trim()}|${rule.style.cssText};`;
+      });
+    });
+    expect(tail).toMatch(/\[role="radio"\]\|[^|]*min-height: 44px/);
+  });
+
+  test('a one-season payload renders the summary and no radiogroup', async () => {
+    mockCardRoute({ seasons: [seasonRow(2026)] });
+    renderCard();
+
+    await screen.findByTestId('decision-card-seasons');
+    expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
+  });
+
+  // formal-001-f3: this used to render only `waivers`; `free_agent` is its
+  // own branch (AddPlayerAction vs ClaimPlayerAction) and needs its own
+  // assertion, not just a shared claim it covers both.
+  test.each([
+    ['waivers', () => ({ context: 'waivers', availability: { waiverPriority: 3 } })],
+    ['free_agent', () => ({ context: 'free_agent', availability: { rosterCount: 14, rosterCapacity: 16 } })],
+  ])('the summary and pick render in the %s context too, not only my_team', async (_context, propsFor) => {
+    mockCardRoute({ seasons: [seasonRow(2026), seasonRow(2025)] });
+    renderCard({ ...propsFor(), entry: availabilityEntry(), entries: undefined });
+
+    await screen.findByTestId('decision-card-seasons');
+    expect(await screen.findByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
+  });
+
+  // Risk review (accessibility, #1358): the Season pick's own SegmentedControl
+  // preventDefault()s ArrowLeft/ArrowRight to move the roving selection
+  // (shared/ui/SegmentedControl.jsx) but never stops the keydown from
+  // bubbling - the card's own global prev/next handler (isTypingTarget) must
+  // treat a focused season chip the same way it already treats
+  // WeeklyPointsBars' scroll strip and a MUI ToggleButtonGroup, or an
+  // ArrowRight meant to pick the next season instead silently navigates to
+  // the next PLAYER and discards the pick.
+  test('arrow keys on a focused season chip move the pick, never the prev/next player', async () => {
+    mockCardRoute(threeSeasonCard);
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    within(radiogroup).getByRole('radio', { name: '2026' }).focus();
+
+    await userEvent.keyboard('{ArrowRight}');
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('navigating prev/next resets the pick to the current season', async () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/players/1/card')) return Promise.resolve({ data: threeSeasonCard });
+      if (url.includes('/players/2/card')) {
+        return Promise.resolve({
+          data: {
+            decision: { projWeek: { week: 4, points: 12 } },
+            seasonEnd: 17,
+            seasons: [seasonRow(2026, { weeks: [weekRow(4)] }), seasonRow(2025, { weeks: [weekRow(3)] })],
+          },
+        });
+      }
+      return Promise.resolve({ data: { line: null, weather: null, usage: null } });
+    });
+
+    function NavigatingCard(props) {
+      const [current, setCurrent] = React.useState(props.entry);
+      return (
+        <PlayerDecisionCard
+          {...props}
+          entry={current}
+          onNavigate={(id) => setCurrent(entry({ playerId: id }))}
+        />
+      );
+    }
+    renderWithProviders(
+      <NavigatingCard
+        open
+        onClose={jest.fn()}
+        entry={entry({ playerId: 1 })}
+        entries={[entry({ playerId: 1 }), entry({ playerId: 2 })]}
+        leagueId={1}
+        week={4}
+        bestBall={false}
+        leagueUnsettled={false}
+        onSwap={jest.fn()}
+        onRequestDrop={jest.fn()}
+        canDropEntry={() => true}
+        playerIds={[1, 2]}
+      />
+    );
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
+    expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByTestId('decision-card-next'));
+
+    const radiogroupAfterNav = await screen.findByRole('radiogroup', { name: 'Season' });
+    expect(within(radiogroupAfterNav).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
+  });
 });

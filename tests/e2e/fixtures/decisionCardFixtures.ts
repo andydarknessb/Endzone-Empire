@@ -68,6 +68,21 @@ function cardPayload(id: number, name: string) {
       },
     },
     weeks,
+    // Formal review (#1358, formal-001-f1): the real /card payload always
+    // carries `seasons` with the current season first (#1356's ruling), so
+    // this fixture needs one too - the current-season entry carries this
+    // same payload's own weeks/log rather than a second, divergent copy.
+    seasons: [{
+      season: 2026,
+      games: 3,
+      points: 42.6,
+      pointsPerGame: 14.2,
+      posRank: null,
+      posRankOf: null,
+      adp: null,
+      weeks,
+      log: [{ week: 1, opponent: 'BUF', statLine: { rushingYards: 82, rushingTDs: 1 }, points: 14.2 }],
+    }],
     seasonEnd: 17,
     news: [{ headline: 'Questionable for Sunday with an ankle injury', source: 'espn', publishedAt: '2026-09-10T00:00:00.000Z' }],
     log: {
