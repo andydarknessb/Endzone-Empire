@@ -1,6 +1,6 @@
 const { isOnWaivers } = require('./waiverStatus');
 const { rosterCapacity } = require('./irPolicy.service');
-const { POSITION_GROUPS } = require('./lineup.service');
+const { POSITION_GROUPS, lockedPlayerIds } = require('./lineup.service');
 const { DraftError } = require('./draftError');
 
 /**
@@ -10,12 +10,20 @@ const { DraftError } = require('./draftError');
 const DIRECTION = Object.freeze({ ACQUIRE: 'acquire', RELEASE: 'release' });
 
 /**
- * The five gates, each a token a caller may put in a write's exact-set bypass
+ * The six gates, each a token a caller may put in a write's exact-set bypass
  * list to skip that one check - because the caller enforces it itself (undoDrop
  * owns its restored-stash capacity; a waiver award owns its net capacity) or
  * because it is a deliberate override (the commissioner forced transaction).
  * An override is an explicit, readable decision, never the absence of a check
  * (#940 story 8).
+ *
+ * KICKOFF_HOLD is its own key, distinct from WAIVER_HOLD (#1376, ADR 0043,
+ * lead ruling on issue #1376): a trade moves an already-rostered player, never
+ * a Free agent, so it must be exempt from the kickoff check without also
+ * dropping the existing waiver-row check the WAIVER_HOLD token guards. Folding
+ * the kickoff check into WAIVER_HOLD would force that same choice on every
+ * bypass of either one; keeping them separate lets trade.service.js bypass
+ * only the kickoff half.
  */
 const ROSTER_GATE = Object.freeze({
   FREEZE: 'freeze',
@@ -23,6 +31,7 @@ const ROSTER_GATE = Object.freeze({
   CAPACITY: 'capacity',
   POSITION_CAP: 'positionCap',
   WAIVER_HOLD: 'waiverHold',
+  KICKOFF_HOLD: 'kickoffHold',
 });
 
 /**
@@ -69,9 +78,10 @@ const asBypassSet = (bypass) => {
 // The gate reads its own League row FOR UPDATE (#944 rule 1): every column the
 // freeze check and the acquire bundle need, listed so a caller cannot starve
 // the gate of the freeze fact by handing it a row that never selected it.
+// current_season/current_week are the kicked-off check's week (#1376, ADR 0043).
 const LEAGUE_GATE_SELECT =
   `SELECT "id", "transactions_locked", "draft_status", "roster_limit", "ir_slots",
-          "position_caps", "waivers_clear_at"
+          "position_caps", "waivers_clear_at", "current_season", "current_week"
      FROM "leagues" WHERE "id" = $1 FOR UPDATE`;
 
 /**
@@ -101,6 +111,33 @@ async function assertPositionCapNotReached(client, { teamId, positionCaps, posit
   if (countResult.rows[0].n >= cap) {
     throw new DraftError(409, `position cap reached: max ${cap} ${group}`);
   }
+}
+
+/**
+ * Whether the player's OWN NFL team has kicked off for the league's current
+ * season and week (#1376, ADR 0043): kickoff puts an unrostered player on
+ * waivers the same way a drop does, so the Add is refused from the kickoff
+ * instant even in the minutes before the scheduler tick has written his
+ * waiver_players row (ticket 1). The gate reads the player's team from the
+ * `players` table itself here, matching its existing rule of never trusting
+ * a caller-supplied fact (#940 story 15) - a caller passes no team at all.
+ *
+ * Defers the actual schedule comparison to the lineup lock's own predicate,
+ * `lockedPlayerIds` (lineup.service.js), rather than re-deriving it a second
+ * way: one kicked-off answer for the whole app, not two that can drift.
+ */
+async function isPlayersTeamKickedOff(client, { league, playerId }) {
+  const playerResult = await client.query(
+    `SELECT "nfl_team" FROM "players" WHERE "id" = $1`,
+    [playerId]
+  );
+  const nflTeam = playerResult.rows[0] ? playerResult.rows[0].nfl_team : null;
+  const locked = await lockedPlayerIds(client, {
+    season: league.current_season,
+    week: league.current_week,
+    players: [{ id: playerId, nflTeam }],
+  });
+  return locked.has(playerId);
 }
 
 /**
@@ -137,9 +174,23 @@ async function assertRosterAcquisitionAllowed(client, { league, teamId, playerId
   // Post-draft pickups are free agency: players still on waivers must be claimed
   // through the waiver process instead. An active draft never reaches this branch
   // (a Pick is not a waiver claim), so it is a no-op for pick.service.commitPick.
-  if (!skip.has(ROSTER_GATE.WAIVER_HOLD) &&
-      league.draft_status === 'complete' &&
+  if (!skip.has(ROSTER_GATE.WAIVER_HOLD) && league.draft_status === 'complete' &&
       await isOnWaivers(client, { league, playerId })) {
+    throw new DraftError(409, 'player is on waivers; submit a waiver claim instead');
+  }
+
+  // A kicked-off team is the same hold, just not yet written as a waiver_players
+  // row (#1376, ADR 0043) - but it is its OWN token, KICKOFF_HOLD, not folded
+  // into WAIVER_HOLD above (lead ruling on issue #1376): a trade moves an
+  // already-rostered player, never a Free agent, so trade.service.js's
+  // receiving-side gate bypasses KICKOFF_HOLD alone, and the existing
+  // waiver-row check above still runs for it unchanged. It runs only when
+  // NEITHER token is bypassed, so every caller that already bypasses
+  // WAIVER_HOLD wholesale (a waiver-claim award, the commissioner override)
+  // is unaffected with no edits of its own.
+  if (!skip.has(ROSTER_GATE.WAIVER_HOLD) && !skip.has(ROSTER_GATE.KICKOFF_HOLD) &&
+      league.draft_status === 'complete' &&
+      await isPlayersTeamKickedOff(client, { league, playerId })) {
     throw new DraftError(409, 'player is on waivers; submit a waiver claim instead');
   }
 }
