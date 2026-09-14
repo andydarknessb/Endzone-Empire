@@ -61,20 +61,15 @@
  *     PlayerDecisionCard.jsx`): the Watch/Watching toggle, shown across
  *     every Availability context (never `draft`) - the same widget-reads-a-
  *     feature-through-its-own-public-index shape `add-player`/`claim-player`
- *     already establish two paragraphs up, EXCEPT this one edge is a
- *     dynamic `import()` (`React.lazy`), not a static one: `guards`/
- *     test:draft-harness-coverage (issue #474, ADR 0014) walks the Draft
- *     room's STATIC import closure to enumerate every /api/ endpoint it can
- *     reach, and a static import here made PUT/DELETE /api/players/:id/watch
- *     look reachable from the Draft room even though the `draft` context
- *     never renders this button - the room genuinely never calls it. A
- *     dynamic import is invisible to that walker (it only scans top-level
- *     `ImportDeclaration`/`ExportDeclaration` nodes), so lazy-loading this
- *     ONE feature keeps the guard's closure honest about what the room
- *     actually calls, rather than adding a table/exemption entry (outside
- *     this ticket's Scope) for an endpoint nothing in the room's own code
- *     path calls. See the lazy() call's own comment in
- *     `ui/PlayerDecisionCard.jsx` for the full reasoning.
+ *     already establish two paragraphs up. The Draft room's own `draft`
+ *     context never renders this button (DraftBoard.jsx always passes
+ *     `context="draft"`), but the import stays static like its two
+ *     neighbours: ADR 0014's Consequences require an endpoint entering the
+ *     Draft room's closure to land with a harness entry or a declared
+ *     exemption in the same PR (`tests/e2e/fixtures/draftRouteTable.js`),
+ *     the same treatment `add-player`/`claim-player` already get there -
+ *     never a mechanism, like a dynamic `import()`, that hides the edge from
+ *     that guard instead of declaring it (formal review finding f1).
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';

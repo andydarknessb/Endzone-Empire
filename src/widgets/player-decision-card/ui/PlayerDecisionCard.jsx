@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useCallback, useRef, useState } from 'react';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
@@ -33,28 +33,9 @@ import { usePlayerCard, DecisionStrip, WeeklyPointsBars, GameLogTable, NewsList,
 import { isEligibleMove } from '../../../features/swap-players';
 import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
+import { WatchPlayerAction } from '../../../features/watch-player';
 import { injuryTileView } from '../lib/injuryTile';
 import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/slotActions';
-
-// #1312 risk review (guards/test:draft-harness-coverage, issue #474 ADR
-// 0014): the Draft room (DraftBoard.jsx) imports this widget, and that
-// guard walks every file's STATIC `import ... from` graph from the room's
-// entry point to enumerate every /api/ endpoint reachable from it - it does
-// not trace runtime branches, so a plain top-level `import { WatchPlayerAction
-// } from '../../../features/watch-player'` here makes PUT/DELETE
-// /api/players/:id/watch look reachable from the Draft room even though the
-// `draft` context (below) never renders it. A dynamic `import()` is invisible
-// to that walker (it only scans top-level ImportDeclaration/ExportDeclaration
-// nodes, per scripts/checkDraftHarnessCoverage.js's `relativeImportSources`),
-// so lazy-loading the ONE feature the Draft room truly never reaches keeps the
-// guard's closure honest about what the room actually calls, rather than
-// papering over a real gap with a table/exemption entry for an endpoint nobody
-// in the room's own code path calls. `add-player`/`claim-player` predate this
-// guard and are covered by table/exemption entries instead (tests/e2e/
-// fixtures/draftRouteTable.js, outside this ticket's Scope) - not touched here.
-const WatchPlayerAction = lazy(() =>
-  import('../../../features/watch-player').then((mod) => ({ default: mod.WatchPlayerAction }))
-);
 
 // Don't hijack arrow keys while the user is typing or roving a control -
 // restated from `PlayerQuickView.jsx`'s identical guard (FSD: a widget
@@ -858,19 +839,13 @@ export default function PlayerDecisionCard({
               Availability state (#1313). */}
           {effectiveContext && effectiveContext !== 'draft' && (
             <Box data-testid="decision-card-watch" sx={{ px: 2, pb: 1.5 }}>
-              {/* Suspense fallback null: the lazy chunk above resolves near-
-                  instantly (already in the same bundle graph as every other
-                  surface that opens this card), and a blank beat here is no
-                  worse than the rest of the bar's own network-bound wait. */}
-              <Suspense fallback={null}>
-                <WatchPlayerAction
-                  playerId={entry.playerId}
-                  leagueId={leagueId}
-                  watching={watching}
-                  onToggled={setWatchingOverride}
-                  onDone={onActionDone}
-                />
-              </Suspense>
+              <WatchPlayerAction
+                playerId={entry.playerId}
+                leagueId={leagueId}
+                watching={watching}
+                onToggled={setWatchingOverride}
+                onDone={onActionDone}
+              />
             </Box>
           )}
           {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
