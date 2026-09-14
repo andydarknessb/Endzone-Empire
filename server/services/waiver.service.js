@@ -5,6 +5,8 @@ const { requireMember } = require('./leagueMembership.service');
 const { logTransaction, notify } = require('./activity.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const { rosterCapacity } = require('./irPolicy.service');
+const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+const { normalizeNflTeam } = require('./nflTeam');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
 // isOnWaivers lives in its own leaf so the roster gate can share it without a
@@ -56,11 +58,27 @@ function orderClaims(claims, priorities, waiverType) {
  * hold is the right home for it: it already names the dropping team, it
  * already gates undo, and it is cleared when the hold clears, which is
  * exactly when the undo stops being offered.
+ *
+ * `availableAt` (#1375, ADR 0043) is an absolute-instant override for a
+ * caller that already knows the clear time itself - the kickoff hold job,
+ * whose clear is the week's last kickoff plus the waiver period, an instant
+ * with no fixed relationship to "now". Left null (every existing caller),
+ * the clear is `waiverPeriodHours` from now, exactly as before.
+ *
+ * ON CONFLICT, only the clear time moves, and only upward: `GREATEST` keeps
+ * whichever of the existing row and this write clears later, both
+ * directions (#1375 ADR 0043 - a drop's own clear can be later than a
+ * kickoff hold's week clear, or the reverse). The dropping team and
+ * interrupted-stash columns are never part of the UPDATE, so a conflict
+ * never touches them regardless of which caller loses the race: a kickoff
+ * hold's null dropping team can never blank a real drop's record, and the
+ * columns otherwise remain exactly what the row's first write set them to.
  */
 async function placeOnWaivers(client, {
   leagueId,
   playerId,
   waiverPeriodHours,
+  availableAt = null,
   droppedByTeamId = null,
   interruptedSlot = null,
   interruptedIrAttested = false,
@@ -68,13 +86,11 @@ async function placeOnWaivers(client, {
   await client.query(
     `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id",
                                    "interrupted_slot", "interrupted_ir_attested")
-     VALUES ($1, $2, now() + make_interval(hours => $3), $4, $5, $6)
+     VALUES ($1, $2, COALESCE($3::timestamptz, now() + make_interval(hours => $4::numeric)), $5, $6, $7)
      ON CONFLICT ("league_id", "player_id")
-     DO UPDATE SET "available_at" = EXCLUDED."available_at", "updated_at" = now(),
-                   "dropped_by_team_id" = EXCLUDED."dropped_by_team_id",
-                   "interrupted_slot" = EXCLUDED."interrupted_slot",
-                   "interrupted_ir_attested" = EXCLUDED."interrupted_ir_attested"`,
-    [leagueId, playerId, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested]
+     DO UPDATE SET "available_at" = GREATEST("waiver_players"."available_at", EXCLUDED."available_at"),
+                   "updated_at" = now()`,
+    [leagueId, playerId, availableAt, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested]
   );
 }
 
@@ -558,6 +574,90 @@ async function claimFailureReason(client, { league, team, claim }) {
   return null;
 }
 
+/**
+ * Kickoff hold (#1375, ADR 0043): the scheduler's kickoff tick. Writes the
+ * same `waiver_players` row a drop writes, with no dropping team, for every
+ * unrostered player on every kicked-off NFL team, in every league whose
+ * draft is complete - the same `fantasySeasonLiveWhereSql` eligibility the
+ * other weekly jobs already use, so a league still drafting or a
+ * pick'em-only league (which never satisfies that fragment) sees nothing.
+ * Runs once per scheduler tick, before claim processing, so a claim
+ * submitted this tick already sees the hold.
+ *
+ * The week clear is the week's LAST kickoff - every game on the slate, not
+ * only the kicked-off team's own - plus the league's `waiver_period_hours`.
+ * `weekLastKickoff` is the same instant best ball's
+ * `playersNotHeldAtLastKickoff` already computes (ADR 0022); `kickedOffTeams`
+ * is the lineup lock's own per-team predicate (#228). Both are exposed from
+ * lineup.service rather than recomputed here. Team codes go through the
+ * shared NFL team normaliser (`normalizeNflTeam`) on the player side, so a
+ * variant code (the WSH/WAS class) still matches the kicked-off set the
+ * schedule side already normalised.
+ *
+ * The write is `placeOnWaivers` unmodified for this caller: greater-of on
+ * conflict, dropping team and interrupted-stash columns never touched, so a
+ * row a drop already wrote survives a tick untouched apart from its clear
+ * time, and a tick's row survives a later drop the same way.
+ *
+ * A league with no kicked-off team this tick, or no schedule for its current
+ * week, is skipped with no query against `players` - the common case on
+ * every tick between kickoffs. One league's failure is logged and does not
+ * stop the rest, matching every other per-league duty the tick runs.
+ */
+async function holdKickedOffPlayers({ now = new Date() } = {}) {
+  const leaguesResult = await pool.query(
+    `SELECT "id", "current_season", "current_week", "waiver_period_hours"
+     FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  let held = 0;
+  for (const league of leaguesResult.rows) {
+    try {
+      held += await holdKickedOffPlayersForLeague(league, now);
+    } catch (err) {
+      console.error('kickoff waiver hold failed for league %s:', league.id, err.message);
+    }
+  }
+  return held;
+}
+
+/** One league's slice of `holdKickedOffPlayers`, above. */
+async function holdKickedOffPlayersForLeague(league, now) {
+  const {
+    id: leagueId,
+    current_season: season,
+    current_week: week,
+    waiver_period_hours: waiverPeriodHours,
+  } = league;
+  if (season == null || week == null) return 0;
+
+  const kickedOff = await lineupService.kickedOffTeams(pool, { season, week, now });
+  if (kickedOff.size === 0) return 0; // no team on this week's slate has kicked off yet
+
+  const lastKickoff = await lineupService.weekLastKickoff(pool, { season, week });
+  if (!lastKickoff) return 0; // no schedule rows for this week
+
+  const availableAt = new Date(lastKickoff.getTime() + waiverPeriodHours * 60 * 60 * 1000);
+
+  const candidatesResult = await pool.query(
+    `SELECT "players"."id", "players"."nfl_team"
+     FROM "players"
+     WHERE "players"."nfl_team" IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM "team_players"
+         WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = "players"."id"
+       )`,
+    [leagueId]
+  );
+
+  let held = 0;
+  for (const row of candidatesResult.rows) {
+    if (!kickedOff.has(normalizeNflTeam(row.nfl_team))) continue;
+    await placeOnWaivers(pool, { leagueId, playerId: row.id, waiverPeriodHours, availableAt });
+    held += 1;
+  }
+  return held;
+}
+
 /** Scheduler entry point: process every league whose waiver availability changed. */
 async function processAllDueWaivers() {
   const due = await pool.query(
@@ -596,5 +696,6 @@ module.exports = {
   cancelClaim,
   processWaivers,
   processAllDueWaivers,
+  holdKickedOffPlayers,
   openPostDraftWaiverWindow,
 };
