@@ -72,6 +72,14 @@ test('a FUTURE week takes home/away from nfl_games.home_away, not from live_game
   assert.deepEqual(pickem.winnerOf(game), { winner: null, isTie: false, final: false });
 });
 
+test('two schedule rows that both claim the same side leave the game unoriented', () => {
+  const rows = nflGameRows(2, [['BUF', 'DET']]).map((row) => ({ ...row, home_away: 'home' }));
+  const [game] = pickem.deriveSlateFromRows(rows, []);
+  assert.deepEqual(game.teams, ['BUF', 'DET']);
+  assert.equal(game.homeTeam, null);
+  assert.equal(game.awayTeam, null);
+});
+
 test('a live_game_states row wins over the schedule orientation when both exist', () => {
   const rows = nflGameRows(3, [['DAL', 'WAS']]).map((row) => ({
     ...row,

@@ -143,12 +143,22 @@ function deriveSlateFromRows(gameRows, lgsRows) {
     // confirms it.
     const entry = pairs.get(mapKey);
     const side = row.home_away == null ? null : String(row.home_away).trim().toLowerCase();
-    if (side === 'home') {
-      entry.homeTeam = entry.homeTeam || normalizeTeam(row.nfl_team);
-      entry.awayTeam = entry.awayTeam || normalizeTeam(row.opponent);
-    } else if (side === 'away') {
-      entry.awayTeam = entry.awayTeam || normalizeTeam(row.nfl_team);
-      entry.homeTeam = entry.homeTeam || normalizeTeam(row.opponent);
+    if (side === 'home' || side === 'away') {
+      const home = normalizeTeam(side === 'home' ? row.nfl_team : row.opponent);
+      const away = normalizeTeam(side === 'home' ? row.opponent : row.nfl_team);
+      if (entry.orientationConflict) {
+        // already voided below
+      } else if (entry.homeTeam == null) {
+        entry.homeTeam = home;
+        entry.awayTeam = away;
+      } else if (entry.homeTeam !== home) {
+        // The two rows disagree (both claim home, or both away): a bad sync.
+        // An unoriented game still renders from the pair; a WRONG
+        // orientation would put the host on the visitor's side.
+        entry.orientationConflict = true;
+        entry.homeTeam = null;
+        entry.awayTeam = null;
+      }
     }
   }
 
