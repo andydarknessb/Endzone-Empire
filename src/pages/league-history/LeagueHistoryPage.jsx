@@ -6,7 +6,7 @@ import { visuallyHidden } from '@mui/utils';
 import { AbbreviationTooltip, Badge, Card, GradeChip, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { teamStandingFromRow } from '../../entities/standings';
 import { seasonView, useLeagueHistory } from '../../entities/season-archive';
-import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
+import { teamNameLabel, teamRowKey } from '../../shared/lib';
 // A page reaching below the island for a presentational component ADR 0031's
 // #1146 amendment does not yet cover (its clause is written for widgets and
 // features; a page reaching below island is already precedent -

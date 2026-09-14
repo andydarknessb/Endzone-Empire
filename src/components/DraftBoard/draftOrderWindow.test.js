@@ -132,7 +132,7 @@ describe('the Upcoming strip', () => {
 
   test('carries a Team name through untouched, with no former-manager fallback', () => {
     // These are the league's CURRENT teams, and a current team always has a
-    // name (src/lib/teamIdentity.js). Routing them through teamNameLabel would
+    // name (src/shared/lib/teamIdentity.js). Routing them through teamNameLabel would
     // turn a data bug into a plausible-looking "Former manager" that nobody
     // investigates, which is the failure that label exists to prevent.
     const { upcoming } = draftOrderWindowFor({

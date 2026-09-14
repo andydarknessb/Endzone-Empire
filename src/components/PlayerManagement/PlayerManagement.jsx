@@ -44,8 +44,8 @@ import { useAddPlayer } from "../../features/add-player";
 import { useClaimPlayer } from "../../features/claim-player";
 import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
-import { rosterActionForPhase } from "../../lib/leaguePhase";
-import { isPickemOnly } from "../../lib/leagueType";
+import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
+import { isPickemOnly } from "../../shared/lib/leagueType";
 import {
   SORT_FIELDS,
   wireSortName,

@@ -52,8 +52,8 @@ import { draftOrderWindowFor } from './draftOrderWindow';
 import { assignRosterSlots } from '../../lib/rosterAssignment';
 import { pickLabelFor } from '../../lib/draftTurns';
 import { draftRounds } from '../../lib/rosterShape';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
 
 // The Draft page's one landmark structure: a single <main>, named by the

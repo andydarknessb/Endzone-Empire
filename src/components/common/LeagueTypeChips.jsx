@@ -1,6 +1,6 @@
 import React from 'react';
 import { Chip, Stack } from '@mui/material';
-import { isPickemOnly } from '../../lib/leagueType';
+import { isPickemOnly } from '../../shared/lib/leagueType';
 
 const SCORING_LABEL = {
   standard: 'Standard',

@@ -19,7 +19,7 @@ import {
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { isPickemOnly, shortLeagueTypeLabel } from '../../lib/leagueType';
+import { isPickemOnly, shortLeagueTypeLabel } from '../../shared/lib/leagueType';
 
 // Turns a whole number of seconds into a short humanized string, e.g. "3h 42m".
 function humanizeUptime(uptimeSec) {

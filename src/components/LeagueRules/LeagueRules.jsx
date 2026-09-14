@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Container, Paper, Skeleton, Tab, Tabs, Typography } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
-import { isPickemOnly } from '../../lib/leagueType';
+import { isPickemOnly } from '../../shared/lib/leagueType';
 import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import LeagueOfficials from './LeagueOfficials';

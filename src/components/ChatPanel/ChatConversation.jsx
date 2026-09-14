@@ -1,6 +1,6 @@
 import React, { useId, useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Paper, Typography, Box, TextField, Button, Alert, InputAdornment } from '@mui/material';
-import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
+import { teamNameLabel, feedEntryKey } from '../../shared/lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import useComposerDraft from './useComposerDraft';
 import EmojiPicker from './EmojiPicker';

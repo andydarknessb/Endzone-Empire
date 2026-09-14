@@ -2,7 +2,7 @@ import { teamNameLabel, teamRowKey, isLeagueCreator, FORMER_MANAGER_LABEL, TEAM_
 // The server mirror is a pure module (no requires), so importing it here to
 // compare the two exports directly is safe and cheap.
 // eslint-disable-next-line import/no-relative-packages
-const serverTeamIdentity = require('../../server/services/teamIdentity');
+const serverTeamIdentity = require('../../../server/services/teamIdentity');
 
 test('TEAM_IDENTITY_FIELDS mirrors the server export exactly, by import not by source text (#341)', () => {
   // The client half of "a test in each module asserts the two exports are equal"

@@ -27,7 +27,7 @@ import {
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { isPickemOnly, LEAGUE_TYPE } from '../../lib/leagueType';
+import { isPickemOnly, LEAGUE_TYPE } from '../../shared/lib/leagueType';
 import LeagueTypeChips from '../common/LeagueTypeChips';
 
 function LeagueDiscovery() {

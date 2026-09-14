@@ -7,7 +7,7 @@ import { Badge, Skeleton, StatTile } from '../../shared/ui';
 import AdvanceWeek from '../../features/advance-week';
 import JoinRequests from '../../widgets/join-requests';
 import CommissionerTools from '../../components/LeagueDashboard/CommissionerTools';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import useCommissionerConsole from './model/useCommissionerConsole';
 
 const H1_SX = {

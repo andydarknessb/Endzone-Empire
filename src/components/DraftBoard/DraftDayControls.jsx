@@ -11,8 +11,8 @@ import {
   Paper,
   TextField,
 } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 
 const REASON_MIN = 10;
 const REASON_MAX = 200;

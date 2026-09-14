@@ -23,9 +23,15 @@ import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
 import { InjuryTag, PosChip, RangeBar, SegmentedControl } from '../../../shared/ui';
-import { formatKickoff, formatPoints, initialsFor, monogramInk } from '../../../shared/lib';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
-import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
+import {
+  formatKickoff,
+  formatPoints,
+  initialsFor,
+  monogramInk,
+  MIN_TOUCH_TARGET_SX,
+  NFL_TEAM_COLORS,
+  FALLBACK_KIT,
+} from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import { useDecisionCardLine } from '../../../entities/line';
 import { useDecisionCardUsage } from '../../../entities/player-usage';

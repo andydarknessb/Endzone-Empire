@@ -29,15 +29,15 @@ const KNOWN_CROSS_TREE_TESTS = [
   'src/lib/draftAutopickClock.integration.test.js',
   'src/lib/draftGradeAdp.integration.test.ts',
   'src/lib/draftTurns.test.js',
-  'src/lib/leaguePhase.test.js',
   'src/lib/lineupLockTimeline.integration.test.js',
   'src/lib/monteCarloPlayoffProjection.test.js',
   'src/lib/multiSeasonRollover.integration.test.js',
   'src/lib/scoringMatrix.integration.test.js',
   'src/lib/tank01ChaoticIngestion.integration.test.js',
-  'src/lib/teamIdentity.test.js',
   'src/lib/tradeFairnessApi.integration.test.js',
   'src/lib/weeklyRecapNarrative.integration.test.ts',
+  'src/shared/lib/leaguePhase.test.js',
+  'src/shared/lib/teamIdentity.test.js',
 ];
 
 test('discovery finds every known cross-tree test, and never fewer', () => {

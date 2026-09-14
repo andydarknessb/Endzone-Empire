@@ -32,7 +32,7 @@ import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
 import { DraftRoomAssistantPanel } from './DraftRoomAssistant';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import useFocusRescue from './useFocusRescue';
 import DraftOrderPanel from '../../widgets/draft-order/ui/DraftOrderPanel';
 

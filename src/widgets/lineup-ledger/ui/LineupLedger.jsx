@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { Card } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 import { buildLedgerSections } from '../model/buildLedgerSections';
 import { useBenchPointsLeft } from '../model/useBenchPointsLeft';
 import LedgerRow from './LedgerRow';
@@ -22,7 +22,7 @@ import LedgerRow from './LedgerRow';
  * collapse into a single column switched by a fixed bottom tab bar (Starters
  * / Bench, with IR folding into the Bench tab exactly as the desktop's own
  * Bench+IR card already groups them) - each tab button is a 44px touch
- * target (`MIN_TOUCH_TARGET_SX`, `src/lib/a11y`). The page around this
+ * target (`MIN_TOUCH_TARGET_SX`, `src/shared/lib/a11y`). The page around this
  * widget owns its own vertical scrolling; nothing here forces horizontal
  * scroll (rows wrap rather than overflow).
  *

@@ -3,7 +3,7 @@ import { Box } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { Sprite, SPRITE_FIXED as FIXED } from '../../../shared/ui';
-import { FIELD_GREEN, getSpriteColors } from '../../../lib/nflTeamColors';
+import { FIELD_GREEN, getSpriteColors } from '../../../shared/lib';
 import { playLabel } from '../../../entities/matchup';
 import { initialsFor } from '../../../shared/lib';
 import { homeProbability, spritePositions } from '../model/scoreboardModel';
@@ -57,7 +57,7 @@ import { LED_FONT } from './LedBoard';
  * presentation attribute is not honoured everywhere while `currentColor` is;
  * the gold helmet and pants and the white number stripe are the kit's own
  * FIXED colors, as the canvas draws them. The green is `FIELD_GREEN` from
- * src/lib/nflTeamColors: the one constant the NFL kits are contrast-checked
+ * src/shared/lib/nflTeamColors: the one constant the NFL kits are contrast-checked
  * against, so the field a touchdown kit reads against and the field that is
  * painted are the same value (there is no field token; this is the sanctioned
  * helper's constant, not a literal). The lines and yard numbers are the

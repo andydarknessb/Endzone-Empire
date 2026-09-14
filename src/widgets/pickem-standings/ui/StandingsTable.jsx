@@ -4,7 +4,7 @@ import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, SegmentedControl, Skeleton, StatTile, TeamAvatar } from '../../../shared/ui';
 import usePickemStandingsTable from '../model/usePickemStandingsTable';
 import { HEAT_WEEKS } from '../lib/heatBuckets';
-import { ordinal } from '../lib/ordinal';
+import { ordinal } from '../../../shared/lib';
 
 const TREND_LABEL = { up: 'Trend: improved', down: 'Trend: declined', flat: 'Trend: unchanged' };
 const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'var(--medal-bronze)' };

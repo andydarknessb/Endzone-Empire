@@ -17,7 +17,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 import { formatPoints } from '../../../shared/lib';
 import { formatRelative } from '../../../utils/formatRelative';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';

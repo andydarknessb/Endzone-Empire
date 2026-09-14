@@ -3,7 +3,7 @@ import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { computeDefaultWeek } from '../../../lib/matchupWeek';
-import { teamNameLabel } from '../../../lib/teamIdentity';
+import { teamNameLabel } from '../../../shared/lib';
 import {
   applyTeamProfileUpdate,
   subscribeToTeamProfileUpdates,

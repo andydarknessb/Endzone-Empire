@@ -4,7 +4,7 @@ import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, Skeleton } from '../../../shared/ui';
 import DecideJoinRequest from '../../../features/decide-join-request';
 import { initialsFor } from '../../../shared/lib';
-import { teamNameLabel } from '../../../lib/teamIdentity';
+import { teamNameLabel } from '../../../shared/lib';
 import formatRelative from '../../../utils/formatRelative';
 import useJoinRequests from '../model/useJoinRequests';
 

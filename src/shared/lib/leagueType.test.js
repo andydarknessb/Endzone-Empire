@@ -1,7 +1,7 @@
 import {
   LEAGUE_TYPE, FANTASY_MAX_TEAMS, PICKEM_MAX_TEAMS, MIN_TEAMS, isPickemOnly, leagueTypeOf,
 } from './leagueType';
-import sizeFixture from './leagueSize.fixture.json';
+import sizeFixture from '../../lib/leagueSize.fixture.json';
 
 // leagueTypeOf is the one normaliser for both wire dialects: the raw
 // leagues row (snake_case pickem_only) and the Discover projection

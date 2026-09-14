@@ -8,8 +8,8 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { visuallyHidden } from '@mui/utils';
 import Countdown from '../Countdown/Countdown';
-import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
-import { isPickemOnly } from '../../lib/leagueType';
+import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
+import { isPickemOnly } from '../../shared/lib/leagueType';
 
 function LeagueCard({ league, onDelete, compact = false }) {
   const [anchorEl, setAnchorEl] = useState(null);

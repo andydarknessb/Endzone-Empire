@@ -9,13 +9,13 @@
  * Import edges, for the boundary audit ADR 0020 names as its follow-up:
  * `shared/ui` (the kit, and since #903 the Tecmo pixel sprite and its fixed
  * palette, which the celebrate-touchdown feature composes too; since #1146
- * also `initialsFor`, promoted out of `src/lib/initials`) and
- * `entities/matchup` through their index files (since #1137, `playLabel`
- * moved there too), plus the sanctioned reach below the island:
- * `src/lib/nflTeamColors` (the touchdown sprite kits and the field green the
- * kits are checked against) and `src/shared/ui/PlayerAvatar` (the headshot,
- * reached through the `shared/ui` index since #1304). It imports no widget,
- * feature or page.
+ * also `initialsFor`, promoted out of `src/lib/initials`; since #1304 also
+ * `PlayerAvatar`, the headshot), `entities/matchup` through their index
+ * files (since #1137, `playLabel` moved there too), and `shared/lib`
+ * (`FIELD_GREEN`, `getSpriteColors`, promoted from `src/lib/nflTeamColors`
+ * by #1272: the touchdown sprite kits and the field green the kits are
+ * checked against) - ordinary island layering now, not a below-island
+ * reach. It imports no widget, feature or page.
  */
 export { default as RetroScoreboard } from './ui/RetroScoreboard';
 export { default } from './ui/RetroScoreboard';

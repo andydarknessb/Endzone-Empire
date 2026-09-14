@@ -4,7 +4,7 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, use
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates } from '../../entities/matchup';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib';
 import { computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger from '../../widgets/lineup-ledger';

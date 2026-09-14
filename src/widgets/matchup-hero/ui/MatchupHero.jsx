@@ -3,9 +3,8 @@ import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Link as RouterLink } from 'react-router-dom';
 import { Card, Badge, DashButton, StatTile, SplitBar, TeamAvatar } from '../../../shared/ui';
-import { formatKickoff } from '../../../shared/lib';
-import { teamNameLabel } from '../../../lib/teamIdentity';
-import { matchupHeroView, ordinal } from '../model/matchupHeroView';
+import { formatKickoff, teamNameLabel, ordinal } from '../../../shared/lib';
+import { matchupHeroView } from '../model/matchupHeroView';
 
 /**
  * The "Your matchup" card (ticket #893, ADR 0031): the viewer's Matchup on

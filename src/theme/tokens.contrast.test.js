@@ -1,6 +1,6 @@
 import { colorTokens, scaleTokens } from './tokens';
 import { contrastRatio, relativeLuminance } from './contrast';
-import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../lib/nflTeamColors';
+import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../shared/lib/nflTeamColors';
 import { monogramInk } from '../shared/lib/monogramInk';
 import { BUCKET_OPACITY } from '../widgets/pickem-standings/ui/StandingsTable';
 
