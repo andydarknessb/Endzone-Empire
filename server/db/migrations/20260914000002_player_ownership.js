@@ -30,6 +30,15 @@
  * no GRANT, so the table stays reachable only by `endzone_app` and
  * `service_role`.
  *
+ * `ON DELETE CASCADE` on `player_id` matches every other player-child table
+ * (`team_players`, `player_watchlist`, ...) and is a distinct question from
+ * the guarded `down()` above: CASCADE governs what happens when a `players`
+ * row is removed (nothing in this app's runtime paths does that today),
+ * while the guard governs this migration's own rollback. Unlike
+ * `draft_activity`'s `team_id` (ON DELETE SET NULL, ADR 0012), an ownership
+ * row has no meaning once its player is gone, so cascading the delete does
+ * not strand history the way erasing the row via `down()` would.
+ *
  * CARVE-OUT (server/db/migrations/**): written by the IC, applied and
  * verified by Cory as its own knex batch, after
  * 20260913000001_player_watchlist.js applies as batch 56 (#421 cycle rule)
@@ -46,16 +55,21 @@ exports.up = async function (knex) {
     t.decimal('percent_owned', 5, 2);
     t.decimal('percent_started', 5, 2);
     t.decimal('percent_change', 5, 2);
-    // The card reads the latest captured_date row per player - one snapshot
-    // per player per day, and the index serves that latest-row lookup.
+    // The (player_id, captured_date) unique above already serves the card's
+    // "latest row for this player" lookup. This second index serves the
+    // orthogonal by-date scan (e.g. "did today's Sync run already write?").
     t.unique(['player_id', 'captured_date']);
     t.index('captured_date');
   });
 };
 
 exports.down = async function (knex) {
+  // Lock before counting so a concurrent Sync INSERT cannot commit between
+  // the count and the DROP TABLE below (count() only takes ACCESS SHARE,
+  // which would otherwise let a write slip through the guard's window).
+  await knex.raw(`LOCK TABLE "${TABLE}" IN ACCESS EXCLUSIVE MODE`);
   const [{ count }] = await knex(TABLE).count({ count: '*' });
-  if (Number(count) > 0) {
+  if (Number(count) !== 0) {
     throw new Error(
       `Refusing to drop "${TABLE}": it holds ${count} row(s) of ESPN ownership ` +
         'snapshots that cannot be re-fetched (ADR 0012 guarded rollback). ' +
