@@ -627,8 +627,10 @@ async function claimFailureReason(client, { league, team, claim }) {
  * needs either an all-candidates single-transaction pass (which would hold
  * the whole league's unrostered pool locked for the write) or a re-check
  * inside `placeOnWaivers` itself (which would make the drop path pay for a
- * check only this caller needs) - both a larger change than this fix, and
- * the window is one candidate SELECT wide, not the whole tick.
+ * check only this caller needs) - both a larger change than this fix. The
+ * window runs from the league's candidate SELECT to that player's own
+ * upsert, and the upserts run one by one, so for the last candidate it spans
+ * up to that whole league's per-player pass, not the whole tick.
  */
 async function holdKickedOffPlayers({ now = new Date() } = {}) {
   const leaguesResult = await pool.query(
