@@ -1058,6 +1058,15 @@ function normalizeInjuryStatus(raw) {
   return null;
 }
 
+// #1385: the size floor the daily injury pass judges its own feed against
+// before it trusts a departure. A player absent from getNFLPlayerList (or
+// listed with no team) reads as "left the NFL" only when the feed itself
+// looks like a real player list; a short or truncated response must never be
+// able to read as the whole league departing at once. Set near the observed
+// list size (CONTEXT.md's No NFL team) rather than tied to FANTASY_POSITIONS,
+// since the feed is not filtered to fantasy positions before this count.
+const NFL_PLAYER_LIST_FLOOR = 1500;
+
 /**
  * Injury sync: Tank01's player list carries each player's current injury
  * designation AND his current team, so one getNFLPlayerList call refreshes
@@ -1068,6 +1077,13 @@ function normalizeInjuryStatus(raw) {
  * signing, trade and practice-squad elevation for the rest of the season. Player-row locks make overlapping manual/scheduled syncs observe
  * transitions exactly once; IR flag rows commit with the designation updates
  * before best-effort push.
+ *
+ * #1385: this is also the only writer that ever clears nfl_team for a player
+ * who has left the NFL - present in our table but absent from the feed, or
+ * present with no team - and it does so only when the feed cleared
+ * NFL_PLAYER_LIST_FLOOR (see applyInjuryUnit). A cleared nfl_team is a
+ * display fact only (CONTEXT.md's No NFL team): it locks nothing and refuses
+ * no start.
  */
 async function syncInjuries({ api = tank01Get } = {}) {
   // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
@@ -1084,7 +1100,7 @@ async function syncInjuries({ api = tank01Get } = {}) {
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchInjuryUnits(api),
-    apply: (client, feedByExternal) => applyInjuryUnit(client, feedByExternal, (flags) => { irFlagsForPush = flags; }),
+    apply: (client, unit) => applyInjuryUnit(client, unit, (flags) => { irFlagsForPush = flags; }),
   });
   try {
     const { sendIrFlagPushes } = require('./irPolicy.service');
@@ -1097,9 +1113,12 @@ async function syncInjuries({ api = tank01Get } = {}) {
 
 /**
  * fetch() for the injuries job: runs before any transaction or lock. Returns
- * one unit - a Map keyed by external_id, the whole Tank01 player list boiled
- * down to what apply needs - since this job's entire feed is one atomic write
- * (ADR 0036: "injuries: one unit, the Tank01 player list").
+ * one unit - `{ feedByExternal, floorGuardTripped }`, the whole Tank01 player
+ * list boiled down to what apply needs - since this job's entire feed is one
+ * atomic write (ADR 0036: "injuries: one unit, the Tank01 player list").
+ * `floorGuardTripped` is also carried as run-level `detail` (#1202) so a
+ * short feed's guard state is logged on the run's data_sync_runs row even
+ * though it belongs to the whole run, not to apply's own result.
  */
 async function fetchInjuryUnits(api) {
   let response;
@@ -1133,15 +1152,18 @@ async function fetchInjuryUnits(api) {
     feedByExternal.set(String(entry.playerID), {
       status: normalizeInjuryStatus(injury.designation),
       detail: injury.description ? String(injury.description).slice(0, 255) : null,
-      // null for a player the feed lists with no team (a free agent). The scan
-      // below keeps his existing label rather than writing the null through:
-      // syncPlayers may clear a team because it runs rarely and by hand, but
-      // this pass runs unattended every day, so one transient blank in the feed
-      // must not be able to strip 3,000 team labels.
+      // null for a player the feed lists with no team, or omits entirely (No
+      // NFL team, CONTEXT.md). Whether that null actually clears the stored
+      // label depends on floorGuardTripped below, checked once in
+      // applyInjuryUnit rather than per row here.
       team: entry.team ? String(entry.team) : null,
     });
   }
-  return [feedByExternal];
+  // #1385: below the floor, the feed is too small to trust as a real player
+  // list - a transient truncation must never read as the whole league
+  // departing at once - so applyInjuryUnit clears no nfl_team this run.
+  const floorGuardTripped = feedByExternal.size < NFL_PLAYER_LIST_FLOOR;
+  return { units: [{ feedByExternal, floorGuardTripped }], detail: { floorGuardTripped } };
 }
 
 /**
@@ -1153,9 +1175,9 @@ async function fetchInjuryUnits(api) {
  *
  * Returns exactly the shape recorded as this run's data_sync_runs detail on
  * success, and returned to syncInjuries's own caller: `{ playersUpdated,
- * irFlags, teamChanges }`.
+ * irFlags, teamChanges, teamsCleared }`.
  */
-async function applyInjuryUnit(client, feedByExternal, onIrFlags) {
+async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, onIrFlags) {
   // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
   // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
   // different order across its wipe and bulk set. Both writers take one
@@ -1191,19 +1213,49 @@ async function applyInjuryUnit(client, feedByExternal, onIrFlags) {
   // text[] as SQL NULL. transitions is built over the SAME matches and drives
   // both playersUpdated and the IR flag pass, independent of which rows the
   // statement actually writes.
+  //
+  // #1385: departedIds is separate from ids/statuses/details/teams on purpose.
+  // A player absent from the feed gets no `feed` entry at all, so there is no
+  // designation or detail to write for him - only nfl_team, cleared by its own
+  // bulk UPDATE below rather than by widening this statement's arrays with
+  // values that would no-op the other two columns.
   const transitions = [];
   const ids = [];
   const statuses = [];
   const details = [];
   const teams = [];
+  const departedIds = [];
   let teamChanges = 0;
+  let teamsCleared = 0;
   for (const player of playersResult.rows) {
     const feed = feedByExternal.get(String(player.external_id));
-    if (!feed) continue; // not in the feed — leave untouched
-    // A feed entry with no team keeps the label the row already has, so a
-    // blank can never wipe one; see the map build above.
-    const team = feed.team === null ? player.nfl_team : feed.team;
-    if (team !== player.nfl_team) teamChanges += 1;
+    if (!feed) {
+      // Not in the feed at all: below NFL_PLAYER_LIST_FLOOR this stays exactly
+      // the old behavior (leave untouched - a short feed must never read as a
+      // departure). At or above it, a stored team with no feed entry is a
+      // player who has left the NFL (CONTEXT.md's No NFL team) and his label
+      // is cleared, never his designation or detail (the feed says nothing
+      // about those for a player it does not list).
+      if (!floorGuardTripped && player.nfl_team !== null) {
+        departedIds.push(player.id);
+        teamsCleared += 1;
+      }
+      continue;
+    }
+    // A feed entry with no team, below the floor, keeps the label the row
+    // already has (the old behavior: one transient blank must never wipe a
+    // label). At or above the floor the blank is trusted the same way an
+    // absent entry is: it clears the label (No NFL team).
+    let team;
+    if (feed.team !== null) {
+      team = feed.team;
+    } else {
+      team = floorGuardTripped ? player.nfl_team : null;
+    }
+    if (team !== player.nfl_team) {
+      if (team === null) teamsCleared += 1;
+      else teamChanges += 1;
+    }
     ids.push(player.id);
     statuses.push(feed.status);
     details.push(feed.detail);
@@ -1235,21 +1287,46 @@ async function applyInjuryUnit(client, feedByExternal, onIrFlags) {
       [ids, statuses, details, teams]
     );
   }
+  // #1385: the departure clear is its own bulk statement, touching only
+  // nfl_team - a player the feed does not list at all has no status/detail
+  // value to carry through the statement above.
+  if (departedIds.length > 0) {
+    await client.query(
+      `UPDATE "players" SET "nfl_team" = NULL WHERE "id" = ANY($1::int[])`,
+      [departedIds]
+    );
+  }
   const { flagRecoveredIrStashes } = require('./irPolicy.service');
   const irFlags = await flagRecoveredIrStashes(client, transitions);
   onIrFlags(irFlags);
   // playersUpdated counts feed matches (the length of transitions), not the
   // statement's rowCount: under the no-op predicate the two legitimately
   // differ, and the count an admin reads must not silently shrink to the
-  // handful of rows that changed.
+  // handful of rows that changed. It does not count a departure clear -
+  // teamsCleared is that signal instead, since a departed player carries no
+  // feed match (no designation, no detail) to call an "update" of him.
   //
-  // teamChanges counts the matches whose nfl_team the feed moved. It is the
-  // only signal that this pass is keeping team labels current at all: a stale
-  // label is invisible until it misroutes something (the bug behind this was
-  // found because a player's stat line landed in a week his listed team had not
-  // played), and a run that silently stopped correcting teams reads as a
-  // healthy run without it. Expect a handful in-season and 0 on a quiet day.
-  return { playersUpdated: transitions.length, irFlags: irFlags.length, teamChanges };
+  // teamChanges counts the matches whose nfl_team the feed moved to a
+  // DIFFERENT team. It is the only signal that this pass is keeping team
+  // labels current at all: a stale label is invisible until it misroutes
+  // something (the bug behind this was found because a player's stat line
+  // landed in a week his listed team had not played), and a run that silently
+  // stopped correcting teams reads as a healthy run without it. Expect a
+  // handful in-season and 0 on a quiet day.
+  //
+  // teamsCleared (#1385) counts every player whose label went to null this
+  // run - absent from the feed, or listed with no team - which is a
+  // DEPARTURE, not a move, and is kept out of teamChanges so the two counters
+  // answer two different questions: how many players changed teams, and how
+  // many left the NFL. Both stay 0 below NFL_PLAYER_LIST_FLOOR by construction
+  // (floorGuardTripped short-circuits every site that would otherwise set
+  // either).
+  return {
+    playersUpdated: transitions.length,
+    irFlags: irFlags.length,
+    teamChanges,
+    teamsCleared,
+  };
 }
 
 /**

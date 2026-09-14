@@ -31,7 +31,8 @@ function accessibleName(row, emptyLabel) {
   if (row.player) {
     parts.push(row.player.name || 'Unknown player');
     if (row.player.position) parts.push(row.player.position);
-    if (row.player.nflTeam) parts.push(row.player.nflTeam);
+    // No NFL team (CONTEXT.md) reads as FA, same as the visible badge (#1385).
+    parts.push(row.player.nflTeam || 'FA');
     if (row.player.pickLabel) parts.push(`pick ${row.player.pickLabel}`);
     if (row.player.auto) parts.push('auto-drafted');
     if (row.player.keeper) parts.push('keeper');
@@ -119,11 +120,12 @@ function SlotRow({ row, emptyLabel, dense }) {
             <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
               {player.name || 'Unknown player'}
             </Typography>
-            {player.nflTeam && (
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {player.nflTeam}
-              </Typography>
-            )}
+            {/* A player with no NFL team (CONTEXT.md) still shows a badge - FA -
+                rather than silently dropping it; the display is unaffected in
+                every way that matters to a start (#1385). */}
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              {player.nflTeam || 'FA'}
+            </Typography>
           </Box>
           {player.pickLabel && (
             <Typography

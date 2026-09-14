@@ -347,6 +347,23 @@ prevent.
 _Avoid_: injury status (the column name, not the concept), IR (unqualified —
 ambiguous with the slot)
 
+**No NFL team**:
+A player who has left the NFL — released, retired, or otherwise dropped from
+Tank01's player list — or who the list carries with no team. A fact about the
+NFL world, written only by the daily injury sync (never the hand-run player
+sync, and never anything a manager does), which clears `nfl_team` to null for
+such a player once its own feed is large enough to trust; a feed too small to
+be a real player list trips a size floor and clears nothing, logged on that
+run's Sync run row. Purely a display fact: the lineup card shows `FA` in
+place of the team badge, and nothing about it locks a slot or refuses a
+start. Distinct from Free agent, below, which is about league Availability —
+a player can have no NFL team while rostered on a fantasy team, and a true
+Free agent (waivers clear, game not kicked off) almost always still carries
+an NFL team.
+_Avoid_: free agent (the league-availability term, below; `FA` is fine as
+badge copy, never as the concept in code or docs), released, retired,
+dropped (a fantasy-roster word, ambiguous here)
+
 **Sync run**:
 One execution of a feed sync (injuries, ADP, schedule, players, week stats),
 recorded whether it succeeded, was refused, or failed, and with the reason
@@ -908,6 +925,9 @@ _Avoid_: lineup lock
 An unrostered player who can be added immediately: waivers have cleared on
 him and his NFL game for the current week has not kicked off. Kickoff puts
 him on waivers until the week clears, the same hold a drop puts him under.
+Distinct from No NFL team, above, which is an NFL-employment fact and no
+judge of league Availability at all.
+_Avoid_: nfl_team null (that is No NFL team, above — a different fact)
 
 **Waiver claim**:
 A request for an unrostered player, resolved in a batch rather than
