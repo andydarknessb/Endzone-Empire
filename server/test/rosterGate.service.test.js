@@ -38,13 +38,17 @@ const clearLeague = () => ({
   ir_slots: 0,
   position_caps: {},
   waivers_clear_at: null,
+  current_season: 2026,
+  current_week: 4,
 });
 const clearTeam = () => ({ id: 11, locked: false });
 
 /**
  * A gate world. Overrides merge onto a league/team that pass everything, and
- * the acquire-bundle reads (roster count, position-cap count, on-waivers) are
- * stubbed to "not full / not capped / not on waivers" unless overridden.
+ * the acquire-bundle reads (roster count, position-cap count, on-waivers, the
+ * player's own NFL team, and which teams have kicked off) are stubbed to
+ * "not full / not capped / not on waivers / no team / nobody kicked off yet"
+ * unless overridden.
  */
 function gateWorld({
   league = {},
@@ -52,6 +56,8 @@ function gateWorld({
   rosterCount = 0,
   positionCount = 0,
   onWaivers = false,
+  playerTeam = null,
+  kickedOffTeams = [],
 } = {}) {
   const leagueRow = { ...clearLeague(), ...league };
   const teamRow = { ...clearTeam(), ...team };
@@ -62,6 +68,8 @@ function gateWorld({
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players" JOIN "players"/, () => ({ rows: [{ n: positionCount }] })],
     [/^SELECT 1 FROM "waiver_players"/, () => ({ rows: onWaivers ? [{ 1: 1 }] : [] })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "players" WHERE "id" = \$1/, () => ({ rows: [{ nfl_team: playerTeam }] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOffTeams.map((nflTeam) => ({ nfl_team: nflTeam })) })],
   ]);
 }
 
@@ -131,6 +139,95 @@ test('acquire: a player on waivers is refused; release ignores the hold', async 
   await assert.doesNotReject(
     assertRosterWriteAllowed(await gateWorld({ onWaivers: true }).connect(), { ...RELEASE })
   );
+});
+
+// --- the kicked-off hold (#1376, ADR 0043) ----------------------------------
+// Kickoff puts an unrostered player on waivers the same way a drop does, so
+// the acquire bundle refuses him even before the scheduler tick has written
+// the waiver_players row. The gate reads the player's OWN team from the
+// `players` table, never from the call arguments.
+
+test('acquire: a player whose team has kicked off is refused, with no waiver hold row', async () => {
+  const client = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.rejects(
+    assertRosterWriteAllowed(client, { ...ACQUIRE }),
+    { statusCode: 409, message: 'player is on waivers; submit a waiver claim instead' }
+  );
+});
+
+test('release passes for the same kicked-off player', async () => {
+  const client = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...RELEASE }));
+});
+
+test('acquire: a player whose team has not kicked off passes', async () => {
+  const client = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['SF'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE }));
+});
+
+test('acquire: a player on a bye team passes (no game of his to kick off)', async () => {
+  const client = await gateWorld({ playerTeam: 'MIA', kickedOffTeams: ['KC', 'SF'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE }));
+});
+
+test('acquire: a player with no NFL team passes', async () => {
+  const client = await gateWorld({ playerTeam: null, kickedOffTeams: ['KC'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE }));
+});
+
+test('acquire: a league whose draft is not complete passes a kicked-off player (the draft-status gate applies)', async () => {
+  const client = await gateWorld({
+    league: { draft_status: 'active' },
+    playerTeam: 'KC',
+    kickedOffTeams: ['KC'],
+  }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE }));
+});
+
+test('acquire: the gate decides by the row, not by a team the caller hands it', async () => {
+  // The row says KC (kicked off); a bogus caller-supplied team is ignored.
+  const refused = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.rejects(
+    assertRosterWriteAllowed(refused, { ...ACQUIRE, nflTeam: 'SF' }),
+    { statusCode: 409, message: 'player is on waivers; submit a waiver claim instead' }
+  );
+  // The inverse: claiming the kicked-off team via the call arguments cannot
+  // manufacture a refusal when the row itself says a different, clear team.
+  const passed = await gateWorld({ playerTeam: 'SF', kickedOffTeams: ['KC'] }).connect();
+  await assert.doesNotReject(
+    assertRosterWriteAllowed(passed, { ...ACQUIRE, nflTeam: 'KC' })
+  );
+});
+
+// KICKOFF_HOLD is its own token, distinct from WAIVER_HOLD (lead ruling on
+// issue #1376): a trade moves an already-rostered player, never a Free
+// agent, so trade.service.js bypasses KICKOFF_HOLD alone and must keep the
+// existing waiver-row check. The kickoff check itself runs only when NEITHER
+// token is bypassed.
+
+test('the KICKOFF_HOLD token disables the kicked-off check, with no waiver row', async () => {
+  const client = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE, bypass: [ROSTER_GATE.KICKOFF_HOLD] }));
+});
+
+test('the KICKOFF_HOLD token does not skip the existing waiver-row check', async () => {
+  // A real waiver_players row still refuses, even with KICKOFF_HOLD bypassed:
+  // the new bypass exempts the schedule question alone, not the on-waivers one.
+  const client = await gateWorld({ onWaivers: true, playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.rejects(
+    assertRosterWriteAllowed(client, { ...ACQUIRE, bypass: [ROSTER_GATE.KICKOFF_HOLD] }),
+    { statusCode: 409, message: 'player is on waivers; submit a waiver claim instead' }
+  );
+});
+
+test('the WAIVER_HOLD token alone also disables the kicked-off check (claim-award and force paths, unchanged)', async () => {
+  const client = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE, bypass: [ROSTER_GATE.WAIVER_HOLD] }));
+});
+
+test('override bypasses the kicked-off check', async () => {
+  const client = await gateWorld({ playerTeam: 'KC', kickedOffTeams: ['KC'] }).connect();
+  await assert.doesNotReject(assertRosterWriteAllowed(client, { ...ACQUIRE, bypass: COMMISSIONER_OVERRIDE }));
 });
 
 // --- the two-part red-tell (the crux) ---------------------------------------

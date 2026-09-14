@@ -126,6 +126,9 @@ function freeAgencyPool({ rostered, stashed, stashQueries, onWaivers = false }) 
       return { rows: [{ n: stashed }] };
     }],
     [select('waiver_players'), () => ({ rows: onWaivers ? [{ 1: 1 }] : [] })],
+    // The roster gate's kicked-off check (#1376): nobody has kicked off in
+    // this world, so it never adds a refusal beyond the on-waivers one above.
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
     [insert('transactions'), () => ({ rows: [] })],
   ]);
