@@ -603,6 +603,32 @@ async function claimFailureReason(client, { league, team, claim }) {
  * week, is skipped with no query against `players` - the common case on
  * every tick between kickoffs. One league's failure is logged and does not
  * stop the rest, matching every other per-league duty the tick runs.
+ *
+ * The candidate query also excludes a player already held at or past this
+ * week's clear (#1375 review f2): without it, every already-held player on a
+ * kicked-off team gets a `placeOnWaivers` round trip - a no-op ON CONFLICT
+ * write that still stamps `updated_at` - on EVERY tick from the week's first
+ * kickoff until the week advances, across every complete-draft league. The
+ * exclusion is a read filter, not a second copy of the conflict rule:
+ * `placeOnWaivers` stays the one place greater-of and the untouched columns
+ * are decided; this only decides which players are worth asking it about.
+ *
+ * The candidate SELECT and the per-player upserts are separate statements
+ * with no shared lock (#1375 review f3): a player rostered between the two
+ * - a commissioner force, or a manager Add in the moment before his team's
+ * kickoff - can end up with a waiver hold row while rostered. That row is
+ * inert everywhere a rostered player's availability is read (every reader
+ * checks `team_players` before `waiver_players`, see player.router.js), so
+ * it is a stray row, not a wrong answer, until it expires or a later drop
+ * overwrites it - EXCEPT the roster gate's waiver-hold check, which is
+ * player-keyed and does not itself check current roster status, so a stray
+ * row can refuse a trade for this player as "on waivers" until the row
+ * clears. Left as a documented, narrow race rather than guarded: closing it
+ * needs either an all-candidates single-transaction pass (which would hold
+ * the whole league's unrostered pool locked for the write) or a re-check
+ * inside `placeOnWaivers` itself (which would make the drop path pay for a
+ * check only this caller needs) - both a larger change than this fix, and
+ * the window is one candidate SELECT wide, not the whole tick.
  */
 async function holdKickedOffPlayers({ now = new Date() } = {}) {
   const leaguesResult = await pool.query(
@@ -638,6 +664,13 @@ async function holdKickedOffPlayersForLeague(league, now) {
 
   const availableAt = new Date(lastKickoff.getTime() + waiverPeriodHours * 60 * 60 * 1000);
 
+  // A player already held at or past this week's clear (an earlier tick's own
+  // write, or a drop's clear that is later still, per the greater-of rule)
+  // needs no write this tick: `placeOnWaivers` would take the ON CONFLICT
+  // branch and touch `updated_at` for no change, on every one of these per
+  // league until the week advances (#1375 review f2). Excluding them here
+  // keeps `placeOnWaivers` the one place the conflict rule lives - this is a
+  // candidate filter, not a second copy of it.
   const candidatesResult = await pool.query(
     `SELECT "players"."id", "players"."nfl_team"
      FROM "players"
@@ -645,8 +678,13 @@ async function holdKickedOffPlayersForLeague(league, now) {
        AND NOT EXISTS (
          SELECT 1 FROM "team_players"
          WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = "players"."id"
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM "waiver_players"
+         WHERE "waiver_players"."league_id" = $1 AND "waiver_players"."player_id" = "players"."id"
+           AND "waiver_players"."available_at" >= $2::timestamptz
        )`,
-    [leagueId]
+    [leagueId, availableAt]
   );
 
   let held = 0;

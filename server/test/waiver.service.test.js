@@ -641,8 +641,21 @@ function kickoffHoldPool({ league, nflGames = [], players = [], waiverTable }) {
           .filter((g) => g.season === season && g.week === week)
           .map((g) => ({ nfl_team: g.nfl_team, kickoff_at: g.kickoff_at })) };
       }],
+    // Mirrors the production WHERE clause's second NOT EXISTS (#1375 review
+    // f2): a player already held at or past the instant this call is asking
+    // about is excluded from the candidate list, exactly as the real SQL
+    // excludes him, so a test that asserts on the call log (not just row
+    // state) proves the skip and not merely the upsert's own idempotency.
     [/^SELECT "players"\."id", "players"\."nfl_team"/,
-      () => ({ rows: players.map((p) => ({ id: p.id, nfl_team: p.nfl_team })) })],
+      (text, params) => {
+        const [leagueId, minAvailableAt] = params;
+        const alreadyHeld = new Set(
+          waiverTable.rows
+            .filter((r) => r.league_id === leagueId && new Date(r.available_at) >= new Date(minAvailableAt))
+            .map((r) => r.player_id)
+        );
+        return { rows: players.filter((p) => !alreadyHeld.has(p.id)).map((p) => ({ id: p.id, nfl_team: p.nfl_team })) };
+      }],
     [insert('waiver_players'), waiverTable.insertHandler],
   ]);
 }
@@ -733,17 +746,27 @@ test('holdKickedOffPlayers: a second tick in the same week writes no new row and
   ];
   const players = [{ id: 500, nfl_team: 'KC' }];
   const table = waiverPlayersTable();
-  kickoffHoldPool({ league, nflGames, players, waiverTable: table }).install(t);
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
 
   await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
   const afterFirstTick = table.rows.map((r) => ({ ...r }));
+  const insertsAfterFirstTick = fake.matching(insert('waiver_players')).length;
   await holdKickedOffPlayers({ now: new Date('2026-09-14T20:00:00.000Z') }); // a later tick, same week
 
   assert.equal(table.rows.length, 1, 'no new row');
   assert.deepEqual(table.rows, afterFirstTick, 'the clear time did not change');
+  // #1375 review f2: the already-held candidate filter must keep the second
+  // tick from calling placeOnWaivers at all for this player, not merely from
+  // changing anything once it does - asserted on the call log, not row state.
+  assert.equal(
+    fake.matching(insert('waiver_players')).length,
+    insertsAfterFirstTick,
+    'a second tick in the same week issues zero additional writes for an already-held player'
+  );
 });
 
-test('holdKickedOffPlayers: a tick that touches a row a drop wrote leaves the dropping team and interrupted-stash columns unchanged, and keeps the later clear', async (t) => {
+test('holdKickedOffPlayers: a row a drop wrote with a later clear is skipped outright, not merely unchanged by a no-op write', async (t) => {
   const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
   const nflGames = [
     { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
@@ -751,15 +774,23 @@ test('holdKickedOffPlayers: a tick that touches a row a drop wrote leaves the dr
   ];
   const players = [{ id: 500, nfl_team: 'KC' }];
   // A drop before kickoff already holds him, with a clear LATER than the week
-  // clear the tick would otherwise write.
+  // clear the tick would otherwise write - so the candidate filter (#1375
+  // review f2) excludes him before any placeOnWaivers call, the same as the
+  // "second tick" case above. `placeOnWaivers`'s own never-touched-on-
+  // conflict rule (a real conflict, not a skip) is proven on real Postgres in
+  // placeOnWaivers.pg.test.js, which this fake cannot demonstrate (its
+  // insertHandler re-implements the rule rather than running the SQL).
   const table = waiverPlayersTable([{
     league_id: 1, player_id: 500, available_at: '2026-09-20T00:00:00.000Z',
     dropped_by_team_id: 7, interrupted_slot: 'BENCH', interrupted_ir_attested: false,
   }]);
-  kickoffHoldPool({ league, nflGames, players, waiverTable: table }).install(t);
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
 
-  await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
 
+  assert.equal(held, 0, 'the already-held-past-clear candidate is filtered out, not upserted');
+  assert.equal(fake.matching(insert('waiver_players')).length, 0, 'no write was attempted at all');
   assert.deepEqual(table.rows[0], {
     league_id: 1, player_id: 500, available_at: '2026-09-20T00:00:00.000Z',
     dropped_by_team_id: 7, interrupted_slot: 'BENCH', interrupted_ir_attested: false,
