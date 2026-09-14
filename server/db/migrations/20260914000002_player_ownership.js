@@ -55,7 +55,7 @@ exports.up = async function (knex) {
     t.decimal('percent_owned', 5, 2);
     t.decimal('percent_started', 5, 2);
     t.decimal('percent_change', 5, 2);
-    // The (player_id, captured_date) unique above already serves the card's
+    // The (player_id, captured_date) unique below already serves the card's
     // "latest row for this player" lookup. This second index serves the
     // orthogonal by-date scan (e.g. "did today's Sync run already write?").
     t.unique(['player_id', 'captured_date']);

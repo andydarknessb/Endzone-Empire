@@ -62,7 +62,7 @@ exports.up = async function (knex) {
     t.string('position_group', 20);
     t.integer('rank');
     t.date('captured_date').notNullable();
-    // The (player_id, captured_date) unique above already serves the card's
+    // The (player_id, captured_date) unique below already serves the card's
     // "latest row for this player" lookup. This second index serves the
     // orthogonal by-date scan (e.g. "did today's Sync run already write?").
     t.unique(['player_id', 'captured_date']);
