@@ -17,7 +17,7 @@ const {
  * own parity test lives in src/shared/lib/leagueType.test.js), the same pattern the
  * league-phase twins use, rather than a hand-maintained mirror comment.
  */
-const sizeFixture = require('../../src/lib/leagueSize.fixture.json');
+const sizeFixture = require('../../src/shared/lib/leagueSize.fixture.json');
 
 test('team caps equal the shared client-parity fixture', () => {
   assert.equal(MIN_ALLOWED, sizeFixture.minTeams);

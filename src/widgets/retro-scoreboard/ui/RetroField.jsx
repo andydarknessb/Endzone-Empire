@@ -3,9 +3,8 @@ import { Box } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { Sprite, SPRITE_FIXED as FIXED } from '../../../shared/ui';
-import { FIELD_GREEN, getSpriteColors } from '../../../shared/lib';
+import { FIELD_GREEN, getSpriteColors, initialsFor } from '../../../shared/lib';
 import { playLabel } from '../../../entities/matchup';
-import { initialsFor } from '../../../shared/lib';
 import { homeProbability, spritePositions } from '../model/scoreboardModel';
 import { LED_FONT } from './LedBoard';
 

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
-import { sortRosterForDrop } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, sortRosterForDrop } from '../../../shared/lib';
 import { useAddPlayer } from '../model/useAddPlayer';
 
 /**

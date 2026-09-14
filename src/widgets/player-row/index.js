@@ -3,10 +3,11 @@
  * and WaiverWire import from HERE only.
  *
  * BELOW-ISLAND EDGES (ADR 0031's amendment): `shared/ui` (`PositionChip`,
- * `PlayerAvatar`) and `shared/lib` (`formatPoints`) through their barrels -
- * this is an island widget consumer, the same door `player-decision-card`
- * uses for the identical pieces; `lib/a11y` (`MIN_TOUCH_TARGET_SX`) and
- * `utils/formatRelative`, the same plumbing edges `player-decision-card` and
+ * `PlayerAvatar`) and `shared/lib` (`formatPoints`, and since #1272 also
+ * `MIN_TOUCH_TARGET_SX`, ordinary island layering rather than a below-island
+ * edge) through their barrels - this is an island widget consumer, the same
+ * door `player-decision-card` uses for the identical pieces; and
+ * `utils/formatRelative`, the same plumbing edge `player-decision-card` and
  * WaiverWire's own clears-time column already name.
  *
  * `entities/player` (`WeeklyPointsBars`, `PlayerNameLink`) is a same-layer
