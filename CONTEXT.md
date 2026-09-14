@@ -890,8 +890,9 @@ override. Unrelated to lineup locks.
 _Avoid_: lineup lock
 
 **Free agent**:
-An unrostered player who can be added immediately, once waivers have cleared
-on him.
+An unrostered player who can be added immediately: waivers have cleared on
+him and his NFL game for the current week has not kicked off. Kickoff puts
+him on waivers until the week clears, the same hold a drop puts him under.
 
 **Waiver claim**:
 A request for an unrostered player, resolved in a batch rather than
@@ -913,8 +914,9 @@ which uninvolved managers can vote to veto.
 
 **Availability**:
 Which of four states a player is in for one team's manager: Free agent, on
-waivers, Rostered by another team, or on your team. The action a surface
-offers follows the state: Add, Claim, Propose trade, or the lineup.
+waivers (dropped, or kicked off this week, until the week clears), Rostered by
+another team, or on your team. The action a surface offers follows the state:
+Add, Claim, Propose trade, or the lineup.
 _Avoid_: status (the column), ownership (a different fact, below)
 
 **Rostered**:
