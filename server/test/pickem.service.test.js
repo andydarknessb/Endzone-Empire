@@ -48,11 +48,41 @@ test('the slate is complete for a FUTURE week with no live_game_states rows at a
   assert.equal(games.length, 2);
   for (const game of games) {
     assert.equal(game.status, 'scheduled');
+    // A schedule row with no home_away marker cannot orient the game.
     assert.equal(game.homeTeam, null);
     assert.equal(game.awayTeam, null);
     assert.equal(game.tank01GameId, null);
     assert.ok(game.kickoffAt); // locks come from nfl_games, never from lgs
   }
+});
+
+test('a FUTURE week takes home/away from nfl_games.home_away, not from live_game_states', () => {
+  // The bug this pins: from week 2 on, every card rendered blank because
+  // home/away came ONLY from the live overlay, which is empty until a week
+  // is in play. The schedule sync writes home_away on every row.
+  const rows = nflGameRows(2, [['BUF', 'DET']]).map((row) => ({
+    ...row,
+    home_away: row.nfl_team === 'DET' ? 'home' : 'away',
+  }));
+  const [game] = pickem.deriveSlateFromRows(rows, []);
+  assert.equal(game.status, 'scheduled');
+  assert.equal(game.homeTeam, 'DET');
+  assert.equal(game.awayTeam, 'BUF');
+  // Orientation alone never makes a scheduled game final.
+  assert.deepEqual(pickem.winnerOf(game), { winner: null, isTie: false, final: false });
+});
+
+test('a live_game_states row wins over the schedule orientation when both exist', () => {
+  const rows = nflGameRows(3, [['DAL', 'WAS']]).map((row) => ({
+    ...row,
+    home_away: row.nfl_team === 'WAS' ? 'home' : 'away', // schedule says WAS hosts
+  }));
+  const [game] = pickem.deriveSlateFromRows(rows, [
+    { week: 3, home_team: 'DAL', away_team: 'WAS', game_status: 'in_progress',
+      current_score_home: 3, current_score_away: 0 },
+  ]);
+  assert.equal(game.homeTeam, 'DAL');
+  assert.equal(game.awayTeam, 'WAS');
 });
 
 test('live_game_states overlays home/away, status and score onto the pair key', () => {

@@ -12,18 +12,21 @@ const { isIndoorGame } = require('./nwsWeather.service');
  * ## The slate has no game id, so games are unordered TEAM PAIRS
  *
  * `nfl_games` is the only table that covers a whole season up front, and it
- * stores ONE ROW PER TEAM PER WEEK with no game id and no home/away marker.
- * A game is therefore identified here by `pairKey(a, b)` — both teams'
+ * stores ONE ROW PER TEAM PER WEEK with no game id. A game is therefore
+ * identified here by `pairKey(a, b)` — both teams'
  * canonical abbreviations, uppercased, sorted, joined with '|' — exactly the
  * key modules/espnScoreboard.js `resolveGameIds` already uses to tie ESPN's
  * scoreboard back to our schedule. That key is what `pickem_picks.team_pair`
  * stores.
  *
- * `live_game_states` is joined as an OPPORTUNISTIC OVERLAY for home/away
- * order, status, live score and the Tank01 game id. It is written by the live
- * engine only once a week is in play, so a future week has no rows at all —
- * the slate and, critically, the KICKOFF LOCKS must never depend on it. Both
- * come from `nfl_games.kickoff_at`.
+ * Home/away order comes from the schedule itself (`nfl_games.home_away`, one
+ * side per row), so a future week is fully oriented the moment the schedule
+ * sync has run. `live_game_states` is joined as an OPPORTUNISTIC OVERLAY for
+ * status, live score and the Tank01 game id, and it re-asserts home/away
+ * when present. It is written by the live engine only once a week is in
+ * play, so a future week has no rows at all — the slate and, critically, the
+ * KICKOFF LOCKS must never depend on it. Both come from
+ * `nfl_games.kickoff_at`.
  *
  * ## Team vocabulary
  *
@@ -89,8 +92,11 @@ function slotKey(week, gameKey) {
  * Pure: build the pickable slate.
  *
  * @param {Array} gameRows rows from `nfl_games` — `{ week, nfl_team, opponent,
- *   kickoff_at, game_key, roof }`, both team columns ALREADY normalized in
- *   SQL. Two rows describe each game (one per team); the game's kickoff is
+ *   kickoff_at, game_key, roof, home_away }`, both team columns ALREADY
+ *   normalized in SQL. `home_away` ('home' | 'away') names THAT row's own
+ *   side; a row without it leaves the game unoriented (homeTeam/awayTeam
+ *   null) until a live row arrives. Two rows describe each game (one per
+ *   team); the game's kickoff is
  *   the MIN of the pair, so a half-synced schedule can never push a lock
  *   later than the earliest evidence we have. `game_key` and `roof` are the
  *   same value on both rows of a pair (nflverse's own both-perspectives game
@@ -124,11 +130,25 @@ function deriveSlateFromRows(gameRows, lgsRows) {
         kickoff,
         dbGameKey: row.game_key || null,
         roof: row.roof || null,
+        homeTeam: null,
+        awayTeam: null,
       });
     } else {
       if (kickoff < existing.kickoff) existing.kickoff = kickoff;
       if (!existing.dbGameKey && row.game_key) existing.dbGameKey = row.game_key;
       if (!existing.roof && row.roof) existing.roof = row.roof;
+    }
+    // Each row names its OWN side. Either row of the pair is enough to
+    // orient the game (the other side is the opponent); the second row only
+    // confirms it.
+    const entry = pairs.get(mapKey);
+    const side = row.home_away == null ? null : String(row.home_away).trim().toLowerCase();
+    if (side === 'home') {
+      entry.homeTeam = entry.homeTeam || normalizeTeam(row.nfl_team);
+      entry.awayTeam = entry.awayTeam || normalizeTeam(row.opponent);
+    } else if (side === 'away') {
+      entry.awayTeam = entry.awayTeam || normalizeTeam(row.nfl_team);
+      entry.homeTeam = entry.homeTeam || normalizeTeam(row.opponent);
     }
   }
 
@@ -141,8 +161,11 @@ function deriveSlateFromRows(gameRows, lgsRows) {
       gameKey: entry.gameKey,
       teams,
       kickoffAt: entry.kickoff.toISOString(),
-      homeTeam: live ? normalizeTeam(live.home_team) : null,
-      awayTeam: live ? normalizeTeam(live.away_team) : null,
+      // Orientation comes from the schedule (nfl_games.home_away) so a
+      // future week is fully oriented; the live row, when present, is the
+      // fresher source and wins.
+      homeTeam: live ? normalizeTeam(live.home_team) : entry.homeTeam,
+      awayTeam: live ? normalizeTeam(live.away_team) : entry.awayTeam,
       status: live && live.game_status ? String(live.game_status) : 'scheduled',
       homeScore: live ? Number(live.current_score_home) || 0 : null,
       awayScore: live ? Number(live.current_score_away) || 0 : null,
@@ -608,7 +631,7 @@ const SLATE_GAMES_SQL = `
   SELECT "week",
          fn_normalize_nfl_team("nfl_team") AS "nfl_team",
          fn_normalize_nfl_team("opponent") AS "opponent",
-         "kickoff_at", "game_key", "roof"
+         "kickoff_at", "game_key", "roof", "home_away"
     FROM "nfl_games"
    WHERE "season" = $1 AND "opponent" IS NOT NULL AND "kickoff_at" IS NOT NULL`;
 
