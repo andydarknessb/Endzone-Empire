@@ -1,5 +1,5 @@
 const pool = require('./pool');
-const { processAllDueWaivers } = require('../services/waiver.service');
+const { processAllDueWaivers, holdKickedOffPlayers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
 const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const draftSweepLiveness = require('./draftSweepLiveness');
@@ -112,6 +112,14 @@ async function tickUnlocked() {
       await runHoldoutSnapshots();
     } catch (err) {
       console.error('holdout snapshot pass failed (will retry next tick):', err.message);
+    }
+    // Kickoff hold (#1375, ADR 0043): before claim processing, so a claim
+    // submitted this tick already sees a player his kicked-off team put on
+    // waivers this same tick.
+    try {
+      await holdKickedOffPlayers();
+    } catch (err) {
+      console.error('kickoff waiver hold failed (will retry next tick):', err.message);
     }
     const waivers = await processAllDueWaivers();
     if (waivers.length > 0) {

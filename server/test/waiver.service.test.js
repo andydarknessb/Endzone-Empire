@@ -5,9 +5,13 @@ const assert = require('node:assert/strict');
 // recording broadcast per test.
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const recordingBroadcast = registerRecordingBroadcast();
-const { claimFailureReason, claimTarget, orderClaims, processWaivers, submitClaim } = require('../services/waiver.service');
+const {
+  claimFailureReason, claimTarget, orderClaims, processWaivers, submitClaim,
+  placeOnWaivers, holdKickedOffPlayers,
+} = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
+const pool = require('../modules/pool');
 
 const claim = (id, teamId, bid = 0, createdAt = '2026-07-11T00:00:00Z') => ({
   id,
@@ -402,7 +406,7 @@ test('processWaivers: the claim drop records no undo, unlike the two undoable dr
   // undoDrop's `dropped_by_team_id` check finds nothing to undo. Asserted on
   // the three undo-carrying fields alone rather than the whole parameter
   // list, so this test does not also pin placeOnWaivers' unrelated defaults.
-  const [, droppedPlayerId, , droppedByTeamId, interruptedSlot, interruptedIrAttested] = holdParams;
+  const [, droppedPlayerId, , , droppedByTeamId, interruptedSlot, interruptedIrAttested] = holdParams;
   assert.deepEqual(
     { droppedPlayerId, droppedByTeamId, interruptedSlot, interruptedIrAttested },
     { droppedPlayerId: 77, droppedByTeamId: null, interruptedSlot: null, interruptedIrAttested: false },
@@ -562,4 +566,397 @@ test('submitClaim: a clean ROLLBACK returns the healthy connection to the pool (
   // reddens this.
   assert.equal(world.releaseArgs()[0], undefined, 'a clean ROLLBACK keeps the healthy connection');
   world.assertClean();
+});
+
+// ---- kickoff waiver hold (#1375, ADR 0043) ---------------------------------
+
+// A tiny stateful `waiver_players` table, shared by the tests below, that
+// implements the exact rule `placeOnWaivers`' SQL encodes: on conflict the
+// clear time moves to the greater of existing and new, and the dropping
+// team / interrupted-stash columns are never part of the write. Written once
+// here so every test below proves the same rule against a real call rather
+// than restating it with a canned response.
+function waiverPlayersTable(seed = []) {
+  const rows = seed.map((r) => ({ ...r }));
+  return {
+    rows,
+    insertHandler: (text, params) => {
+      const [leagueId, playerId, availableAt, waiverPeriodHours, droppedByTeamId, interruptedSlot, interruptedIrAttested] = params;
+      const resolved = availableAt
+        ? new Date(availableAt).toISOString()
+        : new Date(Date.now() + Number(waiverPeriodHours) * 60 * 60 * 1000).toISOString();
+      const existing = rows.find((r) => r.league_id === leagueId && r.player_id === playerId);
+      if (existing) {
+        if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
+      } else {
+        rows.push({
+          league_id: leagueId, player_id: playerId, available_at: resolved,
+          dropped_by_team_id: droppedByTeamId, interrupted_slot: interruptedSlot,
+          interrupted_ir_attested: interruptedIrAttested,
+        });
+      }
+      return { rows: [] };
+    },
+    // isOnWaivers' read: an unexpired row for (league, player).
+    isOnWaiversHandler: (nowRef) => (text, params) => {
+      const [leagueId, playerId] = params;
+      const row = rows.find((r) => r.league_id === leagueId && r.player_id === playerId
+        && new Date(r.available_at) > nowRef.current);
+      return { rows: row ? [{ '?column?': 1 }] : [] };
+    },
+    // processWaivers' cleanup DELETE: every row past its clear, for a league.
+    removeExpiredHandler: (nowRef) => (text, params) => {
+      const [leagueId] = params;
+      const before = rows.length;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (rows[i].league_id === leagueId && new Date(rows[i].available_at) <= nowRef.current) rows.splice(i, 1);
+      }
+      return { rows: [], rowCount: before - rows.length };
+    },
+  };
+}
+
+// The three queries `holdKickedOffPlayersForLeague` issues, wired to plain
+// JS arrays rather than canned per-call responses, so a test can assert on
+// the WEEK'S SCHEDULE producing the right write rather than on a query
+// having been called. `league: null` simulates a drafting or pick'em-only
+// league: `fantasySeasonLiveWhereSql` already filters both out of the
+// leagues read itself, so an empty leagues result is the correct fake for
+// either case.
+function kickoffHoldPool({ league, nflGames = [], players = [], waiverTable }) {
+  return createFakePool([
+    [/^SELECT "id", "current_season", "current_week", "waiver_period_hours"\s+FROM "leagues"/,
+      () => ({ rows: league ? [league] : [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games" WHERE "season" = \$1 AND "week" = \$2 AND "kickoff_at" <= \$3/,
+      (text, params) => {
+        const [season, week, now] = params;
+        return { rows: nflGames
+          .filter((g) => g.season === season && g.week === week && new Date(g.kickoff_at) <= new Date(now))
+          .map((g) => ({ nfl_team: g.nfl_team })) };
+      }],
+    [/^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/,
+      (text, params) => {
+        const [season, week] = params;
+        return { rows: nflGames
+          .filter((g) => g.season === season && g.week === week)
+          .map((g) => ({ nfl_team: g.nfl_team, kickoff_at: g.kickoff_at })) };
+      }],
+    // Mirrors the production WHERE clause's second NOT EXISTS (#1375 review
+    // f2): a player already held at or past the instant this call is asking
+    // about is excluded from the candidate list, exactly as the real SQL
+    // excludes him, so a test that asserts on the call log (not just row
+    // state) proves the skip and not merely the upsert's own idempotency.
+    [/^SELECT "players"\."id", "players"\."nfl_team"/,
+      (text, params) => {
+        const [leagueId, minAvailableAt] = params;
+        const alreadyHeld = new Set(
+          waiverTable.rows
+            .filter((r) => r.league_id === leagueId && new Date(r.available_at) >= new Date(minAvailableAt))
+            .map((r) => r.player_id)
+        );
+        return { rows: players.filter((p) => !alreadyHeld.has(p.id)).map((p) => ({ id: p.id, nfl_team: p.nfl_team })) };
+      }],
+    [insert('waiver_players'), waiverTable.insertHandler],
+  ]);
+}
+
+test('holdKickedOffPlayers: an unrostered player on a kicked-off team is held until the week clear (48h league)', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 48 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' }, // kicked off
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // the week's LAST kickoff
+  ];
+  const players = [{ id: 500, nfl_team: 'KC' }]; // unrostered, per kickoffHoldPool having no team_players row
+  const table = waiverPlayersTable();
+  kickoffHoldPool({ league, nflGames, players, waiverTable: table }).install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(held, 1);
+  assert.equal(table.rows.length, 1);
+  assert.equal(table.rows[0].player_id, 500);
+  assert.equal(table.rows[0].dropped_by_team_id, null, 'the hold names no dropping team');
+  assert.equal(table.rows[0].available_at, '2026-09-17T23:15:00.000Z', "the week's last kickoff plus 48 hours");
+});
+
+test('holdKickedOffPlayers: a player whose team has not kicked off, or has no game this week, is left alone', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' }, // kicked off
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // not yet
+  ];
+  const players = [
+    { id: 500, nfl_team: 'KC' }, // kicked off: held
+    { id: 501, nfl_team: 'DAL' }, // not yet kicked off: a Free agent still
+    { id: 502, nfl_team: 'MIA' }, // no schedule row this week (a bye): a Free agent
+  ];
+  const table = waiverPlayersTable();
+  kickoffHoldPool({ league, nflGames, players, waiverTable: table }).install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(held, 1);
+  assert.deepEqual(table.rows.map((r) => r.player_id), [500]);
+});
+
+test('holdKickedOffPlayers: a variant team code (the WSH/WAS class) still matches the player', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [{ season: 2026, week: 2, nfl_team: 'WSH', kickoff_at: '2026-09-14T17:00:00.000Z' }];
+  const players = [{ id: 500, nfl_team: 'WAS' }]; // schedule row spells it WSH, the player row spells it WAS
+  const table = waiverPlayersTable();
+  kickoffHoldPool({ league, nflGames, players, waiverTable: table }).install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(held, 1);
+  assert.equal(table.rows[0].player_id, 500);
+});
+
+test("holdKickedOffPlayers: a drafting league or a pick'em-only league writes nothing", async (t) => {
+  // Both are excluded by `fantasySeasonLiveWhereSql` at the leagues read
+  // itself (draft_status <> 'complete', or no fantasy side at all), so an
+  // empty leagues result is the correct fake for either case: this function
+  // never reaches its own team/player logic for a league that never comes
+  // back from that read.
+  const table = waiverPlayersTable();
+  kickoffHoldPool({ league: null, waiverTable: table }).install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(held, 0);
+  assert.equal(table.rows.length, 0);
+});
+
+test('holdKickedOffPlayers: a week with no schedule rows writes nothing', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const table = waiverPlayersTable();
+  kickoffHoldPool({ league, nflGames: [], players: [{ id: 500, nfl_team: 'KC' }], waiverTable: table }).install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(held, 0);
+  assert.equal(table.rows.length, 0);
+});
+
+test('holdKickedOffPlayers: a second tick in the same week writes no new row and changes no clear time', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' },
+  ];
+  const players = [{ id: 500, nfl_team: 'KC' }];
+  const table = waiverPlayersTable();
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
+
+  await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+  const afterFirstTick = table.rows.map((r) => ({ ...r }));
+  const insertsAfterFirstTick = fake.matching(insert('waiver_players')).length;
+  await holdKickedOffPlayers({ now: new Date('2026-09-14T20:00:00.000Z') }); // a later tick, same week
+
+  assert.equal(table.rows.length, 1, 'no new row');
+  assert.deepEqual(table.rows, afterFirstTick, 'the clear time did not change');
+  // #1375 review f2: the already-held candidate filter must keep the second
+  // tick from calling placeOnWaivers at all for this player, not merely from
+  // changing anything once it does - asserted on the call log, not row state.
+  assert.equal(
+    fake.matching(insert('waiver_players')).length,
+    insertsAfterFirstTick,
+    'a second tick in the same week issues zero additional writes for an already-held player'
+  );
+});
+
+test('holdKickedOffPlayers: a row a drop wrote with a later clear is skipped outright, not merely unchanged by a no-op write', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // week clear: 2026-09-16T23:15:00Z
+  ];
+  const players = [{ id: 500, nfl_team: 'KC' }];
+  // A drop before kickoff already holds him, with a clear LATER than the week
+  // clear the tick would otherwise write - so the candidate filter (#1375
+  // review f2) excludes him before any placeOnWaivers call, the same as the
+  // "second tick" case above. `placeOnWaivers`'s own never-touched-on-
+  // conflict rule (a real conflict, not a skip) is proven on real Postgres in
+  // placeOnWaivers.pg.test.js, which this fake cannot demonstrate (its
+  // insertHandler re-implements the rule rather than running the SQL).
+  const table = waiverPlayersTable([{
+    league_id: 1, player_id: 500, available_at: '2026-09-20T00:00:00.000Z',
+    dropped_by_team_id: 7, interrupted_slot: 'BENCH', interrupted_ir_attested: false,
+  }]);
+  const fake = kickoffHoldPool({ league, nflGames, players, waiverTable: table });
+  fake.install(t);
+
+  const held = await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(held, 0, 'the already-held-past-clear candidate is filtered out, not upserted');
+  assert.equal(fake.matching(insert('waiver_players')).length, 0, 'no write was attempted at all');
+  assert.deepEqual(table.rows[0], {
+    league_id: 1, player_id: 500, available_at: '2026-09-20T00:00:00.000Z',
+    dropped_by_team_id: 7, interrupted_slot: 'BENCH', interrupted_ir_attested: false,
+  }, 'the drop clear and its own record both survive the tick untouched');
+});
+
+test('holdKickedOffPlayers: keeps the week clear when it is later than a drop clear already on the row', async (t) => {
+  const league = { id: 1, current_season: 2026, current_week: 2, waiver_period_hours: 24 };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // week clear: 2026-09-16T23:15:00Z
+  ];
+  const players = [{ id: 500, nfl_team: 'KC' }];
+  // A drop after his own kickoff already holds him, with a clear EARLIER
+  // than the week clear (every other game that week has not kicked off yet).
+  const table = waiverPlayersTable([{
+    league_id: 1, player_id: 500, available_at: '2026-09-14T20:00:00.000Z',
+    dropped_by_team_id: 7, interrupted_slot: null, interrupted_ir_attested: false,
+  }]);
+  kickoffHoldPool({ league, nflGames, players, waiverTable: table }).install(t);
+
+  await holdKickedOffPlayers({ now: new Date('2026-09-14T18:00:00.000Z') });
+
+  assert.equal(table.rows[0].available_at, '2026-09-16T23:15:00.000Z', 'the later week clear wins');
+  assert.equal(table.rows[0].dropped_by_team_id, 7, 'the dropping team is never touched by the tick');
+});
+
+test('placeOnWaivers on conflict: the clear time moves to the greater of existing and new, either direction', async (t) => {
+  const table = waiverPlayersTable();
+  const fake = createFakePool([[insert('waiver_players'), table.insertHandler]]).install(t);
+  const client = await fake.connect();
+
+  await placeOnWaivers(client, {
+    leagueId: 1, playerId: 500, waiverPeriodHours: 24, availableAt: new Date('2026-09-16T23:15:00.000Z'),
+  });
+  await placeOnWaivers(client, {
+    leagueId: 1, playerId: 500, waiverPeriodHours: 24, availableAt: new Date('2026-09-14T18:00:00.000Z'),
+  });
+  assert.equal(table.rows[0].available_at, '2026-09-16T23:15:00.000Z', 'an earlier write never moves the clear back');
+
+  await placeOnWaivers(client, {
+    leagueId: 1, playerId: 500, waiverPeriodHours: 24, availableAt: new Date('2026-09-18T00:00:00.000Z'),
+  });
+  assert.equal(table.rows[0].available_at, '2026-09-18T00:00:00.000Z', 'a later write moves the clear forward');
+});
+
+test('placeOnWaivers on conflict: never touches the dropping team or interrupted-stash columns', async (t) => {
+  const table = waiverPlayersTable();
+  const fake = createFakePool([[insert('waiver_players'), table.insertHandler]]).install(t);
+  const client = await fake.connect();
+
+  await placeOnWaivers(client, {
+    leagueId: 1, playerId: 500, waiverPeriodHours: 24, availableAt: new Date('2026-09-14T18:00:00.000Z'),
+    droppedByTeamId: 7, interruptedSlot: 'IR', interruptedIrAttested: true,
+  });
+  await placeOnWaivers(client, {
+    // A kickoff hold's own call: no dropping team, no interrupted stash.
+    leagueId: 1, playerId: 500, waiverPeriodHours: 24, availableAt: new Date('2026-09-16T23:15:00.000Z'),
+  });
+
+  assert.deepEqual(table.rows[0], {
+    league_id: 1, player_id: 500, available_at: '2026-09-16T23:15:00.000Z',
+    dropped_by_team_id: 7, interrupted_slot: 'IR', interrupted_ir_attested: true,
+  }, 'the clear time moved; the drop record did not');
+});
+
+test('kickoff hold, then claim-target, submit-claim and processing, all through one stateful world (#1375)', async (t) => {
+  const league = {
+    id: 1, waiver_type: 'priority', transactions_locked: false, roster_limit: 16, ir_slots: 0,
+    current_season: 2026, current_week: 2, waiver_period_hours: 24, waivers_clear_at: null,
+  };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: 'KC', kickoff_at: '2026-09-14T17:00:00.000Z' },
+    { season: 2026, week: 2, nfl_team: 'DAL', kickoff_at: '2026-09-15T23:15:00.000Z' }, // week clear: 2026-09-16T23:15:00Z
+  ];
+  const player = { id: 500, name: 'Kickoff Player', position: 'TE', nfl_team: 'KC' };
+  const team = { id: 31, league_id: 1, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 100, locked: false };
+  const table = waiverPlayersTable();
+  const nowRef = { current: new Date('2026-09-14T18:00:00.000Z') };
+  const claimRow = {
+    id: 9, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 0,
+    status: 'pending', created_at: '2026-09-14T19:00:00.000Z',
+  };
+
+  createFakePool([
+    // holdKickedOffPlayers' own leagues read, ahead of the blind one below.
+    [/^SELECT "id", "current_season", "current_week", "waiver_period_hours"\s+FROM "leagues"/,
+      () => ({ rows: [league] })],
+    [/^SELECT "nfl_team" FROM "nfl_games" WHERE "season" = \$1 AND "week" = \$2 AND "kickoff_at" <= \$3/,
+      (text, params) => {
+        const [season, week, now] = params;
+        return { rows: nflGames
+          .filter((g) => g.season === season && g.week === week && new Date(g.kickoff_at) <= new Date(now))
+          .map((g) => ({ nfl_team: g.nfl_team })) };
+      }],
+    [/^SELECT "nfl_team", "kickoff_at" FROM "nfl_games"/,
+      (text, params) => {
+        const [season, week] = params;
+        return { rows: nflGames
+          .filter((g) => g.season === season && g.week === week)
+          .map((g) => ({ nfl_team: g.nfl_team, kickoff_at: g.kickoff_at })) };
+      }],
+    [/^SELECT "players"\."id", "players"\."nfl_team"/, () => ({ rows: [{ id: player.id, nfl_team: player.nfl_team }] })],
+    [insert('waiver_players'), table.insertHandler],
+
+    // claimTarget / submitClaim / processWaivers, sharing the same world.
+    [select('leagues'), () => ({ rows: [league] })],
+    [select('teams'), () => ({ rows: [team] })],
+    [/^SELECT "id", "name", "position", "nfl_team" FROM "players"/, () => ({ rows: [player] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })], // never rostered before the award
+    [/^SELECT 1 FROM "waiver_players"/, table.isOnWaiversHandler(nowRef)],
+    [/^SELECT 1 FROM "waiver_claims" WHERE "team_id"/, () => ({ rows: [] })], // no pending duplicate
+    [insert('waiver_claims'), () => ({ rows: [claimRow] })],
+    [/^SELECT "waiver_claims"\.\* FROM "waiver_claims"/, () => ({ rows: [claimRow] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 5 }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    [remove('waiver_players'), table.removeExpiredHandler(nowRef)],
+    // The Waiver Wire list route's own query (waivers.router.js GET /),
+    // wired to the same table so its "kicked-off player, week clear" claim
+    // is proven against the real route SQL, not inferred from the service
+    // layer alone.
+    [/^SELECT "players"\.\*, "waiver_players"\."available_at" FROM "waiver_players" JOIN "players"/, () => ({
+      rows: table.rows
+        .filter((r) => new Date(r.available_at) > nowRef.current)
+        .map((r) => ({ ...player, available_at: r.available_at })),
+    })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+
+  // 1. The tick's kickoff hold puts the kicked-off, unrostered player on
+  // waivers at the week clear.
+  const held = await holdKickedOffPlayers({ now: nowRef.current });
+  assert.equal(held, 1);
+  assert.equal(table.rows[0].available_at, '2026-09-16T23:15:00.000Z');
+
+  // The Waiver Wire list route returns him at the week clear (the route's
+  // own query text, read against the same world the tick just wrote).
+  const wire = await pool.query(
+    `SELECT "players".*, "waiver_players"."available_at"
+     FROM "waiver_players" JOIN "players" ON "players"."id" = "waiver_players"."player_id"
+     WHERE "waiver_players"."league_id" = $1 AND "waiver_players"."available_at" > now()
+     ORDER BY "waiver_players"."available_at", "players"."name"`,
+    [1]
+  );
+  assert.deepEqual(
+    wire.rows.map((r) => ({ id: r.id, available_at: r.available_at })),
+    [{ id: 500, available_at: '2026-09-16T23:15:00.000Z' }]
+  );
+
+  // 2. Still before the clear: the claim-target and submit-claim paths
+  // accept him, reading the very row the tick just wrote.
+  const targeted = await claimTarget({ leagueId: 1, userId: 8, playerId: 500 });
+  assert.equal(targeted.id, 500);
+  const claimed = await submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 });
+  assert.equal(claimed.status, 'pending');
+
+  // 3. Past the clear: processing awards the claim and deletes the hold row -
+  // existing behaviour, asserted once through this same world.
+  nowRef.current = new Date('2026-09-17T00:00:00.000Z');
+  const processed = await processWaivers({ leagueId: 1 });
+  assert.deepEqual(processed.results, [{ claimId: 9, playerId: 500, status: 'won', teamId: 31 }]);
+  assert.equal(table.rows.length, 0, 'the clear DELETE removed the row');
 });

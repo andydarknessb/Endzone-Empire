@@ -7,6 +7,7 @@ const { signToken } = require("../modules/auth");
 const playerRouter = require("../routes/player.router");
 const irPolicy = require("../services/irPolicy.service");
 const { draftRosterSize } = require("../services/rosterShape");
+const { holdKickedOffPlayers } = require("../services/waiver.service");
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = "player-browser-availability-route-test-secret";
@@ -136,6 +137,119 @@ test("GET players returns league-authoritative availability without disclosing a
   assert.equal(
     JSON.stringify(res.body.players[1].availability).includes("99"),
     false,
+  );
+});
+
+// #1375, ADR 0043: run the scheduler's kickoff waiver tick, then GET the
+// Player Browser list for the same league against the same stateful world.
+// Both the tick (holdKickedOffPlayers) and the route go through the one
+// `pool` object mocked below, so the row the tick writes is the row the
+// route's own waiver_players read finds - no separate canned fixture for
+// each side of the seam.
+test("kickoff waiver hold seam: the scheduler tick, then GET Player Browser, against the same world (#1375)", async (t) => {
+  const league = {
+    id: 1,
+    name: "Kickoff League",
+    roster_limit: 14,
+    waiver_type: "faab",
+    current_season: 2026,
+    current_week: 2,
+    waiver_period_hours: 24,
+  };
+  const nflGames = [
+    { season: 2026, week: 2, nfl_team: "KC", kickoff_at: "2026-09-14T17:00:00.000Z" }, // kicked off
+    { season: 2026, week: 2, nfl_team: "DAL", kickoff_at: "2026-09-15T23:15:00.000Z" }, // the week's last kickoff
+  ];
+  const players = [
+    { id: 1, name: "Kicked Off", position: "RB", nfl_team: "KC", total_count: "3", identity_ids: [1] },
+    { id: 2, name: "Not Yet", position: "WR", nfl_team: "DAL", total_count: "3", identity_ids: [2] },
+    { id: 3, name: "Bye Team", position: "TE", nfl_team: "MIA", total_count: "3", identity_ids: [3] },
+  ];
+  const waiverRows = []; // the one waiver_players table both the tick and the route read/write
+
+  t.mock.method(pool, "query", async (sql, params) => {
+    // Normalised the same way helpers/fakePool.js does: the matchers below
+    // are written as single-line prefixes, and the real queries wrap.
+    const text = String(sql).replace(/\s+/g, " ").trim();
+
+    // -- holdKickedOffPlayers' own reads and write --
+    if (text.startsWith('SELECT "id", "current_season", "current_week", "waiver_period_hours"')) {
+      return { rows: [league] };
+    }
+    if (text.startsWith('SELECT "nfl_team" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3')) {
+      const [season, week, now] = params;
+      return {
+        rows: nflGames
+          .filter((g) => g.season === season && g.week === week && new Date(g.kickoff_at) <= new Date(now))
+          .map((g) => ({ nfl_team: g.nfl_team })),
+      };
+    }
+    if (text.startsWith('SELECT "nfl_team", "kickoff_at" FROM "nfl_games"')) {
+      const [season, week] = params;
+      return {
+        rows: nflGames
+          .filter((g) => g.season === season && g.week === week)
+          .map((g) => ({ nfl_team: g.nfl_team, kickoff_at: g.kickoff_at })),
+      };
+    }
+    if (text.startsWith('SELECT "players"."id", "players"."nfl_team"')) {
+      return { rows: players.map((p) => ({ id: p.id, nfl_team: p.nfl_team })) };
+    }
+    if (text.startsWith('INSERT INTO "waiver_players"')) {
+      const [leagueId, playerId, availableAt] = params;
+      const resolved = new Date(availableAt).toISOString();
+      const existing = waiverRows.find((r) => r.league_id === leagueId && r.player_id === playerId);
+      if (existing) {
+        if (new Date(resolved) > new Date(existing.available_at)) existing.available_at = resolved;
+      } else {
+        waiverRows.push({ league_id: leagueId, player_id: playerId, available_at: resolved });
+      }
+      return { rows: [] };
+    }
+
+    // -- the Player Browser route --
+    if (text.startsWith('SELECT * FROM "teams"')) {
+      return { rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }] };
+    }
+    if (text.startsWith('SELECT * FROM "leagues"')) {
+      return { rows: [league] };
+    }
+    if (text.includes('FROM "players" AS "source"')) {
+      return { rows: players };
+    }
+    if (text.includes('FROM "nfl_games"') || text.includes('FROM "player_season_stats"')) {
+      return { rows: [] };
+    }
+    if (text.includes('COUNT(*)::int AS "roster_count"')) {
+      return { rows: [{ roster_count: 0 }] };
+    }
+    if (text.includes('FROM "team_players"')) {
+      return { rows: [] }; // nobody is rostered
+    }
+    if (text.includes('FROM "waiver_players"')) {
+      return { rows: waiverRows.map((r) => ({ player_id: r.player_id, available_at: r.available_at })) };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+
+  // 1. Run the scheduler's kickoff waiver tick.
+  const held = await holdKickedOffPlayers({ now: new Date("2026-09-14T18:00:00.000Z") });
+  assert.equal(held, 1, "only the kicked-off team's unrostered player is held");
+
+  // 2. GET the Player Browser list for the same league, against the same world.
+  const token = signToken({ id: 7, username: "member" });
+  const res = await request(app)
+    .get("/api/players?leagueId=1")
+    .set("Authorization", `Bearer ${token}`);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(
+    res.body.players.map(({ id, availability }) => ({ id, availability })),
+    [
+      { id: 1, availability: { state: "waivers", availableAt: "2026-09-16T23:15:00.000Z" } },
+      { id: 2, availability: { state: "free_agent" } },
+      { id: 3, availability: { state: "free_agent" } },
+    ],
   );
 });
 
