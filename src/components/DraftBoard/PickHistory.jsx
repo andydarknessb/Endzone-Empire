@@ -5,8 +5,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 // identical comment: the entities/player barrel would pull usePlayerCard's
 // non-literal apiClient.get call into the Draft room's import closure.
 import PlayerNameLink from '../../entities/player/ui/PlayerNameLink';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 
 /**
  * The chronological view of a draft's committed Picks (issue #123 acceptance

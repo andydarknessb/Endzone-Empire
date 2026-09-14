@@ -8,7 +8,7 @@ import { createDraftSocket, onReconnect } from '../../api/socket';
 import { clearLeagueCache } from '../../hooks/useLeague';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
-import { FORMER_MANAGER_LABEL } from '../../lib/teamIdentity';
+import { FORMER_MANAGER_LABEL } from '../../shared/lib/teamIdentity';
 import DraftBoard from './DraftBoard';
 import PlayerPoolTableProbe from './PlayerPoolTable';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';

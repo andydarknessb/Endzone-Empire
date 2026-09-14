@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Card, SegmentedControl, Skeleton } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { isPickemOnly } from '../../lib/leagueType';
+import { isPickemOnly } from '../../shared/lib';
 import { readHttpFailure } from '../../lib/httpFailure';
 import apiClient from '../../api/apiClient';
 import { setPickemSettings, usePickemSettings } from '../../entities/pickem-game';

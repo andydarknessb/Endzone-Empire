@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { feedEntryKey, teamNameLabel } from '../../lib/teamIdentity';
+import { feedEntryKey, teamNameLabel } from '../../shared/lib/teamIdentity';
 import PoliteRegion from './PoliteRegion';
 import { useAnnouncement } from './useAnnouncement';
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 /**
  * toggle-grade-details feature (#1104): the "Show steals and reaches" /
@@ -19,7 +19,7 @@ import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
  * pairing (`tokens.contrast.test.js`: "dashboard body text on a card" /
  * "... on the raised tile"), so no new pairing is composed here; without it
  * the Button fell through to the app theme's primary color. The 44px touch
- * floor (`src/lib/a11y.js`) applies at phone widths only, matching
+ * floor (`src/shared/lib/a11y.js`) applies at phone widths only, matching
  * AdvanceWeek/CopyInvite: an unconditional floor would grow this
  * `size="small"` control on desktop, where a pointer needs none.
  */

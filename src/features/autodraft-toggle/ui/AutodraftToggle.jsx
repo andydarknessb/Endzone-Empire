@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Switch } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 const SWITCH_SX = {
   width: 36,

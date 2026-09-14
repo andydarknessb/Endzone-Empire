@@ -30,7 +30,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
-import { isLeagueCreator } from '../../lib/teamIdentity';
+import { isLeagueCreator } from '../../shared/lib/teamIdentity';
 import PlayerDecisionCard from '../../widgets/player-decision-card';
 import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
 import TradeProposalCard from './TradeProposalCard';

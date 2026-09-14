@@ -42,7 +42,7 @@ const { teamIdentityColumns } = require('./teamIdentity');
  * The presenter lists are, in effect, the definition of what a presenter-rendered
  * component may read. The only consumer today is
  * src/components/DraftPresenter/DraftPresenter.jsx, which passes the payload into
- * DraftBoardMatrix, Countdown, lib/rosterShape draftRounds() and lib/teamIdentity;
+ * DraftBoardMatrix, Countdown, lib/rosterShape draftRounds() and shared/lib/teamIdentity;
  * a component added to that page needs its fields added to the presenter lists
  * here too. This is the same guarantee publicRead.service.js's rule 2 gives the
  * rest of the anonymous surface ("every value returned to the client passes

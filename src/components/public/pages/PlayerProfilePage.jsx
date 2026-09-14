@@ -18,7 +18,7 @@ import publicApiClient from '../../../api/publicApiClient';
 import apiClient from '../../../api/apiClient';
 import { STAT_DEFINITIONS } from '../../../shared/ui/AbbreviationTooltip';
 import { hasSessionHint } from '../../../lib/sessionHint';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib/a11y';
 import { toDecisionCardEntry } from '../../../entities/player';
 import PlayerDecisionCard from '../../../widgets/player-decision-card';
 

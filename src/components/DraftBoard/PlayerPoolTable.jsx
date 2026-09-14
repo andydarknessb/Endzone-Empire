@@ -39,7 +39,7 @@ import PositionChip from '../../shared/ui/PositionChip';
 import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../../shared/ui/AbbreviationTooltip';
 import ColumnGuide from './ColumnGuide';
 import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_COLUMNS, DESKTOP_COLUMN_COUNT } from './sortFields';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
 // server/services/bye.service.js) — every selectable option in the multi-select

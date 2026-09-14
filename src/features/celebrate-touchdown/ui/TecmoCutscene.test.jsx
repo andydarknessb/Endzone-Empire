@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { TecmoCutscene } from '../index';
-import { getNameColors } from '../../../lib/nflTeamColors';
+import { getNameColors } from '../../../shared/lib';
 
 const play = {
   playerId: 5,

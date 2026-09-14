@@ -1,6 +1,6 @@
 import React from 'react';
 import { Typography, Box, Chip } from '@mui/material';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 
 /**
  * The one renderer for a Draft-activity feed entry (#435, #437, #439, #540),

@@ -16,7 +16,7 @@ const BLACK = '#000000';
  * 4.5:1 against that jersey, black otherwise (issue #1301).
  *
  * Both inks are fixed literals, never theme tokens: the jersey itself is a
- * real external NFL brand color (`src/lib/nflTeamColors.js`), not a themed
+ * real external NFL brand color (`src/shared/lib/nflTeamColors.js`), not a themed
  * one, so the ink drawn on it has to stay fixed alongside it regardless of
  * light/dark mode - the same reasoning `TeamPickButton` already applies to
  * `kit.jersey` itself.

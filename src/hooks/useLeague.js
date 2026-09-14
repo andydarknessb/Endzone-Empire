@@ -98,7 +98,7 @@ export function useLeague(leagueId) {
     league: data?.league ?? null,
     teams: data?.teams ?? [],
     // Which Team is the viewer's own, per-viewer and never a broadcast field
-    // (#112, contract in src/lib/teamIdentity.js). Every "which of these is
+    // (#112, contract in src/shared/lib/teamIdentity.js). Every "which of these is
     // me" comparison against `teams` reads this, never a username.
     viewerTeamId: data?.viewerTeamId ?? null,
     loading,

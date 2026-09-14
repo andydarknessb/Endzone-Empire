@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 import { Card, Badge, StatTile } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 import AdvanceWeek from '../../../features/advance-week';
 import useCommissionerStrip from '../model/useCommissionerStrip';
 

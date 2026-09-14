@@ -10,8 +10,9 @@
  * domain meaning is promoted once a second island slice consumes it, and
  * this one is consumed by two - `pages/lineup` and `widgets/bye-cluster` -
  * from the moment it exists, so it never belongs below the island at all.
- * `src/lib/lineupAttention.js` is NOT a precedent to follow here: it is one
- * of the modules #1272 exists to move out of `src/lib` for the same reason,
+ * `src/shared/lib/lineupAttention.js` (moved there by #1272) was NOT a
+ * precedent to follow here when this module was written: it was then one
+ * of the modules #1272 existed to move out of `src/lib` for the same reason,
  * awaiting its own promotion, not a sanctioned pattern.
  *
  * Reads `entities/roster`'s modeled entry shape (`slot`, `spent`, `byeWeek`,

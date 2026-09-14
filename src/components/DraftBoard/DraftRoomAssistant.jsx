@@ -8,7 +8,7 @@ import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import VoiceOverOffIcon from '@mui/icons-material/VoiceOverOff';
 import PoliteRegion from './PoliteRegion';
 import { useDraftAssistant } from '../../hooks/useDraftAssistant';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { miseryStage, SELECTION_COOLDOWN_MS } from '../../lib/draftAssistant';
 import {
   factsForOwnPick, factsForQueueSnipe, factsForPoolBrowse,

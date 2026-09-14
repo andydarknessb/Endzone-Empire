@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import EmojiEmotionsOutlinedIcon from '@mui/icons-material/EmojiEmotionsOutlined';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 /**
  * An accessible Unicode emoji picker for the League chat composer (#443, parent
@@ -170,7 +170,7 @@ function EmojiPicker({ onSelect, onChoiceClosed = null }) {
             key={name}
             onClick={() => handleChoose(char)}
             // The menu items are the real tap targets in the palette, so they
-            // carry the shared 44x44 minimum (src/lib/a11y.js) rather than a
+            // carry the shared 44x44 minimum (src/shared/lib/a11y.js) rather than a
             // hand-rolled width that omits the height.
             sx={{ fontSize: '1.25rem', justifyContent: 'center', ...MIN_TOUCH_TARGET_SX }}
           >

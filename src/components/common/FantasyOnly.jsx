@@ -3,7 +3,7 @@ import { Link as RouterLink, useParams } from 'react-router-dom';
 import { Box, Button, CircularProgress, Container, Paper, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useLeague } from '../../hooks/useLeague';
-import { isPickemOnly } from '../../lib/leagueType';
+import { isPickemOnly } from '../../shared/lib/leagueType';
 
 /**
  * Route guard for the fantasy-only surfaces (draft, lineup, matchups, waivers,

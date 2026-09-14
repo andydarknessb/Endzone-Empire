@@ -2,9 +2,15 @@ import React from 'react';
 import { Avatar, Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
-import { formatPoints, initialsFor, monogramInk, unavailableLabel } from '../../../shared/lib';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
-import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
+import {
+  formatPoints,
+  initialsFor,
+  monogramInk,
+  unavailableLabel,
+  MIN_TOUCH_TARGET_SX,
+  NFL_TEAM_COLORS,
+  FALLBACK_KIT,
+} from '../../../shared/lib';
 import { PlayerNameLink } from '../../../entities/player';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
@@ -158,7 +164,7 @@ function EdgeLine({ edge, gameCellKind }) {
 // `monogramInk(kit.jersey)` (`shared/lib`, #1301/#1317), not a themed token: a
 // themed token is the wrong ink for a background the theme does not change -
 // `kit.jersey` is a real external NFL brand color
-// (`src/lib/nflTeamColors.js`, the one file the color-literals guard
+// (`src/shared/lib/nflTeamColors.js`, the one file the color-literals guard
 // allowlists for real NFL hex values) that stays the same fixed hex across
 // light and dark mode, so the ink drawn on it has to stay fixed alongside it
 // too. The themed text-inverse token this replaces failed 29 of 32 jerseys

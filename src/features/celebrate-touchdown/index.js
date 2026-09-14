@@ -17,9 +17,11 @@
  *
  * Import edges, for the boundary audit ADR 0020 names: `shared/ui` (the
  * Tecmo sprite) and `entities/matchup` (`playLabel` and, since #1137, the
- * side attribution `classifyPlays` reads), both through their index, and the
- * sanctioned reaches below the island: `src/api/apiClient` (the preference
- * read) and `src/lib/nflTeamColors` (the sprite kits). `classifyPlays` and
+ * side attribution `classifyPlays` reads), both through their index, plus
+ * `shared/lib` (`getSpriteColors`, `getNameColors`, promoted from
+ * `src/lib/nflTeamColors` by #1272 - ordinary island layering now, not a
+ * below-island reach) and the sanctioned reach below the island:
+ * `src/api/apiClient` (the preference read). `classifyPlays` and
  * `MAX_CUTSCENES` are this feature's own private model
  * (`./model/classifyPlays`), not a below-island reach. It imports no widget,
  * page or other feature.

@@ -13,7 +13,7 @@ import {
 // values. Deriving the expected set from that object rather than a hand-copied
 // literal means a relocation or rename added on the server fails THIS test too
 // instead of the two vocabularies drifting silently apart (#449).
-import { NFL_TEAM_FULL_NAMES } from '../../server/services/nflTeam';
+import { NFL_TEAM_FULL_NAMES } from '../../../server/services/nflTeam';
 
 const ALL_32 = Object.values(NFL_TEAM_FULL_NAMES);
 

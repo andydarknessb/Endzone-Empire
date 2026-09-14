@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueMatchups } from '../../../entities/matchup';
-import { isPickemOnly } from '../../../lib/leagueType';
+import { isPickemOnly } from '../../../shared/lib';
 import { aroundLeagueTileView } from './tileView';
 
 /**

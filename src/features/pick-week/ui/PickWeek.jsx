@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Button, IconButton } from '@mui/material';
 import { SegmentedControl } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 /**
  * pick-week feature (ADR 0031, #896): the week picker from the Game Center

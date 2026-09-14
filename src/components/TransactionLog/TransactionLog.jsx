@@ -35,7 +35,7 @@ import RuleIcon from '@mui/icons-material/Rule';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
-import { isPickemOnly } from '../../lib/leagueType';
+import { isPickemOnly } from '../../shared/lib/leagueType';
 import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerDecisionCard from '../../widgets/player-decision-card';
