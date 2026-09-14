@@ -162,12 +162,18 @@ function extractPlayByPlayBonusStats(plays) {
  *
  * `opponentScore` is the OPPOSING side's points on the board (the caller
  * sums it from the box's `lineScore`, since Tank01's `/getNFLBoxScore` has
- * no top-level score field — tank01BoxSource.sideFinalScore) and is what
- * `pointsAllowed` is built from. Tank01's own `ptsAllowed` field is NOT
- * used: it is the opponent's score minus 6 per opposing non-offensive TD
- * (still counting the PAT), which drifts from the full-scoreboard
- * convention (**Points allowed**, CONTEXT.md) that the ESPN and nflverse
- * writers already produce (#1384).
+ * no top-level score field — tank01BoxSource.sideScore) and is what
+ * `pointsAllowed` is built from when it's available: Tank01's own
+ * `ptsAllowed` field is the opponent's score minus 6 per opposing
+ * non-offensive TD (still counting the PAT), which drifts from the
+ * full-scoreboard convention (**Points allowed**, CONTEXT.md) that the ESPN
+ * and nflverse writers already produce (#1384).
+ *
+ * `opponentScore` is `null`/`undefined` when the box carries no `lineScore`
+ * for that side at all (sideScore's "absent" signal, distinct from a real
+ * 0) — `pointsAllowed` then falls back to `d.ptsAllowed` rather than
+ * reading a shutout that isn't real. A present `opponentScore`, including a
+ * real 0, always wins over `ptsAllowed`.
  */
 function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
   const num = (value) => {
@@ -183,7 +189,7 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
     defensiveTD: num(d.defTD),
     safety: num(d.safeties),
     blockedKick: num(opp.blockedFG) + num(opp.blockedXP) + num(opp.blockedPunt),
-    pointsAllowed: num(opponentScore),
+    pointsAllowed: opponentScore == null ? num(d.ptsAllowed) : num(opponentScore),
     yardsAllowed: num(d.ydsAllowed),
   };
 }

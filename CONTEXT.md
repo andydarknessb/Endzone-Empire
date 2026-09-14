@@ -231,12 +231,16 @@ _Avoid_: D/ST, defense (ambiguous against both the scoring category and IDP)
 A DEF's scoring input for points given up: every point on the scoreboard
 against the team's own side, i.e. the opponent's full final score, including
 points the opponent's own defense and special teams scored. All three
-writers (the ESPN Live box, the Tank01 Final box, the Tuesday/Wednesday
-nflverse correction) produce this; none subtracts points scored by the
-opposing D/ST (ruling, issue #1384 — the standard ESPN/Yahoo/Sleeper
-subtraction was considered and rejected because Tank01's Final box carries
-no per-play attribution to compute it exactly).
-_Avoid_: points against (ambiguous with yards allowed)
+writers (the ESPN Live box, the Tank01 box — which serves both the Live box
+fallback and the Final box — and the Tuesday/Wednesday nflverse correction)
+produce this; none subtracts points scored by the opposing D/ST (ruling,
+issue #1384 — the standard ESPN/Yahoo/Sleeper subtraction was considered and
+rejected because Tank01's box carries no per-play attribution to compute it
+exactly). The Tank01 writer falls back to Tank01's own approximate
+`ptsAllowed` field only when its box carries no scoreboard total for that
+side at all.
+_Avoid_: points against (a manager's fantasy-standings figure — points
+scored against their roster across the league, not an NFL game's score)
 
 **IDP**:
 Individual defensive players (DL, LB, DB) rostered as themselves rather than

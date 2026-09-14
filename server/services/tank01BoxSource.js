@@ -48,17 +48,22 @@ function isFinalBox(box) {
 /**
  * Pure: sum one side's Tank01 `lineScore` quarters (Q1-Q4 plus any OT
  * periods Tank01 reports, OT/OT1/OT2/…) into that side's points on the
- * board. Tank01's `/getNFLBoxScore` carries no top-level home/away score
- * field — `lineScore` is the only game-score-bearing field on the box body
- * (confirmed: no `homePts`/`awayPts` anywhere in the response; those only
- * exist on the separate `/getNFLScoresOnly` endpoint) — so this is the
- * source for a DEF's `pointsAllowed` (**Points allowed**, CONTEXT.md,
- * #1384). Tolerant of a missing lineScore or side: yields 0 rather than
- * throwing, same as every other field this module reads.
+ * board — for a Live box mid-game as much as a Final box, so "Final" isn't
+ * in the name. Tank01's `/getNFLBoxScore` carries no top-level home/away
+ * score field: `liveGameEngine.js` reads `homePts`/`awayPts` off the
+ * separate `/getNFLScoresOnly` endpoint instead, and `gameRecap.service.js`
+ * (`normalizeLineScore`) already reads `lineScore` off THIS endpoint for the
+ * per-quarter line it renders — so `lineScore` is the only game-score
+ * material `/getNFLBoxScore` carries, and this is the source for a DEF's
+ * `pointsAllowed` (**Points allowed**, CONTEXT.md, #1384).
+ *
+ * Returns `null`, not 0, when the side is missing or malformed, so a caller
+ * can tell "no lineScore for this side" apart from "this side is really
+ * scoreless" and fall back instead of reading a shutout that didn't happen.
  */
-function sideFinalScore(lineScore, side) {
+function sideScore(lineScore, side) {
   const s = lineScore && lineScore[side];
-  if (!s || typeof s !== 'object') return 0;
+  if (!s || typeof s !== 'object') return null;
   const num = (value) => {
     const parsed = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
@@ -143,7 +148,7 @@ function fromBox(box) {
     teamDefense[teamCode] = normalizeTank01DstStats(
       dstSide,
       teamStats[opponentSide],
-      sideFinalScore(lineScore, opponentSide)
+      sideScore(lineScore, opponentSide)
     );
   }
 

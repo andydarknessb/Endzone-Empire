@@ -126,6 +126,58 @@ test('tank01BoxSource: pointsAllowed comes from the opponent\'s lineScore total,
   assert.equal(liveBox.teamDefense.WAS.pointsAllowed, 33);
 });
 
+test('tank01BoxSource: pointsAllowed falls back to DST ptsAllowed when the box has no lineScore for that side (#1384 f1)', () => {
+  // fromBox also serves the in-progress Live box fallback (liveBox.js
+  // fetchTank01, ADR 0035), whose box may carry no lineScore yet. Reading
+  // the missing side as an absent lineScore -> 0 pointsAllowed would score
+  // a shutout that never happened; it must fall back to DST ptsAllowed.
+  const box = {
+    gameID: '20260913_JAC@WSH',
+    home: 'WSH',
+    away: 'JAC',
+    DST: {
+      home: {
+        teamAbv: 'WSH', sacks: '0', defensiveInterceptions: '0', fumblesRecovered: '0',
+        defTD: '0', safeties: '0', ptsAllowed: '17', ydsAllowed: '0',
+      },
+      away: {
+        teamAbv: 'JAC', sacks: '0', defensiveInterceptions: '0', fumblesRecovered: '0',
+        defTD: '0', safeties: '0', ptsAllowed: '0', ydsAllowed: '0',
+      },
+    },
+    teamStats: { home: { teamAbv: 'WSH' }, away: { teamAbv: 'JAC' } },
+    // No lineScore at all.
+  };
+  const liveBox = tank01BoxSource.fromBox(box);
+  assert.equal(liveBox.teamDefense.WAS.pointsAllowed, 17);
+});
+
+test('tank01BoxSource: a real lineScore shutout (0) for the opponent still wins over DST ptsAllowed (#1384 f1)', () => {
+  // A present lineScore always wins, even when it sums to 0 — a real
+  // shutout must still read 0, not fall back to a non-zero ptsAllowed.
+  const box = {
+    gameID: '20260913_JAC@WSH',
+    home: 'WSH',
+    away: 'JAC',
+    DST: {
+      home: {
+        teamAbv: 'WSH', sacks: '0', defensiveInterceptions: '0', fumblesRecovered: '0',
+        defTD: '0', safeties: '0', ptsAllowed: '3', ydsAllowed: '0',
+      },
+      away: {
+        teamAbv: 'JAC', sacks: '0', defensiveInterceptions: '0', fumblesRecovered: '0',
+        defTD: '0', safeties: '0', ptsAllowed: '0', ydsAllowed: '0',
+      },
+    },
+    teamStats: { home: { teamAbv: 'WSH' }, away: { teamAbv: 'JAC' } },
+    lineScore: {
+      away: { Q1: '0', Q2: '0', Q3: '0', Q4: '0' },
+    },
+  };
+  const liveBox = tank01BoxSource.fromBox(box);
+  assert.equal(liveBox.teamDefense.WAS.pointsAllowed, 0);
+});
+
 test('applyGameBoxScore: a raw Tank01 box is still accepted and routed through the adapter', async (t) => {
   // The existing scoring tests pass `box`; the seam accepts it and adapts it so
   // no assertion in them had to change (#1183 done-when).
