@@ -86,7 +86,7 @@ async function placeOnWaivers(client, {
   await client.query(
     `INSERT INTO "waiver_players" ("league_id", "player_id", "available_at", "dropped_by_team_id",
                                    "interrupted_slot", "interrupted_ir_attested")
-     VALUES ($1, $2, COALESCE($3::timestamptz, now() + make_interval(hours => $4::numeric)), $5, $6, $7)
+     VALUES ($1, $2, COALESCE($3::timestamptz, now() + make_interval(hours => $4::int)), $5, $6, $7)
      ON CONFLICT ("league_id", "player_id")
      DO UPDATE SET "available_at" = GREATEST("waiver_players"."available_at", EXCLUDED."available_at"),
                    "updated_at" = now()`,
