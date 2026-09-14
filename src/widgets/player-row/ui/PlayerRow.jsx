@@ -6,6 +6,7 @@ import {
   CardActionArea,
   CardContent,
   Chip,
+  IconButton,
   Stack,
   TableCell,
   TableRow,
@@ -13,6 +14,8 @@ import {
   Typography,
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
 import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { formatPoints } from '../../../shared/lib';
@@ -212,6 +215,44 @@ function ActionControl({ action }) {
 }
 
 /**
+ * The Watch toggle (#1312, ADR 0040 follow-up, grill ruling Q6): a compact
+ * icon control, not a second full-text action button crowding the row's own
+ * Action column - copy "Watch"/"Watching" (issue ruling), the same words the
+ * Decision card's own full-text button uses. `watchAction` is a plain data
+ * object the caller builds (`{ watching, onClick, pending }`), the SAME
+ * "page builds the action, widget renders it" shape `action` already uses on
+ * this row - hidden entirely when the caller omits it (no league selected,
+ * or a consumer, like WaiverWire, that has not wired watch state in).
+ *
+ * Risk review (accessibility): the icon carries no visible text, so a bare
+ * "Watch"/"Watching" accessible name is identical across every row in a
+ * multi-row page - a Voice Control/Dragon user saying "click Watch" gets a
+ * numbered-overlay guess, and a screen reader's elements list reads
+ * "Watch, Watch, Watch...". `playerName` folds the player's own name into
+ * the name (`aria-label="Watch Josh Allen"`) so each row's control is
+ * unique, the same disambiguation `PlayerNameLink`'s own accessible name
+ * already gives the identity column.
+ */
+function WatchToggle({ watchAction, playerName }) {
+  if (!watchAction) return null;
+  const Icon = watchAction.watching ? StarIcon : StarBorderIcon;
+  const label = watchAction.watching ? 'Watching' : 'Watch';
+  return (
+    <IconButton
+      aria-label={playerName ? `${label} ${playerName}` : label}
+      aria-pressed={watchAction.watching}
+      onClick={watchAction.onClick}
+      disabled={watchAction.pending}
+      size="small"
+      sx={MIN_TOUCH_TARGET_SX}
+      data-testid="player-row-watch"
+    >
+      <Icon fontSize="small" color={watchAction.watching ? 'warning' : 'inherit'} />
+    </IconButton>
+  );
+}
+
+/**
  * One Players list row (#1310, ADR 0040): every availability state renders
  * through the SAME row, columns Player / Proj Wk / ROS / Ownership / Upgrade
  * / Weeks / Status / Action - `variant="row"` (default) for the desktop
@@ -223,9 +264,12 @@ function ActionControl({ action }) {
  * itself - the same "page builds the action, widget renders it" shape
  * PlayerDecisionCard already uses for its own action bar, and it is what lets
  * WaiverWire reuse this row with its own claim submission instead of a second
- * copy of the button.
+ * copy of the button. `watchAction` (#1312, ADR 0040 follow-up, grill ruling
+ * Q6) is the same shape's sibling for the Watch toggle - `{ watching,
+ * onClick, pending? }` - and renders nothing when the caller omits it, so a
+ * consumer with no watch state wired in (or no league selected) is unchanged.
  */
-export default function PlayerRow({ player, action, bestBall = false, variant = 'row', onOpenPlayer }) {
+export default function PlayerRow({ player, action, watchAction, bestBall = false, variant = 'row', onOpenPlayer }) {
   const weeks = weeksForSparkline(player.weeks);
   const showWeeks = weeks.length > 0;
   const showUpgrade = !bestBall;
@@ -267,7 +311,8 @@ export default function PlayerRow({ player, action, bestBall = false, variant = 
             )}
           </Stack>
           {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} />}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5 }}>
+            <WatchToggle watchAction={watchAction} playerName={player.name} />
             <ActionControl action={action} />
           </Box>
         </CardContent>
@@ -299,7 +344,10 @@ export default function PlayerRow({ player, action, bestBall = false, variant = 
         <StatusCell player={player} />
       </TableCell>
       <TableCell align="right">
-        <ActionControl action={action} />
+        <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+          <WatchToggle watchAction={watchAction} playerName={player.name} />
+          <ActionControl action={action} />
+        </Stack>
       </TableCell>
     </TableRow>
   );

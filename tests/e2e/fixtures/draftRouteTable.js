@@ -405,6 +405,20 @@ const unstubbed = [
     paths: [{ method: 'POST', pattern: '/api/waivers/claim' }],
   },
   {
+    // #1312: the Watch/Watching action bar button, reachable from every one
+    // of the Decision card's Availability contexts.
+    file: 'features/watch-player/model/useWatchPlayer.js',
+    reason:
+      'Same reachability as add-player and claim-player above: pulled in by ' +
+      'the Decision card widget\'s barrel, never rendered by the Draft ' +
+      'room\'s own `draft` context (the Watch button renders for every ' +
+      'Availability context but never `draft`).',
+    paths: [
+      { method: 'PUT', pattern: '/api/players/:id/watch' },
+      { method: 'DELETE', pattern: '/api/players/:id/watch' },
+    ],
+  },
+  {
     file: 'hooks/useResilientLineupMutation.js',
     reason:
       'Pulled in transitively through features/swap-players (the Decision ' +

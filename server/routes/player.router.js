@@ -21,6 +21,9 @@ const { isPickemOnly } = require('../services/leagueType');
 // cross-module calls - a destructured binding is captured at require time
 // and can no longer be mocked afterwards.
 const playerCardService = require('../services/playerCard.service');
+// #1312: the watchlist writes/reads PUT/DELETE /:id/watch and the
+// view=cards/`:id/card` `watching` field go through.
+const playerWatchlistService = require('../services/playerWatchlist');
 
 const router = express.Router();
 
@@ -95,6 +98,29 @@ function summaryCacheSet(key, value) {
   // Bound the map so a long-lived process can't leak memory during a big draft.
   if (summaryCache.size > 2000) summaryCache.clear();
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
+}
+
+// `watching` (#1312) is enrichment, not core data - the same "best-effort"
+// tier the caller's own roster read already gets on the client
+// (PlayerManagement.jsx's fetchRoster: "a failed ... read only means ...
+// never a page-level error"). A watchlist read failure degrades to `false`/
+// an empty page rather than failing the whole card or list response.
+async function watchlistIsWatchingSafe({ teamId, playerId }) {
+  try {
+    return await playerWatchlistService.isWatching({ teamId, playerId });
+  } catch (error) {
+    console.error('Error reading watchlist state', error);
+    return false;
+  }
+}
+
+async function watchlistWatchingForManySafe({ teamId, playerIds }) {
+  try {
+    return await playerWatchlistService.watchingForMany({ teamId, playerIds });
+  } catch (error) {
+    console.error('Error reading watchlist state', error);
+    return new Map();
+  }
 }
 
 const AVAILABILITY_STATES = new Set([
@@ -596,7 +622,7 @@ router.get('/', requireAuth, async (req, res) => {
       const byeWeekByPlayerId = new Map(pagePlayers.map((p) => [p.id, p.bye_week]));
       const seasonEnd = projectionService.lastPlayoffWeek(league);
 
-      const [availabilityMap, weeksByPlayer, rosMap] = await Promise.all([
+      const [availabilityMap, weeksByPlayer, rosMap, watchingMap] = await Promise.all([
         playerCardService.availabilityForMany({ league, team: memberTeam, players: pagePlayers }),
         playerCardService.buildWeeksForPage({
           league,
@@ -606,6 +632,9 @@ router.get('/', requireAuth, async (req, res) => {
           byeWeekByPlayerId,
         }),
         projectionService.getRestOfSeason(pagePlayers.map((p) => p.id), Number(leagueId)),
+        // #1312 Ruling: `watching` rides the SAME view=cards row every other
+        // caller-scoped field does, one batched read for the whole page.
+        watchlistWatchingForManySafe({ teamId: memberTeam.id, playerIds: pagePlayers.map((p) => p.id) }),
       ]);
 
       for (const p of pagePlayers) {
@@ -619,6 +648,7 @@ router.get('/', requireAuth, async (req, res) => {
         p.ownership = null;
         p.trend = null;
         p.depth = null;
+        p.watching = watchingMap.get(p.id) ?? false;
       }
 
       // `upgrade` per row (item 1): best ball is always null; otherwise reuse
@@ -796,8 +826,14 @@ router.get('/:id/card', requireAuth, async (req, res) => {
     const cacheKey = `card:${playerId}|${leagueId}|${team.id}|${week ?? 'cur'}`;
     const cached = summaryCacheGet(cacheKey);
     if (cached) {
+      // #1312 risk review: `watching` is deliberately read fresh here rather
+      // than baked into the cached value below - a PUT/DELETE /:id/watch
+      // never invalidates this 30s summary cache, so a cached `watching`
+      // would show the manager's own Watch/Unwatch as reverted for up to
+      // 30s on the very next card open (reproduced in review).
+      const watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
       res.set('Cache-Control', 'private, max-age=30');
-      return res.json(cached);
+      return res.json({ ...cached, watching });
     }
 
     const payload = await playerCardService.getPlayerCard({
@@ -806,15 +842,80 @@ router.get('/:id/card', requireAuth, async (req, res) => {
       playerId,
       week,
     });
-
     summaryCacheSet(cacheKey, payload);
+
+    // #1312 Ruling: `watching` rides the same #1306 card payload every
+    // Availability context reads - attached at the ROUTE (not
+    // playerCard.service.js, outside this ticket's Scope) using the SAME
+    // team this handler already resolved above, and read fresh on every
+    // request rather than cached (see the cache-hit branch above).
+    const watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
     res.set('Cache-Control', 'private, max-age=30');
-    res.json(payload);
+    res.json({ ...payload, watching });
   } catch (error) {
     if (error.statusCode)
       return res.status(error.statusCode).json({ error: error.message });
     console.error('Error building player card', error);
     res.status(500).json({ error: 'failed to fetch player card' });
+  }
+});
+
+// Shared validation for PUT/DELETE /:id/watch (formal review f6): both
+// handlers accept the same two inputs and refuse them the same way, so one
+// parser is the single source rather than two copies free to drift. Writes
+// the 400 itself and returns null on a refusal, so a caller's own early
+// `return` is the only control flow it needs.
+function parseWatchParams(req, res) {
+  if (!/^\d+$/.test(req.params.id)) {
+    res.status(400).json({ error: 'player id must be a positive integer' });
+    return null;
+  }
+  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
+  if (!leagueId || !/^\d+$/.test(leagueId)) {
+    res.status(400).json({ error: 'leagueId must be a positive integer' });
+    return null;
+  }
+  return { playerId: Number(req.params.id), leagueId: Number(leagueId) };
+}
+
+// PUT/DELETE /api/players/:id/watch?leagueId=N — add/remove this player from
+// the caller's own team-scoped watchlist (#1312, ADR 0040 follow-up, grill
+// ruling Q6). `requireMember` resolves the caller's own team the same way
+// every other league-scoped players route does, so a watch is always the
+// CALLER's team's watch, never any other team's - and a manager with a team
+// in two leagues keeps two independent watch lists (CONTEXT.md's Team).
+// Idempotent: watching an already-watched player, or unwatching one never
+// watched, is a 200 with the settled state, not an error.
+router.put('/:id/watch', requireAuth, async (req, res) => {
+  const params = parseWatchParams(req, res);
+  if (!params) return;
+  const { playerId, leagueId } = params;
+  try {
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
+    const outcome = await playerWatchlistService.watch({ teamId: team.id, playerId });
+    res.json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    // A player_id foreign-key violation means no such player, the same
+    // translation joinLeague's own unique-violation catch makes for its code.
+    if (error.code === '23503') return res.status(404).json({ error: 'player not found' });
+    console.error('Error watching player', error);
+    res.status(500).json({ error: 'failed to watch player' });
+  }
+});
+
+router.delete('/:id/watch', requireAuth, async (req, res) => {
+  const params = parseWatchParams(req, res);
+  if (!params) return;
+  const { playerId, leagueId } = params;
+  try {
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
+    const outcome = await playerWatchlistService.unwatch({ teamId: team.id, playerId });
+    res.json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error unwatching player', error);
+    res.status(500).json({ error: 'failed to unwatch player' });
   }
 });
 

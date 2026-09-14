@@ -55,6 +55,21 @@
  *     lives. `isEligibleMove` is exported as a plain pure function (no
  *     hook, no side effect, no `useSwapPlayers` state), so this widget
  *     reads it without pulling in the hook's own React/state surface.
+ *
+ * A fifth instance, added with #1312 (ADR 0040 follow-up, grill ruling Q6):
+ *   - `src/features/watch-player` (`WatchPlayerAction`, `ui/
+ *     PlayerDecisionCard.jsx`): the Watch/Watching toggle, shown across
+ *     every Availability context (never `draft`) - the same widget-reads-a-
+ *     feature-through-its-own-public-index shape `add-player`/`claim-player`
+ *     already establish two paragraphs up. The Draft room's own `draft`
+ *     context never renders this button (DraftBoard.jsx always passes
+ *     `context="draft"`), but the import stays static like its two
+ *     neighbours: ADR 0014's Consequences require an endpoint entering the
+ *     Draft room's closure to land with a harness entry or a declared
+ *     exemption in the same PR (`tests/e2e/fixtures/draftRouteTable.js`),
+ *     the same treatment `add-player`/`claim-player` already get there -
+ *     never a mechanism, like a dynamic `import()`, that hides the edge from
+ *     that guard instead of declaring it (formal review finding f1).
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';

@@ -7,7 +7,7 @@ import PlayerManagement from "./PlayerManagement";
 
 jest.mock("../../api/apiClient", () => ({
   __esModule: true,
-  default: { get: jest.fn(), post: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
 
 const player = (overrides = {}) => ({
@@ -21,6 +21,7 @@ const player = (overrides = {}) => ({
   weeks: [{ week: 3, points: 22.4 }],
   ownership: null,
   upgrade: null,
+  watching: false,
   ...overrides,
 });
 const league = {
@@ -497,4 +498,101 @@ test("hides the Upgrade column entirely in a best ball league", async () => {
   await screen.findByTestId("player-row");
   expect(screen.queryByRole("columnheader", { name: "Upgrade" })).not.toBeInTheDocument();
   expect(screen.queryByTestId("player-row-upgrade")).not.toBeInTheDocument();
+});
+
+// #1312, ADR 0040 follow-up (grill ruling Q6): the row's own Watch toggle -
+// the button label flips from the row's own `watching` field (the view=cards
+// payload, #1309), no extra fetch.
+test("the row's Watch toggle PUTs, then re-reads the players list (no optimistic guess)", async () => {
+  mockBrowser({ players: [player({ id: 9, name: "Watch Target", watching: false })] });
+  apiClient.put.mockResolvedValue({});
+  renderWithProviders(<PlayerManagement />);
+
+  // Risk review (accessibility): the icon-only toggle's accessible name
+  // folds in the player's own name, so a multi-row page never exposes
+  // several identically named controls.
+  const toggle = await screen.findByRole("button", { name: "Watch Watch Target" });
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+  await userEvent.click(toggle);
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith("/api/players/9/watch", null, {
+      params: { leagueId: 1 },
+    }),
+  );
+  // Watch, like Add/Claim, refreshes the server-authoritative list rather
+  // than guessing the next state locally.
+  await waitFor(() =>
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+    ).toBeGreaterThan(1),
+  );
+});
+
+test("a watched row renders \"Watching\" and DELETEs on click", async () => {
+  mockBrowser({ players: [player({ id: 9, name: "Watch Target", watching: true })] });
+  apiClient.delete.mockResolvedValue({});
+  renderWithProviders(<PlayerManagement />);
+
+  const toggle = await screen.findByRole("button", { name: "Watching Watch Target" });
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+  await userEvent.click(toggle);
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith("/api/players/9/watch", {
+      params: { leagueId: 1 },
+    }),
+  );
+});
+
+test("no league selected: the row renders no Watch toggle", async () => {
+  mockBrowser({
+    leagues: [{ id: 5, name: "Office Pool", pickem_only: true }],
+    context: null,
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByRole("button", { name: "Select league" });
+  expect(screen.queryByTestId("player-row-watch")).not.toBeInTheDocument();
+});
+
+// #1312 Ruling: "The Players list gains a Watching toggle that filters
+// client-side on that flag" - never a fifth Availability segment, and never
+// a second server read (the toggle carries no leagueId/position/etc. of its
+// own, so it never appears in the /api/players params).
+test("the Watching toggle filters the list to only watched players, client-side, with no extra fetch", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 1, name: "Watched Guy", watching: true }),
+      player({ id: 2, name: "Unwatched Guy", watching: false }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText("Watched Guy");
+  expect(screen.getByText("Unwatched Guy")).toBeInTheDocument();
+  const callsBeforeToggle = apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+
+  await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+  expect(screen.getByText("Watched Guy")).toBeInTheDocument();
+  expect(screen.queryByText("Unwatched Guy")).not.toBeInTheDocument();
+  expect(
+    apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+  ).toBe(callsBeforeToggle);
+
+  await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+  expect(screen.getByText("Unwatched Guy")).toBeInTheDocument();
+});
+
+test("the Watching toggle, with nothing watched on the page, shows its own empty state", async () => {
+  mockBrowser({ players: [player({ id: 1, name: "Unwatched Guy", watching: false })] });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText("Unwatched Guy");
+  await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+  expect(await screen.findByText("No watched players on this page")).toBeInTheDocument();
 });

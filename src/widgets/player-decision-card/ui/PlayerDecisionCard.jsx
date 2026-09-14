@@ -33,6 +33,7 @@ import { usePlayerCard, DecisionStrip, WeeklyPointsBars, GameLogTable, NewsList,
 import { isEligibleMove } from '../../../features/swap-players';
 import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
+import { WatchPlayerAction } from '../../../features/watch-player';
 import { injuryTileView } from '../lib/injuryTile';
 import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/slotActions';
 
@@ -286,6 +287,19 @@ export default function PlayerDecisionCard({
   useEffect(() => {
     setPickedSeason(null);
   }, [entry?.playerId]);
+  // #1312: the Watch toggle's own optimistic display state. `usePlayerCard`
+  // (entities/player, ADR 0029's audit surface - outside this ticket's Scope)
+  // reads through `shared/lib`'s `useEndpoint`, which only re-fetches on a
+  // URL change (leagueId/playerId/week), so a successful PUT/DELETE has no
+  // way to make `card.watching` itself go stale-then-fresh again. This local
+  // override is what lets the button reflect the toggle immediately, without
+  // waiting on the next open (a new `entry.playerId`, which resets it back to
+  // following the server's own `card.watching` fact).
+  const [watchingOverride, setWatchingOverride] = useState(null);
+  useEffect(() => {
+    setWatchingOverride(null);
+  }, [entry?.playerId]);
+  const watching = watchingOverride != null ? watchingOverride : Boolean(card?.watching);
   const seasons = Array.isArray(card?.seasons) ? card.seasons : [];
   const currentSeasonEntry = seasons[0] ?? null;
   const selectedSeasonEntry =
@@ -818,6 +832,22 @@ export default function PlayerDecisionCard({
             )
           )}
           {effectiveContext === 'draft' && <DraftPoolSection adp={adp} poolRank={navIndex >= 0 ? navIndex + 1 : null} />}
+          {/* #1312, ADR 0040 follow-up (grill ruling Q6, the design canvas's
+              CardStates artboard): Watch/Watching across every Availability
+              context - my_team included (the design draws it on all four
+              card states) - never the `draft` context, which is not an
+              Availability state (#1313). */}
+          {effectiveContext && effectiveContext !== 'draft' && (
+            <Box data-testid="decision-card-watch" sx={{ px: 2, pb: 1.5 }}>
+              <WatchPlayerAction
+                playerId={entry.playerId}
+                leagueId={leagueId}
+                watching={watching}
+                onToggled={setWatchingOverride}
+                onDone={onActionDone}
+              />
+            </Box>
+          )}
           {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
 
           {compareEntry ? (

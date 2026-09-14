@@ -746,6 +746,17 @@ Draft with Queue in the Draft room. It replaces the player quick view on
 every surface, the Draft room included (#1313, ADR 0040).
 _Avoid_: player drawer, player sheet, player card, quick view
 
+**Watch**:
+A manager's own mark on a player, held per team - a manager with two teams
+keeps two independent marks - and set from the Decision card or any player
+row; its state reads Watching. A Watch orders nothing and feeds no autopick,
+which is what separates it from the Queue. Its only reason to exist is
+staying in view: the Players list's own Watching toggle and the Decision
+card's Watch/Watching action are its two surfaces. Stored in
+`player_watchlist`, named as its own source the way Weather's entry names
+`game_weather_snapshots`.
+_Avoid_: watchlist (in prose and copy), favourite, star, follow
+
 **Season summary**:
 One season of a player in five numbers under this league's scoring: games,
 points per game, season points, position rank and ADP. The Decision card
