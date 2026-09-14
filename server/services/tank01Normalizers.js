@@ -159,8 +159,17 @@ function extractPlayByPlayBonusStats(plays) {
  * confirmed live, `blockedFG`/`blockedXP`/`blockedPunt` are reported on a
  * team's OWN teamStats line as kicks of THEIRS that got blocked, so credit
  * for a block belongs to the opponent's defense.
+ *
+ * `opponentScore` is the OPPOSING side's points on the board (the caller
+ * sums it from the box's `lineScore`, since Tank01's `/getNFLBoxScore` has
+ * no top-level score field — tank01BoxSource.sideFinalScore) and is what
+ * `pointsAllowed` is built from. Tank01's own `ptsAllowed` field is NOT
+ * used: it is the opponent's score minus 6 per opposing non-offensive TD
+ * (still counting the PAT), which drifts from the full-scoreboard
+ * convention (**Points allowed**, CONTEXT.md) that the ESPN and nflverse
+ * writers already produce (#1384).
  */
-function normalizeTank01DstStats(dstSide, opponentTeamStats) {
+function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
   const num = (value) => {
     const parsed = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
@@ -174,7 +183,7 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats) {
     defensiveTD: num(d.defTD),
     safety: num(d.safeties),
     blockedKick: num(opp.blockedFG) + num(opp.blockedXP) + num(opp.blockedPunt),
-    pointsAllowed: num(d.ptsAllowed),
+    pointsAllowed: num(opponentScore),
     yardsAllowed: num(d.ydsAllowed),
   };
 }

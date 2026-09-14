@@ -46,6 +46,32 @@ function isFinalBox(box) {
 }
 
 /**
+ * Pure: sum one side's Tank01 `lineScore` quarters (Q1-Q4 plus any OT
+ * periods Tank01 reports, OT/OT1/OT2/…) into that side's points on the
+ * board. Tank01's `/getNFLBoxScore` carries no top-level home/away score
+ * field — `lineScore` is the only game-score-bearing field on the box body
+ * (confirmed: no `homePts`/`awayPts` anywhere in the response; those only
+ * exist on the separate `/getNFLScoresOnly` endpoint) — so this is the
+ * source for a DEF's `pointsAllowed` (**Points allowed**, CONTEXT.md,
+ * #1384). Tolerant of a missing lineScore or side: yields 0 rather than
+ * throwing, same as every other field this module reads.
+ */
+function sideFinalScore(lineScore, side) {
+  const s = lineScore && lineScore[side];
+  if (!s || typeof s !== 'object') return 0;
+  const num = (value) => {
+    const parsed = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  let total = 0;
+  for (const key of ['Q1', 'Q2', 'Q3', 'Q4']) total += num(s[key]);
+  for (const key of Object.keys(s)) {
+    if (/^OT/i.test(key)) total += num(s[key]);
+  }
+  return total;
+}
+
+/**
  * Pure: Tank01's own scoringPlays entries -> Score summary lines. Tank01 gives
  * no scorer id or yardage in a machine-readable field, so those are null; the
  * TD-length and FG-distance bonuses come from `allPlayByPlay` instead (below).
@@ -106,6 +132,7 @@ function fromBox(box) {
   // block credit belongs to the opponent's defense (normalizeTank01DstStats).
   const dst = b.DST || {};
   const teamStats = b.teamStats || {};
+  const lineScore = b.lineScore || {};
   const teamDefense = {};
   for (const side of ['home', 'away']) {
     const dstSide = dst[side];
@@ -113,7 +140,11 @@ function fromBox(box) {
     const teamCode = rawAbbr ? normalizeNflTeam(rawAbbr) : null;
     if (!teamCode) continue;
     const opponentSide = side === 'home' ? 'away' : 'home';
-    teamDefense[teamCode] = normalizeTank01DstStats(dstSide, teamStats[opponentSide]);
+    teamDefense[teamCode] = normalizeTank01DstStats(
+      dstSide,
+      teamStats[opponentSide],
+      sideFinalScore(lineScore, opponentSide)
+    );
   }
 
   return {

@@ -227,6 +227,17 @@ _Avoid_: athlete, asset
 A team's defense and special teams, rostered and started as a single player.
 _Avoid_: D/ST, defense (ambiguous against both the scoring category and IDP)
 
+**Points allowed**:
+A DEF's scoring input for points given up: every point on the scoreboard
+against the team's own side, i.e. the opponent's full final score, including
+points the opponent's own defense and special teams scored. All three
+writers (the ESPN Live box, the Tank01 Final box, the Tuesday/Wednesday
+nflverse correction) produce this; none subtracts points scored by the
+opposing D/ST (ruling, issue #1384 — the standard ESPN/Yahoo/Sleeper
+subtraction was considered and rejected because Tank01's Final box carries
+no per-play attribution to compute it exactly).
+_Avoid_: points against (ambiguous with yards allowed)
+
 **IDP**:
 Individual defensive players (DL, LB, DB) rostered as themselves rather than
 rolled up into a DEF.
