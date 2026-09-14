@@ -95,6 +95,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
       aria-current={isCurrent ? 'true' : undefined}
       data-testid={`weekly-bar-${week.week}`}
       data-kind={week.kind}
+      data-season-end={isSeasonEnd ? 'true' : undefined}
       sx={{
         display: 'flex',
         flexDirection: 'column',
