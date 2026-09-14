@@ -80,6 +80,6 @@ test('actual and projected weeks fill by points and carry a per-bar title', () =
 
 test('the season-end week carries a divider marker distinct from the current-week marker', () => {
   render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} seasonEnd={14} />);
-  expect(screen.getByTestId('weekly-bar-14')).toHaveStyle({ borderRight: '2px dashed var(--border-strong)' });
-  expect(screen.getByTestId('weekly-bar-5')).toHaveStyle({ borderRight: 'none' });
+  expect(screen.getByTestId('weekly-bar-14')).toHaveAttribute('data-season-end', 'true');
+  expect(screen.getByTestId('weekly-bar-5')).not.toHaveAttribute('data-season-end');
 });

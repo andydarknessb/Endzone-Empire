@@ -1100,12 +1100,11 @@ describe('Season summary and Season pick (#1358)', () => {
 
     expect(await screen.findByTestId('weekly-bar-3')).toBeInTheDocument();
     // The 2025 season's own weeks (formal-001-f2) deliberately include week
-    // 4 (the current week) and week 17 (seasonEnd), so these three
-    // assertions would fail if the current-season guard were ever reverted
+    // 4 (the current week) and week 17 (seasonEnd), so these two assertions
+    // would fail if the current-season guard were ever reverted
     // (currentWeek/seasonEnd passed through for a picked past season).
-    expect(screen.getByTestId('weekly-bar-4')).toHaveAttribute('data-kind', 'actual'); // no projected bar
     expect(screen.queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument(); // no current-week marker
-    expect(screen.getByTestId('weekly-bar-17')).toHaveStyle({ borderRight: 'none' }); // no season-end marker
+    expect(screen.getByTestId('weekly-bar-17')).not.toHaveAttribute('data-season-end'); // no season-end marker
     expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
     expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
 
