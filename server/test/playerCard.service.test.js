@@ -107,6 +107,9 @@ function mockServices(t, {
     const projections = new Map(playerIds.map((id) => [id, weeklyProjection(week, id)]));
     return { projections };
   });
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => new Map(
+    weeks.map((week) => [week, { week, projections: new Map(playerIds.map((id) => [id, weeklyProjection(week, id)])) }]),
+  ));
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => {
     return new Map(playerIds.map((id) => [id, restOfSeason]));
   });

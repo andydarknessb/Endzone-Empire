@@ -1160,9 +1160,8 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
         { id: 2, current_season: 2026, current_week: 10, regular_season_weeks: 13, playoff_teams: 2 },
       ],
     })],
-    [/FROM "team_players" WHERE "league_id" = \$1/, (text, params) => ({
-      rows: [{ player_id: params[0] === 1 ? 101 : 201 }],
-    })],
+    // #1403: one player-pool read shared by every league's unit.
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }, { id: 202 }] })],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]);
   fake.install(t);
@@ -1173,6 +1172,9 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
   const league2Weeks = calls.filter((c) => c.leagueId === 2).map((c) => c.week);
   assert.deepEqual(league1Weeks, [15, 16]);
   assert.deepEqual(league2Weeks, [10, 11, 12, 13, 14]);
+  // #1403: every player in the pool, for every league, not each league's roster.
+  assert.ok(calls.every((c) => JSON.stringify(c.args.playerIds) === JSON.stringify([101, 202])));
+  assert.equal(fake.calls.filter((c) => c.text.includes('FROM "players"')).length, 1, 'the pool is read once per pass');
   assert.equal(result.weeksGenerated, league1Weeks.length + league2Weeks.length);
   assert.equal(result.weeksSkipped, 0);
   assert.equal(result.leagues, 2);
@@ -1196,7 +1198,7 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
   assert.deepEqual(byLeague.get(2), { leagueId: 2, weeksGenerated: 5, weeksSkipped: 0 });
 });
 
-test('runNightlyProjectionFill skips a week every rostered player already has cached, and runs at most once per local day', async (t) => {
+test('runNightlyProjectionFill skips a week every player already has cached, and runs at most once per local day', async (t) => {
   const projection = require('../services/projection.service');
   let call = 0;
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
@@ -1208,7 +1210,7 @@ test('runNightlyProjectionFill skips a week every rostered player already has ca
     [/FROM "leagues"/, () => ({
       rows: [{ id: 1, current_season: 2026, current_week: 15, regular_season_weeks: 14, playoff_teams: 4 }],
     })],
-    [/FROM "team_players"/, () => ({ rows: [{ player_id: 101 }] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
 
@@ -1239,7 +1241,7 @@ test('one league\'s failure does not stop another\'s fill; the day stays unstamp
         { id: 2, current_season: 2026, current_week: 16, regular_season_weeks: 14, playoff_teams: 4 },
       ],
     })],
-    [/FROM "team_players"/, () => ({ rows: [{ player_id: 101 }] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
   const errors = [];
@@ -1266,7 +1268,7 @@ test('records one Sync run through runSyncJob for the whole pass, detail carryin
     [/FROM "leagues"/, () => ({
       rows: [{ id: 1, current_season: 2026, current_week: 16, regular_season_weeks: 14, playoff_teams: 4 }],
     })],
-    [/FROM "team_players"/, () => ({ rows: [{ player_id: 101 }] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]);
   fake.install(t);
