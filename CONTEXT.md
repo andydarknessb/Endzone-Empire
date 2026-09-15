@@ -920,7 +920,10 @@ a standing entitlement. A commissioner may attest a player IR-eligible when
 the feed is wrong, and that attested stash grants capacity like any other.
 A player a team acquires - by waiver, trade, commissioner add or free agency -
 always arrives on the bench and earns nothing; only undoing a drop returns a
-player to the stash it interrupted.
+player to the stash it interrupted. Every surface that tells a manager how
+full a roster is names this number, never the roster limit: the league detail
+payload carries it per team as roster_capacity beside roster_count, and the
+Players list context as rosterCapacity beside rosterCount (#1475).
 _Avoid_: roster limit, effective limit
 
 **IR-eligible**:

@@ -88,7 +88,17 @@ function capacityFact(league, team) {
   const [label, have, cap] =
     league.waiver_type === 'faab'
       ? ['FAAB left', numberOrNull(team.faab_remaining), numberOrNull(league.faab_budget)]
-      : ['Roster', numberOrNull(team.roster_count), numberOrNull(league.roster_limit)];
+      : [
+          'Roster',
+          numberOrNull(team.roster_count),
+          // The team's occupancy-based capacity (#1475: league.router.js
+          // publishes roster_capacity beside roster_count), never the
+          // IR-inclusive roster_limit: "19/20" on a 20-limit, one-IR league
+          // reads as a spot to spare, when the 20th spot exists only for an
+          // IR-eligible occupant and a claim or add is refused as full.
+          // roster_limit stays as the fallback for a payload without it.
+          numberOrNull(team.roster_capacity) ?? numberOrNull(league.roster_limit),
+        ];
   if (have == null || cap == null) return null;
   return { label, text: `${have}/${cap}` };
 }

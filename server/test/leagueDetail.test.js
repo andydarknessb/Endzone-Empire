@@ -41,12 +41,19 @@ function mockLeagueDetail(t, {
   lastAdpRun = { finished_at: new Date().toISOString() },
   dataSyncRunsError = null,
   draftStatus = 'pending',
+  rosterLimit = 20,
+  irSlots = 1,
+  irStashes = [],
 } = {}) {
   const seen = {};
   t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('ownerTeamId')) {
-      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team", draft_status: draftStatus }] };
+      return { rows: [{ id: 1, owner_id: 7, name: 'Sunday Ballers', invite_code: 'invite', ownerTeamId: 11, ownerTeamName: "Alice's Team", draft_status: draftStatus, roster_limit: rosterLimit, ir_slots: irSlots }] };
+    }
+    if (text.includes('FROM "lineup_entries"')) {
+      seen.stashQuery = text;
+      return { rows: irStashes };
     }
     if (text.includes('SELECT 1 FROM "teams"')) return { rows: [{ '?column?': 1 }] };
     if (text.includes('SELECT 1 FROM "leagues"')) {
@@ -121,6 +128,31 @@ test('GET league detail selects and serializes team readiness', async (t) => {
   assert.equal(response.status, 200);
   assert.match(teamsQuery, /"teams"\."draft_ready"/);
   assert.equal(response.body.teams[0].draft_ready, true);
+});
+
+// #1475: each team's occupancy-based capacity rides beside roster_count so
+// the Roster tile never sizes a roster by the IR-inclusive roster_limit.
+test("GET league detail publishes each team's roster_capacity, sized by its eligible IR stash", async (t) => {
+  const seen = mockLeagueDetail(t, { rosterLimit: 20, irSlots: 1, irStashes: [] });
+  const token = signToken({ id: 42, username: 'alice' });
+
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  // 20 minus the IR slot, and nothing stashed: 19, with roster_limit itself untouched.
+  assert.equal(response.body.teams[0].roster_capacity, 19);
+  assert.equal(response.body.league.roster_limit, 20);
+  assert.match(seen.stashQuery, /GROUP BY "lineup_entries"\."team_id"/);
+});
+
+test('GET league detail grants the IR spot to a team with an eligible stash', async (t) => {
+  mockLeagueDetail(t, { rosterLimit: 20, irSlots: 1, irStashes: [{ team_id: 11, n: 1 }] });
+  const token = signToken({ id: 42, username: 'alice' });
+
+  const response = await request(app).get('/api/league/1').set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.teams[0].roster_capacity, 20);
 });
 
 test('GET league detail gives a commissioner the invite code and the ids grant and revoke need', async (t) => {

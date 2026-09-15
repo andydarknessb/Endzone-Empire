@@ -9,6 +9,7 @@ const {
   isIrEligible,
   isValidStash,
   rosterCapacity,
+  rosterCapacityByTeam,
   sendIrFlagPushes,
   undoRestoresStash,
 } = require('../services/irPolicy.service');
@@ -150,6 +151,46 @@ const interruptedRecord = (record, log = []) => [
     return { rows: record ? [record] : [] };
   },
 ];
+
+test('rosterCapacityByTeam: one grouped read sizes every team, capped at the IR slot count', async () => {
+  let seen;
+  const fake = createFakePool([
+    [select('lineup_entries'), (text, params) => {
+      seen = { text, params };
+      return { rows: [{ team_id: 31, n: 1 }, { team_id: 32, n: 5 }, { team_id: 99, n: 1 }] };
+    }],
+  ]);
+  const client = await fake.connect();
+
+  const capacities = await rosterCapacityByTeam(client, {
+    league: { id: 7, roster_limit: 16, ir_slots: 2 },
+    teamIds: [31, 32, 33],
+  });
+  client.release();
+
+  // 31: one eligible stash grants one spot; 32: grants cap at ir_slots;
+  // 33: no stash row, draft roster size; 99: not asked for, not answered.
+  assert.deepEqual([...capacities.entries()], [[31, 15], [32, 16], [33, 14]]);
+  assert.match(seen.text, /GROUP BY "lineup_entries"\."team_id"/);
+  assert.match(seen.text, /"teams"\."league_id" = \$1/);
+  assert.match(seen.text, /OR "lineup_entries"\."ir_attested"/);
+  assert.deepEqual(seen.params, [7, ['O', 'IR']]);
+  fake.assertClean();
+});
+
+test('rosterCapacityByTeam: a zero-IR league never queries the stash', async () => {
+  const fake = createFakePool();
+  const client = await fake.connect();
+
+  const capacities = await rosterCapacityByTeam(client, {
+    league: { id: 7, roster_limit: 16, ir_slots: 0 },
+    teamIds: [31, '32'],
+  });
+  client.release();
+
+  assert.deepEqual([...capacities.entries()], [[31, 16], [32, 16]]);
+  fake.assertClean();
+});
 
 test('rosterCapacity: an empty stash leaves capacity at the draft roster size', async () => {
   const fake = capacityPool({ stashed: 0 });
