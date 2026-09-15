@@ -825,6 +825,49 @@ test('#1385: at or above the floor, a departed player and a blank-team player bo
   fake.assertClean();
 });
 
+test('a feed entry flagged isFreeAgent "True" reads as No NFL team: his stored label clears at or above the floor, a "False" control keeps his', async (t) => {
+  // Tank01's getNFLPlayerList carries a player who has left the NFL under his
+  // LAST team with the flag set (2026-09-15: 1,527 of 3,872 entries, every one
+  // with a team label; Joe Mixon "team":"HOU" six months after Houston released
+  // him). Reading only `team` kept all of them rostered, projected and
+  // ranked as waiver Upgrades.
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [
+        { id: 204, external_id: 'tank-204', injury_status: null, nfl_team: 'HOU' },
+        { id: 205, external_id: 'tank-205', injury_status: null, nfl_team: 'KC' },
+      ],
+    }), 'client'],
+    [select('leagues'), () => ({ rows: [] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({
+      data: {
+        body: [
+          { playerID: 'tank-204', team: 'HOU', isFreeAgent: 'True', injury: { designation: '' } },
+          { playerID: 'tank-205', team: 'KC', isFreeAgent: 'False', injury: { designation: '' } },
+          ...paddingEntries(PADDED_ENTRY_COUNT),
+        ],
+      },
+    }),
+  });
+
+  const mainWrite = fake.matching(update('players')).find((c) => /"injury_status" = v/.test(c.text));
+  const [mainIds, , , mainTeams] = mainWrite.params;
+  assert.deepEqual(
+    Object.fromEntries(mainIds.map((id, i) => [id, mainTeams[i]])),
+    { 204: null, 205: 'KC' },
+    'the flagged player clears in the same statement as the control, which keeps his team',
+  );
+  assert.equal(result.teamsCleared, 1, 'the flagged player counts as cleared');
+  assert.equal(result.teamChanges, 0, 'a clear is not a move between two real teams');
+  fake.assertClean();
+});
+
 test('#1385: below the floor, neither a departed player nor a blank-team player clears', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],

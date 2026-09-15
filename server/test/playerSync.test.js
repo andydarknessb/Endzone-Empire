@@ -21,6 +21,21 @@ test('normalizePlayerEntry maps a Tank01 player entry', () => {
   });
 });
 
+test('normalizePlayerEntry reads an entry flagged isFreeAgent "True" as No NFL team, whatever team label it still carries', () => {
+  // The hand-run player sync upserts nfl_team from this same field, so it
+  // must agree with the injury sync's reading or it would re-label a player
+  // the injury sync had just cleared.
+  const parsed = normalizePlayerEntry({
+    playerID: '3116385',
+    longName: 'Joe Mixon',
+    pos: 'RB',
+    team: 'HOU',
+    isFreeAgent: 'True',
+  });
+  assert.equal(parsed.nflTeam, null);
+  assert.equal(normalizePlayerEntry({ playerID: '1', longName: 'A B', pos: 'RB', team: 'HOU', isFreeAgent: 'False' }).nflTeam, 'HOU');
+});
+
 test('normalizePlayerEntry carries the provider headshot and jersey number', () => {
   const parsed = normalizePlayerEntry({
     playerID: '3915511',
