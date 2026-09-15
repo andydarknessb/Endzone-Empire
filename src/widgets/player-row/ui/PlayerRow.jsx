@@ -336,10 +336,16 @@ export default function PlayerRow({ player, action, watchAction, bestBall = fals
           <UpgradeCell upgrade={player.upgrade} />
         </TableCell>
       )}
+      {/* Desktop table (2026-09-15 report): the full strip made this column
+          440px and the Status column grew to its longest team name, which
+          together pushed the table past its container and cut the Action
+          column off the right edge. The dense strip sits near the design's
+          152px Weeks column, and a capped Status cell lets a long team name
+          ellipsise (its own `noWrap`) instead of widening the table. */}
       <TableCell>
-        {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} />}
+        {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} dense />}
       </TableCell>
-      <TableCell>
+      <TableCell sx={{ maxWidth: 180 }}>
         <StatusCell player={player} />
       </TableCell>
       <TableCell align="right">

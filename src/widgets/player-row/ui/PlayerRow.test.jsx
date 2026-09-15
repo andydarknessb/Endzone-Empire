@@ -191,3 +191,12 @@ test('card variant renders the same row content in a stacked layout', () => {
   expect(screen.getByTestId('player-row-card')).toBeInTheDocument();
   expect(within(screen.getByTestId('player-row-card')).getByRole('button', { name: 'Add free agent' })).toBeInTheDocument();
 });
+
+// Desktop Players table (2026-09-15 report): the full-size strip made the
+// Weeks column 440px and pushed the Action column off the right edge of the
+// page. The table row renders the dense strip; the mobile card keeps the
+// full one, which scrolls inside the card.
+test('the table row renders the dense weekly strip', () => {
+  renderRow({ player: player(), action: { kind: 'button', label: 'Add', onClick: () => {} } });
+  expect(screen.getByTestId('weekly-points-bars')).toHaveAttribute('data-dense', 'true');
+});
