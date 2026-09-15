@@ -171,6 +171,29 @@ async function claimTarget({ leagueId, userId, playerId }) {
   return player;
 }
 
+/**
+ * Why a claim would overflow the roster, or null when it fits. Shared by
+ * submit time and process time so a manager hears "choose a drop" when the
+ * claim is built, not days later when it silently fails to execute.
+ */
+async function capacityFailureReason(client, { league, team, dropPlayerId }) {
+  const count = await client.query(
+    `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
+    [team.id]
+  );
+  const effective = count.rows[0].n - (dropPlayerId ? 1 : 0);
+  // Roster capacity, not the static roster limit: an eligible IR stash grants
+  // a spot, and a dropped player's own stash grants nothing (#97). The claimed
+  // player gets no restored credit either - a won claim benches him.
+  const capacity = await rosterCapacity(client, {
+    league,
+    teamId: team.id,
+    excludePlayerIds: dropPlayerId ? [dropPlayerId] : [],
+  });
+  if (effective >= capacity) return `roster capacity of ${capacity} reached`;
+  return null;
+}
+
 /** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
@@ -217,6 +240,9 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
       );
       if (!onMyTeam.rows[0]) throw new WaiverError(404, 'drop player is not on your roster');
     }
+
+    const overflow = await capacityFailureReason(client, { league, team, dropPlayerId });
+    if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
 
     const dupe = await client.query(
       `SELECT 1 FROM "waiver_claims"
@@ -557,21 +583,11 @@ async function claimFailureReason(client, { league, team, claim }) {
     dropValid = Boolean(onTeam.rows[0]);
     if (!dropValid) return 'the player you offered to drop is no longer on your roster';
   }
-  const count = await client.query(
-    `SELECT COUNT(*)::int AS n FROM "team_players" WHERE "team_id" = $1`,
-    [team.id]
-  );
-  const effective = count.rows[0].n - (dropValid ? 1 : 0);
-  // Roster capacity, not the static roster limit: an eligible IR stash grants
-  // a spot, and a dropped player's own stash grants nothing (#97). The claimed
-  // player gets no restored credit either - a won claim benches him.
-  const capacity = await rosterCapacity(client, {
+  return capacityFailureReason(client, {
     league,
-    teamId: team.id,
-    excludePlayerIds: dropValid ? [claim.drop_player_id] : [],
+    team,
+    dropPlayerId: dropValid ? claim.drop_player_id : null,
   });
-  if (effective >= capacity) return `roster capacity of ${capacity} reached`;
-  return null;
 }
 
 /**
