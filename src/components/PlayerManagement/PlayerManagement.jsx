@@ -488,9 +488,25 @@ function PlayerManagement() {
   // the page already fetched - never a second server read, never a fifth
   // Availability segment.
   const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
-  const controls = (
-    <Stack spacing={1.5}>
-      <FormControl size="small" fullWidth>
+  // The same five filters render twice: stacked inside the mobile Filters
+  // drawer, and as one wrapping row on desktop (Players.dc.html, #1310). The
+  // row is the fix for the desktop defect where every filter landed in a
+  // 170px column and the five Availability segments became a hidden-scrollbar
+  // strip a mouse could not scroll ("Rostered" and "My team" unreachable).
+  // On desktop the segmented control keeps its natural width and does not
+  // scroll; only the drawer, a touch surface, gets `scrollable` and 44px
+  // segments.
+  const renderControls = (layout) => {
+    const row = layout === "row";
+    return (
+    <Stack
+      direction={row ? "row" : "column"}
+      spacing={1.5}
+      useFlexGap
+      flexWrap={row ? "wrap" : undefined}
+      alignItems={row ? "center" : undefined}
+    >
+      <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 170 } : undefined}>
         <InputLabel id="pm-league-label">League</InputLabel>
         <Select
           labelId="pm-league-label"
@@ -511,7 +527,7 @@ function PlayerManagement() {
           ))}
         </Select>
       </FormControl>
-      <FormControl size="small" fullWidth>
+      <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 130 } : undefined}>
         <InputLabel id="pm-pos-label">Position</InputLabel>
         <Select
           labelId="pm-pos-label"
@@ -536,13 +552,13 @@ function PlayerManagement() {
         options={AVAILABILITY_FILTERS}
         value={availabilityFilter}
         onChange={(value) => updateParams({ availability: value, page: 1 })}
-        scrollable
+        scrollable={!row}
         // Risk-review finding (accessibility): SegmentedControl's own
         // segments are 30px tall - fine at its other (pointer-driven)
         // call sites, but this control also renders inside the mobile
         // Filters drawer, a touch surface, so its segments need the same
         // 44px minimum every other action on this page carries.
-        sx={{ "& [role='radio']": { minHeight: 44 } }}
+        sx={row ? undefined : { "& [role='radio']": { minHeight: 44 } }}
       />
       {/* #1312 Ruling: the Watching toggle - client-side only, never a
           fifth Availability segment (ADR 0040's ownership axis stays
@@ -557,8 +573,8 @@ function PlayerManagement() {
         }
         label="Watching"
       />
-      <Stack direction="row" spacing={1}>
-        <FormControl size="small" fullWidth>
+      <Stack direction="row" spacing={1} sx={row ? { ml: "auto" } : undefined}>
+        <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 170 } : undefined}>
           <InputLabel id="pm-sort-label">Sort</InputLabel>
           <Select
             labelId="pm-sort-label"
@@ -592,7 +608,8 @@ function PlayerManagement() {
         </Button>
       </Stack>
     </Stack>
-  );
+    );
+  };
 
   return (
     <Box
@@ -708,14 +725,13 @@ function PlayerManagement() {
         </Paper>
       )}
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={1.25}
-          alignItems={{ md: "center" }}
-        >
+        <Stack spacing={1.25}>
           <TextField
             size="small"
             fullWidth
+            // Players.dc.html: the search sits on its own line above the
+            // filter row on desktop, so it does not fight the row for width.
+            sx={isMobile ? undefined : { maxWidth: 360 }}
             label="Search players"
             placeholder="Search by name"
             value={searchInput}
@@ -749,17 +765,7 @@ function PlayerManagement() {
               Filters
             </Button>
           ) : (
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns:
-                  "minmax(170px, 1fr) minmax(130px, .7fr) minmax(220px, 1.1fr) minmax(170px, .8fr)",
-                gap: 1,
-                flex: 2,
-              }}
-            >
-              {controls}
-            </Box>
+            renderControls("row")
           )}
         </Stack>
       </Paper>
@@ -784,7 +790,7 @@ function PlayerManagement() {
               Done
             </Button>
           </Stack>
-          {controls}
+          {renderControls("column")}
         </Stack>
       </Drawer>
       {!isMobile && (
