@@ -26,6 +26,7 @@ const STATIC_PUBLIC_PATHS = [
   '/strategy/patriots-seahawks-week1-preview',
   '/strategy/rams-49ers-week1-preview',
   '/strategy/week1-sunday-monday-preview',
+  '/strategy/week2-waiver-wire-priority-board',
   '/recaps',
 ];
 

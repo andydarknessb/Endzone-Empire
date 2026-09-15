@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
+import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import PriorityHighIcon from '@mui/icons-material/PriorityHigh';
 import ShieldIcon from '@mui/icons-material/Shield';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
@@ -16,6 +17,7 @@ import { getArticle } from '../../../content/articles';
 import publicApiClient from '../../../api/publicApiClient';
 
 const CARDS = [
+  { slug: 'week2-waiver-wire-priority-board', Icon: LeaderboardIcon },
   { slug: 'waiver-priority-vs-faab', Icon: PriorityHighIcon },
   { slug: 'streaming-defense-and-kicker', Icon: ShieldIcon },
   { slug: 'playoff-prep', Icon: EventBusyIcon },
