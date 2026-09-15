@@ -402,24 +402,36 @@ async function availabilityFor({ league, team, player }) {
 /**
  * `Map<playerId, weeks[]>` for a whole page (#1309 Ruling item 4): `weeks[]`
  * runs from `currentWeek` through 18, one `getWeeklyProjections({ season,
- * week, league, playerIds })` call per week for the WHOLE page - never per
- * player, so a 25-row page and a 1-row page make the same number of calls
- * (the nightly run, #1305, has already filled every one of these for an
- * in-season league). Each entry is `{ week, points }` under the league's own
+ * week, league, playerIds })` read per week for the WHOLE page, batched into
+ * one `getWeeklyProjectionsForWeeks` call (#1403) - never per player, so a
+ * 25-row page and a 1-row page make the same number of calls (the nightly
+ * run, #1305, has already filled every one of these for an in-season
+ * league). Each entry is `{ week, points }` under the league's own
  * scoring, or `{ week, reason }` ('on bye' | 'out' | 'on IR') with no
  * `points` for a week the player is unavailable; `projWeek` is simply the
  * first (current-week) entry.
  */
-async function buildWeeksForPage({ league, players, season, currentWeek, byeWeekByPlayerId }) {
+async function buildWeeksForPage({
+  league, players, season, currentWeek, byeWeekByPlayerId, runsByWeek = null,
+}) {
   const playerIds = players.map((p) => p.id);
   const weeksByPlayer = new Map(playerIds.map((id) => [id, []]));
   if (playerIds.length === 0) return weeksByPlayer;
 
-  for (let wk = currentWeek; wk <= 18; wk++) {
-    // eslint-disable-next-line no-await-in-loop -- one call per remaining
-    // week for the WHOLE page, not per player (Ruling item 4/11: the query
-    // count is part of the contract).
-    const run = await projectionService.getWeeklyProjections({ season, week: wk, league, playerIds });
+  const weeks = [];
+  for (let wk = currentWeek; wk <= 18; wk++) weeks.push(wk);
+  // #1403: ONE batched read for every remaining week of the WHOLE page (not
+  // one per week, and never per player: the query count is part of the
+  // contract, Ruling item 4/11). The router passes the runs it already read
+  // so the rest-of-season total is summed from the same rows; a passed map
+  // missing a week has just that week read.
+  const missingWeeks = weeks.filter((wk) => !(runsByWeek && runsByWeek.has(wk)));
+  const fetched = missingWeeks.length > 0
+    ? await projectionService.getWeeklyProjectionsForWeeks({ season, weeks: missingWeeks, league, playerIds })
+    : new Map();
+
+  for (const wk of weeks) {
+    const run = (runsByWeek && runsByWeek.get(wk)) || fetched.get(wk) || { projections: new Map() };
     for (const id of playerIds) {
       if (byeWeekByPlayerId.get(id) === wk) {
         weeksByPlayer.get(id).push({ week: wk, reason: 'on bye' });

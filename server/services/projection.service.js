@@ -638,6 +638,25 @@ async function findRun({ season, week, hashValue, client }) {
   return result.rows[0] || null;
 }
 
+function projectionFromCachedRow(row) {
+  const num = (v) => (v == null ? null : Number(v));
+  return {
+    playerId: row.player_id,
+    modelVersion: model.MODEL_VERSION,
+    mean: num(row.mean),
+    median: num(row.median),
+    p10: num(row.p10),
+    p25: num(row.p25),
+    p75: num(row.p75),
+    p90: num(row.p90),
+    activeProbability: num(row.active_probability),
+    confidence: row.confidence,
+    sampleSize: Number(row.sample_size) || 0,
+    factors: row.factors || {},
+    cached: true,
+  };
+}
+
 async function loadCachedRows({ runId, playerIds, client }) {
   const result = await client.query(
     `SELECT "player_id", "mean", "median", "p10", "p25", "p75", "p90",
@@ -647,25 +666,42 @@ async function loadCachedRows({ runId, playerIds, client }) {
     [runId, playerIds]
   );
   const byPlayer = new Map();
-  const num = (v) => (v == null ? null : Number(v));
-  for (const row of result.rows) {
-    byPlayer.set(row.player_id, {
-      playerId: row.player_id,
-      modelVersion: model.MODEL_VERSION,
-      mean: num(row.mean),
-      median: num(row.median),
-      p10: num(row.p10),
-      p25: num(row.p25),
-      p75: num(row.p75),
-      p90: num(row.p90),
-      activeProbability: num(row.active_probability),
-      confidence: row.confidence,
-      sampleSize: Number(row.sample_size) || 0,
-      factors: row.factors || {},
-      cached: true,
-    });
-  }
+  for (const row of result.rows) byPlayer.set(row.player_id, projectionFromCachedRow(row));
   return byPlayer;
+}
+
+/**
+ * Batch forms of `findRun`/`loadCachedRows` (#1403): every run for a set of
+ * weeks in ONE read, and every cached row across those runs in ONE read,
+ * keyed back by week / run id. `getWeeklyProjections` keeps its single-week
+ * shape above (its callers and fixtures match that literal SQL); these serve
+ * `getWeeklyProjectionsForWeeks` only.
+ */
+async function findRuns({ season, weeks, hashValue, client }) {
+  const result = await client.query(
+    `SELECT "id", "week", "input_cutoff", "source_coverage", "generated_at"
+     FROM "projection_runs"
+     WHERE "season" = $1 AND "week" = ANY($2::int[]) AND "scoring_hash" = $3 AND "model_version" = $4`,
+    [season, weeks, hashValue, model.MODEL_VERSION]
+  );
+  return new Map(result.rows.map((r) => [Number(r.week), r]));
+}
+
+async function loadCachedRowsForRuns({ runIds, playerIds, client }) {
+  const result = await client.query(
+    `SELECT "run_id", "player_id", "mean", "median", "p10", "p25", "p75", "p90",
+            "active_probability", "confidence", "sample_size", "factors"
+     FROM "player_week_projections"
+     WHERE "run_id" = ANY($1::int[]) AND "player_id" = ANY($2::int[])`,
+    [runIds, playerIds]
+  );
+  const byRun = new Map();
+  for (const row of result.rows) {
+    const runId = Number(row.run_id);
+    if (!byRun.has(runId)) byRun.set(runId, new Map());
+    byRun.get(runId).set(row.player_id, projectionFromCachedRow(row));
+  }
+  return byRun;
 }
 
 async function upsertRun({ season, week, hashValue, inputCutoff, sourceCoverage, client }) {
@@ -829,23 +865,40 @@ async function getWeeklyProjections({
   if (run) {
     cached = await loadCachedRows({ runId: run.id, playerIds: ids, client });
     const missing = ids.filter((id) => !cached.has(id));
-    if (missing.length === 0) {
-      return {
-        season,
-        week,
-        modelVersion: model.MODEL_VERSION,
-        scoringHash: hashValue,
-        generatedAt: run.generated_at ? new Date(run.generated_at).toISOString() : null,
-        inputCutoff: run.input_cutoff ? new Date(run.input_cutoff).toISOString() : null,
-        sourceCoverage: run.source_coverage || {},
-        projections: cached,
-      };
-    }
+    if (missing.length === 0) return cachedRunResult({ season, week, hashValue, run, cached });
   }
 
   const toGenerate = run ? ids.filter((id) => !cached.has(id)) : ids;
+  return completeRun({
+    season, week, rules, hashValue, run, cached, playerIds: toGenerate, client, now, weatherService,
+  });
+}
+
+/** The result shape for a week every requested player already had cached. */
+function cachedRunResult({ season, week, hashValue, run, cached }) {
+  return {
+    season,
+    week,
+    modelVersion: model.MODEL_VERSION,
+    scoringHash: hashValue,
+    generatedAt: run.generated_at ? new Date(run.generated_at).toISOString() : null,
+    inputCutoff: run.input_cutoff ? new Date(run.input_cutoff).toISOString() : null,
+    sourceCoverage: run.source_coverage || {},
+    projections: cached,
+  };
+}
+
+/**
+ * Generates `playerIds` for one week, writes the run and its rows, and merges
+ * the new projections over `cached` (the rows the run already held). Shared by
+ * the single-week and multi-week readers so a partial run is completed the
+ * same way from either path.
+ */
+async function completeRun({
+  season, week, rules, hashValue, run, cached, playerIds, client, now, weatherService,
+}) {
   const generated = await generateProjections({
-    season, week, rules, playerIds: toGenerate, hashValue, client, now, weatherService,
+    season, week, rules, playerIds, hashValue, client, now, weatherService,
   });
 
   const saved = await upsertRun({
@@ -856,9 +909,9 @@ async function getWeeklyProjections({
     sourceCoverage: generated.sourceCoverage,
     client,
   });
-  run = saved || run;
+  const effectiveRun = saved || run;
   try {
-    await saveProjections({ runId: run.id, projections: generated.projections, client });
+    await saveProjections({ runId: effectiveRun.id, projections: generated.projections, client });
   } catch (err) {
     // A cache write failure must not deny the caller a projection it already
     // computed; the next request simply regenerates.
@@ -873,11 +926,79 @@ async function getWeeklyProjections({
     week,
     modelVersion: model.MODEL_VERSION,
     scoringHash: hashValue,
-    generatedAt: run && run.generated_at ? new Date(run.generated_at).toISOString() : new Date().toISOString(),
+    generatedAt: effectiveRun && effectiveRun.generated_at
+      ? new Date(effectiveRun.generated_at).toISOString()
+      : new Date().toISOString(),
     inputCutoff: generated.inputCutoff ? new Date(generated.inputCutoff).toISOString() : null,
     sourceCoverage: generated.sourceCoverage,
     projections: merged,
   };
+}
+
+/**
+ * `getWeeklyProjections` for several weeks at once (#1403): `Map<week, run>`,
+ * each run the exact object the single-week reader returns for that week.
+ *
+ * The cache read is TWO queries for the whole set (every run, then every
+ * cached row across those runs), whatever the number of weeks or players,
+ * instead of two per week. The hit rule is unchanged and decided per week:
+ * a week whose run holds every requested player's row is returned as cached;
+ * any other week is completed in place through the same `completeRun` the
+ * single-week reader uses (generation is per week by construction, one
+ * feature bundle per week, so only the weeks with a missing row pay for it).
+ *
+ * The Players list (view=cards, #1309) and `getRestOfSeason` read every
+ * remaining week of the season for every row on a page; before this they
+ * did so one week at a time, each, and a page of 25 cost ~70 cache reads
+ * warm and ~350 queries cold (#1403).
+ */
+async function getWeeklyProjectionsForWeeks({
+  season,
+  weeks = [],
+  league = null,
+  playerIds = [],
+  client = pool,
+  now = new Date(),
+  weatherService = null,
+}) {
+  const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
+  const wks = [...new Set((weeks || []).map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
+  const rules = league ? rulesForLeague(league) : SCORING_RULES;
+  const hashValue = model.scoringHash(rules);
+  const out = new Map();
+  if (wks.length === 0) return out;
+  if (ids.length === 0) {
+    for (const week of wks) {
+      out.set(week, {
+        season, week, modelVersion: model.MODEL_VERSION, scoringHash: hashValue,
+        generatedAt: new Date().toISOString(), inputCutoff: null,
+        sourceCoverage: features.emptyCoverage(), projections: new Map(),
+      });
+    }
+    return out;
+  }
+
+  const runs = await findRuns({ season, weeks: wks, hashValue, client });
+  const runIds = [...runs.values()].map((r) => Number(r.id));
+  const rowsByRun = runIds.length > 0
+    ? await loadCachedRowsForRuns({ runIds, playerIds: ids, client })
+    : new Map();
+
+  for (const week of wks) {
+    const run = runs.get(week) || null;
+    const cached = run ? (rowsByRun.get(Number(run.id)) || new Map()) : new Map();
+    const missing = ids.filter((id) => !cached.has(id));
+    if (run && missing.length === 0) {
+      out.set(week, cachedRunResult({ season, week, hashValue, run, cached }));
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop -- one generation per week
+    // that is actually missing a row; cached weeks never reach here.
+    out.set(week, await completeRun({
+      season, week, rules, hashValue, run, cached, playerIds: missing, client, now, weatherService,
+    }));
+  }
+  return out;
 }
 
 /**
@@ -902,7 +1023,7 @@ async function getWeeklyProjections({
  * league- or pool-wide rank, because this pool is whatever `playerIds` asked
  * about.
  */
-async function getRestOfSeason(playerIds, leagueId, { client = pool } = {}) {
+async function getRestOfSeason(playerIds, leagueId, { client = pool, runsByWeek = null } = {}) {
   const ids = [...new Set((Array.isArray(playerIds) ? playerIds : []).map(Number).filter(Number.isInteger))];
   if (ids.length === 0) return new Map();
 
@@ -921,10 +1042,21 @@ async function getRestOfSeason(playerIds, leagueId, { client = pool } = {}) {
 
   const fromWeek = Number(league.current_week) || 0;
   const throughWeek = lastPlayoffWeek(league);
-  for (let week = fromWeek; week <= throughWeek; week++) {
-    const run = await getWeeklyProjections({
-      season: league.current_season, week, league, playerIds: ids, client,
-    });
+  const weeks = [];
+  for (let week = fromWeek; week <= throughWeek; week++) weeks.push(week);
+  // #1403: every covered week in one batched read. A caller that already
+  // holds these runs (the Players list reads current..18 for the weeks bar)
+  // passes them in and no projection read happens here at all; a passed map
+  // missing a covered week has just that week read.
+  const missingWeeks = weeks.filter((week) => !(runsByWeek && runsByWeek.has(week)));
+  const fetched = missingWeeks.length > 0
+    ? await getWeeklyProjectionsForWeeks({
+      season: league.current_season, weeks: missingWeeks, league, playerIds: ids, client,
+    })
+    : new Map();
+  for (const week of weeks) {
+    const run = (runsByWeek && runsByWeek.get(week)) || fetched.get(week);
+    if (!run) continue;
     for (const id of ids) {
       const projection = run.projections.get(id);
       if (!projection) continue;
@@ -1015,6 +1147,7 @@ module.exports = {
   getPositionDefense,
   // free_baseline_v2
   getWeeklyProjections,
+  getWeeklyProjectionsForWeeks,
   getRestOfSeason,
   // Re-exported for playerCard.service.js (#1306 Ruling item 4): `throughWeek`
   // and `seasonEnd` are both the league's last playoff week.

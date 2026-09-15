@@ -883,9 +883,21 @@ test("#1385 ruling (4'): a departed player whose team already kicked off in a li
       rows: [{ id: 401, external_id: 'tank-401', injury_status: null, nfl_team: 'HOU' }],
     }), 'client'],
     [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
+    // #1391: an empty schedule read for the bound is the "unseen" case in
+    // deriveNflWeek - it answers N = 1, so W >= N - 1 holds for ANY W >= 0 and
+    // this test's calendar bound is a no-op, unrelated to what it covers.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] }), 'client'],
     // HOU's week-3 game kicked off an hour ago - the real query's
     // kickoff_at <= NOW() would include it.
-    [select('nfl_games'), () => ({ rows: [{ team: 'HOU' }] }), 'client'],
+    // risk-001-f2 (fakePool handler-order nit): a specific regex on the real
+    // kicked-off-teams query's own leading text (fn_normalize_nfl_team), not
+    // the generic select('nfl_games') this file used before #1391 added a
+    // SECOND "nfl_games" query for the calendar bound - the generic matcher
+    // would answer either query, so which one "wins" was really handler
+    // ORDER, silently load-bearing and undocumented as such. This regex and
+    // the calendar-bound regex above/below never match the same query text,
+    // so which is listed first no longer matters.
+    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'HOU' }] }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
@@ -914,9 +926,12 @@ test("#1385 ruling (4'): the same shape clears once his team's current-week game
       rows: [{ id: 402, external_id: 'tank-402', injury_status: null, nfl_team: 'HOU' }],
     }), 'client'],
     [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
+    // #1391: an empty schedule read for the bound answers N = 1, a no-op
+    // against W >= N - 1 - unrelated to what this test covers.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] }), 'client'],
     // HOU's week-3 game kicks off an hour from now - the real query's
     // kickoff_at <= NOW() would exclude it.
-    [select('nfl_games'), () => ({ rows: [] }), 'client'],
+    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [] }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
@@ -950,7 +965,10 @@ test("#1385 ruling (4'): the deferral folds Team code aliases (a stored WSH agai
       rows: [{ id: 403, external_id: 'tank-403', injury_status: null, nfl_team: 'WSH' }],
     }), 'client'],
     [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
-    [select('nfl_games'), () => ({ rows: [{ team: 'WAS' }] }), 'client'],
+    // #1391: an empty schedule read for the bound answers N = 1, a no-op
+    // against W >= N - 1 - unrelated to what this test covers.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'WAS' }] }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
@@ -967,6 +985,221 @@ test("#1385 ruling (4'): the deferral folds Team code aliases (a stored WSH agai
   assert.deepEqual(
     result,
     { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
+  );
+  fake.assertClean();
+});
+
+// ---- #1391 ruling: the (4') deferral is bounded to the NFL calendar -------
+// #1385 left "open week" unbounded: a live league's own current_week, with no
+// check against the NFL schedule at all. One league whose commissioner never
+// advances past week 1 would then pin HOU's departure forever, for every
+// league, until that one league's season completed. #1391's ruling bounds it:
+// N = deriveNflWeek(getSeasonWeekBounds({season}), now) (pickemSeason.service,
+// the same pure function the pick'em lifecycle already uses), and an open
+// week (S, W) counts toward the deferral only while W >= N - 1 - the week in
+// play and the week just finished, one NFL week of grace. Below that, the
+// league holds nobody's label and its clear candidates on that team clear
+// normally.
+//
+// Both tests below share one league (season 2026, current_week 1) and one
+// departed player (HOU, already kicked off per the raw nfl_games read) - only
+// the schedule-bounds read changes, moving week 2's last kickoff from the
+// past to the future so N drops from 3 to 2. That is the whole difference
+// between "two weeks behind, cleared" and "one week behind, still deferred".
+
+test("#1391 ruling: a league two or more NFL weeks behind the calendar holds no team's label - the departure clears despite an old kickoff", async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 501, external_id: 'tank-501', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    // The league's own open week is (2026, 1) - far behind the calendar below.
+    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 1 }] }), 'client'],
+    // deriveNflWeek's schedule read: week 2's last kickoff is 8h in the past
+    // (closed, past the 6h grace) and week 3's kicks off a day from now (open) -
+    // the smallest still-open week is 3, so N = 3. The league's open week
+    // (W = 1) sits below N - 1 = 2: two calendar weeks behind.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: [
+        { week: 2, kickoff_at: new Date(Date.now() - 8 * 60 * 60 * 1000) },
+        { week: 3, kickoff_at: new Date(Date.now() + 24 * 60 * 60 * 1000) },
+      ],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    // tank-501 omitted - he has left the list - padded past the floor.
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  // Bounded out of the deferral set: openKickoffTeams never even reads
+  // nfl_games for a kicked-off game, since (2026, 1) failed the bound before
+  // that query would run - no handler for that query is registered above, so
+  // an unbounded implementation would fail here with "unexpected query".
+  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
+  assert.deepEqual(departureWrite.params, [[501]], 'he clears - his league is too far behind the calendar to hold him');
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
+  );
+  fake.assertClean();
+});
+
+test('#1391 ruling: one NFL week behind the calendar is still inside the grace - the departure stays deferred', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 502, external_id: 'tank-502', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    // Same league, same open week (2026, 1) as the sibling test above.
+    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 1 }] }), 'client'],
+    // Only week 2's last kickoff moved: now a day AHEAD of now instead of 8h
+    // behind, so week 2 is the smallest still-open week - N = 2. The league's
+    // open week (W = 1) sits at N - 1 = 1 exactly: one calendar week behind,
+    // still inside the grace.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: [{ week: 2, kickoff_at: new Date(Date.now() + 24 * 60 * 60 * 1000) }],
+    }), 'client'],
+    // HOU's week-1 game (the league's own open week) already kicked off.
+    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'HOU' }] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  assert.equal(
+    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
+    undefined,
+    "no clear statement is issued - the bound still holds his league's open week",
+  );
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
+  );
+  fake.assertClean();
+});
+
+// qa-reviewer (#1391 risk review, formal-001-f1): deriveNflWeek saturates at
+// REG_SEASON_WEEKS (18) once a season's own calendar has fully closed - its
+// own doc comment says it answers 18 both for "week 18 is being played" and
+// "everything is over". `W >= N - 1` alone would then hold forever for a
+// league parked at week 17 or 18 of a season that finished seasons ago:
+// exactly the unbounded pin #1391 exists to remove, surviving at the tail of
+// the season.
+//
+// #1391's season-tail amendment
+// (https://github.com/andydarknessb/Endzone-Empire/issues/1391#issuecomment-5680673660):
+// a closed season's own LAST week (L) keeps its one week of grace - the same
+// grace every other week gets from the week that follows it - measured
+// instead from its own last kickoff (T), since it has no following week:
+// `W >= L` AND `now < T + 7 days + WEEK_ROLLOVER_GRACE_HOURS` (174 hours).
+// Once that instant passes, or for any week short of L, the season holds
+// nobody's label. Three red-tell cases, as the ruling states them.
+
+test('#1391 season-tail amendment: a league still on the closed season\'s LAST week, inside its own 174h tail grace, still defers', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 504, external_id: 'tank-504', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    // The league never advanced past its championship - it sits at (2025, 18),
+    // the season's own last week.
+    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 18 }] }), 'client'],
+    // Week 18's last kickoff is 2 days past - well inside the 174h tail grace
+    // (2 days = 48h < 174h) - so the season reads closed AND the tail is open.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) }],
+    }), 'client'],
+    // HOU's own week-18 game (the league's open week) already kicked off.
+    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'HOU' }] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  assert.equal(
+    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
+    undefined,
+    'no clear statement is issued - the closed season\'s own last week still holds its tail grace',
+  );
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
+  );
+  fake.assertClean();
+});
+
+test('#1391 season-tail amendment: once the tail grace has passed (8 days), the same league clears', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 505, external_id: 'tank-505', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 18 }] }), 'client'],
+    // Week 18's last kickoff is 8 days past - outside the 174h (7.25-day) tail
+    // grace - so even the season's own last week no longer holds anybody.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    // tank-505 omitted - he has left the list - padded past the floor.
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  // No handler above answers a kicked-off-teams read: the tail grace expired,
+  // so (2025, 18) never reaches that query.
+  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
+  assert.deepEqual(departureWrite.params, [[505]], 'he clears - the season\'s own tail grace has passed');
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
+  );
+  fake.assertClean();
+});
+
+test("#1391 season-tail amendment: a league on week 17 once week 18 has closed is two weeks behind and clears, even inside week 18's own tail grace", async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 506, external_id: 'tank-506', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    // A commissioner never clicked advance on the championship - the league
+    // sits at (2025, 17), one week short of the season's own last week (18).
+    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 17 }] }), 'client'],
+    // Week 18's last kickoff is 2 days past - inside ITS OWN tail grace - but
+    // this league's open week (17) is still short of L (18), so the tail
+    // grace never applies to it regardless.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    // tank-506 omitted - he has left the list - padded past the floor.
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  // No handler above answers a kicked-off-teams read: W=17 < L=18 excludes
+  // this row before the tail-grace check even matters.
+  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
+  assert.deepEqual(departureWrite.params, [[506]], 'he clears - his league is a week short of the season\'s own last week');
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
   );
   fake.assertClean();
 });
