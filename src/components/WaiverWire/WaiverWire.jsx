@@ -23,6 +23,7 @@ import {
   InputLabel,
   TextField,
   Stack,
+  Pagination,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
@@ -46,14 +47,13 @@ import { sortRosterForDrop } from '../../shared/lib';
 // `myClaims` (the claims panel keeps its own read) - only the on-waivers ROWS
 // move to the paginated cards endpoint.
 //
-// That endpoint pages at 25 (server-side, unconfigurable from the client), so
-// the "one unlimited on-waivers table" this page has always shown means
-// looping every page rather than showing only the first 25. A real waiver
-// period holds far fewer than that in practice, so this is almost always a
-// single request; MAX_ON_WAIVERS_PAGES is a hard stop (500 players) so a
-// pathological league can never turn one page load into an unbounded fetch
-// loop.
-const MAX_ON_WAIVERS_PAGES = 20;
+// That endpoint pages at 25 (server-side, unconfigurable from the client).
+// #1399: the table pages with it, the same way the Players list does
+// (`?page=` in the URL, one cards read per page). It used to loop every page
+// before first paint on the assumption that a waiver period holds fewer than
+// 25 players; the kickoff hold (#1375, ADR 0043) puts every unrostered
+// player on waivers for the week, so a real league has 3,500+ rows and that
+// loop never finished.
 
 function WaiverWire() {
   const { leagueId } = useParams();
@@ -61,6 +61,8 @@ function WaiverWire() {
   const notify = useSnackbar();
   const [data, setData] = useState(null);
   const [cardsPlayers, setCardsPlayers] = useState([]);
+  const [cardsTotal, setCardsTotal] = useState(0);
+  const [cardsTotalPages, setCardsTotalPages] = useState(1);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -76,6 +78,7 @@ function WaiverWire() {
   // on every refetch.
   const manualSortRef = useRef(false);
   const claimTargetRequestRef = useRef(null);
+  const pageNumber = Math.max(1, Number(searchParams.get('page')) || 1);
   const claimTargetParam = searchParams.get('playerId');
   const claimTargetId = /^\d+$/.test(claimTargetParam || '') ? Number(claimTargetParam) : null;
 
@@ -84,6 +87,17 @@ function WaiverWire() {
     // fetchAll closes over leagueId, which is the explicit trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId]);
+
+  // A page change re-reads the cards page only - the claims panel and the
+  // roster are league facts, not page facts. Skipped on mount, where fetchAll
+  // above already reads the requested page.
+  const mountedPageRef = useRef(pageNumber);
+  useEffect(() => {
+    if (mountedPageRef.current === pageNumber) return;
+    mountedPageRef.current = pageNumber;
+    fetchCardsPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageNumber]);
 
   useEffect(() => {
     if (!claimTargetId || claimTargetRequestRef.current === claimTargetId) return undefined;
@@ -118,31 +132,47 @@ function WaiverWire() {
     };
   }, [claimTargetId, leagueId, setSearchParams]);
 
-  // Every on-waivers player, view=cards-shaped, looped across every page the
-  // server hands back (formal review f2 constraint 3: stop on the last page,
-  // hard-capped at MAX_ON_WAIVERS_PAGES).
+  // ONE page of on-waivers players, view=cards-shaped (#1399).
   const fetchOnWaiversCards = async () => {
-    let page = 1;
-    let all = [];
-    let totalPages = 1;
-    do {
-      // eslint-disable-next-line no-await-in-loop -- paging through the
-      // WHOLE on-waivers list for this league, not a per-player fetch; a
-      // real waiver period is almost always one page.
-      const res = await apiClient.get('/api/players', {
-        params: {
-          view: 'cards',
-          leagueId: Number(leagueId),
-          availability: 'waivers',
-          position: 'All',
-          page,
-        },
-      });
-      all = all.concat(res.data.players || []);
-      totalPages = res.data.totalPages || 1;
-      page += 1;
-    } while (page <= totalPages && page <= MAX_ON_WAIVERS_PAGES);
-    return all;
+    const res = await apiClient.get('/api/players', {
+      params: {
+        view: 'cards',
+        leagueId: Number(leagueId),
+        availability: 'waivers',
+        position: 'All',
+        page: pageNumber,
+      },
+    });
+    return {
+      players: res.data.players || [],
+      total: res.data.total ?? (res.data.players || []).length,
+      totalPages: res.data.totalPages || 1,
+    };
+  };
+
+  const applyCardsPage = ({ players, total, totalPages }) => {
+    setCardsPlayers(players);
+    setCardsTotal(total);
+    setCardsTotalPages(totalPages);
+    // A claim or a clear can shrink the list under a deep-linked page; land
+    // on the last real page instead of an empty one.
+    if (players.length === 0 && pageNumber > totalPages) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        if (totalPages <= 1) next.delete('page');
+        else next.set('page', String(totalPages));
+        return next;
+      }, { replace: true });
+    }
+  };
+
+  const fetchCardsPage = async () => {
+    try {
+      setError(null);
+      applyCardsPage(await fetchOnWaiversCards());
+    } catch (err) {
+      setError(readHttpFailure(err).message || err.message);
+    }
   };
 
   const fetchAll = async () => {
@@ -162,7 +192,7 @@ function WaiverWire() {
       ]);
       setData(waiversRes.data);
       setRoster(rosterRes.data);
-      setCardsPlayers(onWaiversCards);
+      applyCardsPage(onWaiversCards);
     } catch (err) {
       setError(readHttpFailure(err).message || err.message);
     } finally {
@@ -199,6 +229,7 @@ function WaiverWire() {
     }
   };
 
+  // Sorted within the page on hand, the same as the Players list.
   const sortedOnWaivers = [...cardsPlayers].sort((a, b) => {
     if (!sortByUpgrade || isBestBall) return 0;
     const av = a.upgrade?.points ?? -Infinity;
@@ -346,6 +377,28 @@ function WaiverWire() {
                   </TableBody>
                 </Table>
               </TableContainer>
+            )}
+            {cardsTotal > 0 && (
+              <Stack alignItems="center" spacing={0.75} sx={{ pt: 2 }}>
+                {cardsTotalPages > 1 && (
+                  <Pagination
+                    count={cardsTotalPages}
+                    page={Math.min(pageNumber, cardsTotalPages)}
+                    onChange={(event, value) =>
+                      setSearchParams((current) => {
+                        const next = new URLSearchParams(current);
+                        if (value <= 1) next.delete('page');
+                        else next.set('page', String(value));
+                        return next;
+                      })
+                    }
+                    shape="rounded"
+                  />
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {cardsTotal} player{cardsTotal === 1 ? '' : 's'} on waivers
+                </Typography>
+              </Stack>
             )}
           </Paper>
 

@@ -502,12 +502,21 @@ test("a failed on-waivers read surfaces the existing error alert, not an empty t
   expect(screen.queryByText('No players on waivers')).not.toBeInTheDocument();
 });
 
-// #1310 formal review f2 constraint 3: the on-waivers read pages at 25
-// server-side - this pins that a second (and no third) page is fetched and
-// every row from both pages renders.
-test('loops every on-waivers page and stops at the last one', async () => {
-  const pageOne = Array.from({ length: 25 }, (_, i) => cardsPlayer({ id: 100 + i, name: `Waiver Player ${i}` }));
-  const pageTwo = [cardsPlayer({ id: 200, name: 'Second Page Player' })];
+// #1399: the On waivers table pages at 25 like the Players list. #1310 formal
+// review f2 constraint 3 had the page loop EVERY cards page before first paint;
+// once #1375's kickoff hold put every unrostered player on waivers (3,500+
+// rows, 141 pages) that loop ran to its cap and the page never rendered. Now
+// exactly one page is read per view, the pager reads the next page on demand,
+// and a page change never re-reads the claims panel or the roster.
+const twoCardsPages = () => ({
+  pageOne: Array.from({ length: 25 }, (_, i) => cardsPlayer({ id: 100 + i, name: `Waiver Player ${i}` })),
+  pageTwo: [cardsPlayer({ id: 200, name: 'Second Page Player' })],
+});
+
+const playersCalls = () => apiClient.get.mock.calls.filter(([url]) => url === '/api/players');
+
+test('renders after ONE on-waivers page and pages the rest through the pager', async () => {
+  const { pageOne, pageTwo } = twoCardsPages();
   setupGet({
     waivers: waiversResponse(),
     roster: rosterResponse(),
@@ -518,11 +527,49 @@ test('loops every on-waivers page and stops at the last one', async () => {
   });
   renderScreen();
 
+  await screen.findByText('Waiver Player 0');
+  // header row + 25 player rows: the first page only, not the whole list.
+  expect(screen.getAllByRole('row')).toHaveLength(26);
+  expect(screen.queryByText('Second Page Player')).not.toBeInTheDocument();
+  expect(playersCalls()).toHaveLength(1);
+  expect(playersCalls()[0][1].params.page).toBe(1);
+  expect(screen.getByText('26 players on waivers')).toBeInTheDocument();
+
+  const pager = screen.getByRole('navigation', { name: /pagination/i });
+  await userEvent.click(within(pager).getByRole('button', { name: 'Go to page 2' }));
+
   await screen.findByText('Second Page Player');
-  const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === '/api/players');
-  expect(playerCalls).toHaveLength(2);
-  // header row + 26 player rows.
-  expect(screen.getAllByRole('row')).toHaveLength(27);
+  expect(screen.queryByText('Waiver Player 0')).not.toBeInTheDocument();
+  expect(playersCalls()).toHaveLength(2);
+  expect(playersCalls()[1][1].params.page).toBe(2);
+  // A page change reads the cards page only, never the claims panel or roster again.
+  expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/waivers'))).toHaveLength(1);
+  expect(apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/team/roster'))).toHaveLength(1);
+});
+
+test('a ?page= deep link reads that page first', async () => {
+  const { pageOne, pageTwo } = twoCardsPages();
+  setupGet({
+    waivers: waiversResponse(),
+    roster: rosterResponse(),
+    cardsPages: [
+      { players: pageOne, totalPages: 2, total: 26 },
+      { players: pageTwo, totalPages: 2, total: 26 },
+    ],
+  });
+  renderScreen(1, '/league/1/waivers?page=2');
+
+  await screen.findByText('Second Page Player');
+  expect(playersCalls()).toHaveLength(1);
+  expect(playersCalls()[0][1].params.page).toBe(2);
+});
+
+test('a single page shows no pager', async () => {
+  setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  expect(screen.queryByRole('navigation', { name: /pagination/i })).not.toBeInTheDocument();
 });
 
 test('renders an Upgrade badge for a player with a nonzero Upgrade', async () => {
