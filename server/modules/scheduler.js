@@ -806,9 +806,15 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
     outcome = await runSyncJob({
       job: 'nightly-projection-run',
       fetch: async () => {
+        // The WHOLE row, not an enumerated column list: getWeeklyProjections
+        // hashes `rulesForLeague(league)` to pick the run it fills, and a
+        // league row without `scoring_rules` hashes to the DEFAULT profile.
+        // With five named columns the fill wrote 3,702 rows a week under a
+        // hash no custom-scoring league ever looks up, and reported the
+        // second league's weeks "already cached" off the first league's
+        // default run - it had never warmed either (found verifying #1447).
         const leaguesResult = await pool.query(
-          `SELECT "id", "current_season", "current_week", "regular_season_weeks", "playoff_teams"
-           FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
+          `SELECT * FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
         );
         const units = [];
         if (leaguesResult.rows.length === 0) return units;
