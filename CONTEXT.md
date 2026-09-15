@@ -365,8 +365,10 @@ has already been played. An open week holds this way only while it is still
 within one NFL week of the calendar — the week in play and the week just
 finished, one week of grace for a commissioner who has not advanced yet
 (#1391); a league two or more weeks behind the calendar holds nobody's label,
-and its deferred rows on that team clear normally instead. A deferred row is
-retried, and cleared or deferred again, on the pass's next run. Once cleared,
+and so does a league sitting in a season whose own calendar has fully closed
+(no week of it still open), and both clear their candidates normally instead
+of deferring. A deferred row is retried, and cleared or deferred again, on
+the pass's next run. Once cleared,
 purely a display fact: the lineup card shows `FA` in place of the team badge,
 and nothing about it locks a slot or refuses a start. Distinct from Free
 agent, below, which is about league Availability — a player can have no NFL

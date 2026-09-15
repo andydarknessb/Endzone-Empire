@@ -1411,6 +1411,16 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
  * and count in teamsCleared instead of teamsDeferred. N is computed once per
  * distinct season among the open weeks, not once per league.
  *
+ * A season whose OWN calendar has fully closed (`seasonHasClosed`,
+ * pickemSeason.service.js) is bounded out entirely, regardless of `W`:
+ * `deriveNflWeek` saturates at REG_SEASON_WEEKS once every week has closed
+ * (its own doc comment: "answers 18 both for 'week 18 is being played' and
+ * 'everything is over'"), so `W >= N - 1` alone would hold forever for a
+ * league parked at week 17 or 18 of a season that finished seasons ago -
+ * exactly the unbounded pin this ruling removes, surviving at the tail of
+ * the season. A closed season has no lineup left to unlock, so it holds
+ * nobody's label either, the same as a league two-plus weeks behind.
+ *
  * A team in the returned set is mid-lineup-lock somewhere right now: clearing
  * a departed/blank player's label while his OWN team is in it would read as a
  * departure to removeLineupEntries' as-played spent-slot check (#627) for a
@@ -1421,7 +1431,7 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
  */
 async function openKickoffTeams(client) {
   const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-  const { deriveNflWeek, getSeasonWeekBounds } = require('./pickemSeason.service');
+  const { deriveNflWeek, getSeasonWeekBounds, seasonHasClosed } = require('./pickemSeason.service');
   const openWeeks = await client.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
       WHERE ${fantasySeasonLiveWhereSql()}`
@@ -1432,15 +1442,19 @@ async function openKickoffTeams(client) {
   // matters far less here than for the kickoff read below - the calendar
   // does not move mid-transaction - so `new Date()` is fine.
   const now = new Date();
-  const nflWeekBySeason = new Map();
+  const seasonStateBySeason = new Map();
   const boundedWeeks = [];
   for (const row of openWeeks.rows) {
     const season = row.current_season;
-    if (!nflWeekBySeason.has(season)) {
+    if (!seasonStateBySeason.has(season)) {
       const bounds = await getSeasonWeekBounds({ season, db: client });
-      nflWeekBySeason.set(season, deriveNflWeek(bounds, now));
+      seasonStateBySeason.set(season, {
+        nflWeek: deriveNflWeek(bounds, now),
+        closed: seasonHasClosed(bounds, now),
+      });
     }
-    if (row.current_week >= nflWeekBySeason.get(season) - 1) boundedWeeks.push(row);
+    const { nflWeek, closed } = seasonStateBySeason.get(season);
+    if (!closed && row.current_week >= nflWeek - 1) boundedWeeks.push(row);
   }
   if (boundedWeeks.length === 0) return new Set();
   const seasons = boundedWeeks.map((row) => row.current_season);

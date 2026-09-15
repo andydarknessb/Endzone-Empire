@@ -1075,3 +1075,47 @@ test('#1391 ruling: one NFL week behind the calendar is still inside the grace -
   );
   fake.assertClean();
 });
+
+// qa-reviewer (#1391 risk review): deriveNflWeek saturates at REG_SEASON_WEEKS
+// (18) once a season's own calendar has fully closed - its own doc comment
+// says it answers 18 both for "week 18 is being played" and "everything is
+// over". `W >= N - 1` alone would then hold forever for a league parked at
+// week 17 or 18 of a season that finished seasons ago: exactly the unbounded
+// pin #1391 exists to remove, surviving at the tail of the season. The fix
+// folds in `seasonHasClosed` - a closed season holds nobody's label, the same
+// as a league two-plus weeks behind a still-open one.
+test("#1391 ruling: a closed season's saturated N does not re-pin a league parked at its final week forever", async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 503, external_id: 'tank-503', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    // A commissioner never clicked advance on the championship - the league
+    // sits at (2025, 17), still live by fantasySeasonLiveWhereSql.
+    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 17 }] }), 'client'],
+    // The season's schedule is entirely in the past - deriveNflWeek's "seen,
+    // nothing still open" fallback saturates N at REG_SEASON_WEEKS (18), and
+    // seasonHasClosed reads the same shape as true.
+    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
+      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }],
+    }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    // tank-503 omitted - he has left the list - padded past the floor.
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  // No handler above answers a kicked-off-teams read: without the
+  // seasonHasClosed guard, W=17 >= N-1=17 would still pass the bound and
+  // reach that query, going red here on "unexpected query".
+  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
+  assert.deepEqual(departureWrite.params, [[503]], 'he clears - the season behind his league is fully closed');
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
+  );
+  fake.assertClean();
+});
