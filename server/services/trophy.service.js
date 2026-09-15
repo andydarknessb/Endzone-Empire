@@ -283,26 +283,56 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
  *     a first award does (best-effort, post-commit, via
  *     `notifyAwardedOwners`) - the previous recipient gets no notification.
  *   - leader unchanged, points moved: the existing row's `data` is UPDATEd in
- *     place; no notification (not a new award).
+ *     place (merged, not replaced, so an unrelated future field on this
+ *     award type survives a reconcile); no notification (not a new award).
  *   - no prior trophy for the week (an edge case, not the normal path): one
  *     is awarded, same as a first award.
+ *
+ * Two things this DELETEs, so both are hardened past what an insert-only
+ * award needs (risk review, #1411):
+ *   - The high scorer is picked by summing a team's points across every one
+ *     of its matchup appearances that week (a team can legally appear twice
+ *     - the unique key on `matchups` is only per home_team_id), then ordering
+ *     by points DESC, team_id ASC - the same deterministic rule the retired
+ *     `award_weekly_trophies` SQL engine used (2026-07-20-weekly-trophy-
+ *     engine.sql). An exact tie decided by unordered row-scan order, as the
+ *     single-pass `>` scan here used to do, could otherwise DELETE a trophy
+ *     that is still correctly held.
+ *   - `pg_advisory_xact_lock` on the same (league, season*100+week) key the
+ *     SQL engine documents serializes this against a concurrent
+ *     `awardWeeklyTrophies` (or another concurrent reconcile) for the same
+ *     week: without it, a first award's ON CONFLICT DO NOTHING insert
+ *     in flight at the same moment could land AFTER this DELETE removed the
+ *     row it was about to no-op against, leaving two teams holding the
+ *     week's trophy.
  */
 async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
   const awarded = await withTransaction(
     pool,
     async (client) => {
+      await client.query(
+        `SELECT pg_catalog.pg_advisory_xact_lock($1, $2)`,
+        [leagueId, (season * 100) + week]
+      );
+
       const weekMatchups = await client.query(
         `SELECT * FROM "matchups"
          WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true`,
         [leagueId, season, week]
       );
-      let high = null;
+      const pointsByTeam = new Map();
       for (const m of weekMatchups.rows) {
         for (const side of [
-          { teamId: m.home_team_id, points: Number(m.home_score) },
-          { teamId: m.away_team_id, points: Number(m.away_score) },
+          { teamId: Number(m.home_team_id), points: Number(m.home_score) },
+          { teamId: Number(m.away_team_id), points: Number(m.away_score) },
         ]) {
-          if (!high || side.points > high.points) high = side;
+          pointsByTeam.set(side.teamId, (pointsByTeam.get(side.teamId) || 0) + side.points);
+        }
+      }
+      let high = null;
+      for (const [teamId, points] of pointsByTeam) {
+        if (!high || points > high.points || (points === high.points && teamId < high.teamId)) {
+          high = { teamId, points };
         }
       }
       if (!high) return [];
@@ -339,7 +369,7 @@ async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
       const storedPoints = current.data && current.data.points;
       if (Number(storedPoints) !== high.points) {
         await client.query(
-          `UPDATE "trophies" SET "data" = $2 WHERE "id" = $1`,
+          `UPDATE "trophies" SET "data" = "data" || $2::jsonb WHERE "id" = $1`,
           [current.id, JSON.stringify({ points: high.points })]
         );
       }

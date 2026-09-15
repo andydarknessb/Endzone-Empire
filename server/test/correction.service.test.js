@@ -888,6 +888,7 @@ function trophyReconcileWorld({
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/^SELECT pg_catalog\.pg_advisory_xact_lock/, () => ({ rows: [] })],
     // The trophy reconcile's own week-final read: by the time it runs, the
     // corrected scores are already committed, so it always sees `after`.
     [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
@@ -912,9 +913,9 @@ function trophyReconcileWorld({
       trophyRows.push({ id, team_id: teamId, season, week, type, label, data: JSON.parse(data) });
       return { rows: [{ id }] };
     }],
-    [/^UPDATE "trophies" SET "data" = \$2 WHERE "id" = \$1/, (text, params) => {
+    [/^UPDATE "trophies" SET "data" = "data" \|\| \$2::jsonb WHERE "id" = \$1/, (text, params) => {
       const row = trophyRows.find((r) => r.id === params[0]);
-      if (row) row.data = JSON.parse(params[1]);
+      if (row) row.data = { ...row.data, ...JSON.parse(params[1]) };
       return { rows: [] };
     }],
     [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
@@ -975,6 +976,68 @@ test('#1411: a correction that raises the leader\'s total without changing the l
     0,
     'an in-place points update is not a new award, so nobody is notified'
   );
+});
+
+test('#1411: an exact tie for the week high score is broken deterministically (points desc, team_id asc), never by matchup scan order', async (t) => {
+  // Risk review (#1411): a single-pass, unordered `>` scan picks whichever
+  // tied side the query happens to return last - and matchups are UPDATEd in
+  // place every correction pass, so their physical scan order is not stable
+  // run to run. Team 10 already holds the trophy at 152; the correction
+  // drops them to 150, which exactly ties team 20's 150. Team 10 must keep
+  // it (lower team_id wins ties) - and the DELETE handler below throws if the
+  // reconcile ever tries to remove team 10's still-correct trophy.
+  const seedTrophies = [
+    { id: 501, team_id: 10, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 152 } },
+  ];
+  const trophyRows = seedTrophies.map((row) => ({ ...row }));
+  // Team 20's matchup listed FIRST, so a scan-order-dependent picker would
+  // hand the tie to team 20 instead.
+  const weekMatchups = [
+    { id: 2, home_team_id: 20, away_team_id: 21, home_score: 150, away_score: 80 },
+    { id: 1, home_team_id: 10, away_team_id: 11, home_score: 150, away_score: 90 },
+  ];
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 152, away_score: 90 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: 150, away_score: 90 }],
+    })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/^SELECT pg_catalog\.pg_advisory_xact_lock/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
+      rows: weekMatchups,
+    })],
+    [/^SELECT "id", "team_id", "data" FROM "trophies"/, () => ({
+      rows: trophyRows
+        .filter((row) => row.type === 'top_scorer')
+        .map((row) => ({ id: row.id, team_id: row.team_id, data: row.data })),
+    })],
+    [/^DELETE FROM "trophies" WHERE "id" = \$1/, () => {
+      throw new Error('the tied, already-correct leader must never be deleted');
+    }],
+    [/^UPDATE "trophies" SET "data" = "data" \|\| \$2::jsonb WHERE "id" = \$1/, (text, params) => {
+      const row = trophyRows.find((r) => r.id === params[0]);
+      if (row) row.data = { ...row.data, ...JSON.parse(params[1]) };
+      return { rows: [] };
+    }],
+    [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
+      rows: [{ owner_id: 1000 + Number(params[0]) }],
+    })],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const topScorers = trophyRows.filter((row) => row.type === 'top_scorer');
+  assert.equal(topScorers.length, 1);
+  assert.equal(topScorers[0].team_id, 10, 'team 10 keeps it on an exact tie - lower team_id wins deterministically');
+  assert.equal(topScorers[0].data.points, 150, 'stored points reflect the corrected (tied) total');
 });
 
 test('#1411: a correction that changes no scores leaves the trophies table untouched', async (t) => {
