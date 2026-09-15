@@ -20,6 +20,16 @@
  *   not be deleted or renamed. New ADRs (absent on base) are not this guard's
  *   business; the uniqueness guard covers their numbering.
  *
+ *   ONE EXCEPTION, the collision renumber (ADR 0046): two PRs can each merge
+ *   an ADR at the same number (#1415 and #1438 both landed 0044), and the
+ *   uniqueness guard then reds every later PR while this guard forbids the
+ *   only repair. So a base ADR may be absent on head when BOTH hold: its
+ *   number is shared by another ADR on base, and a head ADR under a
+ *   different number carries its text unchanged (normalised lines
+ *   identical). The decision moves; nothing in it is reworded. A rename
+ *   without a collision on base, or a move whose text differs by one
+ *   character, is still a violation.
+ *
  *   A typo in a merged ADR is fixed by appending an amendment, not by editing
  *   the line. A decision that turned out wrong is superseded by a new ADR and
  *   the old one's Status line says so. Neither path needs an escape hatch, so
@@ -143,6 +153,32 @@ function compareAdr(baseText, headText) {
  * Only filenames matching the ADR pattern on BASE are examined; anything else
  * (a README, a new ADR) is ignored and reported as such.
  */
+function adrNumber(file) {
+  const match = /^(\d+)-/.exec(file);
+  return match ? match[1] : null;
+}
+
+/**
+ * Pure: the collision renumber exception (ADR 0046, header). True only when
+ * `file`'s number is shared by another ADR on base AND some head ADR at a
+ * different number has text identical to `baseText` after normalisation.
+ */
+function isCollisionRenumber(file, baseText, baseFiles, headFiles) {
+  const number = adrNumber(file);
+  if (number === null) return false;
+  const collides = [...baseFiles.keys()].some(
+    (other) => other !== file && ADR_FILENAME_PATTERN.test(other) && adrNumber(other) === number
+  );
+  if (!collides) return false;
+  const baseJoined = normaliseLines(baseText).join('\n');
+  return [...headFiles.entries()].some(
+    ([headFile, headText]) =>
+      ADR_FILENAME_PATTERN.test(headFile) &&
+      adrNumber(headFile) !== number &&
+      normaliseLines(headText).join('\n') === baseJoined
+  );
+}
+
 function evaluate(baseFiles, headFiles) {
   const violations = [];
   const examined = [];
@@ -153,6 +189,7 @@ function evaluate(baseFiles, headFiles) {
       continue;
     }
     examined.push(file);
+    if (!headFiles.has(file) && isCollisionRenumber(file, baseText, baseFiles, headFiles)) continue;
     const result = compareAdr(baseText, headFiles.has(file) ? headFiles.get(file) : null);
     if (!result.ok) violations.push({ file, ...result });
   }

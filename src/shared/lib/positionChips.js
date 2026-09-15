@@ -31,7 +31,7 @@ export const CANONICAL_CHIP_ORDER = [
 // No league selected, or a template with no slots at all, falls back to the
 // FULL canonical set - every chip a league could ever offer, FLEX meaning
 // RB/WR/TE (#1419, #1416 story 16, the Rosterable position glossary entry,
-// ADR 0044: such a request has no server-side gate, so the caller must offer
+// ADR 0045: such a request has no server-side gate, so the caller must offer
 // every chip that could narrow it). Built from templates.js's own slot
 // definitions (formal review f2) - DEFAULT_ROSTER_SLOTS plus the SFLX slot
 // the 'superflex' LEAGUE_TEMPLATES entry carries and the DL/LB/DB slots the
@@ -54,9 +54,15 @@ export function isFlexSlot(slot) {
 }
 
 /**
- * One chip per distinct starting slot key the template carries, canonical
- * order, absent keys dropped. An empty (or absent) `rosterSlots` falls back
- * to FULL_CANONICAL_SLOTS.
+ * One chip per distinct starting slot key the template carries: canonical
+ * chips first (CANONICAL_CHIP_ORDER order, absent keys dropped), then every
+ * other slot key - a commissioner-defined key such as 'D LINE' or 'IDP FLEX'
+ * (src/entities/roster/model/lineupModel.js:172, #1462) - in the template's
+ * own order, one chip per distinct key. A custom key is never a plain
+ * position code, so its chip always carries `positions` =
+ * expandEligibility(slot.eligiblePositions) rather than being treated as
+ * potentially non-flex. An empty (or absent) `rosterSlots` falls back to
+ * FULL_CANONICAL_SLOTS, which carries no custom keys.
  */
 export function chipsForRosterSlots(rosterSlots) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : FULL_CANONICAL_SLOTS;
@@ -70,6 +76,13 @@ export function chipsForRosterSlots(rosterSlots) {
         ? { key, positions: Array.from(expandEligibility(slot.eligiblePositions)) }
         : { key },
     );
+  });
+  const seenCustomKeys = new Set();
+  slots.forEach((slot) => {
+    if (CANONICAL_CHIP_ORDER.includes(slot.key)) return;
+    if (seenCustomKeys.has(slot.key)) return;
+    seenCustomKeys.add(slot.key);
+    chips.push({ key: slot.key, positions: Array.from(expandEligibility(slot.eligiblePositions)) });
   });
   return chips;
 }

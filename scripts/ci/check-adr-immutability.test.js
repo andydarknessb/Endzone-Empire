@@ -194,6 +194,61 @@ test('evaluate: a renamed ADR (same number, new slug) is reported as deleted und
   assert.match(result.violations[0].reason, /deleted or renamed/);
 });
 
+// ADR 0046: the collision renumber. Two ADRs share a number on base; the one
+// that moves to a free number with identical text is not a deletion.
+const OTHER = BASE.replace('one row per NFL team', 'one row per league');
+
+test('evaluate: a collision renumber (number duplicated on base, identical text at a new number on head) is ok', () => {
+  const base = new Map([
+    ['0044-a.md', BASE],
+    ['0044-b.md', OTHER],
+  ]);
+  const head = new Map([
+    ['0044-a.md', BASE],
+    ['0045-b.md', OTHER + '\r\n'],
+  ]);
+  const result = evaluate(base, head);
+  assert.equal(result.ok, true, JSON.stringify(result.violations));
+  assert.deepEqual(result.examined, ['0044-a.md', '0044-b.md']);
+});
+
+test('evaluate: a renumber with no collision on base is still reported as deleted (the exception needs a duplicate)', () => {
+  const base = new Map([['0044-b.md', OTHER]]);
+  const head = new Map([['0045-b.md', OTHER]]);
+  const result = evaluate(base, head);
+  assert.equal(result.ok, false);
+  assert.equal(result.violations[0].file, '0044-b.md');
+  assert.match(result.violations[0].reason, /deleted or renamed/);
+});
+
+test('evaluate: a collision renumber whose text changed by one word is still a violation (a move is not a rewrite)', () => {
+  const base = new Map([
+    ['0044-a.md', BASE],
+    ['0044-b.md', OTHER],
+  ]);
+  const head = new Map([
+    ['0044-a.md', BASE],
+    ['0045-b.md', OTHER.replace('one row per league', 'two rows per league')],
+  ]);
+  const result = evaluate(base, head);
+  assert.equal(result.ok, false);
+  assert.equal(result.violations[0].file, '0044-b.md');
+});
+
+test('evaluate: a collision renumber with an amendment appended in the same move is still a violation (amend afterwards)', () => {
+  const base = new Map([
+    ['0044-a.md', BASE],
+    ['0044-b.md', OTHER],
+  ]);
+  const head = new Map([
+    ['0044-a.md', BASE],
+    ['0045-b.md', OTHER + '\n\n## Amendment\n\nMoved from 0044.'],
+  ]);
+  const result = evaluate(base, head);
+  assert.equal(result.ok, false);
+  assert.equal(result.violations[0].file, '0044-b.md');
+});
+
 test('evaluate: a deliberate rewrite in one of several ADRs is reported for that file only (proves the check can fail)', () => {
   const base = new Map([
     ['0001-a.md', BASE],

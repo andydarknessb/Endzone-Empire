@@ -360,7 +360,7 @@ router.get('/', requireAuth, async (req, res) => {
     league?.waivers_clear_at && new Date(league.waivers_clear_at) > new Date(),
   );
 
-  // ADR 0044 / CONTEXT.md's Rosterable position: a pool query carrying a
+  // ADR 0045 / CONTEXT.md's Rosterable position: a pool query carrying a
   // league returns only players at that league's rosterable positions - the
   // requested set (or "All") intersected with the union of every starting
   // slot's eligible positions in the league's roster template. `null` here

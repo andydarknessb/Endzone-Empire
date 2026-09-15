@@ -1,4 +1,4 @@
-import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
+import { DEFAULT_ROSTER_SLOTS, expandEligibility } from '../../lib/draftSim/templates';
 import { CANONICAL_CHIP_ORDER, FULL_CANONICAL_SLOTS, isFlexSlot, chipsForRosterSlots } from './positionChips';
 
 // Roster templates a league's `roster_slots` can carry (#1419), mirroring the
@@ -73,4 +73,30 @@ test('isFlexSlot is true only for a slot whose expanded eligibility differs from
 
 test('FULL_CANONICAL_SLOTS carries exactly one slot per CANONICAL_CHIP_ORDER key', () => {
   expect(FULL_CANONICAL_SLOTS.map((slot) => slot.key).sort()).toEqual([...CANONICAL_CHIP_ORDER].sort());
+});
+
+// #1462: a commissioner-defined slot key (src/entities/roster/model/lineupModel.js:172,
+// "any commissioner-defined slot key ('D LINE', 'IDP FLEX')") is not in
+// CANONICAL_CHIP_ORDER, so it used to be silently dropped instead of getting a chip.
+test('a non-canonical slot key gets its own chip, after the canonical chips, keyed and labelled as stored', () => {
+  const chips = chipsForRosterSlots([
+    ...DEFAULT_ROSTER_SLOTS,
+    { key: 'IDP FLEX', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] },
+  ]);
+
+  expect(chips.map((chip) => chip.key)).toEqual(['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'IDP FLEX']);
+  const custom = chips[chips.length - 1];
+  expect(custom).toEqual({ key: 'IDP FLEX', positions: Array.from(expandEligibility(['DL', 'LB', 'DB'])) });
+});
+
+test('two non-canonical slot keys keep template order after the canonical chips', () => {
+  const chips = chipsForRosterSlots([
+    ...DEFAULT_ROSTER_SLOTS,
+    { key: 'D LINE', count: 1, eligiblePositions: ['DL'] },
+    { key: 'IDP FLEX', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] },
+  ]);
+
+  expect(chips.map((chip) => chip.key)).toEqual([
+    'All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'D LINE', 'IDP FLEX',
+  ]);
 });

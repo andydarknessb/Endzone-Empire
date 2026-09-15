@@ -47,13 +47,13 @@ function expandEligibility(eligiblePositions) {
 }
 
 // A roster template's non-starting slots hold anyone, so they never widen the
-// rosterable set (ADR 0044 / CONTEXT.md's Rosterable position). TAXI is not a
+// rosterable set (ADR 0045 / CONTEXT.md's Rosterable position). TAXI is not a
 // slot key this codebase has today, but the ADR names it alongside BENCH/IR,
 // so it's ignored defensively should a template ever carry one.
 const NON_STARTING_SLOT_KEYS = new Set([BENCH, IR, 'TAXI']);
 
 /**
- * ADR 0044 / CONTEXT.md's Rosterable position: the union of every STARTING
+ * ADR 0045 / CONTEXT.md's Rosterable position: the union of every STARTING
  * slot's eligible positions in a league's roster template, group keys (DL,
  * LB, DB) expanded through the same `expandEligibility` slot validation
  * already uses - no second position-group table on the server.
