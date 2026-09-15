@@ -622,6 +622,20 @@ router.get('/', requireAuth, async (req, res) => {
       const byeWeekByPlayerId = new Map(pagePlayers.map((p) => [p.id, p.bye_week]));
       const seasonEnd = projectionService.lastPlayoffWeek(league);
 
+      // #1403: the page's Weekly projections (current week through 18) are
+      // read ONCE, two queries for the whole page, and handed to both the
+      // weeks bar and the rest-of-season total. Before this each of those
+      // read every week on its own (two queries per week, each), and on a
+      // cold cache both generated the same missing rows concurrently.
+      const pageWeeks = [];
+      for (let wk = league.current_week; wk <= 18; wk++) pageWeeks.push(wk);
+      const runsByWeek = await projectionService.getWeeklyProjectionsForWeeks({
+        season: currentSeasonYear,
+        weeks: pageWeeks,
+        league,
+        playerIds: pagePlayers.map((p) => p.id),
+      });
+
       const [availabilityMap, weeksByPlayer, rosMap, watchingMap] = await Promise.all([
         playerCardService.availabilityForMany({ league, team: memberTeam, players: pagePlayers }),
         playerCardService.buildWeeksForPage({
@@ -630,8 +644,9 @@ router.get('/', requireAuth, async (req, res) => {
           season: currentSeasonYear,
           currentWeek: league.current_week,
           byeWeekByPlayerId,
+          runsByWeek,
         }),
-        projectionService.getRestOfSeason(pagePlayers.map((p) => p.id), Number(leagueId)),
+        projectionService.getRestOfSeason(pagePlayers.map((p) => p.id), Number(leagueId), { runsByWeek }),
         // #1312 Ruling: `watching` rides the SAME view=cards row every other
         // caller-scoped field does, one batched read for the whole page.
         watchlistWatchingForManySafe({ teamId: memberTeam.id, playerIds: pagePlayers.map((p) => p.id) }),

@@ -109,16 +109,21 @@ function mockCardServices(t, {
     upgradesForCalls.push(options);
     return upgrades;
   });
-  t.mock.method(projectionService, 'getWeeklyProjections', async ({ week, playerIds }) => {
-    weeklyCalls.push({ week, playerIds });
-    const projections = new Map(playerIds.map((id) => [id, weeklyProjection(week, id)]));
-    return { projections };
+  // #1403: the page's Weekly projections arrive through ONE multi-week read.
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => {
+    weeklyCalls.push({ weeks, playerIds });
+    return new Map(weeks.map((week) => [week, {
+      week,
+      projections: new Map(playerIds.map((id) => [id, weeklyProjection(week, id)])),
+    }]));
   });
-  t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => new Map(
-    playerIds.map((id) => [id, restOfSeason]),
-  ));
+  const restOfSeasonCalls = [];
+  t.mock.method(projectionService, 'getRestOfSeason', async (playerIds, leagueId, options) => {
+    restOfSeasonCalls.push({ playerIds, leagueId, options });
+    return new Map(playerIds.map((id) => [id, restOfSeason]));
+  });
   t.mock.method(projectionService, 'lastPlayoffWeek', () => seasonEnd);
-  return { weeklyCalls, upgradesForCalls };
+  return { weeklyCalls, upgradesForCalls, restOfSeasonCalls };
 }
 
 test('view=cards without leagueId is a 400', async (t) => {
@@ -174,13 +179,18 @@ test('view=cards: an unavailable week (IR) carries projWeek: { reason: "on IR" }
   assert.equal(player.weeks.length, 16); // weeks 3..18
 });
 
-test('view=cards: buildWeeksForPage makes one getWeeklyProjections call per week for the WHOLE page, not per player', async (t) => {
+// #1403: the page's Weekly projections are read ONCE for every remaining
+// week (it was one getWeeklyProjections call per week, each two cache reads,
+// and getRestOfSeason repeated the whole loop on its own), and rest-of-season
+// is summed from those same runs rather than re-read.
+test('view=cards: ONE getWeeklyProjectionsForWeeks call covers every remaining week for the WHOLE page, whatever its size, and getRestOfSeason receives those same runs', async (t) => {
   const league = makeLeague({ currentWeek: 10 });
   const bigPage = makePlayers(25);
   const smallPage = makePlayers(1);
+  const weeks10to18 = [10, 11, 12, 13, 14, 15, 16, 17, 18];
 
   mockBasePool(t, { league, players: bigPage });
-  const { weeklyCalls: bigCalls } = mockCardServices(t, {
+  const { weeklyCalls: bigCalls, restOfSeasonCalls: bigRos } = mockCardServices(t, {
     availability: new Map(bigPage.map((p) => [p.id, { state: 'free_agent', teamId: null, teamName: null, availableAt: null }])),
   });
   const bigRes = await request(app).get('/api/players?view=cards&leagueId=1').set('Authorization', TOKEN());
@@ -188,17 +198,28 @@ test('view=cards: buildWeeksForPage makes one getWeeklyProjections call per week
   t.mock.restoreAll();
 
   mockBasePool(t, { league, players: smallPage });
-  const { weeklyCalls: smallCalls } = mockCardServices(t, {
+  const { weeklyCalls: smallCalls, restOfSeasonCalls: smallRos } = mockCardServices(t, {
     availability: new Map(smallPage.map((p) => [p.id, { state: 'free_agent', teamId: null, teamName: null, availableAt: null }])),
   });
   const smallRes = await request(app).get('/api/players?view=cards&leagueId=1').set('Authorization', TOKEN());
   assert.equal(smallRes.status, 200, JSON.stringify(smallRes.body));
 
-  // Weeks 10..18 inclusive = 9 calls, regardless of how many players are on the page.
-  assert.equal(bigCalls.length, 9);
-  assert.equal(smallCalls.length, 9);
-  assert.equal(bigCalls.length, smallCalls.length);
-  assert.ok(bigCalls.every((call) => call.playerIds.length === 25));
+  assert.equal(bigCalls.length, 1, 'one multi-week read for a 25-row page');
+  assert.equal(smallCalls.length, 1, 'one multi-week read for a 1-row page');
+  assert.deepEqual(bigCalls[0].weeks, weeks10to18);
+  assert.deepEqual(smallCalls[0].weeks, weeks10to18);
+  assert.equal(bigCalls[0].playerIds.length, 25);
+  assert.equal(smallCalls[0].playerIds.length, 1);
+
+  // Rest-of-season sums the runs the weeks bar was built from, never its own read.
+  assert.equal(bigRos.length, 1);
+  const { runsByWeek } = bigRos[0].options;
+  assert.ok(runsByWeek instanceof Map);
+  assert.deepEqual([...runsByWeek.keys()], weeks10to18);
+  assert.equal(runsByWeek.get(10).projections.size, 25);
+  assert.equal(smallRos[0].options.runsByWeek.get(18).projections.size, 1);
+  // The weeks bar itself still comes from those runs: 9 entries per row.
+  assert.ok(bigRes.body.players.every((p) => p.weeks.length === 9));
 });
 
 test('sort=upgrade: rows sort by upgrade.points descending, nulls last', async (t) => {
@@ -350,6 +371,12 @@ function mockRealProducerServices(t, { seasonEnd = 17 } = {}) {
   t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
     projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
   }));
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => new Map(
+    weeks.map((week) => [week, {
+      week,
+      projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
+    }]),
+  ));
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => new Map(
     playerIds.map((id) => [id, { total: 10, perGame: 2 }]),
   ));
