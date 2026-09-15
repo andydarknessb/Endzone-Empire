@@ -93,6 +93,15 @@ describe('filled rows', () => {
     const heights = rows.map((row) => window.getComputedStyle(row).minHeight);
     expect(new Set(heights).size).toBe(1);
   });
+
+  // #1385: a player with no NFL team (released, retired, or dropped from
+  // Tank01's list) shows FA in place of the team badge instead of silently
+  // showing nothing.
+  test('shows FA in place of the team badge for a player with no NFL team', () => {
+    renderPanel({ picks: [pick(3, 'WR', { name: 'Nico Collins', nflTeam: null })] });
+    expect(screen.getByLabelText('WR 1 slot, Nico Collins, WR, FA, pick 1.03')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('WR 1 slot, Nico Collins, WR, FA, pick 1.03')).getByText('FA')).toBeInTheDocument();
+  });
 });
 
 describe('the bench-count and IR props (acceptance criterion 8)', () => {
