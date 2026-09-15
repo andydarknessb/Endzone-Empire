@@ -311,7 +311,7 @@ function cardPoolHandlers(player, { ownershipRow = null, depthRow = null } = {})
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
     [/^WITH "target" AS \(/, () => ({ rows: [{ id: player.id }] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
-    [/^SELECT "id", "position" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],
     [/^SELECT "team_players"\."team_id", "teams"\."name"/, () => ({ rows: [] })],
     [/^SELECT "available_at" FROM "waiver_players"/, () => ({ rows: [] })],
     [/^SELECT COUNT\(\*\)::int AS "roster_count" FROM "team_players"/, () => ({ rows: [{ roster_count: 0 }] })],

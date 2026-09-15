@@ -172,7 +172,8 @@ async function loadIdentityIds(playerId) {
  * the caller's own roster (checked over the FULL identity set `loadIdentityIds`
  * resolves, not the bare requested id - a duplicate-source players row for a
  * rostered athlete must still read as "already yours", formal review f1) or
- * in a best-ball league (Upgrade is undefined there, ADR 0040).
+ * in a best-ball league (Upgrade is undefined there, ADR 0040), or for a
+ * player with No NFL team.
  */
 async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
@@ -207,9 +208,10 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const ownRosterIds = new Set(rosterResult.rows.map((r) => r.player_id));
 
   const playersResult = ids.length > 0
-    ? await pool.query(`SELECT "id", "position" FROM "players" WHERE "id" = ANY($1::int[])`, [ids])
+    ? await pool.query(`SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY($1::int[])`, [ids])
     : { rows: [] };
   const positionById = new Map(playersResult.rows.map((r) => [r.id, r.position]));
+  const noNflTeamIds = new Set(playersResult.rows.filter((r) => r.nfl_team == null).map((r) => r.id));
 
   const starterIds = starterRows.map((r) => r.player_id);
   const combinedIds = [...new Set([...starterIds, ...ids])];
@@ -238,6 +240,14 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     }
     const identityIds = identityIdsById.get(id) || [id];
     if (identityIds.some((identityId) => ownRosterIds.has(identityId))) {
+      upgrades.set(id, null);
+      continue;
+    }
+    // No NFL team (CONTEXT.md): a player off every NFL roster has no game to
+    // score in, so he cannot improve any lineup. The engine still carries
+    // his old per-game pace until v3.2 (#1438 story 5), so the Upgrade must
+    // refuse him here rather than trust that number.
+    if (noNflTeamIds.has(id)) {
       upgrades.set(id, null);
       continue;
     }
