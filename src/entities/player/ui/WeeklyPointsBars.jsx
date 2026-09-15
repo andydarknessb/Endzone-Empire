@@ -22,8 +22,17 @@ import { formatPoints } from '../../../shared/lib';
  *
  * `null`/empty `weeks` renders nothing (ADR 0040's null-hides-the-tile
  * rule) rather than eighteen empty columns.
+ *
+ * `dense` is the desktop table row's form (`widgets/player-row`, 2026-09-15
+ * report): the full strip's 14px columns, 6px gaps, padding and a week
+ * number under every bar came to 440px, wider than the design's 152px
+ * Weeks column, and pushed the Players table past its container so the
+ * Action column fell off the right edge. Dense keeps one column per week,
+ * every `title`, accessible name and `aria-current`, but drops the visible
+ * week numbers, shows the current week as a dot rather than the "Current"
+ * pill, and tightens the columns and gaps.
  */
-export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd }) {
+export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd, dense = false }) {
   if (!Array.isArray(weeks) || weeks.length === 0) return null;
 
   const maxPoints = Math.max(
@@ -54,12 +63,13 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd }) {
       // per CSS Overflow 3's visible-pairs-with-non-visible rule) - an
       // explicit mark can never drift onto an element that doesn't mean it.
       data-arrow-scroll-region="true"
+      data-dense={dense ? 'true' : undefined}
       sx={{
         display: 'flex',
         alignItems: 'flex-end',
-        gap: 0.75,
-        px: 2,
-        py: 1.5,
+        gap: dense ? 0.25 : 0.75,
+        px: dense ? 0 : 2,
+        py: dense ? 0.5 : 1.5,
         overflowX: 'auto',
         // A scroll container's automatic minimum size in a flexbox is 0, and
         // the Decision card's sheet (MUI's Drawer paper) is a column flexbox
@@ -79,6 +89,7 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd }) {
           maxPoints={maxPoints}
           isCurrent={currentWeek != null && week.week === currentWeek}
           isSeasonEnd={seasonEnd != null && week.week === seasonEnd}
+          dense={dense}
         />
       ))}
     </Box>
@@ -94,8 +105,9 @@ function weekTitle(week) {
   return `Week ${week.week}${opponent}: ${label}`;
 }
 
-function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
+function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd, dense }) {
   const title = weekTitle(week);
+  const barWidth = dense ? 5 : 10;
   return (
     <Box
       role="listitem"
@@ -110,7 +122,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
         flexDirection: 'column',
         alignItems: 'center',
         gap: 0.375,
-        minWidth: 14,
+        minWidth: dense ? 7 : 14,
         flex: 'none',
         borderRight: isSeasonEnd ? '2px dashed var(--border-strong)' : 'none',
         pr: isSeasonEnd ? 0.75 : 0,
@@ -120,7 +132,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
         <Box
           data-testid={`weekly-bar-${week.week}-bye`}
           sx={{
-            width: 10,
+            width: barWidth,
             height: 24,
             border: '1px dashed var(--text-muted)',
             borderRadius: 0.5,
@@ -139,7 +151,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
         <Box
           data-testid={`weekly-bar-${week.week}-fill`}
           sx={{
-            width: 10,
+            width: barWidth,
             height: Math.max(2, Math.round(((Number(week.points) || 0) / maxPoints) * 40)),
             bgcolor: week.kind === 'actual' ? 'var(--success)' : 'var(--accent)',
             opacity: week.kind === 'projected' ? 0.55 : 1,
@@ -147,7 +159,17 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
           }}
         />
       )}
-      {isCurrent && (
+      {isCurrent && dense && (
+        // Dense: the current week is a dot under its bar, a non-text marker
+        // (3:1 is the bar, `success` on `surface` clears it in both themes).
+        // `aria-current` on the column carries the accessible marker.
+        <Box
+          data-testid={`weekly-bar-${week.week}-current`}
+          aria-hidden="true"
+          sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'var(--success)' }}
+        />
+      )}
+      {isCurrent && !dense && (
         // Risk-review finding (accessibility): a tinted (`accent-soft`)
         // fill measured 4.44:1 in light mode, under AA_TEXT's 4.5 - `success`
         // on the card's own opaque `surface` (an outline, not a fill) clears
@@ -169,7 +191,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd }) {
           Current
         </Box>
       )}
-      <Typography sx={{ fontSize: 9, color: 'var(--text-muted)' }}>{week.week}</Typography>
+      {!dense && <Typography sx={{ fontSize: 9, color: 'var(--text-muted)' }}>{week.week}</Typography>}
     </Box>
   );
 }

@@ -102,3 +102,22 @@ test('the strip never shrinks inside a column flexbox (it is a scroll container,
   expect(text).toMatch(/overflow-x:\s*auto/);
   expect(text).toMatch(/flex-shrink:\s*0/);
 });
+
+// Desktop Players table (2026-09-15 report): the strip's 14px columns, 6px
+// gaps, 32px padding and a week number under every bar made the Weeks column
+// 440px wide, which pushed the table past its container and cut the Action
+// column off the right edge with only a scrollbar at the foot of the table to
+// reach it. `dense` is the table row's answer: no week labels (the title and
+// accessible name still state the week in full), tighter columns, and the
+// current-week marker as a dot rather than the "Current" pill.
+test('dense drops the visible week numbers and pill but keeps every title, the accessible name and aria-current', () => {
+  render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} dense />);
+  expect(screen.getAllByRole('listitem')).toHaveLength(18);
+  expect(screen.queryByText('Current')).not.toBeInTheDocument();
+  expect(screen.queryByText('12')).not.toBeInTheDocument();
+  const current = screen.getByTestId('weekly-bar-5');
+  expect(current).toHaveAttribute('aria-current', 'true');
+  expect(within(current).getByTestId('weekly-bar-5-current')).toBeInTheDocument();
+  expect(screen.getByTestId('weekly-bar-12')).toHaveAttribute('title', 'Week 12 vs KC: 15.1 projected');
+  expect(screen.getByTestId('weekly-points-bars')).toHaveAttribute('data-dense', 'true');
+});
