@@ -77,6 +77,9 @@ function draftStartPool({
       return { rows: [], rowCount: 1 };
     }],
     [select('teams'), () => ({ rows: teams })],
+    // completeDraft's waiver-priority seed (reverse draft order), also run
+    // inline on an all-keeper start; this suite only needs the write answered.
+    [update('teams'), () => ({ rows: [], rowCount: teams.length })],
     [select('keepers'), () => ({ rows: keepers })],
     // generateRegularSeason, run inline on this same client when the draft
     // completes immediately (every slot pre-filled by keepers).
