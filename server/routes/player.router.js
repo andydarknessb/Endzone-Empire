@@ -32,9 +32,14 @@ const PAGE_SIZE = 25;
 // Individual defender codes are literal Tank01 positions (not the DL/LB/DB
 // roster-eligibility GROUP keys used elsewhere — see lineup.service.js's
 // POSITION_GROUPS) so a commissioner can filter to exactly "DT" rather than
-// the whole defensive-line group. Limited to the codes Tank01 actually
-// reports (confirmed live): DE, DT, LB, CB, S, DB — NT/ILB/OLB/FS/SS/DL
-// exist in POSITION_GROUPS as a safety net but have ~zero real rows.
+// the whole defensive-line group. DE, DT, LB, CB, S, DB are the codes Tank01
+// actually reports (confirmed live); DL, NT, ILB, OLB, FS and SS carry
+// ~zero real rows today but are validated too (formal review f1, #1419):
+// the Players page's own IDP group chips (DL, LB, DB) send `positions` as
+// the WHOLE expanded POSITION_GROUPS set for that key — DL,DE,DT,NT for DL,
+// LB,ILB,OLB for LB, DB,CB,S,FS,SS for DB — so a rare code the client's
+// expandEligibility legitimately sent can't 400 just because Tank01 hasn't
+// produced a row for it yet.
 const POSITIONS = [
   'QB',
   'RB',
@@ -44,9 +49,15 @@ const POSITIONS = [
   'DEF',
   'DE',
   'DT',
+  'NT',
+  'DL',
   'LB',
+  'ILB',
+  'OLB',
   'CB',
   'S',
+  'FS',
+  'SS',
   'DB',
 ];
 

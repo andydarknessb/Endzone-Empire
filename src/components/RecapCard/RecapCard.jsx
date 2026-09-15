@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useId } from 'react';
-import { Typography, Box } from '@mui/material';
+import { Alert, Typography, Box, Button } from '@mui/material';
 import { Card, Badge } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
+import { useLeague } from '../../hooks/useLeague';
+import { readHttpFailure } from '../../lib/httpFailure';
 
 // The recap facts' glyphs as inline stroke icons on the 20px grid (1.6 stroke,
 // round caps, currentColor), replacing the emoji that used to prefix each fact.
@@ -107,10 +109,30 @@ function buildStatChips(facts) {
 function RecapCard({ leagueId }) {
   const [recap, setRecap] = useState(null);
   const [hidden, setHidden] = useState(true);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildError, setRebuildError] = useState(null);
   // The card names its own region from its own heading rather than taking an
   // id from the page: it is mounted by more than one caller, and a
   // page-supplied id would have to be threaded through every one of them.
   const headingId = useId();
+
+  // The commissioner flag rides the same shared league cache the page itself
+  // reads (useLeague / ADR 0004, the useCommissionerStrip pattern): no new
+  // endpoint and no second request in practice, since the page's own
+  // useLeague(leagueId) call already primed this key. Read from
+  // `is_commissioner`, the one field GET /api/league/:id adds for the viewer's
+  // role - never `invite_code`, which answers a different question.
+  const { league } = useLeague(leagueId);
+  const isCommissioner = !!league?.is_commissioner;
+  // The rebuild is scoped to "a chosen finalized week of the CURRENT season"
+  // (#1412's acceptance criteria). GET /recap has no current-season filter
+  // (getLatestRecap orders by season DESC), so between a rollover and that
+  // league's first recap of the new season the card can be showing an OLDER
+  // season's recap; offering the control there would rebuild the wrong
+  // season's week (the route resolves season from leagues.current_season,
+  // not from what's on screen). Gated off league.current_season, the same
+  // payload the commissioner flag above already reads.
+  const isCurrentSeasonRecap = league?.current_season != null && recap?.season === league.current_season;
 
   useEffect(() => {
     let cancelled = false;
@@ -136,12 +158,37 @@ function RecapCard({ leagueId }) {
     };
   }, [leagueId]);
 
+  // Commissioner-only: rebuilds the recap currently on screen from current
+  // data (#1412), the silent compute-and-store path - no feed entry, no
+  // member notification. The response is the same { season, week, data }
+  // shape the GET returns, so it replaces the displayed recap outright.
+  const handleRebuild = async () => {
+    if (!recap || recap.week == null || !isCurrentSeasonRecap || rebuilding) return;
+    setRebuilding(true);
+    setRebuildError(null);
+    try {
+      const res = await apiClient.post(`/api/scoring/league/${leagueId}/recap`, {
+        week: recap.week,
+        season: recap.season,
+      });
+      setRecap(res.data);
+    } catch (err) {
+      setRebuildError(readHttpFailure(err).message || err?.message || 'Could not rebuild the recap.');
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   if (hidden || !recap || !recap.data) {
     return null;
   }
 
   const { data } = recap;
   const chips = buildStatChips(data.facts);
+  // When the displayed recap was last generated, so a manager can tell
+  // whether it predates a correction (#1412). Visible to every member, not
+  // just the commissioner who can act on it.
+  const generatedAt = data.generatedAt ? new Date(data.generatedAt).toLocaleString() : null;
 
   return (
     <Card data-testid="recap-card" aria-labelledby={headingId} sx={{ p: 2 }}>
@@ -155,7 +202,46 @@ function RecapCard({ leagueId }) {
           Weekly Recap
         </Typography>
         {recap.week != null && <Badge>{`Week ${recap.week}`}</Badge>}
+        {isCommissioner && isCurrentSeasonRecap && (
+          <Button
+            type="button"
+            data-testid="recap-rebuild"
+            variant="outlined"
+            size="small"
+            disabled={rebuilding}
+            onClick={handleRebuild}
+            sx={{
+              ml: 'auto',
+              textTransform: 'none',
+              color: 'var(--dash-ink)',
+              borderColor: 'var(--dash-line-strong)',
+              borderRadius: 'var(--dash-radius-sm)',
+              fontFamily: 'var(--dash-font-body)',
+              fontWeight: 600,
+              fontSize: '13px',
+              '&:hover': {
+                borderColor: 'var(--dash-accent-line)',
+                backgroundColor: 'transparent',
+              },
+            }}
+          >
+            {rebuilding ? 'Rebuilding...' : 'Rebuild recap'}
+          </Button>
+        )}
       </Box>
+      {generatedAt && (
+        <Typography
+          component="p"
+          sx={{ fontSize: '12px', color: 'var(--dash-faint)', mb: 1 }}
+        >
+          {`Recap generated ${generatedAt}`}
+        </Typography>
+      )}
+      {rebuildError && (
+        <Alert severity="error" sx={{ fontSize: '13px', mb: 1 }}>
+          {rebuildError}
+        </Alert>
+      )}
       <Typography
         variant="body1"
         sx={{ mb: chips.length ? 2 : 0, whiteSpace: 'pre-line', fontFamily: 'var(--dash-font-body)' }}
