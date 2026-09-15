@@ -245,6 +245,21 @@ test('normalizeNflversePlayerStats maps IDP including the finalization-only yard
   assert.equal(stats.twoPointReturn, 0); // no nflverse weekly column
 });
 
+test('normalizeNflversePlayerStats: idpDefensiveTD also reads fumble_recovery_tds alone, with no def_tds (issue #1386 f1)', () => {
+  // def_tds is interception-return (and other non-fumble) defensive TDs only;
+  // a fumble-return TD lives solely in fumble_recovery_tds (measured against
+  // the pinned stats_player_week_2025.csv: 16 of 17 DL/LB/DB rows with
+  // fumble_recovery_tds > 0 have def_tds = 0). Reading def_tds alone would
+  // drop every defender fumble-return TD at nflverse finalization.
+  const stats = normalizeNflversePlayerStats({ fumble_recovery_tds: '1', def_tds: '0' });
+  assert.equal(stats.idpDefensiveTD, 1);
+});
+
+test('normalizeNflversePlayerStats: idpDefensiveTD sums def_tds and fumble_recovery_tds when both are present (issue #1386 f1)', () => {
+  const stats = normalizeNflversePlayerStats({ fumble_recovery_tds: '1', def_tds: '1' });
+  assert.equal(stats.idpDefensiveTD, 2);
+});
+
 // --- gameTeam / gameOpponent (per-week game context in the stats jsonb) ------
 
 test('normalizeNflversePlayerStats records the team a line was earned for and against', () => {

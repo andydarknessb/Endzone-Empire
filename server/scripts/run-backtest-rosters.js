@@ -200,7 +200,7 @@ const STATS_PLAYER_WEEK_COLUMNS = [
   'special_teams_tds', 'punt_returns', 'punt_return_yards', 'kickoff_returns', 'kickoff_return_yards',
   'def_tackles_solo', 'def_tackle_assists', 'def_sacks', 'def_interceptions', 'def_fumbles_forced',
   'fumble_recovery_opp', 'def_pass_defended', 'def_qb_hits', 'def_tackles_for_loss',
-  'fumble_recovery_tds', 'def_sack_yards', 'def_tackles_for_loss_yards', 'fumble_recovery_yards_opp',
+  'fumble_recovery_tds', 'def_tds', 'def_sack_yards', 'def_tackles_for_loss_yards', 'fumble_recovery_yards_opp',
   'def_interception_yards', 'def_safeties',
 ];
 
