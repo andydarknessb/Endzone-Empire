@@ -2,7 +2,18 @@ import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { MemoryRouter, useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
+import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
 import usePlayerPool from './usePlayerPool';
+
+// Roster templates a league's `roster_slots` can carry (#1420), mirroring
+// the shapes CommissionerTools.jsx's own LINEUP_TEMPLATES stamp into a real
+// league and templates.js's own IDP_LINEUP.
+const IDP_SLOTS = [
+  ...DEFAULT_ROSTER_SLOTS,
+  { key: 'DL', count: 1, eligiblePositions: ['DL'] },
+  { key: 'LB', count: 1, eligiblePositions: ['LB'] },
+  { key: 'DB', count: 1, eligiblePositions: ['DB'] },
+];
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -61,7 +72,7 @@ test('returns exactly the four room-facing fields, with every control folded int
   // interface widens again) turns this red.
   expect(Object.keys(result.current).sort()).toEqual(['availablePlayers', 'controls', 'loading', 'refetch']);
   expect(Object.keys(result.current.controls).sort()).toEqual([
-    'byeWeeksFilter', 'dir', 'hasMore', 'hideDrafted', 'loadMore', 'loadingMore',
+    'byeWeeksFilter', 'chips', 'dir', 'hasMore', 'hideDrafted', 'loadMore', 'loadingMore',
     'onByeWeeksFilterChange', 'onPositionFilterChange', 'onSort', 'positionFilter',
     'search', 'searchInput', 'setHideDrafted', 'setSearchInput', 'sort',
   ]);
@@ -201,4 +212,59 @@ test('a pick landing (refetch) does not re-trigger the initial loading flag', as
   });
 
   expect(result.current.loading).toBe(false);
+});
+
+// #1420: the position menu is derived from the draft's own roster template
+// (league.roster_slots) rather than a hardcoded list of every position code.
+
+test('RED before #1420: a non-IDP roster template offers no defender chips', async () => {
+  const { Wrapper } = makeWrapper();
+  const { result } = renderHook(() => usePlayerPool(1, DEFAULT_ROSTER_SLOTS), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(result.current.controls.chips.map((chip) => chip.key)).toEqual([
+    'All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF',
+  ]);
+});
+
+test('RED before #1420: an IDP roster template offers the DL/LB/DB group chips', async () => {
+  const { Wrapper } = makeWrapper();
+  const { result } = renderHook(() => usePlayerPool(1, IDP_SLOTS), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  expect(result.current.controls.chips.map((chip) => chip.key)).toEqual([
+    'All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'DL', 'LB', 'DB',
+  ]);
+});
+
+test('RED before #1420: selecting the FLEX chip queries RB/WR/TE via the multi-position param, not a single `position`', async () => {
+  const { Wrapper } = makeWrapper();
+  const { result } = renderHook(() => usePlayerPool(1, DEFAULT_ROSTER_SLOTS), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  apiClient.get.mockClear();
+
+  act(() => result.current.controls.onPositionFilterChange('FLEX'));
+
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
+      params: { page: 1, leagueId: 1, sort: 'adp', available: true, positions: 'RB,WR,TE' },
+    })
+  );
+});
+
+test('RED before #1420: a `pos` value the menu does not offer reads as All and is never sent to the server', async () => {
+  // A legacy deep link to a granular defender code (`?pos=DE`) the menu never
+  // offers as its own chip - only the DL/LB/DB group chips are ever offered.
+  const { Wrapper, searchRef } = makeWrapper('/league/1/draft?pos=DE');
+  const { result } = renderHook(() => usePlayerPool(1, IDP_SLOTS), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  // Never wired into the request, even on the very first fetch.
+  const [, firstCallOptions] = apiClient.get.mock.calls[0];
+  expect(firstCallOptions.params.position).toBeUndefined();
+  expect(firstCallOptions.params.positions).toBeUndefined();
+
+  // Corrected in state (and so the URL and the Select's displayed value).
+  await waitFor(() => expect(result.current.controls.positionFilter).toBe('All'));
+  await waitFor(() => expect(searchRef.current).toBe(''));
 });

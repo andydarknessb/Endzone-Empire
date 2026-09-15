@@ -3,6 +3,18 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PlayerPoolTable from './PlayerPoolTable';
 import { PICK_UNAVAILABLE_EXPLANATION } from './pickAvailability';
+import { chipsForRosterSlots } from '../../shared/lib/positionChips';
+import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
+
+// Roster templates a league's `roster_slots` can carry (#1420), mirroring
+// the shapes CommissionerTools.jsx's own LINEUP_TEMPLATES stamp into a real
+// league and templates.js's own IDP_LINEUP.
+const IDP_SLOTS = [
+  ...DEFAULT_ROSTER_SLOTS,
+  { key: 'DL', count: 1, eligiblePositions: ['DL'] },
+  { key: 'LB', count: 1, eligiblePositions: ['LB'] },
+  { key: 'DB', count: 1, eligiblePositions: ['DB'] },
+];
 
 // PlayerPoolTable is provider-free (MUI only, same as DraftRail - see its own
 // doc comment), so a bare render is enough here.
@@ -404,6 +416,50 @@ test('an already-drafted pool row hides both Draft and Queue entirely, keeping o
   expect(within(row).getByText('Drafted')).toBeInTheDocument();
   expect(within(row).queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
   expect(within(row).queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
+});
+
+// #1420: the Position menu is built from `controls.chips` (the room's own
+// derivation off the draft's roster template via chipsForRosterSlots), rather
+// than a hardcoded list this table declares itself.
+
+test('RED before #1420: a non-IDP roster template shows no defender entries in the Position menu', async () => {
+  const user = userEvent.setup();
+  renderTable({ controls: { chips: chipsForRosterSlots(DEFAULT_ROSTER_SLOTS) } });
+
+  await user.click(screen.getByLabelText('Position'));
+  const optionNames = screen.getAllByRole('option').map((o) => o.textContent);
+  expect(optionNames).toEqual(['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF']);
+});
+
+test('RED before #1420: an IDP roster template shows the DL/LB/DB group entries, not granular defender codes', async () => {
+  const user = userEvent.setup();
+  renderTable({ controls: { chips: chipsForRosterSlots(IDP_SLOTS) } });
+
+  await user.click(screen.getByLabelText('Position'));
+  const optionNames = screen.getAllByRole('option').map((o) => o.textContent);
+  expect(optionNames).toEqual(['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'DL', 'LB', 'DB']);
+  for (const code of ['DE', 'DT', 'CB', 'S']) {
+    expect(screen.queryByRole('option', { name: code })).not.toBeInTheDocument();
+  }
+});
+
+test('RED before #1420: the Position menu renders in canonical order regardless of the template slots order', async () => {
+  const user = userEvent.setup();
+  renderTable({ controls: { chips: chipsForRosterSlots([...IDP_SLOTS].reverse()) } });
+
+  await user.click(screen.getByLabelText('Position'));
+  const optionNames = screen.getAllByRole('option').map((o) => o.textContent);
+  expect(optionNames).toEqual(['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'DL', 'LB', 'DB']);
+});
+
+test('RED before #1420: selecting a position hands the room the chip key, unchanged', async () => {
+  const user = userEvent.setup();
+  const { props } = renderTable({ controls: { chips: chipsForRosterSlots(DEFAULT_ROSTER_SLOTS) } });
+
+  await user.click(screen.getByLabelText('Position'));
+  await user.click(screen.getByRole('option', { name: 'FLEX' }));
+
+  expect(props.controls.onPositionFilterChange).toHaveBeenCalledWith('FLEX');
 });
 
 test('the Column guide is a keyboard-reachable dialog explaining abbreviations and injury-status codes', async () => {

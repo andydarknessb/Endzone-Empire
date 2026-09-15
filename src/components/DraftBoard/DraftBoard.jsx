@@ -63,6 +63,13 @@ import { readDraftSoundOn, writeDraftSoundOn } from './draftSoundPreference';
 const DRAFT_MAIN_ID = 'draft-main-content';
 const DRAFT_H1_ID = 'draft-league-name';
 
+// A stable empty-array identity for `league.roster_slots` absent/malformed
+// (#1420): the room passes this straight to usePlayerPool, whose own
+// chipsForRosterSlots falls back to the full canonical chip set for it - a
+// fresh `[]` literal at every render would still be correct, just an
+// unstable identity worth avoiding for no reason.
+const EMPTY_ROSTER_SLOTS = [];
+
 // The Draft room's four views, in the order the narrow tab bar shows them (Chat
 // first, the centerpiece the room opens on). One list, so the valid-view guard,
 // the default and the tab bar all read the same set and cannot drift.
@@ -312,7 +319,6 @@ function DraftBoard() {
   // so none of them can skip the confirmation (#120 acceptance criterion 3).
   const [pendingPick, setPendingPick] = useState(null);
 
-  const pool = usePlayerPool(leagueId);
   const myRoster = useMyRoster(leagueId);
   // The league DETAIL row (GET /api/league/:id, #760), read through the same
   // shared/cached resource Draft Settings, League Rules and Game Center
@@ -398,6 +404,12 @@ function DraftBoard() {
       if (isStallRelevant(entry)) setLastStallActivity(entry);
     },
   });
+
+  // The pool's own position menu is derived from the draft's roster template
+  // (#1420) - `league` (the socket snapshot just destructured above) is the
+  // one source for it, the same field DraftBoardMatrix reads below.
+  const rosterSlots = Array.isArray(league?.roster_slots) ? league.roster_slots : EMPTY_ROSTER_SLOTS;
+  const pool = usePlayerPool(leagueId, rosterSlots);
 
   // The focus-rescue signal is the arrangement AND the membership together, not
   // arrangement alone (#525 handled the pane flip; #534 a11y finding 1 adds the
@@ -902,7 +914,7 @@ function DraftBoard() {
       teamCount={teams.length}
       viewerTeamId={viewerTeamId}
       myPicks={rosterView ? rosterView.picks : []}
-      rosterSlots={Array.isArray(league?.roster_slots) ? league.roster_slots : []}
+      rosterSlots={rosterSlots}
       draftRounds={rounds}
       // leagues.current_pick is already 0-based (draft.service.js), so the pick
       // on the clock is current_pick + 1 in the room's 1-based numbering.
