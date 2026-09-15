@@ -24,7 +24,12 @@ function awardWorld({ leagueId, homeScore, awayScore, homeTeamId = 10, awayTeamI
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
       rows: [{ id: leagueId, draft_status: 'complete', season_status: 'in_season', regular_season_weeks: 14 }],
     })],
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] })],
+    // Scoped to 'client' only: a lock issued on the ambient pool instead of
+    // the transaction client would land outside the transaction (and, behind
+    // a transaction pooler, possibly on a different backend - the #839
+    // shape). Scoping the matcher this way means a pool-side lock throws
+    // "unexpected query" instead of silently satisfying the assertions below.
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] }), 'client'],
     [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
       rows: [{ id: 1, home_team_id: homeTeamId, away_team_id: awayTeamId, home_score: homeScore, away_score: awayScore }],
     })],
@@ -48,6 +53,7 @@ test('#1453: awardWeeklyTrophies takes the trophy advisory lock before reading m
   const lockCalls = fake.matching(/pg_advisory_xact_lock/);
   assert.equal(lockCalls.length, 1, 'exactly one advisory lock call');
   assert.deepEqual(lockCalls[0].params, [leagueId, (season * 100) + week]);
+  assert.equal(lockCalls[0].via, 'client', 'the lock rides the transaction client, not the ambient pool');
 
   const lockIdx = fake.calls.indexOf(lockCalls[0]);
   const matchupsIdx = fake.calls.findIndex((c) => /FROM "matchups"/.test(c.text));

@@ -91,6 +91,17 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
     // holding the same week. Routed through advisoryLock.js's lockTwoKeyXact
     // rather than a raw query here - ADR 0036/#1206 (check:hand-rolled-sync-run)
     // confines every pg_advisory_xact_lock call to that module.
+    //
+    // BLOCKING wait, same as the reconcile: every pooled connection sets
+    // statement_timeout (pool.js), and it counts lock-wait time, so a wait
+    // blocked past the limit is CANCELLED with SQLSTATE 57014, not parked -
+    // the transaction rolls back and this run's trophies (including, on the
+    // season's final week, the season-level set below) are not written and
+    // nothing here retries them. The hold now spans the season-level block
+    // when the season is complete, longer than the reconcile's own "small,
+    // fixed number of statements", but still no network I/O inside the
+    // transaction, and the only same-key waiters are a reconcile or a
+    // duplicate award of this exact (league, season, week).
     await lockTwoKeyXact(client, leagueId, (season * 100) + week);
 
     const awarded = [];
