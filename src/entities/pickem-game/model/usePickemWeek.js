@@ -59,8 +59,15 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
       desiredKeyRef.current.week === week &&
       latestIdByKeyRef.current.get(key) === id;
 
-    setLoading(true);
-    setError(null);
+    // A load for a key that isn't current writes no hook state at issue
+    // time either: otherwise a save's reload for the week the manager just
+    // left could flip `loading` back on (or wipe a current-week `error`)
+    // for a request whose result `applies()` above can never let through
+    // anyway (formal-002-f1).
+    if (applies()) {
+      setLoading(true);
+      setError(null);
+    }
     return apiClient
       .get(`/api/pickem/league/${leagueId}/week/${week}`)
       .then((res) => {

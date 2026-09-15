@@ -161,3 +161,76 @@ test.each([
     expect(result.current.data).toEqual({ week: 4 });
   }
 );
+
+// formal-002-f1: load() still wrote setLoading(true)/setError(null)
+// unconditionally at issue time, before any applies() check — so a save's
+// reload for a week the hook has left could still flip `loading` back on
+// (or wipe a current-week `error`) for a request whose result can never be
+// shown. The prior test.each always resolves the PUT before any GET, so it
+// never exercised the current week settling FIRST.
+test('a save reload for a left week does not reopen loading once the current week has already settled', async () => {
+  const router = makeGetRouter();
+  const put = deferred();
+  apiClient.put.mockImplementation(() => put.promise);
+
+  const { result, rerender } = renderHook(
+    ({ week }) => usePickemWeek(7, week),
+    { initialProps: { week: 3 } }
+  );
+  await act(async () => { router.nth(3, 1).resolve({ data: { week: 3 } }); });
+
+  let savePromise;
+  act(() => {
+    savePromise = result.current.savePicks([{ gameKey: 'g1', pick: 'home' }]);
+  });
+  rerender({ week: 4 });
+
+  // The new week's GET settles before the save's PUT (and so its reload).
+  await act(async () => { router.nth(4, 1).resolve({ data: { week: 4 } }); });
+  expect(result.current.loading).toBe(false);
+  expect(result.current.data).toEqual({ week: 4 });
+
+  await act(async () => {
+    put.resolve({});
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => { router.nth(3, 2).resolve({ data: { week: 3, source: 'save-reload' } }); });
+  await act(async () => { await savePromise; });
+
+  expect(result.current.loading).toBe(false);
+  expect(result.current.data).toEqual({ week: 4 });
+});
+
+test("a save reload for a left week does not wipe the current week's error", async () => {
+  const router = makeGetRouter();
+  const put = deferred();
+  apiClient.put.mockImplementation(() => put.promise);
+
+  const { result, rerender } = renderHook(
+    ({ week }) => usePickemWeek(7, week),
+    { initialProps: { week: 3 } }
+  );
+  await act(async () => { router.nth(3, 1).resolve({ data: { week: 3 } }); });
+
+  let savePromise;
+  act(() => {
+    savePromise = result.current.savePicks([{ gameKey: 'g1', pick: 'home' }]);
+  });
+  rerender({ week: 4 });
+
+  await act(async () => { router.nth(4, 1).reject(new Error('week 4 failed')); });
+  expect(result.current.loading).toBe(false);
+  expect(result.current.error).toBe('week 4 failed');
+
+  await act(async () => {
+    put.resolve({});
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => { router.nth(3, 2).resolve({ data: { week: 3, source: 'save-reload' } }); });
+  await act(async () => { await savePromise; });
+
+  expect(result.current.error).toBe('week 4 failed');
+  expect(result.current.loading).toBe(false);
+});
