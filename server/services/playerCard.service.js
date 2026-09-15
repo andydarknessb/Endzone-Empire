@@ -1,5 +1,9 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+// Kept whole (not destructured), same test-seam convention as every other
+// cross-module call in this file: a destructured binding is captured at
+// require time and can no longer be mocked afterwards.
+const espnAthleteClient = require('../modules/espnAthleteClient');
 const { requireMember } = require('./leagueMembership.service');
 const irPolicy = require('./irPolicy.service');
 // Kept whole (not destructured), like decision.service.js does for its own
@@ -539,6 +543,55 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
 }
 
 /**
+ * `{ bio, news, injuryFacts, depth, ownership }` (#1308, ADR 0041): every
+ * field null (news `[]`) when `player.external_id` is null - never fetches
+ * ESPN or reads either table in that case, so a player we've never matched
+ * to an ESPN athlete costs this call nothing. `profile`/`overview` are
+ * `espnAthleteClient`'s own in-process-cached reads (six hours / five
+ * minutes on failure); `depth`/`ownership` read the latest `captured_date`
+ * row the daily Sync runs wrote (#1382) - never a live ESPN call, per the
+ * Ruling (item 1).
+ */
+async function loadEspnFacts(player) {
+  if (!player.external_id) {
+    return { bio: null, news: [], injuryFacts: null, depth: null, ownership: null };
+  }
+  const [bio, overview, depthResult, ownershipResult] = await Promise.all([
+    espnAthleteClient.profile(player.external_id),
+    espnAthleteClient.overview(player.external_id),
+    pool.query(
+      `SELECT "team_code", "position_group", "rank", "captured_date"
+       FROM "player_depth_chart" WHERE "player_id" = $1 ORDER BY "captured_date" DESC LIMIT 1`,
+      [player.id]
+    ),
+    pool.query(
+      `SELECT "percent_owned", "percent_started", "percent_change", "captured_date"
+       FROM "player_ownership" WHERE "player_id" = $1 ORDER BY "captured_date" DESC LIMIT 1`,
+      [player.id]
+    ),
+  ]);
+  const depthRow = depthResult.rows[0];
+  const ownershipRow = ownershipResult.rows[0];
+  return {
+    bio: bio || null,
+    news: (overview && overview.news) || [],
+    injuryFacts: (overview && overview.injuryFacts) || null,
+    depth: depthRow ? {
+      teamCode: depthRow.team_code,
+      positionGroup: depthRow.position_group,
+      rank: depthRow.rank,
+      capturedDate: depthRow.captured_date,
+    } : null,
+    ownership: ownershipRow ? {
+      percentOwned: ownershipRow.percent_owned != null ? Number(ownershipRow.percent_owned) : null,
+      percentStarted: ownershipRow.percent_started != null ? Number(ownershipRow.percent_started) : null,
+      change: ownershipRow.percent_change != null ? Number(ownershipRow.percent_change) : null,
+      capturedDate: ownershipRow.captured_date,
+    } : null,
+  };
+}
+
+/**
  * The full Decision-card payload for one player in one league (issue #1306).
  * Throws PlayerCardError(404) when the league or player does not exist;
  * requireMember throws MembershipError(403) when the caller holds no team.
@@ -584,6 +637,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     weeks,
     weeklyResult,
     seasonResult,
+    espnFacts,
   ] = await Promise.all([
     loadUpgradeContext({ league, team, season, week: effectiveWeek, playerIds: [player.id] }),
     decisionCardContextService.loadUsage({
@@ -603,6 +657,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
        WHERE "player_id" = $1 ORDER BY "season" DESC`,
       [player.id]
     ),
+    loadEspnFacts(player),
   ]);
 
   const ros = rosMap.get(player.id) || { total: 0, perGame: 0 };
@@ -749,7 +804,15 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       jerseyNumber: player.jersey_number ?? null,
       photoUrl: player.photo_url ?? null,
       byeWeek,
-      injury: { designation: player.injury_status ?? null, detail: player.injury_detail ?? null },
+      // `designation`/`detail` stay the feed sync's (Tank01) - ESPN fills only
+      // the `facts` sibling beside them, never replacing either (#1308 owner
+      // ruling 2026-09-14: `players.injury_detail` still feeds live Edge
+      // lines, the Draft board InjuryBadge and the public read model).
+      injury: {
+        designation: player.injury_status ?? null,
+        detail: player.injury_detail ?? null,
+        facts: espnFacts.injuryFacts,
+      },
     },
     availability,
     decision: {
@@ -774,11 +837,15 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     weeks,
     seasons,
     seasonEnd,
-    news: player.news ? [{ headline: player.news, source: 'feed', publishedAt: null }] : [],
+    // News (CONTEXT.md): two producers, ESPN's list winning when present and
+    // the feed sync's single note the one fallback item (#1308, ADR 0041).
+    news: espnFacts.news.length > 0
+      ? espnFacts.news
+      : (player.news ? [{ headline: player.news, source: 'feed', publishedAt: null }] : []),
     log,
-    bio: null,
-    depth: null,
-    ownership: null,
+    bio: espnFacts.bio,
+    depth: espnFacts.depth,
+    ownership: espnFacts.ownership,
   };
 }
 
