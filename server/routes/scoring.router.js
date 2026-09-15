@@ -388,6 +388,42 @@ router.get('/league/:id/recap', async (req, res) => {
   }
 });
 
+// POST /api/scoring/league/:id/recap — commissioner rebuilds the stored
+// recap for a finalized week of the current season, on demand. Calls the
+// silent compute-and-store path (#1409) directly, never generateWeeklyRecap:
+// no feed entry, no member notification, so a correction made outside the
+// scheduled pass never re-announces itself. Refused 409 when the requested
+// week has no finalized matchup in the current season, the same status the
+// rest of the commissioner tooling uses for a settled/unsettled week-state
+// conflict (commissioner.service.js's "cannot edit a settled week").
+router.post('/league/:id/recap', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res.status(400).json({ error: 'league id must be a positive integer' });
+  }
+  const leagueId = Number(req.params.id);
+  const week = Number(req.body && req.body.week);
+  if (!Number.isInteger(week) || week < 1 || week > 25) {
+    return res.status(400).json({ error: 'week must be an integer between 1 and 25' });
+  }
+  try {
+    if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
+    const leagueResult = await pool.query(
+      `SELECT "current_season" FROM "leagues" WHERE "id" = $1`,
+      [leagueId]
+    );
+    if (!leagueResult.rows[0]) return res.status(404).json({ error: 'league not found' });
+    const { current_season: season } = leagueResult.rows[0];
+    const recap = require('../services/recap.service');
+    const data = await recap.computeAndStoreWeeklyRecap({ leagueId, season, week });
+    if (!data) return res.status(409).json({ error: 'week is not finalized' });
+    res.json({ season, week, data });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Recap rebuild failed:', error);
+    res.status(500).json({ error: 'failed to rebuild recap' });
+  }
+});
+
 // POST /api/scoring/league/:id/power-rankings — owner recomputes on demand
 router.post('/league/:id/power-rankings', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
