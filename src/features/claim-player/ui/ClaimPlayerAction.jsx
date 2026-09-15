@@ -5,9 +5,12 @@ import { useClaimPlayer } from '../model/useClaimPlayer';
 
 /**
  * The Decision card's waivers action bar (#1307, ADR 0040 CardStates):
- * Claim, with an optional drop pick (worst weekly projection first, the
- * same sort `add-player` and WaiverWire's own dialog both use) and, in a
- * FAAB league, a bid bounded by what remains.
+ * Claim, with a drop pick (worst weekly projection first, the same sort
+ * `add-player` and WaiverWire's own dialog both use) and, in a FAAB league,
+ * a bid bounded by what remains. The drop pick is optional while the roster
+ * has room and required once `rosterCount >= rosterCapacity`: a claim with
+ * no drop there can only 409 ("choose a player to drop"), the same gate
+ * `AddPlayerAction` already applies to a free-agent add.
  */
 export default function ClaimPlayerAction({ player, leagueId, availability, roster, onClaimed }) {
   const [dropPlayerId, setDropPlayerId] = useState('');
@@ -17,6 +20,12 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
   const isFaab = availability?.faabRemaining != null;
   const faabRemaining = availability?.faabRemaining ?? 0;
   const sortedRoster = sortRosterForDrop(roster);
+  const atCapacity =
+    availability?.rosterCount != null &&
+    availability?.rosterCapacity != null &&
+    availability.rosterCount >= availability.rosterCapacity;
+  const dropMissing = atCapacity && dropPlayerId === '';
+  const dropLabel = atCapacity ? 'Drop a player' : 'Drop a player (optional)';
 
   const bidIsValidNumber = bid !== '' && !Number.isNaN(Number(bid));
   const bidInvalid = isFaab && (!bidIsValidNumber || Number(bid) < 0 || Number(bid) > faabRemaining);
@@ -24,7 +33,7 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
   const handleClaim = () => {
     submitClaim({
       playerId: player.playerId,
-      dropPlayerId: dropPlayerId === '' ? null : dropPlayerId,
+      dropPlayerId: dropPlayerId === '' ? null : Number(dropPlayerId),
       bid: isFaab ? Number(bid) : 0,
     });
   };
@@ -35,16 +44,21 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
           OutlinedInput to 40px, under the 44px minimum every Button on this
           card already carries via MIN_TOUCH_TARGET_SX - default size clears
           it without one, matching WaiverWire's own analogous claim dialog. */}
+      {atCapacity && (
+        <Typography sx={{ fontSize: 12, color: 'var(--text-muted)' }} data-testid="claim-player-capacity-note">
+          Your roster is full. Choose a player to drop when this claim clears.
+        </Typography>
+      )}
       <FormControl fullWidth>
-        <InputLabel id="claim-player-drop-label">Drop a player (optional)</InputLabel>
+        <InputLabel id="claim-player-drop-label">{dropLabel}</InputLabel>
         <Select
           labelId="claim-player-drop-label"
-          label="Drop a player (optional)"
+          label={dropLabel}
           value={dropPlayerId}
           onChange={(e) => setDropPlayerId(e.target.value)}
           data-testid="claim-player-drop-select"
         >
-          <MenuItem value="">No drop</MenuItem>
+          <MenuItem value="">{atCapacity ? 'Choose a player to drop' : 'No drop'}</MenuItem>
           {sortedRoster.map((p) => (
             <MenuItem key={p.id} value={p.id}>
               {p.name} ({p.position})
@@ -68,7 +82,7 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
         <Button
           size="small"
           variant="contained"
-          disabled={pending || bidInvalid}
+          disabled={pending || bidInvalid || dropMissing}
           onClick={handleClaim}
           sx={MIN_TOUCH_TARGET_SX}
           data-testid="claim-player-submit"

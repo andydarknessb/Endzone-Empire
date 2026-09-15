@@ -363,8 +363,18 @@ function PlayerManagement() {
   // through the SAME claim-player feature WaiverWire's own claim dialog
   // submits with - a one-tap claim (no drop pick, no bid) straight from the
   // list, the row-level counterpart to Add's own direct call above. A
-  // manager who needs a drop pick or a FAAB bid still reaches the fuller
-  // Decision card action bar by opening the row's own Quick view.
+  // manager who wants a FAAB bid still reaches the fuller Decision card
+  // action bar by opening the row's own Quick view.
+  //
+  // At roster capacity the one-tap claim cannot succeed: the server 409s
+  // with "choose a player to drop" and the row had nowhere to choose one.
+  // `actionForPlayer` below routes that case to the Decision card's claim
+  // bar, whose drop pick is required there, the same gate `AddPlayerAction`
+  // gives a free-agent add.
+  const rosterAtCapacity =
+    context?.rosterCount != null &&
+    context?.rosterCapacity != null &&
+    context.rosterCount >= context.rosterCapacity;
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
@@ -411,6 +421,13 @@ function PlayerManagement() {
           disabled: true,
           helper: "Select a fantasy league to manage players.",
         };
+      if (state === "waivers" && rosterAtCapacity)
+        return {
+          kind: "button",
+          label: "Claim",
+          onClick: () => setQuickViewId(player.id),
+          helper: "Your roster is full. Choose a player to drop in the claim card.",
+        };
       if (state === "waivers")
         return {
           kind: "button",
@@ -455,7 +472,7 @@ function PlayerManagement() {
         helper: rosterAction.helper,
       };
     },
-    [addToRoster, claimFromRow, pendingPlayerId, rosterAction, selectedLeague],
+    [addToRoster, claimFromRow, pendingPlayerId, rosterAction, rosterAtCapacity, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -478,6 +495,8 @@ function PlayerManagement() {
       ? { rosterCount: marketContext?.rosterCount, rosterCapacity: marketContext?.rosterCapacity }
       : quickViewContext === "waivers"
       ? {
+          rosterCount: marketContext?.rosterCount,
+          rosterCapacity: marketContext?.rosterCapacity,
           waiverPriority: marketContext?.waiverType === "priority" ? marketContext?.waiverPriority : undefined,
           faabRemaining: marketContext?.waiverType === "faab" ? marketContext?.faabRemaining : undefined,
         }
