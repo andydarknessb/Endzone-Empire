@@ -41,6 +41,15 @@ const ALL_POSITION_PLAYERS = [
   { id: 10, name: 'Corner', position: 'CB', nfl_team: null },
   { id: 11, name: 'Safety', position: 'S', nfl_team: null },
   { id: 12, name: 'Back', position: 'DB', nfl_team: null },
+  // The four rare codes formal review f1 (#1419) added to POSITIONS
+  // alongside DL: ~zero real Tank01 rows today, but a client IDP group chip
+  // can legitimately send them as part of an expanded group request.
+  { id: 13, name: 'Nose Tackle', position: 'NT', nfl_team: null },
+  { id: 14, name: 'Anchor', position: 'DL', nfl_team: null },
+  { id: 15, name: 'Inside Backer', position: 'ILB', nfl_team: null },
+  { id: 16, name: 'Outside Backer', position: 'OLB', nfl_team: null },
+  { id: 17, name: 'Free Safety', position: 'FS', nfl_team: null },
+  { id: 18, name: 'Strong Safety', position: 'SS', nfl_team: null },
 ];
 
 // A fake pool that behaves like Postgres would for the WHERE this route
@@ -132,6 +141,32 @@ test('multi-position filter: a bad code in the set is rejected with the same 400
   const res = await authedGet('?positions=RB,ZZ');
   assert.equal(res.status, 400);
   assert.match(res.body.error, /position must be one of/);
+});
+
+// Formal review f1 (#1419): the Players page's own IDP group chips (DL, LB,
+// DB) send `positions` as the WHOLE expanded POSITION_GROUPS set for that
+// key, not just the six codes Tank01 commonly reports - so the whitelist has
+// to accept every member, rare codes included, or a manager in an IDP league
+// gets a 400 the moment they pick a defender chip.
+test('the DL group chip request (positions=DL,DE,DT,NT) is accepted', async (t) => {
+  mockPoolNoLeague(t, { players: ALL_POSITION_PLAYERS });
+  const res = await authedGet('?positions=DL,DE,DT,NT');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(positionsOf(res), ['DE', 'DL', 'DT', 'NT']);
+});
+
+test('the LB group chip request (positions=LB,ILB,OLB) is accepted', async (t) => {
+  mockPoolNoLeague(t, { players: ALL_POSITION_PLAYERS });
+  const res = await authedGet('?positions=LB,ILB,OLB');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(positionsOf(res), ['ILB', 'LB', 'OLB']);
+});
+
+test('the DB group chip request (positions=DB,CB,S,FS,SS) is accepted', async (t) => {
+  mockPoolNoLeague(t, { players: ALL_POSITION_PLAYERS });
+  const res = await authedGet('?positions=DB,CB,S,FS,SS');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(positionsOf(res), ['CB', 'DB', 'FS', 'S', 'SS']);
 });
 
 test('the existing single-position parameter keeps working unchanged', async (t) => {

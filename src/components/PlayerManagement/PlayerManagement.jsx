@@ -48,7 +48,7 @@ import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
 import { isPickemOnly } from "../../shared/lib/leagueType";
 import { parseRosterSlots } from "../../shared/lib";
 import { useLeague } from "../../hooks/useLeague";
-import { DEFAULT_ROSTER_SLOTS, expandEligibility } from "../../lib/draftSim/templates";
+import { DEFAULT_ROSTER_SLOTS, expandEligibility, templateFor } from "../../lib/draftSim/templates";
 import {
   SORT_FIELDS,
   wireSortName,
@@ -56,12 +56,12 @@ import {
 
 // The chip vocabulary this page offers, in the order the manager sees them
 // (#1419): "All" first, then this canonical order with any key absent from
-// the selected league's roster template dropped. A flex-type chip (FLEX,
-// SFLX, DL, LB, DB) stands for a slot's whole eligible-position group; the
-// rest stand for one literal position code. There is no position-group table
-// here - expandEligibility (src/lib/draftSim/templates.js) is the only one,
-// reused rather than re-declared, the same table the Draft Sim mirrors from
-// the server's lineup.service.js.
+// the selected league's roster template dropped. There is no position-group
+// table here - expandEligibility (src/lib/draftSim/templates.js) is the
+// only one, reused rather than re-declared, the same table the Draft Sim
+// mirrors from the server's lineup.service.js. The only new list is this
+// order itself (formal review f4): whether a chip is flex-type is read from
+// the slot, not a second hand-kept list.
 const CANONICAL_CHIP_ORDER = [
   "QB",
   "RB",
@@ -75,22 +75,43 @@ const CANONICAL_CHIP_ORDER = [
   "LB",
   "DB",
 ];
-const FLEX_CHIP_KEYS = new Set(["FLEX", "SFLX", "DL", "LB", "DB"]);
+
+// No league selected, or a template with no slots at all, falls back to the
+// FULL canonical set - every chip a league could ever offer, FLEX meaning
+// RB/WR/TE (#1419, #1416 story 16, the Rosterable position glossary entry,
+// ADR 0044: such a request has no server-side gate, so the page must offer
+// every chip that could narrow it). Built from templates.js's own slot
+// definitions (formal review f2) - DEFAULT_ROSTER_SLOTS plus the SFLX slot
+// the 'superflex' LEAGUE_TEMPLATES entry carries and the DL/LB/DB slots the
+// 'idp' entry carries - never a re-declared eligibility list.
+const FULL_CANONICAL_SLOTS = [
+  ...DEFAULT_ROSTER_SLOTS,
+  ...templateFor("superflex").slots.filter((slot) => slot.key === "SFLX"),
+  ...templateFor("idp").slots.filter((slot) => ["DL", "LB", "DB"].includes(slot.key)),
+];
+
+// A chip is flex-type when its slot's expanded eligibility is anything other
+// than exactly its own key (formal review f4): FLEX and SFLX expand to a
+// literal position list that never contains their own key, and LB, DL and DB
+// are themselves POSITION_GROUPS keys, so expanding a single-entry
+// `['LB']`/`['DL']`/`['DB']` still yields the whole group. QB, K and DEF
+// expand to nothing but themselves and stay plain position chips.
+function isFlexSlot(slot) {
+  const expanded = expandEligibility(slot.eligiblePositions);
+  return expanded.size !== 1 || !expanded.has(slot.key);
+}
 
 // One chip per distinct starting slot key the template carries, canonical
-// order, absent keys dropped. No league selected, or a template with no
-// slots at all, falls back to DEFAULT_ROSTER_SLOTS - the same "full
-// canonical set, FLEX meaning RB/WR/TE" fallback useMyTeamSummary already
-// gives an empty `roster_slots` (#1165).
+// order, absent keys dropped.
 function chipsForRosterSlots(rosterSlots) {
-  const slots = rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
+  const slots = rosterSlots.length > 0 ? rosterSlots : FULL_CANONICAL_SLOTS;
   const slotByKey = new Map(slots.map((slot) => [slot.key, slot]));
   const chips = [{ key: "All" }];
   CANONICAL_CHIP_ORDER.forEach((key) => {
     const slot = slotByKey.get(key);
     if (!slot) return;
     chips.push(
-      FLEX_CHIP_KEYS.has(key)
+      isFlexSlot(slot)
         ? { key, positions: Array.from(expandEligibility(slot.eligiblePositions)) }
         : { key },
     );
@@ -228,12 +249,31 @@ function PlayerManagement() {
   const { league: templateLeague, loading: templateLeagueLoading } = useLeague(
     selectedLeague || undefined,
   );
+  // Keyed on the roster_slots FIELD, not the templateLeague wrapper object
+  // (formal review f3): useResource/useLeague hands back a new `league`
+  // object on every load or reload, including a stale-while-revalidate
+  // reload whose content never changed, so keying on the whole object would
+  // rebuild chips - and, downstream, refetch the players list - every time.
   const rosterSlots = useMemo(
     () => parseRosterSlots(templateLeague?.roster_slots),
-    [templateLeague],
+    [templateLeague?.roster_slots],
   );
   const chips = useMemo(() => chipsForRosterSlots(rosterSlots), [rosterSlots]);
-  const selectedChip = chips.find((chip) => chip.key === positionFilter) || chips[0];
+  const selectedChip = useMemo(
+    () => chips.find((chip) => chip.key === positionFilter) || chips[0],
+    [chips, positionFilter],
+  );
+  // The chip's own request shape, reduced to PRIMITIVES (formal review f3):
+  // chips (and so selectedChip) is a freshly built array/object on every
+  // roster-template reload even when its VALUES are unchanged, so a
+  // fetchPlayers dependent on selectedChip itself would refetch on every
+  // reload. A string primitive compares by value, so fetchPlayers' identity
+  // - and therefore whether it actually refetches - now tracks only a real
+  // change in what would be sent.
+  const positionParam = selectedChip.key !== "All" && !selectedChip.positions
+    ? selectedChip.key
+    : undefined;
+  const positionsParam = selectedChip.positions ? selectedChip.positions.join(",") : undefined;
   // Formal review formal-1310-f1: Upgrade is the default sort whenever a
   // league is selected and it is not best ball (the same condition the
   // server gates `view=cards`/`sort=upgrade` on) - an explicit `?sort=`
@@ -330,6 +370,14 @@ function PlayerManagement() {
 
   const fetchPlayers = useCallback(async () => {
     if (!leaguesLoaded) return;
+    // Holds the request while the SELECTED league's own roster template is
+    // still loading (formal review f3): without this, a league whose row
+    // isn't cached yet sends one request under the FULL_CANONICAL_SLOTS
+    // fallback (or unfiltered, for a chip the fallback lacks) and a second,
+    // correctly-filtered one once the real template lands - and since
+    // neither response is guarded against arriving out of order, the
+    // slower one can win and show the wrong list.
+    if (selectedLeague && templateLeagueLoading) return;
     try {
       setError(null);
       // The one translation from this surface's sort KEY to the server's
@@ -348,10 +396,8 @@ function PlayerManagement() {
       // chip (FLEX, SFLX, DL, LB, DB) sends the union of its slot's eligible
       // positions to `positions`; any other chip sends its own code to
       // `position`, unchanged from before this ticket.
-      if (selectedChip.key !== "All") {
-        if (selectedChip.positions) params.positions = selectedChip.positions.join(",");
-        else params.position = selectedChip.key;
-      }
+      if (positionsParam) params.positions = positionsParam;
+      else if (positionParam) params.position = positionParam;
       // view=cards (#1309/#1310) requires leagueId - without a selected
       // league (browsing with no fantasy league yet) the request stays the
       // plain shape it always was, and the row falls back to "Select league".
@@ -376,11 +422,13 @@ function PlayerManagement() {
     dir,
     leaguesLoaded,
     pageNumber,
-    selectedChip,
+    positionParam,
+    positionsParam,
     report,
     search,
     selectedLeague,
     sort,
+    templateLeagueLoading,
   ]);
   useEffect(() => {
     fetchPlayers();

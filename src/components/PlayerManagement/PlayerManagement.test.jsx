@@ -777,6 +777,9 @@ describe("position chips derived from the roster template (#1419)", () => {
     ]);
   });
 
+  // Formal review f2: with no server-side gate on an ungated request, the
+  // page must offer every chip that could narrow it - the full 12-chip
+  // canonical set, not just the 8 DEFAULT_ROSTER_SLOTS carries.
   test("no league selected renders the full canonical set (FLEX meaning RB, WR, TE)", async () => {
     mockBrowser({
       leagues: [{ id: 5, name: "Office Pool", pickem_only: true }],
@@ -788,7 +791,7 @@ describe("position chips derived from the roster template (#1419)", () => {
 
     const options = await openPositionOptions();
     expect(options.map((option) => option.textContent)).toEqual([
-      "All", "QB", "RB", "WR", "TE", "FLEX", "K", "DEF",
+      "All", "QB", "RB", "WR", "TE", "FLEX", "SFLX", "K", "DEF", "DL", "LB", "DB",
     ]);
   });
 
@@ -799,8 +802,28 @@ describe("position chips derived from the roster template (#1419)", () => {
 
     const options = await openPositionOptions();
     expect(options.map((option) => option.textContent)).toEqual([
-      "All", "QB", "RB", "WR", "TE", "FLEX", "K", "DEF",
+      "All", "QB", "RB", "WR", "TE", "FLEX", "SFLX", "K", "DEF", "DL", "LB", "DB",
     ]);
+  });
+
+  // Formal review f2: since the full-canonical fallback now carries a DL
+  // chip too, a deep link into it survives the league-switch reset effect's
+  // first pass instead of being stripped to "All" before the manager ever
+  // sees it.
+  test("a deep link's ?pos=DL survives first render with no league selected", async () => {
+    mockBrowser({
+      leagues: [{ id: 5, name: "Office Pool", pickem_only: true }],
+      context: null,
+      templateLeague: null,
+      players: [player()],
+    });
+    renderWithProviders(<PlayerManagement />, { route: "/player?pos=DL", path: "/player" });
+
+    await screen.findByText(/not in a fantasy league yet/i);
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+      expect(playerCalls.at(-1)[1].params.positions).toBe("DL,DE,DT,NT");
+    });
   });
 
   test("switching to a league whose template drops the selected chip resets the filter to All", async () => {
@@ -834,5 +857,66 @@ describe("position chips derived from the roster template (#1419)", () => {
     });
     const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
     expect(playerCalls.at(-1)[1].params.position).toBeUndefined();
+  });
+
+  // Formal review f3: chips (and so selectedChip) is rebuilt on every
+  // templateLeague reload even when its VALUES are unchanged, since
+  // useResource hands back a new `league` object each time. Before the fix,
+  // fetchPlayers depended on that object directly, so any rerender that
+  // called useLeague again - even with equal content - refetched.
+  test("f3: a rerender with an equal-but-new league object issues no extra /api/players call", async () => {
+    mockBrowser({ players: [player({ id: 1, name: "Steady Guy", watching: false })] });
+    // A fresh wrapper object AND a fresh roster_slots array every call, each
+    // with equal content - the shape a real reload actually hands back
+    // (JSON reparsed on the wire), and the "equal-but-new" case the fix
+    // targets. Reusing the literal DEFAULT_ROSTER_SLOTS reference would let
+    // parseRosterSlots' array pass-through mask the bug entirely.
+    useLeague.mockImplementation(() => ({
+      league: { ...league, roster_slots: [...DEFAULT_ROSTER_SLOTS] },
+      viewerTeamId: null,
+      loading: false,
+      error: null,
+    }));
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByText("Steady Guy");
+
+    const callsBefore = apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+    // Toggling Watching re-renders the component (and so calls useLeague
+    // again) without changing anything fetchPlayers should care about.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+    ).toBe(callsBefore);
+  });
+
+  // Formal review f3: the players fetch now holds while the SELECTED
+  // league's own template is loading, rather than firing once under the
+  // fallback template and again once the real one lands.
+  test("f3: a loading-to-loaded template transition issues exactly one filtered /api/players call", async () => {
+    // watching: true so Loader Guy stays visible once the Watching toggle
+    // (this test's neutral rerender trigger, below) filters the list.
+    mockBrowser({ players: [player({ id: 1, name: "Loader Guy", watching: true })] });
+    let templateLoaded = false;
+    useLeague.mockImplementation(() => (
+      templateLoaded
+        ? { league: { ...league, roster_slots: DEFAULT_ROSTER_SLOTS }, viewerTeamId: null, loading: false, error: null }
+        : { league: null, viewerTeamId: null, loading: true, error: null }
+    ));
+    renderWithProviders(<PlayerManagement />, { route: "/player?league=1&pos=RB", path: "/player" });
+
+    await screen.findByRole("link", { name: "Manage lineup" });
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players"),
+    ).toHaveLength(0);
+
+    templateLoaded = true;
+    // Any rerender picks up the mock's new (now loaded) return value.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+    await screen.findByText("Loader Guy");
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls).toHaveLength(1);
+    expect(playerCalls[0][1].params.position).toBe("RB");
   });
 });
