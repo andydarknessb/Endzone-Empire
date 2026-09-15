@@ -261,3 +261,107 @@ test('evaluate refuses an unregistered MODEL_VERSION before calling generateProj
   );
   assert.equal(called, false);
 });
+
+// ---------------------------------------------------------------------------
+// formal-001-f1: v3.1 is pinned by the LITERAL model version name, never by
+// model.MODEL_VERSION - so a successor bump cannot silently relabel its own
+// rebuild as "rebuilt v3.1" with no error bar (the lead's finding: stubbing
+// MODEL_VERSION to a v3.2 name at review time left the registry holding only
+// v3.2, and the report still printed "rebuilt v3.1" / "calibration: 1.0000"
+// for what was actually the v3.2 rebuild run twice).
+// ---------------------------------------------------------------------------
+
+test('the v3.1 rebuild and calibration are pinned to MODEL_VERSION_V3_1, never to whatever model.MODEL_VERSION happens to be', async () => {
+  const V3_1 = successorEval.MODEL_VERSION_V3_1;
+  assert.equal(V3_1, 'free_baseline_v3.1');
+
+  const FAKE_V3_2 = 'free_baseline_v3.2';
+  const v31Constants = { marker: 'v3.1-constants' };
+  const v32Constants = { marker: 'v3.2-constants' };
+  const { profiles } = syntheticProfiles();
+  // One profile, one week - only the constants wiring is under test here.
+  const oneProfile = [{ ...profiles[0], weeks: [profiles[0].weeks[0]] }];
+
+  const seenConstants = [];
+  const stubGenerateProjections = async ({ modelConstants, playerIds }) => {
+    seenConstants.push(modelConstants);
+    const projections = new Map(
+      playerIds.map((id) => [id, { playerId: id, position: 'WR', mean: 1, sampleSize: 1 }])
+    );
+    return { projections, inputCutoff: null, sourceCoverage: {} };
+  };
+
+  // Only the fake v3.2 registered (simulating a successor bump that has not
+  // also preserved v3.1's constants): the run must refuse and name v3.1 -
+  // never fall back to v3.2's constants for the "rebuilt v3.1" column.
+  await assert.rejects(
+    () => successorEval.evaluate({
+      profiles: oneProfile,
+      modelVersion: FAKE_V3_2,
+      generateProjections: stubGenerateProjections,
+      constantsByModelVersion: { [FAKE_V3_2]: v32Constants },
+    }),
+    new RegExp(V3_1.replace(/\./g, '\\.'))
+  );
+  assert.equal(seenConstants.length, 0, 'nothing was reprojected before the refusal');
+
+  // Both registered: the rebuilt-v3.1 column and the v3.2 target column must
+  // each be run with their OWN distinct constants object, not the same one.
+  const result = await successorEval.evaluate({
+    profiles: oneProfile,
+    modelVersion: FAKE_V3_2,
+    generateProjections: stubGenerateProjections,
+    constantsByModelVersion: { [V3_1]: v31Constants, [FAKE_V3_2]: v32Constants },
+  });
+  assert.equal(seenConstants.length, 2, 'one reprojection for rebuilt v3.1, one for the v3.2 target');
+  assert.ok(seenConstants.includes(v31Constants), 'the v3.1 column ran with v3.1\'s own constants');
+  assert.ok(seenConstants.includes(v32Constants), 'the target column ran with the target\'s own constants');
+  assert.notEqual(seenConstants[0], seenConstants[1], 'the two columns must not share one constants object');
+  assert.equal(result.profiles[oneProfile[0].name].columns.rebuiltTarget.modelVersion, FAKE_V3_2);
+});
+
+// ---------------------------------------------------------------------------
+// formal-001-f2: pg returns projection_snapshot_players' NUMERIC/decimal
+// columns (mean, median, p10-p90, active_probability) as STRINGS - no
+// NUMERIC type parser is registered (the same reason evaluate.js and
+// coverage.js coerce with Number() at their own read paths). A captured row
+// shaped that way must score identically to the same row as native numbers.
+// ---------------------------------------------------------------------------
+
+function stringDecimalRow(playerId, week) {
+  const row = capturedRow(playerId, week);
+  return {
+    ...row,
+    mean: String(row.mean),
+    median: String(row.median),
+    p10: String(row.p10),
+    p25: String(row.p25),
+    p75: String(row.p75),
+    p90: String(row.p90),
+    activeProbability: String(row.activeProbability),
+  };
+}
+
+test('metricsForArm and calibrateAgainstCaptured treat pg-style numeric-string ledger rows the same as numbers', () => {
+  const numeric = [1, 2, 3, 4].map((id) => capturedRow(id, 1));
+  const strings = [1, 2, 3, 4].map((id) => stringDecimalRow(id, 1));
+  const actuals = new Map(numeric.map((row) => [`${SEASON}:1:${row.playerId}`, row.mean]));
+
+  const fromNumbers = successorEval.metricsForArm({
+    rows: numeric, actuals, season: SEASON, week: 1,
+  });
+  const fromStrings = successorEval.metricsForArm({
+    rows: strings, actuals, season: SEASON, week: 1,
+  });
+  assert.deepEqual(
+    fromStrings, fromNumbers,
+    'a string-decimal ledger row must score identically to the same row as numbers'
+  );
+  assert.equal(fromStrings.n, 4);
+  assert.ok(fromStrings.mae !== null && fromStrings.spearman !== null);
+
+  const calibration = successorEval.calibrateAgainstCaptured({ capturedRows: strings, rebuiltRows: numeric });
+  assert.equal(calibration.checked, 4);
+  assert.equal(calibration.share, 1, 'string-decimal captured means must still compare equal to the rebuilt numbers');
+  assert.equal(calibration.sampleSizeDiffers, 0);
+});

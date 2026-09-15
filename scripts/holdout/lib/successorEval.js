@@ -30,20 +30,67 @@ function isNum(v) {
 }
 
 /**
- * MODEL_VERSION -> the MODEL_CONSTANTS this checkout can run it with. Today
- * that is v3.1 alone: no v3.2 sub-issue (#1440-#1443) has landed its
- * constants yet, and each one is expected to register its own entry here
- * when it does. Deliberately NOT auto-populated from `model.MODEL_CONSTANTS`
- * under an assumed future name - a MODEL_VERSION this table does not name is
- * refused, never silently run under HEAD's constants (ruling point 1).
+ * A ledger row's decimal column, coerced to a number or null - never a bare
+ * `typeof v === 'number'` check. `projection_snapshot_players`' mean/median/
+ * p10-p90/active_probability columns are `t.decimal` (migration
+ * 20260730000001), pool.js registers no NUMERIC type parser, and node-pg
+ * therefore returns them as STRINGS (the same reason
+ * `scripts/holdout/lib/evaluate.js` and `coverage.js`'s own `num()` coerce
+ * with `Number()` at their read paths). Adversarial review finding (f2): the
+ * bare `isNum` this module used before dropped every string-shaped captured
+ * value as `null`, so a real-ledger run would report an empty captured
+ * column and a calibration of 0 - not because the rebuild was wrong, but
+ * because the type check was. Rebuilt rows are always genuine JS numbers
+ * (computed by `projectPlayer`), so this is a safe no-op for them.
+ */
+function numOrNull(v) {
+  if (v === null || v === undefined) return null;
+  const parsed = Number(v);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * v3.1's own MODEL_VERSION string, spelled literally rather than read off
+ * `model.MODEL_VERSION`. The Ruling's rebuilt-v3.1 column and its
+ * calibration (points 3-4) name v3.1 SPECIFICALLY, as the #1438 gate's
+ * permanent error bar, and must keep meaning v3.1 even after a successor
+ * (#1440-#1443) bumps `model.MODEL_VERSION` past it. Adversarial review
+ * finding (f1): keying the v3.1 rebuild off `model.MODEL_VERSION` let a
+ * future bump silently relabel THAT VERSION's own rebuild as "rebuilt v3.1"
+ * with no error bar computed at all - the report still printed
+ * "rebuilt v3.1" / "calibration: 1.0000" for what was actually the v3.2
+ * rebuild run twice.
+ */
+const MODEL_VERSION_V3_1 = 'free_baseline_v3.1';
+
+/**
+ * MODEL_VERSION -> the MODEL_CONSTANTS this checkout can run it with.
+ * `model.MODEL_VERSION`'s own constants are always registered - that is how
+ * a landed successor (#1440-#1443) becomes runnable without editing this
+ * file. `MODEL_VERSION_V3_1` is ALSO registered, but ONLY from
+ * `model.MODEL_CONSTANTS` while this checkout's HEAD still IS v3.1: the
+ * instant a successor bumps `model.MODEL_VERSION` past it,
+ * `model.MODEL_CONSTANTS` stops being v3.1's constants, and this module has
+ * no other source for them - refusing the v3.1 columns loudly then is the
+ * correct behaviour (ruling point 1), not a bug to route around. A landing
+ * that wants v3.1 to remain the PERMANENT error bar past its own bump must
+ * add v3.1's own preserved constants under `MODEL_VERSION_V3_1` here
+ * explicitly; nothing here may invent a stand-in under the v3.1 name.
  */
 const CONSTANTS_BY_MODEL_VERSION = Object.freeze({
   [model.MODEL_VERSION]: model.MODEL_CONSTANTS,
+  ...(model.MODEL_VERSION === MODEL_VERSION_V3_1 ? { [MODEL_VERSION_V3_1]: model.MODEL_CONSTANTS } : {}),
 });
 
-/** The constants for `modelVersion`, or a loud refusal - never a HEAD fallback. */
-function constantsFor(modelVersion) {
-  const constants = CONSTANTS_BY_MODEL_VERSION[modelVersion];
+/**
+ * The constants for `modelVersion`, or a loud refusal - never a HEAD
+ * fallback. `registry` defaults to the real `CONSTANTS_BY_MODEL_VERSION`;
+ * callers pass their own ONLY in tests, to prove the v3.1 and target columns
+ * are wired to genuinely distinct constant sets without needing to stub
+ * `model.MODEL_VERSION` at require time.
+ */
+function constantsFor(modelVersion, registry = CONSTANTS_BY_MODEL_VERSION) {
+  const constants = registry[modelVersion];
   if (!constants) {
     throw new Error(
       `successorEval: no constants registered for MODEL_VERSION "${modelVersion}" - refusing to run `
@@ -62,6 +109,16 @@ function constantsFor(modelVersion) {
  * the captured `factors.expertConsensus` quote, or `null` when no provider
  * ran at capture - both replayed through the LIVE code paths
  * (`generateProjections`'s override seams), never computed here.
+ *
+ * A reading note on the Ruling's wording (point 2, nit f3): it describes
+ * this substitution as replaying the captured entry's "effect". The captured
+ * factor carries no `effect` field - `expertConsensusBlend`
+ * (projectionModel.js) stores `expertPoints`, `blendWeight` and
+ * `pointsContribution`, because expert consensus BLENDS into the projection
+ * rather than multiplying it like the other factors `effect` describes. What
+ * this function replays is therefore the captured QUOTE (`expertPoints` /
+ * `source`) through the engine's own live blend, not a stored effect value -
+ * the only reading available given the shape the capture actually stores.
  */
 function overridesForRow(row) {
   const playerContext = {
@@ -119,9 +176,9 @@ function buildOverrideMaps(rows) {
  * rebuilt rows can be scored by the same metric functions.
  */
 async function reprojectWeek({
-  header, rows, rules, modelVersion, generateProjections,
+  header, rows, rules, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
 }) {
-  const constants = constantsFor(modelVersion);
+  const constants = constantsFor(modelVersion, constantsByModelVersion);
   const { playerContextOverrideById, expertOverrideByPlayerId } = buildOverrideMaps(rows);
   const playerIds = rows.map((r) => r.playerId);
   const result = await generateProjections({
@@ -171,8 +228,8 @@ function calibrateAgainstCaptured({ capturedRows, rebuiltRows }) {
     const rebuilt = rebuiltById.get(row.playerId);
     if (!rebuilt) continue;
     checked += 1;
-    const capturedMean = isNum(row.mean) ? Number(row.mean) : null;
-    const rebuiltMean = isNum(rebuilt.mean) ? Number(rebuilt.mean) : null;
+    const capturedMean = numOrNull(row.mean);
+    const rebuiltMean = numOrNull(rebuilt.mean);
     if (capturedMean !== null && rebuiltMean !== null && Math.abs(capturedMean - rebuiltMean) <= 0.01) {
       withinTolerance += 1;
     }
@@ -201,7 +258,7 @@ function metricsForArm({ rows, actuals, season, week }) {
   for (const row of rows) {
     const actualRaw = actuals.get(`${season}:${week}:${row.playerId}`);
     const actual = actualRaw === undefined ? 0 : Number(actualRaw);
-    const projected = isNum(row.mean) ? Number(row.mean) : null;
+    const projected = numOrNull(row.mean);
     const scoredRow = { playerId: row.playerId, projected, actual };
     scored.push(scoredRow);
     const bucket = String(row.position || '').toUpperCase();
@@ -250,9 +307,13 @@ function aggregateWeekly(weekly) {
  * three columns on every profile but one).
  */
 async function evaluateProfile({
-  weeks, actuals, rules, modelVersion, generateProjections,
+  weeks, actuals, rules, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
 }) {
-  const isBaselineRun = modelVersion === model.MODEL_VERSION;
+  // Compared against the LITERAL v3.1 name (never `model.MODEL_VERSION`,
+  // adversarial review finding f1): the target run reuses the v3.1 rebuild
+  // only when IT IS the v3.1 run, regardless of what this checkout's HEAD
+  // currently ships.
+  const isBaselineRun = modelVersion === MODEL_VERSION_V3_1;
   const capturedWeekly = [];
   const rebuiltV31Weekly = [];
   const rebuiltTargetWeekly = [];
@@ -265,7 +326,7 @@ async function evaluateProfile({
     });
 
     const rebuiltV31Rows = await reprojectWeek({
-      header, rows, rules, modelVersion: model.MODEL_VERSION, generateProjections,
+      header, rows, rules, modelVersion: MODEL_VERSION_V3_1, generateProjections, constantsByModelVersion,
     });
     rebuiltV31Weekly.push({
       week: header.week,
@@ -276,12 +337,12 @@ async function evaluateProfile({
       ...calibrateAgainstCaptured({ capturedRows: rows, rebuiltRows: rebuiltV31Rows }),
     });
 
-    // The baseline run's target column IS the v3.1 rebuild - recomputing it
+    // The v3.1 run's target column IS the v3.1 rebuild - recomputing it
     // would call generateProjections twice for identical inputs.
     const rebuiltTargetRows = isBaselineRun
       ? rebuiltV31Rows
       : await reprojectWeek({
-        header, rows, rules, modelVersion, generateProjections,
+        header, rows, rules, modelVersion, generateProjections, constantsByModelVersion,
       });
     rebuiltTargetWeekly.push({
       week: header.week,
@@ -301,7 +362,7 @@ async function evaluateProfile({
       rebuiltTarget: { modelVersion, ...aggregateWeekly(rebuiltTargetWeekly) },
     },
     calibration: {
-      modelVersion: model.MODEL_VERSION,
+      modelVersion: MODEL_VERSION_V3_1,
       checked: calibrationChecked,
       withinTolerance: calibrationWithin,
       share: calibrationChecked > 0 ? calibrationWithin / calibrationChecked : null,
@@ -316,12 +377,20 @@ async function evaluateProfile({
  * The whole gate run: every profile's report, side by side, under one
  * MODEL_VERSION. `profiles` is `[{ name, rules, weeks, actuals }, ...]`, one
  * entry per captured scoring profile (the runner supplies standard, half_ppr
- * and ppr). Fails BEFORE any reprojection when `modelVersion` has no
- * registered constants (ruling point 1) - a wasted network round trip is
- * cheap; a report claiming to have run a version it did not is not.
+ * and ppr). Fails BEFORE any reprojection when EITHER `modelVersion` or
+ * `MODEL_VERSION_V3_1` has no registered constants (ruling point 1) - every
+ * report carries the v3.1 rebuild as its error bar, so a run that cannot
+ * produce that column is refused wholesale rather than shipping the target
+ * column alone with a calibration nobody can trust. A wasted network round
+ * trip is cheap; a report claiming to have run a version it did not is not.
+ * `constantsByModelVersion` defaults to the real registry; see
+ * `constantsFor` for why a test would ever pass its own.
  */
-async function evaluate({ profiles, modelVersion, generateProjections }) {
-  constantsFor(modelVersion);
+async function evaluate({
+  profiles, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
+}) {
+  constantsFor(modelVersion, constantsByModelVersion);
+  constantsFor(MODEL_VERSION_V3_1, constantsByModelVersion);
   const result = { modelVersion, profiles: {} };
   for (const profile of profiles) {
     result.profiles[profile.name] = await evaluateProfile({
@@ -330,6 +399,7 @@ async function evaluate({ profiles, modelVersion, generateProjections }) {
       rules: profile.rules,
       modelVersion,
       generateProjections,
+      constantsByModelVersion,
     });
   }
   return result;
@@ -377,6 +447,7 @@ function renderReport(result) {
 }
 
 module.exports = {
+  MODEL_VERSION_V3_1,
   CONSTANTS_BY_MODEL_VERSION,
   constantsFor,
   overridesForRow,

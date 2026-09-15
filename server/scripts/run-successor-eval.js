@@ -173,9 +173,11 @@ async function loadProfile({ season, profileName, client }) {
 
 async function main(argv) {
   const args = parseArgs(argv);
-  // Fail before ANY I/O when the checkout cannot supply this version's
-  // constants (ruling point 1) - and before `--out` is even resolved.
+  // Fail before ANY I/O when the checkout cannot supply either the target
+  // version's constants OR v3.1's (every report carries the v3.1 rebuild as
+  // its error bar, ruling point 4) - and before `--out` is even resolved.
   successorEval.constantsFor(args.modelVersion);
+  successorEval.constantsFor(successorEval.MODEL_VERSION_V3_1);
   const out = resolveOutputPaths(args.outDir);
 
   const profiles = [];
