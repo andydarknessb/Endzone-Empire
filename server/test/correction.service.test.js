@@ -475,6 +475,69 @@ test('#1409: a correction rebuilds the stored recap from the corrected scores, w
   assert.equal(correctionFeedEntries.length, 1);
 });
 
+test('#1409: the recap rebuild runs AFTER the stat_correction log/notify, not before', async (t) => {
+  // formal-001-f1: the rebuild makes several pool queries and awaits an
+  // un-timed-out llmNarrative call, so it must not sit between the scores
+  // committing and the correction being logged/announced - a crash there
+  // would leave the correction with no record at all, and a later run's
+  // "before" snapshot (already post-correction) would never re-detect it to
+  // retry. The log/notify transaction is the one thing that has to land
+  // first.
+  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const statCorrectionIdx = fake.calls.findIndex(
+    (c) => /INSERT INTO "transactions"/.test(c.text) && c.params[2] === 'stat_correction'
+  );
+  const recapStoreIdx = fake.calls.findIndex((c) => /INSERT INTO "league_analytics"/.test(c.text));
+  assert.ok(statCorrectionIdx >= 0, 'the stat_correction feed entry was written');
+  assert.ok(recapStoreIdx >= 0, 'the recap was rebuilt');
+  assert.ok(
+    statCorrectionIdx < recapStoreIdx,
+    'the correction is logged and announced before the recap rebuild runs'
+  );
+});
+
+test('#1409: a recap rebuild still runs when the log/notify transaction itself throws', async (t) => {
+  // formal-001-f1: the scores are committed either way, so losing the log/
+  // notify step must not also lose the rebuild.
+  const beforeHome = 90; const beforeAway = 80; const afterHome = 115; const afterAway = 80;
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: afterHome, away_score: afterAway }],
+    })],
+    [/^SELECT "matchups"\.\*/, () => ({
+      rows: [{
+        id: 1, final: true, home_team_id: 1, away_team_id: 2,
+        home_team_name: 'Team A', away_team_name: 'Team B',
+        home_score: afterHome, away_score: afterAway,
+      }],
+    })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 7, scoring_rules: null }] })],
+    [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => { throw new Error('owner lookup exploded'); }],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(console, 'error', () => {});
+
+  await assert.rejects(
+    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
+    /owner lookup exploded/
+  );
+
+  const stored = fake.matching(/INSERT INTO "league_analytics"/);
+  assert.equal(stored.length, 1, 'the recap is still rebuilt even though the log/notify transaction failed');
+  fake.assertClean();
+});
+
 test('#1409: a correction that changes nothing leaves the stored recap untouched, including its generated-at stamp', async (t) => {
   const fake = createFakePool([
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
