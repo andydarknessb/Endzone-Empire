@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, insert, select, update } = require('./helpers/fakePool');
 const prefs = require('../services/prefs.service');
 const push = require('../services/push.service');
-const { normalizeInjuryStatus, syncInjuries } = require('../services/scoring.service');
+const { normalizeInjuryStatus, syncInjuries, NFL_PLAYER_LIST_FLOOR } = require('../services/scoring.service');
 const { DEFAULT_ROSTER_SLOTS, setLineup } = require('../services/lineup.service');
 
 test('normalizeInjuryStatus maps designations to badge codes', () => {
@@ -764,7 +764,7 @@ test('team refresh: a feed entry with no team keeps the stored label instead of 
 // transient blank stripping 3,000 of them). The floor keeps that same
 // protection for a short or truncated feed while letting a real, full feed's
 // silence about a player read as what it is.
-const PADDED_ENTRY_COUNT = 1500; // NFL_PLAYER_LIST_FLOOR
+const PADDED_ENTRY_COUNT = NFL_PLAYER_LIST_FLOOR;
 
 /** `count` filler entries the departure/floor tests pad a feed with, each on
  * its own team and matching no stored player, so they inflate the feed's
@@ -934,7 +934,7 @@ test("#1385 ruling (4'): the same shape clears once his team's current-week game
   fake.assertClean();
 });
 
-test("#1385 ruling (4'): the deferral folds Team code aliases (nfl_games' WSH against a stored WAS)", async (t) => {
+test("#1385 ruling (4'): the deferral folds Team code aliases (a stored WSH against nfl_games' folded WAS)", async (t) => {
   // WAS is already its own canonical form (normalizeNflTeam('WAS') === 'WAS'
   // is the identity), so storing WAS on both sides would pass even with the
   // JS-side fold deleted. WSH is the alias that actually needs folding: the

@@ -1058,18 +1058,23 @@ function normalizeInjuryStatus(raw) {
   return null;
 }
 
-// #1385: the size floor the daily injury pass judges its own feed against
-// before it trusts a departure. A player absent from getNFLPlayerList (or
-// listed with no team) reads as "left the NFL" only when the feed itself
-// looks like a real player list; a short or truncated response must never be
-// able to read as the whole league departing at once. The ruling's own
-// figure (issue #1385): an absolute floor, not tied to FANTASY_POSITIONS
-// since the feed is not filtered to fantasy positions before this count. It
-// catches a feed cut roughly in half or worse; it does not catch a partial
-// truncation that still clears the floor while omitting real players (the
-// matched player population this pass scans is itself several thousand
-// rows) - a gap for a future ruling to weigh, not this one to resolve.
-const NFL_PLAYER_LIST_FLOOR = 1500;
+// #1385: the size floor the unattended injury pass judges its own feed
+// against before it trusts a departure. A player absent from
+// getNFLPlayerList (or listed with no team) reads as "left the NFL" only
+// when the feed itself looks like a real player list; a short or truncated
+// response must never be able to read as the whole league departing at
+// once. An absolute floor over the UNFILTERED feed (not FANTASY_POSITIONS,
+// and not derived at runtime from a prior run - ruling (2)'s "a constant
+// near the observed list size"). Observed (formal-001 f1, a project-lead
+// read-only prod query, 2026-09-15): data_sync_runs' injuries runs report
+// playersUpdated 3254 - itself a LOWER bound, since it counts only feed
+// entries that matched a stored players row, never the feed's own total
+// length. Set with roughly 250 of headroom below that observed floor for
+// ordinary day-to-day roster churn (a cut, a signing, a practice-squad
+// churn shifting who matches), while staying close enough that a feed
+// truncated to a fraction of the real list still trips it - unlike the
+// prior 1500, which a ~1,600-entry truncation would have cleared.
+const NFL_PLAYER_LIST_FLOOR = 3000;
 
 /**
  * Injury sync: Tank01's player list carries each player's current injury
@@ -1247,6 +1252,22 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   // runs at most once per run, and not at all for the common run that clears
   // nobody.
   const clearCandidates = []; // { player, feed: feed-match or null for absent }
+  // formal-001 f4: the append-one-feed-match shape (push the same row onto
+  // all four parallel arrays plus transitions) is identical at every site
+  // that resolves a feed match - only the team value differs - so it is
+  // written once here instead of three times, keeping a future fifth column
+  // from drifting out of sync at one of the three sites.
+  const pushMatch = (player, feed, team) => {
+    ids.push(player.id);
+    statuses.push(feed.status);
+    details.push(feed.detail);
+    teams.push(team);
+    transitions.push({
+      playerId: player.id,
+      previousDesignation: player.injury_status,
+      currentDesignation: feed.status,
+    });
+  };
   for (const player of playersResult.rows) {
     const feed = feedByExternal.get(String(player.external_id));
     if (!feed) {
@@ -1267,15 +1288,7 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
     // label because the floor tripped - the old behavior, unconditionally.
     const team = feed.team !== null ? feed.team : player.nfl_team;
     if (team !== player.nfl_team) teamChanges += 1;
-    ids.push(player.id);
-    statuses.push(feed.status);
-    details.push(feed.detail);
-    teams.push(team);
-    transitions.push({
-      playerId: player.id,
-      previousDesignation: player.injury_status,
-      currentDesignation: feed.status,
-    });
+    pushMatch(player, feed, team);
   }
   // #1385 ruling (4'): a clear candidate is DEFERRED - his label kept exactly
   // as stored - while his own team has a kicked-off game in any OPEN week (a
@@ -1294,15 +1307,7 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
       // A blank-team feed match still refreshes his designation/detail
       // normally; only the team stays (the SAME row shape every other feed
       // match takes, just with the stored team instead of null).
-      ids.push(player.id);
-      statuses.push(feed.status);
-      details.push(feed.detail);
-      teams.push(player.nfl_team);
-      transitions.push({
-        playerId: player.id,
-        previousDesignation: player.injury_status,
-        currentDesignation: feed.status,
-      });
+      pushMatch(player, feed, player.nfl_team);
       continue;
     }
     teamsCleared += 1;
@@ -1310,15 +1315,7 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
       departedIds.push(player.id);
       continue;
     }
-    ids.push(player.id);
-    statuses.push(feed.status);
-    details.push(feed.detail);
-    teams.push(null);
-    transitions.push({
-      playerId: player.id,
-      previousDesignation: player.injury_status,
-      currentDesignation: feed.status,
-    });
+    pushMatch(player, feed, null);
   }
   // One bulk UPDATE replaces the per-player loop. The three-column
   // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
@@ -2433,6 +2430,7 @@ module.exports = {
   syncWeekStats,
   syncSchedule,
   syncInjuries,
+  NFL_PLAYER_LIST_FLOOR,
   syncPlayers,
   syncPlayerSeasonStats,
   getSeasonPositionRank,

@@ -350,8 +350,8 @@ ambiguous with the slot)
 **No NFL team**:
 A player who has left the NFL — released, retired, or otherwise dropped from
 Tank01's player list — or who the list carries with no team. A fact about the
-NFL world, written only by the daily injury sync (never the hand-run player
-sync, and never anything a manager does), which clears `nfl_team` to null for
+NFL world, written only by the unattended injury sync (never the hand-run
+player sync, and never anything a manager does), which clears `nfl_team` to null for
 such a player once its own feed is large enough to trust; a feed too small to
 be a real player list trips a size floor and clears nothing, logged on that
 run's Sync run row. The clear is itself deferred, label kept exactly as
