@@ -52,7 +52,15 @@ export default function Card({
           sx={{
             display: 'flex',
             alignItems: 'center',
-            gap: 1.25,
+            // Wrap rather than shrink: at phone width a title, count and tail
+            // that do not fit one line used to be squeezed side by side, each
+            // breaking into two lines ("AROUND THE / LEAGUE", "6 / matchups",
+            // "Projected · Game / Center"). Wrapping keeps each piece whole
+            // and moves the tail (still `ml: auto`) onto its own right-aligned
+            // line when it has to. Nothing changes where the row fits.
+            flexWrap: 'wrap',
+            columnGap: 1.25,
+            rowGap: 0.5,
             px: 2.25,
             py: 1.75,
             borderBottom: '1px solid var(--dash-line)',
@@ -79,7 +87,7 @@ export default function Card({
           {count != null && (
             <Typography
               component="span"
-              sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-faint)' }}
+              sx={{ fontSize: '12px', fontWeight: 600, color: 'var(--dash-faint)', whiteSpace: 'nowrap' }}
             >
               {count}
             </Typography>
