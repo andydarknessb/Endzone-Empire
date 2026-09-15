@@ -724,12 +724,15 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
   let updated = 0;
   const plays = [];
 
+  // The funnel scores the row it stores; that one score is also the one the
+  // Scoring play's pointsDelta is priced from, so the two can never disagree.
   const upsertStats = async (playerId, stats) => {
-    await upsertPlayerStats(client, { playerId, season, week, stats });
+    const { fantasyPoints } = await upsertPlayerStats(client, { playerId, season, week, stats });
     // Keep the diff baseline current so a re-apply of the same box (the recap
     // path following a live sync) can't re-fire the same touchdown.
     prevById.set(playerId, stats);
     updated += 1;
+    return fantasyPoints;
   };
 
   for (const player of live.players || []) {
@@ -741,7 +744,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
     // next backfill. Merged BEFORE points are computed and before the row is
     // written, so the stored fantasy_points always describes the stored stats.
     const stats = mergeCarriedStats({ ...player.stats }, pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS));
-    const points = calculateFantasyPoints(stats);
+    const points = await upsertStats(playerId, stats);
     const events = suppressPlays ? [] : detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const meta = metaById.get(playerId) || {};
@@ -767,7 +770,6 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
         });
       }
     }
-    await upsertStats(playerId, stats);
   }
 
   // Team-defense scoring: one aggregate line per side, keyed by Team code. A
@@ -788,7 +790,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
     // backfilled from nflverse carries gameTeam/gameOpponent that a live
     // aggregate has no equivalent for.
     const stats = mergeCarriedStats({ ...line }, pickPresentKeys(prev, NFLVERSE_ONLY_STAT_KEYS));
-    const points = calculateFantasyPoints(stats);
+    const points = await upsertStats(defPlayer.id, stats);
     const events = suppressPlays ? [] : detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const pointsDelta =
@@ -808,7 +810,6 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
         });
       }
     }
-    await upsertStats(defPlayer.id, stats);
   }
 
   return { updated, plays };

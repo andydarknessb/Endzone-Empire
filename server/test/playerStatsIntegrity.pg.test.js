@@ -45,7 +45,6 @@ if (!ENABLED) {
 
   test.after(async () => {
     await pool.query(`DELETE FROM "player_stats_anomalies" WHERE "season" = $1`, [SEASON]);
-    await pool.query(`DELETE FROM "player_stats_integrity_scans" WHERE "seasons" = $1::int[]`, [[SEASON]]);
     await pool.query(`DELETE FROM "player_stats" WHERE "season" = $1`, [SEASON]);
     await pool.query(`DELETE FROM "players" WHERE "id" = $1`, [playerId]);
     await pool.end();
@@ -72,7 +71,6 @@ if (!ENABLED) {
     const status = await integrity.getIntegrityStatus();
     assert.equal(status.ok, false);
     assert.ok(status.open >= 1);
-    assert.ok(status.lastScanAt, 'the scan log row records when the scan finished');
 
     await upsertPlayerStats(pool, { playerId, season: SEASON, week: 1, stats: FIXTURE });
     const stored = await pool.query(
@@ -89,5 +87,17 @@ if (!ENABLED) {
       [playerId, SEASON]
     );
     assert.ok(resolved.rows[0].resolved_at, 'the anomaly is resolved in place, not deleted');
+  });
+
+  test('a row deleted after being flagged resolves on the next scan', async () => {
+    await pool.query(
+      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points") VALUES ($1, $2, 2, $3, 0)`,
+      [playerId, SEASON, JSON.stringify(FIXTURE)]
+    );
+    assert.equal((await integrity.scanPlayerStats({ seasons: [SEASON] })).open, 1);
+    await pool.query(`DELETE FROM "player_stats" WHERE "player_id" = $1 AND "season" = $2 AND "week" = 2`, [playerId, SEASON]);
+    const after = await integrity.scanPlayerStats({ seasons: [SEASON] });
+    assert.equal(after.open, 0);
+    assert.equal(after.resolved, 1, 'the incident fix (deleting the fabricated row) clears its anomaly');
   });
 }

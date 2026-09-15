@@ -69,12 +69,9 @@ function healthPool(over = {}) {
     [/FROM "leagues"/, () => ({ rows: over.overdueClocks || [] })],
     // getSchedulerStatus reads the latest ADP run here (#747); default: none.
     [/FROM "data_sync_runs"/, () => ({ rows: over.adpRuns || [] })],
-    // statsIntegrityStatus reads the open-anomaly count and the latest scan;
-    // default: nothing open, one finished scan.
+    // statsIntegrityStatus reads the open-anomaly count here and the last scan
+    // through lastRun (the data_sync_runs read above); default: nothing open.
     [/FROM "player_stats_anomalies"/, () => ({ rows: [{ open: over.openAnomalies ?? 0 }] })],
-    [/FROM "player_stats_integrity_scans"/, () => ({
-      rows: over.integrityScans || [{ finished_at: '2026-09-16T05:00:00.000Z', scanned_rows: 48210 }],
-    })],
   ]);
 }
 
@@ -349,7 +346,7 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
     'db', 'holdout', 'liveGameEngine', 'ok', 'quota', 'redis', 'release',
     'runtime', 'scheduler', 'statsIntegrity', 'uptimeSec', 'worker',
   ]);
-  assert.deepEqual(keys(res.body.statsIntegrity), ['lastScanAt', 'lastScannedRows', 'ok', 'open']);
+  assert.deepEqual(keys(res.body.statsIntegrity), ['lastScanAt', 'ok', 'open', 'stale']);
   assert.deepEqual(keys(res.body.db), ['latencyMs', 'ok']);
   assert.deepEqual(keys(res.body.redis), ['configured', 'ok']);
   assert.deepEqual(keys(res.body.runtime), ['ready', 'shuttingDown']);
@@ -417,7 +414,7 @@ test('GET / publishes the same key set when it is not ready and has nothing to r
     'db', 'holdout', 'liveGameEngine', 'ok', 'quota', 'redis', 'release',
     'runtime', 'scheduler', 'statsIntegrity', 'uptimeSec', 'worker',
   ]);
-  assert.deepEqual(keys(res.body.statsIntegrity), ['lastScanAt', 'lastScannedRows', 'ok', 'open']);
+  assert.deepEqual(keys(res.body.statsIntegrity), ['lastScanAt', 'ok', 'open', 'stale']);
   // The section that WIDENS rather than narrows when its source is gone: one
   // extra key, named. (`quota`'s own `{ unavailable }` fallback is not
   // reachable from this seam - getQuotaState is destructured at load, and it

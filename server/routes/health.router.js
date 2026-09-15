@@ -93,11 +93,11 @@ async function statsIntegrityStatus() {
       ok: status.ok,
       open: status.open,
       lastScanAt: status.lastScanAt,
-      lastScannedRows: status.lastScannedRows,
+      stale: status.stale,
     };
   } catch (error) {
     console.error('player_stats integrity status failed:', error.message);
-    return { ok: false, open: null, lastScanAt: null, lastScannedRows: null, unavailable: true };
+    return { ok: false, open: null, lastScanAt: null, stale: true, unavailable: true };
   }
 }
 

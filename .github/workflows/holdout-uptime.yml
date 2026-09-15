@@ -3,7 +3,8 @@ name: Holdout uptime
 # External watchdog for the holdout-confirm-2026 capture apparatus.
 #
 # /api/health/stats-integrity returns 503 while a player_stats anomaly is
-# open (see server/services/playerStatsIntegrity.service.js).
+# open or the nightly scan is stale; it reds the run by itself and never
+# touches the Sentry monitor (see server/services/playerStatsIntegrity.service.js).
 # /api/health/holdout returns 503 when any capture obligation is NOT in
 # {captured, pending, scheduled} - that covers missed, failed,
 # protocol-conflict, incomplete-arms and schedule-invalid - and when
@@ -108,8 +109,12 @@ jobs:
           check holdout "https://api.endzoneempire.gg/api/health/holdout" '.ok == true' || fail=1
           check worker "https://api.endzoneempire.gg/api/health/worker" '.ok == true and any(.workers[]; .name == "jobs")' || fail=1
           # player_stats integrity (week 1 2026 audit): 503 while the nightly
-          # scan has an open points-mismatch anomaly, or has never finished.
-          check stats-integrity "https://api.endzoneempire.gg/api/health/stats-integrity" '.ok == true and .open == 0' || fail=1
+          # scan has an open points-mismatch anomaly, has gone stale, or has
+          # never finished. Its own flag: a stats problem reds this run (the
+          # GitHub email) but is NOT a holdout-apparatus outage, so it never
+          # sends Sentry ?status=error and never withholds the heartbeat.
+          stats_fail=0
+          check stats-integrity "https://api.endzoneempire.gg/api/health/stats-integrity" '.ok == true and .open == 0' || stats_fail=1
           if [ "$fail" -ne 0 ]; then
             # Tell Sentry this is a DETECTED outage, best-effort: a later
             # "missed check-in" then unambiguously means the watchdog died.
@@ -123,6 +128,10 @@ jobs:
           for attempt in 1 2 3; do
             if curl --fail --silent --show-error --max-time 20 "${SENTRY_CRON_PING_URL}?status=ok" >/dev/null; then
               echo "dead-man's-switch heartbeat sent"
+              if [ "$stats_fail" -ne 0 ]; then
+                echo "::error::player_stats integrity is unhealthy (holdout apparatus fine, heartbeat sent) - see the stats-integrity bodies above"
+                exit 1
+              fi
               exit 0
             fi
             echo "heartbeat attempt $attempt of 3 failed"
