@@ -919,4 +919,38 @@ describe("position chips derived from the roster template (#1419)", () => {
     expect(playerCalls).toHaveLength(1);
     expect(playerCalls[0][1].params.position).toBe("RB");
   });
+
+  // Formal review f2 (round 2): useResource's stale-while-revalidate reload
+  // (an invalidation of an already-loaded row) sets `loading` true while
+  // KEEPING `templateLeague` set - unlike a first load, nothing about the
+  // template actually became unknown, so this must never hold or refetch.
+  test("f2: a stale-while-revalidate reload (loading true, template kept) issues no extra /api/players call", async () => {
+    mockBrowser({ players: [player({ id: 1, name: "Revalidate Guy", watching: true })] });
+    let revalidating = false;
+    useLeague.mockImplementation(() => ({
+      // A fresh roster_slots array every call (as a real reload would hand
+      // back) with unchanged content - `loading` toggles, `league` never
+      // goes null.
+      league: { ...league, roster_slots: [...DEFAULT_ROSTER_SLOTS] },
+      viewerTeamId: null,
+      loading: revalidating,
+      error: null,
+    }));
+    renderWithProviders(<PlayerManagement />, { route: "/player?league=1&pos=RB", path: "/player" });
+
+    await screen.findByText("Revalidate Guy");
+    const callsAfterInitialLoad = apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+    expect(callsAfterInitialLoad).toBeGreaterThan(0);
+
+    // The reload starts (loading flips true, template row kept on screen)...
+    revalidating = true;
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+    // ...and lands (loading flips back false, unchanged content).
+    revalidating = false;
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+    ).toBe(callsAfterInitialLoad);
+  });
 });

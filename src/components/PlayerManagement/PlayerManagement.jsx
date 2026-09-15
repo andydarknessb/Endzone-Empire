@@ -245,10 +245,18 @@ function PlayerManagement() {
   // which carries no `roster_slots`. No league selected reads as an absent
   // template too (the hook takes no key and never fetches), so both "no
   // league" and "a league with an empty template" land on the same
-  // DEFAULT_ROSTER_SLOTS fallback inside chipsForRosterSlots.
+  // FULL_CANONICAL_SLOTS fallback inside chipsForRosterSlots.
   const { league: templateLeague, loading: templateLeagueLoading } = useLeague(
     selectedLeague || undefined,
   );
+  // Formal review f2 (round 2): the template has never loaded only while
+  // BOTH are true - `loading` alone also flags a stale-while-revalidate
+  // reload of an already-loaded row (useResource.js's `load()`, reached
+  // from `subscribe` on an invalidation), which keeps `templateLeague` set
+  // the whole time. Gating fetchPlayers on `loading` alone held it, and
+  // depending on it, on every such reload too - one extra /api/players call
+  // per invalidation, even with an unchanged template.
+  const templateNeverLoaded = templateLeagueLoading && !templateLeague;
   // Keyed on the roster_slots FIELD, not the templateLeague wrapper object
   // (formal review f3): useResource/useLeague hands back a new `league`
   // object on every load or reload, including a stale-while-revalidate
@@ -370,14 +378,18 @@ function PlayerManagement() {
 
   const fetchPlayers = useCallback(async () => {
     if (!leaguesLoaded) return;
-    // Holds the request while the SELECTED league's own roster template is
-    // still loading (formal review f3): without this, a league whose row
-    // isn't cached yet sends one request under the FULL_CANONICAL_SLOTS
-    // fallback (or unfiltered, for a chip the fallback lacks) and a second,
-    // correctly-filtered one once the real template lands - and since
-    // neither response is guarded against arriving out of order, the
-    // slower one can win and show the wrong list.
-    if (selectedLeague && templateLeagueLoading) return;
+    // Holds the request while the SELECTED league's own roster template has
+    // never loaded at all (formal review f3, tightened by f2 round 2):
+    // without this, a league whose row isn't cached yet sends one request
+    // under the FULL_CANONICAL_SLOTS fallback (or unfiltered, for a chip the
+    // fallback lacks) and a second, correctly-filtered one once the real
+    // template lands - and since neither response is guarded against
+    // arriving out of order, the slower one can win and show the wrong
+    // list. `templateNeverLoaded` - not `loading` alone - so a
+    // stale-while-revalidate reload of an ALREADY-loaded row (which keeps
+    // `templateLeague` set while `loading` flips true) never holds or
+    // refetches: nothing about the template actually became unknown.
+    if (selectedLeague && templateNeverLoaded) return;
     try {
       setError(null);
       // The one translation from this surface's sort KEY to the server's
@@ -428,7 +440,7 @@ function PlayerManagement() {
     search,
     selectedLeague,
     sort,
-    templateLeagueLoading,
+    templateNeverLoaded,
   ]);
   useEffect(() => {
     fetchPlayers();
