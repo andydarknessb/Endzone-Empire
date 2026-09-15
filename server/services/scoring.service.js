@@ -1062,9 +1062,13 @@ function normalizeInjuryStatus(raw) {
 // before it trusts a departure. A player absent from getNFLPlayerList (or
 // listed with no team) reads as "left the NFL" only when the feed itself
 // looks like a real player list; a short or truncated response must never be
-// able to read as the whole league departing at once. Set near the observed
-// list size (CONTEXT.md's No NFL team) rather than tied to FANTASY_POSITIONS,
-// since the feed is not filtered to fantasy positions before this count.
+// able to read as the whole league departing at once. The ruling's own
+// figure (issue #1385): an absolute floor, not tied to FANTASY_POSITIONS
+// since the feed is not filtered to fantasy positions before this count. It
+// catches a feed cut roughly in half or worse; it does not catch a partial
+// truncation that still clears the floor while omitting real players (the
+// matched player population this pass scans is itself several thousand
+// rows) - a gap for a future ruling to weigh, not this one to resolve.
 const NFL_PLAYER_LIST_FLOOR = 1500;
 
 /**
@@ -1236,7 +1240,7 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
       // player who has left the NFL (CONTEXT.md's No NFL team) and his label
       // is cleared, never his designation or detail (the feed says nothing
       // about those for a player it does not list).
-      if (!floorGuardTripped && player.nfl_team !== null) {
+      if (!floorGuardTripped && player.nfl_team) {
         departedIds.push(player.id);
         teamsCleared += 1;
       }
@@ -1318,9 +1322,12 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   // run - absent from the feed, or listed with no team - which is a
   // DEPARTURE, not a move, and is kept out of teamChanges so the two counters
   // answer two different questions: how many players changed teams, and how
-  // many left the NFL. Both stay 0 below NFL_PLAYER_LIST_FLOOR by construction
-  // (floorGuardTripped short-circuits every site that would otherwise set
-  // either).
+  // many left the NFL. teamsCleared stays 0 below NFL_PLAYER_LIST_FLOOR by
+  // construction (floorGuardTripped short-circuits both sites that would
+  // otherwise set it). teamChanges does NOT: a real move to a different team
+  // reported by the feed is still counted and still written below the floor -
+  // the floor guards only a departure/blank reading as a clear, not the
+  // pass's ordinary team-correction behavior, which predates #1385 unchanged.
   return {
     playersUpdated: transitions.length,
     irFlags: irFlags.length,
