@@ -112,7 +112,8 @@ function normalizeBio(payload) {
 
 /**
  * Pure: an athlete overview payload's `news[]` -> our News shape
- * (CONTEXT.md), newest first as ESPN already orders it. Empty array, never
+ * (CONTEXT.md) `{ headline, source, publishedAt, url }`, newest first as
+ * ESPN already orders it. Empty array, never
  * null, when ESPN reports none - `getPlayerCard` supplies the feed-note
  * fallback itself (ADR 0041/CONTEXT.md "News").
  */
@@ -124,6 +125,9 @@ function normalizeEspnNews(payload) {
       headline: String(item.headline),
       source: 'espn',
       publishedAt: item.lastModified || item.categorized || null,
+      // The story itself: ESPN's web link, so the card can make the headline
+      // clickable. null (never undefined) when an item carries no links block.
+      url: (item.links && item.links.web && item.links.web.href) || null,
     }));
 }
 
