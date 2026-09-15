@@ -185,6 +185,22 @@ async function tickUnlocked() {
     } catch (err) {
       console.error('nightly projection fill failed (will retry next tick):', err.message);
     }
+    // ESPN depth-chart/Ownership syncs (#1308, risk review): LAST, after every
+    // time-sensitive duty above (holdout capture, kickoff hold, waivers,
+    // reminders, pick'em, trades, live scoring) - up to 32 sequential ESPN
+    // calls each with its own ESPN_TIMEOUT_MS, so a slow or hanging host must
+    // never delay any of those. Both jobs are free and keyless, so unlike the
+    // nightly projection fill above they need no off-peak hour of their own.
+    try {
+      await runDailyEspnDepthChartSync();
+    } catch (err) {
+      console.error('daily ESPN depth-chart sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runDailyEspnOwnershipSync();
+    } catch (err) {
+      console.error('daily ESPN ownership sync failed (will retry next tick):', err.message);
+    }
     lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
@@ -305,6 +321,50 @@ async function runDailyAdpSync({ now = new Date() } = {}) {
   lastAdpSyncDay = today;
   return result;
 }
+
+/**
+ * The last SUCCESSFUL run of an ESPN facts job, read via `lastRun(job)`
+ * rather than an in-memory day stamp (#1308 risk review, mirroring
+ * `lastInjurySyncAt` above / #1188): an in-memory stamp resets on every
+ * worker restart AND is per-process, so a deploy or a second worker would
+ * repeat the whole 32-team sweep (or the ~4000-player Ownership pull) outside
+ * this file's control over when - possibly mid-slate, ahead of the
+ * time-sensitive duties these jobs already run after (see the call site
+ * below). Reading `data_sync_runs` is durable across both. Deliberately
+ * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
+ * so the next tick retries it - same rule as the injury sync.
+ */
+async function lastEspnFactsSyncAt(job) {
+  try {
+    const { latestOk } = await lastRun(job);
+    return latestOk ? latestOk.finishedAt : null;
+  } catch (err) {
+    console.warn('lastEspnFactsSyncAt: data_sync_runs read failed, treating as never run:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Builds a once-a-day wrapper for one ESPN facts job (#1308, ADR 0041/0036;
+ * formal review f4 - the two callers below were identical apart from the job
+ * name and which `espnFactsSync` export they call, so a later fix to the
+ * gate only had to land once). Runs at most once per local calendar day
+ * (gate: `lastEspnFactsSyncAt` above); the job itself owns its own
+ * `data_sync_runs` row and the row-level idempotency (ON CONFLICT DO
+ * NOTHING). A thrown run (including a `fetch_failed` from an ESPN outage,
+ * formal review f3) records `ok: false` and does not move the gate, so the
+ * next tick retries.
+ */
+function dailyEspnFactsSyncRunner(job, runJob) {
+  return async function runDailyEspnSync({ now = new Date() } = {}) {
+    const lastRunAt = await lastEspnFactsSyncAt(job);
+    if (lastRunAt && lastRunAt.toLocaleDateString('en-CA') === now.toLocaleDateString('en-CA')) return null;
+    return runJob({ now });
+  };
+}
+
+const runDailyEspnDepthChartSync = dailyEspnFactsSyncRunner('espn-depth-chart', (opts) => require('./espnFactsSync').runDepthChartSync(opts));
+const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
 let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
@@ -798,6 +858,7 @@ function stopScheduler() {
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
   'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'game-context',
+  'espn-depth-chart', 'espn-ownership',
 ];
 
 // The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
@@ -934,6 +995,8 @@ module.exports = {
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
+  runDailyEspnDepthChartSync,
+  runDailyEspnOwnershipSync,
   runHourlyOddsSync,
   runHourlyGameContextSync,
   runHoldoutSnapshots,
