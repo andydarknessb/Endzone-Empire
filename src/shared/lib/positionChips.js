@@ -31,7 +31,7 @@ export const CANONICAL_CHIP_ORDER = [
 // No league selected, or a template with no slots at all, falls back to the
 // FULL canonical set - every chip a league could ever offer, FLEX meaning
 // RB/WR/TE (#1419, #1416 story 16, the Rosterable position glossary entry,
-// ADR 0044: such a request has no server-side gate, so the caller must offer
+// ADR 0045: such a request has no server-side gate, so the caller must offer
 // every chip that could narrow it). Built from templates.js's own slot
 // definitions (formal review f2) - DEFAULT_ROSTER_SLOTS plus the SFLX slot
 // the 'superflex' LEAGUE_TEMPLATES entry carries and the DL/LB/DB slots the
