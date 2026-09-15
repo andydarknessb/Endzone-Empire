@@ -960,3 +960,26 @@ test('kickoff hold, then claim-target, submit-claim and processing, all through 
   assert.deepEqual(processed.results, [{ claimId: 9, playerId: 500, status: 'won', teamId: 31 }]);
   assert.equal(table.rows.length, 0, 'the clear DELETE removed the row');
 });
+
+test('submitClaim refuses a no-drop claim when the roster is already at capacity', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 1, pickem_only: false, waiver_type: 'priority', transactions_locked: false,
+        waivers_clear_at: null, roster_limit: 14, ir_slots: 0,
+      }],
+    })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false }] })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [select('waiver_players'), () => ({ rows: [{ 1: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 14 }] })],
+    [select('waiver_claims'), () => ({ rows: [] })],
+  ]).install(t);
+
+  await assert.rejects(
+    () => submitClaim({ leagueId: 1, userId: 8, playerId: 500, dropPlayerId: null, bid: 0 }),
+    { statusCode: 409, message: 'roster capacity of 14 reached; choose a player to drop' }
+  );
+  assert.equal(fake.matching(insert('waiver_claims')).length, 0);
+  fake.assertClean();
+});
