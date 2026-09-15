@@ -735,3 +735,31 @@ test('a claim refusal carrying a code beside a message renders the message, not 
   )).not.toHaveLength(0);
   expect(screen.queryByText('WAIVER_PERIOD_CLOSED')).not.toBeInTheDocument();
 });
+
+// The Decision card's claim bar requires a drop pick at capacity; that gate
+// reads rosterCount/rosterCapacity, which only this page's cards read
+// carries, so it must be handed through or a full-roster claim from here
+// still dies on the server's 409.
+test('at roster capacity the Decision card claim bar from Waiver Wire requires a drop pick', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversResponse() });
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
+    if (url === '/api/players')
+      return Promise.resolve({
+        data: {
+          players: [cardsPlayer()],
+          totalPages: 1,
+          total: 1,
+          context: { rosterCount: 16, rosterCapacity: 16 },
+        },
+      });
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+  renderScreen();
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Breece Hall' }));
+  const card = await screen.findByTestId('decision-card');
+  const action = within(card).getByTestId('claim-player-action');
+  expect(within(action).getByTestId('claim-player-submit')).toBeDisabled();
+  expect(within(action).getByLabelText('Drop a player')).toBeInTheDocument();
+});

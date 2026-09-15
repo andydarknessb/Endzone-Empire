@@ -6,6 +6,7 @@ const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
 const { NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { runSyncJob } = require('../modules/syncRun');
+const { upsertPlayerStats } = require('./playerStatsWrite.service');
 
 /**
  * Two nflverse-backed jobs share this service:
@@ -273,14 +274,7 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
     );
     const prevStats = existing.rows[0] ? existing.rows[0].stats : {};
     const stats = { ...prevStats, ...patch };
-    const points = scoring.calculateFantasyPoints(stats);
-    await db.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [playerId, season, week, JSON.stringify(stats), points]
-    );
+    await upsertPlayerStats(db, { playerId, season, week, stats });
     playersUpdated += 1;
   }
   return { season, week, playersUpdated };
@@ -779,14 +773,7 @@ async function applyNflverseFullWeek({
   for (const { playerId, stats: fresh } of playerUpdates) {
     const carry = preserved.get(playerId);
     const stats = carry ? { ...fresh, ...carry } : fresh;
-    const points = scoring.calculateFantasyPoints(stats);
-    await pool.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [playerId, season, week, JSON.stringify(stats), points]
-    );
+    await upsertPlayerStats(pool, { playerId, season, week, stats });
     playersUpdated += 1;
   }
 
@@ -796,15 +783,7 @@ async function applyNflverseFullWeek({
     // so the two stay in one vocabulary no matter what buildDstStatUpdates emits.
     const defRow = defByTeamCode.get(normalizeNflTeam(teamAbbr));
     if (!defRow) continue;
-    const defPlayerId = defRow.id;
-    const points = scoring.calculateFantasyPoints(stats);
-    await pool.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [defPlayerId, season, week, JSON.stringify(stats), points]
-    );
+    await upsertPlayerStats(pool, { playerId: defRow.id, season, week, stats });
     dstUpdated += 1;
   }
 

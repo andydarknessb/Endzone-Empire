@@ -68,6 +68,9 @@ let lastAdpSyncDay = null;
 // Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
 // and correction passes above.
 let lastProjectionFillDay = null;
+// Nightly player_stats integrity scan (week 1 2026 audit): same once-a-day
+// stamp pattern. A thrown scan does not stamp, so the next tick retries.
+let lastIntegrityScanDay = null;
 
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
@@ -189,6 +192,11 @@ async function tickUnlocked() {
       await runNightlyProjectionFill();
     } catch (err) {
       console.error('nightly projection fill failed (will retry next tick):', err.message);
+    }
+    try {
+      await runNightlyStatsIntegrityScan();
+    } catch (err) {
+      console.error('nightly stats integrity scan failed (will retry next tick):', err.message);
     }
     // ESPN depth-chart/Ownership syncs (#1308, risk review): LAST, after every
     // time-sensitive duty above (holdout capture, kickoff hold, waivers,
@@ -553,6 +561,34 @@ async function lastStatCorrectionsDay() {
     console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
     return null;
   }
+}
+
+/**
+ * Nightly player_stats integrity scan: records any row whose stored points
+ * disagree with its stats (playerStatsIntegrity.service). A Sync run per ADR
+ * 0036 with one unit and no lock (nothing else writes the anomalies table),
+ * so its data_sync_runs row is the freshness the health route reads. Runs at
+ * most once per local calendar day and only inside the same off-peak UTC
+ * hour as the projection fill: it pages every player_stats row, and the tick
+ * lock it holds while doing so must never sit inside a game window. The day
+ * is stamped only after a scan that did not throw, so a transient database
+ * failure retries on the next tick inside the window.
+ */
+async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
+  if (now.getUTCHours() !== NIGHTLY_PROJECTION_FILL_UTC_HOUR) return null;
+  const today = now.toLocaleDateString('en-CA');
+  if (lastIntegrityScanDay === today) return null;
+  const integrity = require('../services/playerStatsIntegrity.service');
+  const result = await runSyncJob({
+    job: integrity.JOB,
+    fetch: async () => [{}],
+    apply: (client) => integrity.scanPlayerStats({ db: client }),
+  });
+  lastIntegrityScanDay = today;
+  if (result.open > 0) {
+    console.warn(`scheduler: player_stats integrity scan found ${result.open} open anomaly(ies) over ${result.scanned} rows`);
+  }
+  return result;
 }
 
 /**
@@ -1136,6 +1172,7 @@ module.exports = {
   runDailyStatCorrections,
   runNightlyProjectionFill,
   projectionRefillOwed,
+  runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,
   INTERVAL_MS,

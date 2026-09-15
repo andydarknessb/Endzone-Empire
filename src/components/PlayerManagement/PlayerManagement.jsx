@@ -45,6 +45,7 @@ import { useClaimPlayer } from "../../features/claim-player";
 import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
+import { isRosterAtCapacity } from "../../shared/lib/rosterCapacity";
 import { isPickemOnly } from "../../shared/lib/leagueType";
 import {
   SORT_FIELDS,
@@ -363,8 +364,15 @@ function PlayerManagement() {
   // through the SAME claim-player feature WaiverWire's own claim dialog
   // submits with - a one-tap claim (no drop pick, no bid) straight from the
   // list, the row-level counterpart to Add's own direct call above. A
-  // manager who needs a drop pick or a FAAB bid still reaches the fuller
-  // Decision card action bar by opening the row's own Quick view.
+  // manager who wants a FAAB bid still reaches the fuller Decision card
+  // action bar by opening the row's own Quick view.
+  //
+  // At roster capacity the one-tap claim cannot succeed: the server 409s
+  // with "choose a player to drop" and the row had nowhere to choose one.
+  // `actionForPlayer` below routes that case to the Decision card's claim
+  // bar, whose drop pick is required there, the same gate `AddPlayerAction`
+  // gives a free-agent add.
+  const rosterAtCapacity = isRosterAtCapacity(context);
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
@@ -418,11 +426,14 @@ function PlayerManagement() {
           // repeated Enter/click fire the same waiver claim twice before the
           // first request's snackbar ever appeared - disabling for the
           // request's own duration is the same guard Add already gets below
-          // from `rosterAction.disabled`.
+          // from `rosterAction.disabled`. At capacity the tap opens the
+          // Decision card's claim bar instead (see `rosterAtCapacity`).
           label: rowPending ? "Claiming…" : "Claim",
-          onClick: () => claimFromRow(player),
+          onClick: rosterAtCapacity ? () => setQuickViewId(player.id) : () => claimFromRow(player),
           disabled: rowPending,
-          helper: "Submit a waiver claim for this player.",
+          helper: rosterAtCapacity
+            ? "Your roster is full. Choose a player to drop in the claim card."
+            : "Submit a waiver claim for this player.",
         };
       if (state === "my_team")
         return {
@@ -455,7 +466,7 @@ function PlayerManagement() {
         helper: rosterAction.helper,
       };
     },
-    [addToRoster, claimFromRow, pendingPlayerId, rosterAction, selectedLeague],
+    [addToRoster, claimFromRow, pendingPlayerId, rosterAction, rosterAtCapacity, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -478,6 +489,8 @@ function PlayerManagement() {
       ? { rosterCount: marketContext?.rosterCount, rosterCapacity: marketContext?.rosterCapacity }
       : quickViewContext === "waivers"
       ? {
+          rosterCount: marketContext?.rosterCount,
+          rosterCapacity: marketContext?.rosterCapacity,
           waiverPriority: marketContext?.waiverType === "priority" ? marketContext?.waiverPriority : undefined,
           faabRemaining: marketContext?.waiverType === "faab" ? marketContext?.faabRemaining : undefined,
         }

@@ -80,6 +80,28 @@ async function holdoutStatus() {
 }
 
 /**
+ * player_stats integrity (week 1 2026 audit): open anomalies from the nightly
+ * scan plus when it last ran. Unhealthy on any open anomaly, on a scan that
+ * has never finished, and when the tables cannot be read. Fields are named so
+ * the key set stays pinned; the raw error goes to the server log only.
+ */
+async function statsIntegrityStatus() {
+  try {
+    const integrity = require('../services/playerStatsIntegrity.service');
+    const status = await integrity.getIntegrityStatus();
+    return {
+      ok: status.ok,
+      open: status.open,
+      lastScanAt: status.lastScanAt,
+      stale: status.stale,
+    };
+  } catch (error) {
+    console.error('player_stats integrity status failed:', error.message);
+    return { ok: false, open: null, lastScanAt: null, stale: true, unavailable: true };
+  }
+}
+
+/**
  * Overdue Pick clocks (#768, ruling 2): the API-health half of the two
  * detectors. A stored deadline elapsed for longer than the tolerance and still
  * undischarged is Overdue - and because it reads the stored deadline, a DEAD
@@ -241,6 +263,13 @@ router.get('/worker', async (req, res) => {
   res.status(worker.ok ? 200 : 503).json(worker);
 });
 
+// The alertable stats-integrity signal: 503 while any anomaly is open. The
+// composite carries the same section as context without failing the app.
+router.get('/stats-integrity', async (req, res) => {
+  const statsIntegrity = await statsIntegrityStatus();
+  res.status(statsIntegrity.ok ? 200 : 503).json(statsIntegrity);
+});
+
 /**
  * Tank01 spend, trimmed to what a health check should show. Never fails the
  * check — a missing quota table (pre-migration) just reports unavailable.
@@ -262,12 +291,13 @@ async function quotaStatus() {
 }
 
 router.get('/', async (req, res) => {
-  const [db, redis, workerResult, quota, holdout] = await Promise.all([
+  const [db, redis, workerResult, quota, holdout, statsIntegrity] = await Promise.all([
     databaseStatus(),
     redisStatus(),
     workerStatus({ includeJobStatus: true }),
     quotaStatus(),
     holdoutStatus(),
+    statsIntegrityStatus(),
   ]);
   const { jobStatus, ...worker } = workerResult;
   const runtime = getRuntimeState();
@@ -280,6 +310,7 @@ router.get('/', async (req, res) => {
     worker,
     quota,
     holdout,
+    statsIntegrity,
     // Spread keeps each status's key set exactly as pinned; only the error
     // field is rewritten from a raw message to its category (#242).
     scheduler: publishSchedulerStatus(jobStatus?.scheduler || await scheduler.getSchedulerStatus()),

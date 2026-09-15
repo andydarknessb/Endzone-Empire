@@ -63,6 +63,10 @@ function WaiverWire() {
   const [cardsPlayers, setCardsPlayers] = useState([]);
   const [cardsTotal, setCardsTotal] = useState(0);
   const [cardsTotalPages, setCardsTotalPages] = useState(1);
+  // The cards read's own market context (rosterCount/rosterCapacity): the
+  // Decision card's claim bar requires a drop pick at capacity, so it has to
+  // know the count, the same way PlayerManagement hands it over.
+  const [cardsContext, setCardsContext] = useState(null);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -147,13 +151,15 @@ function WaiverWire() {
       players: res.data.players || [],
       total: res.data.total ?? (res.data.players || []).length,
       totalPages: res.data.totalPages || 1,
+      context: res.data.context || null,
     };
   };
 
-  const applyCardsPage = ({ players, total, totalPages }) => {
+  const applyCardsPage = ({ players, total, totalPages, context }) => {
     setCardsPlayers(players);
     setCardsTotal(total);
     setCardsTotalPages(totalPages);
+    setCardsContext(context ?? null);
     // A claim or a clear can shrink the list under a deep-linked page; land
     // on the last real page instead of an empty one.
     if (players.length === 0 && pageNumber > totalPages) {
@@ -501,6 +507,8 @@ function WaiverWire() {
         leagueId={Number(leagueId)}
         context="waivers"
         availability={{
+          rosterCount: cardsContext?.rosterCount,
+          rosterCapacity: cardsContext?.rosterCapacity,
           waiverPriority: !isFaab ? data?.myTeam?.waiver_priority : undefined,
           faabRemaining: isFaab ? faabRemaining : undefined,
         }}
