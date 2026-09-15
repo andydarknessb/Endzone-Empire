@@ -978,14 +978,16 @@ test('#1411: a correction that raises the leader\'s total without changing the l
   );
 });
 
-test('#1411: an exact tie for the week high score is broken deterministically (points desc, team_id asc), never by matchup scan order', async (t) => {
+test('#1411: an exact tie for the week high score never moves the trophy off its current (still-tied) holder, regardless of matchup scan order', async (t) => {
   // Risk review (#1411): a single-pass, unordered `>` scan picks whichever
   // tied side the query happens to return last - and matchups are UPDATEd in
   // place every correction pass, so their physical scan order is not stable
   // run to run. Team 10 already holds the trophy at 152; the correction
-  // drops them to 150, which exactly ties team 20's 150. Team 10 must keep
-  // it (lower team_id wins ties) - and the DELETE handler below throws if the
-  // reconcile ever tries to remove team 10's still-correct trophy.
+  // drops them to 150, which exactly ties team 20's 150. Team 10 still ties
+  // for the lead, so they must keep the trophy - and the DELETE handler below
+  // throws if the reconcile ever tries to remove team 10's still-correct
+  // trophy. (See the next test for the mirror case: the incumbent at the
+  // HIGHER team_id keeps it too - formal-001 f1.)
   const seedTrophies = [
     { id: 501, team_id: 10, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 152 } },
   ];
@@ -1036,8 +1038,134 @@ test('#1411: an exact tie for the week high score is broken deterministically (p
 
   const topScorers = trophyRows.filter((row) => row.type === 'top_scorer');
   assert.equal(topScorers.length, 1);
-  assert.equal(topScorers[0].team_id, 10, 'team 10 keeps it on an exact tie - lower team_id wins deterministically');
+  assert.equal(topScorers[0].team_id, 10, 'team 10 keeps it - it still ties for the corrected week high');
   assert.equal(topScorers[0].data.points, 150, 'stored points reflect the corrected (tied) total');
+});
+
+test('#1411 (formal-001 f1): the mirror case - an incumbent at the HIGHER team_id also keeps the trophy on a tie, never demoted for a fresh tiebreak', async (t) => {
+  // formal-001 f1: awardWeeklyTrophies' own first-award tiebreak is unstable
+  // scan order, not team_id - so the incumbent a tie produced is not
+  // reliably the lower team_id. Team 20 already holds the trophy at 152; the
+  // correction drops them to 150, tying team 10's 150. A tiebreak that always
+  // resolved ties by team_id ASC (regardless of who already holds it) would
+  // wrongly hand this to team 10 and DELETE team 20's still-correct trophy;
+  // the DELETE handler below throws if that happens.
+  const seedTrophies = [
+    { id: 501, team_id: 20, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 152 } },
+  ];
+  const trophyRows = seedTrophies.map((row) => ({ ...row }));
+  const weekMatchups = [
+    { id: 1, home_team_id: 10, away_team_id: 11, home_score: 150, away_score: 90 },
+    { id: 2, home_team_id: 20, away_team_id: 21, home_score: 150, away_score: 80 },
+  ];
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 2, week: 5, final: true, is_playoff: false, home_score: 152, away_score: 80 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 2, home_score: 150, away_score: 80 }],
+    })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
+      rows: weekMatchups,
+    })],
+    [/^SELECT "id", "team_id", "data" FROM "trophies"/, () => ({
+      rows: trophyRows
+        .filter((row) => row.type === 'top_scorer')
+        .map((row) => ({ id: row.id, team_id: row.team_id, data: row.data })),
+    })],
+    [/^DELETE FROM "trophies" WHERE "id" = \$1/, () => {
+      throw new Error('the tied, already-correct leader must never be deleted');
+    }],
+    [/^UPDATE "trophies" SET "data" = "data" \|\| \$2::jsonb WHERE "id" = \$1/, (text, params) => {
+      const row = trophyRows.find((r) => r.id === params[0]);
+      if (row) row.data = { ...row.data, ...JSON.parse(params[1]) };
+      return { rows: [] };
+    }],
+    [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
+      rows: [{ owner_id: 1000 + Number(params[0]) }],
+    })],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const topScorers = trophyRows.filter((row) => row.type === 'top_scorer');
+  assert.equal(topScorers.length, 1);
+  assert.equal(topScorers[0].team_id, 20, 'team 20 (the higher team_id) keeps it - it still ties for the corrected week high');
+  assert.equal(topScorers[0].data.points, 150, 'stored points reflect the corrected (tied) total');
+});
+
+test('#1411 (formal-001 f2): a team\'s week score is its highest single matchup appearance, never the sum across two appearances', async (t) => {
+  // formal-001 f2: matchups' unique key is only per home_team_id, so a team
+  // can legally appear in two final matchups the same week. awardWeeklyTrophies
+  // takes each team's single highest side value, never a sum. Team 10 appears
+  // twice at 110 each (sum 220, correct value 110); team 20 appears once at
+  // 150 and already holds the trophy. A summing reconcile would treat team 10
+  // as a fictitious 220 and DELETE team 20's still-correct trophy in team 10's
+  // favor; the DELETE handler below throws if that happens.
+  const seedTrophies = [
+    { id: 501, team_id: 20, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 150 } },
+  ];
+  const trophyRows = seedTrophies.map((row) => ({ ...row }));
+  const weekMatchups = [
+    { id: 1, home_team_id: 10, away_team_id: 30, home_score: 110, away_score: 20 },
+    { id: 2, home_team_id: 40, away_team_id: 10, home_score: 95, away_score: 110 },
+    { id: 3, home_team_id: 20, away_team_id: 50, home_score: 150, away_score: 60 },
+  ];
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      // An unrelated matchup in the same week is what the correction actually
+      // changed - team 10 and team 20's own scores above are untouched by it.
+      rows: [{ id: 4, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 30 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 4, home_score: 92, away_score: 30 }],
+    })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
+      rows: weekMatchups,
+    })],
+    [/^SELECT "id", "team_id", "data" FROM "trophies"/, () => ({
+      rows: trophyRows
+        .filter((row) => row.type === 'top_scorer')
+        .map((row) => ({ id: row.id, team_id: row.team_id, data: row.data })),
+    })],
+    [/^DELETE FROM "trophies" WHERE "id" = \$1/, () => {
+      throw new Error('team 20 still has the true (non-summed) week high and must never be deleted');
+    }],
+    [/^INSERT INTO "trophies"/, () => {
+      throw new Error('no new award is due - team 20 already correctly holds it');
+    }],
+    [/^UPDATE "trophies" SET "data" = "data" \|\| \$2::jsonb WHERE "id" = \$1/, (text, params) => {
+      const row = trophyRows.find((r) => r.id === params[0]);
+      if (row) row.data = { ...row.data, ...JSON.parse(params[1]) };
+      return { rows: [] };
+    }],
+    [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
+      rows: [{ owner_id: 1000 + Number(params[0]) }],
+    })],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const topScorers = trophyRows.filter((row) => row.type === 'top_scorer');
+  assert.equal(topScorers.length, 1);
+  assert.equal(topScorers[0].team_id, 20, 'team 20 keeps it - team 10\'s true week score (110) never outranks it');
+  assert.equal(topScorers[0].data.points, 150, 'stored points are team 20\'s real score, not team 10\'s summed 220');
 });
 
 test('#1411: a correction that changes no scores leaves the trophies table untouched', async (t) => {
