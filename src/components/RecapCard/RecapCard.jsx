@@ -124,6 +124,15 @@ function RecapCard({ leagueId }) {
   // role - never `invite_code`, which answers a different question.
   const { league } = useLeague(leagueId);
   const isCommissioner = !!league?.is_commissioner;
+  // The rebuild is scoped to "a chosen finalized week of the CURRENT season"
+  // (#1412's acceptance criteria). GET /recap has no current-season filter
+  // (getLatestRecap orders by season DESC), so between a rollover and that
+  // league's first recap of the new season the card can be showing an OLDER
+  // season's recap; offering the control there would rebuild the wrong
+  // season's week (the route resolves season from leagues.current_season,
+  // not from what's on screen). Gated off league.current_season, the same
+  // payload the commissioner flag above already reads.
+  const isCurrentSeasonRecap = league?.current_season != null && recap?.season === league.current_season;
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +163,14 @@ function RecapCard({ leagueId }) {
   // member notification. The response is the same { season, week, data }
   // shape the GET returns, so it replaces the displayed recap outright.
   const handleRebuild = async () => {
-    if (!recap || recap.week == null || rebuilding) return;
+    if (!recap || recap.week == null || !isCurrentSeasonRecap || rebuilding) return;
     setRebuilding(true);
     setRebuildError(null);
     try {
-      const res = await apiClient.post(`/api/scoring/league/${leagueId}/recap`, { week: recap.week });
+      const res = await apiClient.post(`/api/scoring/league/${leagueId}/recap`, {
+        week: recap.week,
+        season: recap.season,
+      });
       setRecap(res.data);
     } catch (err) {
       setRebuildError(readHttpFailure(err).message || err?.message || 'Could not rebuild the recap.');
@@ -190,7 +202,7 @@ function RecapCard({ leagueId }) {
           Weekly Recap
         </Typography>
         {recap.week != null && <Badge>{`Week ${recap.week}`}</Badge>}
-        {isCommissioner && (
+        {isCommissioner && isCurrentSeasonRecap && (
           <Button
             type="button"
             data-testid="recap-rebuild"

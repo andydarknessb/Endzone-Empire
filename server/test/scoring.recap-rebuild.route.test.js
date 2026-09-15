@@ -26,20 +26,28 @@ const app = express();
 app.use(express.json());
 app.use('/api/scoring', scoringRouter);
 
+// A named owner, a named co-commissioner (a DIFFERENT id, not the owner) and
+// a plain member, per formal-001 f1: a probe answered by a single
+// `isCommissioner: true/false` literal cannot show a co-commissioner (as
+// distinct from the owner) is actually accepted, because it never exercises
+// two different caller ids against a world that tells them apart.
+const OWNER = 7;
+const CO_COMMISSIONER = 11;
 const MEMBER = 42;
-const COMMISSIONER = 7;
-const memberAuth = `Bearer ${signToken({ id: MEMBER, username: 'member' })}`;
-const commissionerAuth = `Bearer ${signToken({ id: COMMISSIONER, username: 'commish' })}`;
 
-/**
- * A freshly-signed token. Tests that mock the clock must call this AFTER
- * enabling the mock: jsonwebtoken checks `iat`/`exp` against `Date.now()` at
- * verify time, so a token signed under the real clock reads as expired once
- * the mocked "now" no longer agrees with it (correctionWindowGate.router.test.js).
- */
-function commissionerAuthNow() {
-  return `Bearer ${signToken({ id: COMMISSIONER, username: 'commish' })}`;
+function authFor(userId, username) {
+  return `Bearer ${signToken({ id: userId, username })}`;
 }
+
+const ownerAuth = authFor(OWNER, 'owner');
+const coCommissionerAuth = authFor(CO_COMMISSIONER, 'deputy');
+const memberAuth = authFor(MEMBER, 'member');
+
+// `authFor` signs a fresh token each call. Tests that mock the clock must
+// call it AFTER enabling the mock: jsonwebtoken checks `iat`/`exp` against
+// `Date.now()` at verify time, so a token signed under the real clock reads
+// as expired once the mocked "now" no longer agrees with it
+// (correctionWindowGate.router.test.js's own `authedNow` convention).
 
 /** Records every call so "it was never reached" is provable, not inferred. */
 function spy(t, mod, name, impl) {
@@ -54,18 +62,32 @@ function spy(t, mod, name, impl) {
 /**
  * The router's own reads before the handler runs: the pick'em gate
  * (requireFantasyLeague, a write so it always fires) and the commissioner
- * probe (requireLeagueCommissioner -> isLeagueCommissioner).
+ * probe (requireLeagueCommissioner -> isLeagueCommissioner). The probe's
+ * `isCommissioner` answer is computed from a world (an owner id plus a
+ * `league_commissioners` grant list), read off the query's own params, the
+ * same shape commissioner.removeTeam.test.js uses — not a single hardcoded
+ * boolean, which would pass a caller through regardless of who they are.
+ *
+ * (Manually verified while writing this fix, not committed as a permanent
+ * mutation test: narrowing this handler to `params[1] === ownerId` alone —
+ * dropping the grants check — turns the co-commissioner test below red
+ * (403 instead of 200), so the distinction here is load-bearing, not
+ * decorative.)
  */
-function routerPool({ isCommissioner }, extra = []) {
+function recapWorld({ ownerId = OWNER, grants = [] } = {}, extra = []) {
   return createFakePool([
     ...extra,
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
-    [/^SELECT 1 FROM "leagues"/, () => ({ rows: isCommissioner ? [{ '?column?': 1 }] : [] })],
+    [/^SELECT 1 FROM "leagues"/, (text, params) => {
+      const userId = params[1];
+      const isCommissioner = userId === ownerId || grants.includes(userId);
+      return { rows: isCommissioner ? [{ '?column?': 1 }] : [] };
+    }],
   ]);
 }
 
 test('POST recap: refuses a non-commissioner member and never touches the recap', async (t) => {
-  const fake = routerPool({ isCommissioner: false }).install(t);
+  const fake = recapWorld({ ownerId: OWNER, grants: [CO_COMMISSIONER] }).install(t);
   const rebuilt = spy(t, recap, 'computeAndStoreWeeklyRecap');
 
   const res = await request(app)
@@ -79,19 +101,39 @@ test('POST recap: refuses a non-commissioner member and never touches the recap'
   fake.assertClean();
 });
 
+test('POST recap: a co-commissioner (not the owner) rebuilds a finalized week just as the owner would', async (t) => {
+  const fake = recapWorld({ ownerId: OWNER, grants: [CO_COMMISSIONER] }, [
+    [/^SELECT "current_season" FROM "leagues"/, () => ({ rows: [{ current_season: 2026 }] })],
+    [/^SELECT "matchups"\.\*/, () => ({
+      rows: [{
+        id: 1, final: true, home_team_id: 1, away_team_id: 2,
+        home_team_name: 'Team A', away_team_name: 'Team B',
+        home_score: 100, away_score: 80,
+      }],
+    })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 1, scoring_rules: null }] })],
+    [insert('league_analytics'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const res = await request(app)
+    .post('/api/scoring/league/1/recap')
+    .set('Authorization', coCommissionerAuth)
+    .send({ week: 9 });
+
+  assert.equal(res.status, 200);
+  assert.equal(fake.matching(insert('league_analytics')).length, 1, 'the co-commissioner rebuilt the recap');
+  fake.assertClean();
+});
+
 test('POST recap: a week with no finalized matchup is refused 409 and nothing is stored', async (t) => {
-  // isLeagueCommissioner passes (owner or co-commissioner — the SQL layer
-  // doesn't distinguish the two, and that predicate is covered on its own
-  // elsewhere), but the requested week's matchups query comes back with no
-  // finalized row, so computeAndStoreWeeklyRecap itself no-ops.
-  const fake = routerPool({ isCommissioner: true }, [
+  const fake = recapWorld({ ownerId: OWNER }, [
     [/^SELECT "current_season" FROM "leagues"/, () => ({ rows: [{ current_season: 2026 }] })],
     [/^SELECT "matchups"\.\*/, () => ({ rows: [{ id: 1, final: false }] })],
   ]).install(t);
 
   const res = await request(app)
     .post('/api/scoring/league/1/recap')
-    .set('Authorization', commissionerAuth)
+    .set('Authorization', ownerAuth)
     .send({ week: 9 });
 
   assert.equal(res.status, 409);
@@ -101,12 +143,12 @@ test('POST recap: a week with no finalized matchup is refused 409 and nothing is
 });
 
 test('POST recap: a malformed week is refused 400 before any commissioner check', async (t) => {
-  const fake = routerPool({ isCommissioner: true }).install(t);
+  const fake = recapWorld({ ownerId: OWNER }).install(t);
   const rebuilt = spy(t, recap, 'computeAndStoreWeeklyRecap');
 
   const res = await request(app)
     .post('/api/scoring/league/1/recap')
-    .set('Authorization', commissionerAuth)
+    .set('Authorization', ownerAuth)
     .send({ week: 0 });
 
   assert.equal(res.status, 400);
@@ -117,9 +159,45 @@ test('POST recap: a malformed week is refused 400 before any commissioner check'
   assert.equal(fake.matching(/^SELECT 1 FROM "leagues"/).length, 0, 'the commissioner probe never ran');
 });
 
-test('POST recap: a commissioner (or co-commissioner) rebuilds a finalized week — facts reflect the current scores, the stamp moves, and nothing is announced', async (t) => {
+test("POST recap: a season that is not the league's current season is refused 409 and nothing is touched", async (t) => {
+  // formal-001 f3: the client sends the season of the recap it has on
+  // screen. A league between rollover and its first recap of the new season
+  // can be showing an OLDER season's recap; silently substituting the
+  // current season would rebuild a different week than the one on screen,
+  // so the route refuses instead.
+  const fake = recapWorld({ ownerId: OWNER }, [
+    [/^SELECT "current_season" FROM "leagues"/, () => ({ rows: [{ current_season: 2026 }] })],
+  ]).install(t);
+  const rebuilt = spy(t, recap, 'computeAndStoreWeeklyRecap');
+
+  const res = await request(app)
+    .post('/api/scoring/league/1/recap')
+    .set('Authorization', ownerAuth)
+    .send({ week: 17, season: 2025 });
+
+  assert.equal(res.status, 409);
+  assert.deepEqual(res.body, { error: 'that recap is not from the current season' });
+  assert.equal(rebuilt.length, 0, 'the recap was never touched');
+  fake.assertClean();
+});
+
+test('POST recap: a malformed season is refused 400 before any commissioner check', async (t) => {
+  const fake = recapWorld({ ownerId: OWNER }).install(t);
+  const rebuilt = spy(t, recap, 'computeAndStoreWeeklyRecap');
+
+  const res = await request(app)
+    .post('/api/scoring/league/1/recap')
+    .set('Authorization', ownerAuth)
+    .send({ week: 9, season: 'not-a-year' });
+
+  assert.equal(res.status, 400);
+  assert.equal(rebuilt.length, 0);
+  assert.equal(fake.matching(/^SELECT 1 FROM "leagues"/).length, 0, 'the commissioner probe never ran');
+});
+
+test('POST recap: the owner rebuilds a finalized week — the STORED row (not just the response) reflects the current scores, its stamp moves past a stale one, and nothing is announced', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-02T00:00:00.000Z') });
-  const fake = routerPool({ isCommissioner: true }, [
+  const fake = recapWorld({ ownerId: OWNER }, [
     [/^SELECT "current_season" FROM "leagues"/, () => ({ rows: [{ current_season: 2026 }] })],
     // The week's matchups AFTER a correction moved the score: Team A now
     // leads 130-60, where a stale recap (built before the correction) would
@@ -135,20 +213,34 @@ test('POST recap: a commissioner (or co-commissioner) rebuilds a finalized week 
     [insert('league_analytics'), () => ({ rows: [] })],
   ]).install(t);
 
+  // The client also sends the season of the recap it had on screen; it
+  // agrees with the league's current season, so this is the ordinary path.
   const res = await request(app)
     .post('/api/scoring/league/1/recap')
-    .set('Authorization', commissionerAuthNow())
-    .send({ week: 9 });
+    .set('Authorization', authFor(OWNER, 'owner'))
+    .send({ week: 9, season: 2026 });
 
   assert.equal(res.status, 200);
   assert.equal(res.body.season, 2026);
   assert.equal(res.body.week, 9);
-  // The rebuilt facts reflect the current (post-correction) matchup scores.
   assert.deepEqual(res.body.data.facts.highestScorer, { team: 'Team A', points: 130 });
-  // The generated-at stamp moved to the moment of the rebuild, not some
-  // earlier, stale generation time.
   assert.equal(res.body.data.generatedAt, '2026-11-02T00:00:00.000Z');
-  assert.equal(fake.matching(insert('league_analytics')).length, 1, 'the recap row was stored');
+
+  // formal-001 f2: read the row actually written to league_analytics, not
+  // only what the route echoed back in its response — the two are separate
+  // writes/reads and a divergence between them (a route that decorates or
+  // mis-stores) would pass if only the response were checked.
+  const stored = fake.matching(insert('league_analytics'));
+  assert.equal(stored.length, 1, 'the recap row was stored');
+  const storedData = JSON.parse(stored[0].params[3]);
+  assert.deepEqual(storedData.facts.highestScorer, { team: 'Team A', points: 130 });
+  assert.equal(storedData.generatedAt, '2026-11-02T00:00:00.000Z');
+  // A stale recap generated before this correction would carry an earlier
+  // stamp (the fixture RecapCard.test.jsx uses for its "before" recap); the
+  // stored stamp has actually moved past it, not just repeated the mock time
+  // that happens to equal a hardcoded expectation.
+  assert.notEqual(storedData.generatedAt, '2026-07-10T12:00:00.000Z');
+
   // Silent: no feed entry and no member notification.
   assert.equal(fake.matching(insert('transactions')).length, 0, 'no new recap feed entry');
   assert.equal(fake.matching(insert('notifications')).length, 0, 'no new member notification');

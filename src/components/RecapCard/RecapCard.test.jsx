@@ -36,8 +36,12 @@ const mockGetByUrl = (overrides = {}) => {
   });
 };
 
-const leagueResponse = (isCommissioner) => ({
-  data: { league: { id: 1, is_commissioner: isCommissioner }, teams: [], viewerTeamId: null },
+const leagueResponse = (isCommissioner, currentSeason = 2026) => ({
+  data: {
+    league: { id: 1, is_commissioner: isCommissioner, current_season: currentSeason },
+    teams: [],
+    viewerTeamId: null,
+  },
 });
 
 const recapResponse = (overrides = {}) => ({
@@ -223,8 +227,8 @@ test('shows when the recap was last generated, visible to a plain member', async
 
 test('shows the rebuild control only to commissioners', async () => {
   mockGetByUrl({
-    '/api/scoring/league/1/recap': recapResponse(),
-    '/api/league/1': leagueResponse(true),
+    '/api/scoring/league/1/recap': recapResponse(), // season 2026
+    '/api/league/1': leagueResponse(true, 2026),
   });
 
   renderWithProviders(<RecapCard leagueId={1} />);
@@ -233,10 +237,27 @@ test('shows the rebuild control only to commissioners', async () => {
   expect(await screen.findByRole('button', { name: /rebuild recap/i })).toBeInTheDocument();
 });
 
+// formal-001 f3: the rebuild is scoped to a finalized week of the CURRENT
+// season. GET /recap has no current-season filter, so a league between
+// rollover and its first recap of the new season can be showing an OLDER
+// season's (still finalized) recap — offering the control there would
+// silently target a different season's week once clicked.
+test("hides the rebuild control when the displayed recap predates the league's current season, even for a commissioner", async () => {
+  mockGetByUrl({
+    '/api/scoring/league/1/recap': recapResponse(), // season 2026
+    '/api/league/1': leagueResponse(true, 2027),
+  });
+
+  renderWithProviders(<RecapCard leagueId={1} />);
+
+  await screen.findByTestId('recap-card');
+  expect(screen.queryByRole('button', { name: /rebuild recap/i })).not.toBeInTheDocument();
+});
+
 test('a commissioner can rebuild the recap and see the refreshed narrative and stamp', async () => {
   mockGetByUrl({
-    '/api/scoring/league/1/recap': recapResponse(),
-    '/api/league/1': leagueResponse(true),
+    '/api/scoring/league/1/recap': recapResponse(), // season 2026
+    '/api/league/1': leagueResponse(true, 2026),
   });
   apiClient.post.mockResolvedValue({
     data: {
@@ -254,7 +275,9 @@ test('a commissioner can rebuild the recap and see the refreshed narrative and s
   const button = await screen.findByRole('button', { name: /rebuild recap/i });
   await userEvent.click(button);
 
-  expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/recap', { week: 5 });
+  // The client names the season it had on screen, so the route can refuse a
+  // mismatch instead of silently substituting the league's current season.
+  expect(apiClient.post).toHaveBeenCalledWith('/api/scoring/league/1/recap', { week: 5, season: 2026 });
   expect(await screen.findByText('Rebuilt narrative after the correction.')).toBeInTheDocument();
   expect(
     screen.getByText(`Recap generated ${new Date('2026-07-12T09:00:00.000Z').toLocaleString()}`)

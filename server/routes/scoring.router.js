@@ -396,6 +396,14 @@ router.get('/league/:id/recap', async (req, res) => {
 // week has no finalized matchup in the current season, the same status the
 // rest of the commissioner tooling uses for a settled/unsettled week-state
 // conflict (commissioner.service.js's "cannot edit a settled week").
+//
+// `season`, when the caller sends one, must name the league's CURRENT season
+// (formal-001 f3): the client sends the season of the recap it has on
+// screen, and a league between rollover and its first recap of the new
+// season can be showing an OLDER season's recap. Substituting the current
+// season silently there would rebuild a different season's week than the one
+// on screen; refusing instead lets the client explain why. `season` stays
+// optional so this always resolves to the current season when omitted.
 router.post('/league/:id/recap', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) {
     return res.status(400).json({ error: 'league id must be a positive integer' });
@@ -405,6 +413,11 @@ router.post('/league/:id/recap', async (req, res) => {
   if (!Number.isInteger(week) || week < 1 || week > 25) {
     return res.status(400).json({ error: 'week must be an integer between 1 and 25' });
   }
+  const seasonRaw = req.body && req.body.season;
+  const requestedSeason = seasonRaw === undefined || seasonRaw === null ? null : Number(seasonRaw);
+  if (requestedSeason !== null && (!Number.isInteger(requestedSeason) || requestedSeason < 2000 || requestedSeason > 2100)) {
+    return res.status(400).json({ error: 'season (integer year) is required' });
+  }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
     const leagueResult = await pool.query(
@@ -413,6 +426,9 @@ router.post('/league/:id/recap', async (req, res) => {
     );
     if (!leagueResult.rows[0]) return res.status(404).json({ error: 'league not found' });
     const { current_season: season } = leagueResult.rows[0];
+    if (requestedSeason !== null && requestedSeason !== season) {
+      return res.status(409).json({ error: 'that recap is not from the current season' });
+    }
     const recap = require('../services/recap.service');
     const data = await recap.computeAndStoreWeeklyRecap({ leagueId, season, week });
     if (!data) return res.status(409).json({ error: 'week is not finalized' });
