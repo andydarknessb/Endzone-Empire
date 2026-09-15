@@ -587,6 +587,54 @@ test("the Watching toggle filters the list to only watched players, client-side,
   expect(screen.getByText("Unwatched Guy")).toBeInTheDocument();
 });
 
+// Emotion writes every rule into `document.styleSheets` under the generated
+// class name; this reads one element's own declarations back (the same helper
+// SegmentedControl.test.jsx uses).
+const ruleFor = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith("css-"));
+  let text = "";
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (rule.selectorText === `.${cls}`) text += `${rule.style.cssText};`;
+    });
+  });
+  return text;
+};
+
+// Desktop regression: the five Availability segments rendered as a `scrollable`
+// strip with its scrollbar hidden, inside a grid column too narrow for them,
+// so "Rostered" and "My team" were off the edge with no pointer-driven way to
+// reach them (the drawer's swipe does not exist on a desktop). jsdom cannot
+// measure the column, but it can read the group's own rule: on desktop the
+// group must not be the hidden-scrollbar strip. The mobile drawer keeps it.
+test("desktop renders the Availability control at its natural width, never as a hidden-scrollbar strip", async () => {
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByTestId("player-row");
+  const group = ruleFor(screen.getByRole("radiogroup", { name: "Availability" }));
+  expect(group).not.toMatch(/overflow-x: auto/);
+  expect(group).not.toMatch(/scrollbar-width: none/);
+  expect(screen.getAllByRole("radio")).toHaveLength(5);
+});
+
+test("the mobile Filters drawer keeps the Availability control as a swipeable strip", async () => {
+  window.matchMedia = jest.fn().mockImplementation(() => ({
+    matches: true,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+  }));
+  window.HTMLElement.prototype.scrollIntoView = jest.fn();
+  mockBrowser();
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Filters" }));
+  const group = ruleFor(await screen.findByRole("radiogroup", { name: "Availability" }));
+  expect(group).toMatch(/overflow-x: auto/);
+});
+
 test("the Watching toggle, with nothing watched on the page, shows its own empty state", async () => {
   mockBrowser({ players: [player({ id: 1, name: "Unwatched Guy", watching: false })] });
   renderWithProviders(<PlayerManagement />);
