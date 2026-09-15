@@ -320,3 +320,18 @@ test('house style: no em-dash anywhere in the rendered card', () => {
   // U+2014 as an escape, so this file never carries the character itself.
   expect(container).not.toHaveTextContent('\u2014');
 });
+
+test('the scroll box is positioned so the visually hidden spans inside the table cannot widen the page', () => {
+  // The table's `visuallyHidden` "Trend:" spans are position:absolute; a
+  // scroll container only clips an abs-pos descendant whose containing block
+  // it is. Unpositioned, they sat ~1200px in and widened the document, which
+  // shrank the whole page to half width on a phone (documentElement.scrollWidth
+  // 1211 -> 390 with this rule, measured in Chromium). jsdom cannot lay this
+  // out, so the rule is pinned. Red-tell: drop `position: 'relative'` from the
+  // scroll box and this goes red.
+  mockStandings({ standings: [baseRow({ teamId: 1 })], viewerTeamId: 1 });
+  render(<StandingsTable leagueId={7} />);
+  const scroll = screen.getByTestId('pickem-standings-scroll');
+  expect(allRules(scroll)).toMatch(/overflow-x:\s*auto/);
+  expect(allRules(scroll)).toMatch(/position:\s*relative/);
+});

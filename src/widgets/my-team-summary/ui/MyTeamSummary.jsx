@@ -20,13 +20,22 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * NOT a chip fill: the mockup paints the grade as colored text, and the text
  * tokens are the legible-as-text set). No new pairing is composed here.
  *
- * The tile row is `grid-auto-flow: column` over `minmax(0, 1fr)` auto columns,
- * NOT a fixed track count: how many tiles render depends on which reads have
- * landed and on the league's waiver type, and a fixed count leaves a dead track
- * for every tile that is absent (a league with no power-rankings run yet showed
- * 89px of nothing in a 286px card). A conditional count would be worse than
- * either: the power-rankings read is still in flight while its tiles are absent,
- * so the row would render narrow and then re-flow when it lands.
+ * The tile row is a wrapping flex row of equal-growing tiles with an 86px
+ * basis, 104px at `lg` (statTileFlex below), NOT a fixed track count: how many tiles render
+ * depends on which reads have landed and on the league's waiver type, and a
+ * fixed count leaves a dead track for every tile that is absent (a league with
+ * no power-rankings run yet showed 89px of nothing in a 286px card). A
+ * conditional count would be worse than either: the power-rankings read is
+ * still in flight while its tiles are absent, so the row would render narrow
+ * and then re-flow when it lands. It wraps (rather than the earlier
+ * `grid-auto-flow: column` over `minmax(0, 1fr)`, which forced every tile
+ * onto one line) because five tiles in a 322px phone card came out 55px wide
+ * each: "149.05" spilled 36px past its tile onto the neighbour and every
+ * label broke into two lines, and even the 1440px desktop hero (78px tiles)
+ * spilled the roster value by 13px. A row that does not fit wraps to 3+2 on
+ * a phone and on the desktop hero, the last tiles growing to fill the line; the values stay bottom-aligned across a
+ * line (`mt: auto`) so a two-line label never pushes its value out of line
+ * with its neighbours.
  *
  * The standings read is the card's spine: while it is in flight the card holds
  * its layout with skeletons, and if it fails the card shows one compact,
@@ -155,9 +164,8 @@ export default function MyTeamSummary({ leagueId }) {
           <Box
             data-testid="my-team-tiles"
             sx={{
-              display: 'grid',
-              gridAutoFlow: 'column',
-              gridAutoColumns: 'minmax(0, 1fr)',
+              display: 'flex',
+              flexWrap: 'wrap',
               gap: '10px',
             }}
           >
@@ -302,16 +310,38 @@ function Placeholder() {
   );
 }
 
+// A tile's `flex` basis is the row's wrap point (see the widget docblock):
+// the skeleton tile below shares it so the loading row wraps where the real
+// one will. The basis only decides where the row breaks (the tiles then grow
+// to share the line): 86px puts three tiles across a 360-430px phone card
+// (290-362px inside; 90px missed 360 by a sub-pixel), and each of those three
+// grows to the ~89px the widest value needs ("149.05" at the 24px display
+// face is 67px, plus 10px padding a side and the border). At `lg` the
+// hero-left card is 430px inside: 86px there packs four on the first line and
+// strands the fifth full width, so the basis steps up to 104px, which packs
+// three and two. Both measured in Chromium (320-1440px).
+// Written as a base rule plus one `up('lg')` override (not a breakpoint
+// object, which would put even the base into a media rule) so the base basis
+// is pinnable off the tile's own class in jsdom.
+const statTileFlex = (theme) => ({
+  flex: '1 1 86px',
+  [theme.breakpoints.up('lg')]: { flex: '1 1 104px' },
+});
+
 function StatTile({ label, testid, children }) {
   return (
     <Box
       data-testid={testid}
-      sx={{
+      sx={(theme) => ({
+        ...statTileFlex(theme),
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
         backgroundColor: 'var(--dash-surface2)',
         border: '1px solid var(--dash-line)',
         borderRadius: 'var(--dash-radius-sm)',
-        padding: '10px 12px',
-      }}
+        padding: '10px',
+      })}
     >
       <Box
         sx={{
@@ -319,7 +349,9 @@ function StatTile({ label, testid, children }) {
           fontWeight: 600,
           // 0.04em, not the island's usual 0.07em: at 360px a tile is narrow
           // enough that the wider tracking wraps "ROSTER VALUE" onto a second
-          // line and shoves the value down out of alignment with its neighbours.
+          // line. A label that still wraps at 96px is allowed to (the value
+          // below is pinned to the tile's bottom edge, so it stays level with
+          // the row's other values either way).
           letterSpacing: '0.04em',
           textTransform: 'uppercase',
           color: 'var(--dash-faint)',
@@ -329,6 +361,7 @@ function StatTile({ label, testid, children }) {
       </Box>
       <Box
         sx={{
+          mt: 'auto',
           fontFamily: 'var(--dash-font-display)',
           fontSize: '24px',
           fontWeight: 700,
@@ -346,14 +379,16 @@ function StatTile({ label, testid, children }) {
 function StatTileSkeleton() {
   return (
     <Box
-      sx={{
+      sx={(theme) => ({
+        ...statTileFlex(theme),
+        minWidth: 0,
         backgroundColor: 'var(--dash-surface2)',
         border: '1px solid var(--dash-line)',
         borderRadius: 'var(--dash-radius-sm)',
-        padding: '10px 12px',
+        padding: '10px',
         display: 'grid',
         gap: 0.75,
-      }}
+      })}
     >
       <Skeleton data-testid="my-team-skeleton" variant="text" width={64} height={11} />
       <Skeleton data-testid="my-team-skeleton" variant="text" width={40} height={22} />
