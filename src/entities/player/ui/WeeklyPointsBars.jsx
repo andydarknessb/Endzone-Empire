@@ -61,6 +61,15 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd }) {
         px: 2,
         py: 1.5,
         overflowX: 'auto',
+        // A scroll container's automatic minimum size in a flexbox is 0, and
+        // the Decision card's sheet (MUI's Drawer paper) is a column flexbox
+        // capped at 88vh: once the card's content exceeded that, this strip
+        // was squeezed to its padding alone and its columns hung upward out
+        // of the box, leaving a bare row of week numbers under the Season
+        // pick (iPhone report, 2026-09-15; the tests/e2e sheet guard measured
+        // the strip at 24px with the week-1 fill 45px above its top). The
+        // strip must keep its content height and let the sheet scroll.
+        flexShrink: 0,
       }}
     >
       {weeks.map((week) => (

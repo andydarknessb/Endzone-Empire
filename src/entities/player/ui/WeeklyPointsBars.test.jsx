@@ -83,3 +83,22 @@ test('the season-end week carries a divider marker distinct from the current-wee
   expect(screen.getByTestId('weekly-bar-14')).toHaveAttribute('data-season-end', 'true');
   expect(screen.getByTestId('weekly-bar-5')).not.toHaveAttribute('data-season-end');
 });
+
+test('the strip never shrinks inside a column flexbox (it is a scroll container, so its minimum is otherwise 0)', () => {
+  // The Decision card's sheet is a column flexbox capped at 88vh; without
+  // `flex-shrink: 0` the strip collapsed to its padding and only the week
+  // numbers showed. jsdom lays nothing out, so the rule is read off the
+  // emotion stylesheet; the layout itself is measured in
+  // tests/e2e/player-decision-card.spec.ts. Red-tell: drop `flexShrink: 0`.
+  render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} />);
+  const strip = screen.getByTestId('weekly-points-bars');
+  const cls = Array.from(strip.classList).find((c) => c.startsWith('css-'));
+  let text = '';
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (rule.selectorText === `.${cls}`) text += `${rule.style.cssText};`;
+    });
+  });
+  expect(text).toMatch(/overflow-x:\s*auto/);
+  expect(text).toMatch(/flex-shrink:\s*0/);
+});
