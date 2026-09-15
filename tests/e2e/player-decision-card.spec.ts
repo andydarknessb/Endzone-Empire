@@ -137,6 +137,41 @@ test('the Decision card sheet at 390px: no horizontal scroll, tap targets at lea
   }
 });
 
+// The bars strip is a scroll container (`overflow-x: auto`), so inside the
+// sheet's column flexbox (MUI's Drawer paper) its automatic minimum height
+// is 0: once the card's content exceeds the sheet's 88vh the strip was
+// squeezed to nothing and its columns hung upward out of the box, leaving a
+// bare row of week numbers under the Season pick (reported from an iPhone,
+// 2026-09-15). jsdom cannot see a flex item shrink, so the guard is here.
+test('the weekly bars keep their full height inside the sheet', async ({ page }) => {
+  await setupDecisionCardLayoutGuard(page);
+  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+
+  await page.getByRole('button', { name: PLAYER_NAME }).click();
+  const strip = page.getByTestId('weekly-points-bars');
+  await expect(strip).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const geometry = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="weekly-points-bars"]') as HTMLElement;
+    const fill = document.querySelector('[data-testid="weekly-bar-1-fill"]') as HTMLElement;
+    const r = el.getBoundingClientRect();
+    const f = fill.getBoundingClientRect();
+    return { stripHeight: Math.round(r.height), stripTop: Math.round(r.top), fillTop: Math.round(f.top), fillHeight: Math.round(f.height), scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+  });
+  // eslint-disable-next-line no-console
+  console.log(`DECISION_CARD_BARS ${JSON.stringify(geometry)}`);
+  // The tallest fill is 40px plus the 9px label and 12px padding each side:
+  // a strip shorter than its own content has been shrunk by the flexbox.
+  expect(
+    geometry.fillTop,
+    `week 1 fill top ${geometry.fillTop} sits above the strip top ${geometry.stripTop} (strip ${geometry.stripHeight}px tall)`
+  ).toBeGreaterThanOrEqual(geometry.stripTop);
+  expect(geometry.clientHeight, `strip clientHeight ${geometry.clientHeight} < scrollHeight ${geometry.scrollHeight}`)
+    .toBeGreaterThanOrEqual(geometry.scrollHeight);
+});
+
 // Formal review round 2, f10: `isTypingTarget`'s scroll-region guard (risk
 // round 2's own fix) must not ALSO swallow the arrow keys once focus lands
 // on a truncated (not scrollable) title - jsdom reports 0 for scrollWidth/

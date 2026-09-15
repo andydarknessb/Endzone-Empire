@@ -11,6 +11,7 @@ const {
   REG_SEASON_WEEKS,
 } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
+const { rosterablePositions } = require('../services/lineup.service');
 const irPolicy = require('../services/irPolicy.service');
 const projectionService = require('../services/projection.service');
 const { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS } = require('../services/playerSort');
@@ -228,6 +229,33 @@ router.get('/', requireAuth, async (req, res) => {
       .json({ error: `position must be one of ${POSITIONS.join(', ')}` });
   }
 
+  // Optional multi-position filter, e.g. `positions=RB,WR,TE` (#1418, ADR
+  // 0044): a set-based sibling to `position` above, so a client can ask for
+  // several codes in one request. Validated against the same POSITIONS
+  // whitelist and refused with the same 400 shape on a bad code. `position`
+  // keeps working unchanged; when both are given, `positions` wins.
+  let positionsParam = null;
+  if (req.query.positions !== undefined && req.query.positions !== '') {
+    const codes = String(req.query.positions)
+      .split(',')
+      .map((c) => c.trim().toUpperCase())
+      .filter(Boolean);
+    const invalid = codes.find((c) => !POSITIONS.includes(c));
+    if (invalid) {
+      return res
+        .status(400)
+        .json({ error: `position must be one of ${POSITIONS.join(', ')}` });
+    }
+    // An all-empty-code set (e.g. `positions=,`) carries nothing to filter
+    // by, so it is treated as absent - the same "All" `positions` omitted
+    // gets - rather than binding an empty ANY() array (formal review f2).
+    if (codes.length > 0) positionsParam = [...new Set(codes)];
+  }
+  // The set the caller asked for, or `null` for "All" - folded together so
+  // the league-scoped rosterable gate below has one shape to intersect
+  // against regardless of which of the two query params (if either) was used.
+  const requestedPositions = positionsParam || (position ? [position] : null);
+
   // Optional case-insensitive name search. Wildcards/backslashes are escaped so
   // a user typing "%" matches a literal percent, not the whole pool (default
   // ESCAPE '\' applies to the ILIKE below). Capped so a huge string can't bloat
@@ -321,6 +349,21 @@ router.get('/', requireAuth, async (req, res) => {
     league?.waivers_clear_at && new Date(league.waivers_clear_at) > new Date(),
   );
 
+  // ADR 0044 / CONTEXT.md's Rosterable position: a pool query carrying a
+  // league returns only players at that league's rosterable positions - the
+  // requested set (or "All") intersected with the union of every starting
+  // slot's eligible positions in the league's roster template. `null` here
+  // means no league, or a missing/empty template: no gate, same as today.
+  const rosterable = rosterablePositions(league);
+  let effectivePositions = null;
+  if (requestedPositions && rosterable) {
+    effectivePositions = requestedPositions.filter((p) => rosterable.has(p));
+  } else if (requestedPositions) {
+    effectivePositions = requestedPositions;
+  } else if (rosterable) {
+    effectivePositions = [...rosterable];
+  }
+
   // Ordering: whitelisted sort key + direction — never interpolate raw user
   // input into SQL. ADP is the default (best pick first, undrafted last).
   const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
@@ -360,9 +403,9 @@ router.get('/', requireAuth, async (req, res) => {
 
   const params = [];
   const where = [];
-  if (position) {
-    params.push(position);
-    where.push(`"position" = $${params.length}`);
+  if (effectivePositions) {
+    params.push(effectivePositions);
+    where.push(`"position" = ANY($${params.length})`);
   }
   if (search) {
     params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`);
