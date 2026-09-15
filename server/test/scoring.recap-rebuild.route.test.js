@@ -64,15 +64,21 @@ function spy(t, mod, name, impl) {
  * (requireFantasyLeague, a write so it always fires) and the commissioner
  * probe (requireLeagueCommissioner -> isLeagueCommissioner). The probe's
  * `isCommissioner` answer is computed from a world (an owner id plus a
- * `league_commissioners` grant list), read off the query's own params, the
- * same shape commissioner.removeTeam.test.js uses — not a single hardcoded
- * boolean, which would pass a caller through regardless of who they are.
+ * `league_commissioners` grant list, matching commissioner.removeTeam.test.js's
+ * shape) — but critically, the grant only counts when the SQL ITSELF carries
+ * commissionerPredicate's EXISTS over "league_commissioners" (formal-002 f1):
+ * a fixture that grants co-commissioner access from the caller id alone,
+ * with no regard to what the route actually asked, cannot tell the route's
+ * real check (owner OR co-commissioner) apart from a narrower one (owner
+ * alone) that happens to share the same `SELECT 1 FROM "leagues"` prefix —
+ * `isLeagueOwner` (leagueRole.service.js) is exactly that narrower query,
+ * over the identical table and prefix.
  *
  * (Manually verified while writing this fix, not committed as a permanent
- * mutation test: narrowing this handler to `params[1] === ownerId` alone —
- * dropping the grants check — turns the co-commissioner test below red
- * (403 instead of 200), so the distinction here is load-bearing, not
- * decorative.)
+ * mutation test: temporarily swapping the ROUTE's own
+ * `requireLeagueCommissioner` call for `isLeagueOwner` turns the
+ * co-commissioner test below red — 403 instead of 200 — while every other
+ * test in this file stays exactly as it was; reverted after confirming it.)
  */
 function recapWorld({ ownerId = OWNER, grants = [] } = {}, extra = []) {
   return createFakePool([
@@ -80,7 +86,12 @@ function recapWorld({ ownerId = OWNER, grants = [] } = {}, extra = []) {
     [/^SELECT "pickem_only" FROM "leagues"/, () => ({ rows: [{ pickem_only: false }] })],
     [/^SELECT 1 FROM "leagues"/, (text, params) => {
       const userId = params[1];
-      const isCommissioner = userId === ownerId || grants.includes(userId);
+      // Only a query whose own text asks about co-commissioner grants can be
+      // answered by one: this is what makes a narrower, owner-only query
+      // (isLeagueOwner's shape) fail for a co-commissioner caller even
+      // though `grants` still lists them.
+      const honorsGrants = /"league_commissioners"/.test(text);
+      const isCommissioner = userId === ownerId || (honorsGrants && grants.includes(userId));
       return { rows: isCommissioner ? [{ '?column?': 1 }] : [] };
     }],
   ]);
@@ -191,6 +202,10 @@ test('POST recap: a malformed season is refused 400 before any commissioner chec
     .send({ week: 9, season: 'not-a-year' });
 
   assert.equal(res.status, 400);
+  // formal-002 f2: season is OPTIONAL (omitting it resolves to the current
+  // season), so a malformed value is worded as a bad value, not as a missing
+  // required field.
+  assert.deepEqual(res.body, { error: 'season must be an integer year' });
   assert.equal(rebuilt.length, 0);
   assert.equal(fake.matching(/^SELECT 1 FROM "leagues"/).length, 0, 'the commissioner probe never ran');
 });

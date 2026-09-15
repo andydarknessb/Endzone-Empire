@@ -416,7 +416,7 @@ router.post('/league/:id/recap', async (req, res) => {
   const seasonRaw = req.body && req.body.season;
   const requestedSeason = seasonRaw === undefined || seasonRaw === null ? null : Number(seasonRaw);
   if (requestedSeason !== null && (!Number.isInteger(requestedSeason) || requestedSeason < 2000 || requestedSeason > 2100)) {
-    return res.status(400).json({ error: 'season (integer year) is required' });
+    return res.status(400).json({ error: 'season must be an integer year' });
   }
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
