@@ -354,12 +354,17 @@ NFL world, written only by the daily injury sync (never the hand-run player
 sync, and never anything a manager does), which clears `nfl_team` to null for
 such a player once its own feed is large enough to trust; a feed too small to
 be a real player list trips a size floor and clears nothing, logged on that
-run's Sync run row. Purely a display fact: the lineup card shows `FA` in
-place of the team badge, and nothing about it locks a slot or refuses a
-start. Distinct from Free agent, below, which is about league Availability —
-a player can have no NFL team while rostered on a fantasy team, and a true
-Free agent (waivers clear, game not kicked off) almost always still carries
-an NFL team.
+run's Sync run row. The clear is itself deferred, label kept exactly as
+stored, while the player's own team has a kicked-off game in an open week (a
+live league's own current season and week): the lineup lock question reads
+this same column live, so clearing mid-lock would unlock a slot whose game
+has already been played. A deferred row is retried, and cleared or deferred
+again, on the pass's next run. Once cleared, purely a display fact: the
+lineup card shows `FA` in place of the team badge, and nothing about it locks
+a slot or refuses a start. Distinct from Free agent, below, which is about
+league Availability — a player can have no NFL team while rostered on a
+fantasy team, and a true Free agent (waivers clear, game not kicked off)
+almost always still carries an NFL team.
 _Avoid_: free agent (the league-availability term, below; `FA` is fine as
 badge copy, never as the concept in code or docs), released, retired,
 dropped (a fantasy-roster word, ambiguous here)

@@ -78,7 +78,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
     },
   });
 
-  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1, teamChanges: 0, teamsCleared: 0 });
+  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
   assert.match(fake.matching(select('players'))[0].text, /FOR UPDATE$/);
   // #929: one bulk UPDATE replaces the per-player loop. Rewritten from the old
   // assertion `fake.matching(update('players')).length === 2`, which pinned two
@@ -387,7 +387,7 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
 
   const result = await syncInjuries({ api: healthyToQuestionableApi });
 
-  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0 });
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
   const records = dataSyncRuns(fake.calls);
   // Red-tell for criterion 2: deleting the ok=true record call empties this.
   assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
@@ -398,7 +398,7 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
   // this one-entry feed is far below NFL_PLAYER_LIST_FLOOR, so it reads true.
   assert.deepEqual(
     JSON.parse(records[0].params[3]),
-    { floorGuardTripped: true, playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0 },
+    { floorGuardTripped: true, playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 },
     'detail carries the run counts and the floor guard state',
   );
   // Recorded after the run committed, never mid-transaction.
@@ -637,7 +637,7 @@ test('#961 best-effort: a record write that throws changes neither outcome nor r
 
   assert.deepEqual(
     result,
-    { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0 },
+    { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 },
     'the run returns its real result',
   );
   assert.equal(dataSyncRuns(fake.calls).length, 1, 'the record write was attempted once');
@@ -790,6 +790,9 @@ test('#1385: at or above the floor, a departed player and a blank-team player bo
         { id: 203, external_id: 'tank-203', injury_status: null, nfl_team: 'KC' },
       ],
     }), 'client'],
+    // No live league at all, so openKickoffTeams answers the empty set from
+    // this one query alone - nothing here is deferred (ruling (4')).
+    [select('leagues'), () => ({ rows: [] }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
@@ -818,6 +821,7 @@ test('#1385: at or above the floor, a departed player and a blank-team player bo
   assert.deepEqual(departureWrite.params, [[201]], 'the absent player clears in his own statement');
   assert.equal(result.teamsCleared, 2, 'both the absent player and the blank-team player count as cleared');
   assert.equal(result.teamChanges, 0, 'neither clear is a move between two real teams');
+  assert.equal(result.teamsDeferred, 0, 'no live league exists to defer anything against');
   fake.assertClean();
 });
 
@@ -861,5 +865,102 @@ test('#1385: below the floor, neither a departed player nor a blank-team player 
     'the blank-team match keeps his stored label; the control is untouched either way',
   );
   assert.equal(result.teamsCleared, 0, 'nothing cleared below the floor');
+  assert.equal(result.teamsDeferred, 0, 'below the floor there are no clear candidates to defer either');
+  fake.assertClean();
+});
+
+// ---- #1385 ruling (4'): a departure defers while its team is mid-lock -----
+// Clearing nfl_team for a still-rostered player unlocks him retroactively in
+// lineup.service.js's live nfl_team join (risk-001 f1, #627) if his own
+// team's current-week game has already kicked off in a live league. The pass
+// defers the clear instead - his label stays exactly as stored - and counts
+// it in teamsDeferred, distinct from teamsCleared. Ruling's own red-tell.
+
+test("#1385 ruling (4'): a departed player whose team already kicked off in a live league's current week is deferred, not cleared", async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 401, external_id: 'tank-401', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
+    // HOU's week-3 game kicked off an hour ago - the real query's
+    // kickoff_at <= NOW() would include it.
+    [select('nfl_games'), () => ({ rows: [{ team: 'HOU' }] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    // tank-401 omitted - he has left the list - padded past the floor.
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  assert.equal(
+    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
+    undefined,
+    'no clear statement is issued while his team is mid-lock',
+  );
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
+  );
+  fake.assertClean();
+});
+
+test("#1385 ruling (4'): the same shape clears once his team's current-week game has not kicked off yet", async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 402, external_id: 'tank-402', injury_status: null, nfl_team: 'HOU' }],
+    }), 'client'],
+    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
+    // HOU's week-3 game kicks off an hour from now - the real query's
+    // kickoff_at <= NOW() would exclude it.
+    [select('nfl_games'), () => ({ rows: [] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
+  assert.deepEqual(departureWrite.params, [[402]], 'he clears once nothing defers him');
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
+  );
+  fake.assertClean();
+});
+
+test("#1385 ruling (4'): the deferral folds Team code aliases (nfl_games' WSH against a stored WAS)", async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 403, external_id: 'tank-403', injury_status: null, nfl_team: 'WAS' }],
+    }), 'client'],
+    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
+    // The real query folds both sides through fn_normalize_nfl_team; the fake
+    // stands in for that fold by returning the normalized code a raw WSH row
+    // in nfl_games would produce (CONTEXT.md's Team code: WSH/WAS alias).
+    [select('nfl_games'), () => ({ rows: [{ team: 'WAS' }] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+  });
+
+  assert.equal(
+    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
+    undefined,
+    'the alias still matches, so the deferral holds',
+  );
+  assert.deepEqual(
+    result,
+    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
+  );
   fake.assertClean();
 });

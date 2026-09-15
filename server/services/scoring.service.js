@@ -1087,7 +1087,11 @@ const NFL_PLAYER_LIST_FLOOR = 1500;
  * present with no team - and it does so only when the feed cleared
  * NFL_PLAYER_LIST_FLOOR (see applyInjuryUnit). A cleared nfl_team is a
  * display fact only (CONTEXT.md's No NFL team): it locks nothing and refuses
- * no start.
+ * no start. Ruling (4'): the clear is itself deferred - his label kept
+ * exactly as stored - while his own team has a kicked-off game in a live
+ * league's current week (openKickoffTeams), since the lock helper reads this
+ * same column live and a departure clear mid-lock would unlock an as-played
+ * row (risk-001 f1, #627).
  */
 async function syncInjuries({ api = tank01Get } = {}) {
   // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
@@ -1179,7 +1183,7 @@ async function fetchInjuryUnits(api) {
  *
  * Returns exactly the shape recorded as this run's data_sync_runs detail on
  * success, and returned to syncInjuries's own caller: `{ playersUpdated,
- * irFlags, teamChanges, teamsCleared }`.
+ * irFlags, teamChanges, teamsCleared, teamsDeferred }`.
  */
 async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, onIrFlags) {
   // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
@@ -1231,39 +1235,82 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   const departedIds = [];
   let teamChanges = 0;
   let teamsCleared = 0;
+  let teamsDeferred = 0;
+  // #1385 ruling (4'): a clear candidate - absent from the feed, or listed
+  // with a blank team, with floorGuardTripped allowing a clear at all - is
+  // not decided here. Clearing his label is only safe once we know whether
+  // his OWN team currently has an open week's game already kicked off
+  // (openKickoffTeams below); collecting candidates first means that lookup
+  // runs at most once per run, and not at all for the common run that clears
+  // nobody.
+  const clearCandidates = []; // { player, feed: feed-match or null for absent }
   for (const player of playersResult.rows) {
     const feed = feedByExternal.get(String(player.external_id));
     if (!feed) {
       // Not in the feed at all: below NFL_PLAYER_LIST_FLOOR this stays exactly
       // the old behavior (leave untouched - a short feed must never read as a
-      // departure). At or above it, a stored team with no feed entry is a
-      // player who has left the NFL (CONTEXT.md's No NFL team) and his label
-      // is cleared, never his designation or detail (the feed says nothing
-      // about those for a player it does not list).
-      if (!floorGuardTripped && player.nfl_team) {
-        departedIds.push(player.id);
-        teamsCleared += 1;
-      }
+      // departure).
+      if (!floorGuardTripped && player.nfl_team) clearCandidates.push({ player, feed: null });
       continue;
     }
-    // A feed entry with no team, below the floor, keeps the label the row
-    // already has (the old behavior: one transient blank must never wipe a
-    // label). At or above the floor the blank is trusted the same way an
-    // absent entry is: it clears the label (No NFL team).
-    let team;
-    if (feed.team !== null) {
-      team = feed.team;
-    } else {
-      team = floorGuardTripped ? player.nfl_team : null;
+    if (feed.team === null && !floorGuardTripped && player.nfl_team) {
+      // A blank team, at or above the floor: same candidacy as an absent
+      // player (CONTEXT.md's No NFL team), decided in the same place below.
+      clearCandidates.push({ player, feed });
+      continue;
     }
-    if (team !== player.nfl_team) {
-      if (team === null) teamsCleared += 1;
-      else teamChanges += 1;
-    }
+    // Every other case resolves immediately: a real team from the feed (a
+    // move or a same-team confirmation), or a blank team kept as the stored
+    // label because the floor tripped - the old behavior, unconditionally.
+    const team = feed.team !== null ? feed.team : player.nfl_team;
+    if (team !== player.nfl_team) teamChanges += 1;
     ids.push(player.id);
     statuses.push(feed.status);
     details.push(feed.detail);
     teams.push(team);
+    transitions.push({
+      playerId: player.id,
+      previousDesignation: player.injury_status,
+      currentDesignation: feed.status,
+    });
+  }
+  // #1385 ruling (4'): a clear candidate is DEFERRED - his label kept exactly
+  // as stored - while his own team has a kicked-off game in any OPEN week (a
+  // live fantasy league's own current_season/current_week). Deferring keeps
+  // removeLineupEntries' as-played spent-slot check (#627) working off a real
+  // team for exactly as long as that team's current week can still matter;
+  // the first run after every league carrying it advances past that week
+  // clears him normally. risk-001 f1: this is why the lock helper itself
+  // stays untouched.
+  const deferredTeams = clearCandidates.length > 0 ? await openKickoffTeams(client) : new Set();
+  for (const { player, feed } of clearCandidates) {
+    const deferred = deferredTeams.has(normalizeNflTeam(player.nfl_team));
+    if (deferred) {
+      teamsDeferred += 1;
+      if (!feed) continue; // absent + deferred: untouched, same as below the floor
+      // A blank-team feed match still refreshes his designation/detail
+      // normally; only the team stays (the SAME row shape every other feed
+      // match takes, just with the stored team instead of null).
+      ids.push(player.id);
+      statuses.push(feed.status);
+      details.push(feed.detail);
+      teams.push(player.nfl_team);
+      transitions.push({
+        playerId: player.id,
+        previousDesignation: player.injury_status,
+        currentDesignation: feed.status,
+      });
+      continue;
+    }
+    teamsCleared += 1;
+    if (!feed) {
+      departedIds.push(player.id);
+      continue;
+    }
+    ids.push(player.id);
+    statuses.push(feed.status);
+    details.push(feed.detail);
+    teams.push(null);
     transitions.push({
       playerId: player.id,
       previousDesignation: player.injury_status,
@@ -1328,12 +1375,56 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   // reported by the feed is still counted and still written below the floor -
   // the floor guards only a departure/blank reading as a clear, not the
   // pass's ordinary team-correction behavior, which predates #1385 unchanged.
+  //
+  // teamsDeferred (#1385 ruling (4')) counts every clear candidate held back
+  // this run because his own team still has a kicked-off game in an OPEN
+  // week - the risk-001 f1 fix: clearing him now would read as a departure
+  // to removeLineupEntries' as-played check (#627) for a slot that has
+  // already been played. A deferred player is untouched, same as one below
+  // the floor; the next run he is still a candidate, and clears (or defers
+  // again, if a different league is still on that week) exactly the same way.
   return {
     playersUpdated: transitions.length,
     irFlags: irFlags.length,
     teamChanges,
     teamsCleared,
+    teamsDeferred,
   };
+}
+
+/**
+ * #1385 ruling (4'): the set of Team codes (folded through fn_normalize_nfl_team
+ * on both sides, CONTEXT.md's Team code) with a kicked-off nfl_games row for
+ * any OPEN week - a (current_season, current_week) pair belonging to a league
+ * whose fantasy season is live (`fantasySeasonLiveWhereSql`, leaguePhase.js:
+ * the same rule the scheduler's own live-week sync uses, scheduler.js's
+ * syncAndScoreLiveWeeks). A team in this set is mid-lineup-lock somewhere
+ * right now: clearing a departed/blank player's label while his OWN team is
+ * in it would read as a departure to removeLineupEntries' as-played
+ * spent-slot check (#627) for a row that has already been played - risk-001
+ * f1. Read at most once per applyInjuryUnit run, and only when there is at
+ * least one clear candidate to judge against it; a run with none never
+ * queries this at all. No live league at all (nobody mid-season) answers the
+ * empty set with one query, not two.
+ */
+async function openKickoffTeams(client) {
+  const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+  const openWeeks = await client.query(
+    `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
+      WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  if (openWeeks.rows.length === 0) return new Set();
+  const seasons = openWeeks.rows.map((row) => row.current_season);
+  const weeks = openWeeks.rows.map((row) => row.current_week);
+  const kickedOff = await client.query(
+    `SELECT DISTINCT fn_normalize_nfl_team("ng"."nfl_team") AS "team"
+       FROM "nfl_games" "ng"
+       JOIN (SELECT unnest($1::int[]) AS "season", unnest($2::int[]) AS "week") "ow"
+         ON "ng"."season" = "ow"."season" AND "ng"."week" = "ow"."week"
+      WHERE "ng"."kickoff_at" <= NOW()`,
+    [seasons, weeks]
+  );
+  return new Set(kickedOff.rows.map((row) => row.team));
 }
 
 /**
