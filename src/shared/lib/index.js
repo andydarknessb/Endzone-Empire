@@ -122,3 +122,8 @@ export { monogramInk } from './monogramInk';
 // drop-pick sort - the second-island-consumer threshold every promotion
 // above it crossed the same way.
 export { sortRosterForDrop } from './rosterDrop';
+// The "roster is full" predicate the drop-pick gate reads (#1307): its
+// third verbatim copy (PlayerManagement's row-level Claim gate) joined
+// `features/add-player` and `features/claim-player`, the same threshold
+// sortRosterForDrop above crossed.
+export { isRosterAtCapacity } from './rosterCapacity';
