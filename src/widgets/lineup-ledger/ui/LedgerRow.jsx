@@ -401,7 +401,11 @@ export default function LedgerRow({
                 component="div"
                 sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
               >
-                {`${entry.position ?? ''} · ${entry.nflTeam ?? ''}`}
+                {/* #1392: a player with no NFL team (null or empty on the
+                    wire) reads "FA" in place of the Team code, rather than a
+                    dangling "QB · " separator - badge copy only, distinct
+                    from the glossary's Free agent (league availability). */}
+                {`${entry.position ?? ''} · ${entry.nflTeam || 'FA'}`}
               </Typography>
               <EdgeLine edge={entry.edge} gameCellKind={view?.kind} />
             </Box>

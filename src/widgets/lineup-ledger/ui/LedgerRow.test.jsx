@@ -534,3 +534,17 @@ test('an entry without a photoUrl falls back to the initials monogram', () => {
   expect(screen.queryByTestId('ledger-headshot')).toBeNull();
   expect(screen.getByText('DB')).toBeInTheDocument();
 });
+
+// #1392: a player with no NFL team (nfl_team null on the wire) reads "FA" in
+// the caption in place of a dangling "QB · " - badge copy only, distinct
+// from the glossary's Free agent (league availability), which this ticket
+// does not touch.
+test('a player with a null NFL team shows FA in place of the Team code', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByText('QB · FA')).toBeInTheDocument();
+});
+
+test('a player with an empty-string NFL team shows FA in place of the Team code', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: '' })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByText('QB · FA')).toBeInTheDocument();
+});
