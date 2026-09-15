@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 
@@ -23,8 +23,16 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  // Bumped by every load() call so a response can tell, at the point it is
+  // about to apply, whether a newer request has since superseded it. Gating
+  // here (rather than around the outer load() wrapper) is required: the
+  // wrapper only learns a newer request started *after* this one already
+  // resolved and called setData, which is too late.
+  const requestIdRef = useRef(0);
 
   const load = useCallback(() => {
+    const requestId = ++requestIdRef.current;
+    const isStale = () => requestId !== requestIdRef.current;
     if (!enabled || leagueId == null || week == null) {
       setLoading(false);
       return Promise.resolve();
@@ -33,21 +41,26 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
     setError(null);
     return apiClient
       .get(`/api/pickem/league/${leagueId}/week/${week}`)
-      .then((res) => setData(res.data))
-      .catch((requestError) => setError(readHttpFailure(requestError).message || requestError.message || 'Request failed'))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (isStale()) return;
+        setData(res.data);
+      })
+      .catch((requestError) => {
+        if (isStale()) return;
+        setError(readHttpFailure(requestError).message || requestError.message || 'Request failed');
+      })
+      .finally(() => {
+        if (isStale()) return;
+        setLoading(false);
+      });
   }, [leagueId, week, enabled]);
 
   useEffect(() => {
-    let active = true;
     // The week changed — drop the old board rather than showing last week's
     // picks against this week's games while the request is in flight.
     setData(null);
     setSaveError(null);
-    load().then(() => {
-      if (!active) return;
-    });
-    return () => { active = false; };
+    load();
   }, [load]);
 
   const savePicks = useCallback(
