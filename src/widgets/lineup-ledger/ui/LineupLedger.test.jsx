@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import LineupLedger from './LineupLedger';
 
 /**
@@ -68,6 +69,37 @@ test('selecting a starter with an eligible bench target switches to the Bench ta
 
   expect(benchPressed()).toBe('true');
   expect(startersPressed()).toBe('false');
+});
+
+// Accessibility risk review finding (#1425): the row the manager just
+// activated is inside the Starters section, which becomes `display:none`
+// once the tab flips - a hidden focused element is dropped to `<body>` per
+// the HTML spec. Focus must land on the Bench tab button instead, both to
+// recover from that and as the only signal (a real screen-reader
+// announcement) that the section changed.
+test('selecting a starter that flips the tab moves focus to the Bench tab button', () => {
+  const isEligibleTarget = jest.fn((entry) => Boolean(entry && entry.playerId === 2));
+  const { rerender } = renderLedger({ isEligibleTarget });
+
+  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={1} onRowClick={jest.fn()} />);
+
+  expect(benchPressed()).toBe('true');
+  expect(tabButtons()[1]).toHaveFocus();
+});
+
+// A manager who switches tabs by hand already carries focus with their own
+// click (real click semantics, `userEvent`, not `fireEvent`'s bare
+// dispatch) - the auto-switch's focus move must not fight that on a later,
+// unrelated render.
+test('switching tabs by hand is not overridden by the focus-move effect', async () => {
+  const user = userEvent.setup();
+  const { rerender } = renderLedger();
+  await user.click(tabButtons()[1]);
+  expect(tabButtons()[1]).toHaveFocus();
+
+  await user.click(tabButtons()[0]);
+  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={() => false} selectedEntryId={null} onRowClick={jest.fn()} />);
+  expect(tabButtons()[0]).toHaveFocus();
 });
 
 // AC2: Bench active, selecting a bench/IR player with an eligible Starter

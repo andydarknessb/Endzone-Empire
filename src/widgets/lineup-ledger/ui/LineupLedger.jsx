@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Card } from '../../../shared/ui';
 import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
@@ -66,6 +66,12 @@ export default function LineupLedger({
   // is made in JS - the same `useMediaQuery(theme.breakpoints.down('sm'))`
   // read `LineupPage.jsx`'s own `compact` already uses.
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
+  // Which tab button the auto-switch effect below should move focus to once
+  // it lands (accessibility risk review finding, #1425) - `null` when the
+  // current `mobileTab` state came from the manager's own tab click instead.
+  const pendingTabFocusRef = useRef(null);
+  const startersTabButtonRef = useRef(null);
+  const benchTabButtonRef = useRef(null);
   const entries = Array.isArray(lineup?.entries) ? lineup.entries : [];
   const { starters, bench, ir } = buildLedgerSections({
     entries,
@@ -83,18 +89,48 @@ export default function LineupLedger({
   // not on `isEligibleTarget` (a fresh closure every render): a cleared
   // selection - cancel or a completed swap - is `null` here and the effect
   // returns immediately without touching `mobileTab` (AC6, "no flip back").
+  //
+  // Risk review finding (accessibility, #1425): the row the manager just
+  // activated sits inside the section that is about to become
+  // `display:none`, and a hidden focused element is dropped to `<body>` per
+  // the HTML spec (not a "mobile only" edge case either - WCAG 1.4.10
+  // reflow puts a zoomed desktop keyboard user below `sm` too). `setMobileTab`
+  // here only records WHICH tab to land on; `pendingTabFocusRef` below is
+  // what actually moves focus once that tab's button exists in the DOM.
   useEffect(() => {
     if (!isMobile || selectedEntryId == null) return;
     const inStarters = starters.some((row) => row.entry && row.entry.playerId === selectedEntryId);
     const benchAndIr = [...ir, ...bench];
     if (inStarters) {
-      if (benchAndIr.some((row) => isEligibleTarget?.(row.entry, row.slotType))) setMobileTab('bench');
+      if (benchAndIr.some((row) => isEligibleTarget?.(row.entry, row.slotType))) {
+        pendingTabFocusRef.current = 'bench';
+        setMobileTab('bench');
+      }
       return;
     }
     const inBenchOrIr = benchAndIr.some((row) => row.entry && row.entry.playerId === selectedEntryId);
-    if (inBenchOrIr && starters.some((row) => isEligibleTarget?.(row.entry, row.slotType))) setMobileTab('starters');
+    if (inBenchOrIr && starters.some((row) => isEligibleTarget?.(row.entry, row.slotType))) {
+      pendingTabFocusRef.current = 'starters';
+      setMobileTab('starters');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEntryId, isMobile]);
+
+  // Risk review finding (accessibility, #1425): moves focus to the tab the
+  // auto-switch above just landed on, once that tab's button is actually in
+  // the DOM (this effect runs after the render `setMobileTab` triggered).
+  // This both restores the focus the hidden section's button lost and is
+  // the manager's only signal the section changed - a real screen-reader
+  // announcement ("Bench, toggle button, pressed") - without adding a
+  // second live region (ADR 0037 keeps the Snackbar the page's only one).
+  // A manager who switches the tab by hand never hits this: their click
+  // already carries focus, so `pendingTabFocusRef` stays unset and this
+  // effect is a no-op.
+  useEffect(() => {
+    if (pendingTabFocusRef.current !== mobileTab) return;
+    pendingTabFocusRef.current = null;
+    (mobileTab === 'bench' ? benchTabButtonRef : startersTabButtonRef).current?.focus();
+  }, [mobileTab]);
 
   // AC5: "the bench points left on the table line reads the existing
   // hindsight endpoint" (formal review finding ac5-hindsight-line-missing).
@@ -208,6 +244,7 @@ export default function LineupLedger({
             key={tab.key}
             component="button"
             type="button"
+            ref={tab.key === 'starters' ? startersTabButtonRef : benchTabButtonRef}
             aria-pressed={mobileTab === tab.key}
             onClick={() => setMobileTab(tab.key)}
             sx={{
