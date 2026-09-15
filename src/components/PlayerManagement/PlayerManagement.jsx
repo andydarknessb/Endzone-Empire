@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Link as RouterLink,
   useSearchParams,
@@ -46,26 +46,57 @@ import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
 import { isPickemOnly } from "../../shared/lib/leagueType";
+import { parseRosterSlots } from "../../shared/lib";
+import { useLeague } from "../../hooks/useLeague";
+import { DEFAULT_ROSTER_SLOTS, expandEligibility } from "../../lib/draftSim/templates";
 import {
   SORT_FIELDS,
   wireSortName,
 } from "../DraftBoard/sortFields";
 
-const POSITIONS = [
-  "All",
+// The chip vocabulary this page offers, in the order the manager sees them
+// (#1419): "All" first, then this canonical order with any key absent from
+// the selected league's roster template dropped. A flex-type chip (FLEX,
+// SFLX, DL, LB, DB) stands for a slot's whole eligible-position group; the
+// rest stand for one literal position code. There is no position-group table
+// here - expandEligibility (src/lib/draftSim/templates.js) is the only one,
+// reused rather than re-declared, the same table the Draft Sim mirrors from
+// the server's lineup.service.js.
+const CANONICAL_CHIP_ORDER = [
   "QB",
   "RB",
   "WR",
   "TE",
+  "FLEX",
+  "SFLX",
   "K",
   "DEF",
-  "DE",
-  "DT",
+  "DL",
   "LB",
-  "CB",
-  "S",
   "DB",
 ];
+const FLEX_CHIP_KEYS = new Set(["FLEX", "SFLX", "DL", "LB", "DB"]);
+
+// One chip per distinct starting slot key the template carries, canonical
+// order, absent keys dropped. No league selected, or a template with no
+// slots at all, falls back to DEFAULT_ROSTER_SLOTS - the same "full
+// canonical set, FLEX meaning RB/WR/TE" fallback useMyTeamSummary already
+// gives an empty `roster_slots` (#1165).
+function chipsForRosterSlots(rosterSlots) {
+  const slots = rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
+  const slotByKey = new Map(slots.map((slot) => [slot.key, slot]));
+  const chips = [{ key: "All" }];
+  CANONICAL_CHIP_ORDER.forEach((key) => {
+    const slot = slotByKey.get(key);
+    if (!slot) return;
+    chips.push(
+      FLEX_CHIP_KEYS.has(key)
+        ? { key, positions: Array.from(expandEligibility(slot.eligiblePositions)) }
+        : { key },
+    );
+  });
+  return chips;
+}
 // Order matches the segmented control's own left-to-right order (#1310,
 // Players.dc.html): All, Free agents, On waivers, Rostered, My team.
 const AVAILABILITY_FILTERS = [
@@ -188,6 +219,21 @@ function PlayerManagement() {
   );
   const rosterAction = rosterActionForPhase(activeLeague);
   const bestBall = !!activeLeague?.best_ball;
+  // The selected league's own roster template, through the shared league
+  // hook (#1419) - not the `/api/league` list row `activeLeague` above,
+  // which carries no `roster_slots`. No league selected reads as an absent
+  // template too (the hook takes no key and never fetches), so both "no
+  // league" and "a league with an empty template" land on the same
+  // DEFAULT_ROSTER_SLOTS fallback inside chipsForRosterSlots.
+  const { league: templateLeague, loading: templateLeagueLoading } = useLeague(
+    selectedLeague || undefined,
+  );
+  const rosterSlots = useMemo(
+    () => parseRosterSlots(templateLeague?.roster_slots),
+    [templateLeague],
+  );
+  const chips = useMemo(() => chipsForRosterSlots(rosterSlots), [rosterSlots]);
+  const selectedChip = chips.find((chip) => chip.key === positionFilter) || chips[0];
   // Formal review formal-1310-f1: Upgrade is the default sort whenever a
   // league is selected and it is not best ball (the same condition the
   // server gates `view=cards`/`sort=upgrade` on) - an explicit `?sort=`
@@ -226,6 +272,20 @@ function PlayerManagement() {
     (err) => setError(readHttpFailure(err).message || err.message),
     [],
   );
+
+  // A chip that no longer exists in the selected league's template - most
+  // often a switch away from the IDP or Superflex league that offered it -
+  // resets the filter to "All" rather than keep sending a code the new
+  // league's server-side gate would refuse. Waits for the league's own
+  // template to finish loading first: resolving against the DEFAULT_ROSTER_SLOTS
+  // fallback while the real one is still in flight would reset a still-valid
+  // chip the instant a league loads.
+  useEffect(() => {
+    if (templateLeagueLoading) return;
+    if (positionFilter === "All") return;
+    if (chips.some((chip) => chip.key === positionFilter)) return;
+    updateParams({ pos: "" });
+  }, [chips, positionFilter, templateLeagueLoading, updateParams]);
 
   useEffect(() => {
     (async () => {
@@ -281,9 +341,17 @@ function PlayerManagement() {
       // value is the literal key).
       const params = {
         page: pageNumber,
-        position: positionFilter,
         sort: sort === "upgrade" ? "upgrade" : wireSortName(sort),
       };
+      // The chip's own request shape (#1419): "All" sends no position filter
+      // at all and relies on the server's league-scoped gate; a flex-type
+      // chip (FLEX, SFLX, DL, LB, DB) sends the union of its slot's eligible
+      // positions to `positions`; any other chip sends its own code to
+      // `position`, unchanged from before this ticket.
+      if (selectedChip.key !== "All") {
+        if (selectedChip.positions) params.positions = selectedChip.positions.join(",");
+        else params.position = selectedChip.key;
+      }
       // view=cards (#1309/#1310) requires leagueId - without a selected
       // league (browsing with no fantasy league yet) the request stays the
       // plain shape it always was, and the row falls back to "Select league".
@@ -308,7 +376,7 @@ function PlayerManagement() {
     dir,
     leaguesLoaded,
     pageNumber,
-    positionFilter,
+    selectedChip,
     report,
     search,
     selectedLeague,
@@ -532,7 +600,7 @@ function PlayerManagement() {
         <Select
           labelId="pm-pos-label"
           label="Position"
-          value={positionFilter}
+          value={selectedChip.key}
           onChange={(event) =>
             updateParams({
               pos: event.target.value === "All" ? "" : event.target.value,
@@ -540,9 +608,9 @@ function PlayerManagement() {
             })
           }
         >
-          {POSITIONS.map((position) => (
-            <MenuItem key={position} value={position}>
-              {position}
+          {chips.map((chip) => (
+            <MenuItem key={chip.key} value={chip.key}>
+              {chip.key}
             </MenuItem>
           ))}
         </Select>
