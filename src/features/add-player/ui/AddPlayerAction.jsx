@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, sortRosterForDrop } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
 import { useAddPlayer } from '../model/useAddPlayer';
 
 /**
@@ -14,10 +14,7 @@ export default function AddPlayerAction({ player, leagueId, availability, roster
   const [dropPlayerId, setDropPlayerId] = useState('');
   const { addPlayer, pending } = useAddPlayer({ leagueId, onDone: onAdded });
 
-  const atCapacity =
-    availability?.rosterCount != null &&
-    availability?.rosterCapacity != null &&
-    availability.rosterCount >= availability.rosterCapacity;
+  const atCapacity = isRosterAtCapacity(availability);
   const sortedRoster = sortRosterForDrop(roster);
 
   const handleAdd = () => {

@@ -79,3 +79,30 @@ test('a drop pick is sorted worst projection first and included in the claim', a
     bid: 0,
   });
 });
+
+test('at roster capacity the drop pick is required and Claim waits for it', async () => {
+  apiClient.post.mockResolvedValue({});
+  renderAction({
+    availability: { waiverPriority: 1, rosterCount: 16, rosterCapacity: 16 },
+    roster: [{ id: 21, name: 'Bench Guy', position: 'WR', projected_weekly_points: 3.2 }],
+  });
+
+  const submit = screen.getByTestId('claim-player-submit');
+  expect(submit).toBeDisabled();
+  expect(screen.queryByLabelText('Drop a player (optional)')).not.toBeInTheDocument();
+  expect(screen.getByText(/roster is full/i)).toBeInTheDocument();
+
+  await userEvent.click(screen.getByLabelText('Drop a player'));
+  const options = await screen.findAllByRole('option');
+  expect(options).toHaveLength(2);
+  await userEvent.click(options[1]);
+  expect(submit).toBeEnabled();
+  await userEvent.click(submit);
+
+  expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', {
+    leagueId: 1,
+    playerId: 7,
+    dropPlayerId: 21,
+    bid: 0,
+  });
+});
