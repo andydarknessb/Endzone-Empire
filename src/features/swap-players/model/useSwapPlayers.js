@@ -100,8 +100,15 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * page") is the app-wide Snackbar (`useSnackbar`), reused for every
  * feedback - saved, queued offline, refused, and the swap's own result -
  * so this feature never introduces a second aria-live region.
+ *
+ * `hasEligibleTarget` (#1425, optional): "does this candidate have a legal
+ * target ANYWHERE in the lineup, filled or empty slot" - a whole-lineup
+ * question `entries` alone cannot answer (it carries occupied rows only, no
+ * empty-slot capacity), so the page supplies it, built from the Ledger
+ * widget's own row enumeration (`buildLedgerSections`) over `isEligibleMove`
+ * below. Consulted only at the moment a fresh selection would begin.
  */
-export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled }) {
+export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
   const notify = useSnackbar();
   const { saveLineup } = useResilientLineupMutation({ onReplaySuccess: () => notify('Lineup saved') });
   const [selectedEntry, setSelectedEntry] = useState(null);
@@ -153,6 +160,17 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
     if (!selectedEntry) {
       if (!entry) {
         setQuickPick({ anchorEl: event?.currentTarget, slotType });
+        return;
+      }
+      // #1425 ruling: a row with no legal target anywhere in the lineup -
+      // filled or empty, Starters, Bench or IR - never becomes a live
+      // selection with nothing to highlight. Refused here, before
+      // `setSelectedEntry` runs, so nothing is ever painted only to be
+      // cleared a moment later. `hasEligibleTarget` is optional so a caller
+      // that has not wired the whole-lineup row enumeration (every hook
+      // test below) keeps today's behaviour.
+      if (typeof hasEligibleTarget === 'function' && !hasEligibleTarget(entry)) {
+        notify(`No eligible players for ${entry.name}`, { severity: 'warning' });
         return;
       }
       setSelectedEntry(entry);

@@ -6,12 +6,12 @@ import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
-import LineupLedger from '../../widgets/lineup-ledger';
+import LineupLedger, { buildLedgerSections } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
-import { useSwapPlayers, QuickPickMenu } from '../../features/swap-players';
+import { useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import { useApplyAdvice } from '../../features/apply-advice';
 import PlayerDecisionCard from '../../widgets/player-decision-card';
@@ -121,6 +121,35 @@ export default function LineupPage() {
   // widget's own model).
   const { scoreEvent } = useLiveScores({ leagueId: selectedLeagueId, setRaw, refetch });
 
+  // AC4 (#1425 ruling): "no eligible target anywhere" is a whole-lineup
+  // question - every Starter, Bench and IR row, filled or empty, not just
+  // the occupied `entries` the swap rules read. Built from the Ledger
+  // widget's own row enumeration (`buildLedgerSections`, its public
+  // surface) so this reuses exactly the rows the widget renders and
+  // highlights rather than a second copy of the slot-count math, and from
+  // `isEligibleMove` (the same exported pure rule `onRowClick` and the
+  // Decision card already share) rather than a new copy of the eligibility
+  // rule itself.
+  const hasEligibleTarget = (candidate) => {
+    if (!lineup) return false;
+    const { starters, bench, ir } = buildLedgerSections({
+      entries: lineup.entries,
+      rosterSlots: lineup.rosterSlots,
+      benchSlots: lineup.benchSlots,
+      irSlots: lineup.irSlots,
+    });
+    return [...starters, ...bench, ...ir].some((row) => {
+      if (row.entry && row.entry.playerId === candidate.playerId) return false;
+      return isEligibleMove({
+        selectedEntry: candidate,
+        targetEntry: row.entry,
+        targetSlot: row.slotType,
+        bestBall,
+        leagueUnsettled,
+      });
+    });
+  };
+
   const swap = useSwapPlayers({
     leagueId: selectedLeagueId,
     raw,
@@ -128,6 +157,7 @@ export default function LineupPage() {
     entries: lineup?.entries || [],
     bestBall,
     leagueUnsettled,
+    hasEligibleTarget,
   });
   const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
 
@@ -359,7 +389,7 @@ export default function LineupPage() {
                       data-testid="lineup-move-strip"
                       sx={{ p: 1.5, border: '1px solid var(--dash-accent-line)', borderRadius: 'var(--dash-radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                     >
-                      <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}: tap a highlighted slot`}</Typography>
+                      <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}: tap a highlighted player, or switch tabs for more`}</Typography>
                       <Button size="small" onClick={swap.cancelSelection}>Cancel</Button>
                     </Box>
                   )}

@@ -560,6 +560,65 @@ test('the narrow layout renders a bottom Starters/Bench tab bar with 44px target
   expect(buttons[1]).toHaveAttribute('aria-pressed', 'true');
 });
 
+// #1425: selecting a starter switches the mobile tab to Bench when Bench
+// holds an eligible target, and the move strip's copy names both routes to
+// a target (a highlighted player on the current tab, or the other tab).
+// `matchMedia` is forced to `true` here (the default `beforeEach` mock
+// answers `false` to everything, pinning `useMediaQuery` to "not mobile" -
+// deliberately, so the unrelated tests above never exercise this flip).
+test('#1425: selecting a starter with an eligible bench target auto-switches the mobile tab to Bench', async () => {
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: true,
+    media: query,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+  const tabs = screen.getByTestId('lineup-mobile-tabs');
+  const [startersTab, benchTab] = within(tabs).getAllByRole('button');
+  expect(startersTab).toHaveAttribute('aria-pressed', 'true');
+
+  // Derrick King (RB, unlocked): the one empty BENCH row (benchSlots: 2,
+  // only Bench Guy occupies one) is an eligible target for him.
+  await user.click(screen.getByTestId('slot-row-RB-0-select'));
+
+  expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+  expect(startersTab).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByTestId('lineup-move-strip')).toHaveTextContent(
+    'Moving Derrick King: tap a highlighted player, or switch tabs for more'
+  );
+});
+
+// #1425 AC4: a selection with no legal target anywhere in the lineup - no
+// other occupied row and no empty slot of any kind - refuses instead of
+// leaving a live selection with nothing to highlight.
+test('#1425: a selection with no eligible target anywhere refuses with a Snackbar and selects nothing', async () => {
+  const user = userEvent.setup();
+  renderPage({
+    [LINEUP_URL]: {
+      data: lineupBody({
+        body: {
+          rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
+          benchSlots: 0,
+          irSlots: 0,
+          entries: [entryRow({ id: 1, name: 'Solo QB', position: 'QB', slot: 'QB' })],
+        },
+      }),
+    },
+  });
+
+  await user.click(await screen.findByTestId('slot-row-QB-0-select'));
+
+  expect(mockNotify).toHaveBeenCalledWith('No eligible players for Solo QB', { severity: 'warning' });
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
 test('no "optimal", "optimize" or "range" copy, and no em-dashes, anywhere on the page', async () => {
   const { container } = renderPage();
   await screen.findByText('Josh Allen');
