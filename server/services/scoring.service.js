@@ -1216,11 +1216,14 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
        FOR UPDATE`
   );
   // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
-  // every feed match, in scan order, mirroring syncAdp's bulk idiom. A cleared
-  // designation writes null into both text columns, and nulls survive into the
-  // text[] as SQL NULL. transitions is built over the SAME matches and drives
-  // both playersUpdated and the IR flag pass, independent of which rows the
-  // statement actually writes.
+  // every feed match - resolved immediately in the first loop below, or a
+  // clear candidate resolved once deferral is known in the second - mirroring
+  // syncAdp's bulk idiom. A cleared designation writes null into both text
+  // columns, and nulls survive into the text[] as SQL NULL. transitions is
+  // built over the SAME matches and drives both playersUpdated and the IR
+  // flag pass, independent of which rows the statement actually writes or
+  // which of the two loops appended them (the bulk UPDATE and
+  // flagRecoveredIrStashes are both order-independent over these arrays).
   //
   // #1385: departedIds is separate from ids/statuses/details/teams on purpose.
   // A player absent from the feed gets no `feed` entry at all, so there is no
@@ -1417,11 +1420,15 @@ async function openKickoffTeams(client) {
   const seasons = openWeeks.rows.map((row) => row.current_season);
   const weeks = openWeeks.rows.map((row) => row.current_week);
   const kickedOff = await client.query(
+    // clock_timestamp(), not NOW(): this is a long-held transaction (the
+    // players FOR UPDATE scan plus the advisory-lock wait ahead of it), and
+    // NOW()/transaction_timestamp() freezes at BEGIN - a game that kicks off
+    // mid-transaction would otherwise read as not-yet-kicked-off here.
     `SELECT DISTINCT fn_normalize_nfl_team("ng"."nfl_team") AS "team"
        FROM "nfl_games" "ng"
        JOIN (SELECT unnest($1::int[]) AS "season", unnest($2::int[]) AS "week") "ow"
          ON "ng"."season" = "ow"."season" AND "ng"."week" = "ow"."week"
-      WHERE "ng"."kickoff_at" <= NOW()`,
+      WHERE "ng"."kickoff_at" <= clock_timestamp()`,
     [seasons, weeks]
   );
   return new Set(kickedOff.rows.map((row) => row.team));

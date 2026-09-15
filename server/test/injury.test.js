@@ -935,15 +935,21 @@ test("#1385 ruling (4'): the same shape clears once his team's current-week game
 });
 
 test("#1385 ruling (4'): the deferral folds Team code aliases (nfl_games' WSH against a stored WAS)", async (t) => {
+  // WAS is already its own canonical form (normalizeNflTeam('WAS') === 'WAS'
+  // is the identity), so storing WAS on both sides would pass even with the
+  // JS-side fold deleted. WSH is the alias that actually needs folding: the
+  // player is stored raw WSH, and the nfl_games side answers the ALREADY
+  // folded code a raw WAS row would produce (the real SQL applies
+  // fn_normalize_nfl_team before this code ever sees the row) - so only the
+  // fold on the player's own stored team, at the deferral check itself,
+  // makes the two sides match. Deleting that fold sends the raw 'WSH' key
+  // against a Set holding only 'WAS' and flips the result to teamsCleared: 1.
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 403, external_id: 'tank-403', injury_status: null, nfl_team: 'WAS' }],
+      rows: [{ id: 403, external_id: 'tank-403', injury_status: null, nfl_team: 'WSH' }],
     }), 'client'],
     [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
-    // The real query folds both sides through fn_normalize_nfl_team; the fake
-    // stands in for that fold by returning the normalized code a raw WSH row
-    // in nfl_games would produce (CONTEXT.md's Team code: WSH/WAS alias).
     [select('nfl_games'), () => ({ rows: [{ team: 'WAS' }] }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
