@@ -68,11 +68,12 @@ function normalizeTank01Stats(entry) {
  * qbHits, tfl, twoPointConversionReturn, defTD. Sack/TFL/fumble-return/
  * INT-return YARDAGE has no Tank01 field at all — those score 0 here and are
  * filled in later by nflverseSync.service.js's post-game finalization pass.
- * `defTD - interceptionTDs` is scored as the generic defensiveTD bucket
- * (fumble-or-blocked-kick-return TD, per the roster/scoring plan — Tank01
- * doesn't separate those two, and individual blocked-kick attribution isn't
- * scored at all); the interception itself already carries the full value of
- * a pick regardless of whether it was returned for a score.
+ * `defTD` is scored whole as the generic defensiveTD bucket (fumble-,
+ * blocked-kick-, or interception-return TD — Tank01 doesn't separate those,
+ * and individual blocked-kick attribution isn't scored at all): an
+ * interception-return touchdown counts as both `idpInterception` and
+ * `idpDefensiveTD`, the same convention the team DEF row already uses for
+ * the same play (ruling, issue #1386 — CONTEXT.md **IDP**).
  */
 function normalizeTank01IdpStats(entry) {
   const num = (value) => {
@@ -92,7 +93,7 @@ function normalizeTank01IdpStats(entry) {
     passDeflection: num(d.passDeflections),
     qbHit: num(d.qbHits),
     tacklesForLoss: num(d.tfl),
-    idpDefensiveTD: Math.max(num(d.defTD) - num(d.interceptionTDs), 0),
+    idpDefensiveTD: num(d.defTD),
     twoPointReturn: num(d.twoPointConversionReturn),
   };
 }

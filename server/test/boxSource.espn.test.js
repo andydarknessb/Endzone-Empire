@@ -103,6 +103,34 @@ test('espnBoxSource: an IDP line maps tackles, TFL, PD and QB hits, assisted = t
   assert.equal(pritchett.stats.idpInterceptionReturnYards, 30);
 });
 
+test('espnBoxSource: an interception-return touchdown counts fully as idpDefensiveTD, not subtracted out (issue #1386)', () => {
+  // NE at SEA had no real pick-six; clone the fixture and give Pritchett's
+  // real INT line a touchdown on both the "defensive" and "interceptions"
+  // categories, the same as ESPN reports it live (a pick-six is credited on
+  // both), same pattern as the synthetic rushing-TD case above.
+  const withPickSix = JSON.parse(JSON.stringify(summary));
+  let sawDefensive = false;
+  let sawInterception = false;
+  for (const teamPlayers of withPickSix.boxscore.players) {
+    for (const category of teamPlayers.statistics) {
+      const line = category.athletes.find((a) => a.athlete.id === '4567222');
+      if (!line) continue;
+      if (category.name === 'defensive') {
+        line.stats[category.keys.indexOf('defensiveTouchdowns')] = '1';
+        sawDefensive = true;
+      } else if (category.name === 'interceptions') {
+        line.stats[category.keys.indexOf('interceptionTouchdowns')] = '1';
+        sawInterception = true;
+      }
+    }
+  }
+  assert.ok(sawDefensive && sawInterception, 'fixture shape sanity: both categories carry Pritchett');
+  const box = espnBoxSource.fromSummary(withPickSix, { gameId: GAME_ID });
+  const pritchett = player(box, '4567222');
+  assert.equal(pritchett.stats.idpInterception, 1);
+  assert.equal(pritchett.stats.idpDefensiveTD, 1);
+});
+
 test('espnBoxSource: return lines pass kick-return yards through and count return TDs', () => {
   const shaheed = player(liveBox(), '4032473'); // 3 KR for 80, 1 PR for 9
   assert.equal(shaheed.stats.kickReturnYards, 80);

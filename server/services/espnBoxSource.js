@@ -198,10 +198,11 @@ function readPlayerBox(summary, teams, roster, teamDefense) {
             s.tacklesForLoss = num(v.tacklesForLoss);
             s.passDeflection = num(v.passesDefended);
             s.qbHit = num(v.QBHits);
-            // Tank01 scores defTD minus interceptionTDs as the generic bucket;
-            // the interceptions group below subtracts its TDs the same way.
-            s.idpDefensiveTD = Math.max(num(v.defensiveTouchdowns) - (s.__intTDs || 0), 0);
-            s.__defTDs = num(v.defensiveTouchdowns);
+            // An interception-return touchdown counts as both idpInterception
+            // and idpDefensiveTD (ruling, issue #1386 — CONTEXT.md **IDP**),
+            // so this reads the category's own total whole, same as the team
+            // DEF row already does for the same play.
+            s.idpDefensiveTD = num(v.defensiveTouchdowns);
             if (def) {
               def.sack += num(v.sacks);
               def.defensiveTD += num(v.defensiveTouchdowns);
@@ -211,8 +212,6 @@ function readPlayerBox(summary, teams, roster, teamDefense) {
           case 'interceptions':
             s.idpInterception = num(v.interceptions);
             s.idpInterceptionReturnYards = num(v.interceptionYards);
-            s.__intTDs = num(v.interceptionTouchdowns);
-            s.idpDefensiveTD = Math.max((s.__defTDs || 0) - s.__intTDs, 0);
             if (def) def.interceptionReturn += num(v.interceptions);
             break;
           case 'kickReturns':
@@ -476,8 +475,6 @@ function fromSummary(summary, { gameId } = {}) {
   const players = [];
   for (const p of roster.players.values()) {
     const stats = { ...p.stats };
-    delete stats.__defTDs;
-    delete stats.__intTDs;
     players.push({ externalId: p.externalId, stats });
   }
 
