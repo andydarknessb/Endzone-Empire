@@ -171,7 +171,6 @@ async function claimTarget({ leagueId, userId, playerId }) {
   return player;
 }
 
-/** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 /**
  * Why a claim would overflow the roster, or null when it fits. Shared by
  * submit time and process time so a manager hears "choose a drop" when the
@@ -195,6 +194,7 @@ async function capacityFailureReason(client, { league, team, dropPlayerId }) {
   return null;
 }
 
+/** Submit a waiver claim (optionally dropping a player, optionally a FAAB bid). */
 async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). Every refusal throws a WaiverError inside work,
