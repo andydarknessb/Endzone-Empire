@@ -244,7 +244,10 @@ scored against their roster across the league, not an NFL game's score)
 
 **IDP**:
 Individual defensive players (DL, LB, DB) rostered as themselves rather than
-rolled up into a DEF.
+rolled up into a DEF. An interception-return touchdown counts as both an
+interception and a defensive TD (`idp.interception` +
+`idp.interceptionReturnYards` + `idp.defensiveTD`), the same convention the
+team DEF row uses for the same play (ruling, issue #1386).
 _Avoid_: defensive player
 
 **Slate**:

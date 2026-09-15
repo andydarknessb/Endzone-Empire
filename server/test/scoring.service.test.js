@@ -202,8 +202,8 @@ test('normalizeTank01IdpStats maps a defender\'s Defense category to IDP scoring
   });
 });
 
-test('normalizeTank01IdpStats: defTD is credited as fumble-return TD only after removing interceptionTDs', () => {
-  const result = normalizeTank01IdpStats({ Defense: { defTD: '2', interceptionTDs: '1' } });
+test('normalizeTank01IdpStats: an interception-return TD counts fully as idpDefensiveTD (issue #1386)', () => {
+  const result = normalizeTank01IdpStats({ Defense: { defTD: '1', interceptionTDs: '1' } });
   assert.equal(result.idpDefensiveTD, 1);
 });
 
