@@ -70,6 +70,30 @@ test('normalizeEspnNews: athlete-overview.json maps to news[] ordered newest fir
   assert.deepEqual(timestamps, sorted, 'ESPN already orders news newest-first; we must not reorder it');
 });
 
+test('normalizeEspnNews: every item keeps the ESPN story url (links.web.href) so the card can link the headline', () => {
+  const news = normalizeEspnNews(athleteOverviewFixture);
+  assert.ok(news.length > 0);
+  for (const item of news) {
+    assert.ok(String(item.url).startsWith("https://www.espn.com/"), `expected an espn.com url, got ${item.url}`);
+  }
+  assert.equal(news[0].url, athleteOverviewFixture.news[0].links.web.href);
+});
+
+test('normalizeEspnNews: an item with no links block gets url null, never undefined', () => {
+  const [item] = normalizeEspnNews({ news: [{ headline: 'No link here' }] });
+  assert.equal(item.url, null);
+});
+
+test('normalizeEspnNews: a non-http(s) web href (deep link, javascript:, relative) becomes url null', () => {
+  const news = normalizeEspnNews({ news: [
+    { headline: 'a', links: { web: { href: 'sportscenter://x-callback-url/showStory?id=1' } } },
+    { headline: 'b', links: { web: { href: ['javascript', ':alert(1)'].join('') } } },
+    { headline: 'c', links: { web: { href: '/nfl/story/_/id/1' } } },
+    { headline: 'd', links: { web: { href: 'http://www.espn.com/nfl/story/_/id/1' } } },
+  ] });
+  assert.deepEqual(news.map((n) => n.url), [null, null, null, 'http://www.espn.com/nfl/story/_/id/1']);
+});
+
 test('normalizeInjuryFacts: no injuries[] entry on the fixture -> null (healthy player)', () => {
   assert.equal(normalizeInjuryFacts(athleteOverviewFixture), null);
 });
@@ -355,7 +379,7 @@ test('getPlayerCard: ESPN failing entirely still returns a whole card - bio: nul
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
 
   assert.equal(card.bio, null);
-  assert.deepEqual(card.news, [{ headline: 'Feed note', source: 'feed', publishedAt: null }]);
+  assert.deepEqual(card.news, [{ headline: 'Feed note', source: 'feed', publishedAt: null, url: null }]);
   assert.equal(card.player.injury.facts, null);
 });
 

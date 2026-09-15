@@ -1028,9 +1028,10 @@ _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
 **News**:
 A dated headline about a player. Two producers: the ESPN news list read on
 card open, and the feed sync's single note on the player row. The ESPN list
-wins when present and the note is the one fallback item. Shown on the
-Decision card in every Availability context except your own player (ADR
-0037).
+wins when present and the note is the one fallback item. An ESPN item carries
+the story link and the headline opens it in a new tab; the feed note has no
+story and stays plain text. Shown on the Decision card in every Availability
+context except your own player (ADR 0037).
 _Avoid_: alert, update, headline (a Pick'em term)
 
 ### Scoring and the week
