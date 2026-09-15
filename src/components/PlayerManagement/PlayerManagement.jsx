@@ -47,78 +47,13 @@ import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
 import { isRosterAtCapacity } from "../../shared/lib/rosterCapacity";
 import { isPickemOnly } from "../../shared/lib/leagueType";
-import { parseRosterSlots } from "../../shared/lib";
+import { parseRosterSlots, chipsForRosterSlots } from "../../shared/lib";
 import { useLeague } from "../../hooks/useLeague";
-import { DEFAULT_ROSTER_SLOTS, expandEligibility, templateFor } from "../../lib/draftSim/templates";
 import {
   SORT_FIELDS,
   wireSortName,
 } from "../DraftBoard/sortFields";
 
-// The chip vocabulary this page offers, in the order the manager sees them
-// (#1419): "All" first, then this canonical order with any key absent from
-// the selected league's roster template dropped. There is no position-group
-// table here - expandEligibility (src/lib/draftSim/templates.js) is the
-// only one, reused rather than re-declared, the same table the Draft Sim
-// mirrors from the server's lineup.service.js. The only new list is this
-// order itself (formal review f4): whether a chip is flex-type is read from
-// the slot, not a second hand-kept list.
-const CANONICAL_CHIP_ORDER = [
-  "QB",
-  "RB",
-  "WR",
-  "TE",
-  "FLEX",
-  "SFLX",
-  "K",
-  "DEF",
-  "DL",
-  "LB",
-  "DB",
-];
-
-// No league selected, or a template with no slots at all, falls back to the
-// FULL canonical set - every chip a league could ever offer, FLEX meaning
-// RB/WR/TE (#1419, #1416 story 16, the Rosterable position glossary entry,
-// ADR 0044: such a request has no server-side gate, so the page must offer
-// every chip that could narrow it). Built from templates.js's own slot
-// definitions (formal review f2) - DEFAULT_ROSTER_SLOTS plus the SFLX slot
-// the 'superflex' LEAGUE_TEMPLATES entry carries and the DL/LB/DB slots the
-// 'idp' entry carries - never a re-declared eligibility list.
-const FULL_CANONICAL_SLOTS = [
-  ...DEFAULT_ROSTER_SLOTS,
-  ...templateFor("superflex").slots.filter((slot) => slot.key === "SFLX"),
-  ...templateFor("idp").slots.filter((slot) => ["DL", "LB", "DB"].includes(slot.key)),
-];
-
-// A chip is flex-type when its slot's expanded eligibility is anything other
-// than exactly its own key (formal review f4): FLEX and SFLX expand to a
-// literal position list that never contains their own key, and LB, DL and DB
-// are themselves POSITION_GROUPS keys, so expanding a single-entry
-// `['LB']`/`['DL']`/`['DB']` still yields the whole group. QB, K and DEF
-// expand to nothing but themselves and stay plain position chips.
-function isFlexSlot(slot) {
-  const expanded = expandEligibility(slot.eligiblePositions);
-  return expanded.size !== 1 || !expanded.has(slot.key);
-}
-
-// One chip per distinct starting slot key the template carries, canonical
-// order, absent keys dropped.
-function chipsForRosterSlots(rosterSlots) {
-  const slots = rosterSlots.length > 0 ? rosterSlots : FULL_CANONICAL_SLOTS;
-  const slotByKey = new Map(slots.map((slot) => [slot.key, slot]));
-  const chips = [{ key: "All" }];
-  CANONICAL_CHIP_ORDER.forEach((key) => {
-    const slot = slotByKey.get(key);
-    if (!slot) return;
-    chips.push(
-      isFlexSlot(slot)
-        ? { key, positions: Array.from(expandEligibility(slot.eligiblePositions)) }
-        : { key },
-    );
-  });
-  return chips;
-}
 // Order matches the segmented control's own left-to-right order (#1310,
 // Players.dc.html): All, Free agents, On waivers, Rostered, My team.
 const AVAILABILITY_FILTERS = [

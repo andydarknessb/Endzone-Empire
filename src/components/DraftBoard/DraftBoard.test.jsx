@@ -14,6 +14,7 @@ import PlayerPoolTableProbe from './PlayerPoolTable';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { DRAFT_ASSISTANT_KEY } from '../../lib/draftAssistantPreference';
 import { fillTemplate, TRIGGERS, POLK_HIGH_LEGEND_LINES } from '../../lib/draftAssistant';
+import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -1159,23 +1160,61 @@ test('changing the position filter refetches available players filtered by posit
   );
 });
 
-test('the position filter offers individual defender positions and filters the draft pool by them', async () => {
+test('#1420: the position filter offers the DL/LB/DB defender GROUP chips, not granular codes, and queries the expanded group', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   apiClient.get.mockClear();
   apiClient.get.mockResolvedValue(playersPage([]));
 
   await userEvent.click(screen.getByLabelText('Position'));
-  for (const pos of ['DE', 'DT', 'LB', 'CB', 'S', 'DB']) {
+  for (const pos of ['DL', 'LB', 'DB']) {
     expect(await screen.findByRole('option', { name: pos })).toBeInTheDocument();
+  }
+  // The granular Tank01 codes the old hardcoded menu offered are gone - only
+  // the roster-eligibility group keys remain (#1420).
+  for (const pos of ['DE', 'DT', 'CB', 'S']) {
+    expect(screen.queryByRole('option', { name: pos })).not.toBeInTheDocument();
   }
   await userEvent.click(screen.getByRole('option', { name: 'LB' }));
 
+  // LB is itself a POSITION_GROUPS key (templates.js), so selecting it sends
+  // the whole expanded group via the #1418 multi-position param, not a
+  // single `position: 'LB'`.
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'LB' },
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', positions: 'LB,ILB,OLB' },
     })
   );
+});
+
+// Formal review formal-001-f1: the two tests above never trigger draft:state,
+// so `league` stays null throughout and the menu is built off usePlayerPool's
+// own no-template fallback (FULL_CANONICAL_SLOTS), never off a real template -
+// they cannot catch DraftBoard reading the wrong league field, or passing a
+// forced-empty rosterSlots, when threading league.roster_slots into the pool.
+// This one supplies a real, non-IDP roster_slots over the socket and asserts
+// the acceptance criterion directly at the room level (AC1: non-IDP league
+// shows no defender entries) - including SFLX, which the fallback also
+// carries but a Standard template does not.
+test('#1420: DraftBoard threads the socket league.roster_slots into the pool - a non-IDP template shows no defender/SFLX entries', async () => {
+  renderBoard(1);
+  await screen.findByText('Patrick Mahomes');
+
+  act(() =>
+    fakeSocket.trigger('draft:state', {
+      league: { name: 'Sunday Ballers', draft_status: 'active', roster_slots: DEFAULT_ROSTER_SLOTS },
+      teams: [{ teamId: 1, teamName: 'Team A' }],
+      picks: [],
+      onTheClock: { teamId: 1, teamName: 'Team A' },
+    })
+  );
+
+  await userEvent.click(screen.getByLabelText('Position'));
+  const optionNames = screen.getAllByRole('option').map((o) => o.textContent);
+  expect(optionNames).toEqual(['All', 'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF']);
+  for (const code of ['DL', 'LB', 'DB', 'SFLX']) {
+    expect(screen.queryByRole('option', { name: code })).not.toBeInTheDocument();
+  }
 });
 
 test('disconnects the socket on unmount', async () => {
