@@ -1159,21 +1159,29 @@ test('changing the position filter refetches available players filtered by posit
   );
 });
 
-test('the position filter offers individual defender positions and filters the draft pool by them', async () => {
+test('#1420: the position filter offers the DL/LB/DB defender GROUP chips, not granular codes, and queries the expanded group', async () => {
   renderBoard(1);
   await screen.findByText('Patrick Mahomes');
   apiClient.get.mockClear();
   apiClient.get.mockResolvedValue(playersPage([]));
 
   await userEvent.click(screen.getByLabelText('Position'));
-  for (const pos of ['DE', 'DT', 'LB', 'CB', 'S', 'DB']) {
+  for (const pos of ['DL', 'LB', 'DB']) {
     expect(await screen.findByRole('option', { name: pos })).toBeInTheDocument();
+  }
+  // The granular Tank01 codes the old hardcoded menu offered are gone - only
+  // the roster-eligibility group keys remain (#1420).
+  for (const pos of ['DE', 'DT', 'CB', 'S']) {
+    expect(screen.queryByRole('option', { name: pos })).not.toBeInTheDocument();
   }
   await userEvent.click(screen.getByRole('option', { name: 'LB' }));
 
+  // LB is itself a POSITION_GROUPS key (templates.js), so selecting it sends
+  // the whole expanded group via the #1418 multi-position param, not a
+  // single `position: 'LB'`.
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith('/api/players', {
-      params: { page: 1, leagueId: 1, available: true, sort: 'adp', position: 'LB' },
+      params: { page: 1, leagueId: 1, available: true, sort: 'adp', positions: 'LB,ILB,OLB' },
     })
   );
 });

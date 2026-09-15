@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
+import { chipsForRosterSlots } from '../../shared/lib/positionChips';
 import { SORT_KEYS, wireSortName } from './sortFields';
 
 /** Parses the `byes` URL param (comma-separated week numbers) into a sorted,
@@ -27,8 +28,16 @@ function parseSortParam(raw) {
  * restores them, and fetching. Pages are fetched server-side (25 at a time)
  * but appended into one growing list — `loadMore()` fetches the next page for
  * a windowed/infinite-scroll pool instead of the old page-by-page UI.
+ *
+ * `rosterSlots` (the draft's own league.roster_slots, #1420) drives the
+ * position menu: one chip per distinct starting slot key the template
+ * carries, canonical order, group chips for DL/LB/DB, reusing the shared
+ * derivation the Players page chip menu already reuses (chipsForRosterSlots -
+ * "no third copy" of the chip vocabulary or position-group table). An absent
+ * or empty `rosterSlots` (the template hasn't loaded yet) falls back to the
+ * full chip set inside chipsForRosterSlots itself.
  */
-export default function usePlayerPool(leagueId) {
+export default function usePlayerPool(leagueId, rosterSlots = []) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [positionFilter, setPositionFilter] = useState(() => searchParams.get('pos') || 'All');
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
@@ -53,6 +62,11 @@ export default function usePlayerPool(leagueId) {
   // later one's result (e.g. rapid filter changes).
   const requestSeqRef = useRef(0);
 
+  // The menu's own chips (#1420), rebuilt only when the template's slots
+  // actually change identity - not on every render of the room that passes
+  // them through.
+  const chips = useMemo(() => chipsForRosterSlots(rosterSlots), [rosterSlots]);
+
   const fetchPage = useCallback(
     async (pageNum, { append = false, positionOverride, searchOverride } = {}) => {
       const seq = ++requestSeqRef.current;
@@ -72,8 +86,21 @@ export default function usePlayerPool(leagueId) {
         // "Hide drafted" (default) keeps the board to available players only.
         if (hideDrafted) params.available = true;
         if (dir === 'desc') params.dir = 'desc';
+        // The chip's own request shape (#1419/#1420), reused rather than
+        // duplicated for the draft room: "All" sends no position filter at
+        // all; a flex-type chip (FLEX, SFLX, DL, LB, DB) sends the union of
+        // its slot's eligible positions to `positions` (the #1418
+        // multi-position param); any other chip sends its own code to
+        // `position`. A `pos` value the menu doesn't offer (a stale deep
+        // link, or a chip the template has since dropped) resolves to the
+        // "All" chip here - falling back to `chips[0]` - so this can never
+        // send a position code the menu itself doesn't show.
         const positionValue = positionOverride !== undefined ? positionOverride : positionFilter;
-        if (positionValue !== 'All') params.position = positionValue;
+        const selectedChip = chips.find((chip) => chip.key === positionValue) || chips[0];
+        if (selectedChip.key !== 'All') {
+          if (selectedChip.positions) params.positions = selectedChip.positions.join(',');
+          else params.position = selectedChip.key;
+        }
         const searchValue = searchOverride !== undefined ? searchOverride : search;
         if (searchValue) params.search = searchValue;
         if (byeWeeksFilter.length > 0) params.byeWeeks = byeWeeksFilter.join(',');
@@ -98,7 +125,7 @@ export default function usePlayerPool(leagueId) {
         }
       }
     },
-    [leagueId, sort, dir, hideDrafted, positionFilter, search, byeWeeksFilter]
+    [leagueId, sort, dir, hideDrafted, positionFilter, chips, search, byeWeeksFilter]
   );
 
   // Initial load. Intentionally excludes fetchPage (identity changes with
@@ -168,6 +195,20 @@ export default function usePlayerPool(leagueId) {
     fetchPage(0, { positionOverride: newPosition });
   };
 
+  // A chip that no longer exists in the menu - most often a legacy `?pos=`
+  // deep link (e.g. `?pos=DE`, one of the granular defender codes the menu
+  // dropped) or a chip the template has since stopped rostering - resets the
+  // filter to "All" rather than keep sending a code the menu itself doesn't
+  // show (#1420 ruling). fetchPage's own selectedChip lookup already refuses
+  // to WIRE an unrecognized code; this corrects the STATE (and so the URL and
+  // the Select's displayed value) to match.
+  useEffect(() => {
+    if (positionFilter === 'All') return;
+    if (chips.some((chip) => chip.key === positionFilter)) return;
+    handlePositionFilterChange('All');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chips, positionFilter]);
+
   // Selected values arrive from MUI's multi-select Select as whatever was
   // passed to `value` on the changed MenuItem (already numbers here, since
   // BYE_WEEK_OPTIONS is numeric) — deduped/sorted so the URL and removable
@@ -198,6 +239,7 @@ export default function usePlayerPool(leagueId) {
     search,
     positionFilter,
     onPositionFilterChange: handlePositionFilterChange,
+    chips,
     hideDrafted,
     setHideDrafted,
     byeWeeksFilter,

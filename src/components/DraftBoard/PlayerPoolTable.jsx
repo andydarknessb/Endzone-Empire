@@ -40,6 +40,14 @@ import { STAT_DEFINITIONS, ABBREVIATION_STYLE } from '../../shared/ui/Abbreviati
 import ColumnGuide from './ColumnGuide';
 import { SORT_FIELDS, SORT_FIELDS_BY_KEY, DESKTOP_COLUMNS, DESKTOP_COLUMN_COUNT } from './sortFields';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { chipsForRosterSlots } from '../../shared/lib/positionChips';
+
+// A caller that doesn't thread `controls.chips` through (an older test double,
+// or a future caller with no roster template of its own) gets the full
+// canonical chip set - chipsForRosterSlots' own no-template fallback (#1420) -
+// rather than this table re-declaring a menu of its own. Computed once at
+// module load, not per render: chipsForRosterSlots([]) is pure and constant.
+const DEFAULT_CHIPS = chipsForRosterSlots([]);
 
 // The real NFL regular season a Bye can fall in (mirrors REG_SEASON_WEEKS in
 // server/services/bye.service.js) — every selectable option in the multi-select
@@ -370,6 +378,7 @@ function PlayerPoolTable({
     search,
     positionFilter,
     onPositionFilterChange,
+    chips = DEFAULT_CHIPS,
     hideDrafted,
     setHideDrafted,
     byeWeeksFilter,
@@ -488,21 +497,14 @@ function PlayerPoolTable({
           onChange={(e) => onPositionFilterChange(e.target.value)}
           size="small"
         >
-          <MenuItem value="All">All</MenuItem>
-          <MenuItem value="QB">QB</MenuItem>
-          <MenuItem value="RB">RB</MenuItem>
-          <MenuItem value="WR">WR</MenuItem>
-          <MenuItem value="TE">TE</MenuItem>
-          <MenuItem value="K">K</MenuItem>
-          <MenuItem value="DEF">DEF</MenuItem>
-          {/* Individual defenders (DP-enabled leagues) — literal Tank01
-              position codes, not the DL/LB/DB roster-eligibility group keys. */}
-          <MenuItem value="DE">DE</MenuItem>
-          <MenuItem value="DT">DT</MenuItem>
-          <MenuItem value="LB">LB</MenuItem>
-          <MenuItem value="CB">CB</MenuItem>
-          <MenuItem value="S">S</MenuItem>
-          <MenuItem value="DB">DB</MenuItem>
+          {/* One entry per distinct starting slot key the draft's own roster
+              template carries, canonical order, with group chips (DL/LB/DB)
+              in place of granular defender codes (#1420) - the same
+              chipsForRosterSlots derivation the Players page chip menu
+              reuses (#1419), never a second hand-kept position list. */}
+          {chips.map((chip) => (
+            <MenuItem key={chip.key} value={chip.key}>{chip.key}</MenuItem>
+          ))}
         </Select>
       </FormControl>
       <FormControl sx={{ minWidth: 220 }}>
@@ -818,6 +820,10 @@ PlayerPoolTable.propTypes = {
     search: PropTypes.string,
     positionFilter: PropTypes.string,
     onPositionFilterChange: PropTypes.func,
+    chips: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string,
+      positions: PropTypes.arrayOf(PropTypes.string),
+    })),
     hideDrafted: PropTypes.bool,
     setHideDrafted: PropTypes.func,
     byeWeeksFilter: PropTypes.arrayOf(PropTypes.number),
