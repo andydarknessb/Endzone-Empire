@@ -71,6 +71,12 @@ function rosterablePositions(league) {
   const out = new Set();
   for (const slot of rosterSlots) {
     if (!slot || NON_STARTING_SLOT_KEYS.has(slot.key)) continue;
+    // A count-0 row seats nobody - the same treatment optimalLineup's own
+    // `s.count > 0` filter and the lineup cap (count as the max) already
+    // give it - so it contributes nothing to the rosterable set (formal
+    // review f1). A template that is every-row count-0 falls through to
+    // out.size === 0 below, the same no-gate path an empty template gets.
+    if (!(Number(slot.count) > 0)) continue;
     expandEligibility(slot.eligiblePositions).forEach((p) => out.add(p));
   }
   return out.size > 0 ? out : null;

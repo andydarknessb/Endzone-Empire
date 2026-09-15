@@ -74,7 +74,10 @@ function mockPoolNoLeague(t, { players }) {
 
 // Same, but wired for a leagueId request: membership + league row lookups,
 // plus the availability/roster-count reads the context block needs.
-function mockPoolWithLeague(t, { leagueRow, players }) {
+// `capture`, when given, records the bound ANY() array (or null if the query
+// carried no position filter at all) as `capture.allowed`, so a test can
+// assert directly on what reached the SQL params, not just the response.
+function mockPoolWithLeague(t, { leagueRow, players, capture = null }) {
   return t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
     if (text.startsWith('SELECT * FROM "teams"')) {
@@ -87,8 +90,12 @@ function mockPoolWithLeague(t, { leagueRow, players }) {
       const anyMatch = text.match(/(?<!\.)"position" = ANY\(\$(\d+)\)/);
       let rows = players;
       if (anyMatch) {
-        const allowed = new Set(params[Number(anyMatch[1]) - 1]);
-        rows = rows.filter((p) => allowed.has(p.position));
+        const allowed = params[Number(anyMatch[1]) - 1];
+        if (capture) capture.allowed = allowed;
+        const allowedSet = new Set(allowed);
+        rows = rows.filter((p) => allowedSet.has(p.position));
+      } else if (capture) {
+        capture.allowed = null;
       }
       return {
         rows: rows.map((p) => ({ ...p, total_count: String(rows.length), identity_ids: [p.id] })),
@@ -216,6 +223,51 @@ test('an empty roster template applies no gate', async (t) => {
   };
   mockPoolWithLeague(t, { leagueRow, players: ALL_POSITION_PLAYERS });
   const res = await authedGet('?leagueId=4');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(positionsOf(res), [...ALL_POSITION_PLAYERS.map((p) => p.position)].sort());
+});
+
+// formal review f1: a count-0 slot row seats nobody (the same treatment
+// optimalLineup's own `s.count > 0` filter, and the lineup cap that uses
+// `count` as its max, already give it), so it must contribute nothing to the
+// rosterable set - a league that zeroed out its K and DP (DL/LB/DB) slots
+// rather than removing them still excludes kickers and every defender code.
+test('a count-0 slot row is never rosterable: zeroed K and DP slots exclude kickers and defenders from "All"', async (t) => {
+  const leagueRow = {
+    id: 5,
+    name: 'Zeroed-Out Slots League',
+    waiver_type: 'faab',
+    current_season: 2026,
+    roster_slots: [
+      { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
+      { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
+      { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
+      { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+      { key: 'K', label: 'K', count: 0, eligiblePositions: ['K'] },
+      { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
+      { key: 'DP', label: 'DP', count: 0, eligiblePositions: ['DL', 'LB', 'DB'] },
+    ],
+  };
+  const capture = {};
+  mockPoolWithLeague(t, { leagueRow, players: ALL_POSITION_PLAYERS, capture });
+  const res = await authedGet('?leagueId=5');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(positionsOf(res), ['DEF', 'QB', 'RB', 'TE', 'WR']);
+  // Neither a kicker nor any defender code reached the SQL params.
+  assert.ok(Array.isArray(capture.allowed), 'the query must still carry a position filter');
+  assert.equal(capture.allowed.includes('K'), false);
+  for (const idpCode of ['DE', 'DT', 'NT', 'DL', 'LB', 'ILB', 'OLB', 'CB', 'S', 'FS', 'SS', 'DB']) {
+    assert.equal(capture.allowed.includes(idpCode), false, `${idpCode} must not be in the bound ANY() array`);
+  }
+});
+
+// formal review f2: `positions=,` parses to an all-empty code set, which
+// carries nothing to filter by - treated as absent, the same as `positions`
+// omitted entirely, rather than binding an empty ANY() array that would zero
+// out the whole pool.
+test('positions=, (an all-empty code set) is treated as absent, not an empty filter', async (t) => {
+  mockPoolNoLeague(t, { players: ALL_POSITION_PLAYERS });
+  const res = await authedGet('?positions=,');
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.deepEqual(positionsOf(res), [...ALL_POSITION_PLAYERS.map((p) => p.position)].sort());
 });

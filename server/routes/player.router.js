@@ -246,7 +246,10 @@ router.get('/', requireAuth, async (req, res) => {
         .status(400)
         .json({ error: `position must be one of ${POSITIONS.join(', ')}` });
     }
-    positionsParam = [...new Set(codes)];
+    // An all-empty-code set (e.g. `positions=,`) carries nothing to filter
+    // by, so it is treated as absent - the same "All" `positions` omitted
+    // gets - rather than binding an empty ANY() array (formal review f2).
+    if (codes.length > 0) positionsParam = [...new Set(codes)];
   }
   // The set the caller asked for, or `null` for "All" - folded together so
   // the league-scoped rosterable gate below has one shape to intersect
