@@ -5,6 +5,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const recap = require('./recap.service');
+const montecarlo = require('./montecarlo.service');
 
 /**
  * Stat corrections: the NFL routinely adjusts box scores on Tuesday/Wednesday
@@ -228,12 +229,37 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     );
     // The scores are committed regardless of whether the log/notify above
     // succeeded, so the recap rebuild still runs before this rethrows
-    // (#1409 formal-001-f1).
-    if (hasFinalChange) await rebuildStoredRecap({ leagueId, season, week });
+    // (#1409 formal-001-f1). Power rankings go first on this path too (#1410),
+    // matching the advance-week order below.
+    if (hasFinalChange) {
+      await recomputePowerRankings({ leagueId });
+      await rebuildStoredRecap({ leagueId, season, week });
+    }
     throw error;
   }
-  if (hasFinalChange) await rebuildStoredRecap({ leagueId, season, week });
+  if (hasFinalChange) {
+    await recomputePowerRankings({ leagueId });
+    await rebuildStoredRecap({ leagueId, season, week });
+  }
   return { leagueId, changes };
+}
+
+/**
+ * Recompute and store this league's power rankings ahead of the recap
+ * rebuild (#1410), matching the advance-week chain's order in
+ * scoring.router.js ("Odds first so the recap reads fresh playoff numbers"):
+ * the recap reads the latest stored `power_rankings` row directly
+ * (recap.service.js), so odds must be stored before the rebuild for the
+ * recap to see them. Never allowed to fail or block the correction pass, nor
+ * the recap rebuild that follows it: caught and logged, not rethrown -
+ * exactly how the advance-week chain treats this same call.
+ */
+async function recomputePowerRankings({ leagueId }) {
+  try {
+    await montecarlo.computeLeagueOdds({ leagueId });
+  } catch (err) {
+    console.error('stat correction: power rankings failed for league %s:', leagueId, err.message);
+  }
 }
 
 /**
