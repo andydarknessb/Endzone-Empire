@@ -557,10 +557,13 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
  * - fumbles = fumbles_lost_total (all lost fumbles, any category).
  * - returnTDs = special_teams_tds — broader than Tank01's punt-return-only
  *   field (kickoff-return TDs are invisible to Tank01 entirely).
- * - idpDefensiveTD = fumble_recovery_tds, mirroring Tank01's
- *   defTD-minus-interceptionTDs bucket (a pick-six still scores only the
- *   interception; individual blocked-kick-return TDs aren't attributed —
- *   the same accepted limit the live pipeline has).
+ * - idpDefensiveTD = def_tds, the player row's own total-defensive-TD
+ *   column (fumble-, blocked-kick-, or interception-return TD combined),
+ *   mirroring Tank01's whole `defTD` and ESPN's whole `defensiveTouchdowns`:
+ *   an interception-return touchdown counts as both idpInterception and
+ *   idpDefensiveTD (ruling, issue #1386 — CONTEXT.md **IDP**). Individual
+ *   blocked-kick-return TDs aren't separately attributed, same as the other
+ *   two writers.
  * - twoPointReturn has no nflverse weekly column; 0.
  * - The TD-length bonus arrays (passingTDLengths etc.) need play-by-play
  *   and are omitted — they score 0 points under default rules, and no
@@ -627,7 +630,7 @@ function normalizeNflversePlayerStats(row) {
     passDeflection: num(row.def_pass_defended),
     qbHit: num(row.def_qb_hits),
     tacklesForLoss: num(row.def_tackles_for_loss),
-    idpDefensiveTD: num(row.fumble_recovery_tds),
+    idpDefensiveTD: num(row.def_tds),
     twoPointReturn: 0,
     idpSackYards: num(row.def_sack_yards),
     idpTacklesForLossYards: num(row.def_tackles_for_loss_yards),

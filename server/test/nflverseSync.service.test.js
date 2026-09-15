@@ -223,13 +223,13 @@ test('normalizeNflversePlayerStats maps offense including per-category two-point
   assert.equal(stats.puntReturnYards, 31);
 });
 
-test('normalizeNflversePlayerStats maps IDP including the finalization-only yardage keys', () => {
+test('normalizeNflversePlayerStats maps IDP including the finalization-only yardage keys; idpDefensiveTD reads def_tds so an interception-return TD counts even with no fumble-return TD (issue #1386)', () => {
   const stats = normalizeNflversePlayerStats({
     def_tackles_solo: '6', def_tackle_assists: '3', def_sacks: '1.5',
     def_sack_yards: '11', def_interceptions: '1', def_interception_yards: '34',
     def_fumbles_forced: '1',
     fumble_recovery_opp: '1', fumble_recovery_yards_opp: '15',
-    fumble_recovery_tds: '1', def_pass_defended: '2', def_qb_hits: '3',
+    fumble_recovery_tds: '0', def_tds: '1', def_pass_defended: '2', def_qb_hits: '3',
     def_tackles_for_loss: '2', def_tackles_for_loss_yards: '5', def_safeties: '1',
   });
   assert.equal(stats.soloTackle, 6);
