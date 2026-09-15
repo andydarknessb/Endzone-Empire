@@ -148,6 +148,24 @@ async function correctLeagueWeek({ leagueId, season, week }) {
   const changes = diffMatchupScores(before.rows, after.rows);
   if (changes.length === 0) return { leagueId, changes };
 
+  // A changed FINAL matchup means the week's scores of record moved, so the
+  // stored weekly recap (built from those scores) is stale. Rebuild it
+  // silently: no second feed entry, no second notification - the
+  // "scores were updated" notice below is the announcement (#1409). A week
+  // with no finalized matchups yet has no recap to rebuild, so
+  // computeAndStoreWeeklyRecap no-ops the same way generateWeeklyRecap always
+  // has. Never allowed to fail or block the correction pass: logged and
+  // swallowed, independent of whether the log/notify transaction below
+  // succeeds.
+  if (changes.some((c) => c.final)) {
+    try {
+      const recap = require('./recap.service');
+      await recap.computeAndStoreWeeklyRecap({ leagueId, season, week });
+    } catch (err) {
+      console.error('stat correction: recap rebuild failed for league %s week %s:', leagueId, week, err.message);
+    }
+  }
+
   try {
     // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
     // release rule (ADR 0033). The connect try is gone: the wrapper propagates a

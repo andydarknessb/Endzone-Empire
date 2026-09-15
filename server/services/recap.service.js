@@ -164,11 +164,18 @@ async function llmNarrative(facts, { client: suppliedClient } = {}) {
 }
 
 /**
- * Build and store the recap for a finalized league week. Idempotent — re-runs
- * overwrite the stored recap. Returns the stored recap data or null when the
- * week has no finalized matchups.
+ * Compute and store the recap for a finalized league week. Idempotent —
+ * re-runs overwrite the stored recap. Returns the stored recap data or null
+ * when the week has no finalized matchups (a no-op — nothing is written).
+ *
+ * Deliberately silent: this never posts a feed entry or a member
+ * notification. That is `announceWeeklyRecap`'s job, kept separate so a
+ * caller that only needs the stored row corrected (a stat correction
+ * rebuild, #1409) can skip the announcement entirely — the correction pass
+ * already sent its own "scores were updated" notice, and a rebuilt recap is
+ * not a second event.
  */
-async function generateWeeklyRecap({ leagueId, season, week }) {
+async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
   const matchupsResult = await pool.query(
     `SELECT "matchups".*,
             "home"."name" AS "home_team_name", "away"."name" AS "away_team_name"
@@ -270,14 +277,19 @@ async function generateWeeklyRecap({ leagueId, season, week }) {
      DO UPDATE SET "data" = EXCLUDED."data", "updated_at" = now()`,
     [leagueId, season, week, JSON.stringify(data)]
   );
+  return data;
+}
 
-  // Post to the league feed + notify members. Best-effort: the recap is already
-  // stored, so a feed/notify failure never fails the recap - the swallow sits
-  // here at the call site around withTransaction (ADR 0033, #1072). The ROLLBACK
-  // was unguarded before, so a rejecting rollback escaped this swallow; the
-  // wrapper now contains it (destroying the connection). A connect failure now
-  // reaches this catch too (the checkout moved inside the wrapper) and is
-  // swallowed the same way. Either way `data` is returned unchanged.
+/**
+ * Post the "week N recap is in" feed entry and member notification. Best-
+ * effort: called after the recap is already stored, so a feed/notify failure
+ * never fails the recap - the swallow sits here at the call site around
+ * withTransaction (ADR 0033, #1072). The ROLLBACK was unguarded before, so a
+ * rejecting rollback escaped this swallow; the wrapper now contains it
+ * (destroying the connection). A connect failure now reaches this catch too
+ * (the checkout moved inside the wrapper) and is swallowed the same way.
+ */
+async function announceWeeklyRecap({ leagueId, week, season, narrative }) {
   try {
     await withTransaction(
       pool,
@@ -299,6 +311,19 @@ async function generateWeeklyRecap({ leagueId, season, week }) {
   } catch (error) {
     console.error('recap: feed/notification write failed:', error.message);
   }
+}
+
+/**
+ * Build and store the recap for a finalized league week, then announce it
+ * (feed entry plus member notification). The advance-week path's entry
+ * point; unchanged in behavior from before the compute/announce split.
+ * Returns the stored recap data or null when the week has no finalized
+ * matchups.
+ */
+async function generateWeeklyRecap({ leagueId, season, week }) {
+  const data = await computeAndStoreWeeklyRecap({ leagueId, season, week });
+  if (!data) return null;
+  await announceWeeklyRecap({ leagueId, season, week, narrative: data.narrative });
   return data;
 }
 
@@ -318,6 +343,8 @@ module.exports = {
   pickWaiverSteal,
   templateNarrative,
   llmNarrative,
+  computeAndStoreWeeklyRecap,
+  announceWeeklyRecap,
   generateWeeklyRecap,
   getLatestRecap,
 };

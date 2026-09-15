@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildRecapFacts, pickWaiverSteal, templateNarrative } = require('../services/recap.service');
 const { rulesForLeague } = require('../services/scoring.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 const matchup = (home, away, hs, as, final = true) => ({
   home_team_name: home,
@@ -100,4 +101,88 @@ test('templateNarrative skips a close-game line when nothing was close', () => {
 
 test('templateNarrative always produces something', () => {
   assert.equal(templateNarrative({ week: 9, matchupCount: 0 }), 'Week 9 is in the books.');
+});
+
+// ---- #1409: compute/announce split -----------------------------------------
+//
+// generateWeeklyRecap used to compute, store AND announce a recap in one
+// step. The correction path (#1409) needs to rebuild a stored recap's facts
+// without a second announcement, so the store and the announce are now
+// separately callable. These tests pin that split at the DB-call level: a
+// fake pool with handlers for every query the (mocked-free) path touches, so
+// an unexpected extra INSERT is exactly as visible as a missing one.
+
+/** A minimal one-matchup, two-team world for the store/announce split tests. */
+function recapWorld({ homeScore = 100, awayScore = 80 } = {}) {
+  return createFakePool([
+    [/^SELECT "matchups"\.\*/, () => ({
+      rows: [{
+        id: 1, final: true, home_team_id: 1, away_team_id: 2,
+        home_team_name: 'Team A', away_team_name: 'Team B',
+        home_score: homeScore, away_score: awayScore,
+      }],
+    })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 7, scoring_rules: null }] })],
+    [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }, { owner_id: 102 }] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+}
+
+test('#1409: computeAndStoreWeeklyRecap stores the recap without announcing it', async (t) => {
+  const fake = recapWorld();
+  fake.install(t);
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(data.facts.highestScorer.team, 'Team A');
+  assert.equal(fake.matching(/INSERT INTO "league_analytics"/).length, 1);
+  assert.equal(fake.matching(/INSERT INTO "transactions"/).length, 0, 'no feed entry');
+  assert.equal(fake.matching(/INSERT INTO "notifications"/).length, 0, 'no member notification');
+  fake.assertClean();
+});
+
+test('#1409: computeAndStoreWeeklyRecap no-ops on a week with no finalized matchups', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "matchups"\.\*/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(data, null);
+  assert.equal(fake.calls.length, 1, 'nothing beyond the initial matchups read is queried');
+});
+
+test('#1409: announceWeeklyRecap posts the feed entry and member notifications, never a recap row', async (t) => {
+  const fake = recapWorld();
+  fake.install(t);
+  const { announceWeeklyRecap } = require('../services/recap.service');
+
+  await announceWeeklyRecap({ leagueId: 7, season: 2026, week: 5, narrative: 'Team A went off.' });
+
+  assert.equal(fake.matching(/INSERT INTO "league_analytics"/).length, 0);
+  assert.equal(fake.matching(/INSERT INTO "transactions"/).length, 1);
+  assert.equal(fake.matching(/INSERT INTO "notifications"/).length, 2, 'one per team owner');
+  fake.assertClean();
+});
+
+test('#1409: generateWeeklyRecap still does both, store then announce, for the advance-week path', async (t) => {
+  const fake = recapWorld();
+  fake.install(t);
+  const { generateWeeklyRecap } = require('../services/recap.service');
+
+  const data = await generateWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.ok(data);
+  assert.equal(fake.matching(/INSERT INTO "league_analytics"/).length, 1);
+  assert.equal(fake.matching(/INSERT INTO "transactions"/).length, 1);
+  assert.equal(fake.matching(/INSERT INTO "notifications"/).length, 2);
+  const storeIdx = fake.calls.findIndex((c) => /INSERT INTO "league_analytics"/.test(c.text));
+  const announceIdx = fake.calls.findIndex((c) => /INSERT INTO "transactions"/.test(c.text));
+  assert.ok(storeIdx >= 0 && announceIdx >= 0 && storeIdx < announceIdx, 'stores before it announces');
+  fake.assertClean();
 });

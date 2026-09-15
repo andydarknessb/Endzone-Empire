@@ -140,6 +140,8 @@ const poolModule = require('../modules/pool');
 const correctionSvc = require('../services/correction.service');
 const scoringSvc = require('../services/scoring.service');
 const nflverse = require('../services/nflverseSync.service');
+const recapSvc = require('../services/recap.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 function stubOneInSeasonLeague(t) {
   t.mock.method(poolModule, 'query', async (sql) => {
@@ -385,4 +387,147 @@ test('a failure in one corrected week does not skip cache maintenance for the ne
   assert.deepEqual(correctedLeagueIds.sort(), [1, 2], 'every league was still corrected');
   assert.equal(rejection.cacheFailures.length, 1, 'only the one real failure is reported');
   assert.equal(rejection.cacheFailures[0].week, 4);
+});
+
+// ---- #1409: a stat correction rebuilds the stored weekly recap --------------
+//
+// correctLeagueWeek is the one place BOTH the scheduled Tuesday/Wednesday
+// pass and the manual commissioner correction route (scoring.router.js'
+// POST /league/:id/correct-week) land, so a rebuild wired in here covers both
+// with no separate code path. The recap is rebuilt SILENTLY: only
+// `computeAndStoreWeeklyRecap` is called, never `announceWeeklyRecap` - the
+// correction's own "scores were updated" notice is the one announcement.
+
+/**
+ * A one-matchup, two-team world wired for both correctLeagueWeek's own
+ * before/after snapshots and computeAndStoreWeeklyRecap's queries. `scoring.
+ * scoreMatchups` is mocked to a no-op (as commissionerAlertFanout.test.js
+ * does) and the "after" snapshot rows stand in for what it would have
+ * written, so the matchups+teams join below hands back the CORRECTED score.
+ */
+function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, final = true, isPlayoff = false }) {
+  return createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final, is_playoff: isPlayoff, home_score: beforeHome, away_score: beforeAway }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: afterHome, away_score: afterAway }],
+    })],
+    [/^SELECT "matchups"\.\*/, () => ({
+      rows: [{
+        id: 1, final, home_team_id: 1, away_team_id: 2,
+        home_team_name: 'Team A', away_team_name: 'Team B',
+        home_score: afterHome, away_score: afterAway,
+      }],
+    })],
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 7, scoring_rules: null }] })],
+    [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+  ]);
+}
+
+test('#1409: a correction that changes a final matchup rebuilds the stored recap from the corrected scores', async (t) => {
+  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(outcome.changes.length, 1);
+  const stored = fake.matching(/INSERT INTO "league_analytics"/);
+  assert.equal(stored.length, 1, 'the recap is rebuilt exactly once');
+  const data = JSON.parse(stored[0].params[3]);
+  assert.equal(data.facts.highestScorer.team, 'Team A');
+  assert.equal(
+    data.facts.highestScorer.points,
+    115,
+    'the rebuilt recap reflects the corrected score, not the pre-correction one'
+  );
+});
+
+test('#1409: the recap rebuild never posts a second feed entry or notification', async (t) => {
+  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const recapFeedEntries = fake.matching(/INSERT INTO "transactions"/).filter((c) => c.params[2] === 'recap');
+  const recapNotifications = fake.matching(/INSERT INTO "notifications"/).filter((c) => c.params[2] === 'recap');
+  assert.equal(recapFeedEntries.length, 0, 'a rebuilt recap posts no feed entry of its own');
+  assert.equal(recapNotifications.length, 0, 'a rebuilt recap posts no member notification of its own');
+  // The correction's own notice is the one announcement, and it still fires once.
+  const correctionFeedEntries = fake.matching(/INSERT INTO "transactions"/)
+    .filter((c) => c.params[2] === 'stat_correction');
+  assert.equal(correctionFeedEntries.length, 1);
+});
+
+test('#1409: a correction that changes nothing leaves the stored recap untouched, including its generated-at stamp', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: 90, away_score: 80 }], // unchanged
+    })],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(outcome.changes, []);
+  assert.equal(
+    fake.calls.some((c) => /league_analytics/.test(c.text)),
+    false,
+    'no score movement means the recap store is never even queried'
+  );
+  fake.assertClean();
+});
+
+test('#1409: a correction on a matchup that was not yet final never touches the recap', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: false, is_playoff: false, home_score: 90, away_score: 80 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: 100, away_score: 80 }],
+    })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(outcome.changes.length, 1, 'the score change is still logged');
+  assert.equal(
+    fake.calls.some((c) => /league_analytics|FROM "leagues"/.test(c.text)),
+    false,
+    'a non-final matchup change never rebuilds a recap - there is nothing finalized to recap yet'
+  );
+  fake.assertClean();
+});
+
+test('#1409: a recap rebuild failure is logged and never blocks the correction pass', async (t) => {
+  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => { throw new Error('recap boom'); });
+  const logs = [];
+  t.mock.method(console, 'error', (...args) => { logs.push(args); });
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(outcome.changes.length, 1, 'the correction pass still records its changes');
+  assert.equal(
+    fake.matching(/INSERT INTO "transactions"/).filter((c) => c.params[2] === 'stat_correction').length,
+    1,
+    'and still completes its own log/notify step'
+  );
+  const logged = logs.find((l) => String(l[0]).includes('recap rebuild failed'));
+  assert.ok(logged, 'the recap rebuild failure is logged');
 });
