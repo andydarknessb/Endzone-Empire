@@ -44,6 +44,9 @@ function advancePool() {
       return { rows: [...WEEK_3, ...WEEK_4] }; // whole-season read
     }],
     [update('matchups'), () => ({ rows: [], rowCount: 2 })],
+    // The finalize also resets waiver priority to reverse standings (see
+    // waiverPriorityReset.test.js); this suite only needs the write answered.
+    [update('teams'), () => ({ rows: [], rowCount: TEAMS.length })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
   ]);
 }
@@ -109,6 +112,9 @@ test('a new week with no matchups (nothing scheduled) opens no transaction and m
       return { rows: WEEK_3 };
     }],
     [update('matchups'), () => ({ rows: [], rowCount: 2 })],
+    // The finalize also resets waiver priority to reverse standings (see
+    // waiverPriorityReset.test.js); this suite only needs the write answered.
+    [update('teams'), () => ({ rows: [], rowCount: TEAMS.length })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
 

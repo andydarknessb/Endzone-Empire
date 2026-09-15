@@ -135,6 +135,37 @@ function computeStandings(teams, matchups) {
 }
 
 /**
+ * Pure: the Waiver priority order a standings table implies. Waiver priority
+ * is reverse standings (CONTEXT.md): the last-place team claims first, so
+ * the team ranked N of N gets priority 1 and the leader gets priority N.
+ * `standings` is computeStandings' output, already ranked best first with
+ * every tie broken, so this is a straight reversal and never a re-sort.
+ * Returns [{ teamId, priority }].
+ */
+function waiverPrioritiesFromStandings(standings) {
+  const count = standings.length;
+  return standings.map((s) => ({ teamId: s.teamId, priority: count - s.rank + 1 }));
+}
+
+/**
+ * Reset every team's waiver_priority to reverse standings, in one statement.
+ * Runs inside the caller's transaction, under the league row's FOR UPDATE
+ * lock. The one time-based writer of waiver_priority: the other writer is
+ * processWaivers (waiver.service.js), which sends a claim winner to the back
+ * of the order; that rotation lasts only until the next reset here.
+ */
+async function resetWaiverPriorities(client, { leagueId, standings }) {
+  const order = waiverPrioritiesFromStandings(standings);
+  if (order.length === 0) return;
+  await client.query(
+    `UPDATE "teams" SET "waiver_priority" = "order"."priority", "updated_at" = now()
+     FROM unnest($2::int[], $3::int[]) AS "order"("team_id", "priority")
+     WHERE "teams"."league_id" = $1 AND "teams"."id" = "order"."team_id"`,
+    [leagueId, order.map((o) => o.teamId), order.map((o) => o.priority)]
+  );
+}
+
+/**
  * Pure: pair playoff qualifiers for a round, best remaining seed vs. worst
  * (re-seeded every round). Top seeds get byes until the field is a power of
  * two — e.g. 6 teams: seeds 1-2 bye, 3v6, 4v5.
@@ -396,6 +427,21 @@ async function finalizeWeekAndAdvance({ leagueId }) {
     const nextWeek = week + 1;
     let outcome = { advancedTo: nextWeek, seasonStatus: league.season_status };
 
+    // Waiver priority resets to reverse standings every time a week is
+    // finalized, the app's Tuesday morning: whoever sits last once this
+    // week's results are final claims first for the coming week. Without
+    // this the post-draft seed only ever rotated claim winners to the back
+    // and never followed the standings. Standings count regular-season
+    // results only, so a playoff-week finalize re-asserts the final
+    // regular-season order rather than freezing the claim rotation. Same
+    // transaction as the matchups' `final` flip above, so a claim processed
+    // after this commit already sees the new order and one processed before
+    // it never sees a half-written one.
+    await resetWaiverPriorities(client, {
+      leagueId,
+      standings: computeStandings(teams, allMatchups.rows),
+    });
+
     if (league.season_status === 'regular' && week >= league.regular_season_weeks) {
       // Seed the playoff bracket from final standings
       const standings = computeStandings(teams, allMatchups.rows);
@@ -517,6 +563,8 @@ module.exports = {
   SeasonError,
   roundRobinPairings,
   computeStandings,
+  waiverPrioritiesFromStandings,
+  resetWaiverPriorities,
   pairBySeed,
   buildOpeningBrackets,
   generateRegularSeason,

@@ -946,7 +946,10 @@ rule)
 
 **Waiver priority**:
 The reverse-standings order that settles claims in non-FAAB leagues and breaks
-ties in FAAB ones. Lower is better.
+ties in FAAB ones. Lower is better. Seeded from reverse draft order when the
+draft completes, then reset to reverse standings each time a week is
+finalized: last place after that week's results claims first. Winning a claim
+sends a team to the back of the order until the next reset.
 
 **Trade**:
 A swap of players between two teams, optionally subject to a review window in
