@@ -3,11 +3,22 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import renderWithProviders from "../../test-utils/renderWithProviders";
 import apiClient from "../../api/apiClient";
+import { useLeague } from "../../hooks/useLeague";
+import { DEFAULT_ROSTER_SLOTS } from "../../lib/draftSim/templates";
 import PlayerManagement from "./PlayerManagement";
 
 jest.mock("../../api/apiClient", () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
+}));
+
+// The league hook is mocked directly, the same way the matchup detail test
+// mocks it (src/pages/matchup/MatchupPage.test.jsx, ~177), rather than
+// through apiClient: PlayerManagement reads the selected league's roster
+// template through useLeague, a separate read from the `/api/league` list
+// mockBrowser below already stands up for the League dropdown.
+jest.mock("../../hooks/useLeague", () => ({
+  useLeague: jest.fn(),
 }));
 
 const player = (overrides = {}) => ({
@@ -33,6 +44,27 @@ const league = {
   my_team_faab_remaining: 72,
   best_ball: false,
 };
+// Roster templates a league's `roster_slots` can carry (#1419), mirroring
+// the shapes CommissionerTools.jsx's own LINEUP_TEMPLATES stamp into a real
+// league and templates.js's own IDP_LINEUP/SUPERFLEX_LINEUP.
+const SUPERFLEX_SLOTS = [
+  ...DEFAULT_ROSTER_SLOTS,
+  { key: "SFLX", count: 1, eligiblePositions: ["QB", "RB", "WR", "TE"] },
+];
+const IDP_SLOTS = [
+  ...DEFAULT_ROSTER_SLOTS,
+  { key: "DL", count: 1, eligiblePositions: ["DL"] },
+  { key: "LB", count: 1, eligiblePositions: ["LB"] },
+  { key: "DB", count: 1, eligiblePositions: ["DB"] },
+];
+const FULL_SLOTS = [
+  ...DEFAULT_ROSTER_SLOTS,
+  { key: "SFLX", count: 1, eligiblePositions: ["QB", "RB", "WR", "TE"] },
+  { key: "DL", count: 1, eligiblePositions: ["DL"] },
+  { key: "LB", count: 1, eligiblePositions: ["LB"] },
+  { key: "DB", count: 1, eligiblePositions: ["DB"] },
+];
+
 const originalMatchMedia = window.matchMedia;
 
 function mockBrowser({
@@ -42,6 +74,13 @@ function mockBrowser({
   total = players.length,
   context,
   roster = [],
+  // The selected league's own detail row, through useLeague - defaults to
+  // the first dropdown league (a row with no `roster_slots`, so chips fall
+  // back to the canonical DEFAULT_ROSTER_SLOTS set). Pass a row with its own
+  // `roster_slots` to exercise a real template's chips, or `null` to model
+  // "no league selected".
+  templateLeague = leagues[0] ?? null,
+  templateLeagueLoading = false,
 } = {}) {
   apiClient.get.mockImplementation((url) => {
     if (url === "/api/league") return Promise.resolve({ data: leagues });
@@ -66,7 +105,20 @@ function mockBrowser({
       });
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
+  useLeague.mockReturnValue({
+    league: templateLeague,
+    viewerTeamId: null,
+    loading: templateLeagueLoading,
+    error: null,
+  });
 }
+
+beforeEach(() => {
+  // A safe default so a test that never calls mockBrowser (it stubs
+  // apiClient.get itself) still gets a defined useLeague() return instead of
+  // undefined destructuring. mockBrowser overrides this per test as needed.
+  useLeague.mockReturnValue({ league: null, viewerTeamId: null, loading: false, error: null });
+});
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -92,8 +144,10 @@ test("renders a league-scoped Player Browser without duplicate roster management
   await waitFor(() =>
     expect(apiClient.get).toHaveBeenCalledWith("/api/players", {
       // Formal review formal-1310-f1: Upgrade is the default sort once a
-      // league is selected in a non-best-ball league.
-      params: { page: 1, position: "All", sort: "upgrade", leagueId: 1, view: "cards" },
+      // league is selected in a non-best-ball league. "All" sends no
+      // position filter at all (#1419): it relies on the server's
+      // league-scoped gate rather than a literal position=All.
+      params: { page: 1, sort: "upgrade", leagueId: 1, view: "cards" },
     }),
   );
 });
@@ -363,9 +417,9 @@ test("uses URL-backed availability filters through the segmented control", async
     expect(apiClient.get).toHaveBeenCalledWith("/api/players", {
       params: {
         page: 1,
-        position: "All",
         // Formal review formal-1310-f1: Upgrade is the default sort once a
-        // league is selected in a non-best-ball league.
+        // league is selected in a non-best-ball league. "All" sends no
+        // position filter at all (#1419).
         sort: "upgrade",
         leagueId: 1,
         view: "cards",
@@ -451,7 +505,7 @@ test("never sends view=cards without a selected league", async () => {
   renderWithProviders(<PlayerManagement />);
 
   await screen.findByText(/not in a fantasy league yet/i);
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith("/api/players", { params: { page: 1, position: "All", sort: "adp" } }));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith("/api/players", { params: { page: 1, sort: "adp" } }));
 });
 
 // #970: player management reads its failures through readHttpFailure. The
@@ -677,4 +731,260 @@ test("the Watching toggle, with nothing watched on the page, shows its own empty
   await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
 
   expect(await screen.findByText("No watched players on this page")).toBeInTheDocument();
+});
+
+// #1419: the Players page derives its Position chips from the selected
+// league's own roster template (useLeague, `roster_slots`) instead of the
+// hardcoded POSITIONS list this red-tell used to be sent against - it names
+// DE, DT, CB and S directly rather than folding them under DL/DB.
+describe("position chips derived from the roster template (#1419)", () => {
+  async function openPositionOptions() {
+    await userEvent.click(screen.getByLabelText("Position"));
+    return screen.findAllByRole("option");
+  }
+
+  test("a non-IDP template renders no defender chips", async () => {
+    mockBrowser({ templateLeague: { ...league, roster_slots: DEFAULT_ROSTER_SLOTS } });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByTestId("player-row");
+
+    const options = await openPositionOptions();
+    const labels = options.map((option) => option.textContent);
+    expect(labels).not.toContain("DL");
+    expect(labels).not.toContain("LB");
+    expect(labels).not.toContain("DB");
+  });
+
+  test("an IDP template renders DL, LB and DB chips, never the six granular codes", async () => {
+    mockBrowser({ templateLeague: { ...league, roster_slots: IDP_SLOTS } });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByTestId("player-row");
+
+    const options = await openPositionOptions();
+    const labels = options.map((option) => option.textContent);
+    expect(labels).toEqual(expect.arrayContaining(["DL", "LB", "DB"]));
+    expect(labels).not.toEqual(
+      expect.arrayContaining(["DE", "DT", "NT", "ILB", "OLB", "CB", "S", "FS", "SS"]),
+    );
+  });
+
+  test("the FLEX chip requests the union of its slot's eligible positions (RB, WR, TE)", async () => {
+    mockBrowser({ templateLeague: { ...league, roster_slots: SUPERFLEX_SLOTS } });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByTestId("player-row");
+
+    await userEvent.click(screen.getByLabelText("Position"));
+    await userEvent.click(await screen.findByRole("option", { name: "FLEX" }));
+
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+      expect(playerCalls.at(-1)[1].params.positions).toBe("RB,WR,TE");
+    });
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.position).toBeUndefined();
+  });
+
+  test("the SFLX chip requests QB as well (QB, RB, WR, TE)", async () => {
+    mockBrowser({ templateLeague: { ...league, roster_slots: SUPERFLEX_SLOTS } });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByTestId("player-row");
+
+    await userEvent.click(screen.getByLabelText("Position"));
+    await userEvent.click(await screen.findByRole("option", { name: "SFLX" }));
+
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+      expect(playerCalls.at(-1)[1].params.positions).toBe("QB,RB,WR,TE");
+    });
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.position).toBeUndefined();
+  });
+
+  test("chips render in canonical order: All, QB, RB, WR, TE, FLEX, SFLX, K, DEF, DL, LB, DB", async () => {
+    mockBrowser({ templateLeague: { ...league, roster_slots: FULL_SLOTS } });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByTestId("player-row");
+
+    const options = await openPositionOptions();
+    expect(options.map((option) => option.textContent)).toEqual([
+      "All", "QB", "RB", "WR", "TE", "FLEX", "SFLX", "K", "DEF", "DL", "LB", "DB",
+    ]);
+  });
+
+  // Formal review f2: with no server-side gate on an ungated request, the
+  // page must offer every chip that could narrow it - the full 12-chip
+  // canonical set, not just the 8 DEFAULT_ROSTER_SLOTS carries.
+  test("no league selected renders the full canonical set (FLEX meaning RB, WR, TE)", async () => {
+    mockBrowser({
+      leagues: [{ id: 5, name: "Office Pool", pickem_only: true }],
+      context: null,
+      templateLeague: null,
+    });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByText(/not in a fantasy league yet/i);
+
+    const options = await openPositionOptions();
+    expect(options.map((option) => option.textContent)).toEqual([
+      "All", "QB", "RB", "WR", "TE", "FLEX", "SFLX", "K", "DEF", "DL", "LB", "DB",
+    ]);
+  });
+
+  test("a league with an empty roster template renders the full canonical set", async () => {
+    mockBrowser({ templateLeague: { ...league, roster_slots: [] } });
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByTestId("player-row");
+
+    const options = await openPositionOptions();
+    expect(options.map((option) => option.textContent)).toEqual([
+      "All", "QB", "RB", "WR", "TE", "FLEX", "SFLX", "K", "DEF", "DL", "LB", "DB",
+    ]);
+  });
+
+  // Formal review f2: since the full-canonical fallback now carries a DL
+  // chip too, a deep link into it survives the league-switch reset effect's
+  // first pass instead of being stripped to "All" before the manager ever
+  // sees it.
+  test("a deep link's ?pos=DL survives first render with no league selected", async () => {
+    mockBrowser({
+      leagues: [{ id: 5, name: "Office Pool", pickem_only: true }],
+      context: null,
+      templateLeague: null,
+      players: [player()],
+    });
+    renderWithProviders(<PlayerManagement />, { route: "/player?pos=DL", path: "/player" });
+
+    await screen.findByText(/not in a fantasy league yet/i);
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+      expect(playerCalls.at(-1)[1].params.positions).toBe("DL,DE,DT,NT");
+    });
+  });
+
+  test("switching to a league whose template drops the selected chip resets the filter to All", async () => {
+    const leagues = [
+      { ...league, id: 1, name: "IDP League" },
+      { ...league, id: 2, name: "Standard League" },
+    ];
+    mockBrowser({ leagues, players: [player()] });
+    useLeague.mockImplementation((leagueId) => {
+      if (Number(leagueId) === 1) {
+        return { league: { ...league, id: 1, roster_slots: IDP_SLOTS }, viewerTeamId: null, loading: false, error: null };
+      }
+      if (Number(leagueId) === 2) {
+        return { league: { ...league, id: 2, roster_slots: DEFAULT_ROSTER_SLOTS }, viewerTeamId: null, loading: false, error: null };
+      }
+      return { league: null, viewerTeamId: null, loading: false, error: null };
+    });
+    renderWithProviders(<PlayerManagement />, { route: "/player?league=1&pos=DL", path: "/player" });
+    await screen.findByTestId("player-row");
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+      expect(playerCalls.at(-1)[1].params.positions).toBe("DL,DE,DT,NT");
+    });
+
+    await userEvent.click(screen.getByLabelText("League"));
+    await userEvent.click(await screen.findByRole("option", { name: "Standard League" }));
+
+    await waitFor(() => {
+      const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+      expect(playerCalls.at(-1)[1].params.positions).toBeUndefined();
+    });
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls.at(-1)[1].params.position).toBeUndefined();
+  });
+
+  // Formal review f3: chips (and so selectedChip) is rebuilt on every
+  // templateLeague reload even when its VALUES are unchanged, since
+  // useResource hands back a new `league` object each time. Before the fix,
+  // fetchPlayers depended on that object directly, so any rerender that
+  // called useLeague again - even with equal content - refetched.
+  test("f3: a rerender with an equal-but-new league object issues no extra /api/players call", async () => {
+    mockBrowser({ players: [player({ id: 1, name: "Steady Guy", watching: false })] });
+    // A fresh wrapper object AND a fresh roster_slots array every call, each
+    // with equal content - the shape a real reload actually hands back
+    // (JSON reparsed on the wire), and the "equal-but-new" case the fix
+    // targets. Reusing the literal DEFAULT_ROSTER_SLOTS reference would let
+    // parseRosterSlots' array pass-through mask the bug entirely.
+    useLeague.mockImplementation(() => ({
+      league: { ...league, roster_slots: [...DEFAULT_ROSTER_SLOTS] },
+      viewerTeamId: null,
+      loading: false,
+      error: null,
+    }));
+    renderWithProviders(<PlayerManagement />);
+    await screen.findByText("Steady Guy");
+
+    const callsBefore = apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+    // Toggling Watching re-renders the component (and so calls useLeague
+    // again) without changing anything fetchPlayers should care about.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+    ).toBe(callsBefore);
+  });
+
+  // Formal review f3: the players fetch now holds while the SELECTED
+  // league's own template is loading, rather than firing once under the
+  // fallback template and again once the real one lands.
+  test("f3: a loading-to-loaded template transition issues exactly one filtered /api/players call", async () => {
+    // watching: true so Loader Guy stays visible once the Watching toggle
+    // (this test's neutral rerender trigger, below) filters the list.
+    mockBrowser({ players: [player({ id: 1, name: "Loader Guy", watching: true })] });
+    let templateLoaded = false;
+    useLeague.mockImplementation(() => (
+      templateLoaded
+        ? { league: { ...league, roster_slots: DEFAULT_ROSTER_SLOTS }, viewerTeamId: null, loading: false, error: null }
+        : { league: null, viewerTeamId: null, loading: true, error: null }
+    ));
+    renderWithProviders(<PlayerManagement />, { route: "/player?league=1&pos=RB", path: "/player" });
+
+    await screen.findByRole("link", { name: "Manage lineup" });
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players"),
+    ).toHaveLength(0);
+
+    templateLoaded = true;
+    // Any rerender picks up the mock's new (now loaded) return value.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+    await screen.findByText("Loader Guy");
+    const playerCalls = apiClient.get.mock.calls.filter(([url]) => url === "/api/players");
+    expect(playerCalls).toHaveLength(1);
+    expect(playerCalls[0][1].params.position).toBe("RB");
+  });
+
+  // Formal review f2 (round 2): useResource's stale-while-revalidate reload
+  // (an invalidation of an already-loaded row) sets `loading` true while
+  // KEEPING `templateLeague` set - unlike a first load, nothing about the
+  // template actually became unknown, so this must never hold or refetch.
+  test("f2: a stale-while-revalidate reload (loading true, template kept) issues no extra /api/players call", async () => {
+    mockBrowser({ players: [player({ id: 1, name: "Revalidate Guy", watching: true })] });
+    let revalidating = false;
+    useLeague.mockImplementation(() => ({
+      // A fresh roster_slots array every call (as a real reload would hand
+      // back) with unchanged content - `loading` toggles, `league` never
+      // goes null.
+      league: { ...league, roster_slots: [...DEFAULT_ROSTER_SLOTS] },
+      viewerTeamId: null,
+      loading: revalidating,
+      error: null,
+    }));
+    renderWithProviders(<PlayerManagement />, { route: "/player?league=1&pos=RB", path: "/player" });
+
+    await screen.findByText("Revalidate Guy");
+    const callsAfterInitialLoad = apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length;
+    expect(callsAfterInitialLoad).toBeGreaterThan(0);
+
+    // The reload starts (loading flips true, template row kept on screen)...
+    revalidating = true;
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+    // ...and lands (loading flips back false, unchanged content).
+    revalidating = false;
+    await userEvent.click(screen.getByRole("checkbox", { name: "Watching" }));
+
+    expect(
+      apiClient.get.mock.calls.filter(([url]) => url === "/api/players").length,
+    ).toBe(callsAfterInitialLoad);
+  });
 });
