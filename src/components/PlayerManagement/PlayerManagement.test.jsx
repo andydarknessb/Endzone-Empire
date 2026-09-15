@@ -256,6 +256,40 @@ test("Claim submits a waiver claim directly, through the same claim-player featu
   );
 });
 
+// A full roster makes the one-tap claim impossible: the server 409s with
+// "choose a player to drop" and the row had nowhere to choose one. At
+// capacity the row's Claim opens the Decision card's claim bar (drop pick +
+// bid) instead of firing a claim that cannot succeed.
+test("at roster capacity, the row's Claim opens the Decision card claim bar instead of posting a claim", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    context: {
+      leagueName: "Sunday Ballers",
+      rosterCount: 16,
+      rosterCapacity: 16,
+      waiverType: "priority",
+      waiverPriority: 3,
+    },
+    roster: [
+      { id: 30, name: "Bench Guy", position: "WR", projected_weekly_points: 3.2 },
+      { id: 31, name: "Star Player", position: "RB", projected_weekly_points: 22 },
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  const action = await screen.findByTestId("claim-player-action");
+  expect(apiClient.post).not.toHaveBeenCalled();
+  expect(within(action).getByText(/roster is full/i)).toBeInTheDocument();
+  await userEvent.click(within(action).getByLabelText("Drop a player"));
+  const options = await screen.findAllByRole("option");
+  expect(within(options[1]).getByText(/Bench Guy/)).toBeInTheDocument();
+  expect(within(options[2]).getByText(/Star Player/)).toBeInTheDocument();
+});
+
 // Formal review formal-1310-f3: the busy state used to be page-wide (every
 // row's Claim relabeled/disabled while ANY one was in flight). It must be
 // scoped to the one row the manager actually tapped.
