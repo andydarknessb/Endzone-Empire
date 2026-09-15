@@ -268,13 +268,16 @@ async function overview(athleteId, { transport } = {}) {
 }
 
 /** This team's depth chart -> `{ athleteId, teamCode, positionGroup, rank
- * }[]` (never cached - see docblock above). `[]` for an unknown team code or
- * any fetch failure - never throws. */
+ * }[]` (never cached - see docblock above). `null` for an unknown team code
+ * or any fetch failure (Ruling item 4: every export resolves null on 403,
+ * timeout or a missing id) - `espnFactsSync.js`'s `fetchDepthCharts` is what
+ * tells that apart from "ESPN answered, this team has nothing" (`[]`).
+ * Never throws. */
 async function teamDepthChart(teamCode, { transport } = {}) {
   const numericId = ESPN_TEAM_NUMERIC_ID[String(teamCode || '').toUpperCase()];
-  if (!numericId) return [];
+  if (!numericId) return null;
   const payload = await getJson(transport, depthChartUrl(numericId), { params: { lang: 'en', region: 'us' } });
-  return payload ? normalizeDepthChart(payload, teamCode) : [];
+  return payload ? normalizeDepthChart(payload, teamCode) : null;
 }
 
 /**
@@ -282,16 +285,21 @@ async function teamDepthChart(teamCode, { transport } = {}) {
  * percentChange }[]` (never cached). `season` is the fantasy season year
  * (`ESPN_FANTASY_SEASON` env, else the current UTC year). A high `limit`
  * sorted by percent owned, ESPN's own bulk-read shape for this endpoint,
- * since "the whole pool" has no per-athlete filter. `[]` on any fetch
- * failure - never throws.
+ * since "the whole pool" has no per-athlete filter. `view=kona_player_info`
+ * is REQUIRED (formal review f1): without it `leaguedefaults/1` answers 200
+ * with no `players` key at all (verified live), so `normalizeOwnership`
+ * silently returns `[]` forever - the same shape as a real empty pool, which
+ * is exactly why this was never caught by a status-code check. `null` on any
+ * fetch failure (Ruling item 4) - never throws.
  */
 async function ownership({ transport, season } = {}) {
   const year = season || Number(process.env.ESPN_FANTASY_SEASON) || new Date().getUTCFullYear();
   const filter = { players: { limit: 4000, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
   const payload = await getJson(transport, FANTASY_PLAYER_INFO_URL(year), {
+    params: { view: 'kona_player_info' },
     headers: { 'x-fantasy-filter': JSON.stringify(filter) },
   });
-  return payload ? normalizeOwnership(payload) : [];
+  return payload ? normalizeOwnership(payload) : null;
 }
 
 module.exports = {

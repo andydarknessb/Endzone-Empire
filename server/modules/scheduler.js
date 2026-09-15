@@ -345,30 +345,26 @@ async function lastEspnFactsSyncAt(job) {
 }
 
 /**
- * Daily ESPN depth-chart Sync run (#1308, ADR 0041/0036). Runs at most once
- * per local calendar day (gate: `lastEspnFactsSyncAt` above).
- * `espnFactsSync.runDepthChartSync` owns its own `data_sync_runs` row and the
- * row-level idempotency (ON CONFLICT DO NOTHING); this wrapper's only job is
- * not to re-fetch all 32 teams every five minutes. A thrown run records
- * `ok: false` and does not move the gate, so the next tick retries.
+ * Builds a once-a-day wrapper for one ESPN facts job (#1308, ADR 0041/0036;
+ * formal review f4 - the two callers below were identical apart from the job
+ * name and which `espnFactsSync` export they call, so a later fix to the
+ * gate only had to land once). Runs at most once per local calendar day
+ * (gate: `lastEspnFactsSyncAt` above); the job itself owns its own
+ * `data_sync_runs` row and the row-level idempotency (ON CONFLICT DO
+ * NOTHING). A thrown run (including a `fetch_failed` from an ESPN outage,
+ * formal review f3) records `ok: false` and does not move the gate, so the
+ * next tick retries.
  */
-async function runDailyEspnDepthChartSync({ now = new Date() } = {}) {
-  const lastRunAt = await lastEspnFactsSyncAt('espn-depth-chart');
-  if (lastRunAt && lastRunAt.toLocaleDateString('en-CA') === now.toLocaleDateString('en-CA')) return null;
-  const { runDepthChartSync } = require('./espnFactsSync');
-  return runDepthChartSync({ now });
+function dailyEspnFactsSyncRunner(job, runJob) {
+  return async function runDailyEspnSync({ now = new Date() } = {}) {
+    const lastRunAt = await lastEspnFactsSyncAt(job);
+    if (lastRunAt && lastRunAt.toLocaleDateString('en-CA') === now.toLocaleDateString('en-CA')) return null;
+    return runJob({ now });
+  };
 }
 
-/**
- * Daily ESPN Ownership Sync run (#1308, ADR 0041/0036). Same shape as
- * `runDailyEspnDepthChartSync` above, for the whole-pool Ownership pull.
- */
-async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
-  const lastRunAt = await lastEspnFactsSyncAt('espn-ownership');
-  if (lastRunAt && lastRunAt.toLocaleDateString('en-CA') === now.toLocaleDateString('en-CA')) return null;
-  const { runOwnershipSync } = require('./espnFactsSync');
-  return runOwnershipSync({ now });
-}
+const runDailyEspnDepthChartSync = dailyEspnFactsSyncRunner('espn-depth-chart', (opts) => require('./espnFactsSync').runDepthChartSync(opts));
+const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
 let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick

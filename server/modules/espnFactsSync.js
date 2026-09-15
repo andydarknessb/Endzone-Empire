@@ -41,23 +41,54 @@ async function loadPlayerIdsByExternalId(client, athleteIds) {
   return new Map(result.rows.map((r) => [r.external_id, r.id]));
 }
 
+// A team fetch resolving `null` (ESPN failure, Ruling item 4) three times in
+// a row is treated as the host being down/blocking rather than 29 more
+// independent bad-luck teams, and the sweep stops rather than burning the
+// remaining teams' full ESPN_TIMEOUT_MS each (formal review f3 over-fix
+// guard - this is the same 32 x timeout hazard the concurrency risk review
+// already flagged once for the scheduler's own ordering).
+const CONSECUTIVE_FAILURE_LIMIT = 3;
+
 /**
  * fetch() for the depth-chart job: one `teamDepthChart` call per of our 32
  * canonical Team codes (`ESPN_TEAM_NUMERIC_ID`'s keys - the same 32
- * `nflTeam.js` normalizes to), outside any transaction. A team ESPN can't
- * answer for resolves `[]` (client-level, never throws) and is simply an
- * empty unit.
+ * `nflTeam.js` normalizes to), outside any transaction. `teamDepthChart`
+ * resolves `null` on a fetch failure and `[]` when ESPN answered with
+ * nothing for that team (Ruling item 4) - only `null` counts against the
+ * circuit breaker above; an empty-but-successful team is simply not a unit.
+ * Throws when either the breaker trips or every team failed, so
+ * `runSyncJob` records `fetch_failed` and the once-a-day gate
+ * (`scheduler.js`'s `lastEspnFactsSyncAt`) stays open for the next tick to
+ * retry - a same-day rerun once ESPN recovers is exactly the point (formal
+ * review f3: recording `ok: true` with zero rows on a total ESPN outage
+ * would otherwise look identical to a real, empty snapshot and silently
+ * close that gate until tomorrow).
  */
 async function fetchDepthCharts({ transport } = {}) {
   const teamCodes = Object.keys(espnAthleteClient.ESPN_TEAM_NUMERIC_ID);
   const units = [];
+  let consecutiveFailures = 0;
+  let anySucceeded = false;
   for (const teamCode of teamCodes) {
     // eslint-disable-next-line no-await-in-loop -- one call per team, by
     // design: this is a once-a-day job, not a hot path, and ESPN's core API
     // has no bulk "every team's depth chart" endpoint.
     const rows = await espnAthleteClient.teamDepthChart(teamCode, { transport });
+    if (rows === null) {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
+        throw new Error(
+          `espn-depth-chart: ${consecutiveFailures} consecutive team fetches failed (last: ${teamCode}); ` +
+          'stopping rather than burning the remaining teams\' timeouts'
+        );
+      }
+      continue;
+    }
+    consecutiveFailures = 0;
+    anySucceeded = true;
     if (rows.length > 0) units.push({ teamCode, rows });
   }
+  if (!anySucceeded) throw new Error('espn-depth-chart: every team fetch failed');
   return units;
 }
 
@@ -106,9 +137,14 @@ async function runDepthChartSync({ now, transport } = {}) {
 }
 
 /** fetch() for the Ownership job: one bulk call for the whole pool, outside
- * any transaction, as the run's single unit. */
+ * any transaction, as the run's single unit. `ownership()` resolves `null`
+ * on a fetch failure (Ruling item 4); this throws in that case so
+ * `runSyncJob` records `fetch_failed` rather than an `ok: true` empty
+ * snapshot, for the same reason `fetchDepthCharts` above does (formal review
+ * f3). */
 async function fetchOwnership({ transport } = {}) {
   const rows = await espnAthleteClient.ownership({ transport });
+  if (rows === null) throw new Error('espn-ownership: ESPN fetch failed');
   return [rows];
 }
 
