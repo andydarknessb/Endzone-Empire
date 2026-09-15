@@ -799,7 +799,12 @@ function PlayerManagement() {
           variant="outlined"
           sx={{ borderRadius: 3 }}
         >
-          <Table aria-label="Players" sx={{ minWidth: 960 }}>
+          {/* Cell padding at 10px a side rather than MUI's 16px: eight
+              columns' worth of the default came to 256px and, with the dense
+              weekly strip, is what lets the table fit a 1024px viewport
+              instead of hiding the Action column behind a scrollbar at the
+              foot of the table (2026-09-15 report). */}
+          <Table aria-label="Players" sx={{ minWidth: 960, "& th, & td": { px: 1.25 } }}>
             <TableHead>
               <PlayerRowTableHead bestBall={bestBall} currentWeek={currentWeek} sx={headCellSx} />
             </TableHead>
