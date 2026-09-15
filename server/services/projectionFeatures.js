@@ -421,8 +421,24 @@ function buildVersusOpponentMeetings({ priorGames, opponent, season, constants =
  *
  * `client` defaults to the pool but accepts a transaction client so a caller
  * already inside one does not deadlock against itself.
+ *
+ * `playerContextOverrideById` (#1439, ADR 0044's successor gate): an
+ * optional `Map<playerId, { position, nfl_team, injury_status }>`. When a
+ * player has an entry, its given fields replace the LIVE `players` row read
+ * above for that player only - unset fields on the override fall back to the
+ * live value, never to `null`. This is what lets the successor evaluator
+ * replay a ledger row's frozen pre-kickoff context (the ruling's first
+ * substitution) instead of whatever `players` says today, without touching a
+ * single line of the live read itself. Every downstream consumer of
+ * `players` in this function (the league-scan position list, the bye lookup)
+ * is sourced from the overridden map so the frozen team/position is used
+ * consistently everywhere, not just where the caller happens to look.
+ * Omitted (the default), this function is byte-identical to before this
+ * parameter existed.
  */
-async function loadFeatureBundle({ season, week, playerIds, rules, client = pool, positions = null }) {
+async function loadFeatureBundle({
+  season, week, playerIds, rules, client = pool, positions = null, playerContextOverrideById = null,
+}) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   if (ids.length === 0) {
     return {
@@ -495,6 +511,30 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   assertNoFutureRows(statsResult.rows, { season, week });
 
   const players = new Map(playersResult.rows.map((r) => [r.id, r]));
+  if (playerContextOverrideById) {
+    for (const [playerId, override] of playerContextOverrideById) {
+      const existing = players.get(playerId);
+      // A player absent from the live table entirely (never loaded above)
+      // has no row for an override to modify - a frozen context cannot
+      // resurrect a player row the schedule/history queries never fetched.
+      if (!existing) continue;
+      const position = override.position !== undefined ? override.position : existing.position;
+      const nflTeam = override.nfl_team !== undefined ? override.nfl_team : existing.nfl_team;
+      const injuryStatus = override.injury_status !== undefined
+        ? override.injury_status
+        : existing.injury_status;
+      players.set(playerId, {
+        ...existing,
+        position,
+        nfl_team: nflTeam,
+        injury_status: injuryStatus,
+        // Recomputed so a frozen team still resolves to the right schedule
+        // row below - the whole point of freezing `nfl_team` is to change
+        // which game this player-week joins.
+        team_key: normalizeTeamKey(nflTeam),
+      });
+    }
+  }
   const priorStatsByPlayer = new Map();
   for (const row of statsResult.rows) {
     if (!priorStatsByPlayer.has(row.player_id)) priorStatsByPlayer.set(row.player_id, []);
@@ -557,7 +597,7 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   // defense; neither one alone is relied upon.
   const scanPositions = positions && positions.length > 0
     ? positions
-    : [...new Set(playersResult.rows.map((r) => r.position).filter(Boolean))];
+    : [...new Set([...players.values()].map((r) => r.position).filter(Boolean))];
   let leagueRows = [];
   if (scanPositions.length > 0 && Number(week) > 1) {
     const scan = await client.query(
@@ -600,7 +640,7 @@ async function loadFeatureBundle({ season, week, playerIds, rules, client = pool
   });
 
   const byeByTeam = await computeByeWeeks(
-    playersResult.rows.map((r) => r.nfl_team),
+    [...players.values()].map((r) => r.nfl_team),
     season,
     // The bundle's client, not the global pool: a transactional caller (the
     // holdout capture) must see byes from the same snapshot as everything

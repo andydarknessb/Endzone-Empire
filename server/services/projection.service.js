@@ -546,11 +546,25 @@ async function generateProjections({
   // `playerIds` call still validates and still throws on a bad type even
   // though the per-player loop below never executes.
   onPreHomeAwayBaseline,
+  // #1439 (ADR 0044's successor gate), both optional and both `null` by
+  // default, which is what keeps this function's live behaviour byte
+  // -identical: `playerContextOverrideById` forwards straight through to
+  // `features.loadFeatureBundle` (see there for its shape and effect).
+  // `expertOverrideByPlayerId`, an already-built `Map<playerId, {points,
+  // source} | null>`, REPLACES the live expert-provider fetch below entirely
+  // rather than merging with it - the successor evaluator's whole point is
+  // to freeze the expert quote a ledger row captured, and a fetch that could
+  // still run underneath an override would let a live quote drift back in
+  // for any player the override happened not to name.
+  playerContextOverrideById = null,
+  expertOverrideByPlayerId = null,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('generateProjections: onPreHomeAwayBaseline must be undefined or a function');
   }
-  const bundle = await features.loadFeatureBundle({ season, week, playerIds, rules, client });
+  const bundle = await features.loadFeatureBundle({
+    season, week, playerIds, rules, client, playerContextOverrideById,
+  });
 
   // Weather is strictly optional context and must never be able to fail the
   // request: any throw or rejection degrades to "no weather".
@@ -591,16 +605,24 @@ async function generateProjections({
     console.error('projections: odds lookup failed, continuing without it:', err.message);
     oddsByGameKey = new Map();
   }
-  try {
-    const expertProvider = getExpertProvider();
-    if (expertProvider.available) {
-      expertByPlayerId = await expertProvider.getWeeklyProjections({
-        season, week, playerIds, client,
-      });
+  if (expertOverrideByPlayerId) {
+    // #1439: a frozen quote replaces the fetch outright - never merged with
+    // it, and never falling through to the provider below for a player the
+    // override omits, which is why the successor evaluator always builds one
+    // entry per requested player (see successorEval.js).
+    expertByPlayerId = expertOverrideByPlayerId;
+  } else {
+    try {
+      const expertProvider = getExpertProvider();
+      if (expertProvider.available) {
+        expertByPlayerId = await expertProvider.getWeeklyProjections({
+          season, week, playerIds, client,
+        });
+      }
+    } catch (err) {
+      console.error('projections: expert lookup failed, continuing without it:', err.message);
+      expertByPlayerId = null;
     }
-  } catch (err) {
-    console.error('projections: expert lookup failed, continuing without it:', err.message);
-    expertByPlayerId = null;
   }
   const slateAverage = computeSlateAverageImplied(oddsByGameKey);
 
