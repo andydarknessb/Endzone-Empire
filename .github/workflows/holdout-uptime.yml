@@ -2,6 +2,8 @@ name: Holdout uptime
 
 # External watchdog for the holdout-confirm-2026 capture apparatus.
 #
+# /api/health/stats-integrity returns 503 while a player_stats anomaly is
+# open (see server/services/playerStatsIntegrity.service.js).
 # /api/health/holdout returns 503 when any capture obligation is NOT in
 # {captured, pending, scheduled} - that covers missed, failed,
 # protocol-conflict, incomplete-arms and schedule-invalid - and when
@@ -105,6 +107,9 @@ jobs:
           fail=0
           check holdout "https://api.endzoneempire.gg/api/health/holdout" '.ok == true' || fail=1
           check worker "https://api.endzoneempire.gg/api/health/worker" '.ok == true and any(.workers[]; .name == "jobs")' || fail=1
+          # player_stats integrity (week 1 2026 audit): 503 while the nightly
+          # scan has an open points-mismatch anomaly, or has never finished.
+          check stats-integrity "https://api.endzoneempire.gg/api/health/stats-integrity" '.ok == true and .open == 0' || fail=1
           if [ "$fail" -ne 0 ]; then
             # Tell Sentry this is a DETECTED outage, best-effort: a later
             # "missed check-in" then unambiguously means the watchdog died.

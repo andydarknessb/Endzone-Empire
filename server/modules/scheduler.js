@@ -63,6 +63,9 @@ let lastAdpSyncDay = null;
 // Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
 // and correction passes above.
 let lastProjectionFillDay = null;
+// Nightly player_stats integrity scan (week 1 2026 audit): same once-a-day
+// stamp pattern. A thrown scan does not stamp, so the next tick retries.
+let lastIntegrityScanDay = null;
 
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
@@ -184,6 +187,11 @@ async function tickUnlocked() {
       await runNightlyProjectionFill();
     } catch (err) {
       console.error('nightly projection fill failed (will retry next tick):', err.message);
+    }
+    try {
+      await runNightlyStatsIntegrityScan();
+    } catch (err) {
+      console.error('nightly stats integrity scan failed (will retry next tick):', err.message);
     }
     // ESPN depth-chart/Ownership syncs (#1308, risk review): LAST, after every
     // time-sensitive duty above (holdout capture, kickoff hold, waivers,
@@ -516,6 +524,24 @@ async function syncAndScoreLiveWeeks() {
   }
   if (ranAny) lastSyncAt = new Date().toISOString();
   return ranAny;
+}
+
+/**
+ * Nightly player_stats integrity scan: records any row whose stored points
+ * disagree with its stats (playerStatsIntegrity.service). Runs at most once
+ * per local calendar day; the day is stamped only after a scan that did not
+ * throw, so a transient database failure retries on the next tick.
+ */
+async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
+  const today = now.toLocaleDateString('en-CA');
+  if (lastIntegrityScanDay === today) return null;
+  const integrity = require('../services/playerStatsIntegrity.service');
+  const result = await integrity.scanPlayerStats();
+  lastIntegrityScanDay = today;
+  if (result.open > 0) {
+    console.warn(`scheduler: player_stats integrity scan found ${result.open} open anomaly(ies) over ${result.scanned} rows`);
+  }
+  return result;
 }
 
 /**
@@ -1004,6 +1030,7 @@ module.exports = {
   runHourlyGameContextSync,
   runHoldoutSnapshots,
   runNightlyProjectionFill,
+  runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,
   INTERVAL_MS,

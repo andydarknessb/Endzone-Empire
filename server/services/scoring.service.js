@@ -14,6 +14,7 @@ const { fantasySideWhereSql } = require('./leagueType');
 const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('./leaguePhase');
 const { countedRoster } = require('./countedRoster.service');
 const { runSyncJob } = require('../modules/syncRun');
+const { upsertPlayerStats } = require('./playerStatsWrite.service');
 
 // Default fantasy scoring rules, grouped by category (NFL.com-style
 // defaults) — half-PPR. Tiered stats (FG distance, TD-length bonus,
@@ -723,14 +724,8 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
   let updated = 0;
   const plays = [];
 
-  const upsertStats = async (playerId, stats, points) => {
-    await client.query(
-      `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ("player_id", "season", "week")
-       DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
-      [playerId, season, week, JSON.stringify(stats), points]
-    );
+  const upsertStats = async (playerId, stats) => {
+    await upsertPlayerStats(client, { playerId, season, week, stats });
     // Keep the diff baseline current so a re-apply of the same box (the recap
     // path following a live sync) can't re-fire the same touchdown.
     prevById.set(playerId, stats);
@@ -772,7 +767,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
         });
       }
     }
-    await upsertStats(playerId, stats, points);
+    await upsertStats(playerId, stats);
   }
 
   // Team-defense scoring: one aggregate line per side, keyed by Team code. A
@@ -813,7 +808,7 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
         });
       }
     }
-    await upsertStats(defPlayer.id, stats, points);
+    await upsertStats(defPlayer.id, stats);
   }
 
   return { updated, plays };

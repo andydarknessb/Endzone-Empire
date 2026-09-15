@@ -1286,6 +1286,22 @@ user-facing copy)
 The assignment routine that fills every starting slot to maximize projected
 points. It will leave a slot empty rather than start a negative projection.
 
+**Game status**:
+The designation a player carries into a week: none, Questionable, Doubtful,
+Out, injured reserve, or bye. It is what is known before kickoff, and it is
+not Availability, which is a roster fact about one league.
+_Avoid_: availability (for injury or bye state), injury status (the column),
+active
+
+**Appearance**:
+The realized fact that a player was active for their team's game in a week,
+whatever their stat line: a blocking tight end with no touches made an
+Appearance, a healthy scratch, a bye week and an injured-reserve week did
+not. A stat row alone is not an Appearance; rows exist for rostered players
+who never took the field.
+_Avoid_: game played, games (as a count of stat rows), did not play (say "no
+Appearance")
+
 ### Evaluation
 
 The engine may not change on a hunch, so the vocabulary for proving a change is
