@@ -275,6 +275,9 @@ function createWorld({
       }
       return { rows: [] };
     }],
+    // The finalize resets waiver priority to reverse standings; this suite
+    // does not read it, so the write only needs an answer.
+    [/^UPDATE "teams" SET "waiver_priority"/, () => ({ rows: [] })],
     [/^UPDATE "leagues" SET "current_week"/, (text, [nextWeek]) => {
       state.league.current_week = nextWeek;
       return { rows: [] };

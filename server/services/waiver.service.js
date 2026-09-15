@@ -27,7 +27,9 @@ class WaiverError extends Error {
  * - 'faab': highest bid wins; ties break by waiver priority (lower = better),
  *   then earliest claim.
  * - 'priority': reverse-standings waiver priority (lower = better), then
- *   earliest claim.
+ *   earliest claim. The order itself is reset to reverse standings on every
+ *   week finalize (season.service resetWaiverPriorities); a winner's move to
+ *   the back below lasts only until that reset.
  * claims: [{ id, team_id, bid, created_at }]
  * priorities: Map(team_id -> waiver_priority)
  */
