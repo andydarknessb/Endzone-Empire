@@ -126,3 +126,33 @@ test('#1467: awardWeeklyTrophies breaks a fresh tie by lowest team_id, matching 
 
   fake.assertClean();
 });
+
+test('#1467: awardWeeklyTrophies deletes a stale (not-tied) prior holder under the same lock, before awarding the new leader', async (t) => {
+  const leagueId = 7;
+  const season = 2026;
+  const week = 5;
+  // Team 30 held last week's number but is not one of this week's two tied
+  // teams (10, 20): resolveWeeklyHighScoreTrophy must treat it as stale.
+  const fake = awardWorld({
+    leagueId, homeTeamId: 20, awayTeamId: 10, homeScore: 100, awayScore: 100,
+    existingTrophies: [{ id: 9, team_id: 30, data: { points: 90 } }],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId, season, week });
+
+  const lockIdx = fake.calls.findIndex((c) => /pg_advisory_xact_lock/.test(c.text));
+  const deleteIdx = fake.calls.findIndex((c) => /^DELETE FROM "trophies"/.test(c.text));
+  const insertIdx = fake.calls.findIndex(
+    (c) => /^INSERT INTO "trophies"/.test(c.text) && c.params[4] === 'top_scorer'
+  );
+
+  assert.ok(deleteIdx >= 0, 'the stale row was deleted');
+  assert.deepEqual(fake.calls[deleteIdx].params, [9], 'only the stale team_id-30 row was targeted');
+  assert.ok(insertIdx >= 0, 'the new leader was awarded');
+  assert.equal(fake.calls[insertIdx].params[1], 10, 'the lower team_id of the tied pair wins');
+  assert.ok(lockIdx < deleteIdx, 'the lock is taken before the stale-row DELETE');
+  assert.ok(lockIdx < insertIdx, 'the lock is taken before the trophy INSERT');
+
+  fake.assertClean();
+});
