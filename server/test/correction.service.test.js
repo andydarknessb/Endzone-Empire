@@ -399,13 +399,18 @@ test('a failure in one corrected week does not skip cache maintenance for the ne
 // correction's own "scores were updated" notice is the one announcement.
 
 /**
- * A one-matchup, two-team world wired for both correctLeagueWeek's own
- * before/after snapshots and computeAndStoreWeeklyRecap's queries. `scoring.
- * scoreMatchups` is mocked to a no-op (as commissionerAlertFanout.test.js
- * does) and the "after" snapshot rows stand in for what it would have
- * written, so the matchups+teams join below hands back the CORRECTED score.
+ * A one-matchup, two-team world wired for: an initial `generateWeeklyRecap`
+ * seed (the advance-week path, pre-correction score), then
+ * correctLeagueWeek's own before/after snapshots and
+ * computeAndStoreWeeklyRecap's rebuild queries. `scoring.scoreMatchups` is
+ * mocked to a no-op (as commissionerAlertFanout.test.js does) and the
+ * "after" snapshot rows stand in for what it would have written. The
+ * matchups+teams join is called twice - once by the seed, once by the
+ * rebuild - and answers with the pre-correction score the first time, the
+ * corrected score every time after.
  */
 function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, final = true, isPlayoff = false }) {
+  let matchupsJoinCalls = 0;
   return createFakePool([
     [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
       rows: [{ id: 1, week: 5, final, is_playoff: isPlayoff, home_score: beforeHome, away_score: beforeAway }],
@@ -413,13 +418,18 @@ function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, fi
     [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
       rows: [{ id: 1, home_score: afterHome, away_score: afterAway }],
     })],
-    [/^SELECT "matchups"\.\*/, () => ({
-      rows: [{
-        id: 1, final, home_team_id: 1, away_team_id: 2,
-        home_team_name: 'Team A', away_team_name: 'Team B',
-        home_score: afterHome, away_score: afterAway,
-      }],
-    })],
+    [/^SELECT "matchups"\.\*/, () => {
+      matchupsJoinCalls += 1;
+      const corrected = matchupsJoinCalls > 1;
+      return {
+        rows: [{
+          id: 1, final, home_team_id: 1, away_team_id: 2,
+          home_team_name: 'Team A', away_team_name: 'Team B',
+          home_score: corrected ? afterHome : beforeHome,
+          away_score: corrected ? afterAway : beforeAway,
+        }],
+      };
+    }],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 7, scoring_rules: null }] })],
     [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
@@ -428,37 +438,38 @@ function correctionRecapWorld({ beforeHome, beforeAway, afterHome, afterAway, fi
   ]);
 }
 
-test('#1409: a correction that changes a final matchup rebuilds the stored recap from the corrected scores', async (t) => {
+test('#1409: a correction rebuilds the stored recap from the corrected scores, with no second announcement', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
   t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+
+  // Seed: the advance-week path already computed, stored AND announced the
+  // recap from the pre-correction score - exactly what production looks like
+  // right before Tuesday's correction runs.
+  await recapSvc.generateWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
 
   const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
   assert.equal(outcome.changes.length, 1);
   const stored = fake.matching(/INSERT INTO "league_analytics"/);
-  assert.equal(stored.length, 1, 'the recap is rebuilt exactly once');
-  const data = JSON.parse(stored[0].params[3]);
-  assert.equal(data.facts.highestScorer.team, 'Team A');
+  assert.equal(stored.length, 2, 'the seed store, then the rebuild');
+  const rebuilt = JSON.parse(stored[1].params[3]);
+  assert.equal(rebuilt.facts.highestScorer.team, 'Team A');
   assert.equal(
-    data.facts.highestScorer.points,
+    rebuilt.facts.highestScorer.points,
     115,
     'the rebuilt recap reflects the corrected score, not the pre-correction one'
   );
-});
 
-test('#1409: the recap rebuild never posts a second feed entry or notification', async (t) => {
-  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
-  fake.install(t);
-  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
-
-  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
-
+  // Exactly the ORIGINAL feed entry and member notification survive - the
+  // correction rebuilt the recap silently, not a second "week N recap is
+  // in" announcement.
   const recapFeedEntries = fake.matching(/INSERT INTO "transactions"/).filter((c) => c.params[2] === 'recap');
   const recapNotifications = fake.matching(/INSERT INTO "notifications"/).filter((c) => c.params[2] === 'recap');
-  assert.equal(recapFeedEntries.length, 0, 'a rebuilt recap posts no feed entry of its own');
-  assert.equal(recapNotifications.length, 0, 'a rebuilt recap posts no member notification of its own');
-  // The correction's own notice is the one announcement, and it still fires once.
+  assert.equal(recapFeedEntries.length, 1, 'the original recap feed entry, not a second one');
+  assert.equal(recapNotifications.length, 1, 'the original recap notification, not a second one');
+  // The correction's own notice is the one announcement for the correction
+  // itself, and it still fires exactly once.
   const correctionFeedEntries = fake.matching(/INSERT INTO "transactions"/)
     .filter((c) => c.params[2] === 'stat_correction');
   assert.equal(correctionFeedEntries.length, 1);
