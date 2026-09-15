@@ -142,6 +142,7 @@ const scoringSvc = require('../services/scoring.service');
 const nflverse = require('../services/nflverseSync.service');
 const recapSvc = require('../services/recap.service');
 const montecarlo = require('../services/montecarlo.service');
+const trophySvc = require('../services/trophy.service');
 const { createFakePool } = require('./helpers/fakePool');
 
 function stubOneInSeasonLeague(t) {
@@ -852,4 +853,190 @@ test('#1410: a correction that changes no scores never recomputes power rankings
   assert.deepEqual(outcome.changes, []);
   assert.equal(mc.mock.calls.length, 0, 'no score movement means no power-rankings recompute');
   fake.assertClean();
+});
+
+// ---- #1411: weekly high score trophy reconciles after a stat correction ----
+//
+// awardWeeklyTrophies' insert is ON CONFLICT DO NOTHING, keyed on (league,
+// season, week, team, type) - safe to re-run when the leader is unchanged,
+// but wrong once a correction moves the high score: the original recipient
+// would keep a stale trophy and the new leader would get a second one, or
+// (leader unchanged, points moved) the stored points would go stale forever.
+// This reconcile runs after the recap rebuild, matching #1409/#1410's own
+// placement and the advance-week order (odds, recap, trophies).
+//
+// A stateful "world" tracks the trophies table in JS (mirroring
+// correctionPowerRankingsWorld's rankingsInserts) so a test can assert the
+// FINAL shape of the table, including that a seeded season-level trophy
+// never moves. recomputePowerRankings and rebuildStoredRecap are stubbed to
+// no-ops: their own ordering and failure handling are #1409/#1410's coverage,
+// not this one's.
+
+function trophyReconcileWorld({
+  beforeHome, beforeAway, afterHome, afterAway,
+  homeTeamId = 10, awayTeamId = 20, seedTrophies = [],
+}) {
+  const trophyRows = seedTrophies.map((row) => ({ ...row }));
+  let nextId = Math.max(0, ...trophyRows.map((row) => row.id)) + 1;
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: afterHome, away_score: afterAway }],
+    })],
+    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
+    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
+    // The trophy reconcile's own week-final read: by the time it runs, the
+    // corrected scores are already committed, so it always sees `after`.
+    [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
+      rows: [{
+        id: 1, home_team_id: homeTeamId, away_team_id: awayTeamId,
+        home_score: afterHome, away_score: afterAway,
+      }],
+    })],
+    [/^SELECT "id", "team_id", "data" FROM "trophies"/, () => ({
+      rows: trophyRows
+        .filter((row) => row.type === 'top_scorer')
+        .map((row) => ({ id: row.id, team_id: row.team_id, data: row.data })),
+    })],
+    [/^DELETE FROM "trophies" WHERE "id" = \$1/, (text, params) => {
+      const idx = trophyRows.findIndex((row) => row.id === params[0]);
+      if (idx >= 0) trophyRows.splice(idx, 1);
+      return { rows: [] };
+    }],
+    [/^INSERT INTO "trophies"/, (text, params) => {
+      const [, teamId, season, week, type, label, data] = params;
+      const id = nextId++;
+      trophyRows.push({ id, team_id: teamId, season, week, type, label, data: JSON.parse(data) });
+      return { rows: [{ id }] };
+    }],
+    [/^UPDATE "trophies" SET "data" = \$2 WHERE "id" = \$1/, (text, params) => {
+      const row = trophyRows.find((r) => r.id === params[0]);
+      if (row) row.data = JSON.parse(params[1]);
+      return { rows: [] };
+    }],
+    [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
+      rows: [{ owner_id: 1000 + Number(params[0]) }],
+    })],
+  ]);
+  fake.trophyRows = trophyRows;
+  return fake;
+}
+
+test('#1411: a correction that moves the weekly high score removes the previous recipient\'s trophy and awards the new leader with the corrected points', async (t) => {
+  // Team A (10) led at 100; the correction makes Team B (20) the leader at 115.
+  const fake = trophyReconcileWorld({
+    beforeHome: 100, beforeAway: 80, afterHome: 90, afterAway: 115,
+    seedTrophies: [
+      { id: 501, team_id: 10, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 100 } },
+    ],
+  });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
+  assert.equal(topScorers.length, 1, 'exactly one team holds the weekly high score trophy');
+  assert.equal(topScorers[0].team_id, 20, 'the new leader holds it');
+  assert.equal(topScorers[0].data.points, 115, 'stored points match the corrected score');
+
+  const ownerLookups = fake.matching(/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/);
+  assert.deepEqual(ownerLookups.map((c) => c.params[0]), [20], 'only the new recipient is looked up for notification');
+});
+
+test('#1411: a correction that raises the leader\'s total without changing the leader updates the trophy in place, with no notification', async (t) => {
+  // Team A (10) stays the leader; their total rises from 100 to 115.
+  const fake = trophyReconcileWorld({
+    beforeHome: 100, beforeAway: 80, afterHome: 115, afterAway: 80,
+    seedTrophies: [
+      { id: 501, team_id: 10, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 100 } },
+    ],
+  });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
+  assert.equal(topScorers.length, 1, 'still exactly one trophy for the week');
+  assert.equal(topScorers[0].id, 501, 'the SAME row was updated in place, not replaced');
+  assert.equal(topScorers[0].team_id, 10);
+  assert.equal(topScorers[0].data.points, 115, 'stored points match the corrected total');
+
+  assert.equal(
+    fake.matching(/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/).length,
+    0,
+    'an in-place points update is not a new award, so nobody is notified'
+  );
+});
+
+test('#1411: a correction that changes no scores leaves the trophies table untouched', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
+      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: 90, away_score: 80 }],
+    })],
+    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
+      rows: [{ id: 1, home_score: 90, away_score: 80 }], // unchanged
+    })],
+  ]);
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  const reconcile = t.mock.method(trophySvc, 'reconcileWeeklyHighScoreTrophy', async () => {
+    throw new Error('must not be called for a no-op correction');
+  });
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(outcome.changes, []);
+  assert.equal(reconcile.mock.calls.length, 0, 'no score movement means no trophy reconcile');
+  assert.equal(fake.calls.some((c) => /"trophies"/.test(c.text)), false);
+  fake.assertClean();
+});
+
+test('#1411: season-level trophies for the league are unchanged by a weekly high score reconcile', async (t) => {
+  const seasonTrophy = { id: 900, team_id: 10, season: 2026, week: 0, type: 'champion', label: '2026 League Champion', data: {} };
+  const fake = trophyReconcileWorld({
+    beforeHome: 100, beforeAway: 80, afterHome: 90, afterAway: 115,
+    seedTrophies: [
+      { id: 501, team_id: 10, season: 2026, week: 5, type: 'top_scorer', label: 'Top Scorer', data: { points: 100 } },
+      seasonTrophy,
+    ],
+  });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(recapSvc, 'computeAndStoreWeeklyRecap', async () => ({}));
+
+  await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  const stillThere = fake.trophyRows.find((row) => row.id === 900);
+  assert.ok(stillThere, 'the season-level trophy row was never deleted');
+  assert.deepEqual(stillThere, seasonTrophy, 'and never mutated');
+});
+
+test('#1411: a weekly high score trophy reconcile failure is logged and never blocks the correction pass', async (t) => {
+  const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
+  fake.install(t);
+  t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
+  t.mock.method(trophySvc, 'reconcileWeeklyHighScoreTrophy', async () => { throw new Error('trophy reconcile boom'); });
+  const logs = [];
+  t.mock.method(console, 'error', (...args) => { logs.push(args); });
+
+  const outcome = await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(outcome.changes.length, 1, 'the correction pass still completes');
+  assert.equal(
+    fake.matching(/INSERT INTO "transactions"/).filter((c) => c.params[2] === 'stat_correction').length,
+    1,
+    'and the log/notify step still completed'
+  );
+  const logged = logs.find((l) => String(l[0]).includes('weekly high score trophy reconcile failed'));
+  assert.ok(logged, 'the trophy reconcile failure is logged');
 });

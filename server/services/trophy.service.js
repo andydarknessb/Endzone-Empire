@@ -261,6 +261,98 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
 }
 
 /**
+ * Reconcile the weekly high score ('top_scorer') trophy for one week after a
+ * stat correction changes that week's scores (#1411). Re-running
+ * `awardWeeklyTrophies`'s ON CONFLICT DO NOTHING insert is safe when the
+ * leader is unchanged, but wrong two ways once a correction moves things: if
+ * the high score moves to a different team, the original recipient would
+ * keep a stale trophy AND the new leader would get a second one (the unique
+ * key includes team_id, so DO NOTHING never touches the old row); if the
+ * leader is unchanged but their total moved, the stored `data.points` goes
+ * stale forever, since nothing re-runs this insert once it has one row.
+ *
+ * Deliberately narrow: never calls `awardWeeklyTrophies` and never touches
+ * any season-level trophy. A league whose season completes on the very
+ * correction pass that moved this week's leader still gets its season-level
+ * set only from the normal advance-week/season-complete path, not from here.
+ *
+ * Post-reconcile: exactly one team holds `top_scorer` for (league, season,
+ * week), and its `data.points` equals the corrected high score.
+ *   - leader changed: the previous recipient's trophy is DELETEd and the new
+ *     leader is awarded fresh, through `award()` so it notifies the same way
+ *     a first award does (best-effort, post-commit, via
+ *     `notifyAwardedOwners`) - the previous recipient gets no notification.
+ *   - leader unchanged, points moved: the existing row's `data` is UPDATEd in
+ *     place; no notification (not a new award).
+ *   - no prior trophy for the week (an edge case, not the normal path): one
+ *     is awarded, same as a first award.
+ */
+async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
+  const awarded = await withTransaction(
+    pool,
+    async (client) => {
+      const weekMatchups = await client.query(
+        `SELECT * FROM "matchups"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true`,
+        [leagueId, season, week]
+      );
+      let high = null;
+      for (const m of weekMatchups.rows) {
+        for (const side of [
+          { teamId: m.home_team_id, points: Number(m.home_score) },
+          { teamId: m.away_team_id, points: Number(m.away_score) },
+        ]) {
+          if (!high || side.points > high.points) high = side;
+        }
+      }
+      if (!high) return [];
+
+      const label = 'Top Scorer';
+      const existing = await client.query(
+        `SELECT "id", "team_id", "data" FROM "trophies"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "type" = 'top_scorer'`,
+        [leagueId, season, week]
+      );
+
+      // Any recipient other than this week's corrected leader loses the
+      // trophy (the moved-trophy case). The unique index caps this at one
+      // row per team, so filtering in JS over the handful of rows a single
+      // week can have stays readable.
+      const stale = existing.rows.filter((row) => Number(row.team_id) !== Number(high.teamId));
+      for (const row of stale) {
+        await client.query(`DELETE FROM "trophies" WHERE "id" = $1`, [row.id]);
+      }
+
+      const current = existing.rows.find((row) => Number(row.team_id) === Number(high.teamId));
+      if (!current) {
+        if (
+          await award(client, {
+            leagueId, teamId: high.teamId, season, week,
+            type: 'top_scorer', label, data: { points: high.points },
+          })
+        ) {
+          return [{ type: 'top_scorer', teamId: high.teamId, label }];
+        }
+        return [];
+      }
+
+      const storedPoints = current.data && current.data.points;
+      if (Number(storedPoints) !== high.points) {
+        await client.query(
+          `UPDATE "trophies" SET "data" = $2 WHERE "id" = $1`,
+          [current.id, JSON.stringify({ points: high.points })]
+        );
+      }
+      return [];
+    },
+    { label: 'trophy-reconcile' }
+  );
+
+  await notifyAwardedOwners({ leagueId, awarded });
+  return awarded;
+}
+
+/**
  * Pick'em champion(s) for a pick'em-only league, written on the caller's
  * transaction client as the season completes. Deliberately multi-recipient:
  * a tie on (points, correct) makes co-champions, and the trophies unique key
@@ -364,6 +456,7 @@ module.exports = {
   longestWinStreak,
   comebackTeam,
   awardWeeklyTrophies,
+  reconcileWeeklyHighScoreTrophy,
   awardPickemChampions,
   reconcilePickemChampionTrophies,
   notifyAwardedOwners,

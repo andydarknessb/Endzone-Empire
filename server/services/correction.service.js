@@ -6,6 +6,7 @@ const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const recap = require('./recap.service');
 const montecarlo = require('./montecarlo.service');
+const trophies = require('./trophy.service');
 
 /**
  * Stat corrections: the NFL routinely adjusts box scores on Tuesday/Wednesday
@@ -230,16 +231,19 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     // The scores are committed regardless of whether the log/notify above
     // succeeded, so the recap rebuild still runs before this rethrows
     // (#1409 formal-001-f1). Power rankings go first on this path too (#1410),
-    // matching the advance-week order below.
+    // and the weekly trophy reconcile follows the recap rebuild here too
+    // (#1411), matching the advance-week order below.
     if (hasFinalChange) {
       await recomputePowerRankings({ leagueId });
       await rebuildStoredRecap({ leagueId, season, week });
+      await reconcileWeeklyTrophy({ leagueId, season, week });
     }
     throw error;
   }
   if (hasFinalChange) {
     await recomputePowerRankings({ leagueId });
     await rebuildStoredRecap({ leagueId, season, week });
+    await reconcileWeeklyTrophy({ leagueId, season, week });
   }
   return { leagueId, changes };
 }
@@ -274,6 +278,27 @@ async function rebuildStoredRecap({ leagueId, season, week }) {
     await recap.computeAndStoreWeeklyRecap({ leagueId, season, week });
   } catch (err) {
     console.error('stat correction: recap rebuild failed for league %s week %s:', leagueId, week, err.message);
+  }
+}
+
+/**
+ * Reconcile the weekly high score trophy from the now-corrected scores,
+ * after the recap rebuild - matching the advance-week chain's order in
+ * scoring.router.js (odds, then recap, then trophies) and #1409/#1410's own
+ * placement in this same block (#1411). Never allowed to fail or block the
+ * correction pass, nor the steps ahead of it: caught and logged, not
+ * rethrown.
+ */
+async function reconcileWeeklyTrophy({ leagueId, season, week }) {
+  try {
+    await trophies.reconcileWeeklyHighScoreTrophy({ leagueId, season, week });
+  } catch (err) {
+    console.error(
+      'stat correction: weekly high score trophy reconcile failed for league %s week %s:',
+      leagueId,
+      week,
+      err.message
+    );
   }
 }
 
