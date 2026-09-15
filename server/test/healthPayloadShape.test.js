@@ -69,6 +69,9 @@ function healthPool(over = {}) {
     [/FROM "leagues"/, () => ({ rows: over.overdueClocks || [] })],
     // getSchedulerStatus reads the latest ADP run here (#747); default: none.
     [/FROM "data_sync_runs"/, () => ({ rows: over.adpRuns || [] })],
+    // statsIntegrityStatus reads the open-anomaly count here and the last scan
+    // through lastRun (the data_sync_runs read above); default: nothing open.
+    [/FROM "player_stats_anomalies"/, () => ({ rows: [{ open: over.openAnomalies ?? 0 }] })],
   ]);
 }
 
@@ -341,8 +344,9 @@ test('GET / publishes exactly the composite allowlist and every nested status sh
 
   assert.deepEqual(keys(res.body), [
     'db', 'holdout', 'liveGameEngine', 'ok', 'quota', 'redis', 'release',
-    'runtime', 'scheduler', 'uptimeSec', 'worker',
+    'runtime', 'scheduler', 'statsIntegrity', 'uptimeSec', 'worker',
   ]);
+  assert.deepEqual(keys(res.body.statsIntegrity), ['lastScanAt', 'ok', 'open', 'stale']);
   assert.deepEqual(keys(res.body.db), ['latencyMs', 'ok']);
   assert.deepEqual(keys(res.body.redis), ['configured', 'ok']);
   assert.deepEqual(keys(res.body.runtime), ['ready', 'shuttingDown']);
@@ -408,8 +412,9 @@ test('GET / publishes the same key set when it is not ready and has nothing to r
   assert.equal(res.status, 503);
   assert.deepEqual(keys(res.body), [
     'db', 'holdout', 'liveGameEngine', 'ok', 'quota', 'redis', 'release',
-    'runtime', 'scheduler', 'uptimeSec', 'worker',
+    'runtime', 'scheduler', 'statsIntegrity', 'uptimeSec', 'worker',
   ]);
+  assert.deepEqual(keys(res.body.statsIntegrity), ['lastScanAt', 'ok', 'open', 'stale']);
   // The section that WIDENS rather than narrows when its source is gone: one
   // extra key, named. (`quota`'s own `{ unavailable }` fallback is not
   // reachable from this seam - getQuotaState is destructured at load, and it

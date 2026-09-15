@@ -381,11 +381,17 @@ badge copy, never as the concept in code or docs), released, retired,
 dropped (a fantasy-roster word, ambiguous here)
 
 **Sync run**:
-One execution of a feed sync (injuries, ADP, schedule, players, week stats),
+One execution of a feed sync (injuries, ADP, schedule, players, week stats)
+or of a scheduled maintenance pass that must run once a day across worker
+restarts (the nightly projection fill, the Tue/Wed stat-correction pass),
 recorded whether it succeeded, was refused, or failed, and with the reason
 when it did not succeed. The scheduler status and the health probe read the
 latest Sync run for a job; "last successful sync" means the latest one that
-succeeded, not the latest one that ran (ADR 0036).
+succeeded, not the latest one that ran (ADR 0036). The stat-correction pass
+wipes every Weekly projection run from the corrected week+1 onward, so a
+`stat-corrections` run newer than the last `nightly-projection-run` means a
+refill is owed, and the fill runs at the end of the next tick instead of
+waiting for its off-peak window.
 _Avoid_: sync job (the code, not one execution of it), data sync run (the
 table name), poll (the Live box cadence, not a feed sync)
 
@@ -1285,6 +1291,22 @@ user-facing copy)
 **Optimizer**:
 The assignment routine that fills every starting slot to maximize projected
 points. It will leave a slot empty rather than start a negative projection.
+
+**Game status**:
+The designation a player carries into a week: none, Questionable, Doubtful,
+Out, injured reserve, or bye. It is what is known before kickoff, and it is
+not Availability, which is a roster fact about one league.
+_Avoid_: availability (for injury or bye state), injury status (the column),
+active
+
+**Appearance**:
+The realized fact that a player was active for their team's game in a week,
+whatever their stat line: a blocking tight end with no touches made an
+Appearance, a healthy scratch, a bye week and an injured-reserve week did
+not. A stat row alone is not an Appearance; rows exist for rostered players
+who never took the field.
+_Avoid_: game played, games (as a count of stat rows), did not play (say "no
+Appearance")
 
 ### Evaluation
 
