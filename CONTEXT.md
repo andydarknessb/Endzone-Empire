@@ -868,6 +868,19 @@ FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
 property of a player; a slot is a place in a lineup.
 _Avoid_: position
 
+**Rosterable position**:
+A position at least one starting slot in the league's roster template
+accepts, once group keys (DL, LB, DB) are expanded to their member codes.
+Bench, IR and taxi slots do not count. A league is an IDP league exactly
+when DL, LB or DB is rosterable; there is no separate flag. The Players page
+in a league lists only players at rosterable positions, offers one filter
+chip per starting slot key in a fixed canonical order, and expands a
+flex-type chip (FLEX, SFLX, DL, LB, DB) to the union of the positions its
+slot accepts. Without a league, or with an empty roster template, the page
+behaves as a league that rosters every canonical position.
+_Avoid_: IDP league flag, IDP toggle, eligible position (that is a slot's
+rule; rosterable is the league-wide union)
+
 **Starting need**:
 How many more players at a slot a team still needs to fill its configured
 starting lineup, derived live from the league's own starting slots rather than
