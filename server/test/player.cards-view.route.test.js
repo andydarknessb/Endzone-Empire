@@ -343,8 +343,8 @@ function realProducerHandlers({ league, players }) {
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
     // upgradesFor's own-roster check: nobody on the caller's roster.
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
-    [/^SELECT "id", "position" FROM "players" WHERE "id" = ANY/, (text, params) => ({
-      rows: params[0].map((id) => ({ id, position: positionById.get(id) ?? null })),
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, (text, params) => ({
+      rows: params[0].map((id) => ({ id, position: positionById.get(id) ?? null, nfl_team: 'SF' })),
     })],
     // loadIdentityIdsFor: no duplicate identity rows here (see the parity
     // tests below for that case) - single form returns the scalar id,
@@ -460,8 +460,8 @@ function duplicateIdentityHandlers() {
     [/FROM "waiver_players"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
-    [/^SELECT "id", "position" FROM "players" WHERE "id" = ANY/, (text, params) => ({
-      rows: params[0].map((id) => ({ id, position: 'RB' })),
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, (text, params) => ({
+      rows: params[0].map((id) => ({ id, position: 'RB', nfl_team: 'SF' })),
     })],
   ];
 }
@@ -479,6 +479,28 @@ test('formal-1309-f2: availabilityForMany over [p] and over [p, q, r] return the
   const expected = { state: 'rostered', teamId: 55, teamName: 'Other Team', availableAt: null };
   assert.deepEqual(single.get(1), expected, 'the N=1 SQL shape resolves the duplicate identity row');
   assert.deepEqual(batch.get(1), expected, 'the batch SQL shape resolves the SAME duplicate identity row the same way');
+});
+
+test('upgradesFor nulls a player with No NFL team (nfl_team null) and keeps a real value for a candidate on a team', async (t) => {
+  const league = makeLeague();
+  const handlers = [
+    [/^SELECT "id", "position"(, "nfl_team")? FROM "players" WHERE "id" = ANY/, (text, params) => ({
+      rows: params[0].map((id) => ({ id, position: 'RB', nfl_team: id === 2 ? null : 'SF' })),
+    })],
+    ...duplicateIdentityHandlers(),
+  ];
+  createFakePool(handlers).install(t);
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
+  t.mock.method(decisionService, 'upgradeFor', () => ({ points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' }));
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+
+  const upgrades = await playerCardService.upgradesFor({
+    league, team: TEAM, season: 2026, week: 2, playerIds: [2, 3],
+  });
+
+  assert.equal(upgrades.get(2), null, 'a player with No NFL team has no Upgrade: he cannot improve any lineup');
+  assert.deepEqual(upgrades.get(3), { points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' });
 });
 
 test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is on the caller\'s own roster, in the batch form', async (t) => {

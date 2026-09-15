@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockTwoKeyXact } = require('../modules/advisoryLock');
 const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
@@ -261,6 +262,155 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
 }
 
 /**
+ * Reconcile the weekly high score ('top_scorer') trophy for one week after a
+ * stat correction changes that week's scores (#1411). Re-running
+ * `awardWeeklyTrophies`'s ON CONFLICT DO NOTHING insert is safe when the
+ * leader is unchanged, but wrong two ways once a correction moves things: if
+ * the high score moves to a different team, the original recipient would
+ * keep a stale trophy AND the new leader would get a second one (the unique
+ * key includes team_id, so DO NOTHING never touches the old row); if the
+ * leader is unchanged but their total moved, the stored `data.points` goes
+ * stale forever, since nothing re-runs this insert once it has one row.
+ *
+ * Deliberately narrow: never calls `awardWeeklyTrophies` and never touches
+ * any season-level trophy. A league whose season completes on the very
+ * correction pass that moved this week's leader still gets its season-level
+ * set only from the normal advance-week/season-complete path, not from here.
+ *
+ * Post-reconcile: exactly one team holds `top_scorer` for (league, season,
+ * week), and its `data.points` equals the corrected high score.
+ *   - the current holder is still (tied for) the week's high score: kept as
+ *     is - an exact tie never moves a trophy away from whoever already holds
+ *     it (formal-001 f1). Its `data` is UPDATEd in place if its points moved
+ *     (merged, not replaced, so an unrelated future field on this award type
+ *     survives a reconcile); no notification (not a new award). Any OTHER
+ *     row for the week (a stale former leader, or a duplicate from a past
+ *     race) is DELETEd.
+ *   - no current holder is (tied for) the week's high score: whichever
+ *     holder existed is DELETEd and the new leader - the tied team with the
+ *     lowest team_id when more than one ties for it, matching the retired
+ *     `award_weekly_trophies` SQL engine's `ORDER BY points DESC, team_id ASC`
+ *     (2026-07-20-weekly-trophy-engine.sql) - is awarded fresh, through
+ *     `award()` so it notifies the same way a first award does (best-effort,
+ *     post-commit, via `notifyAwardedOwners`); the previous recipient gets no
+ *     notification.
+ *   - no prior trophy for the week (an edge case, not the normal path): the
+ *     lowest-team_id tied leader is awarded, same as a first award.
+ *
+ * Hardened past what an insert-only award needs (risk review, #1411,
+ * formal-001):
+ *   - A team's week score is its single highest matchup-appearance side
+ *     value (a team can legally appear twice - the unique key on `matchups`
+ *     is only per home_team_id), matching `awardWeeklyTrophies`' own
+ *     definition exactly (formal-001 f2) - summing appearances, as an
+ *     earlier revision did, double-counts a team that appears twice and can
+ *     move or misprice a trophy off a number that was never anyone's score.
+ *   - The tie itself never reshuffles an already-correct incumbent
+ *     (formal-001 f1): the DELETE only ever removes a row whose own team is
+ *     NOT tied for the current high, never a tied incumbent picked against by
+ *     an arbitrary tiebreak. `awardWeeklyTrophies` breaks a first-award tie
+ *     by unstable scan order (whichever side its unordered loop saw last), so
+ *     the incumbent a tie already produced can be either team; reconciling by
+ *     team_id ASC regardless of who already holds it would delete a trophy
+ *     that is still correctly held any time the incumbent isn't the lower id.
+ *   - A blocking advisory lock on the same (league, season*100+week) key the
+ *     SQL engine documents serializes this against another concurrent
+ *     reconcile for the same week: without it, two reconciles racing the
+ *     same DELETE/award pair could interleave. Taken through
+ *     `modules/advisoryLock.js`'s `lockTwoKeyXact` rather than a raw query
+ *     here - ADR 0036/#1206 (`check:hand-rolled-sync-run`) confines every
+ *     `pg_advisory_xact_lock` call to that module and a short, documented
+ *     list of sync-job files.
+ */
+async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
+  const awarded = await withTransaction(
+    pool,
+    async (client) => {
+      await lockTwoKeyXact(client, leagueId, (season * 100) + week);
+
+      const weekMatchups = await client.query(
+        `SELECT * FROM "matchups"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true`,
+        [leagueId, season, week]
+      );
+      // Per team, the single highest side value across its appearances this
+      // week - the same definition `awardWeeklyTrophies`' flat running-max
+      // scan uses (formal-001 f2), never a sum across appearances.
+      const pointsByTeam = new Map();
+      for (const m of weekMatchups.rows) {
+        for (const side of [
+          { teamId: Number(m.home_team_id), points: Number(m.home_score) },
+          { teamId: Number(m.away_team_id), points: Number(m.away_score) },
+        ]) {
+          const prev = pointsByTeam.get(side.teamId);
+          if (prev === undefined || side.points > prev) pointsByTeam.set(side.teamId, side.points);
+        }
+      }
+      if (pointsByTeam.size === 0) return [];
+      const maxPoints = Math.max(...pointsByTeam.values());
+
+      const label = 'Top Scorer';
+      const existing = await client.query(
+        `SELECT "id", "team_id", "data" FROM "trophies"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "type" = 'top_scorer'
+         ORDER BY "team_id"`,
+        [leagueId, season, week]
+      );
+
+      // Prefer stability on a tie (formal-001 f1): a current holder whose
+      // own score is still (tied for) the week's high stays put, no matter
+      // how a fresh tiebreak over every tied team would resolve it -
+      // awardWeeklyTrophies' own first-award tiebreak is scan-order, not
+      // team_id, so the incumbent a tie produced is not reliably the lowest
+      // team_id, and demoting them for one would DELETE a trophy that is
+      // still correctly held. (The `ORDER BY "team_id"` above only matters
+      // for a residual state this reconcile should never itself produce -
+      // more than one row already tied for the week's high - so `find`
+      // deterministically keeps the lowest team_id of those rather than
+      // whichever the heap happened to return first; risk re-review nit.)
+      const incumbent = existing.rows.find((row) => pointsByTeam.get(Number(row.team_id)) === maxPoints);
+
+      const stale = existing.rows.filter((row) => row !== incumbent);
+      for (const row of stale) {
+        await client.query(`DELETE FROM "trophies" WHERE "id" = $1`, [row.id]);
+      }
+
+      if (incumbent) {
+        const storedPoints = incumbent.data && incumbent.data.points;
+        if (Number(storedPoints) !== maxPoints) {
+          await client.query(
+            `UPDATE "trophies" SET "data" = "data" || $2::jsonb WHERE "id" = $1`,
+            [incumbent.id, JSON.stringify({ points: maxPoints })]
+          );
+        }
+        return [];
+      }
+
+      // No existing holder is among this week's tied leaders (a genuine
+      // overtake, or no prior trophy at all): award the lowest team_id among
+      // them, matching the retired SQL engine's deterministic tiebreak.
+      let winnerTeamId = null;
+      for (const [teamId, points] of pointsByTeam) {
+        if (points === maxPoints && (winnerTeamId === null || teamId < winnerTeamId)) winnerTeamId = teamId;
+      }
+      if (
+        await award(client, {
+          leagueId, teamId: winnerTeamId, season, week,
+          type: 'top_scorer', label, data: { points: maxPoints },
+        })
+      ) {
+        return [{ type: 'top_scorer', teamId: winnerTeamId, label }];
+      }
+      return [];
+    },
+    { label: 'trophy-reconcile' }
+  );
+
+  await notifyAwardedOwners({ leagueId, awarded });
+  return awarded;
+}
+
+/**
  * Pick'em champion(s) for a pick'em-only league, written on the caller's
  * transaction client as the season completes. Deliberately multi-recipient:
  * a tie on (points, correct) makes co-champions, and the trophies unique key
@@ -364,6 +514,7 @@ module.exports = {
   longestWinStreak,
   comebackTeam,
   awardWeeklyTrophies,
+  reconcileWeeklyHighScoreTrophy,
   awardPickemChampions,
   reconcilePickemChampionTrophies,
   notifyAwardedOwners,

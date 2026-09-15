@@ -352,7 +352,9 @@ ambiguous with the slot)
 
 **No NFL team**:
 A player who has left the NFL — released, retired, or otherwise dropped from
-Tank01's player list — or who the list carries with no team. A fact about the
+Tank01's player list — or who the list carries with no team or flags as off
+every roster (its `isFreeAgent` field; the list keeps such a player under
+his last team, so the flag is the only sign he has gone). A fact about the
 NFL world, written only by the unattended injury sync (never the hand-run
 player sync, and never anything a manager does), which clears `nfl_team` to null for
 such a player once its own feed is large enough to trust; a feed too small to
@@ -372,7 +374,10 @@ then does the season hold nobody's label. Both cases clear their candidates
 normally instead of deferring. A deferred row is retried, and cleared or
 deferred again, on the pass's next run. Once cleared,
 purely a display fact: the lineup card shows `FA` in place of the team badge,
-and nothing about it locks a slot or refuses a start. Distinct from Free
+and nothing about it locks a slot or refuses a start. The one number it does
+withhold is the Upgrade, which is undefined for such a player (he has no
+game to score in), even though his Weekly projection still reads his old
+per-game pace until the next engine version (ADR 0044). Distinct from Free
 agent, below, which is about league Availability — a player can have no NFL
 team while rostered on a fantasy team, and a true Free agent (waivers clear,
 game not kicked off) almost always still carries an NFL team.
@@ -1002,7 +1007,8 @@ _Avoid_: owner line, who has him, league status
 **Upgrade**:
 The Weekly projection a player would add this week over the weakest starter
 at a slot he is eligible for. Undefined in a best ball league, where the
-column and tile are hidden. The same number for a free agent, a waiver
+column and tile are hidden, and for a player with No NFL team, whose pill
+and tile are hidden and who sorts last under the Upgrade sort. The same number for a free agent, a waiver
 candidate or another team's player, so it doubles as a trade-target score.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
 

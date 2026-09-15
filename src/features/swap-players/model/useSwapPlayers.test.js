@@ -28,13 +28,14 @@ const entry = (overrides = {}) => ({
   ...overrides,
 });
 
-function setup({ entries, raw, bestBall = false, leagueUnsettled = false } = {}) {
+function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget } = {}) {
   let currentRaw = raw ?? { week: 4, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
   const setRaw = jest.fn((updater) => {
     currentRaw = typeof updater === 'function' ? updater(currentRaw) : updater;
   });
   const { result, rerender } = renderHook(
-    (props) => useSwapPlayers({ leagueId: 7, raw: currentRaw, setRaw, entries, bestBall, leagueUnsettled, ...props })
+    (props) =>
+      useSwapPlayers({ leagueId: 7, raw: currentRaw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, ...props })
   );
   return { result, rerender, setRaw, getRaw: () => currentRaw };
 }
@@ -225,6 +226,37 @@ describe('quick pick', () => {
     act(() => result.current.onRowClick(null, 'BENCH', { currentTarget: null }));
     expect(result.current.quickPickEligible.map((e) => e.playerId)).toEqual([7]);
   });
+});
+
+// AC4 (#1425 ruling): a row with no eligible target anywhere - the caller's
+// `hasEligibleTarget` says so - refuses the selection with the Snackbar
+// message instead of leaving `selectedEntry` set with nothing to highlight.
+test('a row with no eligible target anywhere is refused with a Snackbar, not selected', () => {
+  const qb = entry({ name: 'Josh Allen' });
+  const { result } = setup({ entries: [qb], hasEligibleTarget: () => false });
+  act(() => result.current.onRowClick(qb, 'QB'));
+  expect(result.current.selectedEntry).toBeNull();
+  expect(mockNotify).toHaveBeenCalledWith('No eligible players for Josh Allen', { severity: 'warning' });
+});
+
+test('hasEligibleTarget is asked about the clicked entry, and a true answer selects it normally', () => {
+  const qb = entry();
+  const hasEligibleTarget = jest.fn(() => true);
+  const { result } = setup({ entries: [qb], hasEligibleTarget });
+  act(() => result.current.onRowClick(qb, 'QB'));
+  expect(hasEligibleTarget).toHaveBeenCalledWith(qb);
+  expect(result.current.selectedEntry).toEqual(qb);
+  expect(mockNotify).not.toHaveBeenCalled();
+});
+
+// Omitting `hasEligibleTarget` entirely (every other test in this file)
+// keeps today's behaviour - the refusal is opt-in per caller, not a change
+// to the hook's default contract.
+test('without hasEligibleTarget, a selection proceeds exactly as before', () => {
+  const qb = entry();
+  const { result } = setup({ entries: [qb] });
+  act(() => result.current.onRowClick(qb, 'QB'));
+  expect(result.current.selectedEntry).toEqual(qb);
 });
 
 // AC9 coverage gap: league-unsettled gating (LineupScreen.jsx's #217 rule).

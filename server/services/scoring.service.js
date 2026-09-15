@@ -1161,11 +1161,11 @@ async function fetchInjuryUnits(api) {
     feedByExternal.set(String(entry.playerID), {
       status: normalizeInjuryStatus(injury.designation),
       detail: injury.description ? String(injury.description).slice(0, 255) : null,
-      // null for a player the feed lists with no team, or omits entirely (No
-      // NFL team, CONTEXT.md). Whether that null actually clears the stored
-      // label depends on floorGuardTripped below, checked once in
-      // applyInjuryUnit rather than per row here.
-      team: entry.team ? String(entry.team) : null,
+      // null for a player the feed lists with no team, flags as off every
+      // roster, or omits entirely (No NFL team, CONTEXT.md). Whether that
+      // null actually clears the stored label depends on floorGuardTripped
+      // below, checked once in applyInjuryUnit rather than per row here.
+      team: feedTeamOf(entry),
     });
   }
   // #1385: below the floor, the feed is too small to trust as a real player
@@ -1688,6 +1688,22 @@ function resolveHeadshotUrl(entry) {
 }
 
 /**
+ * The NFL team a getNFLPlayerList entry actually places a player on, or null
+ * for No NFL team (CONTEXT.md). Tank01 keeps a player who has left the NFL
+ * in the list under his LAST team with `isFreeAgent: "True"` (2026-09-15:
+ * 1,527 of 3,872 entries, every one still carrying a team label; Joe Mixon
+ * "team":"HOU" six months after Houston released him). Reading `team` alone
+ * kept every one of them rostered, projected at his old per-game pace and
+ * ranked as a waiver Upgrade. The one reading both writers share, so the
+ * unattended injury sync and the hand-run player sync can never disagree
+ * about who is on a roster.
+ */
+function feedTeamOf(entry) {
+  if (!entry || String(entry.isFreeAgent).toLowerCase() === 'true') return null;
+  return entry.team ? String(entry.team) : null;
+}
+
+/**
  * Normalize one entry from Tank01's getNFLPlayerList into our player shape.
  * Returns null for entries missing an id, name, or position, and for
  * non-fantasy positions. Tank01 calls kickers 'PK' — stored as 'K' to match
@@ -1707,7 +1723,7 @@ function normalizePlayerEntry(entry) {
     externalId: String(externalId),
     name,
     position,
-    nflTeam: entry.team ? String(entry.team) : null,
+    nflTeam: feedTeamOf(entry),
     photoUrl: resolveHeadshotUrl(entry),
     jerseyNumber: jersey,
   };
