@@ -127,3 +127,9 @@ export { sortRosterForDrop } from './rosterDrop';
 // `features/add-player` and `features/claim-player`, the same threshold
 // sortRosterForDrop above crossed.
 export { isRosterAtCapacity } from './rosterCapacity';
+// The position-menu chip derivation (#1419/#1420): one starting-slot-keyed
+// chip per distinct roster template key, canonical order, group chips for
+// DL/LB/DB. Promoted out of PlayerManagement.jsx once the Draft room's pool
+// table (#1420) needed the identical derivation - "no third copy" of the
+// chip vocabulary or position-group table.
+export { chipsForRosterSlots } from './positionChips';
