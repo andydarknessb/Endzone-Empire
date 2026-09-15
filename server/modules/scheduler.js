@@ -6,7 +6,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
-const { lastRun, runSyncJob } = require('./syncRun');
+const { lastRun, runSyncJob, recordDataSyncRun } = require('./syncRun');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -538,10 +538,17 @@ function utcDayKey(date) {
  * pass: the safe direction for the corrections themselves (idempotent), and
  * the refill owed after the wipe is what `runNightlyProjectionFill` covers.
  */
-async function lastStatCorrectionsAt() {
+async function lastStatCorrectionsDay() {
   try {
     const { latestOk } = await lastRun('stat-corrections');
-    return latestOk ? latestOk.finishedAt : null;
+    if (!latestOk) return null;
+    // The day the pass ran FOR, recorded in detail when it started - never
+    // derived from finished_at: a pass that starts at 23:58 UTC Tuesday and
+    // finishes at 00:01 Wednesday would otherwise read as Wednesday's, and
+    // Wednesday's own pass would be skipped for the week (QA finding on
+    // #1449). finished_at is the fallback only for a row with no `day`.
+    if (latestOk.detail && typeof latestOk.detail.day === 'string') return latestOk.detail.day;
+    return latestOk.finishedAt ? utcDayKey(latestOk.finishedAt) : null;
   } catch (err) {
     console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
     return null;
@@ -557,28 +564,54 @@ async function lastStatCorrectionsAt() {
  * Source is nflverse — free and, by Tuesday, more accurate than Tank01 — so
  * this pass costs no quota and needs no credentials.
  *
- * Recorded through `runSyncJob` like the nightly fill: `apply` deliberately
- * ignores the unit's transactional client (the same #1305 f5 reasoning), since
- * resyncPriorWeeks owns its own transactions per league and its cache writes
- * must autocommit. A thrown pass (including the aggregate cache-maintenance
- * error resyncPriorWeeks raises after finishing) records ok=false, does not
- * move the gate, and bubbles to tickUnlocked's catch, so the next 5-minute
- * tick retries instead of silently skipping the rest of a correction day.
+ * Recorded with `recordDataSyncRun` directly rather than through
+ * `runSyncJob`: that wrapper runs its unit inside one `withTransaction`, and
+ * a BEGIN'd client sitting idle for the minutes this pass takes - while
+ * `correctLeagueWeek` opens its own transaction per league on other clients,
+ * beside the tick's session-level advisory lock - is the idle-in-transaction
+ * shape #839 already bit this repo with under the pooler. The row carries the
+ * UTC `day` the pass ran for (see lastStatCorrectionsDay). A thrown pass
+ * (including the aggregate cache-maintenance error resyncPriorWeeks raises
+ * after finishing) records ok=false, does not move the gate, and bubbles to
+ * tickUnlocked's catch, so the next 5-minute tick retries instead of
+ * silently skipping the rest of a correction day.
  */
 async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
   if (!correction.isCorrectionDay(now)) return null;
   const today = utcDayKey(now);
   if (lastCorrectionDay === today) return null;
-  const lastAt = await lastStatCorrectionsAt();
-  if (lastAt && utcDayKey(lastAt) === today) {
+  if ((await lastStatCorrectionsDay()) === today) {
     lastCorrectionDay = today;
     return null;
   }
-  const result = await runSyncJob({
+  const startedAt = new Date();
+  let result;
+  try {
+    result = await correction.resyncPriorWeeks();
+  } catch (err) {
+    await recordDataSyncRun({
+      job: 'stat-corrections',
+      startedAt,
+      ok: false,
+      detail: {
+        day: today,
+        reason: 'write_failed',
+        message: err && err.message ? err.message : String(err),
+        invalidated: (err && err.invalidated) || [],
+      },
+    });
+    throw err;
+  }
+  await recordDataSyncRun({
     job: 'stat-corrections',
-    fetch: async () => [{ now }],
-    apply: async () => correction.resyncPriorWeeks(),
+    startedAt,
+    ok: true,
+    detail: {
+      day: today,
+      corrected: (result.corrected || []).length,
+      invalidated: result.invalidated || [],
+    },
   });
   lastCorrectionDay = today;
   if (result.corrected && result.corrected.length > 0) {

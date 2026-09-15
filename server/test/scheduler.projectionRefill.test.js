@@ -28,13 +28,57 @@ const projection = require('../services/projection.service');
 function dataSyncRunsHandler(byJob) {
   return [/FROM "data_sync_runs"/, (text, params) => {
     const spec = byJob[params[0]] || null;
-    const row = (finishedAt, ok) => (finishedAt ? { id: 1, finished_at: finishedAt, ok, detail: null } : null);
+    const detail = spec && typeof spec === 'object' && spec.detail ? spec.detail : null;
+    const row = (finishedAt, ok) => (finishedAt ? { id: 1, finished_at: finishedAt, ok, detail } : null);
     if (spec && typeof spec === 'object') {
       return { rows: [{ latest: row(spec.latest, spec.latest === spec.latestOk), latestOk: row(spec.latestOk, true) }] };
     }
     return { rows: [{ latest: row(spec, true), latestOk: row(spec, true) }] };
   }];
 }
+
+test('a pass that starts before UTC midnight and finishes after it still counts for the day it ran FOR, so the next day\'s pass runs (QA finding on #1449)', async (t) => {
+  let resyncCalls = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
+  const fake = createFakePool([
+    // Tuesday's pass was triggered 23:58Z, finished_at (DB now()) landed on
+    // Wednesday 00:01Z; the row says which day it belonged to.
+    dataSyncRunsHandler({
+      'stat-corrections': { latest: '2026-09-23T00:01:00Z', latestOk: '2026-09-23T00:01:00Z', detail: { day: '2026-09-22' } },
+    }),
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-23T00:06:00Z') });
+  assert.equal(resyncCalls, 1, 'Wednesday\'s pass must not be mistaken for already run');
+  assert.ok(result);
+  const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
+  assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-23', 'the new row records the day it ran for');
+});
+
+test('a thrown pass records a failed Sync run for its day and does not move the gate', async (t) => {
+  let resyncCalls = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => {
+    resyncCalls += 1;
+    const err = new Error('stat correction: 1 projection cache maintenance operation(s) failed');
+    err.invalidated = [{ season: 2026, fromWeek: 2, deletedRuns: 31 }];
+    throw err;
+  });
+  const fake = createFakePool([
+    dataSyncRunsHandler({}),
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const now = new Date('2026-09-29T00:04:00Z');
+  await assert.rejects(() => scheduler.runDailyStatCorrections({ now }), /cache maintenance/);
+  const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
+  assert.equal(inserted.params[0], 'stat-corrections');
+  assert.equal(inserted.params[2], false);
+  assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-29');
+  // Same day, next tick: the failed row never stamped the day, so it retries.
+  await assert.rejects(() => scheduler.runDailyStatCorrections({ now: new Date('2026-09-29T00:09:00Z') }));
+  assert.equal(resyncCalls, 2);
+});
 
 test('runDailyStatCorrections does not repeat the pass after a restart when data_sync_runs already records today\'s successful pass', async (t) => {
   let resyncCalls = 0;
