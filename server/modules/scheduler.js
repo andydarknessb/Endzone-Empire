@@ -43,9 +43,14 @@ let ticksSinceSync = SYNC_EVERY_TICKS; // sync on the first eligible tick
 let lastTickAt = null;
 let lastTickError = null;
 let lastSyncAt = null;
-// Stat-correction pass runs once per calendar day on Tue/Wed (the NFL's
-// correction window). In-process only: a restart may repeat the pass the
-// same day, which is safe — the whole pipeline is idempotent.
+// Stat-correction pass runs once per UTC calendar day on Tue/Wed (the NFL's
+// correction window). The durable gate is the pass's own `stat-corrections`
+// Sync run row (see runDailyStatCorrections); this in-memory stamp only
+// saves the read on later ticks of the same process. It used to be the ONLY
+// gate, and a restart repeating the pass was called safe because the
+// corrections are idempotent - but the pass also wipes the Weekly projection
+// cache from week+1 onward, and repeating THAT on every release of a
+// correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
 // nflverse IDP finalization pass runs once per calendar day on Mon-Thu
 // (nflverse's own "cleanest by Thursday" publishing window). Same
@@ -518,29 +523,75 @@ async function syncAndScoreLiveWeeks() {
   return ranAny;
 }
 
+/** UTC calendar date key, the same day boundary `isCorrectionDay` uses. */
+function utcDayKey(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The last successful stat-correction pass, read via `lastRun` the way the
+ * injury sync's gate is (#1188): the in-memory day stamp alone reset on every
+ * worker restart, so on a correction day with three releases (2026-09-15) the
+ * pass ran three times, and each run wiped every Weekly projection run from
+ * week+1 onward (correction.service) that the nightly fill had just rebuilt.
+ * Null when no successful pass exists or the read fails, which then runs the
+ * pass: the safe direction for the corrections themselves (idempotent), and
+ * the refill owed after the wipe is what `runNightlyProjectionFill` covers.
+ */
+async function lastStatCorrectionsAt() {
+  try {
+    const { latestOk } = await lastRun('stat-corrections');
+    return latestOk ? latestOk.finishedAt : null;
+  } catch (err) {
+    console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
+    return null;
+  }
+}
+
 /**
  * Tue/Wed stat-correction pass: re-pull last week's stats and re-score any
  * league whose scores moved (see correction.service). Runs at most once per
- * calendar day. Source is nflverse — free and, by Tuesday, more accurate than
- * Tank01 — so this pass costs no quota and needs no credentials.
+ * UTC calendar day - the window `isCorrectionDay` is defined on - gated by
+ * the pass's own Sync run row (`stat-corrections`) so a worker restart
+ * cannot repeat it, with the in-memory stamp as a same-process short-circuit.
+ * Source is nflverse — free and, by Tuesday, more accurate than Tank01 — so
+ * this pass costs no quota and needs no credentials.
+ *
+ * Recorded through `runSyncJob` like the nightly fill: `apply` deliberately
+ * ignores the unit's transactional client (the same #1305 f5 reasoning), since
+ * resyncPriorWeeks owns its own transactions per league and its cache writes
+ * must autocommit. A thrown pass (including the aggregate cache-maintenance
+ * error resyncPriorWeeks raises after finishing) records ok=false, does not
+ * move the gate, and bubbles to tickUnlocked's catch, so the next 5-minute
+ * tick retries instead of silently skipping the rest of a correction day.
  */
-async function runDailyStatCorrections() {
+async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
-  if (!correction.isCorrectionDay()) return;
-  // Local calendar date, matching isCorrectionDay's local day-of-week — a
-  // UTC date key could double-run within one local Tue/Wed in TZs ahead of UTC.
-  const today = new Date().toLocaleDateString('en-CA');
-  if (lastCorrectionDay === today) return;
-  const result = await correction.resyncPriorWeeks();
-  // Stamp the day only after a successful pass: a transient failure (bubbling
-  // to the caller's catch in tickUnlocked) retries on the next 5-minute tick
-  // instead of silently skipping the rest of a correction day. This covers
-  // projection-cache maintenance too — resyncPriorWeeks finishes the whole
-  // pass and then throws an aggregate error if any cache operation failed.
+  if (!correction.isCorrectionDay(now)) return null;
+  const today = utcDayKey(now);
+  if (lastCorrectionDay === today) return null;
+  const lastAt = await lastStatCorrectionsAt();
+  if (lastAt && utcDayKey(lastAt) === today) {
+    lastCorrectionDay = today;
+    return null;
+  }
+  const result = await runSyncJob({
+    job: 'stat-corrections',
+    fetch: async () => [{ now }],
+    apply: async () => correction.resyncPriorWeeks(),
+  });
   lastCorrectionDay = today;
   if (result.corrected && result.corrected.length > 0) {
     console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
   }
+  if (result.invalidated && result.invalidated.length > 0) {
+    console.log(
+      `scheduler: stat corrections invalidated weekly projection runs (${result.invalidated
+        .map((w) => `${w.season} from week ${w.fromWeek}: ${w.deletedRuns} run(s)`)
+        .join('; ')}); refill runs at the end of this tick`
+    );
+  }
+  return result;
 }
 
 /**
@@ -578,6 +629,38 @@ async function runHoldoutSnapshots() {
 // UTC). `render.yaml` sets no TZ, so this is deliberately a UTC hour, never
 // "local" or "the first tick after midnight".
 const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
+
+/**
+ * Is a projection refill owed right now? True when the last successful
+ * stat-correction pass (which wipes every Weekly projection run from week+1
+ * onward, correction.service) finished AFTER the last nightly fill ATTEMPT -
+ * or when a pass exists and no fill ever has. Read from the two jobs' own
+ * Sync run rows rather than an in-memory flag, so a worker restarted between
+ * the wipe and the refill still knows it owes one.
+ *
+ * The fill side reads `latest`, not `latestOk`, on purpose: one owed attempt
+ * per wipe. A fill that failed on one league still committed every other
+ * league's weeks (runSyncJob attempts every unit), and retrying the failing
+ * one every five minutes for the rest of the day would be the worker's whole
+ * afternoon; the off-peak window's own retry loop covers it from there. A
+ * failed read answers false for the same reason: the window still covers
+ * the night, and the next tick re-asks.
+ */
+async function projectionRefillOwed() {
+  try {
+    const [corrections, fill] = await Promise.all([
+      lastRun('stat-corrections'),
+      lastRun('nightly-projection-run'),
+    ]);
+    const wipedAt = corrections.latestOk ? corrections.latestOk.finishedAt : null;
+    if (!wipedAt) return false;
+    const filledAt = fill.latest ? fill.latest.finishedAt : null;
+    return !filledAt || wipedAt.getTime() > filledAt.getTime();
+  } catch (err) {
+    console.warn('runNightlyProjectionFill: data_sync_runs read failed, treating no refill as owed:', err.message);
+    return false;
+  }
+}
 
 /**
  * Nightly projection run (#1305): for every fantasy league whose season is
@@ -627,13 +710,27 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * own HTTP fetches also stay off that transaction this way, matching ADR
  * 0036's "fetch outside any transaction" for the same reason.
  *
- * Runs at most once per local calendar day, and only inside
- * `NIGHTLY_PROJECTION_FILL_UTC_HOUR`.
+ * Runs at most once per local calendar day inside
+ * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` - and, outside that window, whenever a
+ * refill is owed (`projectionRefillOwed` below): the stat-correction pass has
+ * wiped every run from week+1 onward more recently than this fill last
+ * completed, so without this every list page until the next 09:00 UTC
+ * window (a whole Tuesday evening) rebuilt 25 players x 17 weeks on demand.
+ * A successful owed refill stamps the day too: the window's own run would
+ * only confirm rows this one just wrote.
  */
 async function runNightlyProjectionFill({ now = new Date() } = {}) {
-  if (now.getUTCHours() !== NIGHTLY_PROJECTION_FILL_UTC_HOUR) return null;
   const today = now.toLocaleDateString('en-CA');
-  if (lastProjectionFillDay === today) return null;
+  const inWindow = now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR && lastProjectionFillDay !== today;
+  // An owed refill never starts while a game window is open: the Tuesday
+  // 00:00 UTC correction pass lands during Monday Night Football, and a
+  // multi-minute fill here would hold the tick (and live scoring behind it)
+  // for its whole duration. It runs on the first tick after the slate goes
+  // final, still hours ahead of the off-peak window.
+  if (!inWindow) {
+    if (!(await projectionRefillOwed())) return null;
+    if (await inGameWindow()) return null;
+  }
 
   let outcome;
   try {
@@ -1003,7 +1100,9 @@ module.exports = {
   runHourlyOddsSync,
   runHourlyGameContextSync,
   runHoldoutSnapshots,
+  runDailyStatCorrections,
   runNightlyProjectionFill,
+  projectionRefillOwed,
   runPickemWeekSync,
   runPickemSeasonCompletion,
   INTERVAL_MS,

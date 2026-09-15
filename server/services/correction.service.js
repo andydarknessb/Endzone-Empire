@@ -308,6 +308,10 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
 
   const results = [];
   const cacheFailures = [];
+  // Every versioned-cache wipe this pass made, returned so the scheduler can
+  // see that a refill is now owed (it reads the same fact durably from the
+  // pass's own Sync run row after a restart; this is the in-process view).
+  const invalidated = [];
   for (const { season, week, leagueIds } of weeks.values()) {
     try {
       if (source === 'nflverse') {
@@ -357,7 +361,12 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
       cacheFailures.push({ op: 'legacy refresh', season, week: nextWeek, message: err.message });
     }
     try {
-      await projection.invalidateWeeklyProjectionRuns({ season, fromWeek: nextWeek });
+      const wiped = await projection.invalidateWeeklyProjectionRuns({ season, fromWeek: nextWeek });
+      invalidated.push({
+        season,
+        fromWeek: nextWeek,
+        deletedRuns: wiped && wiped.deletedRuns != null ? wiped.deletedRuns : null,
+      });
     } catch (err) {
       console.error(
         'stat correction: weekly projection cache invalidation failed for %s week %s:',
@@ -392,9 +401,10 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
     );
     err.cacheFailures = cacheFailures;
     err.corrected = results;
+    err.invalidated = invalidated;
     throw err;
   }
-  return { corrected: results };
+  return { corrected: results, invalidated };
 }
 
 module.exports = {
