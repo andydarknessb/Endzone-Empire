@@ -81,6 +81,18 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
   const awarded = await withTransaction(
     pool,
     async (client) => {
+    // Same lock reconcileWeeklyHighScoreTrophy writes under (#1411), same
+    // helper and same key expression, taken as the FIRST statement - before
+    // the matchups SELECT below, not merely before the INSERT (#1453). An
+    // advance-week award reading the week's scores without this lock could
+    // still read pre-correction values and insert its holder after a
+    // concurrent reconcile has already deleted that row: the unique key
+    // (league_id, season, week, team_id, type) does not stop a second team
+    // holding the same week. Routed through advisoryLock.js's lockTwoKeyXact
+    // rather than a raw query here - ADR 0036/#1206 (check:hand-rolled-sync-run)
+    // confines every pg_advisory_xact_lock call to that module.
+    await lockTwoKeyXact(client, leagueId, (season * 100) + week);
+
     const awarded = [];
 
     // Weekly high score
