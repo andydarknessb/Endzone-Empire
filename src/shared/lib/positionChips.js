@@ -54,9 +54,15 @@ export function isFlexSlot(slot) {
 }
 
 /**
- * One chip per distinct starting slot key the template carries, canonical
- * order, absent keys dropped. An empty (or absent) `rosterSlots` falls back
- * to FULL_CANONICAL_SLOTS.
+ * One chip per distinct starting slot key the template carries: canonical
+ * chips first (CANONICAL_CHIP_ORDER order, absent keys dropped), then every
+ * other slot key - a commissioner-defined key such as 'D LINE' or 'IDP FLEX'
+ * (src/entities/roster/model/lineupModel.js:172, #1462) - in the template's
+ * own order, one chip per distinct key. A custom key is never a plain
+ * position code, so its chip always carries `positions` =
+ * expandEligibility(slot.eligiblePositions) rather than being treated as
+ * potentially non-flex. An empty (or absent) `rosterSlots` falls back to
+ * FULL_CANONICAL_SLOTS, which carries no custom keys.
  */
 export function chipsForRosterSlots(rosterSlots) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : FULL_CANONICAL_SLOTS;
@@ -70,6 +76,13 @@ export function chipsForRosterSlots(rosterSlots) {
         ? { key, positions: Array.from(expandEligibility(slot.eligiblePositions)) }
         : { key },
     );
+  });
+  const seenCustomKeys = new Set();
+  slots.forEach((slot) => {
+    if (CANONICAL_CHIP_ORDER.includes(slot.key)) return;
+    if (seenCustomKeys.has(slot.key)) return;
+    seenCustomKeys.add(slot.key);
+    chips.push({ key: slot.key, positions: Array.from(expandEligibility(slot.eligiblePositions)) });
   });
   return chips;
 }

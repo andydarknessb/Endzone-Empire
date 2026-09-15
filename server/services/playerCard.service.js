@@ -863,7 +863,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     // the feed sync's single note the one fallback item (#1308, ADR 0041).
     news: espnFacts.news.length > 0
       ? espnFacts.news
-      : (player.news ? [{ headline: player.news, source: 'feed', publishedAt: null }] : []),
+      : (player.news ? [{ headline: player.news, source: 'feed', publishedAt: null, url: null }] : []),
     log,
     bio: espnFacts.bio,
     depth: espnFacts.depth,
