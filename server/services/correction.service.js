@@ -4,6 +4,7 @@ const scoring = require('./scoring.service');
 const { logTransaction, notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+const recap = require('./recap.service');
 
 /**
  * Stat corrections: the NFL routinely adjusts box scores on Tuesday/Wednesday
@@ -148,6 +149,20 @@ async function correctLeagueWeek({ leagueId, season, week }) {
   const changes = diffMatchupScores(before.rows, after.rows);
   if (changes.length === 0) return { leagueId, changes };
 
+  // A changed FINAL matchup means the week's scores of record moved, so the
+  // stored weekly recap (built from those scores) is stale and gets rebuilt
+  // below - AFTER the log/notify transaction, not before (#1409 formal-001-
+  // f1). The scores are already committed by this point either way, so the
+  // transaction-log row and the "scores were updated" notice are the only
+  // record of the correction; if the process died during the rebuild first
+  // (several pool queries, then an un-timed-out llmNarrative call) that
+  // record would never be written, and on the manual route the HTTP response
+  // would wait on it for nothing. Running the log/notify first means a crash
+  // during the rebuild still leaves the correction logged and announced, and
+  // a later run's "before" snapshot (already post-correction) will not
+  // re-detect the change to retry it.
+  const hasFinalChange = changes.some((c) => c.final);
+
   try {
     // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
     // release rule (ADR 0033). The connect try is gone: the wrapper propagates a
@@ -211,9 +226,29 @@ async function correctLeagueWeek({ leagueId, season, week }) {
       week,
       JSON.stringify(changes)
     );
+    // The scores are committed regardless of whether the log/notify above
+    // succeeded, so the recap rebuild still runs before this rethrows
+    // (#1409 formal-001-f1).
+    if (hasFinalChange) await rebuildStoredRecap({ leagueId, season, week });
     throw error;
   }
+  if (hasFinalChange) await rebuildStoredRecap({ leagueId, season, week });
   return { leagueId, changes };
+}
+
+/**
+ * Rebuild the stored weekly recap from the now-corrected scores, silently:
+ * only `computeAndStoreWeeklyRecap`, never `announceWeeklyRecap` - the
+ * correction's own "scores were updated" notice is the one announcement
+ * (#1409). Never allowed to fail or block the correction pass: caught and
+ * logged, not rethrown.
+ */
+async function rebuildStoredRecap({ leagueId, season, week }) {
+  try {
+    await recap.computeAndStoreWeeklyRecap({ leagueId, season, week });
+  } catch (err) {
+    console.error('stat correction: recap rebuild failed for league %s week %s:', leagueId, week, err.message);
+  }
 }
 
 /**
