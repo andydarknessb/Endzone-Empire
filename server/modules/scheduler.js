@@ -583,17 +583,22 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * Nightly projection run (#1305): for every fantasy league whose season is
  * live (`fantasySeasonLiveWhereSql` — draft complete, season not yet
  * complete, the same eligibility the hourly odds/game-context syncs above
- * use), generate `free_baseline_v2` Weekly projections for every currently
- * rostered player, for every week from the league's current week through its
- * last playoff week (`season.service.lastPlayoffWeek`). `getWeeklyProjections`
+ * use), generate `free_baseline_v2` Weekly projections for EVERY player in
+ * `players` (#1403; it was every currently rostered player until then, which
+ * left every unrostered row the Players list and Waivers page show - most of
+ * the pool - to be generated on demand, page by page, 17 weeks at a time),
+ * for every week from the league's current week through its last playoff
+ * week (`season.service.lastPlayoffWeek`). `getWeeklyProjections`
  * (projection.service.js) owns the cache itself: a (season, week,
- * scoring_hash, model_version) run that already has every rostered player's
- * row is a cache hit and is never regenerated here, which is what lets this
- * run every night at no cost once a season's weeks are filled.
+ * scoring_hash, model_version) run that already has every player's row is a
+ * cache hit and is never regenerated here, which is what lets this run every
+ * night at no cost once a season's weeks are filled. A full-pool week is
+ * ~12 s to generate and ~0.5 s to confirm cached, so a cold season is a few
+ * minutes per league and a warm one seconds.
  *
  * A Sync run per ADR 0036: `runSyncJob` owns the one `data_sync_runs` row for
  * the whole pass, exactly as every other feed sync in this module does.
- * `fetch()` reads the eligible leagues and each one's current roster (no
+ * `fetch()` reads the eligible leagues and the player pool once (no
  * transaction, no lock: nothing else bulk-writes these rows); `apply(client,
  * unit)` fills one league's remaining weeks, one per unit. One league
  * throwing does not stop another's: `runSyncJob` attempts every unit and only
@@ -640,14 +645,12 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
            FROM "leagues" WHERE ${fantasySeasonLiveWhereSql()}`
         );
         const units = [];
-        for (const league of leaguesResult.rows) {
-          const rosterResult = await pool.query(
-            `SELECT DISTINCT "player_id" FROM "team_players" WHERE "league_id" = $1`,
-            [league.id]
-          );
-          const playerIds = rosterResult.rows.map((r) => r.player_id);
-          if (playerIds.length > 0) units.push({ league, playerIds });
-        }
+        if (leaguesResult.rows.length === 0) return units;
+        // Every player, once, shared by every league's unit (#1403).
+        const playersResult = await pool.query(`SELECT "id" FROM "players"`);
+        const playerIds = playersResult.rows.map((r) => r.id);
+        if (playerIds.length === 0) return units;
+        for (const league of leaguesResult.rows) units.push({ league, playerIds });
         return units;
       },
       // The unit's transactional client is intentionally unused here (#1305
@@ -663,7 +666,7 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
           const run = await projection.getWeeklyProjections({
             season: league.current_season, week, league, playerIds,
           });
-          // A week is a cache HIT only when every rostered player's row came
+          // A week is a cache HIT only when every player's row came
           // back already cached (getWeeklyProjections's own hit/miss rule,
           // mirrored here rather than re-decided); any generation at all,
           // partial included, counts this week as generated.

@@ -49,6 +49,9 @@ function mockPool(t, {
   defenseGames = [],
   byeRows = [],
   runRow = null,
+  // #1403: the weeks that HAVE a run under the batch (`"week" = ANY`) shape;
+  // null means every requested week does (the single-week shape ignores it).
+  runWeeks = null,
   cachedRows = [],
   leagueRow = null,
   onQuery = null,
@@ -59,11 +62,22 @@ function mockPool(t, {
     calls.push({ text, params });
     if (onQuery) onQuery(text, params);
     if (text.includes('FROM "leagues" WHERE "id" = $1')) return { rows: leagueRow ? [leagueRow] : [] };
-    if (text.includes('FROM "projection_runs"')) return { rows: runRow ? [runRow] : [] };
+    if (text.includes('FROM "projection_runs"')) {
+      if (text.includes('"week" = ANY')) {
+        const weeks = (params[1] || []).filter((week) => !runWeeks || runWeeks.includes(week));
+        return { rows: runRow ? weeks.map((week) => ({ ...runRow, week })) : [] };
+      }
+      return { rows: runRow ? [runRow] : [] };
+    }
     if (text.includes('INSERT INTO "projection_runs"')) {
       return { rows: [{ id: 99, generated_at: new Date('2026-09-10T00:00:00Z'), input_cutoff: params[4] }] };
     }
-    if (text.includes('FROM "player_week_projections"')) return { rows: cachedRows };
+    if (text.includes('FROM "player_week_projections"')) {
+      if (text.includes('"run_id" = ANY')) {
+        return { rows: cachedRows.map((row) => ({ run_id: runRow ? runRow.id : null, ...row })) };
+      }
+      return { rows: cachedRows };
+    }
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
@@ -1694,4 +1708,105 @@ test('getRestOfSeason: an unknown league is a 404', async (t) => {
     () => projection.getRestOfSeason([1], 999),
     (err) => err.statusCode === 404
   );
+});
+
+// ---------------------------------------------------------------------------
+// getWeeklyProjectionsForWeeks (#1403): the multi-week reader behind the
+// Players list's weeks bar and getRestOfSeason. Two cache reads for the whole
+// set, hit/miss decided per week, only the weeks with a missing row generated.
+// ---------------------------------------------------------------------------
+
+const cachedRowFor = (playerId, points = 12.34) => ({
+  player_id: playerId, mean: points, median: points, p10: null, p25: null, p75: null, p90: null,
+  active_probability: 1, confidence: 'medium', sample_size: 4,
+  factors: { availability: { available: true } },
+});
+const runRowAt = (id = 501) => ({ id, input_cutoff: null, source_coverage: {}, generated_at: new Date('2026-09-10T00:00:00Z') });
+const leagueAt = (currentWeek) => ({
+  id: 1, scoring_rules: null, best_ball: false,
+  current_season: SEASON, current_week: currentWeek, regular_season_weeks: 14, playoff_teams: 4,
+});
+const readsOf = (calls, fragment) => calls.filter((c) => c.text.includes(fragment)).length;
+
+test('getWeeklyProjectionsForWeeks: five fully cached weeks cost ONE runs read and ONE rows read, never one per week', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB'), player(2, 'WR')],
+    runRow: runRowAt(),
+    cachedRows: [cachedRowFor(1), cachedRowFor(2, 7.5)],
+  });
+
+  const runs = await projection.getWeeklyProjectionsForWeeks({
+    season: SEASON, weeks: [10, 11, 12, 13, 14], league: leagueAt(10), playerIds: [1, 2],
+  });
+
+  assert.deepEqual([...runs.keys()], [10, 11, 12, 13, 14]);
+  for (const [week, run] of runs) {
+    assert.equal(run.week, week);
+    assert.equal(run.projections.get(1).median, 12.34);
+    assert.equal(run.projections.get(2).median, 7.5);
+    assert.equal(run.projections.get(1).cached, true);
+  }
+  assert.equal(readsOf(calls, 'FROM "projection_runs"'), 1, 'one runs read for five weeks');
+  assert.equal(readsOf(calls, 'FROM "player_week_projections"'), 1, 'one rows read for five weeks');
+  assert.equal(readsOf(calls, 'FROM "player_stats"'), 0, 'nothing was generated');
+  assert.equal(readsOf(calls, 'INSERT INTO "projection_runs"'), 0);
+});
+
+test('getWeeklyProjectionsForWeeks: only the week with no run is generated; the cached weeks are returned as hits', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    runRow: runRowAt(),
+    runWeeks: [10, 11],
+    cachedRows: [cachedRowFor(1)],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 5, { rushingYards: 80, rushingTDs: 0 })),
+  });
+
+  const runs = await projection.getWeeklyProjectionsForWeeks({
+    season: SEASON, weeks: [10, 11, 12], league: leagueAt(10), playerIds: [1],
+  });
+
+  assert.equal(runs.get(10).projections.get(1).cached, true);
+  assert.equal(runs.get(11).projections.get(1).cached, true);
+  assert.ok(runs.get(12).projections.has(1), 'the missing week was generated for the requested player');
+  assert.notEqual(runs.get(12).projections.get(1).cached, true);
+  const runWrites = calls.filter((c) => c.text.includes('INSERT INTO "projection_runs"'));
+  assert.deepEqual(runWrites.map((c) => c.params[1]), [12], 'exactly one run written, for week 12 only');
+  assert.equal(readsOf(calls, 'FROM "projection_runs"'), 1, 'still one batched runs read');
+});
+
+test('getRestOfSeason: every covered week is read in ONE runs read and ONE rows read (#1403)', async (t) => {
+  // current_week 10, 14 regular weeks + 2 rounds -> last playoff week 16: seven covered weeks.
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    leagueRow: leagueAt(10),
+    runRow: runRowAt(),
+    cachedRows: [cachedRowFor(1)],
+  });
+
+  const result = await projection.getRestOfSeason([1], 1);
+
+  assert.equal(result.get(1).total, Math.round(12.34 * 7 * 100) / 100);
+  assert.equal(result.get(1).perGame, 12.34);
+  assert.equal(readsOf(calls, 'FROM "projection_runs"'), 1, 'one runs read for seven weeks');
+  assert.equal(readsOf(calls, 'FROM "player_week_projections"'), 1, 'one rows read for seven weeks');
+  assert.equal(readsOf(calls, 'FROM "player_stats"'), 0);
+});
+
+test('getRestOfSeason: a caller passing runsByWeek gets its total from those runs and no projection read happens (#1403)', async (t) => {
+  const calls = mockPool(t, { players: [player(1, 'RB')], leagueRow: leagueAt(10) });
+  const runsByWeek = new Map();
+  for (let week = 10; week <= 18; week++) {
+    runsByWeek.set(week, {
+      week,
+      projections: new Map([[1, { median: week === 16 ? null : 10, mean: 9, factors: { availability: { available: week !== 12 } } }]]),
+    });
+  }
+
+  const result = await projection.getRestOfSeason([1], 1, { runsByWeek });
+
+  // Weeks 10..16 covered: 12 is unavailable (skipped), 16 falls back to its mean 9.
+  assert.equal(result.get(1).total, 10 * 5 + 9);
+  assert.equal(result.get(1).perGame, Math.round(((10 * 5 + 9) / 6) * 100) / 100);
+  assert.equal(readsOf(calls, 'FROM "projection_runs"'), 0);
+  assert.equal(readsOf(calls, 'FROM "player_week_projections"'), 0);
 });

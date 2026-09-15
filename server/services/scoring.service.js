@@ -1393,29 +1393,107 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
 }
 
 /**
- * #1385 ruling (4'): the set of Team codes (folded through fn_normalize_nfl_team
- * on both sides, CONTEXT.md's Team code) with a kicked-off nfl_games row for
- * any OPEN week - a (current_season, current_week) pair belonging to a league
- * whose fantasy season is live (`fantasySeasonLiveWhereSql`, leaguePhase.js:
- * the same rule the scheduler's own live-week sync uses, scheduler.js's
- * syncAndScoreLiveWeeks). A team in this set is mid-lineup-lock somewhere
- * right now: clearing a departed/blank player's label while his OWN team is
- * in it would read as a departure to removeLineupEntries' as-played
- * spent-slot check (#627) for a row that has already been played - risk-001
- * f1. Read at most once per applyInjuryUnit run, and only when there is at
- * least one clear candidate to judge against it; a run with none never
- * queries this at all. No live league at all (nobody mid-season) answers the
- * empty set with one query, not two.
+ * #1385 ruling (4'), bounded by #1391's ruling: the set of Team codes (folded
+ * through fn_normalize_nfl_team on both sides, CONTEXT.md's Team code) with a
+ * kicked-off nfl_games row for any OPEN week - a (current_season,
+ * current_week) pair belonging to a league whose fantasy season is live
+ * (`fantasySeasonLiveWhereSql`, leaguePhase.js: the same rule the scheduler's
+ * own live-week sync uses, scheduler.js's syncAndScoreLiveWeeks) - that is
+ * STILL within one NFL week of the calendar. #1385 left "open week"
+ * unbounded: one league whose commissioner stops advancing pinned every
+ * departure on its current-week teams, for every league, until that league's
+ * season completed. #1391's bound: with N = `deriveNflWeek` (the same pure
+ * function the pick'em lifecycle uses, pickemSeason.service.js) over that
+ * season's `getSeasonWeekBounds`, an open week `(S, W)` counts only while
+ * `W >= N - 1` - the week in play and the week just finished, one NFL week of
+ * grace for the commissioner to advance. A league two or more weeks behind
+ * the calendar holds nobody's label; its clear candidates on that team clear
+ * and count in teamsCleared instead of teamsDeferred. N is computed once per
+ * distinct season among the open weeks, not once per league.
+ *
+ * A season whose OWN calendar has fully closed (`seasonHasClosed`,
+ * pickemSeason.service.js) is bounded differently: `deriveNflWeek` saturates
+ * at REG_SEASON_WEEKS once every week has closed (its own doc comment:
+ * "answers 18 both for 'week 18 is being played' and 'everything is over'"),
+ * so `W >= N - 1` alone would hold forever for a league parked at week 17 or
+ * 18 of a season that finished seasons ago - exactly the unbounded pin this
+ * ruling removes, surviving at the tail of the season. #1391's season-tail
+ * amendment (https://github.com/andydarknessb/Endzone-Empire/issues/1391#issuecomment-5680673660)
+ * gives the season's own LAST week (L, the largest week in `bounds`) one more
+ * NFL week of grace past its own last kickoff (T), since it has no following
+ * week to hold its grace the way every other week does: an open week counts
+ * only while `W >= L` AND `now < T + CLOSED_SEASON_TAIL_GRACE_MS`. Once that
+ * instant passes, the season holds nobody's label - a closed season past its
+ * own tail grace has no lineup left to unlock, the same as a league two-plus
+ * weeks behind a still-open calendar.
+ *
+ * A team in the returned set is mid-lineup-lock somewhere right now: clearing
+ * a departed/blank player's label while his OWN team is in it would read as a
+ * departure to removeLineupEntries' as-played spent-slot check (#627) for a
+ * row that has already been played - risk-001 f1. Read at most once per
+ * applyInjuryUnit run, and only when there is at least one clear candidate to
+ * judge against it; a run with none never queries this at all. No live league
+ * at all (nobody mid-season) answers the empty set with one query, not two.
  */
+// #1391 season-tail amendment: the grace of "the week just finished" ends
+// when the FOLLOWING week closes for every ordinary week; a season's own last
+// week (18 with a full schedule) has no following week, so its grace instead
+// ends one NFL week - seven days, the calendar's own period - after its own
+// last kickoff, plus the same WEEK_ROLLOVER_GRACE_HOURS every other week's
+// rollover already uses. Named and commented beside its one use in
+// `openKickoffTeams` rather than reused from pickemSeason.service.js's
+// WEEK_SPAN_DAYS, which is also seven days but names an unrelated fact (how
+// far a rescheduled game may sit from its week's median kickoff before it
+// stops holding that week open) - this is a grace period, not a staleness
+// allowance, and the two must not drift together by accident.
+const CLOSED_SEASON_TAIL_GRACE_DAYS = 7;
+
 async function openKickoffTeams(client) {
   const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+  const {
+    deriveNflWeek, getSeasonWeekBounds, seasonHasClosed, WEEK_ROLLOVER_GRACE_HOURS,
+  } = require('./pickemSeason.service');
   const openWeeks = await client.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
       WHERE ${fantasySeasonLiveWhereSql()}`
   );
   if (openWeeks.rows.length === 0) return new Set();
-  const seasons = openWeeks.rows.map((row) => row.current_season);
-  const weeks = openWeeks.rows.map((row) => row.current_week);
+  // #1391: bound each open week to the NFL calendar before it can hold any
+  // team's departure. clock time, not the frozen transaction timestamp,
+  // matters far less here than for the kickoff read below - the calendar
+  // does not move mid-transaction - so `new Date()` is fine.
+  const now = new Date();
+  const tailGraceMs = (CLOSED_SEASON_TAIL_GRACE_DAYS * 24 * 60 * 60 * 1000)
+    + (WEEK_ROLLOVER_GRACE_HOURS * 60 * 60 * 1000);
+  const seasonStateBySeason = new Map();
+  const boundedWeeks = [];
+  for (const row of openWeeks.rows) {
+    const season = row.current_season;
+    if (!seasonStateBySeason.has(season)) {
+      const bounds = await getSeasonWeekBounds({ season, db: client });
+      const closed = seasonHasClosed(bounds, now);
+      // seasonHasClosed true implies bounds saw at least one valid week, so
+      // this reduce always has a row to start from when closed is true.
+      const lastWeek = closed
+        ? bounds.reduce((latest, bound) => (bound.week > latest.week ? bound : latest))
+        : null;
+      seasonStateBySeason.set(season, {
+        nflWeek: deriveNflWeek(bounds, now),
+        closed,
+        tailWeek: lastWeek ? lastWeek.week : null,
+        tailOpen: lastWeek ? now.getTime() < lastWeek.lastKickoffAt.getTime() + tailGraceMs : false,
+      });
+    }
+    const { nflWeek, closed, tailWeek, tailOpen } = seasonStateBySeason.get(season);
+    if (closed) {
+      if (tailOpen && row.current_week >= tailWeek) boundedWeeks.push(row);
+    } else if (row.current_week >= nflWeek - 1) {
+      boundedWeeks.push(row);
+    }
+  }
+  if (boundedWeeks.length === 0) return new Set();
+  const seasons = boundedWeeks.map((row) => row.current_season);
+  const weeks = boundedWeeks.map((row) => row.current_week);
   const kickedOff = await client.query(
     // clock_timestamp(), not NOW(): this is a long-held transaction (the
     // players FOR UPDATE scan plus the advisory-lock wait ahead of it), and
