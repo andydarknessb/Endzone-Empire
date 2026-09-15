@@ -381,11 +381,17 @@ badge copy, never as the concept in code or docs), released, retired,
 dropped (a fantasy-roster word, ambiguous here)
 
 **Sync run**:
-One execution of a feed sync (injuries, ADP, schedule, players, week stats),
+One execution of a feed sync (injuries, ADP, schedule, players, week stats)
+or of a scheduled maintenance pass that must run once a day across worker
+restarts (the nightly projection fill, the Tue/Wed stat-correction pass),
 recorded whether it succeeded, was refused, or failed, and with the reason
 when it did not succeed. The scheduler status and the health probe read the
 latest Sync run for a job; "last successful sync" means the latest one that
-succeeded, not the latest one that ran (ADR 0036).
+succeeded, not the latest one that ran (ADR 0036). The stat-correction pass
+wipes every Weekly projection run from the corrected week+1 onward, so a
+`stat-corrections` run newer than the last `nightly-projection-run` means a
+refill is owed, and the fill runs at the end of the next tick instead of
+waiting for its off-peak window.
 _Avoid_: sync job (the code, not one execution of it), data sync run (the
 table name), poll (the Live box cadence, not a feed sync)
 
