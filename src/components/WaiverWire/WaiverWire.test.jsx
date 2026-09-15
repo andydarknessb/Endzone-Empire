@@ -763,3 +763,64 @@ test('at roster capacity the Decision card claim bar from Waiver Wire requires a
   expect(within(action).getByTestId('claim-player-submit')).toBeDisabled();
   expect(within(action).getByLabelText('Drop a player')).toBeInTheDocument();
 });
+
+// The page's OWN claim dialog must apply the same gate. A 19-of-20 roster
+// whose IR slot holds a non-eligible player has a capacity of 19 (#97), so a
+// no-drop claim can only 409 "roster capacity of 19 reached; choose a player
+// to drop" - the Winsconsota "Jesus 1" report of 2026-09-15. The dialog used
+// to say "Drop a player (optional)" and let Submit through to that refusal.
+test('at roster capacity the claim dialog requires a drop pick before Submit', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversResponse() });
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
+    if (url === '/api/players')
+      return Promise.resolve({
+        data: {
+          players: [cardsPlayer()],
+          totalPages: 1,
+          total: 1,
+          context: { rosterCount: 19, rosterCapacity: 19 },
+        },
+      });
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText(/Your roster is full/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText('Drop a player')).toBeInTheDocument();
+  expect(within(dialog).queryByLabelText('Drop a player (optional)')).not.toBeInTheDocument();
+  expect(within(dialog).getByRole('button', { name: 'Submit Claim' })).toBeDisabled();
+  expect(apiClient.post).not.toHaveBeenCalled();
+
+  await userEvent.click(within(dialog).getByLabelText('Drop a player'));
+  await userEvent.click(screen.getByRole('option', { name: /Josh Allen/ }));
+  expect(within(dialog).getByRole('button', { name: 'Submit Claim' })).toBeEnabled();
+});
+
+test('below roster capacity the claim dialog keeps the drop pick optional', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversResponse() });
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: rosterResponse() });
+    if (url === '/api/players')
+      return Promise.resolve({
+        data: {
+          players: [cardsPlayer()],
+          totalPages: 1,
+          total: 1,
+          context: { rosterCount: 18, rosterCapacity: 19 },
+        },
+      });
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+  renderScreen();
+
+  await screen.findByText('Breece Hall');
+  await userEvent.click(screen.getByRole('button', { name: 'Claim' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).queryByText(/Your roster is full/)).not.toBeInTheDocument();
+  expect(within(dialog).getByLabelText('Drop a player (optional)')).toBeInTheDocument();
+  expect(within(dialog).getByRole('button', { name: 'Submit Claim' })).toBeEnabled();
+});
