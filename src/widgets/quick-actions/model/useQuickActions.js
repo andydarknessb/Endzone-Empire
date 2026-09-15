@@ -1,8 +1,13 @@
-import { useEndpoint, parseRosterSlots } from '../../../shared/lib';
+import {
+  useEndpoint,
+  parseRosterSlots,
+  deriveLeaguePhase,
+  isSeasonLive,
+  LEAGUE_PHASE,
+  isPickemOnly,
+  lineupAttention,
+} from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
-import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE } from '../../../lib/leaguePhase';
-import { isPickemOnly } from '../../../lib/leagueType';
-import { lineupAttention } from '../../../lib/lineupAttention';
 
 /**
  * Data model for the quick-actions widget (League Dashboard, ticket #643): the
@@ -30,7 +35,7 @@ import { lineupAttention } from '../../../lib/lineupAttention';
  *     there), so the read never fires.
  *
  * The empty-starting-slot count and starters-on-bye come from the shared
- * lineupAttention helper (src/lib/lineupAttention.js), the SAME implementation
+ * lineupAttention helper (src/shared/lib/lineupAttention.js), the SAME implementation
  * the lineup screen's warning banner reads, so the dashboard's recommendation
  * and the lineup screen can never disagree about whether a manager is set. This
  * widget supplies the "on bye" predicate the helper leaves to its caller:

@@ -184,6 +184,101 @@ describe('context (#1307, ADR 0040)', () => {
     expect(screen.getByText('Rostered by Polk High Legends')).toBeInTheDocument();
   });
 
+  // #1313 (ADR 0040's own follow-up, grill ruling Q32): the Draft room's own
+  // context, not an Availability state - Draft/Queue mirror DraftBoard.jsx's
+  // identical pool-row actions.
+  test('context="draft" renders Draft and Queue for an undrafted player, and calls onDraft/onQueue', async () => {
+    mockCardRoute(null);
+    const onDraft = jest.fn();
+    const onQueue = jest.fn();
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: true,
+      queued: false,
+      onDraft,
+      onQueue,
+    });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Draft' }));
+    expect(onDraft).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Queue' }));
+    expect(onQueue).toHaveBeenCalledTimes(1);
+  });
+
+  test('context="draft" omits Draft when canDraft is false, and disables Queue once queued', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: false,
+      queued: true,
+    });
+
+    expect(await screen.findByRole('button', { name: 'Queued' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+  });
+
+  test('context="draft" shows Draft as focusable aria-disabled with the given reason, and suppresses activation', async () => {
+    mockCardRoute(null);
+    const onDraft = jest.fn();
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: true,
+      draftUnavailableReason: "You can only Pick when it's your turn and the draft isn't paused.",
+      onDraft,
+    });
+
+    const draftAction = await screen.findByRole('button', { name: 'Draft' });
+    expect(draftAction).not.toBeDisabled();
+    expect(draftAction).toHaveAttribute('aria-disabled', 'true');
+
+    await userEvent.click(draftAction);
+    expect(onDraft).not.toHaveBeenCalled();
+  });
+
+  test('context="draft" replaces the action bar with a Drafted by line once draftedBy is set', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      draftedBy: 'Polk High Legends',
+      canDraft: true,
+      queued: false,
+    });
+
+    expect(await screen.findByText('Drafted by Polk High Legends')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument();
+  });
+
+  test('context="draft" shows the pool ADP and Best available tiles from the playerIds index', async () => {
+    mockCardRoute(null);
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry({ playerId: 7 }),
+      entries: undefined,
+      leagueId: 3,
+      adp: 3.2,
+      canDraft: true,
+      playerIds: [5, 7, 9],
+      onNavigate: jest.fn(),
+    });
+
+    expect(await screen.findByText('ADP 3.2')).toBeInTheDocument();
+    expect(screen.getByText('Best available #2')).toBeInTheDocument();
+  });
+
   // Formal review round 1, f1 (blocker): PlayerManagement opens the card for
   // the caller's own player too (context="my_team" with no lineup wiring at
   // all - no entries, no onSwap, no onRequestDrop), which used to crash in
@@ -210,6 +305,113 @@ describe('context (#1307, ADR 0040)', () => {
     renderCard(); // the suite's own default props: entry+entries+onSwap+onRequestDrop+canDropEntry
     await screen.findByTestId('decision-card-bench-action');
     expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+});
+
+// #1311, ADR 0040 ruling (c): TransactionLog cannot derive `context` itself
+// (its activity segments carry only `{ playerId, name }`, no roster fact),
+// so it passes `contextFromCard` instead and omits `context` entirely.
+describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
+  test('renders no action bar until the card payload answers', async () => {
+    apiClient.get.mockImplementation(() => new Promise(() => {})); // the card never resolves
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Breece Hall' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+    });
+
+    const card = await screen.findByTestId('decision-card');
+    expect(card).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Breece Hall')).toBeInTheDocument();
+    // Risk review (#1311): the ONE case where the whole card waits on this
+    // read gets its own polite announcement, and a positionless header
+    // renders no empty PosChip swatch.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading player details');
+    expect(screen.queryByTestId('pos-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+
+  // Formal review round 1, f1: the error half of risk-001-f3 - a failed
+  // /card read used to leave a silent, near-empty dialog forever.
+  test('a failed /card read shows a visible error, never an action bar or the loading announcement', async () => {
+    apiClient.get.mockRejectedValue(new Error('network error'));
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Breece Hall' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+    });
+
+    expect(await screen.findByTestId('decision-card-load-error')).toHaveTextContent(
+      "Couldn't load this player's details."
+    );
+    const card = screen.getByTestId('decision-card');
+    expect(card).not.toHaveAttribute('aria-busy');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+
+  test('derives context from the card payload once it answers, and the header fills team/position from it', async () => {
+    mockCardRoute({
+      player: { teamCode: 'MIN', photoUrl: null, position: 'WR', injury: { designation: null, detail: null } },
+      availability: { state: 'rostered' },
+    });
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Justin Jefferson' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+      leagueId: 7,
+    });
+
+    // No `availability` prop is passed (TransactionLog has none to give), so
+    // the rostering team's name is absent - only the header fields the card
+    // payload itself supplies are asserted here.
+    expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
+    expect(screen.getByText('MIN')).toBeInTheDocument();
+    expect(screen.getByText('WR')).toBeInTheDocument();
+    // The loading announcement and aria-busy clear once the payload answers.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('decision-card')).not.toHaveAttribute('aria-busy');
+  });
+
+  // Formal review round 1, f2: the other three contextFromCard tests only
+  // exercise availability.state 'rostered'; 'my_team' (the viewer's own
+  // player) is the other direction TradeCenter/MatchupPage already cover.
+  test('a my_team payload with no lineup wiring renders Open lineup, not Propose trade', async () => {
+    mockCardRoute({ availability: { state: 'my_team' } });
+    renderCard({
+      contextFromCard: true,
+      entry: { playerId: 7, name: 'Breece Hall' },
+      entries: undefined,
+      onSwap: undefined,
+      onRequestDrop: undefined,
+      canDropEntry: undefined,
+      leagueId: 7,
+    });
+
+    expect(await screen.findByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/7/lineup');
+    expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
+  });
+
+  test('an existing caller passing a full entry and a real leagueId/playerId is untouched (context stays the prop, not the card)', async () => {
+    mockCardRoute({ availability: { state: 'waivers' } });
+    renderCard({ context: 'my_team' }); // contextFromCard defaults false
+
+    await screen.findByTestId('decision-card-bench-action');
+    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
   });
 });
 
@@ -302,8 +504,21 @@ describe('prev/next over the opening list (formal review round 1, f5)', () => {
   // WeeklyPointsBars' own tabIndex={0} strip (the prior risk round's own
   // keyboard-scroll fix, WCAG 2.1.1) is exactly such a region.
   test('arrow keys are left alone for a focused, horizontally-scrollable region', async () => {
+    // #1358: WeeklyPointsBars now reads the picked season's own `weeks` off
+    // `card.seasons`, not the top-level `card.weeks` field (removed by this
+    // ticket) - a single-season payload still picks that season by default.
     mockCardRoute({
-      weeks: Array.from({ length: 18 }, (_, i) => ({ week: i + 1, kind: 'projected', points: 10 })),
+      seasons: [{
+        season: 2026,
+        games: 4,
+        points: 40,
+        pointsPerGame: 10,
+        posRank: null,
+        posRankOf: null,
+        adp: null,
+        weeks: Array.from({ length: 18 }, (_, i) => ({ week: i + 1, kind: 'projected', points: 10 })),
+        log: [],
+      }],
     });
     const onNavigate = jest.fn();
     renderCard({ playerIds: [1, 2, 3], onNavigate });
@@ -773,4 +988,301 @@ test('the header avatar renders the headshot when the entry carries a photoUrl',
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.getByTestId('decision-card-headshot')).toHaveAttribute('src', 'https://cdn.example/josh-allen.png');
   expect(screen.queryByText('JA')).toBeNull();
+});
+
+// #1358: the Season summary table and Season pick chips (CONTEXT.md's Season
+// summary/Season pick), driving the bars and game log off `card.seasons`
+// rather than the top-level `weeks`/`log.current` fields. Lead corrections
+// on the issue thread: `seasons[0]` is always the current season (even a
+// rookie with no rows gets exactly one entry, never []); the current
+// season's own `posRank`/`posRankOf` are always null (player_season_stats
+// only holds completed seasons); `card.seasons[i].log` is already the row
+// array `GameLogTable` reads as `log.current`.
+describe('Season summary and Season pick (#1358)', () => {
+  function weekRow(week, over = {}) {
+    return { week, kind: 'actual', points: 10, opponent: 'KC', ...over };
+  }
+
+  function logRow(week, over = {}) {
+    return { week, opponent: 'KC', statLine: { passYds: 300 }, points: 22, ...over };
+  }
+
+  function seasonRow(season, over = {}) {
+    return {
+      season,
+      games: 10,
+      points: 150,
+      pointsPerGame: 15,
+      posRank: 5,
+      posRankOf: 40,
+      adp: null,
+      weeks: [weekRow(season % 100)],
+      log: [logRow(season % 100)],
+      ...over,
+    };
+  }
+
+  const threeSeasonCard = {
+    decision: { projWeek: { week: 4, points: 12 } },
+    seasonEnd: 17,
+    seasons: [
+      seasonRow(2026, {
+        posRank: null,
+        posRankOf: null,
+        // formal-001-f4: a value formatPoints actually rounds, so the
+        // rendered "34.3" proves the ADP cell goes through it rather than
+        // printing the raw wire number.
+        adp: 34.25,
+        weeks: [weekRow(4, { kind: 'projected', points: 20 })],
+        log: [logRow(4, { opponent: 'KC' })],
+      }),
+      seasonRow(2025, {
+        adp: null,
+        // formal-001-f2: week 4 (the current week) and week 17 (seasonEnd)
+        // are IN this past season's own weeks, so a reverted guard (passing
+        // currentWeek/seasonEnd through for a picked-but-not-current season)
+        // would wrongly mark one of them - a fixture with neither week could
+        // never catch that regression.
+        weeks: [
+          weekRow(3, { kind: 'actual', points: 18 }),
+          weekRow(4, { kind: 'actual', points: 16 }),
+          weekRow(17, { kind: 'actual', points: 9 }),
+        ],
+        log: [logRow(3, { opponent: 'DAL' })],
+      }),
+      seasonRow(2024, { adp: null, weeks: [weekRow(2)], log: [logRow(2, { opponent: 'MIA' })] }),
+    ],
+  };
+
+  test('renders three summary rows newest first, a dash for a null ADP and for the current season\'s null Pos rank, 2026 checked, and the 2026 weeks on the bars', async () => {
+    mockCardRoute(threeSeasonCard);
+    renderCard();
+
+    const table = await screen.findByTestId('decision-card-seasons');
+    const rows = within(table).getAllByRole('row').slice(1); // drop the header row
+    // The Season cell is a row header (risk review, accessibility), so it
+    // reads via `rowheader`, not `cell` - the remaining `cell`s are
+    // G/FPTS-per-G/Pts/Pos-rank/ADP, in that order.
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual(['2026', '2025', '2024']);
+
+    // Red tell: the 2024 row's ADP cell is a dash, with the reason available
+    // to a screen reader, never a bare "-" or a raw null.
+    const row2024 = within(rows[2]);
+    expect(row2024.getAllByRole('cell')[4]).toHaveTextContent('-');
+    expect(row2024.getByText('no ADP on record')).toBeInTheDocument();
+
+    // #1356 correction 3: the current season's Pos rank is always null
+    // (player_season_stats holds only completed seasons) - never "null of
+    // null".
+    const row2026 = within(rows[0]);
+    expect(row2026.getAllByRole('cell')[3]).toHaveTextContent('-');
+    expect(row2026.getByText('no rank on record')).toBeInTheDocument();
+    // formal-001-f4: the ADP cell goes through formatPoints, so a raw wire
+    // value of 34.25 renders as the rounded "34.3", not "34.25".
+    expect(row2026.getAllByRole('cell')[4]).toHaveTextContent('34.3');
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    expect(within(radiogroup).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
+
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+  });
+
+  test('clicking the 2025 chip redraws the bars and game log from the 2025 season, with no current marker, no projected bar and no season-end marker; clicking 2026 restores both', async () => {
+    mockCardRoute(threeSeasonCard);
+    renderCard();
+
+    await screen.findByTestId('weekly-bar-4');
+    expect(await screen.findByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
+
+    expect(await screen.findByTestId('weekly-bar-3')).toBeInTheDocument();
+    // The 2025 season's own weeks (formal-001-f2) deliberately include week
+    // 4 (the current week) and week 17 (seasonEnd), so these two assertions
+    // would fail if the current-season guard were ever reverted
+    // (currentWeek/seasonEnd passed through for a picked past season).
+    expect(screen.queryByTestId('weekly-bar-4-current')).not.toBeInTheDocument(); // no current-week marker
+    expect(screen.getByTestId('weekly-bar-17')).not.toHaveAttribute('data-season-end'); // no season-end marker
+    expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('DAL');
+    expect(screen.getByTestId('decision-card-gamelog-section')).not.toHaveTextContent('KC');
+
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2026' }));
+
+    expect(await screen.findByTestId('weekly-bar-4')).toBeInTheDocument();
+    expect(screen.getByTestId('weekly-bar-4-current')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-gamelog-section')).toHaveTextContent('KC');
+  });
+
+  // Same technique as LineupPage.test.jsx's "the phone Outlook toggle meets
+  // the 44px touch target" (byte-for-byte copy of its own local `rulesUnder`
+  // helper rather than a new shared util - that file's own precedent).
+  test('every pick radio carries the 44px touch-target rule', async () => {
+    mockCardRoute(threeSeasonCard);
+    renderCard();
+
+    const control = await screen.findByTestId('decision-card-season-pick');
+    const cls = Array.from(control.classList).find((c) => c.startsWith('css-'));
+    let tail = '';
+    Array.from(document.styleSheets).forEach((sheet) => {
+      Array.from(sheet.cssRules).forEach((rule) => {
+        if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+        tail += `${rule.selectorText.slice(`.${cls}`.length).trim()}|${rule.style.cssText};`;
+      });
+    });
+    expect(tail).toMatch(/\[role="radio"\]\|[^|]*min-height: 44px/);
+  });
+
+  test('a one-season payload renders the summary and no radiogroup', async () => {
+    mockCardRoute({ seasons: [seasonRow(2026)] });
+    renderCard();
+
+    await screen.findByTestId('decision-card-seasons');
+    expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
+  });
+
+  // formal-001-f3: this used to render only `waivers`; `free_agent` is its
+  // own branch (AddPlayerAction vs ClaimPlayerAction) and needs its own
+  // assertion, not just a shared claim it covers both.
+  test.each([
+    ['waivers', () => ({ context: 'waivers', availability: { waiverPriority: 3 } })],
+    ['free_agent', () => ({ context: 'free_agent', availability: { rosterCount: 14, rosterCapacity: 16 } })],
+  ])('the summary and pick render in the %s context too, not only my_team', async (_context, propsFor) => {
+    mockCardRoute({ seasons: [seasonRow(2026), seasonRow(2025)] });
+    renderCard({ ...propsFor(), entry: availabilityEntry(), entries: undefined });
+
+    await screen.findByTestId('decision-card-seasons');
+    expect(await screen.findByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
+  });
+
+  // Risk review (accessibility, #1358): the Season pick's own SegmentedControl
+  // preventDefault()s ArrowLeft/ArrowRight to move the roving selection
+  // (shared/ui/SegmentedControl.jsx) but never stops the keydown from
+  // bubbling - the card's own global prev/next handler (isTypingTarget) must
+  // treat a focused season chip the same way it already treats
+  // WeeklyPointsBars' scroll strip and a MUI ToggleButtonGroup, or an
+  // ArrowRight meant to pick the next season instead silently navigates to
+  // the next PLAYER and discards the pick.
+  test('arrow keys on a focused season chip move the pick, never the prev/next player', async () => {
+    mockCardRoute(threeSeasonCard);
+    const onNavigate = jest.fn();
+    renderCard({ playerIds: [1, 2, 3], onNavigate });
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    within(radiogroup).getByRole('radio', { name: '2026' }).focus();
+
+    await userEvent.keyboard('{ArrowRight}');
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('navigating prev/next resets the pick to the current season', async () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/players/1/card')) return Promise.resolve({ data: threeSeasonCard });
+      if (url.includes('/players/2/card')) {
+        return Promise.resolve({
+          data: {
+            decision: { projWeek: { week: 4, points: 12 } },
+            seasonEnd: 17,
+            seasons: [seasonRow(2026, { weeks: [weekRow(4)] }), seasonRow(2025, { weeks: [weekRow(3)] })],
+          },
+        });
+      }
+      return Promise.resolve({ data: { line: null, weather: null, usage: null } });
+    });
+
+    function NavigatingCard(props) {
+      const [current, setCurrent] = React.useState(props.entry);
+      return (
+        <PlayerDecisionCard
+          {...props}
+          entry={current}
+          onNavigate={(id) => setCurrent(entry({ playerId: id }))}
+        />
+      );
+    }
+    renderWithProviders(
+      <NavigatingCard
+        open
+        onClose={jest.fn()}
+        entry={entry({ playerId: 1 })}
+        entries={[entry({ playerId: 1 }), entry({ playerId: 2 })]}
+        leagueId={1}
+        week={4}
+        bestBall={false}
+        leagueUnsettled={false}
+        onSwap={jest.fn()}
+        onRequestDrop={jest.fn()}
+        canDropEntry={() => true}
+        playerIds={[1, 2]}
+      />
+    );
+
+    const radiogroup = await screen.findByRole('radiogroup', { name: 'Season' });
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: '2025' }));
+    expect(within(radiogroup).getByRole('radio', { name: '2025' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByTestId('decision-card-next'));
+
+    const radiogroupAfterNav = await screen.findByRole('radiogroup', { name: 'Season' });
+    expect(within(radiogroupAfterNav).getByRole('radio', { name: '2026' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+// #1312, ADR 0040 follow-up (grill ruling Q6): the Watch/Watching toggle,
+// shown across every Availability context, driven by the #1306 card
+// payload's own `watching` field.
+describe('Watch (#1312)', () => {
+  test('the button label flips from "Watch" to "Watching" from the card payload, no fetch', async () => {
+    mockCardRoute({ watching: false });
+    renderCard({ context: 'free_agent', entry: availabilityEntry(), entries: undefined });
+
+    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+
+    apiClient.put.mockResolvedValue({});
+    await userEvent.click(screen.getByRole('button', { name: 'Watch' }));
+
+    expect(apiClient.put).toHaveBeenCalledWith('/api/players/7/watch', null, { params: { leagueId: 1 } });
+    // The optimistic local override, not a second GET /card fetch: `get` is
+    // called only for the initial line/weather/usage + card reads.
+    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+  });
+
+  test('a watched player opens already showing "Watching", and DELETEs on click', async () => {
+    mockCardRoute({ watching: true });
+    renderCard({ context: 'waivers', entry: availabilityEntry(), entries: undefined, availability: { waiverPriority: 3 } });
+
+    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+
+    apiClient.delete.mockResolvedValue({});
+    await userEvent.click(screen.getByRole('button', { name: 'Watching' }));
+
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/players/7/watch', { params: { leagueId: 1 } });
+    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+  });
+
+  test('renders on the caller\'s own player (my_team) too, matching the design\'s four card states', async () => {
+    mockCardRoute({ watching: false });
+    const starter = entry();
+    renderCard({ entry: starter, entries: [starter] });
+
+    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+  });
+
+  test('never renders in the draft context, which is not an Availability state', async () => {
+    mockCardRoute({ watching: false });
+    renderCard({
+      context: 'draft',
+      entry: availabilityEntry(),
+      entries: undefined,
+      canDraft: true,
+      onDraft: jest.fn(),
+      onQueue: jest.fn(),
+    });
+
+    await screen.findByTestId('decision-card-draft-action');
+    expect(screen.queryByTestId('watch-player-action')).not.toBeInTheDocument();
+  });
 });

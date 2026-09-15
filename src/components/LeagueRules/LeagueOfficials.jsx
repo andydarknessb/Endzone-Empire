@@ -1,6 +1,6 @@
 import React from 'react';
 import { Chip, Stack, Typography } from '@mui/material';
-import { teamNameLabel, teamRowKey } from '../../lib/teamIdentity';
+import { teamNameLabel, teamRowKey } from '../../shared/lib/teamIdentity';
 
 /**
  * Who can change these rules. Shown to every member — the settings themselves

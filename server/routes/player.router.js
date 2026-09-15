@@ -3,24 +3,27 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const {
   rulesForLeague,
-  buildPlayerSummary,
   projectSeasonPoints,
-  getSeasonPositionRank,
   IDP_POSITIONS,
 } = require('../services/scoring.service');
 const {
-  computeByeWeek,
   computeByeWeeks,
   REG_SEASON_WEEKS,
 } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const irPolicy = require('../services/irPolicy.service');
-const { ACCEPTED_SORT_FIELDS } = require('../services/playerSort');
+const projectionService = require('../services/projection.service');
+const { ACCEPTED_SORT_FIELDS, LEAGUE_SCOPED_SORT_FIELDS } = require('../services/playerSort');
+const { deriveLeaguePhase, LEAGUE_PHASE } = require('../services/leaguePhase');
+const { isPickemOnly } = require('../services/leagueType');
 // Kept whole (not destructured): a test seam a route test replaces with
 // `t.mock.method`, same convention as playerCard.service.js's own
 // cross-module calls - a destructured binding is captured at require time
 // and can no longer be mocked afterwards.
 const playerCardService = require('../services/playerCard.service');
+// #1312: the watchlist writes/reads PUT/DELETE /:id/watch and the
+// view=cards/`:id/card` `watching` field go through.
+const playerWatchlistService = require('../services/playerWatchlist');
 
 const router = express.Router();
 
@@ -46,10 +49,14 @@ const POSITIONS = [
   'DB',
 ];
 
-// Short-lived in-memory cache for the player summary. Keyed by player + league
-// (scoring rules differ per league), so a draft room hammering this endpoint
-// serves most reads from memory. TTL is intentionally small — a 30s-stale
-// injury/stat line during a live draft is harmless.
+// Short-lived in-memory cache for GET /:id/card, the Decision card's payload
+// in every context including the Draft room's own (#1306, #1313) - keyed by
+// player + league + caller team + week below, since the payload is per-
+// CALLER, not per-league. `buildPlayerSummary` (scoring.service.js) is one of
+// its producers, called from playerCard.service.js for the season/game-log
+// rows; the /:id/summary route that used to read it directly is gone (#1313,
+// the Draft room's last caller). TTL is intentionally small — a 30s-stale
+// injury/stat line is harmless.
 const SUMMARY_TTL_MS = 30_000;
 const summaryCache = new Map();
 
@@ -91,6 +98,29 @@ function summaryCacheSet(key, value) {
   // Bound the map so a long-lived process can't leak memory during a big draft.
   if (summaryCache.size > 2000) summaryCache.clear();
   summaryCache.set(key, { value, expires: Date.now() + SUMMARY_TTL_MS });
+}
+
+// `watching` (#1312) is enrichment, not core data - the same "best-effort"
+// tier the caller's own roster read already gets on the client
+// (PlayerManagement.jsx's fetchRoster: "a failed ... read only means ...
+// never a page-level error"). A watchlist read failure degrades to `false`/
+// an empty page rather than failing the whole card or list response.
+async function watchlistIsWatchingSafe({ teamId, playerId }) {
+  try {
+    return await playerWatchlistService.isWatching({ teamId, playerId });
+  } catch (error) {
+    console.error('Error reading watchlist state', error);
+    return false;
+  }
+}
+
+async function watchlistWatchingForManySafe({ teamId, playerIds }) {
+  try {
+    return await playerWatchlistService.watchingForMany({ teamId, playerIds });
+  } catch (error) {
+    console.error('Error reading watchlist state', error);
+    return new Map();
+  }
 }
 
 const AVAILABILITY_STATES = new Set([
@@ -224,6 +254,19 @@ router.get('/', requireAuth, async (req, res) => {
     });
   }
 
+  // view=cards (ADR 0040 slice 6, #1309): the Decision-card-shaped per-row
+  // fields (projWeek, ros, ownership, trend, depth, upgrade, weeks[], the
+  // rostered availability.teamId/teamName). Both this and the `upgrade` sort
+  // key are meaningless outside the caller's own league and lineup (Ruling
+  // item 10), so both require leagueId up front, in the style of the
+  // `availability` check above.
+  const view = req.query.view === 'cards' ? 'cards' : null;
+  if ((view === 'cards' || LEAGUE_SCOPED_SORT_FIELDS.includes(req.query.sort)) && !leagueId) {
+    return res
+      .status(400)
+      .json({ error: 'view=cards and sort=upgrade require leagueId' });
+  }
+
   // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
   // across the FULL eligible pool below (not just the current page) — see
   // `needsFullPool`. Comma-separated integers in 1..REG_SEASON_WEEKS; anything
@@ -292,6 +335,11 @@ router.get('/', requireAuth, async (req, res) => {
   // below), so it can't be an ORDER BY target in this query — like
   // projectionSort, it needs the full matching pool fetched and sorted in JS.
   const byeSort = sortField === 'bye_week';
+  // Like byeSort/projectionSort: Upgrade is computed per candidate against
+  // the caller's own lineup, not a stored column, so it also needs the full
+  // matching pool assembled and sorted in JS before pagination (Ruling
+  // item 2). Always descending with nulls last - never toggled by `dir`.
+  const upgradeSort = sortField === 'upgrade';
   let orderBy;
   if (sortField === 'name') {
     orderBy = `"name" ${dir}, "id"`;
@@ -308,7 +356,7 @@ router.get('/', requireAuth, async (req, res) => {
   // and/or filtered) before pagination, rather than a plain SQL LIMIT/OFFSET
   // page — a computed field (pace, bye) or a post-fetch filter (bye weeks)
   // can't be decided by the database a page at a time.
-  const needsFullPool = projectionSort || byeSort || byeWeeksFilter.length > 0;
+  const needsFullPool = projectionSort || byeSort || upgradeSort || byeWeeksFilter.length > 0;
 
   const params = [];
   const where = [];
@@ -517,25 +565,121 @@ router.get('/', requireAuth, async (req, res) => {
       );
     }
 
+    // sort=upgrade (Ruling item 2): a best-ball league has no Upgrade concept
+    // (ADR 0040), so it falls back to the projected_points ordering above,
+    // still computed for ordering only and never returned (item 7). Outside
+    // best ball, the full eligible pool's ids go to `upgradesFor` in ONE
+    // call; rows sort by upgrade.points descending, nulls last, then id -
+    // never toggled by `dir`.
+    const upgradeBestBallFallback = upgradeSort && Boolean(league && league.best_ball);
+    if (upgradeBestBallFallback) {
+      await attachProjectedPoints(settled, {
+        projectionRules,
+        currentSeasonYear,
+      });
+      settled.sort(nullsLastComparator((p) => Number(p.projected_points), -1));
+    } else if (upgradeSort) {
+      const upgrades = await playerCardService.upgradesFor({
+        league,
+        team: memberTeam,
+        season: currentSeasonYear,
+        week: league.current_week,
+        playerIds: settled.map((p) => p.id),
+      });
+      for (const p of settled) p.upgrade = upgrades.get(p.id) ?? null;
+      settled.sort(nullsLastComparator((p) => p.upgrade?.points, -1));
+    }
+
     const pagePlayers = needsFullPool
       ? settled.slice(offset, offset + PAGE_SIZE)
       : settled;
-    if (!projectionSort) {
+    if (!projectionSort && !upgradeBestBallFallback && view !== 'cards') {
+      // upgradeBestBallFallback already computed projected_points for the
+      // FULL pool above, and pagePlayers is a slice of those same objects -
+      // re-fetching here would just re-set the same value from a second
+      // query. view=cards never returns projected_points either way (item
+      // 7, ADR 0040 - Pool projection leaves the list), so there's no reason
+      // to pay for the query just to strip the field back out below.
       await attachProjectedPoints(pagePlayers, {
         projectionRules,
         currentSeasonYear,
       });
     }
 
-    if (memberTeam)
+    if (memberTeam && view !== 'cards') {
       await attachLeagueAvailability(pagePlayers, {
         leagueId: Number(leagueId),
         teamId: memberTeam.id,
         blanketWaiversOpen,
       });
-    const responsePlayers = pagePlayers.map(
-      ({ identity_ids, ...player }) => player,
-    );
+    }
+
+    // view=cards (#1309): the Decision-card-shaped per-row fields, all scoped
+    // to just this page - `memberTeam`/`league` are guaranteed here since
+    // view=cards required leagueId up front, which always resolves both or
+    // throws before this point is ever reached.
+    if (view === 'cards' && memberTeam && league) {
+      const byeWeekByPlayerId = new Map(pagePlayers.map((p) => [p.id, p.bye_week]));
+      const seasonEnd = projectionService.lastPlayoffWeek(league);
+
+      const [availabilityMap, weeksByPlayer, rosMap, watchingMap] = await Promise.all([
+        playerCardService.availabilityForMany({ league, team: memberTeam, players: pagePlayers }),
+        playerCardService.buildWeeksForPage({
+          league,
+          players: pagePlayers,
+          season: currentSeasonYear,
+          currentWeek: league.current_week,
+          byeWeekByPlayerId,
+        }),
+        projectionService.getRestOfSeason(pagePlayers.map((p) => p.id), Number(leagueId)),
+        // #1312 Ruling: `watching` rides the SAME view=cards row every other
+        // caller-scoped field does, one batched read for the whole page.
+        watchlistWatchingForManySafe({ teamId: memberTeam.id, playerIds: pagePlayers.map((p) => p.id) }),
+      ]);
+
+      for (const p of pagePlayers) {
+        p.availability = availabilityMap.get(p.id)
+          || { state: 'free_agent', teamId: null, teamName: null, availableAt: null };
+        const weeks = weeksByPlayer.get(p.id) || [];
+        p.weeks = weeks;
+        p.projWeek = weeks[0] || null;
+        const ros = rosMap.get(p.id) || { total: 0, perGame: 0 };
+        p.ros = { points: ros.total, perGame: ros.perGame, posRank: null, throughWeek: seasonEnd };
+        p.ownership = null;
+        p.trend = null;
+        p.depth = null;
+        p.watching = watchingMap.get(p.id) ?? false;
+      }
+
+      // `upgrade` per row (item 1): best ball is always null; otherwise reuse
+      // the full-pool computation above when sort=upgrade already produced it
+      // for every one of these same rows, else compute fresh for just the page.
+      if (league.best_ball) {
+        for (const p of pagePlayers) p.upgrade = null;
+      } else if (!(upgradeSort && !upgradeBestBallFallback)) {
+        const upgrades = await playerCardService.upgradesFor({
+          league,
+          team: memberTeam,
+          season: currentSeasonYear,
+          week: league.current_week,
+          playerIds: pagePlayers.map((p) => p.id),
+        });
+        for (const p of pagePlayers) p.upgrade = upgrades.get(p.id) ?? null;
+      }
+    }
+
+    const responsePlayers = pagePlayers.map(({ identity_ids, ...player }) => {
+      // Pool projection never appears under view=cards (item 7, ADR 0040) -
+      // even when computed above for the best-ball upgrade-sort fallback.
+      // Outside view=cards, `upgrade` is a sort-computation side effect, not
+      // part of that shape, so it's stripped there instead.
+      if (view === 'cards') {
+        const { projected_points, ...rest } = player;
+        return rest;
+      }
+      const { upgrade, ...rest } = player;
+      return rest;
+    });
     let context = null;
     if (memberTeam && league) {
       const rosterCountResult = await pool.query(
@@ -636,113 +780,14 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/players/:id/summary[?leagueId=N] — everything the quick-view dialog
-// needs in one aggressively-cached call: bio (+ photo, jersey, injury, bye),
-// current-season weekly lines with a running fantasy total, and previous-season
-// totals. Fantasy points are computed from raw stats under the given league's
-// scoring rules (default rules when no leagueId), so the same player reads
-// differently in a PPR vs. standard league.
-router.get('/:id/summary', requireAuth, async (req, res) => {
-  if (!/^\d+$/.test(req.params.id)) {
-    return res
-      .status(400)
-      .json({ error: 'player id must be a positive integer' });
-  }
-  const playerId = Number(req.params.id);
-
-  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
-  if (leagueId && !/^\d+$/.test(leagueId)) {
-    return res
-      .status(400)
-      .json({ error: 'leagueId must be a positive integer' });
-  }
-
-  try {
-    if (leagueId) await requireMember(pool, { leagueId: Number(leagueId), userId: req.user.id });
-    const cacheKey = `${playerId}|${leagueId || 'std'}`;
-    const cached = summaryCacheGet(cacheKey);
-    if (cached) {
-      res.set('Cache-Control', 'private, max-age=30');
-      return res.json(cached);
-    }
-    const playerResult = await pool.query(
-      `SELECT * FROM "players" WHERE "id" = $1`,
-      [playerId],
-    );
-    const player = playerResult.rows[0];
-    if (!player) return res.status(404).json({ error: 'player not found' });
-
-    // Scoring rules + current season: the named league's (if valid), else
-    // defaults / 2026. The current season decides which weekly lines count as
-    // "this season" vs. which roll up under Previous Seasons.
-    let rules = rulesForLeague(null);
-    let currentSeasonYear = 2026;
-    if (leagueId) {
-      const leagueResult = await pool.query(
-        `SELECT * FROM "leagues" WHERE "id" = $1`,
-        [Number(leagueId)],
-      );
-      if (leagueResult.rows[0]) {
-        rules = rulesForLeague(leagueResult.rows[0]);
-        if (leagueResult.rows[0].current_season != null) {
-          currentSeasonYear = Number(leagueResult.rows[0].current_season);
-        }
-      }
-    }
-
-    const weeklyResult = await pool.query(
-      `SELECT "season", "week", "stats" FROM "player_stats"
-       WHERE "player_id" = $1 ORDER BY "season" DESC, "week"`,
-      [playerId],
-    );
-    const seasonResult = await pool.query(
-      `SELECT "season", "games_played", "stats" FROM "player_season_stats"
-       WHERE "player_id" = $1 ORDER BY "season" DESC`,
-      [playerId],
-    );
-    const byeWeek = await computeByeWeek(player.nfl_team, currentSeasonYear);
-
-    // Points-based rank within the position for the latest completed season
-    // (rows arrive season DESC, so find() takes the newest one).
-    const lastCompletedRow =
-      seasonResult.rows.find((r) => Number(r.season) < currentSeasonYear) ||
-      null;
-    const rankInfo = lastCompletedRow
-      ? await getSeasonPositionRank(
-          playerId,
-          player.position,
-          Number(lastCompletedRow.season),
-        )
-      : null;
-
-    const payload = buildPlayerSummary({
-      player,
-      weeklyRows: weeklyResult.rows,
-      seasonRows: seasonResult.rows,
-      rules,
-      byeWeek,
-      currentSeasonYear,
-      posRank: rankInfo
-        ? { season: Number(lastCompletedRow.season), ...rankInfo }
-        : null,
-    });
-
-    summaryCacheSet(cacheKey, payload);
-    res.set('Cache-Control', 'private, max-age=30');
-    res.json(payload);
-  } catch (error) {
-    console.error('Error building player summary', error);
-    res.status(500).json({ error: 'failed to fetch player summary' });
-  }
-});
-
 // GET /api/players/:id/card?leagueId=N — the Decision card payload for every
-// Availability context: free agent, on waivers, rostered by another team, or
-// on the caller's own team (#1306, ADR 0040 slice 3). Every projected number
-// is the Weekly projection under the league's own scoring (never Pool
-// projection); `upgrade` is null in a best-ball league and for a player
-// already on the caller's roster. Supersedes `/summary`, which is deleted
-// with PlayerQuickView in a later ticket and is left untouched here.
+// Availability context (free agent, on waivers, rostered by another team, or
+// on the caller's own team, #1306, ADR 0040 slice 3) and for the Draft
+// room's own `draft` context (#1313, not an Availability state). Every
+// projected number is the Weekly projection under the league's own scoring
+// (never Pool projection); `upgrade` is null in a best-ball league and for a
+// player already on the caller's roster. Supersedes `/summary`, deleted with
+// the Draft room's own PlayerQuickView copy (#1313), its last caller.
 //
 // `requireMember` runs BEFORE the cache is ever read (a risk-review catch,
 // #1306): the payload is per-CALLER, not per-league (availability.state,
@@ -781,8 +826,14 @@ router.get('/:id/card', requireAuth, async (req, res) => {
     const cacheKey = `card:${playerId}|${leagueId}|${team.id}|${week ?? 'cur'}`;
     const cached = summaryCacheGet(cacheKey);
     if (cached) {
+      // #1312 risk review: `watching` is deliberately read fresh here rather
+      // than baked into the cached value below - a PUT/DELETE /:id/watch
+      // never invalidates this 30s summary cache, so a cached `watching`
+      // would show the manager's own Watch/Unwatch as reverted for up to
+      // 30s on the very next card open (reproduced in review).
+      const watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
       res.set('Cache-Control', 'private, max-age=30');
-      return res.json(cached);
+      return res.json({ ...cached, watching });
     }
 
     const payload = await playerCardService.getPlayerCard({
@@ -791,15 +842,156 @@ router.get('/:id/card', requireAuth, async (req, res) => {
       playerId,
       week,
     });
-
     summaryCacheSet(cacheKey, payload);
+
+    // #1312 Ruling: `watching` rides the same #1306 card payload every
+    // Availability context reads - attached at the ROUTE (not
+    // playerCard.service.js, outside this ticket's Scope) using the SAME
+    // team this handler already resolved above, and read fresh on every
+    // request rather than cached (see the cache-hit branch above).
+    const watching = await watchlistIsWatchingSafe({ teamId: team.id, playerId });
     res.set('Cache-Control', 'private, max-age=30');
-    res.json(payload);
+    res.json({ ...payload, watching });
   } catch (error) {
     if (error.statusCode)
       return res.status(error.statusCode).json({ error: error.message });
     console.error('Error building player card', error);
     res.status(500).json({ error: 'failed to fetch player card' });
+  }
+});
+
+// Shared validation for PUT/DELETE /:id/watch (formal review f6): both
+// handlers accept the same two inputs and refuse them the same way, so one
+// parser is the single source rather than two copies free to drift. Writes
+// the 400 itself and returns null on a refusal, so a caller's own early
+// `return` is the only control flow it needs.
+function parseWatchParams(req, res) {
+  if (!/^\d+$/.test(req.params.id)) {
+    res.status(400).json({ error: 'player id must be a positive integer' });
+    return null;
+  }
+  const leagueId = req.query.leagueId ? String(req.query.leagueId) : null;
+  if (!leagueId || !/^\d+$/.test(leagueId)) {
+    res.status(400).json({ error: 'leagueId must be a positive integer' });
+    return null;
+  }
+  return { playerId: Number(req.params.id), leagueId: Number(leagueId) };
+}
+
+// PUT/DELETE /api/players/:id/watch?leagueId=N — add/remove this player from
+// the caller's own team-scoped watchlist (#1312, ADR 0040 follow-up, grill
+// ruling Q6). `requireMember` resolves the caller's own team the same way
+// every other league-scoped players route does, so a watch is always the
+// CALLER's team's watch, never any other team's - and a manager with a team
+// in two leagues keeps two independent watch lists (CONTEXT.md's Team).
+// Idempotent: watching an already-watched player, or unwatching one never
+// watched, is a 200 with the settled state, not an error.
+router.put('/:id/watch', requireAuth, async (req, res) => {
+  const params = parseWatchParams(req, res);
+  if (!params) return;
+  const { playerId, leagueId } = params;
+  try {
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
+    const outcome = await playerWatchlistService.watch({ teamId: team.id, playerId });
+    res.json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    // A player_id foreign-key violation means no such player, the same
+    // translation joinLeague's own unique-violation catch makes for its code.
+    if (error.code === '23503') return res.status(404).json({ error: 'player not found' });
+    console.error('Error watching player', error);
+    res.status(500).json({ error: 'failed to watch player' });
+  }
+});
+
+router.delete('/:id/watch', requireAuth, async (req, res) => {
+  const params = parseWatchParams(req, res);
+  if (!params) return;
+  const { playerId, leagueId } = params;
+  try {
+    const team = await requireMember(pool, { leagueId, userId: req.user.id });
+    const outcome = await playerWatchlistService.unwatch({ teamId: team.id, playerId });
+    res.json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error unwatching player', error);
+    res.status(500).json({ error: 'failed to unwatch player' });
+  }
+});
+
+// GET /api/players/:id/in-your-leagues — the viewer's own leagues, each with
+// this player's Availability there (#1357, parent #1354). The viewer's
+// leagues are the same `"teams"."owner_id"` join `GET /api/league/` uses
+// (league.router.js:294): a commissioner with no team in a league has no
+// Availability to name there, so that league is simply absent, same as a
+// pre-draft league (via `deriveLeaguePhase`). `availabilityFor` is the
+// Decision card's own function (playerCard.service.js) — same four states,
+// same rostering-team identity — projected down to the three fields this
+// response actually carries; its wider fields (rosterCapacity, faabRemaining,
+// ...) are the Decision card's business, not this one's.
+router.get('/:id/in-your-leagues', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) {
+    return res
+      .status(400)
+      .json({ error: 'player id must be a positive integer' });
+  }
+  const playerId = Number(req.params.id);
+
+  try {
+    const playerResult = await pool.query(
+      `SELECT * FROM "players" WHERE "id" = $1`,
+      [playerId],
+    );
+    const player = playerResult.rows[0];
+    if (!player) return res.status(404).json({ error: 'player not found' });
+
+    const leaguesResult = await pool.query(
+      `SELECT "leagues".*, "teams"."id" AS "team_id",
+              "teams"."faab_remaining" AS "team_faab_remaining",
+              "teams"."waiver_priority" AS "team_waiver_priority"
+         FROM "leagues"
+         JOIN "teams" ON "teams"."league_id" = "leagues"."id"
+        WHERE "teams"."owner_id" = $1
+        ORDER BY "leagues"."name" ASC`,
+      [req.user.id],
+    );
+
+    const leagues = await Promise.all(
+      leaguesResult.rows
+        // A pick'em-only league has no roster (CONTEXT.md: In your leagues
+        // covers leagues "whose rosters exist"; Membership: a pick'em-only
+        // member holds none), so it never has an Availability to name —
+        // `deriveLeaguePhase` never resolves it to PRE_DRAFT (it is
+        // IN_SEASON/COMPLETE from creation, leaguePhase.js's isPickemOnly
+        // branch), so that filter alone would leave it in.
+        .filter((league) => deriveLeaguePhase(league) !== LEAGUE_PHASE.PRE_DRAFT && !isPickemOnly(league))
+        .map(async (league) => {
+          const team = {
+            id: league.team_id,
+            faab_remaining: league.team_faab_remaining,
+            waiver_priority: league.team_waiver_priority,
+          };
+          const availability = await playerCardService.availabilityFor({ league, team, player });
+          return {
+            leagueId: league.id,
+            leagueName: league.name,
+            phase: deriveLeaguePhase(league),
+            availability: {
+              state: availability.state,
+              teamId: availability.teamId,
+              teamName: availability.teamName,
+            },
+          };
+        })
+    );
+
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ leagues });
+  } catch (error) {
+    if (error.statusCode)
+      return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error building in-your-leagues availability', error);
+    res.status(500).json({ error: 'failed to fetch in-your-leagues availability' });
   }
 });
 

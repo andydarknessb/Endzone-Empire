@@ -1,6 +1,5 @@
-import { useEndpoint, matchupWinProbability, formatKickoff, finite } from '../../../shared/lib';
+import { useEndpoint, matchupWinProbability, formatKickoff, finite, teamNameLabel } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
-import { teamNameLabel } from '../../../lib/teamIdentity';
 import {
   matchupFromListRow,
   matchupFromDetailBody,
@@ -22,7 +21,7 @@ import {
  *     state drives the card's skeletons and its failure drives the card's
  *     compact error, so a failed matchup never touches the rest of the page. The
  *     viewer's matchup is the row whose home or away Team id equals
- *     `viewerTeamId` (#112, contract in src/lib/teamIdentity.js: match on Team
+ *     `viewerTeamId` (#112, contract in src/shared/lib/teamIdentity.js: match on Team
  *     id, never an account identifier). That row already carries each side's
  *     Expected final (attachExpectedFinals decorates every row), read off the
  *     row's one Matchup shape (entities/matchup) rather than a database column

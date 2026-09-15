@@ -14,7 +14,7 @@ import {
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { STAT_DEFINITIONS } from '../../shared/ui/AbbreviationTooltip';
 import { SORT_FIELDS } from './sortFields';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 // The pool's per-column abbreviation tooltips (see AbbreviationTooltip) are
 // individually keyboard-focusable, but a keyboard/screen-reader user has no

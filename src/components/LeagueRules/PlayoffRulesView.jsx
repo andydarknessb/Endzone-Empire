@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 import RuleRow from './RuleRow';
-import { deriveLeaguePhase, LEAGUE_PHASE_META } from '../../lib/leaguePhase';
+import { deriveLeaguePhase, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 
 export default function PlayoffRulesView({ league }) {
   const regularSeasonWeeks = league.regular_season_weeks ?? 14;

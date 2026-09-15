@@ -227,6 +227,21 @@ _Avoid_: athlete, asset
 A team's defense and special teams, rostered and started as a single player.
 _Avoid_: D/ST, defense (ambiguous against both the scoring category and IDP)
 
+**Points allowed**:
+A DEF's scoring input for points given up: every point on the scoreboard
+against the team's own side, i.e. the opponent's full final score, including
+points the opponent's own defense and special teams scored. All three
+writers (the ESPN Live box, the Tank01 box — which serves both the Live box
+fallback and the Final box — and the Tuesday/Wednesday nflverse correction)
+produce this; none subtracts points scored by the opposing D/ST (ruling,
+issue #1384 — the standard ESPN/Yahoo/Sleeper subtraction was considered and
+rejected because Tank01's box carries no per-play attribution to compute it
+exactly). The Tank01 writer falls back to Tank01's own approximate
+`ptsAllowed` field only when its box carries no scoreboard total for that
+side at all.
+_Avoid_: points against (a manager's fantasy-standings figure — points
+scored against their roster across the league, not an NFL game's score)
+
 **IDP**:
 Individual defensive players (DL, LB, DB) rostered as themselves rather than
 rolled up into a DEF.
@@ -331,6 +346,28 @@ occupying an IR slot, and vice versa is exactly what enforcement exists to
 prevent.
 _Avoid_: injury status (the column name, not the concept), IR (unqualified —
 ambiguous with the slot)
+
+**No NFL team**:
+A player who has left the NFL — released, retired, or otherwise dropped from
+Tank01's player list — or who the list carries with no team. A fact about the
+NFL world, written only by the unattended injury sync (never the hand-run
+player sync, and never anything a manager does), which clears `nfl_team` to null for
+such a player once its own feed is large enough to trust; a feed too small to
+be a real player list trips a size floor and clears nothing, logged on that
+run's Sync run row. The clear is itself deferred, label kept exactly as
+stored, while the player's own team has a kicked-off game in an open week (a
+live league's own current season and week): the lineup lock question reads
+this same column live, so clearing mid-lock would unlock a slot whose game
+has already been played. A deferred row is retried, and cleared or deferred
+again, on the pass's next run. Once cleared, purely a display fact: the
+lineup card shows `FA` in place of the team badge, and nothing about it locks
+a slot or refuses a start. Distinct from Free agent, below, which is about
+league Availability — a player can have no NFL team while rostered on a
+fantasy team, and a true Free agent (waivers clear, game not kicked off)
+almost always still carries an NFL team.
+_Avoid_: free agent (the league-availability term, below; `FA` is fine as
+badge copy, never as the concept in code or docs), released, retired,
+dropped (a fantasy-roster word, ambiguous here)
 
 **Sync run**:
 One execution of a feed sync (injuries, ADP, schedule, players, week stats),
@@ -738,13 +775,40 @@ The player detail a manager opens from any surface that names a player: a
 drawer on desktop, a sheet on a phone. It carries the injury designation and
 detail, the game with implied team total and weather, the Weekly projection
 with its Floor and Ceiling, the largest Factor's explanation, Usage, Rest of
-season, Ownership, the eighteen-week bars, and an action bar that follows the
-player's Availability: bench options with Trade and Drop on your own player,
-Add, Claim or Propose trade on anyone else's. It replaces the player quick
-view on every surface but the Draft room, where quick view stays until a
-draft context exists (ADR 0040).
-_Avoid_: player drawer, player sheet, player card, quick view (outside the
-Draft room)
+season, Ownership, the Season summary for every season on record, the
+eighteen-week bars and game log for the season the manager picks, and an
+action bar that follows the player's context: bench options with Trade and
+Drop on your own player, Add, Claim or Propose trade on anyone else's, and
+Draft with Queue in the Draft room. It replaces the player quick view on
+every surface, the Draft room included (#1313, ADR 0040).
+_Avoid_: player drawer, player sheet, player card, quick view
+
+**Watch**:
+A manager's own mark on a player, held per team - a manager with two teams
+keeps two independent marks - and set from the Decision card or any player
+row; its state reads Watching. A Watch orders nothing and feeds no autopick,
+which is what separates it from the Queue. Its only reason to exist is
+staying in view: the Players list's own Watching toggle and the Decision
+card's Watch/Watching action are its two surfaces. Stored in
+`player_watchlist`, named as its own source the way Weather's entry names
+`game_weather_snapshots`.
+_Avoid_: watchlist (in prose and copy), favourite, star, follow
+
+**Season summary**:
+One season of a player in five numbers under this league's scoring: games,
+points per game, season points, position rank and ADP. The Decision card
+lists one per season on record, newest first, so a season in progress reads
+beside the finished ones in the same points. ADP is the draft market's
+number for that season and is not rescored; a season with no ADP on record
+shows none.
+_Avoid_: season stats (the raw stat line), career, totals
+
+**Season pick**:
+The season a manager has chosen on the Decision card, from a row of season
+chips under the Season summary; the eighteen-week bars and the game log
+follow it. The current season is picked when the card opens. A past season
+has actual weeks only.
+_Avoid_: season toggle, season tab, year filter
 
 **Usage**:
 A player's opportunity counts from the week stats feed, shown on the
@@ -863,8 +927,12 @@ override. Unrelated to lineup locks.
 _Avoid_: lineup lock
 
 **Free agent**:
-An unrostered player who can be added immediately, once waivers have cleared
-on him.
+An unrostered player who can be added immediately: waivers have cleared on
+him and his NFL game for the current week has not kicked off. Kickoff puts
+him on waivers until the week clears, the same hold a drop puts him under.
+Distinct from No NFL team, above, which is an NFL-employment fact and no
+judge of league Availability at all.
+_Avoid_: nfl_team null (that is No NFL team, above — a different fact)
 
 **Waiver claim**:
 A request for an unrostered player, resolved in a batch rather than
@@ -886,8 +954,9 @@ which uninvolved managers can vote to veto.
 
 **Availability**:
 Which of four states a player is in for one team's manager: Free agent, on
-waivers, Rostered by another team, or on your team. The action a surface
-offers follows the state: Add, Claim, Propose trade, or the lineup.
+waivers (dropped, or kicked off this week, until the week clears), Rostered by
+another team, or on your team. The action a surface offers follows the state:
+Add, Claim, Propose trade, or the lineup.
 _Avoid_: status (the column), ownership (a different fact, below)
 
 **Rostered**:
@@ -901,6 +970,14 @@ over seven days. A fact about the wider fantasy world read from ESPN once a
 day, never about this league (ADR 0041).
 _Avoid_: rostered % (Rostered is a state here), percent owned (the field),
 popularity
+
+**In your leagues**:
+The block on a player's public profile that a signed-in manager sees and a
+visitor does not: one line per league the manager plays in whose rosters
+exist, naming the player's Availability there (on your team, Rostered by a
+named Team, Free agent, On waivers). A line opens the Decision card in that
+league's context; the profile itself offers no action.
+_Avoid_: owner line, who has him, league status
 
 **Upgrade**:
 The Weekly projection a player would add this week over the weakest starter

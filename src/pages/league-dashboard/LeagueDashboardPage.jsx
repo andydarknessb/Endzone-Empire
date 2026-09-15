@@ -39,9 +39,9 @@ import {
   isSeasonLive,
   LEAGUE_PHASE,
   LEAGUE_PHASE_META,
-} from '../../lib/leaguePhase';
-import { isPickemOnly } from '../../lib/leagueType';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+  isPickemOnly,
+  MIN_TOUCH_TARGET_SX,
+} from '../../shared/lib';
 
 // The page h1, shared by the league name and the failed-read heading so both
 // states put the same type in the same place.
@@ -92,7 +92,7 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * The page reads the league through the shared cache (useLeague / ADR 0004), so
  * a subpage reached from here reuses the same payload. Everything phase-shaped
  * in the header derives from the client League-phase helper
- * (src/lib/leaguePhase.js), never from a stored status field: that keeps a
+ * (src/shared/lib/leaguePhase.js), never from a stored status field: that keeps a
  * single source of phase truth across the widget slices.
  *
  * Team identity is live: a team-profile update (a rename or new avatar

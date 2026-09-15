@@ -36,7 +36,7 @@ import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 import './App.css';
 

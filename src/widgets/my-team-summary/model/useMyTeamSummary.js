@@ -1,11 +1,8 @@
-import { useEndpoint, parseRosterSlots } from '../../../shared/lib';
+import { useEndpoint, parseRosterSlots, isPickemOnly, lineupAttention, ordinal } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
 import { useTeamLineup } from '../../../entities/roster';
-import { isPickemOnly } from '../../../lib/leagueType';
-import { lineupAttention } from '../../../lib/lineupAttention';
 import { DEFAULT_ROSTER_SLOTS } from '../../../lib/draftSim/templates';
-import { ordinal } from '../lib/ordinal';
 
 /**
  * Data model for the my-team summary widget (League Dashboard hero-left,
@@ -208,7 +205,15 @@ export function useMyTeamSummary(leagueId) {
       // prior stored run, and null must stay null all the way to the UI: 0 is a
       // real value here ("held its place"), so a coercion would turn the first
       // run of a season into every Team claiming it held.
-      proj = { ordinal: rank, change: numberOrNull(row.change) };
+      //
+      // shared/lib's ordinal() returns the plain "6th" string (#1272 Addendum);
+      // the suffix is always its last two characters, so the split for the
+      // de-emphasized-suffix render (MyTeamSummary's `proj.ordinal.suffix`)
+      // happens here rather than asking the shared helper for two shapes.
+      proj = {
+        ordinal: { value: rank.slice(0, -2), suffix: rank.slice(-2) },
+        change: numberOrNull(row.change),
+      };
     }
     // The simulation stores odds as a 0-1 fraction rounded to three places
     // (montecarlo.service.js runSimulation), so the percentage is made here and
@@ -243,7 +248,7 @@ export function useMyTeamSummary(leagueId) {
       const rosterSlots = resolvedRosterSlots(league);
       const totalSlots = rosterSlots.reduce((sum, s) => sum + (Number(s?.count) || 0), 0);
       // "Is this starting slot filled" is shared with the quick-actions widget
-      // (src/lib/lineupAttention.js) rather than answered a second way here:
+      // (src/shared/lib/lineupAttention.js) rather than answered a second way here:
       // that module's own docblock names two independently-derived answers to
       // exactly this question as the failure the extraction exists to prevent
       // (#1101 formal review, f1). Fed `lineup.entries`, not `lineup.starters`:

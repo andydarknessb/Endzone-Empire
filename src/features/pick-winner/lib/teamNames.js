@@ -6,7 +6,7 @@
  * non-presentational layer) is read-only here (#1272 holds its
  * promotions), so this stays local until a second feature needs it.
  *
- * Keyed exactly as `src/lib/nflTeamColors.js` is keyed (Team code, never a
+ * Keyed exactly as `src/shared/lib/nflTeamColors.js` is keyed (Team code, never a
  * raw spelling), so the two lookups never disagree on a team's identity.
  */
 export const NFL_TEAM_NAMES = Object.freeze({

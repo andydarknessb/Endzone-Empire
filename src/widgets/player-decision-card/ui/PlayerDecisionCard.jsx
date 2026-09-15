@@ -1,9 +1,11 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
+  Alert,
   Avatar,
   Box,
   Button,
+  Chip,
   Drawer,
   IconButton,
   Menu,
@@ -13,15 +15,23 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
-import { InjuryTag, PosChip, RangeBar } from '../../../shared/ui';
-import { formatKickoff, formatPoints, initialsFor, monogramInk } from '../../../shared/lib';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
-import { NFL_TEAM_COLORS, FALLBACK_KIT } from '../../../lib/nflTeamColors';
+import { InjuryTag, PosChip, RangeBar, SegmentedControl } from '../../../shared/ui';
+import {
+  formatKickoff,
+  formatPoints,
+  initialsFor,
+  monogramInk,
+  MIN_TOUCH_TARGET_SX,
+  NFL_TEAM_COLORS,
+  FALLBACK_KIT,
+} from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import { useDecisionCardLine } from '../../../entities/line';
 import { useDecisionCardUsage } from '../../../entities/player-usage';
@@ -29,6 +39,7 @@ import { usePlayerCard, DecisionStrip, WeeklyPointsBars, GameLogTable, NewsList,
 import { isEligibleMove } from '../../../features/swap-players';
 import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
+import { WatchPlayerAction } from '../../../features/watch-player';
 import { injuryTileView } from '../lib/injuryTile';
 import { benchOptionsForSlot, movesToStart, startTargetSlots } from '../model/slotActions';
 
@@ -67,7 +78,14 @@ function isTypingTarget(el) {
   if (el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (el.getAttribute && el.getAttribute('role') === 'combobox') return true;
   if (el.dataset && el.dataset.arrowScrollRegion === 'true' && el.scrollWidth > el.clientWidth) return true;
-  return !!(el.closest && el.closest('.MuiToggleButtonGroup-root'));
+  if (el.closest && el.closest('.MuiToggleButtonGroup-root')) return true;
+  // Risk review (accessibility, #1358): the Season pick's SegmentedControl
+  // (shared/ui) preventDefault()s ArrowLeft/Right/Up/Down to move its own
+  // roving radio selection but never stops the keydown bubbling to window -
+  // the same "focused composite widget with its own arrow-key semantics"
+  // case the ToggleButtonGroup check above exists for, so a radiogroup gets
+  // the identical exemption rather than a SegmentedControl-specific one.
+  return !!(el.closest && el.closest('[role="radiogroup"]'));
 }
 
 /**
@@ -127,6 +145,29 @@ function isTypingTarget(el) {
  * `playerIds`/`onNavigate` (f5): prev/next over the caller's own opening
  * list, restated from `PlayerQuickView`'s identical contract so WaiverWire
  * and PlayerManagement lose nothing by switching to this card.
+ *
+ * #1311, ADR 0040 ruling (c): `contextFromCard` (default false) is for a
+ * caller that cannot derive `context` itself - TransactionLog's activity
+ * segments carry only `{ playerId, name }`, no roster fact to classify by.
+ * When true, the effective context is `card.availability.state` instead of
+ * the `context` prop (which such a caller then omits), so no action bar
+ * renders until the `/card` payload answers - `effectiveContext` is `null`
+ * before that, matching none of the four context branches below. The
+ * header's own display fields (team, headshot, slot/position, injury) fall
+ * back to the SAME payload's `player` block whenever `entry` doesn't carry
+ * them, so a minimal entry still paints a real header once the card arrives.
+ *
+ * #1313 (ADR 0040's own follow-up, grill ruling Q32): a fifth context,
+ * `draft`, for the Draft room's last surviving `PlayerQuickView` copy - not
+ * an Availability state (the other four), so it is never a
+ * `contextFromCard` target. Its action bar (`canDraft`/`draftUnavailableReason`/
+ * `queued`/`onDraft`/`onQueue`) and its `draftedBy` line mirror the room's own
+ * pool-row actions exactly (DraftBoard.jsx), and its `adp`/pool-rank tiles
+ * (the latter from the SAME `playerIds` prev/next already reads, never a new
+ * server ranking) are the "Best available" facts the room already has. No
+ * new fetch: the one `/card` read every context makes is the whole of it, so
+ * the Draft room's own cadence rule (ADR 0025: refetch `draft:state` on
+ * reconnect, nothing else polls) is untouched.
  */
 export default function PlayerDecisionCard({
   open,
@@ -141,11 +182,21 @@ export default function PlayerDecisionCard({
   onRequestDrop,
   canDropEntry,
   context = 'my_team',
+  contextFromCard = false,
   availability,
   roster,
   onActionDone,
   playerIds,
   onNavigate,
+  // #1313: the draft context's own action bar and pool facts, driven by
+  // DraftBoard's own live draft state - see the docblock above.
+  draftedBy,
+  adp,
+  canDraft,
+  draftUnavailableReason,
+  queued,
+  onDraft,
+  onQueue,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
@@ -158,8 +209,6 @@ export default function PlayerDecisionCard({
 
   const list = Array.isArray(entries) ? entries : [];
   const isOpen = Boolean(open && entry);
-  // f1 (formal review round 1, blocker): see the docblock above.
-  const lineupManaged = context === 'my_team' && typeof onSwap === 'function';
 
   // f5 (formal review round 1): prev/next over the caller's own opening
   // list, restated from PlayerQuickView.jsx's identical contract.
@@ -209,12 +258,100 @@ export default function PlayerDecisionCard({
     prevPlayerIdRef.current = currentId;
   }, [entry?.playerId, isOpen, navIds]);
 
+  // Risk review (accessibility, #1313): `draftedBy` is the one fact on this
+  // card that can flip WHILE the card sits open - a live pick landing on the
+  // very player it shows, not just a prev/next the viewer chose - and the
+  // action bar it replaces very likely held the control focus was on.
+  // Restated from the SAME pattern as the effect above and `clearCompare`
+  // below: move focus onto the replacement (the Alert just below, which
+  // announces itself via `role="alert"`) rather than let Modal's own focus-
+  // trap recovery drop it on the drawer root with nothing spoken.
+  const draftedByRef = useRef(null);
+  const prevDraftedByRef = useRef(draftedBy ?? null);
+  useEffect(() => {
+    if (isOpen && draftedBy && !prevDraftedByRef.current) {
+      draftedByRef.current?.focus();
+    }
+    prevDraftedByRef.current = draftedBy ?? null;
+  }, [draftedBy, isOpen]);
+
   const { line, weather } = useDecisionCardLine({ leagueId, playerId: entry?.playerId ?? null, week });
   const { usage } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
   // #1307: the one Decision-card payload, read in every context (ADR 0040's
   // decision strip and eighteen-week bars are additive to `my_team`'s
   // existing entry-based sections above, not a replacement for them).
-  const { card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+  const { status: cardStatus, card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+
+  // #1358: the Season pick - which of `card.seasons` drives the bars and the
+  // game log. `null` means "no explicit pick yet", which resolves to
+  // `seasons[0]` below - the league's current season, per #1356's ruling
+  // that `seasons[0]` is always that season (CONTEXT.md's Season pick: "The
+  // current season is picked when the card opens"). Resetting to `null` on
+  // every `entry.playerId` change is what makes prev/next land back on the
+  // current season rather than carrying a stale pick onto the next player.
+  const [pickedSeason, setPickedSeason] = useState(null);
+  useEffect(() => {
+    setPickedSeason(null);
+  }, [entry?.playerId]);
+  // #1312: the Watch toggle's own optimistic display state. `usePlayerCard`
+  // (entities/player, ADR 0029's audit surface - outside this ticket's Scope)
+  // reads through `shared/lib`'s `useEndpoint`, which only re-fetches on a
+  // URL change (leagueId/playerId/week), so a successful PUT/DELETE has no
+  // way to make `card.watching` itself go stale-then-fresh again. This local
+  // override is what lets the button reflect the toggle immediately, without
+  // waiting on the next open (a new `entry.playerId`, which resets it back to
+  // following the server's own `card.watching` fact).
+  const [watchingOverride, setWatchingOverride] = useState(null);
+  useEffect(() => {
+    setWatchingOverride(null);
+  }, [entry?.playerId]);
+  const watching = watchingOverride != null ? watchingOverride : Boolean(card?.watching);
+  const seasons = Array.isArray(card?.seasons) ? card.seasons : [];
+  const currentSeasonEntry = seasons[0] ?? null;
+  const selectedSeasonEntry =
+    (pickedSeason != null && seasons.find((s) => s.season === pickedSeason)) || currentSeasonEntry;
+  const isCurrentSeasonSelected = Boolean(
+    selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
+  );
+  // Risk review (#1311): every OTHER caller hands a full `entry`, so the
+  // drawer always paints real content immediately even while this read is
+  // still in flight (ADR 0037: "the row's own fields paint immediately").
+  // `contextFromCard`'s minimal `{ playerId, name }` entry is the one case
+  // where the whole action bar, and every section but the bare name, waits
+  // on this SAME read - so that wait needs its own announcement, the way
+  // PlayerQuickView's `quickview-skeleton` region announced its own load.
+  const awaitingCard = contextFromCard && cardStatus === 'loading';
+  // Formal review round 1, f1: the error half of the SAME gap - a failed
+  // /card read on this path used to leave a silent, near-empty dialog
+  // forever (no action bar, since effectiveContext stays null on error too,
+  // and no explanation). Restated from PlayerQuickView's own
+  // `!loading && error && <Alert severity="error">`.
+  const cardFailed = contextFromCard && cardStatus === 'error';
+
+  // #1311, ADR 0040 ruling (c): a `contextFromCard` caller (TransactionLog)
+  // supplies no `context` of its own - the effective context is the card
+  // payload's own availability fact, and stays null (matching none of the
+  // branches below) until that payload answers, so no action bar renders on
+  // a bare `{ playerId, name }` entry before then.
+  const effectiveContext = contextFromCard ? (card?.availability?.state ?? null) : context;
+  // f1 (formal review round 1, blocker): see the docblock above.
+  const lineupManaged = effectiveContext === 'my_team' && typeof onSwap === 'function';
+
+  // The header's display fields fall back to the card payload's own `player`
+  // block whenever `entry` doesn't carry them (ruling (d): TransactionLog's
+  // entry is only `{ playerId, name }`), so a minimal entry still paints a
+  // real team/headshot/position/injury once the card arrives. A caller that
+  // already supplies these (every lineup-managed and Availability-context
+  // caller) is untouched - nullish coalescing only fills a gap.
+  const displayEntry = entry
+    ? {
+        ...entry,
+        nflTeam: entry.nflTeam ?? card?.player?.teamCode ?? null,
+        photoUrl: entry.photoUrl ?? card?.player?.photoUrl ?? null,
+        slot: entry.slot ?? card?.player?.position ?? null,
+        injuryStatus: entry.injuryStatus ?? card?.player?.injury?.designation ?? null,
+      }
+    : entry;
 
   const compareEntry = compareId != null ? list.find((e) => e.playerId === compareId) || null : null;
   const { line: compareLine, weather: compareWeather } = useDecisionCardLine({
@@ -308,6 +445,7 @@ export default function PlayerDecisionCard({
         role: 'dialog',
         'aria-modal': true,
         'aria-labelledby': entry ? 'decision-card-title' : undefined,
+        'aria-busy': awaitingCard || undefined,
         'data-testid': 'decision-card',
         'data-variant': isMobile ? 'sheet' : 'drawer',
         sx: {
@@ -334,9 +472,20 @@ export default function PlayerDecisionCard({
         <>
           {isMobile && <DragHandle />}
 
+          {/* Risk review (#1311): the ONE case where the whole card waits on
+              this read (contextFromCard, before the payload answers) gets its
+              own announcement, restated from PlayerQuickView's identical
+              loading region - every other caller's `entry` already paints
+              real content, so it needs none. */}
+          {awaitingCard && (
+            <Typography sx={visuallyHidden} role="status" aria-live="polite">
+              Loading player details
+            </Typography>
+          )}
+
           <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
-              <HeaderAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
+              <HeaderAvatar name={displayEntry.name} nflTeam={displayEntry.nflTeam} photoUrl={displayEntry.photoUrl} />
               <Box sx={{ minWidth: 0 }}>
                 <Typography
                   id="decision-card-title"
@@ -350,12 +499,15 @@ export default function PlayerDecisionCard({
                   sx={{ fontSize: 18, fontWeight: 700 }}
                   noWrap
                 >
-                  {entry.name}
+                  {displayEntry.name}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
-                  <PosChip position={entry.slot} />
-                  <InjuryTag status={entry.injuryStatus} />
-                  <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{entry.nflTeam}</Typography>
+                  {/* Risk review (#1311), nit: PosChip has no null guard of
+                      its own and would otherwise paint an empty swatch while
+                      `contextFromCard` awaits the payload for a position. */}
+                  {displayEntry.slot && <PosChip position={displayEntry.slot} />}
+                  <InjuryTag status={displayEntry.injuryStatus} />
+                  <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (
                     <Typography
                       component="span"
@@ -424,7 +576,19 @@ export default function PlayerDecisionCard({
             </Box>
           </Box>
 
-          {context === 'my_team' && !lineupManaged && (
+          {/* Formal review round 1, f1: restated from PlayerQuickView's own
+              `!loading && error && <Alert severity="error">` - the one path
+              whose entire content depends on this read gets a visible
+              explanation on failure, not a permanently near-empty dialog.
+              MUI's Alert carries role="alert" itself. No action bar renders
+              either way, since effectiveContext stays null on error too. */}
+          {cardFailed && (
+            <Alert severity="error" sx={{ mx: 2, mb: 2 }} data-testid="decision-card-load-error">
+              {"Couldn't load this player's details."}
+            </Alert>
+          )}
+
+          {effectiveContext === 'my_team' && !lineupManaged && (
             // f1 (formal review round 1, blocker): a my_team open with no
             // lineup wiring (PlayerManagement's own-player case) gets a
             // link that actually works, restated from the base behaviour
@@ -561,7 +725,7 @@ export default function PlayerDecisionCard({
               no lineup slot - WaiverWire and PlayerManagement map their raw
               player row into the same generic id/name/position/nflTeam shape
               the header and injury tile already read. */}
-          {context === 'free_agent' && (
+          {effectiveContext === 'free_agent' && (
             <AddPlayerAction
               player={entry}
               leagueId={leagueId}
@@ -570,7 +734,7 @@ export default function PlayerDecisionCard({
               onAdded={onActionDone}
             />
           )}
-          {context === 'waivers' && (
+          {effectiveContext === 'waivers' && (
             <ClaimPlayerAction
               player={entry}
               leagueId={leagueId}
@@ -579,7 +743,7 @@ export default function PlayerDecisionCard({
               onClaimed={onActionDone}
             />
           )}
-          {context === 'rostered' && (
+          {effectiveContext === 'rostered' && (
             <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5, alignItems: 'center' }}>
               <Button
                 size="small"
@@ -599,7 +763,98 @@ export default function PlayerDecisionCard({
               )}
             </Box>
           )}
-          {context !== 'my_team' && <NewsSection news={card?.news} />}
+          {/* #1313: the Draft room's own action bar - Draft/Queue for an
+              undrafted pool player, restated from DraftBoard.jsx's identical
+              actions (matching what the room's pool row already offers).
+              `draftedBy` set replaces the whole bar with an Alert (risk
+              review, accessibility): unlike `rostered`'s plain Availability
+              line, this fact can change WHILE the card sits open (a live
+              pick landing on the viewed player), so it gets the SAME
+              `role="alert"` treatment the deleted DraftQuickView's identical
+              banner had, restated here rather than dropped - a plain line
+              would render silently for a screen-reader user with focus
+              already elsewhere. */}
+          {effectiveContext === 'draft' && (
+            draftedBy ? (
+              <Box data-testid="decision-card-actions" sx={{ px: 2, pb: 1.5 }}>
+                <Alert
+                  severity="warning"
+                  tabIndex={-1}
+                  ref={draftedByRef}
+                  data-testid="decision-card-drafted-by"
+                >
+                  {`Drafted by ${draftedBy}`}
+                </Alert>
+              </Box>
+            ) : (
+              <Box data-testid="decision-card-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
+                {canDraft && (
+                  <Tooltip title={draftUnavailableReason || ''}>
+                    <span>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        aria-disabled={draftUnavailableReason ? true : undefined}
+                        // Risk review (accessibility, #1313): a string `title`
+                        // on MUI's Tooltip labels the wrapping <span> (needed
+                        // so the tooltip still fires while aria-disabled),
+                        // never the Button inside it - a generic, roleless
+                        // span carries no accessible name/description of its
+                        // own, so the reason never reached assistive tech.
+                        // `aria-describedby` on the BUTTON itself, pointing
+                        // at the same text rendered visually-hidden just
+                        // below, is what actually attaches it to the control
+                        // a screen-reader user is focused on.
+                        aria-describedby={draftUnavailableReason ? 'decision-card-draft-unavailable-reason' : undefined}
+                        onClick={() => {
+                          if (draftUnavailableReason) return; // suppressed activation
+                          onDraft?.();
+                        }}
+                        sx={MIN_TOUCH_TARGET_SX}
+                        data-testid="decision-card-draft-action"
+                      >
+                        Draft
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={queued}
+                  onClick={() => onQueue?.()}
+                  sx={MIN_TOUCH_TARGET_SX}
+                  data-testid="decision-card-queue-action"
+                >
+                  {queued ? 'Queued' : 'Queue'}
+                </Button>
+                {draftUnavailableReason && (
+                  <Box id="decision-card-draft-unavailable-reason" sx={visuallyHidden}>
+                    {draftUnavailableReason}
+                  </Box>
+                )}
+              </Box>
+            )
+          )}
+          {effectiveContext === 'draft' && <DraftPoolSection adp={adp} poolRank={navIndex >= 0 ? navIndex + 1 : null} />}
+          {/* #1312, ADR 0040 follow-up (grill ruling Q6, the design canvas's
+              CardStates artboard): Watch/Watching across every Availability
+              context - my_team included (the design draws it on all four
+              card states) - never the `draft` context, which is not an
+              Availability state (#1313). */}
+          {effectiveContext && effectiveContext !== 'draft' && (
+            <Box data-testid="decision-card-watch" sx={{ px: 2, pb: 1.5 }}>
+              <WatchPlayerAction
+                playerId={entry.playerId}
+                leagueId={leagueId}
+                watching={watching}
+                onToggled={setWatchingOverride}
+                onDone={onActionDone}
+              />
+            </Box>
+          )}
+          {effectiveContext !== 'my_team' && <NewsSection news={card?.news} />}
 
           {compareEntry ? (
             // AC7: two cards side by side (stacked on a phone). The primary
@@ -667,7 +922,7 @@ export default function PlayerDecisionCard({
             </Box>
           ) : (
             <>
-              <InjurySection entry={entry} />
+              <InjurySection entry={displayEntry} />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
               {lineupManaged && <ProjectionSection entry={entry} />}
               {lineupManaged && <UsageSection usage={usage} />}
@@ -675,12 +930,28 @@ export default function PlayerDecisionCard({
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
               <DecisionStripSection decision={card?.decision} usage={card?.decision?.usage} />
-              <WeeklyPointsBars
-                weeks={card?.weeks}
-                currentWeek={card?.decision?.projWeek?.week}
-                seasonEnd={card?.seasonEnd}
+              {/* #1358: Season summary and Season pick, between the strip and
+                  the bars (the body's own section order). The bars and the
+                  game log below now read the PICKED season's own `weeks`/
+                  `log`, never the top-level `card.weeks`/`card.log` fields -
+                  those went away with this ticket. */}
+              <SeasonSummarySection seasons={seasons} />
+              <SeasonPickSection
+                seasons={seasons}
+                value={selectedSeasonEntry?.season ?? null}
+                onChange={setPickedSeason}
               />
-              <GameLogSection log={card?.log} />
+              <WeeklyPointsBars
+                weeks={selectedSeasonEntry?.weeks}
+                currentWeek={isCurrentSeasonSelected ? card?.decision?.projWeek?.week : undefined}
+                seasonEnd={isCurrentSeasonSelected ? card?.seasonEnd : undefined}
+              />
+              {/* `card.seasons[i].log` is already the row array
+                  `GameLogTable` reads as `log.current` (lead correction on
+                  the issue thread) - wrapped here rather than changing
+                  GameLogSection/GameLogTable, which live outside this
+                  ticket's reservation. */}
+              <GameLogSection log={{ current: selectedSeasonEntry?.log ?? [] }} />
               <Bio bio={card?.bio} />
               {lineupManaged && (
                 <BenchOptionsSection
@@ -927,6 +1198,133 @@ function DecisionStripSection({ decision, usage }) {
     <Section title="Decision strip" testId="decision-card-strip-section">
       <DecisionStrip decision={decision} usage={usage} />
     </Section>
+  );
+}
+
+// #1358, CONTEXT.md's Season summary: "One season of a player in five
+// numbers under this league's scoring: games, points per game, season
+// points, position rank and ADP" - one row per `card.seasons` entry, in the
+// payload's own newest-first order. Hidden entirely with no season on
+// record (the card hasn't answered yet); the payload otherwise always
+// carries at least the current season, even for a rookie with no rows on
+// file (#1356 ruling).
+function SeasonSummarySection({ seasons }) {
+  if (!Array.isArray(seasons) || seasons.length === 0) return null;
+  return (
+    <Section title="Season summary" testId="decision-card-season-summary-section">
+      {/* Six columns at the 390px sheet's own width (ADR 0040's premise-check
+          ruling item 5, tests/e2e/player-decision-card.spec.ts): MUI's
+          default TableCell horizontal padding (16px each side) alone sums to
+          more than the sheet's available width across six columns, forcing
+          a real horizontal scrollbar on the whole card. Tightening it here
+          is local to this table, not a `shared/ui` change. */}
+      <Table
+        size="small"
+        aria-label="Season summary"
+        data-testid="decision-card-seasons"
+        sx={{ '& .MuiTableCell-root': { px: 1 } }}
+      >
+        <TableHead>
+          <TableRow>
+            <TableCell>Season</TableCell>
+            <TableCell align="right">G</TableCell>
+            <TableCell align="right">FPTS/G</TableCell>
+            <TableCell align="right">Pts</TableCell>
+            <TableCell align="right">Pos rank</TableCell>
+            <TableCell align="right">ADP</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {seasons.map((row) => (
+            <TableRow key={row.season}>
+              {/* Risk review (accessibility, #1358) nit: a row header, not a
+                  plain cell, so a screen reader reading down a numeric
+                  column (e.g. three "no ADP on record" dashes in a row)
+                  still announces which season each one belongs to. */}
+              <TableCell component="th" scope="row">{row.season}</TableCell>
+              <TableCell align="right">{row.games}</TableCell>
+              <TableCell align="right">{formatPoints(row.pointsPerGame)}</TableCell>
+              <TableCell align="right">{formatPoints(row.points)}</TableCell>
+              {/* #1356 correction 3: the current season's own posRank/
+                  posRankOf are always null (player_season_stats holds only
+                  completed seasons) - the null-ADP dash rule applies
+                  identically here so this never renders "null of null". */}
+              <TableCell align="right">
+                {row.posRank != null && row.posRankOf != null ? (
+                  `${row.posRank} of ${row.posRankOf}`
+                ) : (
+                  <DashValue label="no rank on record" />
+                )}
+              </TableCell>
+              <TableCell align="right">
+                {row.adp != null ? formatPoints(row.adp) : <DashValue label="no ADP on record" />}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Section>
+  );
+}
+
+// The null-ADP/null-Pos-rank dash (#1358 issue body): a visible dash plus a
+// visually hidden reason, so a screen reader gets more than silence where a
+// bare "-" would pass over the cell unannounced.
+function DashValue({ label }) {
+  return (
+    <>
+      <span aria-hidden="true">-</span>
+      <Box component="span" sx={visuallyHidden}>{label}</Box>
+    </>
+  );
+}
+
+// #1358, CONTEXT.md's Season pick: "a row of season chips under the Season
+// summary; the eighteen-week bars and the game log follow it." Hidden
+// entirely for a rookie (one season on record, issue AC4) - a single-option
+// radiogroup would let a manager pick nothing else anyway. Each segment is
+// at least 44px tall, the same `sx` override PickWeek and LineupPage's
+// mobile view toggle already apply to this same shared/ui control.
+function SeasonPickSection({ seasons, value, onChange }) {
+  if (!Array.isArray(seasons) || seasons.length < 2) return null;
+  const options = seasons.map((row) => ({ value: row.season, label: String(row.season) }));
+  return (
+    <Box sx={{ px: 2, pt: 1.5 }}>
+      <SegmentedControl
+        aria-label="Season"
+        data-testid="decision-card-season-pick"
+        options={options}
+        value={value}
+        onChange={onChange}
+        sx={{ '& [role="radio"]': { minHeight: 44 } }}
+      />
+    </Box>
+  );
+}
+
+// #1313: the two draft-pool facts the ruling calls "tiles" - ADP (the wider
+// market's number, CONTEXT.md's ADP) and Best available #N (the player's own
+// position in the pool's current sort order, from the `playerIds` index the
+// card's own prev/next already reads - never a new server ranking). Plain
+// Chips, matching the fantasy strip the room's old PlayerQuickView rendered
+// for the identical facts. Hidden entirely with neither fact to show (a
+// player the market has not ranked, opened outside the pool's own order).
+function DraftPoolSection({ adp, poolRank }) {
+  if (adp == null && poolRank == null) return null;
+  return (
+    <Box data-testid="decision-card-draft-pool" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 2, pb: 1.5 }}>
+      {adp != null && (
+        <Chip size="small" variant="outlined" label={`ADP ${adp}`} data-testid="decision-card-draft-adp" />
+      )}
+      {poolRank != null && (
+        <Chip
+          size="small"
+          variant="outlined"
+          label={`Best available #${poolRank}`}
+          data-testid="decision-card-draft-best-available"
+        />
+      )}
+    </Box>
   );
 }
 

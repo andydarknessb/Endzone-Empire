@@ -1,7 +1,6 @@
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings } from '../../../entities/standings';
-import { teamNameLabel, teamRowKey } from '../../../lib/teamIdentity';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../../lib/leaguePhase';
+import { teamNameLabel, teamRowKey, deriveLeaguePhase, LEAGUE_PHASE } from '../../../shared/lib';
 
 /**
  * Data model for the standings-table widget (League Dashboard main grid,

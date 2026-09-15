@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../../api/apiClient';
 import { onReconnect } from '../../api/socket';
-import { feedEntryKey } from '../../lib/teamIdentity';
+import { feedEntryKey } from '../../shared/lib/teamIdentity';
 import { newClientMsgId } from '../../lib/clientMessageId';
 import { applyHiddenEntry, hidePost } from '../../lib/chatModeration';
 import { chatSendAckRevokesMembership, feedErrorRevokesMembership } from './draftMembership';

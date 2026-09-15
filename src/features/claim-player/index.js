@@ -11,8 +11,10 @@
  *   - `components/Snackbar/SnackbarProvider` (`useSnackbar`): the app-wide
  *     toast, the same plumbing `add-player` and `drop-player` reach for the
  *     identical reason.
- *   - `lib/a11y` (`MIN_TOUCH_TARGET_SX`, `ui/ClaimPlayerAction.jsx`): the
- *     WCAG touch-target size constant, not a domain concept.
+ *
+ * `ui/ClaimPlayerAction.jsx` also reads `MIN_TOUCH_TARGET_SX` from
+ * `shared/lib` - ordinary island layering since #1272 promoted it out of
+ * `lib/a11y`, not a below-island edge.
  */
 export { useClaimPlayer } from './model/useClaimPlayer';
 export { default as ClaimPlayerAction } from './ui/ClaimPlayerAction';

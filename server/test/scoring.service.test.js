@@ -453,11 +453,18 @@ test('syncTeamDefenses: a later insert that throws rolls back the run (no per-te
 
 // --- Team-defense (DST) aggregate handling ------------------------------------
 
-test('normalizeTank01DstStats maps the box score DST side to scoring-rule stat names', () => {
-  const result = normalizeTank01DstStats({
-    teamAbv: 'BAL', sacks: '3', defensiveInterceptions: '1', fumblesRecovered: '1', defTD: '0',
-    safeties: '0', ptsAllowed: '20', ydsAllowed: '340',
-  });
+test('normalizeTank01DstStats maps the box score DST side to scoring-rule stat names, pointsAllowed from the opponentScore param (#1384)', () => {
+  // ptsAllowed: '99' on the DST side itself must be ignored — pointsAllowed
+  // comes from the third param (the opponent's lineScore total), not from
+  // Tank01's own ptsAllowed field.
+  const result = normalizeTank01DstStats(
+    {
+      teamAbv: 'BAL', sacks: '3', defensiveInterceptions: '1', fumblesRecovered: '1', defTD: '0',
+      safeties: '0', ptsAllowed: '99', ydsAllowed: '340',
+    },
+    null,
+    20
+  );
   assert.deepEqual(result, {
     sack: 3, interceptionReturn: 1, fumbleRecovery: 1, defensiveTD: 0,
     safety: 0, blockedKick: 0, pointsAllowed: 20, yardsAllowed: 340,

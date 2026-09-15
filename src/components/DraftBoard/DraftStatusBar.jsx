@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Chip, Button, IconButton, Tooltip, Snackbar, Alert } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { draftStatusLabel, draftStatusChipColor } from './draftStatusCopy';
 
 // Issue #512: a stable name in both states, with aria-pressed alone carrying

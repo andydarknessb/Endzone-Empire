@@ -40,6 +40,13 @@ describe('gameModel', () => {
     expect(model.teams).toEqual(['WAS', 'DAL']);
   });
 
+  test('teams fall back to the wire pair when home/away are not known yet', () => {
+    // A future week has no live_game_states row, so the wire can carry
+    // homeTeam/awayTeam as null; the card must still name both teams.
+    const model = gameModel(game({ homeTeam: null, awayTeam: null, teams: ['DAL', 'WAS'] }), []);
+    expect(model.teams).toEqual(['DAL', 'WAS']);
+  });
+
   test('carries gameKey, kickoff and lock straight from the wire row', () => {
     const model = gameModel(game({ locked: true }), []);
     expect(model.gameKey).toBe('DAL|WAS');

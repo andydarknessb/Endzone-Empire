@@ -40,7 +40,7 @@
  *    paragraph you are reading (#200, folded into #115): `teamIdentityColumns()`
  *    mints the SQL aliases from it and `teamIdentityOf()` builds its object
  *    from it, so neither can drift from the wire contract, and neither can
- *    drift from the client mirror because `src/lib/teamIdentity.js` exports the
+ *    drift from the client mirror because `src/shared/lib/teamIdentity.js` exports the
  *    identical list and a test pins the two equal. Change the strings in one
  *    place, here, or the contract tests go red.
  *
@@ -77,7 +77,7 @@
 /**
  * The canonical Team identity wire keys, frozen so no caller can mutate the
  * shared list, and the single source of the strings `teamId` / `teamName` in
- * this module (#200). Its client mirror `src/lib/teamIdentity.js` exports the
+ * this module (#200). Its client mirror `src/shared/lib/teamIdentity.js` exports the
  * identical array; teamIdentityFields.test.js pins the two equal.
  */
 const TEAM_IDENTITY_FIELDS = Object.freeze(['teamId', 'teamName']);

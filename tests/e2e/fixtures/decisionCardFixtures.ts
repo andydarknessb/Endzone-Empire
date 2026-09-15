@@ -68,6 +68,21 @@ function cardPayload(id: number, name: string) {
       },
     },
     weeks,
+    // Formal review (#1358, formal-001-f1): the real /card payload always
+    // carries `seasons` with the current season first (#1356's ruling), so
+    // this fixture needs one too - the current-season entry carries this
+    // same payload's own weeks/log rather than a second, divergent copy.
+    seasons: [{
+      season: 2026,
+      games: 3,
+      points: 42.6,
+      pointsPerGame: 14.2,
+      posRank: null,
+      posRankOf: null,
+      adp: null,
+      weeks,
+      log: [{ week: 1, opponent: 'BUF', statLine: { rushingYards: 82, rushingTDs: 1 }, points: 14.2 }],
+    }],
     seasonEnd: 17,
     news: [{ headline: 'Questionable for Sunday with an ankle injury', source: 'espn', publishedAt: '2026-09-10T00:00:00.000Z' }],
     log: {
@@ -106,6 +121,31 @@ function rosterRows() {
   ];
 }
 
+// #1310 formal review f2: WaiverWire's On waivers table reads
+// GET /api/players?view=cards&availability=waivers instead of /api/waivers's
+// own onWaivers rows. Same three players as waiversResponse().onWaivers
+// above, reshaped as the view=cards list's own per-row shape (player-row's
+// null-hides-the-tile handling covers the fields this fixture leaves null -
+// projWeek/ros/weeks/ownership/upgrade - same as a real free-agent-heavy
+// waiver period with no scoring data yet).
+function cardsFromOnWaivers() {
+  return waiversResponse().onWaivers.map((player) => ({
+    id: player.id,
+    name: player.name,
+    position: player.position,
+    nfl_team: player.nfl_team,
+    photo_url: null,
+    injury_status: null,
+    bye_week: null,
+    availability: { state: 'waivers', teamId: null, teamName: null, availableAt: player.available_at },
+    projWeek: null,
+    ros: { points: null },
+    weeks: [],
+    ownership: null,
+    upgrade: null,
+  }));
+}
+
 async function fulfilApi(route: Route) {
   const request = route.request();
   const { pathname } = new URL(request.url());
@@ -117,6 +157,13 @@ async function fulfilApi(route: Route) {
   if (method === 'GET' && pathname === '/api/waivers') return json(route, 200, waiversResponse());
   if (method === 'GET' && pathname === '/api/waivers/suggestions') return json(route, 200, { suggestions: [] });
   if (method === 'GET' && pathname === '/api/team/roster') return json(route, 200, rosterRows());
+  // #1310 formal review f2: WaiverWire's on-waivers table's own required
+  // read (Promise.all'd alongside /api/waivers - a miss here 500s and the
+  // whole page's `{data && ...}` block never renders, not just the table).
+  if (method === 'GET' && pathname === '/api/players') {
+    const players = cardsFromOnWaivers();
+    return json(route, 200, { players, totalPages: 1, total: players.length });
+  }
   const cardMatch = pathname.match(/^\/api\/players\/(\d+)\/card$/);
   if (method === 'GET' && cardMatch && CARD_PAYLOAD_BY_ID[Number(cardMatch[1])]) {
     return json(route, 200, CARD_PAYLOAD_BY_ID[Number(cardMatch[1])]);

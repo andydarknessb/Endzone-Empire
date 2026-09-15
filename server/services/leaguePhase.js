@@ -2,9 +2,9 @@
  * League phase: where a league sits in its lifecycle (pre-draft, drafting,
  * in-season, playoffs, complete), derived from the raw leagues columns
  * (draft_status, season_status, pickem_only) and never stored. This is the
- * server twin of src/lib/leaguePhase.js: the derivation is identical on both
+ * server twin of src/shared/lib/leaguePhase.js: the derivation is identical on both
  * sides and both test suites run the shared fixture beside the client module
- * (src/lib/leaguePhase.fixture.json), so the two cannot drift silently.
+ * (src/shared/lib/leaguePhase.fixture.json), so the two cannot drift silently.
  *
  * Phase answers league-level questions only: may a team join (`joinability`),
  * may these settings still change (`frozenSettingKeys` and its SQL twin

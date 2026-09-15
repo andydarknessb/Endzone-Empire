@@ -1,28 +1,21 @@
 /**
  * Public surface of the player-decision-card widget (#1240, ADR 0037; #1307,
- * ADR 0040 extends it with an availability `context`). The Lineup page,
- * WaiverWire and PlayerManagement import from HERE only.
+ * ADR 0040 extends it with an availability `context`; #1311 adds
+ * `contextFromCard`; #1313 adds the `draft` context, not an Availability
+ * state). The Lineup page, WaiverWire, PlayerManagement, TradeCenter,
+ * TransactionLog, MatchupPage and now the Draft room (DraftBoard.jsx, in
+ * place of its own `DraftQuickView`) import from HERE only.
  *
- * Below-island edges (ADR 0031's 2026-09-11 amendment #1269: "every
- * below-island edge, of either kind, is named with its reason in the
- * slice's index docblock") - formal review finding f2, citation corrected
- * at r7 (the amendment is dated 2026-09-11, not 2026-09-05 - that is ADR
- * 0031's own acceptance date, and the 2026-09-05 amendment belongs to ADR
- * 0029, not this one):
- *   - `src/lib/a11y` (`MIN_TOUCH_TARGET_SX`, `ui/PlayerDecisionCard.jsx`): a
- *     WCAG touch-target size constant, not a domain concept - the same
- *     plumbing edge `widgets/lineup-ledger` already names for the same
- *     reason.
- *   - `src/lib/nflTeamColors` (`NFL_TEAM_COLORS`, `FALLBACK_KIT`,
- *     `ui/PlayerDecisionCard.jsx`): the static NFL team colour lookup, the
- *     same external-data allowlist entry the color-literals guard names -
- *     `widgets/lineup-ledger`'s own header avatar reaches the same module
- *     for the same reason.
+ * `ui/PlayerDecisionCard.jsx` reads `MIN_TOUCH_TARGET_SX` and
+ * `NFL_TEAM_COLORS`/`FALLBACK_KIT` from `shared/lib` - ordinary island
+ * layering since #1272 promoted both past the below-island threshold this
+ * docblock used to name them under (ADR 0031's 2026-09-11 amendment #1269,
+ * formal review finding f2, citation corrected at r7): the same two edges
+ * `widgets/lineup-ledger` used to name for the same reason.
  *
- * ONE MORE EDGE, of a different kind, added in the formal review's round 2
- * (findings r1/r2/r3/r4/r5) and called out separately from the plumbing
- * edges above because it is a widget reading a FEATURE - a real edge worth
- * naming, though NOT a boundary violation (formal review round 3 finding
+ * ONE EDGE of a different kind, added in the formal review's round 2
+ * (findings r1/r2/r3/r4/r5): it is a widget reading a FEATURE - a real edge
+ * worth naming, though NOT a boundary violation (formal review round 3 finding
  * s5, correcting an earlier version of this note that claimed ADR 0020
  * reserves this for a page: it does not - ADR 0020's own sideways rule,
  * "Widgets do not import each other; a value two widgets both need is
@@ -52,6 +45,21 @@
  *     lives. `isEligibleMove` is exported as a plain pure function (no
  *     hook, no side effect, no `useSwapPlayers` state), so this widget
  *     reads it without pulling in the hook's own React/state surface.
+ *
+ * A fifth instance, added with #1312 (ADR 0040 follow-up, grill ruling Q6):
+ *   - `src/features/watch-player` (`WatchPlayerAction`, `ui/
+ *     PlayerDecisionCard.jsx`): the Watch/Watching toggle, shown across
+ *     every Availability context (never `draft`) - the same widget-reads-a-
+ *     feature-through-its-own-public-index shape `add-player`/`claim-player`
+ *     already establish two paragraphs up. The Draft room's own `draft`
+ *     context never renders this button (DraftBoard.jsx always passes
+ *     `context="draft"`), but the import stays static like its two
+ *     neighbours: ADR 0014's Consequences require an endpoint entering the
+ *     Draft room's closure to land with a harness entry or a declared
+ *     exemption in the same PR (`tests/e2e/fixtures/draftRouteTable.js`),
+ *     the same treatment `add-player`/`claim-player` already get there -
+ *     never a mechanism, like a dynamic `import()`, that hides the edge from
+ *     that guard instead of declaring it (formal review finding f1).
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';

@@ -1,4 +1,4 @@
-import { matchupHeroView, heroSentence, ordinal } from './matchupHeroView';
+import { matchupHeroView, heroSentence } from './matchupHeroView';
 import { formatKickoff } from '../../../shared/lib';
 
 // The canvas's live Sunday (docs/design/game-center-matchups/build.mjs, HERO):
@@ -129,30 +129,6 @@ describe('matchupHeroView', () => {
 
 // formatKickoff itself is shared/lib's contract now (src/shared/lib/
 // kickoff(.test).js, #1120, ADR 0031); this view model only consumes it, so
-// its own tests live there.
-
-describe('ordinal', () => {
-  test.each([
-    [1, '1st'],
-    [2, '2nd'],
-    [3, '3rd'],
-    [4, '4th'],
-    [11, '11th'],
-    [12, '12th'],
-    [13, '13th'],
-    [21, '21st'],
-    [22, '22nd'],
-    [23, '23rd'],
-    [111, '111th'],
-  ])('%s -> %s', (n, expected) => {
-    expect(ordinal(n)).toBe(expected);
-  });
-
-  test('is null for a non-rank', () => {
-    expect(ordinal(0)).toBeNull();
-    expect(ordinal(-3)).toBeNull();
-    expect(ordinal(NaN)).toBeNull();
-    expect(ordinal('3')).toBeNull();
-    expect(ordinal(null)).toBeNull();
-  });
-});
+// its own tests live there. ordinal is likewise shared/lib's contract now
+// (src/shared/lib/ordinal(.test).js, #1272 Addendum): this view model no
+// longer exports its own copy.

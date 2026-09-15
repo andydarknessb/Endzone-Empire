@@ -30,7 +30,7 @@ import NotificationBell from '../NotificationBell/NotificationBell';
 import GlobalPlayerSearch from '../GlobalPlayerSearch/GlobalPlayerSearch';
 import ProfileSettingsModal from './ProfileSettingsModal';
 import { useThemeMode } from '../../theme/AppThemeProvider';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 // Primary destinations shown inline on desktop and in the drawer on mobile.
 // "Notification Settings" and "Log Out" intentionally live in the profile
@@ -301,8 +301,11 @@ function Nav() {
                   hamburger open leaves focusDrawerSearch false so it does not
                   steal focus. The drawer is a temporary MUI Drawer with no
                   keepMounted, so this instance mounts fresh on each open and
-                  autoFocus fires against the current intent. */}
-              <GlobalPlayerSearch inDrawer autoFocus={focusDrawerSearch} />
+                  autoFocus fires against the current intent. onSelect closes
+                  the drawer (#1362): nothing else does once a search hit
+                  navigates - not even to the page already open, since the
+                  pathname staying put means a location effect would not fire. */}
+              <GlobalPlayerSearch inDrawer autoFocus={focusDrawerSearch} onSelect={closeDrawer} />
             </Box>
           )}
           {loggedIn ? (

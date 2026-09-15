@@ -24,7 +24,7 @@ const {
  * module and is loaded by both suites, so the two derivations cannot drift:
  * a case added on one side is run on the other on the next test run.
  */
-const fixture = require('../../src/lib/leaguePhase.fixture.json');
+const fixture = require('../../src/shared/lib/leaguePhase.fixture.json');
 
 /* ------------------------------------------------------------------ *
  * Shared fixture: phase + joinability                                 *

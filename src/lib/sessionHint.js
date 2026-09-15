@@ -6,9 +6,17 @@
  * we must not probe — refresh tokens rotate and are single-use). This boolean
  * lets the public header offer "My Dashboard" instead of "Log In".
  *
+ * It also gates the public player profile's one authenticated read (#1359's
+ * "In your leagues" block, `GET /api/players/:id/in-your-leagues`): a 401 on
+ * that request takes the SAME refresh the authed app's `apiClient` interceptor
+ * runs on every hard load, not a probe of its own.
+ *
  * It is a UX hint only, never an auth decision: nothing here grants access, and
  * a stale hint just lands the user on the login screen via ProtectedRoute —
- * exactly what "Log In" would have done. Never store a token here.
+ * exactly what "Log In" would have done. The server's answer, not the hint,
+ * decides what renders — a stale hint on the profile just costs one read whose
+ * failure hides the block, same as any other errored read. Never store a token
+ * here.
  */
 const SESSION_HINT_KEY = 'endzone_session_hint';
 

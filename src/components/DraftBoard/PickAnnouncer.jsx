@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { teamNameLabel } from '../../lib/teamIdentity';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 import PoliteRegion from './PoliteRegion';
 import { useAnnouncement } from './useAnnouncement';
 

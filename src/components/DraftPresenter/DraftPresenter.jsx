@@ -7,7 +7,7 @@ import PickClock from '../DraftBoard/PickClock';
 import { deriveOnTheClock } from '../../shared/lib/onTheClock';
 import DraftActivityEntry from '../DraftBoard/DraftActivityEntry';
 import { draftRounds } from '../../lib/rosterShape';
-import { teamNameLabel, feedEntryKey } from '../../lib/teamIdentity';
+import { teamNameLabel, feedEntryKey } from '../../shared/lib/teamIdentity';
 import { readHttpFailure } from '../../lib/httpFailure';
 
 // Presenter links are intentionally anonymous: do not use apiClient here,

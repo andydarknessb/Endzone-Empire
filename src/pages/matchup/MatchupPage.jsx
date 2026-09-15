@@ -10,7 +10,8 @@ import RetroScoreboard from '../../widgets/retro-scoreboard';
 import BenchWhatIf from '../../features/bench-what-if';
 import ToggleMatchupView, { VIEW_SCOREBOARD, VIEW_STANDARD } from '../../features/toggle-matchup-view';
 import CelebrateTouchdown, { CelebrationsCaption } from '../../features/celebrate-touchdown';
-import PlayerQuickView from '../../components/PlayerQuickView/PlayerQuickView';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
+import { toDecisionCardEntry } from '../../entities/player';
 import { useMatchupPage } from './model/useMatchupPage';
 import BenchCard from './ui/BenchCard';
 import LastPlays from './ui/LastPlays';
@@ -65,16 +66,20 @@ import LastPlays from './ui/LastPlays';
  * (null) shows no chip anywhere. The Scoreboard view's board and field follow
  * the same started state as the strip's bar: no WIN digits and sprites at
  * midfield before kickoff. A
- * player's name opens PlayerQuickView from either the Starters table or the
- * Bench card. The touchdown cutscenes and toasts are the celebrate-touchdown
- * feature's, fed from the score feed through the page model.
+ * player's name opens the Decision card (`widgets/player-decision-card`,
+ * #1311, ADR 0040) from either the Starters table or the Bench card - in
+ * `'my_team'` context for the viewer's own starter/bench player, `'rostered'`
+ * otherwise, derived here from the paired row/bench data the page model
+ * already holds (SlotComparison and BenchCard hand back only the clicked
+ * player's id, same as their old PlayerQuickView contract). The touchdown
+ * cutscenes and toasts are the celebrate-touchdown feature's, fed from the
+ * score feed through the page model.
  *
  * Every value two slices need is read once in the page model
  * (./model/useMatchupPage) and passed down, the way ADR 0020's page passes
  * shared values. Widgets, features, the entity and the kit are imported
- * through their index files only; the page reaches below the island for
- * PlayerQuickView and the league cache hook, the helpers ADR 0031 names as
- * sanctioned.
+ * through their index files only; the page reaches below the island only for
+ * the league cache hook, the helper ADR 0031 names as sanctioned.
  *
  * Loading: the first load renders a skeleton region carrying `aria-busy`
  * (the shapes stay aria-hidden, the region announces); a background refetch
@@ -98,7 +103,7 @@ export default function MatchupPage() {
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
-  const [quickViewId, setQuickViewId] = useState(null);
+  const [decisionCardPlayerId, setDecisionCardPlayerId] = useState(null);
   const [benchOpen, setBenchOpen] = useState(false);
   // The view toggle's group element, and a one-shot request to focus its
   // checked option once the view has swapped (the Full comparison action).
@@ -108,7 +113,7 @@ export default function MatchupPage() {
   const toggleRow = useCallback((id) => {
     setExpandedId((current) => (current === id ? null : id));
   }, []);
-  const openPlayer = useCallback((id) => setQuickViewId(id), []);
+  const openPlayer = useCallback((id) => setDecisionCardPlayerId(id), []);
   // "Full comparison" swaps the view and asks for focus on the toggle: its own
   // button unmounts with the Scoreboard view, so focus would drop to the body.
   const showStandard = useCallback(() => {
@@ -133,6 +138,37 @@ export default function MatchupPage() {
   const homeName = matchup?.home?.name;
   const awayName = matchup?.away?.name;
   const lineupHref = `/league/${leagueId}/lineup`;
+
+  // The Decision card's entry for whichever player a name link opened
+  // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the
+  // clicked player's raw wire id (their old PlayerQuickView contract,
+  // unchanged), so the page looks the player up itself across the paired
+  // starter rows and both benches - the SAME raw shape (id, name, position,
+  // nfl_team, injury_status, ...) `useMatchup` hands both, unpaired only by
+  // slot - and converts it through `entities/player`'s `toDecisionCardEntry`,
+  // the one WaiverWire and TradeCenter already use for a non-lineup entry.
+  // `context` is 'my_team' only on the viewer's own team's side.
+  const homePlayers = starterRows.map((row) => row.home).concat(benches.home || []);
+  const awayPlayers = starterRows.map((row) => row.away).concat(benches.away || []);
+  const decisionCardSide = decisionCardPlayerId == null
+    ? null
+    : homePlayers.some((p) => p?.id === decisionCardPlayerId)
+      ? 'home'
+      : awayPlayers.some((p) => p?.id === decisionCardPlayerId)
+        ? 'away'
+        : null;
+  const decisionCardPlayer = decisionCardSide === 'home'
+    ? homePlayers.find((p) => p?.id === decisionCardPlayerId) || null
+    : decisionCardSide === 'away'
+      ? awayPlayers.find((p) => p?.id === decisionCardPlayerId) || null
+      : null;
+  const decisionCardEntry = toDecisionCardEntry(decisionCardPlayer);
+  const decisionCardTeamId = decisionCardSide === 'home'
+    ? matchup?.home?.teamId
+    : decisionCardSide === 'away'
+      ? matchup?.away?.teamId
+      : null;
+  const decisionCardContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId ? 'my_team' : 'rostered';
   const whatIfCard = isLive ? (
     <BenchWhatIf whatIf={whatIf} hasRoster={viewerHasRoster} leagueId={leagueId} headingLevel={2} />
   ) : null;
@@ -209,11 +245,12 @@ export default function MatchupPage() {
 
       <CelebrateTouchdown celebration={celebration} />
 
-      <PlayerQuickView
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+      <PlayerDecisionCard
+        open={decisionCardPlayerId != null}
+        onClose={() => setDecisionCardPlayerId(null)}
+        entry={decisionCardEntry}
         leagueId={Number(leagueId)}
+        context={decisionCardContext}
       />
     </Shell>
   );

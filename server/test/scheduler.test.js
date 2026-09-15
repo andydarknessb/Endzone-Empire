@@ -1303,3 +1303,17 @@ test('tickUnlocked runs the nightly projection fill LAST, after every time-sensi
   assert.ok(waiversAt < fillAt && tradesAt < fillAt, 'every time-sensitive duty (waivers, trades, ...) runs before the fill, never after');
   assert.ok(fillAt < lastTickErrorAt, 'the fill is the LAST duty in the tick');
 });
+
+test('tickUnlocked runs the kickoff waiver hold before claim processing (#1375, ADR 0043)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  const holdAt = tickBody.indexOf('holdKickedOffPlayers()');
+  const waiversAt = tickBody.indexOf('processAllDueWaivers()');
+  assert.ok(holdAt !== -1 && waiversAt !== -1, 'both calls are present');
+  assert.ok(holdAt < waiversAt, "the hold job writes this tick's kickoff rows before claims are processed");
+});
