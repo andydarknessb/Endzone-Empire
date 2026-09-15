@@ -126,6 +126,15 @@ export default function StandingsTable({ leagueId, seasons }) {
           aria-label="Standings table, scrollable"
           sx={{
             overflowX: 'auto',
+            // The scroll box must be the containing block for the table's
+            // absolutely positioned descendants (the `visuallyHidden` "Trend:"
+            // and "not available" spans): a scroll container only clips an
+            // abs-pos descendant whose containing block it is. Unpositioned,
+            // those 1px spans sat at their static position ~1200px in and
+            // widened the whole document, which on a phone shrank the entire
+            // page to half width (measured in Chromium at 320-900px:
+            // documentElement.scrollWidth 1211 -> 390 with this one rule).
+            position: 'relative',
             '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
           }}
         >

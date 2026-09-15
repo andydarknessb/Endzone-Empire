@@ -131,6 +131,22 @@ const rulesUnder = (el) => {
   return found;
 };
 
+// The element's rules that live inside `@media` blocks (rulesUnder sees only
+// top-level rules), each as "<condition>{<declarations>}".
+const mediaRulesUnder = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let text = '';
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.media || !rule.cssRules) return;
+      Array.from(rule.cssRules).forEach((inner) => {
+        if (inner.selectorText === `.${cls}`) text += `${rule.media.mediaText}{${inner.style.cssText}}`;
+      });
+    });
+  });
+  return text;
+};
+
 const tileRow = () => rulesUnder(screen.getByTestId('my-team-tiles'))[''];
 
 // --- the tile track --------------------------------------------------------
@@ -151,13 +167,25 @@ test('two tiles fill the row when power rankings 404', async () => {
   expect(screen.queryByTestId('stat-playoff-odds')).not.toBeInTheDocument();
   expect(screen.queryByTestId('stat-capacity')).not.toBeInTheDocument();
 
-  // One equal column per RENDERED child, so those two fill the card instead of
-  // leaving a third track empty. Red-tell: put `repeat(3, 1fr)` back and these
-  // are the assertions that go red.
+  // A wrapping flex row of equal-growing tiles, so those two fill the card
+  // instead of leaving a third track empty, and a row that does not fit
+  // (five tiles in a 322px phone card) wraps instead of squeezing every tile
+  // to 55px (jsdom lays nothing out; the wrap itself was measured in
+  // Chromium, see the widget docblock). Red-tell: put `repeat(3, 1fr)` or the
+  // one-line `grid-auto-flow: column` back and these are the assertions that
+  // go red.
   const row = tileRow();
-  expect(row).toMatch(/grid-auto-flow:\s*column/);
-  expect(row).toMatch(/grid-auto-columns:\s*minmax\(0,\s*1fr\)/);
+  expect(row).toMatch(/display:\s*flex/);
+  expect(row).toMatch(/flex-wrap:\s*wrap/);
+  expect(row).not.toMatch(/grid-auto-flow/);
   expect(row).not.toMatch(/repeat\(3/);
+  const tile = rulesUnder(screen.getByTestId('stat-roster-value'))[''];
+  expect(tile).toMatch(/flex:\s*1 1 86px/);
+  // ...and the wider `lg` basis (the 430px desktop hero card otherwise packs
+  // four on the first line and strands the fifth full width).
+  expect(mediaRulesUnder(screen.getByTestId('stat-roster-value'))).toMatch(
+    /min-width:\s*1200px[^{]*\{[^}]*flex:\s*1 1 104px/
+  );
 });
 
 test('the loading row lays its skeletons on the same auto-flow track', async () => {
@@ -169,8 +197,14 @@ test('the loading row lays its skeletons on the same auto-flow track', async () 
   await screen.findByTestId('my-team-summary');
   expect(screen.getAllByTestId('my-team-skeleton').length).toBeGreaterThan(0);
   const row = tileRow();
-  expect(row).toMatch(/grid-auto-flow:\s*column/);
+  expect(row).toMatch(/flex-wrap:\s*wrap/);
   expect(row).not.toMatch(/repeat\(3/);
+  // The skeleton tile shares the real tile's basis, so the loading row wraps
+  // at the same width the ready row will.
+  // The skeleton tile has no testid of its own; its first skeleton's parent is it.
+  // eslint-disable-next-line testing-library/no-node-access
+  const skeletonTile = screen.getAllByTestId('my-team-skeleton')[1].parentElement;
+  expect(rulesUnder(skeletonTile)['']).toMatch(/flex:\s*1 1 86px/);
 });
 
 test('a full payload renders five tiles in one row', async () => {
