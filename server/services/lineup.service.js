@@ -46,6 +46,42 @@ function expandEligibility(eligiblePositions) {
   return out;
 }
 
+// A roster template's non-starting slots hold anyone, so they never widen the
+// rosterable set (ADR 0044 / CONTEXT.md's Rosterable position). TAXI is not a
+// slot key this codebase has today, but the ADR names it alongside BENCH/IR,
+// so it's ignored defensively should a template ever carry one.
+const NON_STARTING_SLOT_KEYS = new Set([BENCH, IR, 'TAXI']);
+
+/**
+ * ADR 0044 / CONTEXT.md's Rosterable position: the union of every STARTING
+ * slot's eligible positions in a league's roster template, group keys (DL,
+ * LB, DB) expanded through the same `expandEligibility` slot validation
+ * already uses - no second position-group table on the server.
+ *
+ * Returns `null` - no gate; every canonical position is rosterable - for a
+ * league with no roster template or an empty one, the same treatment a
+ * player-pool query with no league id gets.
+ */
+function rosterablePositions(league) {
+  let rosterSlots = league ? league.roster_slots : null;
+  if (typeof rosterSlots === 'string') {
+    try { rosterSlots = JSON.parse(rosterSlots); } catch { rosterSlots = null; }
+  }
+  if (!Array.isArray(rosterSlots) || rosterSlots.length === 0) return null;
+  const out = new Set();
+  for (const slot of rosterSlots) {
+    if (!slot || NON_STARTING_SLOT_KEYS.has(slot.key)) continue;
+    // A count-0 row seats nobody - the same treatment optimalLineup's own
+    // `s.count > 0` filter and the lineup cap (count as the max) already
+    // give it - so it contributes nothing to the rosterable set (formal
+    // review f1). A template that is every-row count-0 falls through to
+    // out.size === 0 below, the same no-gate path an empty template gets.
+    if (!(Number(slot.count) > 0)) continue;
+    expandEligibility(slot.eligiblePositions).forEach((p) => out.add(p));
+  }
+  return out.size > 0 ? out : null;
+}
+
 /**
  * Pure: may a player of this position sit in this named slot? BENCH/IR take
  * anyone. rosterSlots defaults to the standard 7-slot shape so existing
@@ -1634,6 +1670,7 @@ module.exports = {
   DEFAULT_ROSTER_SLOTS,
   POSITION_GROUPS,
   expandEligibility,
+  rosterablePositions,
   slotEligible,
   parseLineupSettings,
   validateLineup,
