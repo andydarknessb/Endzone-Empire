@@ -888,7 +888,7 @@ function trophyReconcileWorld({
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
-    [/^SELECT pg_catalog\.pg_advisory_xact_lock/, () => ({ rows: [] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] })],
     // The trophy reconcile's own week-final read: by the time it runs, the
     // corrected scores are already committed, so it always sees `after`.
     [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
@@ -1006,7 +1006,7 @@ test('#1411: an exact tie for the week high score is broken deterministically (p
     [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
     [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 101 }] })],
-    [/^SELECT pg_catalog\.pg_advisory_xact_lock/, () => ({ rows: [] })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] })],
     [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
       rows: weekMatchups,
     })],

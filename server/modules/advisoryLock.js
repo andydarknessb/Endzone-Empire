@@ -167,8 +167,33 @@ async function withAdvisoryLock(lockId, name, work) {
   }
 }
 
+/**
+ * Take the two-key transaction-scoped advisory lock (pg_advisory_xact_lock)
+ * BLOCKING, as a statement inside a transaction the caller already owns -
+ * generalizing 23004/23005's single-key "blocking, first statement inside
+ * the writer's own transaction" pattern to the two-key form, for a caller
+ * whose transaction is opened elsewhere (e.g. `withTransaction`) rather than
+ * owned by this module the way `withAdvisoryLock` owns its own.
+ *
+ * Two-key ids live in a keyspace Postgres keeps entirely separate from the
+ * single-key ids above (see the SHARED KEYSPACE note), so this cannot
+ * collide with 23001-23005 or holdout.service.js's hashed single key.
+ *
+ * First caller: trophy.service.js's reconcileWeeklyHighScoreTrophy, keyed
+ * (leagueId, season*100+week) - the same two-key formula
+ * 2026-07-20-weekly-trophy-engine.sql's `award_weekly_trophies` uses to
+ * "serialize duplicate cron workers for the same league/season/week" (#1411).
+ * Routed through here (rather than a raw query at the call site) because
+ * ADR 0036/#1206 confines every `pg_advisory_xact_lock` call to this small,
+ * documented set of files (guards: check:hand-rolled-sync-run).
+ */
+async function lockTwoKeyXact(client, key1, key2) {
+  await client.query('SELECT pg_advisory_xact_lock($1, $2)', [key1, key2]);
+}
+
 module.exports = {
   withAdvisoryLock,
+  lockTwoKeyXact,
   resetSkipStreaks,
   SKIP_ALARM_STREAK,
   PLAYERS_BULK_WRITE_LOCK,

@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const { lockTwoKeyXact } = require('../modules/advisoryLock');
 const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
@@ -298,22 +299,20 @@ async function notifyAwardedOwners({ leagueId, awarded }) {
  *     engine.sql). An exact tie decided by unordered row-scan order, as the
  *     single-pass `>` scan here used to do, could otherwise DELETE a trophy
  *     that is still correctly held.
- *   - `pg_advisory_xact_lock` on the same (league, season*100+week) key the
- *     SQL engine documents serializes this against a concurrent
- *     `awardWeeklyTrophies` (or another concurrent reconcile) for the same
- *     week: without it, a first award's ON CONFLICT DO NOTHING insert
- *     in flight at the same moment could land AFTER this DELETE removed the
- *     row it was about to no-op against, leaving two teams holding the
- *     week's trophy.
+ *   - A blocking advisory lock on the same (league, season*100+week) key the
+ *     SQL engine documents serializes this against another concurrent
+ *     reconcile for the same week: without it, two reconciles racing the
+ *     same DELETE/award pair could interleave. Taken through
+ *     `modules/advisoryLock.js`'s `lockTwoKeyXact` rather than a raw query
+ *     here - ADR 0036/#1206 (`check:hand-rolled-sync-run`) confines every
+ *     `pg_advisory_xact_lock` call to that module and a short, documented
+ *     list of sync-job files.
  */
 async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
   const awarded = await withTransaction(
     pool,
     async (client) => {
-      await client.query(
-        `SELECT pg_catalog.pg_advisory_xact_lock($1, $2)`,
-        [leagueId, (season * 100) + week]
-      );
+      await lockTwoKeyXact(client, leagueId, (season * 100) + week);
 
       const weekMatchups = await client.query(
         `SELECT * FROM "matchups"
