@@ -774,9 +774,17 @@ test('#1410: power rankings still recompute before the recap rebuild when the lo
   ]);
   fake.install(t);
   t.mock.method(scoringSvc, 'scoreMatchups', async () => ({}));
-  const mc = t.mock.method(montecarlo, 'computeLeagueOdds', async () => (
-    { computedAt: new Date().toISOString(), rankings: [] }
-  ));
+  // Same stub shape as the success-path ordering test: it inserts its own
+  // power_rankings row rather than just resolving, so the call log can prove
+  // WHERE that insert lands relative to the recap rebuild's weekly_recap
+  // insert - not just that both happened once.
+  const mc = t.mock.method(montecarlo, 'computeLeagueOdds', async ({ leagueId }) => {
+    await poolModule.query(
+      `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
+       VALUES ($1, $2, $3, 'power_rankings', $4)`,
+      [leagueId, 2026, 5, JSON.stringify({ computedAt: new Date().toISOString(), rankings: [] })]
+    );
+  });
   t.mock.method(console, 'error', () => {});
 
   await assert.rejects(
@@ -786,7 +794,19 @@ test('#1410: power rankings still recompute before the recap rebuild when the lo
 
   assert.equal(mc.mock.calls.length, 1, 'power rankings still recompute on the catch-before-rethrow path');
   const stored = fake.matching(/INSERT INTO "league_analytics"/);
-  assert.equal(stored.length, 1, 'the recap is still rebuilt even though the log/notify transaction failed');
+  assert.equal(stored.length, 2, 'the power rankings row, then the recap rebuild - the recap is still rebuilt even though the log/notify transaction failed');
+  const powerRankingsIdx = fake.calls.findIndex(
+    (c) => /INSERT INTO "league_analytics"/.test(c.text) && c.text.includes(`'power_rankings'`)
+  );
+  const recapStoreIdx = fake.calls.findIndex(
+    (c) => /INSERT INTO "league_analytics"/.test(c.text) && c.text.includes(`'weekly_recap'`)
+  );
+  assert.ok(powerRankingsIdx >= 0, 'power rankings were recomputed and stored');
+  assert.ok(recapStoreIdx >= 0, 'the recap was rebuilt');
+  assert.ok(
+    powerRankingsIdx < recapStoreIdx,
+    'on the catch-before-rethrow path too, power rankings are stored before the recap rebuild reads them'
+  );
   fake.assertClean();
 });
 
