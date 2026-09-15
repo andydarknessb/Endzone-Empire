@@ -352,7 +352,8 @@ async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
       const label = 'Top Scorer';
       const existing = await client.query(
         `SELECT "id", "team_id", "data" FROM "trophies"
-         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "type" = 'top_scorer'`,
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "type" = 'top_scorer'
+         ORDER BY "team_id"`,
         [leagueId, season, week]
       );
 
@@ -362,7 +363,11 @@ async function reconcileWeeklyHighScoreTrophy({ leagueId, season, week }) {
       // awardWeeklyTrophies' own first-award tiebreak is scan-order, not
       // team_id, so the incumbent a tie produced is not reliably the lowest
       // team_id, and demoting them for one would DELETE a trophy that is
-      // still correctly held.
+      // still correctly held. (The `ORDER BY "team_id"` above only matters
+      // for a residual state this reconcile should never itself produce -
+      // more than one row already tied for the week's high - so `find`
+      // deterministically keeps the lowest team_id of those rather than
+      // whichever the heap happened to return first; risk re-review nit.)
       const incumbent = existing.rows.find((row) => pointsByTeam.get(Number(row.team_id)) === maxPoints);
 
       const stale = existing.rows.filter((row) => row !== incumbent);
