@@ -32,7 +32,7 @@ const Body = () => (
         <TR><TD>6</TD><TD><strong>Bryce Young</strong></TD><TD>QB</TD><TD>CAR</TD><TD>361 yds, 4 total TD. ATL lost three pass rushers. Best 3-week QB schedule.</TD><TD>8&ndash;12%</TD></TR>
         <TR><TD>7</TD><TD><strong>Tyler Allgeier</strong></TD><TD>RB</TD><TD>ARI</TD><TD>17 carries to Love&apos;s 11. Love (ankle) did play, scored. vs SEA.</TD><TD>8&ndash;12%</TD></TR>
         <TR><TD>8</TD><TD><strong>Kaelon Black</strong></TD><TD>RB</TD><TD>SF</TD><TD>14 for 65, 44% snaps behind McCaffrey. Best handcuff on the wire. vs MIA.</TD><TD>5&ndash;15%</TD></TR>
-        <TR><TD>9</TD><TD><strong>Kendre Miller</strong></TD><TD>RB</TD><TD>NO</TD><TD>9 for 30 and a TD with Kamara out. Kamara expected back Wk2 &mdash; stash only.</TD><TD>3&ndash;5%</TD></TR>
+        <TR><TD>9</TD><TD><strong>Kendre Miller</strong></TD><TD>RB</TD><TD>NO</TD><TD>9 for 30 and a TD with Kamara out. Kamara expected back Wk2: stash only.</TD><TD>3&ndash;5%</TD></TR>
         <TR><TD>10</TD><TD><strong>Woody Marks</strong></TD><TD>RB</TD><TD>HOU</TD><TD>9 for 42, snaps split 40/39 with Montgomery. More standalone than a pure cuff.</TD><TD>5&ndash;8%</TD></TR>
       </TBody>
     </Table>
@@ -49,20 +49,20 @@ const Body = () => (
     </P>
     <H3>Speculative stash</H3>
     <P>
-      <strong>Sione Vaki</strong> (DET) &mdash; RB2 behind Gibbs with Pacheco on IR roughly 12 weeks, but only
-      3 touches so far. <strong>Kyle Monangai</strong> (CHI) &mdash; 10 for 100 and a TD, but Swift also
-      topped 100. Real committee. <strong>Mike Washington Jr.</strong> (LV) &mdash; 7 for 41 behind Jeanty,
+      <strong>Sione Vaki</strong> (DET): RB2 behind Gibbs with Pacheco on IR roughly 12 weeks, but only
+      3 touches so far. <strong>Kyle Monangai</strong> (CHI): 10 for 100 and a TD, but Swift also
+      topped 100. Real committee. <strong>Mike Washington Jr.</strong> (LV): 7 for 41 behind Jeanty,
       39% rostered.
     </P>
     <H3>Deep league only</H3>
     <P>
-      <strong>Emari Demercado</strong> (DAL) &mdash; handcuff to Javonte Williams after Malik Davis went on
-      IR. <strong>Raheim Sanders</strong> (CLE) &mdash; cuff to Judkins with Dylan Sampson out with a knee.{' '}
-      <strong>Kaytron Allen</strong> (WAS) &mdash; 4 late carries; Croskey-Merritt kept the job.
+      <strong>Emari Demercado</strong> (DAL): handcuff to Javonte Williams after Malik Davis went on
+      IR. <strong>Raheim Sanders</strong> (CLE): cuff to Judkins with Dylan Sampson out with a knee.{' '}
+      <strong>Kaytron Allen</strong> (WAS): 4 late carries; Croskey-Merritt kept the job.
     </P>
     <H3>Do not add</H3>
     <P>
-      <strong>Jonathon Brooks</strong> (CAR) &mdash; 13 snaps to Hubbard&apos;s 48. That&apos;s not a path.
+      <strong>Jonathon Brooks</strong> (CAR): 13 snaps to Hubbard&apos;s 48. That&apos;s not a path.
     </P>
     <P>
       <strong>Named elsewhere, not researched in depth:</strong> Jordan Mason (MIN) and Samaje Perine
@@ -79,15 +79,15 @@ const Body = () => (
         DeMario Douglas (team-high route share, PPR slot value). Prioritize Doubs first, Hollins second.
       </LI>
       <LI>
-        <strong>Deebo Samuel</strong> (SF) &mdash; 6 for 48 and a TD plus rush work. Floor play if somehow
+        <strong>Deebo Samuel</strong> (SF): 6 for 48 and a TD plus rush work. Floor play if somehow
         available in your league. Rostered 49&ndash;68% depending on platform.
       </LI>
       <LI>
-        <strong>Dontayvion Wicks</strong> (PHI) &mdash; 2/4 for 73 and a TD. Classic boom-bust profile as
+        <strong>Dontayvion Wicks</strong> (PHI): 2/4 for 73 and a TD. Classic boom-bust profile as
         Hurts&apos; field-stretcher. Gets Tennessee next.
       </LI>
       <LI>
-        <strong>Rashod Bateman</strong> (BAL) &mdash; led Ravens WRs in snaps but drew only 1 target. The
+        <strong>Rashod Bateman</strong> (BAL): led Ravens WRs in snaps but drew only 1 target. The
         volume case: Zay Flowers left with a hamstring after going 5 for 150, and Ja&apos;Kobi Lane is out
         several weeks with a wrist injury. Bateman is a bet, not a proven asset.
       </LI>
@@ -105,9 +105,9 @@ const Body = () => (
     </P>
     <H3>Week 2 streamers</H3>
     <UL>
-      <LI><strong>Dalton Schultz</strong> (HOU) &mdash; 8 targets. Gets Cincinnati, which allowed the most TE fantasy points in 2025.</LI>
-      <LI><strong>Mike Gesicki</strong> (CIN) &mdash; 5/7 for 78 and a TD. However, his snap-count data conflicts with a route-share report, so treat him as TD-dependent rather than volume-safe.</LI>
-      <LI><strong>Michael Mayer</strong> (LV) &mdash; 6/7 for 32. Brock Bowers (meniscus) is hoped back for Week 2, so bid low.</LI>
+      <LI><strong>Dalton Schultz</strong> (HOU): 8 targets. Gets Cincinnati, which allowed the most TE fantasy points in 2025.</LI>
+      <LI><strong>Mike Gesicki</strong> (CIN): 5/7 for 78 and a TD. However, his snap-count data conflicts with a route-share report, so treat him as TD-dependent rather than volume-safe.</LI>
+      <LI><strong>Michael Mayer</strong> (LV): 6/7 for 32. Brock Bowers (meniscus) is hoped back for Week 2, so bid low.</LI>
       <LI><strong>Single-column mentions:</strong> Juwan Johnson (NO, 7 targets, at BAL) and Pat Freiermuth (PIT, 5/5 for 46 and a TD, at NE).</LI>
     </UL>
 
@@ -127,7 +127,7 @@ const Body = () => (
     <H2>Defense &amp; Kicker</H2>
     <H3>D/ST, in priority order</H3>
     <P>
-      <strong>SF vs MIA</strong> (10% rostered, Malik Willis at QB) &mdash; best unit on the wire.{' '}
+      <strong>SF vs MIA</strong> (10% rostered, Malik Willis at QB): best unit on the wire.{' '}
       <strong>CIN at HOU</strong> (4 sacks, 4 forced fumbles in the opener). <strong>TB vs CLE</strong>{' '}
       (Browns were shut out for 37 minutes). <strong>KC vs IND</strong> (&minus;6.5 spread, Daniel Jones threw
       for 166 with a pick).
