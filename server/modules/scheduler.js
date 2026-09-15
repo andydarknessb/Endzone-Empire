@@ -60,6 +60,12 @@ let lastRetentionDay = null;
 // intact by the wipe guard) does stamp, so it does not hammer FFC all day - the
 // stale freshness signal is what surfaces the problem instead.
 let lastAdpSyncDay = null;
+// ESPN depth-chart and Ownership syncs (#1308, ADR 0041/0036): same once-a-day
+// stamp pattern as the ADP sync above - both are free, keyless, unmetered, and
+// each job's own ON CONFLICT (player_id, captured_date) DO NOTHING makes a
+// worker-restart repeat harmless even if this in-memory stamp resets.
+let lastEspnDepthChartSyncDay = null;
+let lastEspnOwnershipSyncDay = null;
 // Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
 // and correction passes above.
 let lastProjectionFillDay = null;
@@ -97,6 +103,16 @@ async function tickUnlocked() {
       await runDailyAdpSync();
     } catch (err) {
       console.error('daily adp sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runDailyEspnDepthChartSync();
+    } catch (err) {
+      console.error('daily ESPN depth-chart sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runDailyEspnOwnershipSync();
+    } catch (err) {
+      console.error('daily ESPN ownership sync failed (will retry next tick):', err.message);
     }
     try {
       await runHourlyOddsSync();
@@ -303,6 +319,36 @@ async function runDailyAdpSync({ now = new Date() } = {}) {
   const adp = require('../services/adp.service');
   const result = await adp.syncAdp();
   lastAdpSyncDay = today;
+  return result;
+}
+
+/**
+ * Daily ESPN depth-chart Sync run (#1308, ADR 0041/0036). Same once-a-day
+ * wrapper shape as `runDailyAdpSync` above: `espnFactsSync.runDepthChartSync`
+ * owns its own `data_sync_runs` row and the row-level idempotency (ON
+ * CONFLICT DO NOTHING), so this wrapper's only job is not to re-fetch all 32
+ * teams every five minutes. A thrown run does not stamp the day, so the next
+ * tick retries.
+ */
+async function runDailyEspnDepthChartSync({ now = new Date() } = {}) {
+  const today = now.toLocaleDateString('en-CA');
+  if (lastEspnDepthChartSyncDay === today) return null;
+  const { runDepthChartSync } = require('./espnFactsSync');
+  const result = await runDepthChartSync({ now });
+  lastEspnDepthChartSyncDay = today;
+  return result;
+}
+
+/**
+ * Daily ESPN Ownership Sync run (#1308, ADR 0041/0036). Same shape as
+ * `runDailyEspnDepthChartSync` above, for the whole-pool Ownership pull.
+ */
+async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
+  const today = now.toLocaleDateString('en-CA');
+  if (lastEspnOwnershipSyncDay === today) return null;
+  const { runOwnershipSync } = require('./espnFactsSync');
+  const result = await runOwnershipSync({ now });
+  lastEspnOwnershipSyncDay = today;
   return result;
 }
 
@@ -798,6 +844,7 @@ function stopScheduler() {
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
   'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'game-context',
+  'espn-depth-chart', 'espn-ownership',
 ];
 
 // The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
@@ -934,6 +981,8 @@ module.exports = {
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
+  runDailyEspnDepthChartSync,
+  runDailyEspnOwnershipSync,
   runHourlyOddsSync,
   runHourlyGameContextSync,
   runHoldoutSnapshots,
