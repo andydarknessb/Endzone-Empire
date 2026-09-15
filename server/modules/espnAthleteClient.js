@@ -117,6 +117,12 @@ function normalizeBio(payload) {
  * null, when ESPN reports none - `getPlayerCard` supplies the feed-note
  * fallback itself (ADR 0041/CONTEXT.md "News").
  */
+function storyUrl(href) {
+  if (typeof href !== 'string') return null;
+  const lower = href.toLowerCase();
+  return lower.startsWith('https://') || lower.startsWith('http://') ? href : null;
+}
+
 function normalizeEspnNews(payload) {
   const news = payload && Array.isArray(payload.news) ? payload.news : [];
   return news
@@ -126,8 +132,11 @@ function normalizeEspnNews(payload) {
       source: 'espn',
       publishedAt: item.lastModified || item.categorized || null,
       // The story itself: ESPN's web link, so the card can make the headline
-      // clickable. null (never undefined) when an item carries no links block.
-      url: (item.links && item.links.web && item.links.web.href) || null,
+      // clickable. null (never undefined) when an item carries no links block
+      // or the href is not http(s) - the same payload family carries
+      // `sportscenter://` deep links under other rel keys, and this value
+      // lands verbatim in an <a href>.
+      url: storyUrl(item.links && item.links.web && item.links.web.href),
     }));
 }
 

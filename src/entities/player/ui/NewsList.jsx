@@ -27,7 +27,7 @@ export default function NewsList({ news }) {
               target="_blank"
               rel="noopener noreferrer"
               underline="hover"
-              sx={{ fontSize: 13, color: 'inherit', display: 'inline-block' }}
+              sx={{ fontSize: 13, color: 'primary.main', display: 'inline-block' }}
             >
               {item.headline}
             </Link>

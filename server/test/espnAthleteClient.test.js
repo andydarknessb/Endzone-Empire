@@ -84,6 +84,16 @@ test('normalizeEspnNews: an item with no links block gets url null, never undefi
   assert.equal(item.url, null);
 });
 
+test('normalizeEspnNews: a non-http(s) web href (deep link, javascript:, relative) becomes url null', () => {
+  const news = normalizeEspnNews({ news: [
+    { headline: 'a', links: { web: { href: 'sportscenter://x-callback-url/showStory?id=1' } } },
+    { headline: 'b', links: { web: { href: ['javascript', ':alert(1)'].join('') } } },
+    { headline: 'c', links: { web: { href: '/nfl/story/_/id/1' } } },
+    { headline: 'd', links: { web: { href: 'http://www.espn.com/nfl/story/_/id/1' } } },
+  ] });
+  assert.deepEqual(news.map((n) => n.url), [null, null, null, 'http://www.espn.com/nfl/story/_/id/1']);
+});
+
 test('normalizeInjuryFacts: no injuries[] entry on the fixture -> null (healthy player)', () => {
   assert.equal(normalizeInjuryFacts(athleteOverviewFixture), null);
 });
