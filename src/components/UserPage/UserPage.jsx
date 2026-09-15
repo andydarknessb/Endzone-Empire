@@ -17,12 +17,12 @@ import LeagueCard from '../common/LeagueCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../lib/leaguePhase';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 import {
   LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnly, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
-} from '../../lib/leagueType';
+} from '../../shared/lib/leagueType';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in

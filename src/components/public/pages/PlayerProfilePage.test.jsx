@@ -1,12 +1,22 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
+import userEvent from '@testing-library/user-event';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import publicApiClient from '../../../api/publicApiClient';
+import apiClient from '../../../api/apiClient';
+import { setSessionHint } from '../../../lib/sessionHint';
 import PlayerProfilePage from './PlayerProfilePage';
 
 jest.mock('../../../api/publicApiClient', () => ({
+  __esModule: true,
+  default: { get: jest.fn() },
+}));
+
+// The authenticated client In your leagues (#1359) reads - NEVER
+// `publicApiClient`, which the anonymous read plumbing above still uses.
+jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn() },
 }));
@@ -72,9 +82,21 @@ beforeEach(() => {
     if (requested === 2024) return Promise.resolve({ data: NOT_AVAILABLE_PROFILE });
     return Promise.resolve({ data: COMPLETE_PROFILE });
   });
+  // Signed-out by default: a test that wants a signed-in render calls
+  // `setSessionHint(true)` itself and provides its own `apiClient.get`
+  // implementation. `setSessionHint(false)` here (rather than assuming a
+  // clean slate) matters because `hasSessionHint` reads real
+  // `window.localStorage`, which persists across tests in the same file.
+  setSessionHint(false);
+  apiClient.get.mockImplementation(() => Promise.reject(new Error(
+    'apiClient (the authenticated client) should not be called from a signed-out render'
+  )));
 });
 
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  jest.clearAllMocks();
+  setSessionHint(false);
+});
 
 const renderPage = (entry = '/players/42') => render(
   <AppThemeProvider>
@@ -276,4 +298,204 @@ test('switching to the pending upcoming season renders a not-started state, not 
   // No stat cards / game table in the pending state.
   expect(screen.queryByText(/Weekly breakdown is partial/)).not.toBeInTheDocument();
   expect(screen.queryByRole('table', { name: 'Game log' })).not.toBeInTheDocument();
+});
+
+// #1359: the "In your leagues" block (parent #1354; CONTEXT.md's "In your
+// leagues" / "Availability" / "Rostered").
+const IN_YOUR_LEAGUES_RESPONSE = {
+  leagues: [
+    {
+      leagueId: 11,
+      leagueName: 'Alpha League',
+      phase: 'in-season',
+      availability: { state: 'my_team', teamId: 501, teamName: 'My Squad' },
+    },
+    {
+      leagueId: 12,
+      leagueName: 'Beta League',
+      phase: 'in-season',
+      availability: { state: 'rostered', teamId: 777, teamName: 'Rival Squad' },
+    },
+  ],
+};
+
+test('signed out renders no In your leagues block and never calls the authenticated endpoint', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
+  expect(apiClient.get).not.toHaveBeenCalled();
+});
+
+test('signed in with two leagues renders two lines with the exact glossary copy', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  const line1 = await screen.findByRole('button', { name: 'On your team in Alpha League' });
+  const line2 = screen.getByRole('button', { name: 'Rostered by Rival Squad in Beta League' });
+  expect(line1).toBeInTheDocument();
+  expect(line2).toBeInTheDocument();
+  // AC: "Each line's own rules carry min-height: 44px."
+  expect(line1).toHaveStyle('min-height: 44px');
+  expect(line2).toHaveStyle('min-height: 44px');
+  // Risk review finding 2: a real league/team name is unbounded, unlike a
+  // typical button's short fixed label - the row has to wrap it rather than
+  // overflow on a narrow viewport.
+  expect(line1).toHaveStyle('white-space: normal');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues');
+});
+
+test('drops a league line whose Availability state this page does not recognize, rather than an unlabeled button', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) {
+      return Promise.resolve({
+        data: {
+          leagues: [
+            ...IN_YOUR_LEAGUES_RESPONSE.leagues,
+            { leagueId: 13, leagueName: 'Gamma League', phase: 'in-season', availability: { state: 'commissioner_only' } },
+          ],
+        },
+      });
+    }
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await screen.findByRole('button', { name: 'On your team in Alpha League' });
+  // Every league line in the block has a real accessible name - none
+  // rendered for the unrecognized state.
+  const lines = screen.getAllByTestId('in-your-leagues-line');
+  expect(lines).toHaveLength(2);
+  lines.forEach((line) => expect(line).toHaveAccessibleName());
+});
+
+test('clicking the Rostered by line opens the Decision card with that league\'s id', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    // The Decision card's own internal reads (line/usage/card): this test
+    // only pins that ITS request carries the clicked league's id, not what
+    // the card does with a response - same pattern WaiverWire.test.jsx uses.
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByRole('heading', { name: 'Alpha Back' })).toBeInTheDocument();
+  expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
+});
+
+test('maps the public profile\'s camelCase fields into the Decision card entry (formal-001 f3)', async () => {
+  // toDecisionCardEntry (entities/player) reads snake_case (nfl_team,
+  // photo_url); the public payload is camelCase (nflTeam, photoUrl). A
+  // mapping bug at the call site would leave the card's team label blank
+  // and its headshot on the initials fallback while every OTHER assertion
+  // here (which only checks the dialog heading, i.e. entry.name) stayed
+  // green - this is the test that would actually catch that.
+  publicApiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/rankings')) return Promise.resolve({ data: { rankings: [] } });
+    return Promise.resolve({ data: { ...COMPLETE_PROFILE, photoUrl: 'https://cdn.example/alpha-back.jpg' } });
+  });
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('On your team in Alpha League'));
+  const dialog = await screen.findByRole('dialog');
+
+  expect(within(dialog).getByText('KC')).toBeInTheDocument();
+  expect(within(dialog).getByTestId('decision-card-headshot')).toHaveAttribute(
+    'src',
+    'https://cdn.example/alpha-back.jpg'
+  );
+});
+
+test('shows an aria-busy loading region for a signed-in viewer before the leagues read resolves', async () => {
+  apiClient.get.mockReturnValue(new Promise(() => {})); // never resolves - pins the loading state
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  const heading = await screen.findByText('In your leagues');
+  // LoadingRows (../kit/DataState) carries its own aria-busy/aria-live - the
+  // same loading contract every other reader on this page already uses.
+  // Scoped to this section: PeerLinks' own rankings read renders a second
+  // LoadingRows lower on the page.
+  // eslint-disable-next-line testing-library/no-node-access -- asserting on the owning region, same pattern LoadingRows' own consumers use
+  expect(within(heading.closest('section')).getByTestId('loading-rows')).toHaveAttribute('aria-busy', 'true');
+});
+
+test('closing the card holds its context through the exit transition, not the my_team default', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
+  const dialog = await screen.findByRole('dialog');
+  await within(dialog).findByTestId('decision-card-propose-trade'); // confirms the rostered action bar rendered
+
+  await userEvent.click(within(dialog).getByTestId('decision-card-close'));
+
+  // Risk review finding 4: nulling every card prop at once on close used to
+  // flip `context` to the widget's `my_team` default mid-exit (the Drawer's
+  // own 120ms exit transition), swapping in a plain "Open lineup" link under
+  // a still focus-trapped user. `openLine` now survives the close, so the
+  // rostered action bar - never "Open lineup" - is what's still there.
+  expect(screen.getByTestId('decision-card-propose-trade')).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+});
+
+test('an errored in-your-leagues read renders the profile with no block and no error text', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.reject(new Error('network error'));
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues'));
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
+  expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument();
+});
+
+test('a signed-in viewer with no eligible leagues renders no block, not an empty heading', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: { leagues: [] } });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/42/in-your-leagues'));
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
+});
+
+test('renders the same anonymous hero and stat grid as before the In your leagues addition', async () => {
+  renderPage();
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  expect(screen.getByTestId('profile-hero')).toMatchSnapshot();
+  expect(screen.getByTestId('stat-grid')).toMatchSnapshot();
+  // Nothing rendered between the hero and the stat grid for an anonymous view.
+  expect(screen.queryByText('In your leagues')).not.toBeInTheDocument();
 });

@@ -38,6 +38,72 @@ export { parseRosterSlots } from './rosterSlots';
 // the retro-scoreboard widget model and the slot-comparison widget model
 // each carried an identical bye/out/ir label object.
 export { unavailableLabel } from './unavailableLabel';
+// Touch-target sizing, Team identity, league type, NFL team colors, league
+// phase and lineup-attention (#1272, ADR 0031's second-island-consumer
+// threshold, ruling R2): each of these six had already picked up a second
+// island slice consumer at `integration` on 2026-09-11 and nobody had
+// promoted them yet. A full move, no shim left at the old `src/lib` paths;
+// a legacy (non-island) caller imports the concrete module file instead of
+// this index, the same split `TeamAvatar` established.
+export { MIN_TOUCH_TARGET_SX } from './a11y';
+export {
+  TEAM_IDENTITY_FIELDS,
+  FORMER_MANAGER_LABEL,
+  teamNameLabel,
+  teamRowKey,
+  feedEntryKey,
+  isLeagueCreator,
+} from './teamIdentity';
+export {
+  LEAGUE_TYPE,
+  LEAGUE_TYPE_OPTIONS,
+  leagueTypeOf,
+  isPickemOnly,
+  shortLeagueTypeLabel,
+  FANTASY_MAX_TEAMS,
+  PICKEM_MAX_TEAMS,
+  MIN_TEAMS,
+  isPickemOnlyType,
+  includesPickem,
+  includesFantasy,
+  capForType,
+  clampTeamCount,
+  isValidTeamCount,
+  leagueTypePayload,
+} from './leagueType';
+export {
+  FIELD_GREEN,
+  FALLBACK_KIT,
+  NFL_TEAM_COLORS,
+  hexToRgb,
+  colorDistance,
+  CONTRAST_THRESHOLD,
+  getTeamKit,
+  getSpriteColors,
+  getNameColors,
+} from './nflTeamColors';
+export {
+  LEAGUE_PHASE,
+  deriveLeaguePhase,
+  JOIN_REFUSAL_REASON,
+  joinability,
+  REMOVE_REFUSAL_REASON,
+  REMOVE_REFUSAL_MESSAGES,
+  removability,
+  removeRefusalMessage,
+  DRAFT_FROZEN_SETTING_KEYS,
+  frozenSettingKeys,
+  draftSettingsFrozen,
+  isSeasonLive,
+  LEAGUE_PHASE_META,
+  rosterActionForPhase,
+} from './leaguePhase';
+export { lineupAttention } from './lineupAttention';
+// English ordinal for a rank number (#1272 Addendum, ADR 0031): the third
+// private copy (pickem-standings, #1296) joined the my-team-summary widget's
+// copy and matchup-hero's inline export, past the precedent TeamAvatar and
+// initialsFor were promoted at (their second island consumer).
+export { ordinal } from './ordinal';
 // Bye cluster computation (CONTEXT.md, Bye cluster; #1239, ADR 0031's
 // second-island-consumer threshold): born here rather than below the
 // island because it is domain-meaningful and the bye-cluster widget's grid

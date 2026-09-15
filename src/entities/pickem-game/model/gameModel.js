@@ -36,7 +36,12 @@ export function gameModel(game, myPicks) {
     gameKey: game.gameKey,
     // Away@home order (the broadcast convention, "visitor at home"), the
     // opposite of the gameKey's own home|away spelling.
-    teams: [game.awayTeam, game.homeTeam],
+    // away@home when the wire knows the orientation; otherwise the wire's
+    // own `teams` pair (unordered), so a week without live rows still names
+    // both sides instead of rendering two blank buttons.
+    teams: game.awayTeam && game.homeTeam
+      ? [game.awayTeam, game.homeTeam]
+      : (Array.isArray(game.teams) ? game.teams.slice(0, 2) : [game.awayTeam ?? null, game.homeTeam ?? null]),
     kickoff: game.kickoffAt,
     lock: Boolean(game.locked),
     phase: gamePhase(game),

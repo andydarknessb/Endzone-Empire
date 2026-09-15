@@ -14,7 +14,7 @@ import PositionLimitsPanel from './PositionLimitsPanel';
 import KeeperPanel from './KeeperPanel';
 import ReadinessPanel from './ReadinessPanel';
 import { useUnsavedChangesGuard } from '../NavigationGuard/NavigationGuard';
-import { isLeagueCreator } from '../../lib/teamIdentity';
+import { isLeagueCreator } from '../../shared/lib/teamIdentity';
 import { readHttpFailure } from '../../lib/httpFailure';
 
 const TAB_ITEMS = [

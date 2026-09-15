@@ -6,10 +6,8 @@ import {
   Typography,
   Table,
   TableBody,
-  TableCell,
   TableContainer,
   TableHead,
-  TableRow,
   Button,
   Alert,
   Box,
@@ -24,8 +22,6 @@ import {
   FormControl,
   InputLabel,
   TextField,
-  TableSortLabel,
-  Tooltip,
   Stack,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
@@ -33,32 +29,38 @@ import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
 import PlayerDecisionCard from '../../widgets/player-decision-card';
-import { toDecisionCardEntry } from '../../entities/player';
+import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
+import PlayerRow, { PlayerRowTableHead } from '../../widgets/player-row';
 import { useClaimPlayer } from '../../features/claim-player';
 import WaiverClaimItem from './WaiverClaimItem';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
-import { formatRelative } from '../../utils/formatRelative';
 import { sortRosterForDrop } from '../../shared/lib';
 
-// Mirrors DraftBoard's sticky-action-column pattern, but this table has no
-// zebra striping to inherit an opaque background from, so both the header and
-// cell pin against an explicit background.paper.
-const stickyActionHeadSx = {
-  position: 'sticky',
-  right: 0,
-  bgcolor: 'background.paper',
-  fontWeight: 'bold',
-  zIndex: 3,
-};
-const stickyActionCellSx = { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 1 };
+// #1310 formal review f2: the On waivers table reuses `player-row` (the same
+// widget PlayerManagement's Players list renders), read from
+// `GET /api/players?view=cards&availability=waivers` rather than
+// `/api/waivers`'s own raw `onWaivers` rows - the view=cards shape is what
+// PlayerRow's columns (Proj Wk, ROS, Ownership, Upgrade, Weeks, Status) need.
+// `/api/waivers` itself is untouched and still fetched, for `league`/`myTeam`/
+// `myClaims` (the claims panel keeps its own read) - only the on-waivers ROWS
+// move to the paginated cards endpoint.
+//
+// That endpoint pages at 25 (server-side, unconfigurable from the client), so
+// the "one unlimited on-waivers table" this page has always shown means
+// looping every page rather than showing only the first 25. A real waiver
+// period holds far fewer than that in practice, so this is almost always a
+// single request; MAX_ON_WAIVERS_PAGES is a hard stop (500 players) so a
+// pathological league can never turn one page load into an unbounded fetch
+// loop.
+const MAX_ON_WAIVERS_PAGES = 20;
 
 function WaiverWire() {
   const { leagueId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const notify = useSnackbar();
   const [data, setData] = useState(null);
+  const [cardsPlayers, setCardsPlayers] = useState([]);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -67,12 +69,11 @@ function WaiverWire() {
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState('');
 
-  const [suggestions, setSuggestions] = useState([]);
   const [sortByUpgrade, setSortByUpgrade] = useState(false);
   const [sortDir, setSortDir] = useState('desc');
   const [quickViewId, setQuickViewId] = useState(null);
   // Once the user manually touches the Upgrade sort, stop auto-defaulting it
-  // on every suggestions refresh.
+  // on every refetch.
   const manualSortRef = useRef(false);
   const claimTargetRequestRef = useRef(null);
   const claimTargetParam = searchParams.get('playerId');
@@ -117,39 +118,55 @@ function WaiverWire() {
     };
   }, [claimTargetId, leagueId, setSearchParams]);
 
+  // Every on-waivers player, view=cards-shaped, looped across every page the
+  // server hands back (formal review f2 constraint 3: stop on the last page,
+  // hard-capped at MAX_ON_WAIVERS_PAGES).
+  const fetchOnWaiversCards = async () => {
+    let page = 1;
+    let all = [];
+    let totalPages = 1;
+    do {
+      // eslint-disable-next-line no-await-in-loop -- paging through the
+      // WHOLE on-waivers list for this league, not a per-player fetch; a
+      // real waiver period is almost always one page.
+      const res = await apiClient.get('/api/players', {
+        params: {
+          view: 'cards',
+          leagueId: Number(leagueId),
+          availability: 'waivers',
+          position: 'All',
+          page,
+        },
+      });
+      all = all.concat(res.data.players || []);
+      totalPages = res.data.totalPages || 1;
+      page += 1;
+    } while (page <= totalPages && page <= MAX_ON_WAIVERS_PAGES);
+    return all;
+  };
+
   const fetchAll = async () => {
-    let waiversData = null;
     try {
       setLoading(true);
       setError(null);
-      const [waiversRes, rosterRes] = await Promise.all([
+      const [waiversRes, rosterRes, onWaiversCards] = await Promise.all([
         apiClient.get(`/api/waivers?leagueId=${leagueId}`),
         apiClient.get(`/api/team/roster?leagueId=${leagueId}`),
+        // Required, not best-effort (formal review f2 constraint 3): a
+        // failed read must surface the existing error state, not silently
+        // render an empty table - the same Promise.all a rejection here
+        // fails takes `data` down with it, and the page's own `{data && ...}`
+        // gate is what keeps a stale or empty table from rendering instead
+        // of the error Alert.
+        fetchOnWaiversCards(),
       ]);
-      waiversData = waiversRes.data;
       setData(waiversRes.data);
       setRoster(rosterRes.data);
+      setCardsPlayers(onWaiversCards);
     } catch (err) {
       setError(readHttpFailure(err).message || err.message);
     } finally {
       setLoading(false);
-    }
-
-    // Best ball leagues manage their own optimal lineup — the upgrade
-    // suggestions strip doesn't apply, so skip fetching it entirely.
-    if (waiversData?.league?.best_ball) {
-      setSuggestions([]);
-      return;
-    }
-
-    try {
-      const suggestionsRes = await apiClient.get(`/api/waivers/suggestions?leagueId=${leagueId}`);
-      setSuggestions(
-        Array.isArray(suggestionsRes.data?.suggestions) ? suggestionsRes.data.suggestions : []
-      );
-    } catch (err) {
-      // Suggestions are supplementary — fail silently and just skip the badges.
-      setSuggestions([]);
     }
   };
 
@@ -159,15 +176,18 @@ function WaiverWire() {
   // untouched.
   const { submitClaim } = useClaimPlayer({ leagueId, onDone: fetchAll });
 
-  // Default to the upgrade-desc sort once suggestions are available, but only
-  // until the user manually touches the sort control themselves.
+  const isFaab = data?.league?.waiver_type === 'faab';
+  const isBestBall = !!data?.league?.best_ball;
+
+  // Default to the upgrade-desc sort once the cards read has landed, but only
+  // until the user manually touches the sort control themselves. Upgrade is
+  // never a real ranking in a best ball league (#1310, ADR 0040 Lead
+  // correction item 5).
   useEffect(() => {
-    if (suggestions.length > 0 && !manualSortRef.current) {
+    if (!isBestBall && cardsPlayers.length > 0 && !manualSortRef.current) {
       setSortByUpgrade(true);
     }
-  }, [suggestions]);
-
-  const upgradeByPlayerId = new Map(suggestions.map((s) => [s.playerId, s.upgradeDelta]));
+  }, [isBestBall, cardsPlayers]);
 
   const handleSortUpgrade = () => {
     manualSortRef.current = true;
@@ -179,17 +199,13 @@ function WaiverWire() {
     }
   };
 
-  const sortedOnWaivers = data
-    ? [...data.onWaivers].sort((a, b) => {
-        if (!sortByUpgrade) return 0;
-        const av = upgradeByPlayerId.has(a.id) ? upgradeByPlayerId.get(a.id) : -Infinity;
-        const bv = upgradeByPlayerId.has(b.id) ? upgradeByPlayerId.get(b.id) : -Infinity;
-        return sortDir === 'desc' ? bv - av : av - bv;
-      })
-    : [];
+  const sortedOnWaivers = [...cardsPlayers].sort((a, b) => {
+    if (!sortByUpgrade || isBestBall) return 0;
+    const av = a.upgrade?.points ?? -Infinity;
+    const bv = b.upgrade?.points ?? -Infinity;
+    return sortDir === 'desc' ? bv - av : av - bv;
+  });
 
-  const isFaab = data?.league?.waiver_type === 'faab';
-  const isBestBall = !!data?.league?.best_ball;
   const faabRemaining = data?.myTeam?.faab_remaining ?? 0;
   const sortedRosterForDrop = sortRosterForDrop(roster);
 
@@ -197,13 +213,18 @@ function WaiverWire() {
   const bidInvalid =
     isFaab && (!bidIsValidNumber || Number(bid) < 0 || Number(bid) > faabRemaining);
 
+  // #1310 formal review f2 constraint 2: the suggested drop pick used to come
+  // from a separate `/api/waivers/suggestions` read (`dropPlayerId`); the
+  // view=cards payload's own per-row `upgrade.overPlayer` is the same fact
+  // (the starter this player would replace), so it takes over that pairing
+  // and the suggestions endpoint is never called from here anymore. A
+  // `claimPlayer` opened from the blanket-waiver deep link (`claim-target`,
+  // above) carries no `upgrade` at all, and falls back to no preselection,
+  // exactly as it did when no suggestion matched before.
   const handleOpenClaim = (player) => {
     setError(null);
     setClaimPlayer(player);
-    // If a waiver suggestion pairs this pickup with a specific bench player
-    // to cut, preselect it — otherwise leave the drop select on "No drop".
-    const suggestion = suggestions.find((s) => s.playerId === player.id);
-    const suggestedDropId = suggestion?.dropPlayerId;
+    const suggestedDropId = player.upgrade?.overPlayer?.id ?? null;
     const suggestedDropOnRoster =
       suggestedDropId != null && roster.some((p) => p.id === suggestedDropId);
     setDropPlayerId(suggestedDropOnRoster ? suggestedDropId : '');
@@ -283,7 +304,7 @@ function WaiverWire() {
             <Typography id="on-waivers-table-heading" variant="h6" sx={{ mb: 2 }}>
               On Waivers
             </Typography>
-            {data.onWaivers.length === 0 ? (
+            {cardsPlayers.length === 0 ? (
               <Box
                 sx={{
                   display: 'flex',
@@ -303,67 +324,25 @@ function WaiverWire() {
               <TableContainer>
                 <Table size="small" aria-labelledby="on-waivers-table-heading">
                   <TableHead>
-                    <TableRow>
-                      <TableCell>Name</TableCell>
-                      <TableCell>Position</TableCell>
-                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>NFL Team</TableCell>
-                      <TableCell>Clears</TableCell>
-                      {!isBestBall && (
-                        <TableCell align="center">
-                          <TableSortLabel
-                            active={sortByUpgrade}
-                            direction={sortDir}
-                            onClick={handleSortUpgrade}
-                          >
-                            Upgrade
-                          </TableSortLabel>
-                        </TableCell>
-                      )}
-                      <TableCell align="center" sx={stickyActionHeadSx}>
-                        Action
-                      </TableCell>
-                    </TableRow>
+                    <PlayerRowTableHead
+                      bestBall={isBestBall}
+                      upgradeSort={
+                        isBestBall
+                          ? undefined
+                          : { active: sortByUpgrade, direction: sortDir, onClick: handleSortUpgrade }
+                      }
+                    />
                   </TableHead>
                   <TableBody>
-                    {sortedOnWaivers.map((player) => {
-                      const delta = upgradeByPlayerId.get(player.id);
-                      return (
-                        <TableRow key={player.id}>
-                          <TableCell>
-                            <PlayerNameLink name={player.name} playerId={player.id} onOpen={setQuickViewId} />
-                          </TableCell>
-                          <TableCell>{player.position}</TableCell>
-                          <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                            {player.nfl_team}
-                          </TableCell>
-                          <TableCell>
-                            <Tooltip title={new Date(player.available_at).toLocaleString()}>
-                              <span>{formatRelative(player.available_at)}</span>
-                            </Tooltip>
-                          </TableCell>
-                          {!isBestBall && (
-                            <TableCell align="center">
-                              {delta != null && (
-                                <Chip
-                                  label={`${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`}
-                                  size="small"
-                                  color={delta > 0 ? 'success' : 'default'}
-                                />
-                              )}
-                            </TableCell>
-                          )}
-                          <TableCell align="center" sx={stickyActionCellSx}>
-                            <Button
-                              variant="contained"
-                              size="small"
-                              onClick={() => handleOpenClaim(player)}
-                            >
-                              Claim
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {sortedOnWaivers.map((player) => (
+                      <PlayerRow
+                        key={player.id}
+                        player={player}
+                        bestBall={isBestBall}
+                        onOpenPlayer={setQuickViewId}
+                        action={{ kind: 'button', label: 'Claim', onClick: () => handleOpenClaim(player) }}
+                      />
+                    ))}
                   </TableBody>
                 </Table>
               </TableContainer>
@@ -463,7 +442,7 @@ function WaiverWire() {
         open={quickViewId != null}
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(
-          data?.onWaivers.find((p) => p.id === quickViewId) ||
+          cardsPlayers.find((p) => p.id === quickViewId) ||
             (claimPlayer && claimPlayer.id === quickViewId ? claimPlayer : null)
         )}
         leagueId={Number(leagueId)}
@@ -475,10 +454,10 @@ function WaiverWire() {
         roster={roster}
         onActionDone={fetchAll}
         // Second risk review, finding 3: the table renders `sortedOnWaivers`
-        // (the Upgrade sort, on by default once suggestions load), not the
-        // raw fetch order - `playerIds` must name the SAME order or the
+        // (the Upgrade sort, on by default once the cards read loads), not
+        // the raw fetch order - `playerIds` must name the SAME order or the
         // "Player N of M" caption and Next both point at the wrong row.
-        playerIds={data ? sortedOnWaivers.map((p) => p.id) : []}
+        playerIds={sortedOnWaivers.map((p) => p.id)}
         onNavigate={setQuickViewId}
       />
     </Container>

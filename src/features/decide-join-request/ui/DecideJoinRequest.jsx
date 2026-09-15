@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Alert, Box, Button } from '@mui/material';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 /**
  * decide-join-request feature (#1109): the pair of MUI Buttons a commissioner

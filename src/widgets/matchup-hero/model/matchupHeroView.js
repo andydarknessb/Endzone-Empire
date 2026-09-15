@@ -1,5 +1,7 @@
 import { matchupStatusView } from '../../../entities/matchup';
 import { matchupWinProbability, finite, formatKickoff } from '../../../shared/lib';
+// ordinal itself is shared/lib's contract now (#1272 Addendum); MatchupHero
+// imports it directly rather than through this view model.
 
 /**
  * The matchup-hero widget's view model, pure (ticket #893, ADR 0031). Given
@@ -41,27 +43,6 @@ const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', sch
 /** A difference rounded to a tenth, so "by 0.0" never reads as a lead. */
 function tenth(value) {
   return Math.round(value * 10) / 10;
-}
-
-/**
- * English ordinal for a positive integer rank (1 -> "1st", 3 -> "3rd",
- * 11 -> "11th"); null for anything else so a caller renders no rank rather
- * than "0th" or "NaNth". The my-team-summary widget carries its own copy; a
- * widget never imports another widget (ADR 0020), and a third consumer is what
- * earns the helper a `shared/lib` home.
- */
-export function ordinal(n) {
-  if (typeof n !== 'number' || !Number.isFinite(n) || n < 1) return null;
-  const value = Math.trunc(n);
-  const mod100 = value % 100;
-  let suffix = 'th';
-  if (mod100 < 11 || mod100 > 13) {
-    const unit = value % 10;
-    if (unit === 1) suffix = 'st';
-    else if (unit === 2) suffix = 'nd';
-    else if (unit === 3) suffix = 'rd';
-  }
-  return `${value}${suffix}`;
 }
 
 /**

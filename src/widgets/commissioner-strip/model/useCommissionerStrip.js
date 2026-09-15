@@ -1,6 +1,5 @@
 import { useLeague } from '../../../hooks/useLeague';
-import { commissionerFacts, useEndpoint } from '../../../shared/lib';
-import { isPickemOnly } from '../../../lib/leagueType';
+import { commissionerFacts, useEndpoint, isPickemOnly } from '../../../shared/lib';
 
 /**
  * Data model for the commissioner-strip widget (League Dashboard, #1108). It

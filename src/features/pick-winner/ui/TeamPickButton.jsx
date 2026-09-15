@@ -1,9 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { getTeamKit } from '../../../lib/nflTeamColors';
-import { MIN_TOUCH_TARGET_SX } from '../../../lib/a11y';
 import { getTeamName } from '../lib/teamNames';
-import { monogramInk } from '../../../shared/lib';
+import { getTeamKit, MIN_TOUCH_TARGET_SX, monogramInk } from '../../../shared/lib';
 
 /**
  * pick-winner feature (#1265, ADR 0038 "What to build"): one team's row on a
@@ -35,7 +33,7 @@ import { monogramInk } from '../../../shared/lib';
  * "Detroit Lions".
  *
  * The monogram fill is this repo's own NFL team color table
- * (`src/lib/nflTeamColors.js`, the color-literals guard's one allowlisted
+ * (`src/shared/lib/nflTeamColors.js`, the color-literals guard's one allowlisted
  * source of real team hex values) rather than a wire field: the week
  * endpoint carries no per-team color (ADR 0038's "Team marks are
  * team-colour monograms, not hotlinked logos" names the mark, not its

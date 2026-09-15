@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -30,9 +30,9 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib/teamProfileEvents';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
-import { isLeagueCreator } from '../../lib/teamIdentity';
-import PlayerQuickView from '../PlayerQuickView/PlayerQuickView';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+import { isLeagueCreator } from '../../shared/lib/teamIdentity';
+import PlayerDecisionCard from '../../widgets/player-decision-card';
+import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
 import TradeProposalCard from './TradeProposalCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 
@@ -220,6 +220,7 @@ function SummaryChipRow({ label, ids, roster }) {
 function TradeCenter() {
   const { leagueId } = useParams();
   const notify = useSnackbar();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [trades, setTrades] = useState(null);
   const [myTeamId, setMyTeamId] = useState(null);
@@ -234,7 +235,7 @@ function TradeCenter() {
   const [sendIds, setSendIds] = useState(new Set());
   const [receiveIds, setReceiveIds] = useState(new Set());
   const [counterTradeId, setCounterTradeId] = useState(null);
-  const [quickViewId, setQuickViewId] = useState(null);
+  const [decisionCardPlayerId, setDecisionCardPlayerId] = useState(null);
   const [tab, setTab] = useState(0);
 
   useEffect(() => {
@@ -271,6 +272,46 @@ function TradeCenter() {
       return next;
     }) ?? prev);
   }), [leagueId]);
+
+  // The Players list row's Trade action deep-links here as
+  // `?receivingTeamId=&playerId=` (#1310, `src/features/propose-trade`):
+  // once rosters have loaded, preselect that team in the propose dialog and
+  // check the player in "You receive" - the row's Trade action only ever
+  // fires for a player rostered by ANOTHER team, so the deep link's player
+  // belongs on the RECEIVING side, never "You send". Applied once per visit
+  // (dealLinkAppliedRef) and the params are then dropped from the URL so
+  // closing and reopening the dialog by hand doesn't resurrect it.
+  const dealLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (dealLinkAppliedRef.current) return;
+    const receivingTeamIdParam = searchParams.get('receivingTeamId');
+    if (!receivingTeamIdParam || rosters.length === 0) return;
+    const teamId = Number(receivingTeamIdParam);
+    const team = rosters.find((r) => r.teamId === teamId && r.teamId !== myTeamId);
+    if (!team) return;
+    dealLinkAppliedRef.current = true;
+    const playerIdParam = searchParams.get('playerId');
+    // Formal review formal-1310-f4: a stale or mistyped playerId (the player
+    // has since been traded/dropped) must not land in `receiveIds` uncheck-
+    // able - RosterColumn only renders a checkbox for a player actually on
+    // `team.players`, so a playerId that fails this same test would sit in
+    // receiveIds with no checkbox to represent it, yet still ride along in
+    // handleSendOffer's `[...sendIds, ...receiveIds]`. Preselect it only when
+    // the receiving team's own roster actually carries that id.
+    const playerId = playerIdParam ? Number(playerIdParam) : null;
+    const playerOnTeam = playerId != null && (team.players || []).some((p) => p.id === playerId);
+    setSelectedTeamId(teamId);
+    setSendIds(new Set());
+    setReceiveIds(playerOnTeam ? new Set([playerId]) : new Set());
+    setCounterTradeId(null);
+    setDialogOpen(true);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('receivingTeamId');
+      next.delete('playerId');
+      return next;
+    }, { replace: true });
+  }, [rosters, myTeamId, searchParams, setSearchParams]);
 
   const fetchTrades = async () => {
     const res = await apiClient.get(`/api/trades?leagueId=${leagueId}`);
@@ -400,6 +441,26 @@ function TradeCenter() {
   const myRoster = rosters.find((r) => r.teamId === myTeamId);
   const otherTeams = rosters.filter((r) => r.teamId !== myTeamId);
   const theirRoster = rosters.find((r) => r.teamId === selectedTeamId);
+
+  // The Decision card's entry for whichever player a PlayerNameLink opened
+  // (#1311, ADR 0040 ruling d): looked up first off a roster row (the fuller
+  // shape RosterColumn/SummaryChipRow already read), falling back to the
+  // trade item itself (name/position/nfl_team, all a trade row carries) for
+  // a player on neither roster the viewer has loaded (e.g. a third team's in
+  // a veto vote). `context` is 'my_team' only when the player sits on the
+  // viewer's own roster, else 'rostered' - TradeCenter never opens the card
+  // for a free agent or a waivers player.
+  const decisionCardPlayer = decisionCardPlayerId == null
+    ? null
+    : rosters.flatMap((r) => r.players || []).find((p) => p.id === decisionCardPlayerId)
+      || (() => {
+        const item = trades?.flatMap((t) => t.items || []).find((i) => i.player_id === decisionCardPlayerId);
+        return item
+          ? { id: item.player_id, name: item.name, position: item.position, nfl_team: item.nfl_team }
+          : null;
+      })();
+  const decisionCardEntry = toDecisionCardEntry(decisionCardPlayer);
+  const decisionCardContext = (myRoster?.players || []).some((p) => p.id === decisionCardPlayerId) ? 'my_team' : 'rostered';
   // The creator's Team against the reader's own, both from league detail
   // (#113): the same question as before, with no account id in the client.
   const isCommissioner = !!(league && (league.is_commissioner || isLeagueCreator(league, viewerTeamId)));
@@ -487,7 +548,7 @@ function TradeCenter() {
         leftItems={leftItems}
         rightLabel={rightLabel}
         rightItems={rightItems}
-        onOpenPlayer={setQuickViewId}
+        onOpenPlayer={setDecisionCardPlayerId}
         canAccept={isReceivingTeam && trade.status === 'pending'}
         onAccept={() => handleAccept(trade)}
         canReject={isReceivingTeam && trade.status === 'pending'}
@@ -499,7 +560,7 @@ function TradeCenter() {
             receivingTeamId={trade.receiving_team_id}
             offeredPlayerIds={itemsFromProposing.map((i) => i.player_id)}
             requestedPlayerIds={itemsFromReceiving.map((i) => i.player_id)}
-            onOpenPlayer={setQuickViewId}
+            onOpenPlayer={setDecisionCardPlayerId}
           />
         }
       />
@@ -609,7 +670,7 @@ function TradeCenter() {
               receivingTeamId={selectedTeamId}
               offeredPlayerIds={[...sendIds]}
               requestedPlayerIds={[...receiveIds]}
-              onOpenPlayer={setQuickViewId}
+              onOpenPlayer={setDecisionCardPlayerId}
               autoRun
             />
           )}
@@ -633,11 +694,12 @@ function TradeCenter() {
         </DialogActions>
       </Dialog>
 
-      <PlayerQuickView
-        open={quickViewId != null}
-        onClose={() => setQuickViewId(null)}
-        playerId={quickViewId}
+      <PlayerDecisionCard
+        open={decisionCardPlayerId != null}
+        onClose={() => setDecisionCardPlayerId(null)}
+        entry={decisionCardEntry}
         leagueId={Number(leagueId)}
+        context={decisionCardContext}
       />
     </Container>
   );

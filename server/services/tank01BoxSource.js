@@ -46,6 +46,37 @@ function isFinalBox(box) {
 }
 
 /**
+ * Pure: sum one side's Tank01 `lineScore` quarters (Q1-Q4 plus any OT
+ * periods Tank01 reports, OT/OT1/OT2/…) into that side's points on the
+ * board — for a Live box mid-game as much as a Final box, so "Final" isn't
+ * in the name. Tank01's `/getNFLBoxScore` carries no top-level home/away
+ * score field: `liveGameEngine.js` reads `homePts`/`awayPts` off the
+ * separate `/getNFLScoresOnly` endpoint instead, and `gameRecap.service.js`
+ * (`normalizeLineScore`) already reads `lineScore` off THIS endpoint for the
+ * per-quarter line it renders — so `lineScore` is the only game-score
+ * material `/getNFLBoxScore` carries, and this is the source for a DEF's
+ * `pointsAllowed` (**Points allowed**, CONTEXT.md, #1384).
+ *
+ * Returns `null`, not 0, when the side is missing or malformed, so a caller
+ * can tell "no lineScore for this side" apart from "this side is really
+ * scoreless" and fall back instead of reading a shutout that didn't happen.
+ */
+function sideScore(lineScore, side) {
+  const s = lineScore && lineScore[side];
+  if (!s || typeof s !== 'object') return null;
+  const num = (value) => {
+    const parsed = Number(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  let total = 0;
+  for (const key of ['Q1', 'Q2', 'Q3', 'Q4']) total += num(s[key]);
+  for (const key of Object.keys(s)) {
+    if (/^OT/i.test(key)) total += num(s[key]);
+  }
+  return total;
+}
+
+/**
  * Pure: Tank01's own scoringPlays entries -> Score summary lines. Tank01 gives
  * no scorer id or yardage in a machine-readable field, so those are null; the
  * TD-length and FG-distance bonuses come from `allPlayByPlay` instead (below).
@@ -106,6 +137,7 @@ function fromBox(box) {
   // block credit belongs to the opponent's defense (normalizeTank01DstStats).
   const dst = b.DST || {};
   const teamStats = b.teamStats || {};
+  const lineScore = b.lineScore || {};
   const teamDefense = {};
   for (const side of ['home', 'away']) {
     const dstSide = dst[side];
@@ -113,7 +145,11 @@ function fromBox(box) {
     const teamCode = rawAbbr ? normalizeNflTeam(rawAbbr) : null;
     if (!teamCode) continue;
     const opponentSide = side === 'home' ? 'away' : 'home';
-    teamDefense[teamCode] = normalizeTank01DstStats(dstSide, teamStats[opponentSide]);
+    teamDefense[teamCode] = normalizeTank01DstStats(
+      dstSide,
+      teamStats[opponentSide],
+      sideScore(lineScore, opponentSide)
+    );
   }
 
   return {

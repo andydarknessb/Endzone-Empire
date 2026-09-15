@@ -30,7 +30,7 @@ test('every client identity comparison is allowlisted with a rule', () => {
 });
 
 test('catches a component that rebuilds owner-ness from an account id', () => {
-  // The exact comparison src/lib/teamIdentity.js's header says it replaces.
+  // The exact comparison src/shared/lib/teamIdentity.js's header says it replaces.
   const mutant = 'const isOwner = user.id === league.owner_id;\n';
 
   expect(findComparisons(mutant, { includeUsername: true })).toEqual([

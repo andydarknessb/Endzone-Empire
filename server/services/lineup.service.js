@@ -567,8 +567,13 @@ function scheduleKeyFor(player) {
 
 /**
  * The normalised NFL teams whose game for (season, week) has kicked off.
- * Private on purpose: this is the schedule side of the comparison, and
- * handing it out is how the module got #227 in the first place.
+ * Exposed for #1375's kickoff waiver hold (ADR 0043), which needs the
+ * team-level predicate rather than a per-player one: every candidate is
+ * "every unrostered player on a kicked-off team", not a known roster to
+ * check, so `lockedPlayerIds` (built for the latter) does not fit. Every
+ * other caller stays internal to this module, per #227: handing out the raw
+ * team set is how that one got introduced, so a new caller should have a
+ * reason as specific as this one's before reaching for it again.
  */
 async function kickedOffTeams(client, { season, week, now }) {
   const result = await client.query(
@@ -932,17 +937,12 @@ async function playersNotHeldAtKickoff(client, { teamId, season, week, players, 
  * the week as played keeps him (#190).
  */
 async function playersNotHeldAtLastKickoff(client, { teamId, season, week, players, kickoffCache = null }) {
-  const schedule = await weekKickoffs(client, { season, week, kickoffCache });
-  let last = null;
-  for (const at of schedule.values()) {
-    const time = new Date(at).getTime();
-    if (last === null || time > last) last = time;
-  }
+  const lastKickoff = await weekLastKickoff(client, { season, week, kickoffCache });
   // No schedule, or one whose kickoffs do not parse: nothing to be held at,
   // so nobody is excluded (an Invalid Date would otherwise reach pg and roll
   // back the whole scoring pass).
-  if (!Number.isFinite(last)) return new Set();
-  const lastKickoff = new Date(last);
+  if (!lastKickoff) return new Set();
+  const schedule = await weekKickoffs(client, { season, week, kickoffCache });
   const scheduled = (players || [])
     .filter((player) => {
       const team = scheduleKeyFor(player);
@@ -950,6 +950,28 @@ async function playersNotHeldAtLastKickoff(client, { teamId, season, week, playe
     })
     .map((player) => ({ id: player.id, kickoff: lastKickoff }));
   return playersNotHeldAt(client, { teamId, scheduled });
+}
+
+/**
+ * The week's LAST kickoff (#635, ADR 0022): the latest kickoff on the week's
+ * schedule, over every game that week. Exposed for #1375's kickoff waiver
+ * hold (ADR 0043), which needs this same instant without a candidate roster
+ * to test tenure against - `weekKickoffs` stays private, this is the way
+ * out for that half of the question, the way `lockedPlayerIds` is for the
+ * kicked-off half.
+ *
+ * Null when the week has no schedule, or one whose kickoffs do not parse:
+ * "nothing to be held at" for `playersNotHeldAtLastKickoff` below, and
+ * "write nothing" for the kickoff hold job.
+ */
+async function weekLastKickoff(client, { season, week, kickoffCache = null }) {
+  const schedule = await weekKickoffs(client, { season, week, kickoffCache });
+  let last = null;
+  for (const at of schedule.values()) {
+    const time = new Date(at).getTime();
+    if (last === null || time > last) last = time;
+  }
+  return Number.isFinite(last) ? new Date(last) : null;
 }
 
 /**
@@ -1624,6 +1646,8 @@ module.exports = {
   interruptedStashFields,
   restoreInterruptedStash,
   lockedPlayerIds,
+  kickedOffTeams,
+  weekLastKickoff,
   playersNotHeldAtKickoff,
   playersNotHeldAtLastKickoff,
   rowsHeldAsPlayed,

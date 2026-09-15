@@ -533,17 +533,24 @@ async function executeTrade(client, { trade, league, items, teams, byCommissione
     });
     // The receiving side's acquire gate, immediately before this player's own
     // insert: the freeze, the receiving Team's lock, the per-position cap and
-    // the waiver hold. Only capacity is bypassed - the net question above owns
-    // it. Because this runs after the previous item's insert has landed, two
-    // incoming players at the same position are counted one after the other and
-    // the second is refused against a cap of one.
+    // the waiver hold. Only capacity and the kickoff hold are bypassed - the
+    // net question above owns capacity, and KICKOFF_HOLD is bypassed because a
+    // trade moves an already-rostered player, never a Free agent (ADR 0043;
+    // lead ruling on issue #1376): the giving side's release has already run
+    // above, so at this point in the transaction he reads as unrostered, and
+    // without this bypass a player whose game has already kicked off could
+    // never be traded, which nobody asked for. The existing waiver-row check
+    // (WAIVER_HOLD) is untouched and still runs. Because this runs after the
+    // previous item's insert has landed, two incoming players at the same
+    // position are counted one after the other and the second is refused
+    // against a cap of one.
     await assertRosterWriteAllowed(client, {
       leagueId: league.id,
       teamId: item.to_team_id,
       direction: 'acquire',
       playerId: item.player_id,
       position: (tradedPlayerById.get(item.player_id) || {}).position,
-      bypass: [ROSTER_GATE.CAPACITY],
+      bypass: [ROSTER_GATE.CAPACITY, ROSTER_GATE.KICKOFF_HOLD],
     });
     await client.query(
       `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,

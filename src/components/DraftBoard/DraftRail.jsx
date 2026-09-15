@@ -19,13 +19,20 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import CloseIcon from '@mui/icons-material/Close';
-import PlayerNameLink from '../PlayerQuickView/PlayerNameLink';
+// Direct file import (#1311, draft-harness-coverage guard), not the
+// entities/player barrel: the barrel's index.js also re-exports
+// `usePlayerCard`, whose module graph reaches `shared/lib/useEndpoint`'s
+// non-literal `apiClient.get(url)` - importing ANY named export from a
+// barrel evaluates the whole module, which would pull that unresolvable
+// call into the Draft room's statically-analyzed import closure. PlayerNameLink
+// itself imports only React and MUI, so this file alone stays clean of it.
+import PlayerNameLink from '../../entities/player/ui/PlayerNameLink';
 import RosterPanel from '../RosterPanel/RosterPanel';
 import RosterNeedsStrip from '../RosterPanel/RosterNeedsStrip';
 import { railCompositionFor, RAIL_PANELS } from './railComposition';
 import { readinessSummaryFor, READINESS_LIST } from './readinessSummary';
 import { DraftRoomAssistantPanel } from './DraftRoomAssistant';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import useFocusRescue from './useFocusRescue';
 import DraftOrderPanel from '../../widgets/draft-order/ui/DraftOrderPanel';
 

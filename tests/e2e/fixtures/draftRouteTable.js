@@ -203,14 +203,63 @@ const routeTable = [
     },
   },
 
+  // GET /api/players/:id/card + GET /api/team/lineup/:id/context (#1313): the
+  // Decision card's own reads, replacing the deleted per-player summary
+  // route above for the Draft room's `draft` context. Shaped like
+  // tests/e2e/fixtures/decisionCardFixtures.ts's `cardPayload`/context
+  // responses; `seasons` is required (#1358, lead correction on the issue
+  // thread) - the card's weekly bars and game log read `card.seasons`, never
+  // a top-level `weeks`/`log`.
   {
     method: 'GET',
-    pattern: '/api/players/:id/summary',
+    pattern: '/api/players/:id/card',
     respond: (ctx) => {
       const id = Number(ctx.params.id);
       const player = ctx.state.players.find((p) => p.id === id) || null;
-      return { status: 200, body: { player, fantasy: {}, currentSeason: null, previousSeasons: [] } };
+      if (!player) return { status: 404, body: { error: 'player not found' } };
+      return {
+        status: 200,
+        body: {
+          player: {
+            id: player.id,
+            name: player.name,
+            position: player.position,
+            teamCode: player.nfl_team,
+            jerseyNumber: null,
+            photoUrl: null,
+            byeWeek: player.bye_week ?? null,
+            injury: { designation: player.injury_status ?? null, detail: player.injury_detail ?? null },
+          },
+          availability: { state: 'free_agent', teamId: null, teamName: null },
+          decision: { projWeek: null, ros: null, upgrade: null, usage: null },
+          weeks: [],
+          seasons: [
+            {
+              season: 2026,
+              games: 0,
+              points: null,
+              pointsPerGame: null,
+              posRank: player.position_rank ?? null,
+              posRankOf: null,
+              adp: player.adp ?? null,
+              weeks: [],
+              log: [],
+            },
+          ],
+          seasonEnd: 17,
+          news: [],
+          log: { current: [], previousSeasons: [] },
+          bio: null,
+          depth: null,
+          ownership: null,
+        },
+      };
     },
+  },
+  {
+    method: 'GET',
+    pattern: '/api/team/lineup/:id/context',
+    respond: () => ({ status: 200, body: { line: null, weather: null, usage: null } }),
   },
 
   // Feeds only the pool's Bye overlap hint (useMyRoster.js) -- every rostered
@@ -312,6 +361,71 @@ const unstubbed = [
       'never fetches. Its apiClient.get(url) takes a caller-supplied URL, not a ' +
       'Draft-room endpoint literal; there is nothing to stub.',
     paths: [],
+  },
+  // #1313: the Decision card (src/widgets/player-decision-card) enters the
+  // Draft room's closure for the first time, replacing DraftQuickView. The
+  // four groups below are pulled in by its barrel imports (entities/player,
+  // entities/line, entities/player-usage, features/add-player,
+  // features/claim-player, features/swap-players) even though the Draft
+  // room's own `draft` context never renders the pieces that call them -
+  // AddPlayerAction/ClaimPlayerAction only mount for context="free_agent"/
+  // "waivers", and the bench-management save only fires when a caller passes
+  // `onSwap`/`entries` (DraftBoard passes neither). The guard walks the whole
+  // import graph regardless of which branch actually runs, so these are
+  // acknowledged the same way `useDraftAdmin.js` above is: real endpoints, on
+  // a surface no Draft E2E test reaches.
+  {
+    file: 'shared/lib/useEndpoint.js',
+    reason:
+      'Generic one-GET-per-URL fetcher behind the Decision card\'s entity ' +
+      'reads (usePlayerCard, useDecisionCardLine, useDecisionCardUsage). Its ' +
+      'apiClient.get(url) takes a caller-built URL, not a literal; the two ' +
+      'literals those hooks build (GET /api/players/:id/card, GET ' +
+      '/api/team/lineup/:id/context) are stubbed in the table above.',
+    paths: [],
+  },
+  {
+    file: 'features/add-player/model/useAddPlayer.js',
+    reason:
+      'Reached only through the Decision card widget\'s barrel; DraftBoard ' +
+      'always passes context="draft", so AddPlayerAction (context="free_agent" ' +
+      'only) never mounts and this never fires from the Draft room.',
+    paths: [
+      { method: 'DELETE', pattern: '/api/team/roster/:id' },
+      { method: 'POST', pattern: '/api/team/roster/:id' },
+      { method: 'POST', pattern: '/api/team/roster/:id/undo-drop' },
+    ],
+  },
+  {
+    file: 'features/claim-player/model/useClaimPlayer.js',
+    reason:
+      'Same reachability as add-player above: pulled in by the Decision card ' +
+      'widget\'s barrel, never rendered by the Draft room\'s own `draft` ' +
+      'context (context="waivers" never fires there).',
+    paths: [{ method: 'POST', pattern: '/api/waivers/claim' }],
+  },
+  {
+    // #1312: the Watch/Watching action bar button, reachable from every one
+    // of the Decision card's Availability contexts.
+    file: 'features/watch-player/model/useWatchPlayer.js',
+    reason:
+      'Same reachability as add-player and claim-player above: pulled in by ' +
+      'the Decision card widget\'s barrel, never rendered by the Draft ' +
+      'room\'s own `draft` context (the Watch button renders for every ' +
+      'Availability context but never `draft`).',
+    paths: [
+      { method: 'PUT', pattern: '/api/players/:id/watch' },
+      { method: 'DELETE', pattern: '/api/players/:id/watch' },
+    ],
+  },
+  {
+    file: 'hooks/useResilientLineupMutation.js',
+    reason:
+      'Pulled in transitively through features/swap-players (the Decision ' +
+      'card\'s bench-options legality rule, isEligibleMove); DraftBoard ' +
+      'passes no `onSwap`/`entries`, so the card\'s `lineupManaged` gate is ' +
+      'always false there and this mutation never fires.',
+    paths: [{ method: 'PUT', pattern: '/api/team/lineup' }],
   },
 ];
 

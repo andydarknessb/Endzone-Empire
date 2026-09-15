@@ -19,8 +19,8 @@ import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone'
 import {
   LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
-} from '../../lib/leagueType';
-import { JOIN_REFUSAL_REASON } from '../../lib/leaguePhase';
+} from '../../shared/lib/leagueType';
+import { JOIN_REFUSAL_REASON } from '../../shared/lib/leaguePhase';
 import './LeagueManagement.css';
 
 // The invite preview's closed-joining note, keyed on the server's joinability

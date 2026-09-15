@@ -1,0 +1,251 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`renders the same anonymous hero and stat grid as before the In your leagues addition 1`] = `
+<div
+  class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-1eweq8-MuiPaper-root-MuiCard-root"
+  data-testid="profile-hero"
+>
+  <div
+    class="MuiCardContent-root css-46bh2p-MuiCardContent-root"
+  >
+    <div
+      class="MuiStack-root css-1bri955-MuiStack-root"
+    >
+      <div
+        class="MuiAvatar-root MuiAvatar-circular MuiAvatar-colorDefault css-1pwbxy8-MuiAvatar-root"
+      >
+        A
+      </div>
+      <div
+        class="MuiBox-root css-i9gxme"
+      >
+        <h1
+          class="MuiTypography-root MuiTypography-h3 css-zdtj6h-MuiTypography-root"
+        >
+          Alpha Back
+        </h1>
+        <div
+          class="MuiStack-root css-1dwv3yg-MuiStack-root"
+        >
+          <div
+            class="MuiChip-root MuiChip-filled MuiChip-sizeSmall MuiChip-colorDefault MuiChip-filledDefault css-1pf4pj5-MuiChip-root"
+          >
+            <span
+              class="MuiChip-label MuiChip-labelSmall css-t3ycia-MuiChip-label"
+            >
+              RB
+            </span>
+          </div>
+          <div
+            class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorDefault MuiChip-outlinedDefault css-1ueax8x-MuiChip-root"
+          >
+            <span
+              class="MuiChip-label MuiChip-labelSmall css-gbf2tt-MuiChip-label"
+            >
+              KC
+            </span>
+          </div>
+        </div>
+      </div>
+      <div
+        class="MuiBox-root css-n0ucam"
+      >
+        <div
+          class="MuiTypography-root MuiTypography-stat css-bg22nh-MuiTypography-root"
+        >
+          340
+        </div>
+        <span
+          class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+        >
+          2025
+           fantasy points
+           · Half-PPR
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`renders the same anonymous hero and stat grid as before the In your leagues addition 2`] = `
+<div
+  class="MuiGrid2-root MuiGrid2-container MuiGrid2-direction-xs-row MuiGrid2-spacing-xs-2 css-gqvw4e-MuiGrid2-root"
+  data-testid="stat-grid"
+>
+  <div
+    class="MuiGrid2-root MuiGrid2-direction-xs-row MuiGrid2-grid-xs-6 MuiGrid2-grid-md-2.4 css-8m281f-MuiGrid2-root"
+  >
+    <div
+      class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-kc22m7-MuiPaper-root-MuiCard-root"
+    >
+      <div
+        class="MuiCardContent-root css-7wgau7-MuiCardContent-root"
+      >
+        <div
+          class="MuiTypography-root MuiTypography-stat css-rsnsjt-MuiTypography-root"
+        >
+          17
+        </div>
+        <div
+          class="MuiStack-root css-a8cmkq-MuiStack-root"
+        >
+          <span
+            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+          >
+            Games
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    class="MuiGrid2-root MuiGrid2-direction-xs-row MuiGrid2-grid-xs-6 MuiGrid2-grid-md-2.4 css-8m281f-MuiGrid2-root"
+  >
+    <div
+      class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-kc22m7-MuiPaper-root-MuiCard-root"
+    >
+      <div
+        class="MuiCardContent-root css-7wgau7-MuiCardContent-root"
+      >
+        <div
+          class="MuiTypography-root MuiTypography-stat css-rsnsjt-MuiTypography-root"
+        >
+          20
+        </div>
+        <div
+          class="MuiStack-root css-a8cmkq-MuiStack-root"
+        >
+          <span
+            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+          >
+            FPTS/G
+          </span>
+          <svg
+            aria-hidden="true"
+            aria-label="FPTS/G definition"
+            class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-11lp8hd-MuiSvgIcon-root"
+            data-mui-internal-clone-element="true"
+            data-testid="InfoOutlinedIcon"
+            focusable="false"
+            tabindex="0"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8"
+            />
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    class="MuiGrid2-root MuiGrid2-direction-xs-row MuiGrid2-grid-xs-6 MuiGrid2-grid-md-2.4 css-8m281f-MuiGrid2-root"
+  >
+    <div
+      class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-kc22m7-MuiPaper-root-MuiCard-root"
+    >
+      <div
+        class="MuiCardContent-root css-7wgau7-MuiCardContent-root"
+      >
+        <div
+          class="MuiTypography-root MuiTypography-stat css-rsnsjt-MuiTypography-root"
+        >
+          340
+        </div>
+        <div
+          class="MuiStack-root css-a8cmkq-MuiStack-root"
+        >
+          <span
+            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+          >
+            Season points
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    class="MuiGrid2-root MuiGrid2-direction-xs-row MuiGrid2-grid-xs-6 MuiGrid2-grid-md-2.4 css-8m281f-MuiGrid2-root"
+  >
+    <div
+      class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-kc22m7-MuiPaper-root-MuiCard-root"
+      data-testid="pos-rank-stat-card"
+    >
+      <div
+        class="MuiCardContent-root css-7wgau7-MuiCardContent-root"
+      >
+        <div
+          class="MuiTypography-root MuiTypography-stat css-rsnsjt-MuiTypography-root"
+        >
+          #7
+        </div>
+        <div
+          class="MuiStack-root css-a8cmkq-MuiStack-root"
+        >
+          <span
+            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+          >
+            Pos rank
+          </span>
+          <svg
+            aria-hidden="true"
+            aria-label="Pos rank definition"
+            class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-11lp8hd-MuiSvgIcon-root"
+            data-mui-internal-clone-element="true"
+            data-testid="InfoOutlinedIcon"
+            focusable="false"
+            tabindex="0"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8"
+            />
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    class="MuiGrid2-root MuiGrid2-direction-xs-row MuiGrid2-grid-xs-6 MuiGrid2-grid-md-2.4 css-8m281f-MuiGrid2-root"
+  >
+    <div
+      class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-kc22m7-MuiPaper-root-MuiCard-root"
+      data-testid="adp-stat-card"
+    >
+      <div
+        class="MuiCardContent-root css-7wgau7-MuiCardContent-root"
+      >
+        <div
+          class="MuiTypography-root MuiTypography-stat css-rsnsjt-MuiTypography-root"
+        >
+          12.5
+        </div>
+        <div
+          class="MuiStack-root css-a8cmkq-MuiStack-root"
+        >
+          <span
+            class="MuiTypography-root MuiTypography-caption css-1nvey0x-MuiTypography-root"
+          >
+            ADP
+          </span>
+          <svg
+            aria-hidden="true"
+            aria-label="ADP definition"
+            class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-11lp8hd-MuiSvgIcon-root"
+            data-mui-internal-clone-element="true"
+            data-testid="InfoOutlinedIcon"
+            focusable="false"
+            tabindex="0"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8"
+            />
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;

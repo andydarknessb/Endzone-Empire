@@ -1,4 +1,4 @@
-import { isPickemOnly } from '../../lib/leagueType';
+import { isPickemOnly } from './leagueType';
 import { receptionFormatLabel } from '../../lib/leagueRulesFormat';
 
 // Waiver type in the words a 120px tile can hold. Not WAIVER_TYPE_LABELS from

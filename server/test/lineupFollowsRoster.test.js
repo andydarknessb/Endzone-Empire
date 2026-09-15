@@ -182,7 +182,7 @@ test('manager drop: the waiver hold records the stash the drop interrupted', asy
   // is where what the drop interrupted belongs. Without this the undo would
   // have nothing to replay: the row it used to read has just been deleted.
   assert.equal(holds.length, 1);
-  assert.deepEqual(holds[0].params, [5, 21, 24, 10, 'IR', true]);
+  assert.deepEqual(holds[0].params, [5, 21, null, 24, 10, 'IR', true]);
   fake.assertClean();
 });
 
@@ -193,7 +193,7 @@ test('manager drop: nothing is recorded when he held no current-week row', async
 
   await dropPlayer({ leagueId: 5, userId: 7, playerId: 21 });
 
-  assert.deepEqual(holds[0].params, [5, 21, 24, 10, null, false]);
+  assert.deepEqual(holds[0].params, [5, 21, null, 24, 10, null, false]);
   fake.assertClean();
 });
 
@@ -216,7 +216,7 @@ test('manager drop: a best-ball bench entry is a lineup entry and goes like any 
   // does not ask what slot he was in, and the recorded slot is not an IR
   // stash, so an undo will bench him.
   assertRemoval(removals[0], { teamId: 10, playerId: 21, currentWeekToo: true });
-  assert.deepEqual(holds[0].params, [5, 21, 24, 10, 'BENCH', false]);
+  assert.deepEqual(holds[0].params, [5, 21, null, 24, 10, 'BENCH', false]);
   fake.assertClean();
 });
 
@@ -355,7 +355,7 @@ test('commissioner drop: takes the unlocked rows and records what it interrupted
   assertRemoval(removals[0], { teamId: 10, playerId: 21, currentWeekToo: true });
   // The commissioner drop is undoable on the same waiver hold as a manager
   // drop, so it records the same thing.
-  assert.deepEqual(holds[0].params, [5, 21, 24, 10, 'IR', false]);
+  assert.deepEqual(holds[0].params, [5, 21, null, 24, 10, 'IR', false]);
   fake.assertClean();
 });
 

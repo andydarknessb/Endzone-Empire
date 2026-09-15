@@ -1,9 +1,13 @@
 import { useEffect } from 'react';
 import { useLeague } from '../../../hooks/useLeague';
-import { commissionerFacts } from '../../../shared/lib';
-import { isPickemOnly } from '../../../lib/leagueType';
-import { isLeagueCreator } from '../../../lib/teamIdentity';
-import { deriveLeaguePhase, isSeasonLive, LEAGUE_PHASE_META } from '../../../lib/leaguePhase';
+import {
+  commissionerFacts,
+  isPickemOnly,
+  isLeagueCreator,
+  deriveLeaguePhase,
+  isSeasonLive,
+  LEAGUE_PHASE_META,
+} from '../../../shared/lib';
 import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../../lib/teamProfileEvents';
 
 /**

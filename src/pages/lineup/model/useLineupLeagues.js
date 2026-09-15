@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { isPickemOnly } from '../../../lib/leagueType';
+import { isPickemOnly } from '../../../shared/lib';
 
 /**
  * The Lineup page's league inventory and selection (#1237, restated from

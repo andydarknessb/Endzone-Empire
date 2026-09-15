@@ -46,13 +46,13 @@ import {
   perYardHelper,
   buildInitialRules,
 } from '../../lib/leagueRulesFormat';
-import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../lib/leagueType';
+import { capForType, isPickemOnly, leagueTypeOf, MIN_TEAMS } from '../../shared/lib/leagueType';
 import {
   deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability, removeRefusalMessage,
-} from '../../lib/leaguePhase';
-import { teamNameLabel } from '../../lib/teamIdentity';
+} from '../../shared/lib/leaguePhase';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { Badge, SegmentedControl } from '../../shared/ui';
 
@@ -402,7 +402,7 @@ function CoCommissionerCard({ leagueId, league, teams, onRefresh, notify }) {
             handleRevoke clears the target before awaiting, so an unguarded
             teamNameLabel(revokeTarget?.teamName) renders "Former manager" as
             the dialog fades - turning "nobody is selected" into a plausible
-            identity, which is the one misuse src/lib/teamIdentity.js's
+            identity, which is the one misuse src/shared/lib/teamIdentity.js's
             docstring calls out by name. */}
         <DialogTitle>
           {revokeTarget

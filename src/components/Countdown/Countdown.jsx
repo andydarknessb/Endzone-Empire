@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { buildDraftIcs, draftTimezoneDetail, formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
-import { MIN_TOUCH_TARGET_SX } from '../../lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;

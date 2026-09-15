@@ -28,7 +28,7 @@ const mockTransactions = (data, league = { id: 1, name: 'Sunday Ballers', pickem
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/transactions')) return Promise.resolve({ data });
     if (/\/api\/league\/\d+$/.test(url)) return Promise.resolve({ data: { league, teams: [] } });
-    return new Promise(() => {}); // player quick-view summary calls: never resolve
+    return new Promise(() => {}); // the Decision card's /card read: never resolves
   });
 };
 
@@ -279,7 +279,7 @@ test('shows 30 rows initially and reveals more on demand', async () => {
   expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
 });
 
-test('clicking a player name opens the shared PlayerQuickView dialog', async () => {
+test('clicking a player name opens the Decision card', async () => {
   mockTransactions([
     txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } }),
   ]);
@@ -288,7 +288,61 @@ test('clicking a player name opens the shared PlayerQuickView dialog', async () 
   await screen.findByTestId('txn-1');
   await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
 
-  expect(await screen.findByTestId('quickview-skeleton')).toBeInTheDocument();
+  expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
+});
+
+// #1311, ADR 0040 ruling (c): TransactionLog has no roster fact of its own
+// to classify a segment's player by, so it passes `contextFromCard` and the
+// card's own `availability.state` decides which action bar renders.
+test("the Decision card derives its context from the /card payload once it answers", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/transactions')) {
+      return Promise.resolve({
+        data: [txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } })],
+      });
+    }
+    if (/\/api\/league\/\d+$/.test(url)) {
+      return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', pickem_only: false }, teams: [] } });
+    }
+    if (url.includes('/card?')) {
+      return Promise.resolve({ data: { availability: { state: 'rostered' } } });
+    }
+    return new Promise(() => {});
+  });
+  renderScreen();
+
+  await screen.findByTestId('txn-1');
+  await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
+
+  expect(await screen.findByTestId('decision-card-propose-trade')).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+});
+
+// Formal review round 1, f2: the sibling case - a log entry about the
+// viewer's OWN player (availability.state 'my_team') renders the other
+// branch, Open lineup, not Propose trade.
+test("the Decision card renders Open lineup for a viewer's own player (availability my_team)", async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/transactions')) {
+      return Promise.resolve({
+        data: [txn({ id: 1, type: 'add', team_name: "Bob's Team", player_name: 'Justin Jefferson', detail: { playerId: 1 } })],
+      });
+    }
+    if (/\/api\/league\/\d+$/.test(url)) {
+      return Promise.resolve({ data: { league: { id: 1, name: 'Sunday Ballers', pickem_only: false }, teams: [] } });
+    }
+    if (url.includes('/card?')) {
+      return Promise.resolve({ data: { availability: { state: 'my_team' } } });
+    }
+    return new Promise(() => {});
+  });
+  renderScreen();
+
+  await screen.findByTestId('txn-1');
+  await userEvent.click(screen.getByRole('button', { name: 'Justin Jefferson' }));
+
+  expect(await screen.findByTestId('decision-card-open-lineup')).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
 });
 
 // Regression (#1112): TransactionLog used to find a player's link position
@@ -311,12 +365,12 @@ test('a dropped player whose name prefixes the added player\'s name opens its ow
   await screen.findByTestId('txn-1');
 
   await userEvent.click(screen.getByRole('button', { name: 'Josh Allen Jr.' }));
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/2/summary', expect.anything()));
-  await userEvent.click(screen.getByRole('button', { name: 'Close' }));
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/2/card?leagueId=1'));
+  await userEvent.click(screen.getByTestId('decision-card-close'));
+  await waitFor(() => expect(screen.queryByTestId('decision-card')).not.toBeInTheDocument());
 
   await userEvent.click(screen.getByRole('button', { name: 'Josh Allen' }));
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/1/summary', expect.anything()));
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/players/1/card?leagueId=1'));
 });
 
 // --- Pick'em-only leagues ---

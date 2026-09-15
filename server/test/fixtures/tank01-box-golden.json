@@ -1,11 +1,15 @@
 {
-  "_comment": "Golden for the Box source seam (#1183). expected was captured from applyGameBoxScore at origin/integration 705a7598 (pre-refactor) with pool.query stubbed; upserts are [playerId, season, week, stats, fantasyPoints] in write order. Regenerating this file is a behaviour change and needs a review, not a rerun.",
+  "_comment": "Golden for the Box source seam (#1183). expected was captured from applyGameBoxScore at origin/integration 705a7598 (pre-refactor) with pool.query stubbed; upserts are [playerId, season, week, stats, fantasyPoints] in write order. Regenerating this file is a behaviour change and needs a review, not a rerun. #1384 added `box.lineScore`: pointsAllowed is now read from the opponent's lineScore total instead of DST.*.ptsAllowed (tank01BoxSource.sideFinalScore), so lineScore.away sums to 17 and lineScore.home sums to 31 to match the DST.*.ptsAllowed values this golden already pinned — pointsAllowed and every downstream expected value are unchanged.",
   "box": {
     "gameID": "20260913_JAC@WSH",
     "gameStatus": "Live - In Progress",
     "gameStatusCode": "1",
     "home": "WSH",
     "away": "JAC",
+    "lineScore": {
+      "home": { "Q1": "10", "Q2": "7", "Q3": "7", "Q4": "7" },
+      "away": { "Q1": "3", "Q2": "7", "Q3": "0", "Q4": "7" }
+    },
     "playerStats": {
       "999999": {
         "playerID": "999999",

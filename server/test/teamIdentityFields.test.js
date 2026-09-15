@@ -12,7 +12,7 @@ const {
  * CONTEXT.md's Team identity rule is that every league-shared surface names a
  * participant by `teamId` / `teamName` and nothing account-shaped. Until this
  * ticket the rule lived in prose in both `server/services/teamIdentity.js` and
- * its client mirror `src/lib/teamIdentity.js`, and only the server's SQL helper
+ * its client mirror `src/shared/lib/teamIdentity.js`, and only the server's SQL helper
  * actually enforced the spelling. `TEAM_IDENTITY_FIELDS` is now the single
  * source of those two strings in each module. This suite owns the SERVER half:
  *
@@ -21,7 +21,7 @@ const {
  *    drift from the contract.
  *
  * The cross-module equality - that the client mirror exports the identical list
- * - is pinned on the CLIENT side, in src/lib/teamIdentity.test.js, which imports
+ * - is pinned on the CLIENT side, in src/shared/lib/teamIdentity.test.js, which imports
  * BOTH exports and compares them directly. That is stronger than reading the
  * client source from here would be (a source read can pass silently against a
  * comment decoy), and it needs no ESM/CJS bridge. Because that test asserts the
