@@ -26,6 +26,7 @@ function completionPool(league) {
   return createFakePool([
     [select('leagues'), () => ({ rows: [{ ...league }] })],
     [update('leagues'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: TWO_TEAMS.length })],
     [select('teams'), () => ({ rows: TWO_TEAMS.map((t) => ({ ...t })) })],
     // generateRegularSeason's per-week existing-schedule probe and its insert.
     [select('matchups'), () => ({ rows: [] })],
@@ -79,6 +80,26 @@ test('completeDraft opens the waiver window, schedules the season, then appends 
   assert.equal(entry.kind, 'complete');
 });
 
+test('completeDraft seeds waiver priority from reverse draft order, before the schedule', async (t) => {
+  const fake = completionPool(COMPLETE_LEAGUE);
+  const client = await fake.connect();
+
+  await completeDraft(client, { leagueId: 1 });
+
+  const seeds = fake.calls.filter((c) => update('teams').test(c.text));
+  assert.equal(seeds.length, 1, 'one seed statement for the whole league');
+  assert.ok(/"waiver_priority"/.test(seeds[0].text), 'it writes waiver_priority');
+  assert.ok(
+    /ROW_NUMBER\(\) OVER \(ORDER BY "draft_position" DESC NULLS LAST, "id" DESC\)/.test(seeds[0].text),
+    'ranked by reverse draft order: the last pick claims first'
+  );
+  assert.deepEqual(seeds[0].params, [1], 'scoped to the league');
+
+  const seedAt = fake.calls.findIndex((c) => update('teams').test(c.text));
+  const scheduledAt = fake.calls.findIndex((c) => insert('matchups').test(c.text));
+  assert.ok(seedAt < scheduledAt, 'the order exists before the season is scheduled');
+});
+
 test('completeDraft refuses a league whose status flip has not happened, and writes nothing (#789 AC1)', async (t) => {
   const fake = completionPool({ ...COMPLETE_LEAGUE, draft_status: 'active' });
   const client = await fake.connect();
@@ -94,6 +115,7 @@ test('completeDraft refuses a league whose status flip has not happened, and wri
 
   // It threw before any write: only the precondition read ran.
   assert.equal(fake.calls.filter((c) => update('leagues').test(c.text)).length, 0);
+  assert.equal(fake.calls.filter((c) => update('teams').test(c.text)).length, 0);
   assert.equal(fake.calls.filter((c) => insert('matchups').test(c.text)).length, 0);
   assert.equal(fake.calls.filter((c) => insert('draft_activity').test(c.text)).length, 0);
 });

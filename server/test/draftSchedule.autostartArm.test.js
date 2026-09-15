@@ -261,6 +261,8 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
       return { rows: [{ pick_deadline_at: deadline }], rowCount: 1 };
     }],
     [select('teams'), () => ({ rows: teams })],
+    // completeDraft's waiver-priority seed on a keeper-complete start.
+    [update('teams'), () => ({ rows: [], rowCount: teams.length })],
     [select('keepers'), () => ({ rows: keepers })],
     [select('matchups'), () => ({ rows: [] })],
     [insert('matchups'), () => ({ rows: [], rowCount: 1 })],

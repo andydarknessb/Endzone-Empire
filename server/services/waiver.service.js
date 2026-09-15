@@ -299,6 +299,29 @@ async function openPostDraftWaiverWindow(client, { leagueId }) {
   );
 }
 
+/**
+ * Seed the Waiver priority order when the draft completes: reverse draft order,
+ * so the last pick claims first (CONTEXT.md, Waiver priority). Ranks every team
+ * in the league in one statement, the same spelling the waivers migration used
+ * for the leagues that existed then; the leagues created since had no seed at
+ * all and started the season with NULL priorities, which orderClaims reads as
+ * "worst" for everyone and processWaivers then hands out only the back slot.
+ * The weekly reset (season.service resetWaiverPriorities) takes over from the
+ * first finalized week. Runs inside the caller's transaction
+ * (draftCompletion.completeDraft), after the draft_status flip.
+ */
+async function seedWaiverPriorityFromDraftOrder(client, { leagueId }) {
+  await client.query(
+    `UPDATE "teams" SET "waiver_priority" = "ranked"."rank", "updated_at" = now()
+     FROM (
+       SELECT "id", ROW_NUMBER() OVER (ORDER BY "draft_position" DESC NULLS LAST, "id" DESC) AS "rank"
+       FROM "teams" WHERE "league_id" = $1
+     ) AS "ranked"
+     WHERE "teams"."id" = "ranked"."id"`,
+    [leagueId]
+  );
+}
+
 async function processWaivers({ leagueId }) {
   // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
   // release rule (ADR 0033). The no-due-claims branch returns inside work,
@@ -740,4 +763,5 @@ module.exports = {
   processAllDueWaivers,
   holdKickedOffPlayers,
   openPostDraftWaiverWindow,
+  seedWaiverPriorityFromDraftOrder,
 };
