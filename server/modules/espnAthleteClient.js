@@ -218,13 +218,32 @@ async function getJson(transport, url, { params, headers } = {}) {
   }
 }
 
+// In-flight fetches per cache key (#1308 risk review): without this, two
+// concurrent card opens for the same cold athlete both miss the cache and
+// both call ESPN, and whichever settles LAST wins the write - a slow failure
+// (cached 5 min) can then overwrite a fresh success (meant to stand 6h),
+// cutting its real life by up to 72x. Coalescing to one in-flight promise per
+// key means at most one fetch is ever running for it, so there is nothing
+// left to race: the single result is the only thing `cacheSet` ever writes.
+const inFlight = new Map();
+
 async function cachedFetch(kind, id, transport, fetchFn) {
   const key = `${kind}:${id}`;
   const cached = cacheGet(key);
   if (cached !== undefined) return cached;
-  const value = await fetchFn();
-  cacheSet(key, value, value === null ? FAILURE_TTL_MS : SUCCESS_TTL_MS);
-  return value;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+  const promise = (async () => {
+    try {
+      const value = await fetchFn();
+      cacheSet(key, value, value === null ? FAILURE_TTL_MS : SUCCESS_TTL_MS);
+      return value;
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+  inFlight.set(key, promise);
+  return promise;
 }
 
 /** `{ age, height, weight, college, experience, draft } | null`, cached six

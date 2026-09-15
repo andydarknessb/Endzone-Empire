@@ -159,6 +159,41 @@ test('profile: two calls after a 403 inside five minutes make one transport call
   assert.equal(transport.calls.length, 1);
 });
 
+test('profile: two CONCURRENT calls for the same cold athlete make exactly one transport call (in-flight dedupe, #1308 risk review)', async () => {
+  let resolveGet;
+  const transport = fakeTransport(() => new Promise((resolve) => { resolveGet = resolve; }));
+  const firstCall = profile('9990010', { transport });
+  const secondCall = profile('9990010', { transport });
+  resolveGet(okResponse(athleteProfileFixture));
+  const [first, second] = await Promise.all([firstCall, secondCall]);
+  assert.deepEqual(first, second);
+  assert.equal(transport.calls.length, 1, 'both callers shared the one in-flight fetch');
+});
+
+test('profile: two concurrent calls where the shared fetch fails both resolve null from one transport call, and the negative cache then stands undisturbed (#1308 risk review)', async () => {
+  // Before in-flight dedupe, two concurrent callers for the same cold id each
+  // issued their own fetch, and whichever settled LAST won the cache write -
+  // a slow failure could overwrite a fresh success moments after it landed,
+  // cutting its 6h life down to 5 minutes. With dedupe there is only ever one
+  // fetch per key in flight, so there is nothing left to race: both callers
+  // await the SAME settled outcome, and the one write that follows is final.
+  let rejectGet;
+  const transport = fakeTransport(() => new Promise((resolve, reject) => { rejectGet = reject; }));
+  const firstCall = profile('9990011', { transport });
+  const secondCall = profile('9990011', { transport });
+  rejectGet(httpError(403));
+  const [first, second] = await Promise.all([firstCall, secondCall]);
+  assert.equal(first, null);
+  assert.equal(second, null);
+  assert.equal(transport.calls.length, 1, 'one shared fetch, not two');
+
+  // The negative cache it wrote stands: a later call in the same five-minute
+  // window makes no further transport call.
+  const third = await profile('9990011', { transport });
+  assert.equal(third, null);
+  assert.equal(transport.calls.length, 1);
+});
+
 test('overview: a 403 resolves null, not a throw, and getPlayerCard-facing shape is {news, injuryFacts} on success', async () => {
   const failing = fakeTransport(() => { throw httpError(403); });
   assert.equal(await overview('9990005', { transport: failing }), null);
