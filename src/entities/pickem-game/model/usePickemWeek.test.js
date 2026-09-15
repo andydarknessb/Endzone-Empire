@@ -7,6 +7,27 @@ jest.mock('../../../api/apiClient', () => ({
   default: { get: jest.fn(), put: jest.fn() },
 }));
 
+// A GET for /week/N returns the deferred registered for N, creating a fresh
+// one (and recording it) the first time N is requested, so a test can grab
+// the Nth deferred by number even when the hook fires more than one GET for
+// the same week (a save's reload after a week switch fires a second one).
+function makeGetRouter() {
+  const queues = new Map();
+  apiClient.get.mockImplementation((url) => {
+    const match = url.match(/\/week\/(\d+)$/);
+    if (!match) throw new Error(`unexpected url ${url}`);
+    const week = match[1];
+    if (!queues.has(week)) queues.set(week, []);
+    const d = deferred();
+    queues.get(week).push(d);
+    return d.promise;
+  });
+  return {
+    // The nth (1-indexed) GET issued for this week.
+    nth: (week, n) => queues.get(String(week))[n - 1],
+  };
+}
+
 // One deferred promise per week so the test controls resolution order
 // independently of request order.
 function deferred() {
@@ -86,3 +107,57 @@ test('a stale rejection does not overwrite error or clear loading for the newer 
   expect(result.current.data).toEqual({ week: 5 });
   expect(result.current.error).toBeNull();
 });
+
+// formal-001-f1: requestIdRef ordered calls to load(), not the week a
+// response belongs to. savePicks closes over its render's load, so if the
+// manager switches weeks while the PUT is in flight, the save's reload for
+// the old week starts (and used to claim the highest id) after the new
+// week's GET, dropping the new week's response and applying the old week's.
+test.each([
+  ['the new week GET resolves before the save\'s stale GET', ['week4', 'week3-initial', 'week3-reload']],
+  ['the save\'s stale GET resolves before the new week GET', ['week3-initial', 'week3-reload', 'week4']],
+])(
+  'a save reload for a week the hook has left does not beat the current week (%s)',
+  async (_label, resolveOrder) => {
+    const router = makeGetRouter();
+    const put = deferred();
+    apiClient.put.mockImplementation(() => put.promise);
+
+    const { result, rerender } = renderHook(
+      ({ week }) => usePickemWeek(7, week),
+      { initialProps: { week: 3 } }
+    );
+
+    // Kick off a save while still on week 3, then switch to week 4 before
+    // the save's PUT (and so its reload) resolves.
+    let savePromise;
+    act(() => {
+      savePromise = result.current.savePicks([{ gameKey: 'g1', pick: 'home' }]);
+    });
+    rerender({ week: 4 });
+
+    // Resolving the PUT synchronously kicks off the save's own reload
+    // (load()'s week-3 closure), which fires the second /week/3 GET —
+    // await that microtask turn, but not `savePromise` itself yet: it
+    // will not settle until that reload's GET resolves below.
+    await act(async () => {
+      put.resolve({});
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const resolvers = {
+      week4: () => router.nth(4, 1).resolve({ data: { week: 4 } }),
+      'week3-initial': () => router.nth(3, 1).resolve({ data: { week: 3, source: 'initial-mount' } }),
+      'week3-reload': () => router.nth(3, 2).resolve({ data: { week: 3, source: 'save-reload' } }),
+    };
+    for (const step of resolveOrder) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => { resolvers[step](); });
+    }
+    await act(async () => { await savePromise; });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.data).toEqual({ week: 4 });
+  }
+);

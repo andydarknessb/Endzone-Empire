@@ -23,45 +23,68 @@ export default function usePickemWeek(leagueId, week, { enabled = true } = {}) {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
-  // Bumped by every load() call so a response can tell, at the point it is
-  // about to apply, whether a newer request has since superseded it. Gating
-  // here (rather than around the outer load() wrapper) is required: the
-  // wrapper only learns a newer request started *after* this one already
-  // resolved and called setData, which is too late.
-  const requestIdRef = useRef(0);
+  // `desiredKeyRef` is the (leagueId, week) the hook currently wants to
+  // show. It is advanced only by the effect below, when those props
+  // change — never by a load() call itself — because savePicks and the
+  // PICKEM_LOCKED refetch close over the load() of whatever render they
+  // were created on, not necessarily the current one: ordering load()
+  // calls by a single counter (an earlier version of this fix did that)
+  // still let one of those stale reloads win, since it can be *issued*
+  // (and so claim the highest id) after the current week's request even
+  // though it targets a week the hook has since left (formal-001-f1).
+  // `latestIdByKeyRef` tracks, per (leagueId, week), the id of the most
+  // recently issued request for that exact key — so two requests for the
+  // same key (e.g. two reload() calls for the week still on screen) still
+  // resolve newest-wins, independent of the cross-key desiredKeyRef check.
+  const desiredKeyRef = useRef({ leagueId: null, week: null });
+  const latestIdByKeyRef = useRef(new Map());
+  const nextIdRef = useRef(0);
 
   const load = useCallback(() => {
-    const requestId = ++requestIdRef.current;
-    const isStale = () => requestId !== requestIdRef.current;
     if (!enabled || leagueId == null || week == null) {
       setLoading(false);
       return Promise.resolve();
     }
+
+    const key = `${leagueId}:${week}`;
+    const id = ++nextIdRef.current;
+    latestIdByKeyRef.current.set(key, id);
+    // A response applies only when it still belongs to the hook's current
+    // (leagueId, week) AND is the freshest request issued for that key — so
+    // a reload for a week/league the hook has since left neither applies
+    // nor can it supersede the current week's request, no matter which
+    // resolves first.
+    const applies = () =>
+      desiredKeyRef.current.leagueId === leagueId &&
+      desiredKeyRef.current.week === week &&
+      latestIdByKeyRef.current.get(key) === id;
+
     setLoading(true);
     setError(null);
     return apiClient
       .get(`/api/pickem/league/${leagueId}/week/${week}`)
       .then((res) => {
-        if (isStale()) return;
+        if (!applies()) return;
         setData(res.data);
       })
       .catch((requestError) => {
-        if (isStale()) return;
+        if (!applies()) return;
         setError(readHttpFailure(requestError).message || requestError.message || 'Request failed');
       })
       .finally(() => {
-        if (isStale()) return;
+        if (!applies()) return;
         setLoading(false);
       });
   }, [leagueId, week, enabled]);
 
   useEffect(() => {
+    desiredKeyRef.current = { leagueId, week };
     // The week changed — drop the old board rather than showing last week's
     // picks against this week's games while the request is in flight.
     setData(null);
     setSaveError(null);
     load();
-  }, [load]);
+  }, [load, leagueId, week]);
 
   const savePicks = useCallback(
     async (picks) => {
