@@ -1143,6 +1143,16 @@ test('#1411 (formal-001 f2): a team\'s week score is its highest single matchup 
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
+  // Unlike the tie tests (152 seeded -> 150 asserted, which only passes if
+  // the UPDATE actually ran), this test's seed already equals every
+  // assertion below - so it would pass just as well if the reconcile never
+  // ran at all. Assert it actually read the trophies table once, so a future
+  // change that made the reconcile a silent no-op couldn't turn this green
+  // for the wrong reason (risk re-review nit).
+  assert.equal(
+    fake.matching(/^SELECT "id", "team_id", "data" FROM "trophies"/).length, 1,
+    'the reconcile actually ran and read the existing trophy'
+  );
   assert.equal(fake.deleteCalls.length, 0, 'team 20 still has the true (non-summed) week high and must never be deleted');
   assert.equal(fake.insertCalls.length, 0, 'no new award is due - team 20 already correctly holds it');
   const topScorers = fake.trophyRows.filter((row) => row.type === 'top_scorer');
