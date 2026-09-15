@@ -45,6 +45,7 @@ import { useClaimPlayer } from "../../features/claim-player";
 import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
 import { rosterActionForPhase } from "../../shared/lib/leaguePhase";
+import { isRosterAtCapacity } from "../../shared/lib/rosterCapacity";
 import { isPickemOnly } from "../../shared/lib/leagueType";
 import {
   SORT_FIELDS,
@@ -371,10 +372,7 @@ function PlayerManagement() {
   // `actionForPlayer` below routes that case to the Decision card's claim
   // bar, whose drop pick is required there, the same gate `AddPlayerAction`
   // gives a free-agent add.
-  const rosterAtCapacity =
-    context?.rosterCount != null &&
-    context?.rosterCapacity != null &&
-    context.rosterCount >= context.rosterCapacity;
+  const rosterAtCapacity = isRosterAtCapacity(context);
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
@@ -421,13 +419,6 @@ function PlayerManagement() {
           disabled: true,
           helper: "Select a fantasy league to manage players.",
         };
-      if (state === "waivers" && rosterAtCapacity)
-        return {
-          kind: "button",
-          label: "Claim",
-          onClick: () => setQuickViewId(player.id),
-          helper: "Your roster is full. Choose a player to drop in the claim card.",
-        };
       if (state === "waivers")
         return {
           kind: "button",
@@ -435,11 +426,14 @@ function PlayerManagement() {
           // repeated Enter/click fire the same waiver claim twice before the
           // first request's snackbar ever appeared - disabling for the
           // request's own duration is the same guard Add already gets below
-          // from `rosterAction.disabled`.
+          // from `rosterAction.disabled`. At capacity the tap opens the
+          // Decision card's claim bar instead (see `rosterAtCapacity`).
           label: rowPending ? "Claiming…" : "Claim",
-          onClick: () => claimFromRow(player),
+          onClick: rosterAtCapacity ? () => setQuickViewId(player.id) : () => claimFromRow(player),
           disabled: rowPending,
-          helper: "Submit a waiver claim for this player.",
+          helper: rosterAtCapacity
+            ? "Your roster is full. Choose a player to drop in the claim card."
+            : "Submit a waiver claim for this player.",
         };
       if (state === "my_team")
         return {

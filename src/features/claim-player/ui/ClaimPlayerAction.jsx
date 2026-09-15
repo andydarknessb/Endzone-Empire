@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, sortRosterForDrop } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 
 /**
@@ -20,10 +20,7 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
   const isFaab = availability?.faabRemaining != null;
   const faabRemaining = availability?.faabRemaining ?? 0;
   const sortedRoster = sortRosterForDrop(roster);
-  const atCapacity =
-    availability?.rosterCount != null &&
-    availability?.rosterCapacity != null &&
-    availability.rosterCount >= availability.rosterCapacity;
+  const atCapacity = isRosterAtCapacity(availability);
   const dropMissing = atCapacity && dropPlayerId === '';
   const dropLabel = atCapacity ? 'Drop a player' : 'Drop a player (optional)';
 
@@ -33,7 +30,7 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
   const handleClaim = () => {
     submitClaim({
       playerId: player.playerId,
-      dropPlayerId: dropPlayerId === '' ? null : Number(dropPlayerId),
+      dropPlayerId: dropPlayerId === '' ? null : dropPlayerId,
       bid: isFaab ? Number(bid) : 0,
     });
   };
