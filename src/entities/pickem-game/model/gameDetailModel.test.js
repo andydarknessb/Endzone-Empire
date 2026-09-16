@@ -53,16 +53,33 @@ describe('recordsDisplayModel', () => {
     away: { total: '3-7', road: '1-5' },
   };
 
-  test('a normal (non-neutral) site shows the split each team is about to play in', () => {
+  test('a normal (non-neutral) site shows the total, then the cut each team is about to play in (the canvas shape)', () => {
     const model = recordsDisplayModel(records, { neutralSite: false });
-    expect(model.home).toBe('5-0');
-    expect(model.away).toBe('1-5');
+    expect(model.home).toBe('8-2 · home 5-0');
+    expect(model.away).toBe('3-7 · road 1-5');
+  });
+
+  test('#1488: after one road game a 1-0 team reads 1-0, never a bare 0-0 home cut', () => {
+    // 2026 week 2, BUF (home) opened on the road and DET (away) opened at home.
+    const week2 = { home: { total: '1-0', home: '0-0' }, away: { total: '1-0', road: '0-0' } };
+    const model = recordsDisplayModel(week2, { neutralSite: false });
+    expect(model.home).toBe('1-0 · home 0-0');
+    expect(model.away).toBe('1-0 · road 0-0');
   });
 
   test('a neutral site drops the split and keeps the total', () => {
     const model = recordsDisplayModel(records, { neutralSite: true });
     expect(model.home).toBe('8-2');
     expect(model.away).toBe('3-7');
+  });
+
+  test('a missing cut leaves the total alone, and a missing total leaves the cut alone', () => {
+    const noCut = { home: { total: '0-1', home: null }, away: { total: '1-0', road: null } };
+    expect(recordsDisplayModel(noCut, { neutralSite: false })).toEqual({ home: '0-1', away: '1-0' });
+    const noTotal = { home: { total: null, home: '0-1' }, away: { total: null, road: '1-0' } };
+    expect(recordsDisplayModel(noTotal, { neutralSite: false })).toEqual({ home: 'home 0-1', away: 'road 1-0' });
+    const nothing = { home: { total: null, home: null }, away: null };
+    expect(recordsDisplayModel(nothing, { neutralSite: false })).toEqual({ home: null, away: null });
   });
 
   test('no records at all reads as null', () => {
@@ -87,7 +104,7 @@ describe('gameDetailModel', () => {
     const detail = gameDetailModel(game);
     expect(detail.favorite).toBe('DAL');
     expect(detail.weather.windSpeedMph).toBeNull(); // under 15 mph
-    expect(detail.records).toEqual({ home: '5-0', away: '1-5' });
+    expect(detail.records).toEqual({ home: '8-2 · home 5-0', away: '3-7 · road 1-5' });
     expect(detail.venue).toEqual(game.venue);
     expect(detail.broadcast).toBe('FOX');
     expect(detail.situation).toEqual(game.situation);
