@@ -177,7 +177,7 @@ async function fetchLiveBox({ gameId, espnEventId, inProgress = true, now = Date
  * emitted. Delegates the write and the Final box guard to applyGameBoxScore.
  */
 async function applyLiveBox({ liveBox, season, week, maps }) {
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/boxScoreApply.service');
   const previous = lastSourceByGame.get(liveBox.gameId);
   const suppressPlays = previous !== undefined && previous !== liveBox.source;
   const result = await scoring.applyGameBoxScore({ liveBox, season, week, maps, suppressPlays });

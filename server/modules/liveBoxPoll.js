@@ -93,7 +93,7 @@ async function weekMaps({ season, week, now }) {
   const key = `${season}:${week}`;
   const cached = mapsCache.get(key);
   if (cached && now - cached.loadedAt < MAPS_TTL_MS) return cached.maps;
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/boxScoreApply.service');
   const maps = await scoring.loadWeekMaps({ season, week });
   mapsCache.set(key, { maps, loadedAt: now });
   return maps;

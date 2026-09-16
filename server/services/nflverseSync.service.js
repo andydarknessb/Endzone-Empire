@@ -1,7 +1,7 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const tank01Feed = require('./tank01Feed');
-const scoring = require('./scoring.service');
+const boxScoreApply = require('./boxScoreApply.service');
 const correction = require('./correction.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -761,7 +761,7 @@ async function applyNflverseFullWeek({
   // diverges on the Rams) already lands on WAS and keeps matching;
   // normalizeNflTeam('WAS') is a no-op. Sharing the builder is what stops the
   // live path (#431) from being the only one that reconciles WSH.
-  const defByTeamCode = await scoring.loadDefUnitsByTeamCode();
+  const defByTeamCode = await boxScoreApply.loadDefUnitsByTeamCode();
 
   const playerUpdates = buildFullStatUpdates({
     rows: weekPlayerRows,
