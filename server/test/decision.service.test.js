@@ -329,6 +329,44 @@ test('buildSuggestions: a missing projection never becomes a recommendation', ()
 });
 
 // ---------------------------------------------------------------------------
+// buildSuggestions: the #1483 red-tell pair, under the two ranking statistics
+// (#1442 ruling (4)/#1483). `startSitAdvice` itself picks `lineupRanking` off
+// `constantsForVersion(run.modelVersion)` (decision.service.js line ~427),
+// but exercising that end to end would mean mocking `pool.query` for the
+// league and lineup reads, `lineupService.getLineup`, both
+// `projectionService.getWeeklyProjections`/`getPositionDefense`, and the
+// module-private `getWeekOpponents` helper - considerably more entangled than
+// the seam this suite actually needs, so this drives `buildSuggestions`
+// directly instead, the same seam decisionRule.test.js already exercises.
+// ---------------------------------------------------------------------------
+
+test('buildSuggestions: the #1483 pair (starter mean 9.03/median 8.21, bench mean 7.37/median 10.06) disagrees by ranking statistic', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const dist = (mean, median) => ({ mean, median, p10: median - 6, p25: median - 3, p75: median + 3, p90: median + 6 });
+
+  // A v3.2-stamped run: toLegacyProjectionMap prints the MEAN as `points`.
+  const v32Projections = new Map([
+    [1, { points: 9.03, projection: dist(9.03, 8.21) }],
+    [2, { points: 7.37, projection: dist(7.37, 10.06) }],
+  ]);
+  const v32 = buildSuggestions(lineup, v32Projections, new Map(), RB1, { lineupRanking: 'mean' });
+  assert.equal(v32.suggestions.length, 0, 'the starter (mean 9.03) outranks the bench (mean 7.37): no swap');
+  assert.equal(v32.optimalTotal, 9.03);
+
+  // The SAME pair under a v3.1-stamped run: toLegacyProjectionMap prints the
+  // MEDIAN as `points`, and the median disagrees - a skewed pool pushed the
+  // bench player's median above his mean.
+  const v31Projections = new Map([
+    [1, { points: 8.21, projection: dist(9.03, 8.21) }],
+    [2, { points: 10.06, projection: dist(7.37, 10.06) }],
+  ]);
+  const v31 = buildSuggestions(lineup, v31Projections, new Map(), RB1, { lineupRanking: 'median' });
+  assert.equal(v31.suggestions.length, 1, 'the bench median (10.06) outranks the starter median (8.21): swap suggested');
+  assert.equal(v31.suggestions[0].suggested.playerId, 2);
+  assert.equal(v31.optimalTotal, 10.06);
+});
+
+// ---------------------------------------------------------------------------
 // fitAdjustedValue
 // ---------------------------------------------------------------------------
 

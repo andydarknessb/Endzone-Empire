@@ -353,9 +353,11 @@ test('the prior-season scan runs even at week 1, when the current-season scan do
     },
   });
 
-  await features.loadFeatureBundle({ season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES });
+  await features.loadFeatureBundle({
+    season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES, constants: model.MODEL_CONSTANTS_V3_2,
+  });
   assert.ok(!seen.includes('current'), 'week 1 has no completed current-season week to scan');
-  assert.ok(seen.includes('prior'), 'the prior-season scan must still run at week 1');
+  assert.ok(seen.includes('prior'), 'the prior-season scan must still run at week 1, under constants that want it');
 });
 
 test('the prior-season scan queries season - 1 and orders before its LIMIT', async (t) => {
@@ -372,7 +374,9 @@ test('the prior-season scan queries season - 1 and orders before its LIMIT', asy
     },
   });
 
-  await features.loadFeatureBundle({ season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES });
+  await features.loadFeatureBundle({
+    season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES, constants: model.MODEL_CONSTANTS_V3_2,
+  });
   assert.ok(priorSql, 'the prior-season scan ran');
   assert.equal(priorParams[0], SEASON - 1, 'the prior scan reads last season, not the current one');
   const orderAt = priorSql.indexOf('ORDER BY');
@@ -380,6 +384,66 @@ test('the prior-season scan queries season - 1 and orders before its LIMIT', asy
   assert.notEqual(orderAt, -1);
   assert.notEqual(limitAt, -1);
   assert.ok(orderAt < limitAt, 'ORDER BY must precede LIMIT');
+});
+
+test('under MODEL_CONSTANTS (the default) the prior-season queries are never issued, at week 1 or week 5', async (t) => {
+  for (const week of [1, 5]) {
+    const seen = [];
+    mockPool(t, {
+      players: [player(1, 'RB')],
+      weeklyStats: week > 1 ? [weeklyRow(1, 1, { rushingYards: 60 })] : [],
+      onQuery: (text) => {
+        if (text.includes('"player_stats" "pps"')) seen.push('pps');
+        if (text.includes('AS "prior_games"')) seen.push('prior_games');
+      },
+    });
+
+    const bundle = await features.loadFeatureBundle({
+      season: SEASON, week, playerIds: [1], rules: SCORING_RULES, constants: model.MODEL_CONSTANTS,
+    });
+    assert.deepEqual(seen, [], `week ${week}: neither prior-season query may run under MODEL_CONSTANTS`);
+    assert.deepEqual(bundle.priorSeasonContext, new Map(), `week ${week}: no prior-season context is built`);
+  }
+});
+
+test('under MODEL_CONSTANTS (the default) week 1 keeps the pre-#1485 "no opponent data" shape', async (t) => {
+  const target = [
+    { team_key: 'BUF', opponent_key: 'NE', nfl_team: 'BUF', opponent: 'NE', kickoff_at: '2026-09-10T17:00:00Z', game_key: 'k1', home_away: 'home', roof: 'outdoors', latitude: null, longitude: null },
+  ];
+  mockPool(t, {
+    players: [player(1, 'WR')],
+    weeklyStats: [],
+    seasonStats: [{
+      player_id: 1, season: 2025, games_played: 16,
+      stats: { receivingYards: 900, receptions: 70 }, fantasy_points: null,
+    }],
+    targetSchedule: target,
+  });
+
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS,
+  });
+  assert.equal(generated.projections.get(1).factors.opponent.reason, 'no opponent data');
+});
+
+test('under MODEL_CONSTANTS_V3_2 both prior-season queries are issued, at week 1 and week 5', async (t) => {
+  for (const week of [1, 5]) {
+    const seen = [];
+    mockPool(t, {
+      players: [player(1, 'RB')],
+      weeklyStats: week > 1 ? [weeklyRow(1, 1, { rushingYards: 60 })] : [],
+      onQuery: (text) => {
+        if (text.includes('"player_stats" "pps"')) seen.push('pps');
+        if (text.includes('AS "prior_games"')) seen.push('prior_games');
+      },
+    });
+
+    await features.loadFeatureBundle({
+      season: SEASON, week, playerIds: [1], rules: SCORING_RULES, constants: model.MODEL_CONSTANTS_V3_2,
+    });
+    assert.deepEqual(seen.sort(), ['pps', 'prior_games'], `week ${week}: both prior-season queries must run`);
+  }
 });
 
 test('a week-1 bundle exposes the prior season allowance by defense from stored gameOpponent', async (t) => {
@@ -398,7 +462,7 @@ test('a week-1 bundle exposes the prior season allowance by defense from stored 
   });
 
   const bundle = await features.loadFeatureBundle({
-    season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES,
+    season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES, constants: model.MODEL_CONSTANTS_V3_2,
   });
   const wr = bundle.priorSeasonContext.get('WR');
   assert.ok(wr, 'a WR prior-season context must exist');
@@ -429,15 +493,21 @@ test('a week-1 run seeds the opponent factor from the prior season, with no rank
     priorDefenseGames: [{ team: 'NE', prior_games: 2 }, { team: 'MIA', prior_games: 2 }],
   });
 
-  const result = await run({ season: SEASON, week: 1, league: league(), playerIds: [1] });
-  const factors = result.projections.get(1).factors;
+  // getWeeklyProjections (the public cache-aware entry point `run()` calls)
+  // does not accept a modelConstants override; generateProjections is the
+  // seam that does (see the existing swept-constants tests above).
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const factors = generated.projections.get(1).factors;
   assert.equal(factors.opponent.available, true);
   assert.equal(factors.opponent.seededFromPriorSeason, true);
   assert.equal(factors.opponent.rank, undefined, 'no current-season allowedByDefense map exists yet at week 1');
   assert.equal(factors.opponent.of, undefined);
 });
 
-test('the same week-1 fixture under MODEL_CONSTANTS_V3_1 reports insufficient opponent sample', async (t) => {
+test('the same week-1 fixture under MODEL_CONSTANTS (the default) reports insufficient opponent sample', async (t) => {
   const target = [
     { team_key: 'BUF', opponent_key: 'NE', nfl_team: 'BUF', opponent: 'NE', kickoff_at: '2026-09-10T17:00:00Z', game_key: 'k1', home_away: 'home', roof: 'outdoors', latitude: null, longitude: null },
   ];
@@ -463,14 +533,15 @@ test('the same week-1 fixture under MODEL_CONSTANTS_V3_1 reports insufficient op
   // seam that does (see the existing swept-constants tests above).
   const generated = await projection.generateProjections({
     season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
-    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_1,
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS,
   });
   const factors = generated.projections.get(1).factors;
   assert.equal(factors.opponent.available, false);
   // No current-season league scan exists yet at week 1 (leagueContext is
-  // empty), and MODEL_CONSTANTS_V3_1 has no priorSeasonPseudoGames key to seed
-  // from, so this is the same "no opponent data" v3.1 has always reported at
-  // week 1 - not the seeded "insufficient opponent sample" gate.
+  // empty), and MODEL_CONSTANTS (the shipped default) has no
+  // priorSeasonPseudoGames key to seed from, so this is the same "no opponent
+  // data" v3.1 has always reported at week 1 - not the seeded "insufficient
+  // opponent sample" gate.
   assert.equal(factors.opponent.reason, 'no opponent data');
   assert.equal(factors.opponent.seededFromPriorSeason, undefined);
 });
@@ -499,25 +570,25 @@ test('a week-1 run truncates p10 at the prior-season position floor (#1483)', as
   mockPool(t, {
     players: [player(1, 'WR')], weeklyStats, priorSeasonScan, priorDefenseGames,
   });
+  const v32 = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const v32Projection = v32.projections.get(1);
+  assert.equal(v32Projection.p10, -4, 'p10 is pinned to the -4 position floor');
+  assert.equal(v32Projection.factors.dataQuality.positionFloor, -4);
+  assert.equal(v32Projection.factors.dataQuality.floorTruncated, true);
+
+  mockPool(t, {
+    players: [player(1, 'WR')], weeklyStats, priorSeasonScan, priorDefenseGames,
+  });
   const shipped = await projection.generateProjections({
     season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
     hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS,
   });
   const shippedProjection = shipped.projections.get(1);
-  assert.equal(shippedProjection.p10, -4, 'p10 is pinned to the -4 position floor');
-  assert.equal(shippedProjection.factors.dataQuality.positionFloor, -4);
-  assert.equal(shippedProjection.factors.dataQuality.floorTruncated, true);
-
-  mockPool(t, {
-    players: [player(1, 'WR')], weeklyStats, priorSeasonScan, priorDefenseGames,
-  });
-  const v31 = await projection.generateProjections({
-    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
-    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_1,
-  });
-  const v31Projection = v31.projections.get(1);
-  assert.ok(v31Projection.p10 < -4, 'v3.1 has no truncateAtPositionFloor key, so the floor never applies');
-  assert.equal('positionFloor' in v31Projection.factors.dataQuality, false);
+  assert.ok(shippedProjection.p10 < -4, 'the shipped v3.1 constants have no truncateAtPositionFloor key, so the floor never applies');
+  assert.equal('positionFloor' in shippedProjection.factors.dataQuality, false);
 });
 
 // ---------------------------------------------------------------------------
@@ -1462,11 +1533,11 @@ test('a run generated for another scoring profile is never reused', async (t) =>
   assert.equal(lookups[0][3], model.MODEL_VERSION, 'so is the model version');
 });
 
-test('the shipped model version is exactly free_baseline_v3.2', () => {
+test('the shipped model version is exactly free_baseline_v3.1', () => {
   // Pinned in the service too, not only in the model: this is the string the
   // cache key is built from, and the service re-exports it to callers.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
-  assert.equal(projection.MODEL_VERSION, 'free_baseline_v3.2');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(projection.MODEL_VERSION, 'free_baseline_v3.1');
   assert.notEqual(model.MODEL_VERSION, 'free_baseline_v3', 'v3 rows were drawn from unordered residuals');
 });
 
@@ -1509,10 +1580,10 @@ test('a v3 cached run cannot satisfy a v3.1 lookup', async (t) => {
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
 
   assert.equal(lookups.length, 1);
-  assert.equal(lookups[0][3], 'free_baseline_v3.2', 'the lookup asks for the CURRENT version');
+  assert.equal(lookups[0][3], 'free_baseline_v3.1', 'the lookup asks for the CURRENT version');
   assert.equal(regenerated, true, 'the stale v3 run must be ignored and the week regenerated');
   assert.equal(result.projections.get(1).cached, undefined, 'nothing was served from the v3 cache');
-  assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.2');
+  assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.1');
 });
 
 test('one cached row is NOT a cache hit for a multi-player request', async (t) => {
@@ -1659,18 +1730,64 @@ test('toLegacyProjectionMap keeps the { points, source } contract and adds field
     generatedAt: '2026-10-08T00:00:00.000Z',
     inputCutoff: '2026-10-11T17:00:00.000Z',
     projections: new Map([
-      // #1483: under the shipped v3.2 constants (lineupRanking 'mean'), points
-      // follows the RANKING statistic - the mean, not the median - so the row
-      // the optimizer ranked on is the row the wire reports.
-      [1, { playerId: 1, mean: 9.03, median: 8.21, confidence: 'high', activeProbability: 1, factors: {} }],
+      [1, { playerId: 1, mean: 12.2, median: 11.8, confidence: 'high', activeProbability: 1, factors: {} }],
       [2, { playerId: 2, mean: null, median: null, confidence: 'low', activeProbability: null, factors: {} }],
     ]),
   });
-  assert.equal(legacy.get(1).points, 9.03, 'the mean is the headline number under v3.2');
+  assert.equal(legacy.get(1).points, 11.8, 'the median is the headline number');
   assert.equal(legacy.get(1).source, model.MODEL_VERSION);
   assert.equal(legacy.get(1).confidence, 'high');
   assert.equal(legacy.get(2).points, null);
   assert.equal(legacy.get(2).source, 'unavailable');
+});
+
+// ---------------------------------------------------------------------------
+// pointEstimateFor / toLegacyProjectionMap follow the RUN's constants, read
+// back off the projection's own modelVersion (#1483's #1442 flip: v3.2's
+// deltas, including the ranking statistic, live outside the shipped
+// MODEL_CONSTANTS and only apply when a caller actually asks for them).
+// ---------------------------------------------------------------------------
+
+test('toLegacyProjectionMap prints the mean under a v3.2-stamped run and the median under a v3.1-stamped run (#1483 red-tell)', () => {
+  // The #1483 ticket's own red-tell fixture: a skewed residual pool pushed
+  // this player's median (10.06) above his mean (7.37), so which statistic is
+  // printed is not a rounding difference, it flips which of two players looks
+  // better.
+  const buildRun = (modelVersion) => ({
+    modelVersion,
+    generatedAt: '2026-10-08T00:00:00.000Z',
+    inputCutoff: '2026-10-11T17:00:00.000Z',
+    projections: new Map([
+      [1, {
+        playerId: 1, modelVersion, mean: 7.37, median: 10.06,
+        confidence: 'medium', activeProbability: 1, factors: {},
+      }],
+    ]),
+  });
+
+  const v32Legacy = projection.toLegacyProjectionMap(buildRun(model.SUCCESSOR_MODEL_VERSION));
+  assert.equal(v32Legacy.get(1).points, 7.37, 'v3.2 ranks and prints the mean');
+  assert.equal(v32Legacy.get(1).source, 'free_baseline_v3.2');
+
+  const v31Legacy = projection.toLegacyProjectionMap(buildRun(model.MODEL_VERSION));
+  assert.equal(v31Legacy.get(1).points, 10.06, 'v3.1 ranks and prints the median');
+  assert.equal(v31Legacy.get(1).source, 'free_baseline_v3.1');
+});
+
+test('generateProjections stamps every projection and the run itself with the requested successor version', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [weeklyRow(1, 1, { rushingYards: 70 })],
+  });
+
+  const result = await projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false,
+    modelConstants: model.MODEL_CONSTANTS_V3_2, modelVersion: model.SUCCESSOR_MODEL_VERSION,
+  });
+
+  assert.equal(result.modelVersion, 'free_baseline_v3.2');
+  assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.2');
 });
 
 test('toLegacyProjectionMap falls back to the median when the ranking statistic (mean) is null', () => {
@@ -1685,22 +1802,45 @@ test('toLegacyProjectionMap falls back to the median when the ranking statistic 
   assert.equal(legacy.get(1).points, 5);
 });
 
-test('pointEstimateFor reads the median under MODEL_CONSTANTS_V3_1 (lineupRanking: median)', () => {
+test('pointEstimateFor reads the median under MODEL_CONSTANTS (the shipped default) and the mean under MODEL_CONSTANTS_V3_2', () => {
   const p = { mean: 9.03, median: 8.21 };
-  assert.equal(projection.pointEstimateFor(p, model.MODEL_CONSTANTS_V3_1), 8.21);
-  assert.equal(projection.pointEstimateFor(p, model.MODEL_CONSTANTS), 9.03);
+  assert.equal(projection.pointEstimateFor(p, model.MODEL_CONSTANTS), 8.21);
+  assert.equal(projection.pointEstimateFor(p, model.MODEL_CONSTANTS_V3_2), 9.03);
 });
 
 test('pointEstimateFor falls back to the other statistic whichever one is missing', () => {
   assert.equal(
-    projection.pointEstimateFor({ mean: null, median: 5 }, model.MODEL_CONSTANTS),
+    projection.pointEstimateFor({ mean: 9, median: null }, model.MODEL_CONSTANTS),
+    9,
+    'median ranking with no median falls back to the mean'
+  );
+  assert.equal(
+    projection.pointEstimateFor({ mean: null, median: 5 }, model.MODEL_CONSTANTS_V3_2),
     5,
     'mean ranking with no mean falls back to the median'
   );
+});
+
+test('pointEstimateFor reads its constants off the projection\'s own modelVersion when none are given', () => {
+  // (c): the display statistic follows the RUN that produced the row, never
+  // the module default, so a caller need only stamp the projection.
   assert.equal(
-    projection.pointEstimateFor({ mean: 9, median: null }, model.MODEL_CONSTANTS_V3_1),
-    9,
-    'median ranking with no median falls back to the mean'
+    projection.pointEstimateFor({ mean: 9.03, median: 8.21, modelVersion: 'free_baseline_v3.2' }),
+    9.03
+  );
+  assert.equal(
+    projection.pointEstimateFor({ mean: 9.03, median: 8.21, modelVersion: 'free_baseline_v3.1' }),
+    8.21
+  );
+  // A version this checkout cannot run, or no version at all, falls back to
+  // HEAD's own constants (v3.1, median).
+  assert.equal(
+    projection.pointEstimateFor({ mean: 9.03, median: 8.21, modelVersion: 'free_baseline_v9.9' }),
+    8.21
+  );
+  assert.equal(
+    projection.pointEstimateFor({ mean: 9.03, median: 8.21 }),
+    8.21
   );
 });
 
@@ -1778,8 +1918,8 @@ test('invalidation clears every scoring profile from the stale week onward, and 
   assert.deepEqual(
     store.table.map((r) => `${r.season}:${r.week}:${r.scoring_hash}:${r.model_version}`).sort(),
     [
-      '2025:4:hash-half-ppr:free_baseline_v3.2',
-      '2026:3:hash-half-ppr:free_baseline_v3.2',
+      '2025:4:hash-half-ppr:free_baseline_v3.1',
+      '2026:3:hash-half-ppr:free_baseline_v3.1',
       '2026:4:hash-half-ppr:free_baseline_v2.2',
     ],
     'earlier weeks, other seasons and other model versions are untouched'
@@ -1816,7 +1956,7 @@ test('invalidation defaults to the shipped model version but accepts an explicit
 
   const current = await projection.invalidateWeeklyProjectionRuns({ season: 2026, fromWeek: 4, client: store });
   assert.equal(current.deletedRuns, 1, 'the default scope is the CURRENT model only');
-  assert.equal(store.statements[0].params[2], 'free_baseline_v3.2');
+  assert.equal(store.statements[0].params[2], 'free_baseline_v3.1');
 
   const older = await projection.invalidateWeeklyProjectionRuns({
     season: 2026, fromWeek: 4, modelVersion: 'free_baseline_v3', client: store,
@@ -2050,26 +2190,17 @@ test('getRestOfSeason: a caller passing runsByWeek gets its total from those run
   const calls = mockPool(t, { players: [player(1, 'RB')], leagueRow: leagueAt(10) });
   const runsByWeek = new Map();
   for (let week = 10; week <= 18; week++) {
-    // #1483: the per-week total follows the RANKING statistic (mean under the
-    // shipped v3.2 constants), so median 10 everywhere is a distractor - it
-    // must never win over mean 9 except at week 16, where mean is null and
-    // the read falls back to the median.
     runsByWeek.set(week, {
       week,
-      projections: new Map([[1, {
-        mean: week === 16 ? null : 9,
-        median: week === 16 ? 12 : 10,
-        factors: { availability: { available: week !== 12 } },
-      }]]),
+      projections: new Map([[1, { median: week === 16 ? null : 10, mean: 9, factors: { availability: { available: week !== 12 } } }]]),
     });
   }
 
   const result = await projection.getRestOfSeason([1], 1, { runsByWeek });
 
-  // Weeks 10..16 covered: 12 is unavailable (skipped), 16 falls back to its
-  // median 12 since its mean is null.
-  assert.equal(result.get(1).total, 9 * 5 + 12);
-  assert.equal(result.get(1).perGame, Math.round(((9 * 5 + 12) / 6) * 100) / 100);
+  // Weeks 10..16 covered: 12 is unavailable (skipped), 16 falls back to its mean 9.
+  assert.equal(result.get(1).total, 10 * 5 + 9);
+  assert.equal(result.get(1).perGame, Math.round(((10 * 5 + 9) / 6) * 100) / 100);
   assert.equal(readsOf(calls, 'FROM "projection_runs"'), 0);
   assert.equal(readsOf(calls, 'FROM "player_week_projections"'), 0);
 });

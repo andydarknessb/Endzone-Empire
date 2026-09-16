@@ -109,6 +109,25 @@ const SHIFTED_FIELDS = ['mean', 'median', 'p10', 'p25', 'p75', 'p90'];
  * unavailable factor, or a captured mean this arm could not coerce to a
  * number).
  */
+/**
+ * The expert-consensus blend weight a captured row was finished under, or 0.
+ * `expertConsensusBlend` (projectionModel.js) runs AFTER the gameEnvironment
+ * factor and stores `blendWeight` (the weight actually applied, 0 when the
+ * quote was covered but unscored) and `expertPoints` on the factor. A
+ * scored blend means the captured mean is `(1 - w) * model + w * expert`,
+ * so the market shift has to be applied to the MODEL part and re-blended;
+ * shifting the captured mean directly would overstate the effect by
+ * 1 / (1 - w). With no provider installed (the shipped state) w is 0 and
+ * the two agree exactly.
+ */
+function expertBlendFor(row) {
+  const factor = row.factors && row.factors.expertConsensus;
+  const w = factor && factor.available === true ? numOrNull(factor.blendWeight) : null;
+  const points = factor ? numOrNull(factor.expertPoints) : null;
+  if (w === null || points === null || w <= 0 || w >= 1) return { weight: 0, points: null };
+  return { weight: w, points };
+}
+
 function replayRows(rows, arm) {
   return rows.map((row) => {
     const factor = row.factors && row.factors.gameEnvironment;
@@ -117,7 +136,14 @@ function replayRows(rows, arm) {
     if (effect === null || mean === null) {
       return { ...row, marketEffect: null };
     }
-    const delta = mean * effect;
+    // Back-solve the pre-blend model value, shift THAT, re-blend: the delta
+    // to the captured mean is (1 - w) * modelValue * effect, which reduces to
+    // mean * effect when no expert blend was applied.
+    const blend = expertBlendFor(row);
+    const modelValue = blend.weight > 0
+      ? (mean - blend.weight * blend.points) / (1 - blend.weight)
+      : mean;
+    const delta = (1 - blend.weight) * modelValue * effect;
     const next = { ...row, marketEffect: effect };
     for (const field of SHIFTED_FIELDS) {
       const value = numOrNull(row[field]);

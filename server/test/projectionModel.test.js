@@ -157,7 +157,7 @@ test('the shipped constants switch the current-season blend ON at the selected p
   );
   // A constants change without a version bump serves rows computed under the
   // old numbers from cache as if they were current.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
 });
 
 test('a zero or absent blend weight reproduces the pre-blend math exactly', () => {
@@ -340,7 +340,7 @@ test('the opportunity component ships switched ON at the selected weight', () =>
   assert.equal(efficiencyPseudoOpportunities, 25);
   // A component that now reaches the output cannot share a cache key with the
   // version that computed without it.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
 });
 
 test('opportunitiesForGame counts attempts for a QB and touches for skill positions', () => {
@@ -532,12 +532,13 @@ test('opponentEffect seeds week 1 from the prior season when both prior inputs a
   // shrunk = (4*1.5 + 6) / (4 + 6) = 12 / 10 = 1.2, effect = min(0.2, 0.12) = 0.12 (capped).
   const effect = model.opponentEffect({
     allowedPerGame: null, leagueAveragePerGame: null, games: 0, opponentTeam: 'NE',
+    constants: model.MODEL_CONSTANTS_V3_2.opponent,
     priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
   });
   assert.equal(effect.available, true);
   assert.equal(effect.seededFromPriorSeason, true);
   assert.equal(effect.effectiveGames, 4);
-  assert.equal(effect.priorSeasonGames, 4);
+  assert.equal(effect.priorSeasonPseudoGames, 4);
   assert.equal(effect.games, 0);
   assert.equal(effect.allowedPerGame, null);
   assert.equal(effect.leagueAveragePerGame, null);
@@ -549,6 +550,7 @@ test('opponentEffect seeds week 1 from the prior season when both prior inputs a
 test('opponentEffect uses the prior ratio alone when current games is 0, even with a current league average', () => {
   const effect = model.opponentEffect({
     allowedPerGame: 15, leagueAveragePerGame: 20, games: 0, opponentTeam: 'NE',
+    constants: model.MODEL_CONSTANTS_V3_2.opponent,
     priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
   });
   assert.equal(effect.available, true);
@@ -566,7 +568,7 @@ test('opponentEffect blends toward the current-season ratio as real games accrue
   // maxEffect raised so the math is visible instead of hitting the cap; every
   // other constant (minGames, shrinkPseudoGames, priorSeasonPseudoGames)
   // stays at the shipped default.
-  const constants = { ...model.MODEL_CONSTANTS.opponent, maxEffect: 1 };
+  const constants = { ...model.MODEL_CONSTANTS_V3_2.opponent, maxEffect: 1 };
   const fewGames = model.opponentEffect({
     allowedPerGame: 10, leagueAveragePerGame: 10, games: 4, opponentTeam: 'NE',
     constants, priorAllowedPerGame: 30, priorLeagueAveragePerGame: 15,
@@ -586,7 +588,7 @@ test('opponentEffect blends toward the current-season ratio as real games accrue
 });
 
 test('opponentEffect stays neutral when even the seeded sample is too small', () => {
-  const constants = { ...model.MODEL_CONSTANTS.opponent, priorSeasonPseudoGames: 1 };
+  const constants = { ...model.MODEL_CONSTANTS_V3_2.opponent, priorSeasonPseudoGames: 1 };
   const effect = model.opponentEffect({
     allowedPerGame: null, leagueAveragePerGame: null, games: 0, opponentTeam: 'NE',
     constants, priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
@@ -598,15 +600,15 @@ test('opponentEffect stays neutral when even the seeded sample is too small', ()
   assert.equal(effect.games, 0);
 });
 
-test('opponentEffect ignores the prior season under MODEL_CONSTANTS_V3_1 (no priorSeasonPseudoGames key)', () => {
+test('opponentEffect ignores the prior season under MODEL_CONSTANTS (no priorSeasonPseudoGames key)', () => {
   const withPrior = model.opponentEffect({
     allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
-    constants: model.MODEL_CONSTANTS_V3_1.opponent,
+    constants: model.MODEL_CONSTANTS.opponent,
     priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
   });
   const withoutPrior = model.opponentEffect({
     allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
-    constants: model.MODEL_CONSTANTS_V3_1.opponent,
+    constants: model.MODEL_CONSTANTS.opponent,
   });
   assert.deepEqual(withPrior, withoutPrior);
   assert.equal(withPrior.seededFromPriorSeason, undefined);
@@ -624,13 +626,15 @@ test('opponentEffect ignores the prior season when priorSeasonPseudoGames is exp
   assert.deepEqual(withPrior, withoutPrior);
 });
 
-test('opponentEffect ignores prior seeding when prior inputs are absent, even under the seeded default constants', () => {
+test('opponentEffect ignores prior seeding when prior inputs are absent, even under the seeded MODEL_CONSTANTS_V3_2', () => {
   const withNullPrior = model.opponentEffect({
     allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+    constants: model.MODEL_CONSTANTS_V3_2.opponent,
     priorAllowedPerGame: null, priorLeagueAveragePerGame: null,
   });
   const withoutPriorArgs = model.opponentEffect({
     allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+    constants: model.MODEL_CONSTANTS_V3_2.opponent,
   });
   assert.deepEqual(withNullPrior, withoutPriorArgs);
   assert.equal(withNullPrior.seededFromPriorSeason, undefined);
@@ -699,7 +703,7 @@ test('the home/away factor ships gated off', () => {
   // Shipping false is the whole reason this gate merged without a version
   // bump: at this value the factor cannot reach the output, so no cached row
   // is a number this code would decline to reproduce.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
 });
 
 test('the gate off scores nothing, however rich the sample', () => {
@@ -902,7 +906,7 @@ test('a supplied floor truncates only the impossible tail (#1483)', () => {
   // Skewed enough that the untruncated p10 (-10.8) sits well below a floor
   // (-8) that itself sits below the median (-5): the fixture the ticket
   // describes as producing "a value no real game has ever scored".
-  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7, constants: model.MODEL_CONSTANTS_V3_2.simulation };
   const untruncated = model.simulateDistribution(args);
   const truncated = model.simulateDistribution({ ...args, floor: -8 });
 
@@ -912,17 +916,17 @@ test('a supplied floor truncates only the impossible tail (#1483)', () => {
   assert.equal(truncated.p90, untruncated.p90, 'the upper tail is not touched at all');
 });
 
-test('a floor is inert under MODEL_CONSTANTS_V3_1 (byte-identical to the untruncated call)', () => {
+test('a floor is inert under MODEL_CONSTANTS (the default; byte-identical to the untruncated call)', () => {
   const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
-  const v31Untruncated = model.simulateDistribution({ ...args, constants: model.MODEL_CONSTANTS_V3_1.simulation });
-  const v31WithFloor = model.simulateDistribution({
-    ...args, floor: -8, constants: model.MODEL_CONSTANTS_V3_1.simulation,
+  const untruncated = model.simulateDistribution({ ...args, constants: model.MODEL_CONSTANTS.simulation });
+  const withFloor = model.simulateDistribution({
+    ...args, floor: -8, constants: model.MODEL_CONSTANTS.simulation,
   });
-  assert.deepEqual(v31WithFloor, v31Untruncated, 'v3.1 has no truncateAtPositionFloor key, so a floor is a no-op');
+  assert.deepEqual(withFloor, untruncated, 'v3.1 has no truncateAtPositionFloor key, so a floor is a no-op');
 });
 
-test('a null floor under v3.2 constants leaves the draws exactly as they were', () => {
-  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+test('a null floor under MODEL_CONSTANTS_V3_2 leaves the draws exactly as they were', () => {
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7, constants: model.MODEL_CONSTANTS_V3_2.simulation };
   const untruncated = model.simulateDistribution(args);
   const withNullFloor = model.simulateDistribution({ ...args, floor: null });
   assert.deepEqual(withNullFloor, untruncated);
@@ -933,7 +937,7 @@ test('a floor above the median cannot exist in practice, but the output stays mo
   // the floor when more than half the draws sit below it, which real position
   // floors never do. This fixture forces that (floor 0 sits above the -5
   // median) purely to prove p10 <= median <= p90 keeps holding even then.
-  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7, constants: model.MODEL_CONSTANTS_V3_2.simulation };
   const truncated = model.simulateDistribution({ ...args, floor: 0 });
   assert.ok(truncated.p10 <= truncated.median && truncated.median <= truncated.p90);
 });
@@ -1174,10 +1178,10 @@ test('projectPlayer returns a distribution and per-factor point contributions', 
 });
 
 test('projectPlayer truncates p10 at a supplied position floor and records it on dataQuality (#1483)', () => {
-  const untruncated = model.projectPlayer(projectArgs());
+  const untruncated = model.projectPlayer(projectArgs({ constants: model.MODEL_CONSTANTS_V3_2 }));
   assert.ok(untruncated.p10 < 9, 'the fixture must actually need truncation for this test to prove anything');
 
-  const truncated = model.projectPlayer(projectArgs({ positionFloor: 9 }));
+  const truncated = model.projectPlayer(projectArgs({ positionFloor: 9, constants: model.MODEL_CONSTANTS_V3_2 }));
   assert.equal(truncated.p10, 9, 'p10 is pinned to the floor');
   assert.equal(truncated.median, untruncated.median, 'truncation must not move the median');
   assert.equal(truncated.mean, untruncated.mean);
@@ -1185,20 +1189,18 @@ test('projectPlayer truncates p10 at a supplied position floor and records it on
   assert.equal(truncated.factors.dataQuality.floorTruncated, true);
 });
 
-test('projectPlayer records a null positionFloor and floorTruncated:false when no floor was supplied', () => {
-  const projection = model.projectPlayer(projectArgs());
+test('projectPlayer records a null positionFloor and floorTruncated:false when no floor was supplied (MODEL_CONSTANTS_V3_2)', () => {
+  const projection = model.projectPlayer(projectArgs({ constants: model.MODEL_CONSTANTS_V3_2 }));
   assert.equal(projection.factors.dataQuality.positionFloor, null);
   assert.equal(projection.factors.dataQuality.floorTruncated, false);
 });
 
-test('projectPlayer never adds the two dataQuality floor keys under MODEL_CONSTANTS_V3_1', () => {
-  const projection = model.projectPlayer(projectArgs({
-    positionFloor: 9, constants: model.MODEL_CONSTANTS_V3_1,
-  }));
+test('projectPlayer never adds the two dataQuality floor keys under MODEL_CONSTANTS (the default)', () => {
+  const projection = model.projectPlayer(projectArgs({ positionFloor: 9 }));
   assert.equal('positionFloor' in projection.factors.dataQuality, false);
   assert.equal('floorTruncated' in projection.factors.dataQuality, false);
   // And, since the flag is absent from v3.1, the floor never actually applies.
-  const untruncated = model.projectPlayer(projectArgs({ constants: model.MODEL_CONSTANTS_V3_1 }));
+  const untruncated = model.projectPlayer(projectArgs());
   assert.equal(projection.p10, untruncated.p10);
 });
 
@@ -1488,27 +1490,28 @@ test('a QB is blended on pass attempts, and only on pass attempts', () => {
 });
 
 // ---------------------------------------------------------------------------
-// v3.2 (#1483/#1485, ADR 0044): the preserved v3.1 constants are v3.1 to the
-// byte. The hash below is the pin scripts/ci/check-model-constants.js carried
-// from 2026-08-14 until the v3.2 bump - the fingerprint every scheduled
-// holdout-confirm-2026 capture stores as `constants_hash`. If this fails, the
-// successor evaluator's "rebuilt v3.1" column is no longer v3.1.
+// v3.2 (#1483/#1485, ADR 0044, #1442 ruling (4)): HEAD still ships v3.1's
+// MODEL_CONSTANTS to the byte, and the v3.2 deltas live outside it in the
+// version-keyed registry. The hash below is the pin
+// scripts/ci/check-model-constants.js carries - the fingerprint every
+// scheduled holdout-confirm-2026 capture stores as `constants_hash`. If this
+// fails, the study's captured constants hash has drifted.
 // ---------------------------------------------------------------------------
 
-test('MODEL_CONSTANTS_V3_1 hashes to the holdout study captured v3.1 constants exactly', () => {
+test('MODEL_CONSTANTS hashes to the holdout study captured v3.1 constants exactly', () => {
   const crypto = require('crypto');
-  const hash = crypto.createHash('sha256').update(JSON.stringify(model.MODEL_CONSTANTS_V3_1)).digest('hex');
+  const hash = crypto.createHash('sha256').update(JSON.stringify(model.MODEL_CONSTANTS)).digest('hex');
   assert.equal(hash, 'cf0ea6bc58e4e5d840b06097edaf2680b05463257cbf7e2bd58e7c1c22176164');
-  assert.equal(model.MODEL_CONSTANTS_V3_1.decision.lineupRanking, 'median');
-  assert.equal(model.MODEL_CONSTANTS_V3_1.opponent.priorSeasonPseudoGames, undefined);
-  assert.equal(model.MODEL_CONSTANTS_V3_1.simulation.truncateAtPositionFloor, undefined);
-  assert.ok(Object.isFrozen(model.MODEL_CONSTANTS_V3_1.decision), 'the preserved object is immutable');
+  assert.equal(model.MODEL_CONSTANTS.decision.lineupRanking, 'median');
+  assert.equal(model.MODEL_CONSTANTS.opponent.priorSeasonPseudoGames, undefined);
+  assert.equal(model.MODEL_CONSTANTS.simulation.truncateAtPositionFloor, undefined);
 });
 
-test('the v3.2 constants differ from v3.1 in exactly the three ticketed keys', () => {
-  const v32 = model.MODEL_CONSTANTS;
-  const v31 = model.MODEL_CONSTANTS_V3_1;
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
+test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the three ticketed keys', () => {
+  const v31 = model.MODEL_CONSTANTS;
+  const v32 = model.MODEL_CONSTANTS_V3_2;
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(model.SUCCESSOR_MODEL_VERSION, 'free_baseline_v3.2');
   assert.equal(v32.decision.lineupRanking, 'mean');
   assert.equal(v32.opponent.priorSeasonPseudoGames, 4);
   assert.equal(v32.simulation.truncateAtPositionFloor, true);
@@ -1519,4 +1522,20 @@ test('the v3.2 constants differ from v3.1 in exactly the three ticketed keys', (
   delete stripped.simulation.truncateAtPositionFloor;
   stripped.decision.lineupRanking = 'median';
   assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
+
+  assert.deepEqual(
+    Object.keys(model.MODEL_CONSTANTS_BY_VERSION).sort(),
+    ['free_baseline_v3.1', 'free_baseline_v3.2']
+  );
+  assert.equal(model.constantsForVersion('free_baseline_v3.2'), model.MODEL_CONSTANTS_V3_2);
+  assert.equal(model.constantsForVersion('free_baseline_v3.1'), model.MODEL_CONSTANTS);
+  assert.equal(model.constantsForVersion('nope'), null);
+
+  // The successor object is deep-frozen so a sweep or a test cannot mutate it
+  // in place. NOTE: MODEL_CONSTANTS itself (the pinned default) is NOT frozen
+  // in production today - see this migration's report for that gap.
+  assert.ok(Object.isFrozen(v32), 'MODEL_CONSTANTS_V3_2 must be immutable');
+  assert.ok(Object.isFrozen(v32.decision), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
+  assert.ok(Object.isFrozen(v32.opponent), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
+  assert.ok(Object.isFrozen(v32.simulation), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
 });

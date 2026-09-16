@@ -18,9 +18,14 @@
  * since `gameEnvironment` is the last multiplicative factor before
  * `simulateDistribution`'s additive residuals - and compares MAE, Spearman
  * rho, pairwise accuracy and 80%/50% interval coverage against
- * `player_stats`, per scoring profile, for every arm in `--caps` x
- * `--shrinks` (default: caps 0.05/0.10/0.15/0.25, shrinks 1/0.5) plus the
- * `market-off` control.
+ * `player_stats`, per scoring profile, for ONE preregistered candidate
+ * (`--max-effect`, optionally `--shrink`) against the `market-off` control.
+ *
+ * One candidate, not a sweep: ADR 0044 refuses a successor tuned on its own
+ * test set, so the cap (and any shrinkage) is named on #1438 BEFORE this
+ * runs, and the run answers yes or no for that candidate. The library
+ * (`buildArms`) can still lay out several arms for a synthetic fixture in
+ * tests; this runner deliberately does not expose that against the ledger.
  *
  * Weeks whose capture reports the market factor unavailable (`'no slate
  * baseline'` on 2026 week 1, or any other `gameEnvironment` unavailable
@@ -47,10 +52,11 @@
  *                    inside this repository, mirroring
  *                    run-successor-eval.js's resolveOutputPaths)
  *
+ *   --max-effect 0.12  the ONE preregistered maxEffect candidate (from #1438)
+ *
  * Optional:
  *
- *   --caps 0.05,0.1        comma-separated maxEffect candidates
- *   --shrinks 1,0.5        comma-separated shrink candidates
+ *   --shrink 1         multiplier on rawEffect before the cap (default 1)
  *
  * Every scoring profile the ledger captures (standard, half_ppr, ppr) is
  * evaluated in one run, same as run-successor-eval.js - the report's whole
@@ -67,22 +73,14 @@ const rootSafety = require('../../scripts/backtest/lib/rootSafety');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
-function parseCsvNumbers(raw, flagName) {
-  const values = raw.split(',').map((token) => Number(token.trim()));
-  if (values.length === 0 || values.some((v) => !Number.isFinite(v))) {
-    throw new Error(`compare-market-factor: ${flagName} must be a comma-separated list of numbers, got "${raw}"`);
-  }
-  return values;
-}
-
 function parseArgs(argv) {
-  const args = { caps: null, shrinks: null };
+  const args = { maxEffect: null, shrink: 1 };
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (token === '--season') args.season = Number(argv[++i]);
     else if (token === '--out') args.outDir = argv[++i];
-    else if (token === '--caps') args.caps = parseCsvNumbers(argv[++i], '--caps');
-    else if (token === '--shrinks') args.shrinks = parseCsvNumbers(argv[++i], '--shrinks');
+    else if (token === '--max-effect') args.maxEffect = Number(argv[++i]);
+    else if (token === '--shrink') args.shrink = Number(argv[++i]);
     else throw new Error(`compare-market-factor: unknown argument ${token}`);
   }
   if (!Number.isFinite(args.season)) {
@@ -90,6 +88,12 @@ function parseArgs(argv) {
   }
   if (typeof args.outDir !== 'string' || args.outDir.trim() === '') {
     throw new Error('compare-market-factor: --out is required');
+  }
+  if (!Number.isFinite(args.maxEffect) || args.maxEffect <= 0) {
+    throw new Error('compare-market-factor: --max-effect <positive number> is required (the one candidate preregistered on #1438)');
+  }
+  if (!Number.isFinite(args.shrink) || args.shrink <= 0 || args.shrink > 1) {
+    throw new Error('compare-market-factor: --shrink must be a number in (0, 1]');
   }
   return args;
 }
@@ -130,10 +134,7 @@ function resolveOutputPaths(outDir) {
 async function main(argv) {
   const args = parseArgs(argv);
   const out = resolveOutputPaths(args.outDir);
-  const arms = marketFactorReplay.buildArms({
-    caps: args.caps || undefined,
-    shrinks: args.shrinks || undefined,
-  });
+  const arms = marketFactorReplay.buildArms({ caps: [args.maxEffect], shrinks: [args.shrink] });
 
   const profiles = [];
   for (const profileName of Object.keys(SCORING_PRESETS)) {

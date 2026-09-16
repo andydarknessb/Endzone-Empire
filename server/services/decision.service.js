@@ -421,11 +421,16 @@ async function startSitAdvice({ leagueId, userId, week }) {
     onBye: Boolean(e.onBye),
   }));
 
+  // The ranking statistic comes from the RUN's constants (#1483), read back
+  // off the run's modelVersion, so a successor run ranks and displays the
+  // same number and a v3.1 run keeps ranking on the median.
+  const runConstants = projectionModel.constantsForVersion(run.modelVersion) || projectionModel.MODEL_CONSTANTS;
   const plan = buildSuggestions(
     lineupEntries,
     projections,
     defenseByPlayer,
-    lineup.rosterSlots
+    lineup.rosterSlots,
+    { lineupRanking: (runConstants.decision || {}).lineupRanking }
   );
 
   const players = lineupEntries.map((entry) => {

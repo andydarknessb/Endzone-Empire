@@ -1310,7 +1310,8 @@ _Avoid_: low, high, worst case, best case, range
 
 **Position floor**:
 The lowest score any player of a position group has recorded over the
-stored seasons under the league's own scoring rules. Data computed per
+prior season and the current season to date under the league's own
+scoring rules. Data computed per
 projection run, never a constant; the engine truncates its simulated draws
 there so the Floor and the start/sit probability are not fed an impossible
 negative outcome (ADR 0047).

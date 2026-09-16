@@ -86,6 +86,45 @@ test('replayRows shifts mean/median/p10/p25/p75/p90 by mean * effect and carries
   assert.equal(shrunk[0].mean, 9.5, 'delta -0.5 under shrink 0.5');
 });
 
+test('replayRows back-solves through a scored expert-consensus blend before re-applying the market shift', () => {
+  // The proposal's worked example: mean 11, a -0.10 raw game-environment
+  // effect capped at 0.12 (unclamped), and a captured row that was ALREADY
+  // finished under a 0.5-weight expert blend (expertPoints 12). Shifting the
+  // captured mean directly would overstate the effect by 1 / (1 - w); the
+  // correct path back-solves the pre-blend model value (10), shifts that, and
+  // re-blends: 0.5 * 9 + 0.5 * 12 = 10.5.
+  const blended = (expertConsensus) => row({
+    mean: 11, median: 11, p10: 6, p25: 8.5, p75: 13.5, p90: 16,
+    factors: {
+      gameEnvironment: { available: true, rawEffect: -0.10 },
+      expertConsensus,
+    },
+  });
+
+  const [scored] = replayRows(
+    [blended({ available: true, scored: true, blendWeight: 0.5, expertPoints: 12 })],
+    { maxEffect: 0.12, shrink: 1 }
+  );
+  assert.equal(scored.marketEffect, -0.10, 'unclamped under the 0.12 cap');
+  assert.equal(scored.mean, 10.5, 'model part 10 shifted to 9, re-blended 0.5*9 + 0.5*12');
+  assert.equal(scored.median, 10.5, 'every shifted field carries the same delta');
+
+  // blendWeight 0 (covered but never actually scored): no re-blend to
+  // back-solve through, so this reduces to the plain mean * effect case.
+  const [unscored] = replayRows(
+    [blended({ available: true, scored: false, blendWeight: 0, expertPoints: 12 })],
+    { maxEffect: 0.12, shrink: 1 }
+  );
+  assert.equal(unscored.mean, 9.9, 'delta -1.1 on the captured mean of 11, unblended');
+
+  // available: false on the expert factor: same plain mean * effect case.
+  const [unavailableExpert] = replayRows(
+    [blended({ available: false, reason: 'no expert coverage' })],
+    { maxEffect: 0.12, shrink: 1 }
+  );
+  assert.equal(unavailableExpert.mean, 9.9);
+});
+
 test('replayRows never mutates its input rows', () => {
   const rows = [row()];
   const original = JSON.parse(JSON.stringify(rows));

@@ -445,6 +445,12 @@ function buildVersusOpponentMeetings({ priorGames, opponent, season, constants =
  */
 async function loadFeatureBundle({
   season, week, playerIds, rules, client = pool, positions = null, playerContextOverrideById = null,
+  // The run's MODEL_CONSTANTS. Read here ONLY to decide whether the
+  // prior-season scan runs (#1485 `opponent.priorSeasonPseudoGames`, #1483
+  // `simulation.truncateAtPositionFloor`): the shipped v3.1 constants carry
+  // neither key, so a v3.1 run issues exactly the queries it always has and
+  // its stored factors stay byte-identical.
+  constants = model.MODEL_CONSTANTS,
 }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   if (ids.length === 0) {
@@ -609,6 +615,13 @@ async function loadFeatureBundle({
   let leagueRows = [];
   let priorSeasonRows = [];
   let priorSeasonDefenseRows = [];
+  // Whether this run's constants consume the prior season at all. Both v3.2
+  // consumers are checked, so a constants object that turns on either one
+  // gets the scan and an object with neither (v3.1) never pays for it.
+  const wantsPriorSeason = Boolean(
+    (constants && constants.opponent && Number(constants.opponent.priorSeasonPseudoGames) > 0)
+    || (constants && constants.simulation && constants.simulation.truncateAtPositionFloor === true)
+  );
   if (scanPositions.length > 0) {
     const priorSeason = Number(season) - 1;
     const [currentScan, priorScan, priorDefenseGamesResult] = await Promise.all([
@@ -630,10 +643,12 @@ async function loadFeatureBundle({
           [season, week, scanPositions, MAX_LEAGUE_SCAN_ROWS]
         )
         : Promise.resolve({ rows: [] }),
-      // Prior-season opponent seed (#1485): ALWAYS run, including week 1 -
-      // exactly the week the current-season scan above cannot cover. A prior
-      // season is complete by definition, so this query never needs the
-      // input-cutoff week filter the current-season scan carries.
+      // Prior-season scan (#1485 opponent seed, #1483 Position floor): runs
+      // for every week, including week 1, which the current-season scan above
+      // cannot cover, but ONLY when the run's constants consume it
+      // (`wantsPriorSeason`); a v3.1 run issues no new query. A prior season
+      // is complete by definition, so this query never needs the input-cutoff
+      // week filter the current-season scan carries.
       //
       // The opponent here comes from the STORED per-week `gameOpponent` key,
       // not a join through the player's CURRENT team the way the current-season
@@ -643,22 +658,26 @@ async function loadFeatureBundle({
       // defense for those weeks. Rows whose stored stats have no
       // `gameOpponent` (pre-backfill rows) simply contribute no allowance,
       // the same as any other row this file cannot place.
-      client.query(
-        `SELECT "pps"."player_id", "pps"."week", "pps"."stats", "p"."position",
-                fn_normalize_nfl_team("pps"."stats"->>'gameOpponent') AS "defense"
-         FROM "player_stats" "pps"
-         JOIN "players" "p" ON "p"."id" = "pps"."player_id"
-         WHERE "pps"."season" = $1 AND "p"."position" = ANY($2::text[])
-         ORDER BY "pps"."player_id", "pps"."week"
-         LIMIT $3`,
-        [priorSeason, scanPositions, MAX_LEAGUE_SCAN_ROWS]
-      ),
-      client.query(
-        `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "prior_games"
-         FROM "nfl_games" WHERE "season" = $1
-         GROUP BY 1`,
-        [priorSeason]
-      ),
+      wantsPriorSeason
+        ? client.query(
+          `SELECT "pps"."player_id", "pps"."week", "pps"."stats", "p"."position",
+                  fn_normalize_nfl_team("pps"."stats"->>'gameOpponent') AS "defense"
+           FROM "player_stats" "pps"
+           JOIN "players" "p" ON "p"."id" = "pps"."player_id"
+           WHERE "pps"."season" = $1 AND "p"."position" = ANY($2::text[])
+           ORDER BY "pps"."player_id", "pps"."week"
+           LIMIT $3`,
+          [priorSeason, scanPositions, MAX_LEAGUE_SCAN_ROWS]
+        )
+        : Promise.resolve({ rows: [] }),
+      wantsPriorSeason
+        ? client.query(
+          `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "prior_games"
+           FROM "nfl_games" WHERE "season" = $1
+           GROUP BY 1`,
+          [priorSeason]
+        )
+        : Promise.resolve({ rows: [] }),
     ]);
     leagueRows = currentScan.rows;
     priorSeasonRows = priorScan.rows;

@@ -331,6 +331,7 @@ function projectFromBundle({
   // expertConsensusBlend for why the difference matters downstream.
   oddsByGameKey = null, slateAverageImplied = null, expertByPlayerId = null,
   constants = model.MODEL_CONSTANTS,
+  modelVersion = model.MODEL_VERSION,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
   // unchanged to model.projectPlayer. Validated at the top of the function
   // body, before ANY other logic - including before the `!player` early
@@ -478,6 +479,7 @@ function projectFromBundle({
     season,
     week,
     constants,
+    modelVersion,
     scoringHashValue: hashValue,
     priorGames,
     priorSeasonPerGame: priorSeasonPerGame(bundle.seasonRowsByPlayer.get(playerId), rules, season),
@@ -559,6 +561,12 @@ async function generateProjections({
   // Overridable so scripts/backtest-weekly-projections.js can sweep
   // half-life / shrinkage alternatives against the same weeks.
   modelConstants = model.MODEL_CONSTANTS,
+  // The version string stamped on the run and every projection, and part of
+  // every draw's seed. A caller running a REGISTERED successor's constants
+  // (the #1439 evaluator with MODEL_CONSTANTS_V3_2) passes its version so the
+  // rows say which constants produced them and `pointEstimateFor` can read
+  // the ranking statistic back off the row. Defaults to what HEAD ships.
+  modelVersion = model.MODEL_VERSION,
   // The odds seam's read bound, and NOTHING else (#1268, ADR 0039): forwarded
   // untouched to `getWeeklyOdds({ observedAtOrBefore })`. `input_cutoff` (the
   // week's first kickoff) is never this value. `holdout.service.js`'s
@@ -590,6 +598,9 @@ async function generateProjections({
   }
   const bundle = await features.loadFeatureBundle({
     season, week, playerIds, rules, client, playerContextOverrideById,
+    // The run's constants decide whether the prior-season scan runs at all
+    // (#1485 seeding, #1483 Position floor): under v3.1 no new query is issued.
+    constants: modelConstants,
   });
 
   // Weather is strictly optional context and must never be able to fail the
@@ -660,6 +671,7 @@ async function generateProjections({
         playerId, bundle, rules, season, week, hashValue, weatherByGameKey,
         oddsByGameKey, slateAverageImplied: slateAverage, expertByPlayerId,
         constants: modelConstants,
+        modelVersion,
         onPreHomeAwayBaseline,
       })
     );
@@ -667,6 +679,7 @@ async function generateProjections({
 
   return {
     projections,
+    modelVersion,
     inputCutoff: bundle.inputCutoff,
     sourceCoverage: buildSourceCoverage({ bundle, projections, weatherCoverage }),
   };
@@ -1166,7 +1179,14 @@ async function getRestOfSeason(playerIds, leagueId, { client = pool, runsByWeek 
  * falling back to `mean`. A projection with neither reports `null`, never a
  * fabricated 0.
  */
-function pointEstimateFor(projection, constants = model.MODEL_CONSTANTS) {
+function pointEstimateFor(
+  projection,
+  // The RUN's constants, read back off the row's own `modelVersion` through
+  // the registry (#1483: the display follows the ranking statistic of the
+  // constants that produced the number, never the module default). A row
+  // stamped with a version this checkout cannot run falls back to HEAD's.
+  constants = model.constantsForVersion(projection && projection.modelVersion) || model.MODEL_CONSTANTS
+) {
   const meanFirst = constants && constants.decision && constants.decision.lineupRanking === 'mean';
   const primary = meanFirst ? projection.mean : projection.median;
   const fallback = meanFirst ? projection.median : projection.mean;
@@ -1190,7 +1210,7 @@ function toLegacyProjectionMap(run) {
     const point = pointEstimateFor(projection);
     out.set(playerId, {
       points: point == null ? null : Number(point),
-      source: point == null ? 'unavailable' : model.MODEL_VERSION,
+      source: point == null ? 'unavailable' : (run.modelVersion || model.MODEL_VERSION),
       projection,
       confidence: projection.confidence,
       activeProbability: projection.activeProbability,

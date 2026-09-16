@@ -27,7 +27,8 @@ closes:
    the frozen pit-sweep artifacts and again on the week 1 2026 holdout audit
    (Spearman .589 / pairwise .712 against the median's .577 / .707).
 2. Each position group's simulated draws are truncated at the lowest score
-   any player of that group has recorded over the stored seasons under the
+   any player of that group has recorded over the prior season and the
+   current season to date under the
    league's own rules before the Floor and Ceiling are read. The floor is
    data computed per run, not a constant; the constant only says whether it
    applies. Truncation cannot move the median and never touches the mean, so
@@ -41,9 +42,12 @@ closes:
    converges to the current-season figure. The card labels the matchup line
    "context only" whenever the Factor did not apply.
 
-v3.1's constants are preserved verbatim beside v3.2's, pinned by hash to
-the constants the sealed study captured under, so the successor evaluator
-(#1439) keeps a genuine v3.1 column as its error bar after the bump.
+Per the #1442 ruling, the three deltas live in a version-keyed constants
+object beside the pinned v3.1 one, so the shipped Model version and its
+constants hash do not move: the code merges inert, HEAD keeps producing
+v3.1 numbers, and the successor evaluator (#1439) runs v3.1 and v3.2 from
+the same checkout. The one Model version bump, with its DEVIATIONS entry
+and pin update, is #1438's, after the 2026 week 18 capture closes.
 
 ## Considered options
 
@@ -70,14 +74,17 @@ the constants the sealed study captured under, so the successor evaluator
 
 ## Consequences
 
-- One Model version bump, one DEVIATIONS.md entry, one constants pin
-  update; the branch that carries them is held open until the 2026 week 18
-  capture closes (2027-01-09T18:00Z), like every other v3.2 child.
+- No Model version bump here: the successor constants are registered, not
+  shipped, so this merges in season. The one bump, its DEVIATIONS.md entry
+  and the pin update ride #1438 after the 2026 week 18 capture closes
+  (2027-01-09T18:00Z). Until then a display reads which statistic to print
+  off the run's own version, so a v3.1 run keeps printing the median.
 - The preregistered Candidate A test on the v3.1 ledger (flip the ranking to
   the mean) still runs and its verdict is recorded; v3.2 adopts the flip on
-  the evidence above whichever way that test lands, and the DEVIATIONS entry
-  says so.
-- The feature loader now scans the prior season once per run, from the
+  the evidence above whichever way that test lands, and #1438's DEVIATIONS
+  entry must say so.
+- Under a v3.2 constants object the feature loader scans the prior season
+  once per run (never under v3.1's, which has no consumer for it), from the
   stored per-week `gameOpponent` key rather than the schedule joined through
   the player's current team, because a traded player's prior-season games
   were earned against someone else's opponents. Rows without the key

@@ -58,6 +58,20 @@ test('constantsFor refuses an unregistered MODEL_VERSION rather than falling bac
   assert.equal(successorEval.constantsFor(model.MODEL_VERSION), model.MODEL_CONSTANTS);
 });
 
+test('CONSTANTS_BY_MODEL_VERSION registers both free_baseline_v3.1 and free_baseline_v3.2, from the model\'s own registry (#1442 ruling (4))', () => {
+  assert.equal(
+    successorEval.CONSTANTS_BY_MODEL_VERSION['free_baseline_v3.1'],
+    model.MODEL_CONSTANTS,
+    'v3.1 is the shipped default, unchanged'
+  );
+  assert.equal(
+    successorEval.CONSTANTS_BY_MODEL_VERSION['free_baseline_v3.2'],
+    model.MODEL_CONSTANTS_V3_2,
+    'v3.2 is now registered too, since MODEL_CONSTANTS_BY_VERSION carries it'
+  );
+  assert.equal(successorEval.constantsFor('free_baseline_v3.2'), model.MODEL_CONSTANTS_V3_2);
+});
+
 test('reprojectWeek forwards capture_not_after as the odds bound and the version\'s own constants', async () => {
   let seenArgs = null;
   const header = { season: 2026, week: 3, scoringHash: 'hash-x', captureNotAfter: '2026-09-21T17:00:00.000Z' };
@@ -78,6 +92,7 @@ test('reprojectWeek forwards capture_not_after as the odds bound and the version
   assert.equal(seenArgs.oddsObservedAtOrBefore, header.captureNotAfter);
   assert.equal(seenArgs.weatherService, false);
   assert.equal(seenArgs.modelConstants, model.MODEL_CONSTANTS);
+  assert.equal(seenArgs.modelVersion, model.MODEL_VERSION, 'reprojectWeek forwards modelVersion, not just its constants');
   assert.ok(seenArgs.playerContextOverrideById instanceof Map);
   assert.ok(seenArgs.expertOverrideByPlayerId instanceof Map);
   assert.equal(out.length, 1);
@@ -176,11 +191,13 @@ function makeMockGenerateProjections(captured, profileName) {
   return async ({
     season, week, playerIds, playerContextOverrideById, expertOverrideByPlayerId, modelConstants,
   }) => {
-    // HEAD is v3.2 (#1483/#1485): the rebuilt-v3.1 column runs with the
-    // preserved MODEL_CONSTANTS_V3_1 and the target column with HEAD's own.
-    assert.ok(
-      modelConstants === model.MODEL_CONSTANTS || modelConstants === model.MODEL_CONSTANTS_V3_1,
-      'a reprojection gets either the preserved v3.1 constants or the head constants, never a stand-in'
+    // HEAD is v3.1 (#1442 ruling (4)): the rebuilt-v3.1 column and (when the
+    // target IS v3.1, as this test's modelVersion is) the target column too
+    // both run with model.MODEL_CONSTANTS - the same object, since it is the
+    // one and only registered v3.1 entry.
+    assert.equal(
+      modelConstants, model.MODEL_CONSTANTS,
+      'a v3.1 reprojection gets the shipped MODEL_CONSTANTS, never a stand-in'
     );
     const projections = new Map();
     for (const playerId of playerIds) {

@@ -122,11 +122,10 @@ const SQL_SURFACE = Object.freeze([
        GROUP BY 1`,
   },
   {
-    // Prior-season opponent seed (#1485). ALWAYS run whenever `scanPositions`
-    // is non-empty - including week 1, which the current-season `leagueScan`
-    // above cannot cover because no week of the target season has completed
-    // yet. A prior season is complete by definition, so this carries no
-    // week cutoff at all: every week of `priorSeason` is fair game.
+    // Prior-season scan (#1485 opponent seed, #1483 Position floor). Runs for
+    // every week including week 1, which the current-season `leagueScan` above
+    // cannot cover, but only under a constants object that consumes it (a v3.2
+    // one); a prior season is complete by definition, so no week cutoff.
     name: 'priorSeasonScan',
     source: 'server/services/projectionFeatures.js:647',
     // Added with free_baseline_v3.2 (#1485), after the pit-sweep-2024-2025
@@ -135,7 +134,7 @@ const SQL_SURFACE = Object.freeze([
     // as optional for such a manifest and still requires the signature to
     // match when one is pinned.
     since: 'free_baseline_v3.2',
-    conditional: 'scanPositions.length > 0',
+    conditional: 'scanPositions.length > 0 && wantsPriorSeason (a v3.2 constants object; never under the shipped v3.1 constants)',
     binding: { priorSeason: 0, positions: 1, limit: 2 },
     text: `SELECT "pps"."player_id", "pps"."week", "pps"."stats", "p"."position",
                 fn_normalize_nfl_team("pps"."stats"->>'gameOpponent') AS "defense"
@@ -153,7 +152,7 @@ const SQL_SURFACE = Object.freeze([
     name: 'priorSeasonDefenseGameCount',
     source: 'server/services/projectionFeatures.js:657',
     since: 'free_baseline_v3.2',
-    conditional: 'scanPositions.length > 0',
+    conditional: 'scanPositions.length > 0 && wantsPriorSeason (a v3.2 constants object; never under the shipped v3.1 constants)',
     binding: { priorSeason: 0 },
     text: `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "prior_games"
          FROM "nfl_games" WHERE "season" = $1
