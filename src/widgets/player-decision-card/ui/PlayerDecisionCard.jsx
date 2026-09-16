@@ -168,6 +168,16 @@ function isTypingTarget(el) {
  * new fetch: the one `/card` read every context makes is the whole of it, so
  * the Draft room's own cadence rule (ADR 0025: refetch `draft:state` on
  * reconnect, nothing else polls) is untouched.
+ *
+ * #1512: `context` also accepts an OBJECT, one of the six pure builders in
+ * `model/decisionContext.js` (`myTeam`, `freeAgent`, `waivers`, `rostered`,
+ * `draft`, `fromCard`) - Lineup is the first caller to build one
+ * (`myTeam({ managed: true })`). Only `context.kind` is read here, in place
+ * of the bare string every branch above already compares against; a caller
+ * that passes no context object (the bare string, or nothing at all) is
+ * unchanged. The other fields a builder bundles (`onSwap`, `entries`,
+ * `bestBall`, and so on) stay separate loose props on this component until a
+ * later ticket (T19) moves them under `context` for good.
  */
 export default function PlayerDecisionCard({
   open,
