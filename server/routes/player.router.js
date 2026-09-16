@@ -241,7 +241,7 @@ router.get('/', requireAuth, async (req, res) => {
   }
 
   // Optional multi-position filter, e.g. `positions=RB,WR,TE` (#1418, ADR
-  // 0044): a set-based sibling to `position` above, so a client can ask for
+  // 0045): a set-based sibling to `position` above, so a client can ask for
   // several codes in one request. Validated against the same POSITIONS
   // whitelist and refused with the same 400 shape on a bad code. `position`
   // keeps working unchanged; when both are given, `positions` wins.

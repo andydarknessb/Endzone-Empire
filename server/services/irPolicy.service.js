@@ -209,6 +209,38 @@ async function rosterCapacity(client, { league, teamId, excludePlayerIds = [], r
 }
 
 /**
+ * `rosterCapacity` for every team in one league at once: one grouped read
+ * instead of one per team. The league-detail payload publishes each team's
+ * capacity beside its roster_count so the Roster tile can say how full the
+ * roster actually is (#1475): "19/20" on a 20-limit league with one IR slot
+ * reads as a spot to spare, when the 20th spot exists only for an
+ * IR-eligible occupant. Same stash definition (fromCurrentIrStashes), same
+ * eligible-or-attested predicate, same cap at the IR slot count as
+ * `rosterCapacity`; no exclusions or restores, because nothing is leaving or
+ * returning in a read. Every requested id is present in the Map.
+ */
+async function rosterCapacityByTeam(client, { league, teamIds }) {
+  const base = draftRosterSize(league);
+  const irSlots = irSlotCount(league);
+  const ids = [...new Set((teamIds || []).map(Number))];
+  const capacities = new Map(ids.map((id) => [id, base]));
+  if (irSlots === 0 || ids.length === 0) return capacities;
+
+  const stash = await client.query(
+    `SELECT "lineup_entries"."team_id", COUNT(*)::int AS n${fromCurrentIrStashes()}
+        AND "teams"."league_id" = $1
+        AND ("players"."injury_status" = ANY($2::text[]) OR "lineup_entries"."ir_attested")
+      GROUP BY "lineup_entries"."team_id"`,
+    [league.id, [...IR_ELIGIBLE_DESIGNATIONS]]
+  );
+  for (const row of stash.rows) {
+    const teamId = Number(row.team_id);
+    if (capacities.has(teamId)) capacities.set(teamId, base + Math.min(irSlots, Number(row.n)));
+  }
+  return capacities;
+}
+
+/**
  * The stash a drop interrupted, if undoing it would return the player to a
  * valid one; null otherwise.
  *
@@ -329,6 +361,7 @@ module.exports = {
   isIrEligible,
   isValidStash,
   rosterCapacity,
+  rosterCapacityByTeam,
   sendIrFlagPushes,
   undoRestoresStash,
 };

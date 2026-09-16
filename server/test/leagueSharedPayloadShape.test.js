@@ -159,8 +159,10 @@ test('league detail: the response root is { viewerTeamId, league, teams } and vi
 // --- teams[] entry -------------------------------------------------------
 const TEAM_ENTRY_CLEAN = [
   'avatar_static_url', 'avatar_url', 'draft_position', 'draft_ready', 'faab_remaining',
-  'id', 'is_co_commissioner', 'locked', 'name', 'roster_count', 'teamId', 'teamName',
+  'id', 'is_co_commissioner', 'locked', 'name', 'roster_capacity', 'roster_count', 'teamId', 'teamName',
 ];
+// roster_capacity (#1475) is a team attribute: the occupancy-based capacity the
+// Roster tile sizes by, published beside roster_count, never an account field.
 // owner_id stays in the SELECT (viewerTeamId reads it off the raw rows) and is
 // stripped from the serialization; owner is no longer selected (#343, #115).
 test('league detail: a teams[] entry is Team identity and team attributes, no account fields', async (t) => {
