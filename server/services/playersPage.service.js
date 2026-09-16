@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
+const { rulesForLeague } = require('./scoringRules');
 const {
-  rulesForLeague,
   projectSeasonPoints,
   IDP_POSITIONS,
 } = require('./scoring.service');

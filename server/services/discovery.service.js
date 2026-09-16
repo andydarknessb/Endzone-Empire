@@ -6,7 +6,7 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { notify } = require('./activity.service');
-const { SCORING_PRESETS } = require('./scoring.service');
+const { SCORING_PRESETS } = require('./scoringRules');
 const { MODES: PICKEM_MODES } = require('./pickem.service');
 const { commissionerPredicate, notifyCommissioners } = require('./leagueRole.service');
 const { assertAdmissible, joinLeague } = require('./leagueMembership.service');

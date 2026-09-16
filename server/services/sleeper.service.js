@@ -3,7 +3,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
-const { calculateFantasyPoints } = require('./scoring.service');
+const { calculateFantasyPoints } = require('./scoringRules');
 
 /**
  * Sleeper provides real full-season NFL stats for free (no key). We use it to

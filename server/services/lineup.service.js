@@ -1348,7 +1348,7 @@ async function getLineup({ leagueId, userId, week }) {
       // so a top-level require here would cycle (`generateProjections`'s and
       // `rowsHeldAsPlayed`'s own comments note the same constraint).
       const projectionService = require('./projection.service');
-      const { rulesForLeague, calculateFantasyPoints } = require('./scoring.service');
+      const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
       const rules = rulesForLeague(league);
       const weeklyByPlayer = playerIds.length > 0
         ? await projectionService.getWeekProjections({

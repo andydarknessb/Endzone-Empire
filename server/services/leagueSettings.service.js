@@ -52,7 +52,7 @@ const { isValidIanaTimeZone } = require('../modules/ianaTimeZones');
 // looked up at call time so a test can mock activity.service's export.
 const activityService = require('./activity.service');
 const { POSITION_GROUPS } = require('./lineup.service');
-const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('./scoring.service');
+const { SCORING_PRESETS, SCORING_RULES, isValidTierArray } = require('./scoringRules');
 
 /* ------------------------------------------------------------------ *
  * Shared rules and constants                                          *

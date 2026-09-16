@@ -84,7 +84,7 @@ const { generateProjections } = require('../services/projection.service');
 const { availabilityFor } = require('../services/projectionModel');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const model = require('../services/projectionModel');
-const { SCORING_RULES } = require('../services/scoring.service');
+const { SCORING_RULES } = require('../services/scoringRules');
 
 // ---------------------------------------------------------------------------
 // CLI

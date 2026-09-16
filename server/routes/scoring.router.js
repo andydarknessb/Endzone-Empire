@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
+const { SCORING_RULES, SCORING_PRESETS } = require('../services/scoringRules');
 const scoring = require('../services/scoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
@@ -179,7 +180,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
 
 // GET /api/scoring/rules — default rules plus the selectable presets
 router.get('/rules', (req, res) => {
-  res.json({ defaults: scoring.SCORING_RULES, presets: scoring.SCORING_PRESETS });
+  res.json({ defaults: SCORING_RULES, presets: SCORING_PRESETS });
 });
 
 // POST /api/scoring/sync-schedule — pull the NFL schedule into nfl_games.

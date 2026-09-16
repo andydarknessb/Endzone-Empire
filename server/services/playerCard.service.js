@@ -11,6 +11,7 @@ const irPolicy = require('./irPolicy.service');
 // `t.mock.method`, and a destructured binding is captured at require time and
 // can no longer be mocked afterwards.
 const byeService = require('./bye.service');
+const scoringRules = require('./scoringRules');
 const scoringService = require('./scoring.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const projectionService = require('./projection.service');
@@ -496,7 +497,7 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
         week: wk,
         opponent,
         kind: 'actual',
-        points: stats ? scoringService.calculateFantasyPoints(stats, rules) : null,
+        points: stats ? scoringRules.calculateFantasyPoints(stats, rules) : null,
       });
       continue;
     }
@@ -555,9 +556,9 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
   );
   const scored = result.rows.map((row) => ({
     playerId: row.player_id,
-    points: scoringService.hasTeamDefenseTiers(row.stats)
+    points: scoringRules.hasTeamDefenseTiers(row.stats)
       ? Number(row.fantasy_points)
-      : scoringService.calculateFantasyPoints(row.stats, rules),
+      : scoringRules.calculateFantasyPoints(row.stats, rules),
   }));
   const mine = scored.find((row) => row.playerId === playerId);
   if (!mine) return null;
@@ -639,7 +640,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   const season = league.current_season;
   const effectiveWeek = week === undefined || week === null ? league.current_week : week;
   const seasonEnd = projectionService.lastPlayoffWeek(league);
-  const rules = scoringService.rulesForLeague(league);
+  const rules = scoringRules.rulesForLeague(league);
 
   const scheduleResult = await pool.query(
     `SELECT "week", "opponent" FROM "nfl_games"
@@ -753,7 +754,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
 
     const weeklyRowsForSeason = weeklyResult.rows.filter((r) => r.season === s);
     const points = Math.round(
-      weeklyRowsForSeason.reduce((sum, r) => sum + scoringService.calculateFantasyPoints(r.stats, rules), 0) * 100
+      weeklyRowsForSeason.reduce((sum, r) => sum + scoringRules.calculateFantasyPoints(r.stats, rules), 0) * 100
     ) / 100;
     const games = weeklyRowsForSeason.length;
 
@@ -813,7 +814,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
           ? normalizeNflTeam(r.stats.gameOpponent)
           : (opponentByWeekForSeason.get(Number(r.week)) ?? null),
         statLine: r.stats,
-        points: scoringService.calculateFantasyPoints(r.stats, rules),
+        points: scoringRules.calculateFantasyPoints(r.stats, rules),
       })),
     });
   }

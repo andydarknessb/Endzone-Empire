@@ -31,7 +31,7 @@ const STALE_MS = 36 * 60 * 60 * 1000;
  * narrowed scan is left untouched rather than falsely resolved.
  */
 async function scanPlayerStats({ seasons = null, pageSize = DEFAULT_PAGE_SIZE, db = pool } = {}) {
-  const { calculateFantasyPoints } = require('./scoring.service');
+  const { calculateFantasyPoints } = require('./scoringRules');
   const found = new Map();
   let scanned = 0;
   let afterId = 0;

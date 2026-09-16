@@ -162,7 +162,7 @@ const fs = require('fs');
 const pool = require('../server/modules/pool');
 const projection = require('../server/services/projection.service');
 const model = require('../server/services/projectionModel');
-const { rulesForLeague, SCORING_RULES, calculateFantasyPoints } = require('../server/services/scoring.service');
+const { rulesForLeague, SCORING_RULES, calculateFantasyPoints } = require('../server/services/scoringRules');
 const { DEFAULT_ROSTER_SLOTS } = require('../server/services/lineup.service');
 const { optimalAssignment } = require('../server/services/lineupOptimizer');
 

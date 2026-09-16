@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const model = require('../services/projectionModel');
 const projectionSvc = require('../services/projection.service');
 const holdout = require('../services/holdout.service');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS } = require('../services/scoringRules');
 const { computeManifestDigest } = require('../services/scheduleManifest');
 
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');

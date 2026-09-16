@@ -29,7 +29,7 @@ const { normalizeNflTeam } = require('./nflTeam');
 // custom-scoring league's advisors never contradict its settled score (#739,
 // ADR 0024). They read `player_stats.stats`, never the stored
 // `fantasy_points` column, which is the DEFAULT-rules price.
-const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
+const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { countedRoster } = require('./countedRoster.service');
 
 class DecisionError extends Error {
