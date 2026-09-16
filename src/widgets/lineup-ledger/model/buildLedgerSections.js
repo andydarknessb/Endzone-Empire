@@ -12,7 +12,9 @@
  * per `irSlots`, same fill rule. Bench: AC5, "Bench sorts by projection with
  * Unavailable players last" - a NEW ordering rule the legacy page did not
  * apply (it kept the server's own order). Available bench players sort by
- * projection descending (a null projection sorts as if it were the lowest,
+ * `projectedPoints` descending (the Point estimate, CONTEXT.md's The
+ * projection engine - the same number the Ledger row headlines, #1482; a
+ * null value sorts as if it were the lowest,
  * never crashing the comparator); every Unavailable bench player (on bye,
  * out, or on IR) follows, in the order the server returned them. Padded up
  * to `benchSlots` (or the occupied count, whichever is larger: a roster can
@@ -91,9 +93,13 @@ function isUnavailable(entry) {
   return Boolean(entry.availability && entry.availability.available === false);
 }
 
-// Stable partition: every available entry (sorted by projection, high to
-// low, an unknown projection sorting last among them) before every
-// Unavailable one (kept in the order the server returned them).
+// Stable partition: every available entry (sorted by projectedPoints, the
+// Point estimate - the same number the Ledger row headlines, #1482 - high to
+// low, an unknown value sorting last among them) before every Unavailable
+// one (kept in the order the server returned them). Never `entry.projection`
+// (the distribution's bare mean): sorting by a different statistic than the
+// row prints could put the bench in an order its own headline numbers
+// contradict.
 function sortBenchEntries(benchEntries) {
   const available = [];
   const unavailable = [];
@@ -101,8 +107,8 @@ function sortBenchEntries(benchEntries) {
     (isUnavailable(entry) ? unavailable : available).push(entry);
   }
   available.sort((a, b) => {
-    const ap = Number.isFinite(a.projection) ? a.projection : -Infinity;
-    const bp = Number.isFinite(b.projection) ? b.projection : -Infinity;
+    const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
+    const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
     return bp - ap;
   });
   return [...available, ...unavailable];

@@ -47,6 +47,13 @@ const entry = (over = {}) => ({
   position: 'QB',
   nflTeam: 'BUF',
   slot: 'QB',
+  // #1482: `projectedPoints` (the Point estimate, CONTEXT.md's The
+  // projection engine) is what the card's Proj text, RangeBar marker and
+  // Bench options number/sort read; `projection` (the bare mean) rides
+  // alongside since a real entry always carries both. Defaulted equal here
+  // since this fixture isn't testing the two statistics diverging (a
+  // dedicated case below owns that).
+  projectedPoints: 24.3,
   projection: 24.3,
   floor: 18,
   ceiling: 30,
@@ -683,11 +690,11 @@ test('the injury tile shows the designation and the injury Edge line\'s own deta
   expect(tile).toHaveTextContent('Hamstring, limited in practice');
 });
 
-test('bench options list eligible bench players by projection, and a swap sends both moves', async () => {
+test('bench options list eligible bench players by projectedPoints, and a swap sends both moves', async () => {
   const onSwap = jest.fn();
   const starter = entry();
-  const benchA = entry({ playerId: 2, name: 'Bench Low', slot: 'BENCH', projection: 8, eligibleSlots: ['BENCH', 'QB'] });
-  const benchB = entry({ playerId: 3, name: 'Bench High', slot: 'BENCH', projection: 20, eligibleSlots: ['BENCH', 'QB'] });
+  const benchA = entry({ playerId: 2, name: 'Bench Low', slot: 'BENCH', projectedPoints: 8, projection: 8, eligibleSlots: ['BENCH', 'QB'] });
+  const benchB = entry({ playerId: 3, name: 'Bench High', slot: 'BENCH', projectedPoints: 20, projection: 20, eligibleSlots: ['BENCH', 'QB'] });
   renderCard({ entry: starter, entries: [starter, benchA, benchB], onSwap });
 
   const section = await screen.findByTestId('decision-card-bench-options');
@@ -704,6 +711,37 @@ test('bench options list eligible bench players by projection, and a swap sends 
     { playerId: 3, slot: 'QB' },
     { playerId: 1, slot: 'BENCH' },
   ]);
+});
+
+// #1482, formal review round 2 (formal-002-f1): opening a Ledger row's
+// Decision card must not reintroduce the issue's own contradiction one tap
+// later. DK Metcalf's row headlines his projectedPoints (8.21); his card's
+// Proj text and RangeBar marker must read the same number, never his mean
+// (9.03). Terry McLaurin's bench option must show and sort by HIS
+// projectedPoints (10.06), not his lower mean (7.37) - the exact shape the
+// issue's Cause section measured.
+test('the Proj text, RangeBar marker and Bench options read projectedPoints, never the mean, when they disagree (#1482)', async () => {
+  const dk = entry({
+    playerId: 1, name: 'DK Metcalf', slot: 'FLEX', projection: 9.03, projectedPoints: 8.21,
+    floor: 5, ceiling: 12, eligibleSlots: ['BENCH', 'FLEX'],
+  });
+  const terry = entry({
+    playerId: 2, name: 'Terry McLaurin', slot: 'BENCH', projection: 7.37, projectedPoints: 10.06,
+    eligibleSlots: ['BENCH', 'FLEX'],
+  });
+  renderCard({ entry: dk, entries: [dk, terry] });
+
+  await screen.findByRole('heading', { name: 'DK Metcalf' });
+  expect(screen.getByTestId('decision-card-projection')).toHaveTextContent('Proj 8.2');
+  expect(screen.getByTestId('decision-card-projection')).not.toHaveTextContent('9.0');
+  expect(screen.getByTestId('decision-card-range-bar')).toHaveAttribute(
+    'aria-label',
+    expect.stringContaining('Projection 8.2')
+  );
+
+  const section = await screen.findByTestId('decision-card-bench-options');
+  expect(within(section).getByText('10.1')).toBeInTheDocument();
+  expect(within(section).queryByText('7.4')).not.toBeInTheDocument();
 });
 
 test('a locked bench option is disabled with the lock shown, never swappable', async () => {

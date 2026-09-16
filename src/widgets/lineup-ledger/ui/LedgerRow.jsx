@@ -236,11 +236,22 @@ export default function LedgerRow({
   // drives the points cell's live colour and the Edge line's kind
   // transition (#1241 AC2/AC3) without a second call to gameCellView.
   const view = isEmpty ? null : gameCellView(entry, liveRow);
+  // The headline number is `entry.projectedPoints`, CONTEXT.md's Point
+  // estimate under The projection engine - whichever statistic the run's own
+  // Model version ranks lineups by (median or mean, `pointEstimateFor`,
+  // projection.service.js) - never `entry.projection` (the distribution's
+  // bare mean). #1482: the two can order two players differently, and the
+  // Edge line's "Outprojects" comparison (findBenchAboveStarter,
+  // server/services/lineup.service.js) and the Start/Sit ranking already
+  // read the Point estimate - printing the mean here was the one place on
+  // the row that disagreed with them. Floor and Ceiling (`entry.floor`/
+  // `entry.ceiling`, p10/p90) are untouched; they live on the Decision card,
+  // not this cell.
   const projectionText = isEmpty
     ? null
     : unavailable
       ? unavailableLabel(entry.availability.reason) || 'unavailable'
-      : formatPoints(entry.projection);
+      : formatPoints(entry.projectedPoints);
   // The points cell (AC2/AC3): the entry's actual/live fantasy points once
   // his game is live or final, a dash reserved for an Unavailable row (never
   // plays) and for a pre-kickoff row (nothing scored yet) alike -

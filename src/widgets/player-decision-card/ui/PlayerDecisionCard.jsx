@@ -1109,14 +1109,23 @@ function GameSection({ entry, line, weather, level }) {
   );
 }
 
-// AC2: mean, Floor, Ceiling on the shared RangeBar, and the largest Factor's
-// explanation. `entry.factorExplanation` (#1281) rides the lineup entry as
-// its own field, independent of the Edge line: `lineup.service.js` sets it
-// from the SAME `factorEdgeText(factors)` call that can win the Edge line's
-// `factor` kind, but unconditionally, so it renders here even when a
-// higher-priority kind (injury, bench-above-starter) won the Edge line
-// instead - an injured player can show both his injury tile and his
-// largest Factor's explanation at once. Null when no factor applies.
+// AC2: the Point estimate, Floor, Ceiling on the shared RangeBar, and the
+// largest Factor's explanation. `entry.factorExplanation` (#1281) rides the
+// lineup entry as its own field, independent of the Edge line:
+// `lineup.service.js` sets it from the SAME `factorEdgeText(factors)` call
+// that can win the Edge line's `factor` kind, but unconditionally, so it
+// renders here even when a higher-priority kind (injury, bench-above-starter)
+// won the Edge line instead - an injured player can show both his injury
+// tile and his largest Factor's explanation at once. Null when no factor
+// applies.
+//
+// #1482, formal review round 2 (formal-002-f1): the RangeBar marker and the
+// "Proj" text read `entry.projectedPoints` (CONTEXT.md's Point estimate),
+// never `entry.projection` (the distribution's bare mean) - the same card
+// opens from a Ledger row, so a mean-headlined "Proj" here would reproduce
+// the issue's own contradiction one tap after the row is fixed. Floor and
+// Ceiling stay `entry.floor`/`entry.ceiling` (p10/p90): untouched by this
+// ticket.
 function ProjectionSection({ entry, level }) {
   const factorText = entry.factorExplanation || null;
   return (
@@ -1124,13 +1133,13 @@ function ProjectionSection({ entry, level }) {
       <RangeBar
         floor={entry.floor}
         ceiling={entry.ceiling}
-        projection={entry.projection}
+        projection={entry.projectedPoints}
         label={entry.name}
         data-testid="decision-card-range-bar"
       />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5, fontSize: 12, color: 'var(--dash-faint)' }}>
         <span>{`Floor ${formatPoints(entry.floor)}`}</span>
-        <span>{`Proj ${formatPoints(entry.projection)}`}</span>
+        <span>{`Proj ${formatPoints(entry.projectedPoints)}`}</span>
         <span>{`Ceiling ${formatPoints(entry.ceiling)}`}</span>
       </Box>
       {factorText && (
@@ -1389,7 +1398,10 @@ function BenchOptionsSection({ entry, entries, onSwap, level, hidden, bestBall, 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
               <PosChip position={candidate.position} />
               <Typography sx={{ fontSize: 13 }} noWrap>{candidate.name}</Typography>
-              <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{formatPoints(candidate.projection)}</Typography>
+              {/* #1482, formal-002-f1: projectedPoints (the Point estimate),
+                  never projection (the mean) - the same number the candidate's
+                  own Ledger row headlines and the sort below orders by. */}
+              <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{formatPoints(candidate.projectedPoints)}</Typography>
               {candidateLocked && (
                 <Typography
                   component="span"
