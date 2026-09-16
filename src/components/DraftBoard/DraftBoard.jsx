@@ -12,7 +12,7 @@ import { useTheme } from '@mui/material/styles';
 import Grid from '@mui/material/Unstable_Grid2';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { draft } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry } from '../../entities/player';
 import Countdown from '../Countdown/Countdown';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -1178,7 +1178,6 @@ function DraftBoard() {
         onClose={() => setQuickViewId(null)}
         entry={quickViewEntry}
         leagueId={Number(leagueId)}
-        context="draft"
         draftedBy={quickViewDraftedBy}
         adp={quickViewAdp}
         canDraft={!!quickViewAvail && !quickViewDraftedBy && pickState.canManualPick}
@@ -1188,6 +1187,18 @@ function DraftBoard() {
         onQueue={() => quickViewAvail && handleQueuePlayer(quickViewAvail)}
         playerIds={availablePlayers.map((p) => p.id)}
         onNavigate={setQuickViewId}
+        // #1514: the built context - the loose props above stay as they were
+        // (the card only reads context.kind today; T19 finishes moving them
+        // under context, same deferral #1512 left for myTeam()).
+        context={draft({
+          draftedBy: quickViewDraftedBy,
+          adp: quickViewAdp,
+          canDraft: !!quickViewAvail && !quickViewDraftedBy && pickState.canManualPick,
+          draftUnavailableReason: pickState.pickUnavailable ? pickState.explanation : null,
+          queued: queue.some((p) => p.id === quickViewId),
+          onDraft: () => quickViewAvail && requestDraftPlayer(quickViewAvail.id),
+          onQueue: () => quickViewAvail && handleQueuePlayer(quickViewAvail),
+        })}
       />
 
       <DraftPickConfirmDialog

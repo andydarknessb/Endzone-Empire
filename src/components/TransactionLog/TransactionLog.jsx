@@ -38,7 +38,7 @@ import { useLeague } from '../../hooks/useLeague';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { fromCard } from '../../widgets/player-decision-card';
 import { PlayerNameLink } from '../../entities/player';
 import { formatRelative } from '../../utils/formatRelative';
 
@@ -388,7 +388,12 @@ function TransactionLog() {
         onClose={() => setDecisionCardEntry(null)}
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
-        contextFromCard
+        // #1514: TransactionLog's activity segments carry only
+        // { playerId, name }, no roster fact of its own to classify by, so
+        // it defers kind to the fetched card's own Availability (ADR 0040
+        // ruling c) via the fromCard() builder, replacing the earlier loose
+        // contextFromCard boolean.
+        context={fromCard()}
       />
     </Container>
   );

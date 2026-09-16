@@ -146,21 +146,24 @@ function isTypingTarget(el) {
  * list, restated from `PlayerQuickView`'s identical contract so WaiverWire
  * and PlayerManagement lose nothing by switching to this card.
  *
- * #1311, ADR 0040 ruling (c): `contextFromCard` (default false) is for a
- * caller that cannot derive `context` itself - TransactionLog's activity
- * segments carry only `{ playerId, name }`, no roster fact to classify by.
- * When true, the effective context is `card.availability.state` instead of
- * the `context` prop (which such a caller then omits), so no action bar
- * renders until the `/card` payload answers - `effectiveContext` is `null`
- * before that, matching none of the four context branches below. The
- * header's own display fields (team, headshot, slot/position, injury) fall
- * back to the SAME payload's `player` block whenever `entry` doesn't carry
- * them, so a minimal entry still paints a real header once the card arrives.
+ * #1311, ADR 0040 ruling (c): a caller that cannot derive `context` itself -
+ * TransactionLog's activity segments carry only `{ playerId, name }`, no
+ * roster fact to classify by - passes `context={fromCard()}` (`model/
+ * decisionContext.js`, `{ kind: null, fromCard: true }`) instead of a kind of
+ * its own (#1514 migrated this off the earlier loose `contextFromCard`
+ * boolean prop; see the #1512 paragraph below). When `context.fromCard` is
+ * true, the effective context is `card.availability.state` instead of
+ * `context.kind`, so no action bar renders until the `/card` payload answers
+ * - `effectiveContext` is `null` before that, matching none of the four
+ * context branches below. The header's own display fields (team, headshot,
+ * slot/position, injury) fall back to the SAME payload's `player` block
+ * whenever `entry` doesn't carry them, so a minimal entry still paints a
+ * real header once the card arrives.
  *
  * #1313 (ADR 0040's own follow-up, grill ruling Q32): a fifth context,
  * `draft`, for the Draft room's last surviving `PlayerQuickView` copy - not
- * an Availability state (the other four), so it is never a
- * `contextFromCard` target. Its action bar (`canDraft`/`draftUnavailableReason`/
+ * an Availability state (the other four), so it is never a `fromCard`
+ * target. Its action bar (`canDraft`/`draftUnavailableReason`/
  * `queued`/`onDraft`/`onQueue`) and its `draftedBy` line mirror the room's own
  * pool-row actions exactly (DraftBoard.jsx), and its `adp`/pool-rank tiles
  * (the latter from the SAME `playerIds` prev/next already reads, never a new
@@ -172,12 +175,23 @@ function isTypingTarget(el) {
  * #1512: `context` also accepts an OBJECT, one of the six pure builders in
  * `model/decisionContext.js` (`myTeam`, `freeAgent`, `waivers`, `rostered`,
  * `draft`, `fromCard`) - Lineup is the first caller to build one
- * (`myTeam({ managed: true })`). Only `context.kind` is read here, in place
- * of the bare string every branch above already compares against; a caller
- * that passes no context object (the bare string, or nothing at all) is
- * unchanged. The other fields a builder bundles (`onSwap`, `entries`,
- * `bestBall`, and so on) stay separate loose props on this component until a
- * later ticket (T19) moves them under `context` for good.
+ * (`myTeam({ managed: true })`). `context.kind` is read in place of the bare
+ * string every branch above already compares against; a caller that passes
+ * no context object (the bare string, or nothing at all) is unchanged. The
+ * other fields a builder bundles (`onSwap`, `entries`, `bestBall`, and so on)
+ * stay separate loose props on this component until a later ticket (T19)
+ * moves them under `context` for good - `fromCard` is the one builder with no
+ * such fields to defer, so #1514 (below) reads its whole shape now.
+ *
+ * #1514: DraftBoard, TransactionLog and the public profile's "In your
+ * leagues" card move onto their builders. DraftBoard passes `context={draft({
+ * ... })}` alongside the SAME loose `draftedBy`/`adp`/`canDraft`/
+ * `draftUnavailableReason`/`queued`/`onDraft`/`onQueue` props it always
+ * passed (the #1512 paragraph's T19 deferral, unchanged here). TransactionLog
+ * and the public profile instead pass `context={fromCard()}` and no longer
+ * pass a `contextFromCard` boolean at all - `context.fromCard === true` is
+ * now the ONLY way this component learns to defer `effectiveContext` to the
+ * fetched card's own `availability.state` (see the #1311 paragraph above).
  */
 export default function PlayerDecisionCard({
   open,
@@ -192,7 +206,6 @@ export default function PlayerDecisionCard({
   onRequestDrop,
   canDropEntry,
   context = 'my_team',
-  contextFromCard = false,
   availability,
   roster,
   onActionDone,
@@ -323,21 +336,6 @@ export default function PlayerDecisionCard({
   const isCurrentSeasonSelected = Boolean(
     selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
   );
-  // Risk review (#1311): every OTHER caller hands a full `entry`, so the
-  // drawer always paints real content immediately even while this read is
-  // still in flight (ADR 0037: "the row's own fields paint immediately").
-  // `contextFromCard`'s minimal `{ playerId, name }` entry is the one case
-  // where the whole action bar, and every section but the bare name, waits
-  // on this SAME read - so that wait needs its own announcement, the way
-  // PlayerQuickView's `quickview-skeleton` region announced its own load.
-  const awaitingCard = contextFromCard && cardStatus === 'loading';
-  // Formal review round 1, f1: the error half of the SAME gap - a failed
-  // /card read on this path used to leave a silent, near-empty dialog
-  // forever (no action bar, since effectiveContext stays null on error too,
-  // and no explanation). Restated from PlayerQuickView's own
-  // `!loading && error && <Alert severity="error">`.
-  const cardFailed = contextFromCard && cardStatus === 'error';
-
   // #1512: `context` is either the legacy bare string ('my_team' | 'free_agent'
   // | 'waivers' | 'rostered' | 'draft', still the default) or one of the six
   // pure builders' context objects (`model/decisionContext.js`), which carry
@@ -345,12 +343,31 @@ export default function PlayerDecisionCard({
   // for a later ticket (T19) to finish wiring - this ticket reads `.kind`
   // alone, so a builder's object behaves exactly like the string it replaces.
   const contextKind = context != null && typeof context === 'object' ? context.kind : context;
-  // #1311, ADR 0040 ruling (c): a `contextFromCard` caller (TransactionLog)
-  // supplies no `context` of its own - the effective context is the card
-  // payload's own availability fact, and stays null (matching none of the
-  // branches below) until that payload answers, so no action bar renders on
-  // a bare `{ playerId, name }` entry before then.
-  const effectiveContext = contextFromCard ? (card?.availability?.state ?? null) : contextKind;
+  // #1311, ADR 0040 ruling (c), migrated onto the `fromCard()` builder at
+  // #1514: a caller with no Availability fact of its own (TransactionLog, the
+  // public profile's "In your leagues" card) passes `context={fromCard()}` -
+  // `{ kind: null, fromCard: true }` - instead of a kind of its own. The
+  // effective context is then the card payload's own availability fact, and
+  // stays null (matching none of the branches below) until that payload
+  // answers, so no action bar renders on a bare `{ playerId, name }` entry
+  // before then.
+  const isFromCard = context != null && typeof context === 'object' && context.fromCard === true;
+  const effectiveContext = isFromCard ? (card?.availability?.state ?? null) : contextKind;
+
+  // Risk review (#1311): every OTHER caller hands a full `entry`, so the
+  // drawer always paints real content immediately even while this read is
+  // still in flight (ADR 0037: "the row's own fields paint immediately").
+  // A `fromCard()` caller's minimal `{ playerId, name }` entry is the one
+  // case where the whole action bar, and every section but the bare name,
+  // waits on this SAME read - so that wait needs its own announcement, the
+  // way PlayerQuickView's `quickview-skeleton` region announced its own load.
+  const awaitingCard = isFromCard && cardStatus === 'loading';
+  // Formal review round 1, f1: the error half of the SAME gap - a failed
+  // /card read on this path used to leave a silent, near-empty dialog
+  // forever (no action bar, since effectiveContext stays null on error too,
+  // and no explanation). Restated from PlayerQuickView's own
+  // `!loading && error && <Alert severity="error">`.
+  const cardFailed = isFromCard && cardStatus === 'error';
   // f1 (formal review round 1, blocker): see the docblock above.
   const lineupManaged = effectiveContext === 'my_team' && typeof onSwap === 'function';
 
@@ -490,10 +507,10 @@ export default function PlayerDecisionCard({
           {isMobile && <DragHandle />}
 
           {/* Risk review (#1311): the ONE case where the whole card waits on
-              this read (contextFromCard, before the payload answers) gets its
-              own announcement, restated from PlayerQuickView's identical
-              loading region - every other caller's `entry` already paints
-              real content, so it needs none. */}
+              this read (a `fromCard()` context, before the payload answers)
+              gets its own announcement, restated from PlayerQuickView's
+              identical loading region - every other caller's `entry` already
+              paints real content, so it needs none. */}
           {awaitingCard && (
             <Typography sx={visuallyHidden} role="status" aria-live="polite">
               Loading player details
@@ -521,7 +538,8 @@ export default function PlayerDecisionCard({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
                   {/* Risk review (#1311), nit: PosChip has no null guard of
                       its own and would otherwise paint an empty swatch while
-                      `contextFromCard` awaits the payload for a position. */}
+                      a `fromCard()` context awaits the payload for a
+                      position. */}
                   {displayEntry.slot && <PosChip position={displayEntry.slot} />}
                   <InjuryTag status={displayEntry.injuryStatus} />
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
