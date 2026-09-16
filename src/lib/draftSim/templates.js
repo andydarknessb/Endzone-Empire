@@ -9,14 +9,16 @@
  *     runtime (react-scripts's ModuleScopePlugin confines runtime imports to
  *     src/), and these three carry no pin: nothing in the test suite would
  *     notice a miss.
- *   - DEFAULT_ROSTER_SLOTS is hand-mirrored from the pure leaf
- *     server/services/rosterSlots.js, the server's single source for this
- *     shape. It is likewise a hand-kept copy at runtime for the same
- *     ModuleScopePlugin reason, but unlike the three above it is pinned
- *     equal to the leaf by a test, templates.parity.test.js, which jest can
- *     run across that line even though the build can't. If the server's
- *     default roster shape changes, change it here too; the test will catch
- *     a miss.
+ *   - DEFAULT_ROSTER_SLOTS (#1500) moved into the Roster template entity,
+ *     `src/entities/roster`'s `model/rosterTemplateModel.js`, and is
+ *     imported from there rather than declared here. The entity's own copy
+ *     is hand-mirrored from the pure leaf server/services/rosterSlots.js,
+ *     the server's single source for this shape, for the same
+ *     ModuleScopePlugin reason the other three constants above are, and is
+ *     pinned equal to the leaf by templates.parity.test.js (which still
+ *     imports `DEFAULT_ROSTER_SLOTS` from THIS module, re-exported below
+ *     unchanged) - if the server's default roster shape changes, change the
+ *     entity's copy; the test will catch a miss.
  *   - LEAGUE_TEMPLATES mirrors LINEUP_TEMPLATES in
  *     src/components/LeagueDashboard/CommissionerTools.jsx (Standard /
  *     Superflex / IDP starter) so a mock draft's roster shape is one a
@@ -25,6 +27,19 @@
  * The simulator never talks to the server about roster settings — it is fully
  * client-side — so these are the only definitions it has.
  */
+
+// Imported from the entity's concrete model file, not its index (ADR 0029
+// normally requires the index): the index also re-exports `lineupModel.js`,
+// which reaches the `shared/lib` barrel - and that barrel exports
+// `chipsForRosterSlots` (`shared/lib/positionChips.js`), which imports THIS
+// module for `DEFAULT_ROSTER_SLOTS`/`expandEligibility`/`templateFor`. Going
+// through the index would close that cycle (this module -> entities/roster
+// index -> lineupModel -> shared barrel -> positionChips -> this module,
+// mid-evaluation) and read `DEFAULT_ROSTER_SLOTS` as `undefined` at the far
+// end (#1500). The narrower edge below avoids it without losing the pin.
+import { DEFAULT_ROSTER_SLOTS } from '../../entities/roster/model/rosterTemplateModel';
+
+export { DEFAULT_ROSTER_SLOTS };
 
 /**
  * Group keys usable in a slot's eligiblePositions alongside literal position
@@ -44,20 +59,6 @@ export const IDP_POSITIONS = [
 ];
 
 export const BENCH = 'BENCH';
-
-/**
- * Mirrors server/services/rosterSlots.js DEFAULT_ROSTER_SLOTS, pinned equal
- * to it by templates.parity.test.js.
- */
-export const DEFAULT_ROSTER_SLOTS = [
-  { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
-  { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
-  { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
-  { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
-  { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
-  { key: 'K', label: 'K', count: 1, eligiblePositions: ['K'] },
-  { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
-];
 
 /** A slot's eligiblePositions with DL/LB/DB group keys expanded. Mirrors lineup.service.js. */
 export function expandEligibility(eligiblePositions) {
