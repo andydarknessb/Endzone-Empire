@@ -48,8 +48,17 @@
  *     by slot is a fact about the Lineup, not the Matchup. Read since #1210 by
  *     `pages/matchup/model/useMatchupPage.js` (a page importing an entity
  *     directly, ADR 0029), not by another entity.
- *   - `eligibleSlots(entry, league)` and `locked(entry)`, exported facts
- *     mirroring LineupScreen.jsx's slot-eligibility and lock reads.
+ *   - `locked(entry)`, an exported fact mirroring LineupScreen.jsx's lock
+ *     read. This module's own `eligibleSlots(entry, league)` (#1207's
+ *     matching slot-eligibility fact) is gone (#1502): `lineupEntries` below
+ *     now builds each entry's `eligibleSlots` field off the Roster template
+ *     entity's `slotsFor` (`rosterTemplateModel.js`, #1500) directly, the
+ *     same one rule `entities/roster`'s public `slotsFor` export answers
+ *     everywhere else, rather than keeping a second, hand-mirrored copy of
+ *     POSITION_GROUPS/IR_ELIGIBLE_DESIGNATIONS here that could drift from it
+ *     (formerly pinned equal only by
+ *     `rosterTemplateEligibleSlots.parity.test.js`, deleted alongside this
+ *     function).
  *   - `lineupEntries(rosterWire, league)`, a second read model (distinct
  *     shape from `lineupModel` above) that normalizes the roster wire into
  *     the entry shape a future lineup surface will read, ordered by the
@@ -57,43 +66,19 @@
  */
 
 import { parseRosterSlots } from '../../../shared/lib';
+import { slotsFor } from './rosterTemplateModel';
 
 const BENCH = 'BENCH';
 const IR = 'IR';
 
-// Mirrors POSITION_GROUPS in server/services/lineup.service.js and
-// LineupScreen.jsx: a slot's configured eligiblePositions may name a
-// defensive GROUP key (DL/LB/DB) rather than a specific position, and it
-// expands to every specific position Tank01 reports in that group.
-const POSITION_GROUPS = {
-  DL: ['DL', 'DE', 'DT', 'NT'],
-  LB: ['LB', 'ILB', 'OLB'],
-  DB: ['DB', 'CB', 'S', 'FS', 'SS'],
-};
-
-// injury_status codes that qualify a player for the IR slot
-// (irPolicy.service.js's IR_ELIGIBLE_DESIGNATIONS, CONTEXT.md's IR-eligible).
-const IR_ELIGIBLE_DESIGNATIONS = new Set(['O', 'IR']);
-
 // injury_status codes that are "questionable-class" rather than Unavailable
 // (#1330 ruling): the feed's `normalizeInjuryStatus`
 // (server/services/scoring.service.js) writes exactly four non-null codes -
-// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable
-// (IR_ELIGIBLE_DESIGNATIONS above, `availabilityFor` below), so the
-// remaining two, Q and D, are the whole set. This is the one spelling of
-// "questionable"; a widget reads it through `isQuestionable` below rather
-// than inventing its own designation list.
+// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (`availabilityFor`
+// below), so the remaining two, Q and D, are the whole set. This is the one
+// spelling of "questionable"; a widget reads it through `isQuestionable`
+// below rather than inventing its own designation list.
 const QUESTIONABLE_DESIGNATIONS = new Set(['Q', 'D']);
-
-function slotEligiblePositions(rosterSlots, slotKey) {
-  const slot = (rosterSlots || []).find((s) => s.key === slotKey);
-  if (!slot) return [];
-  const out = new Set();
-  for (const p of slot.eligiblePositions || []) {
-    (POSITION_GROUPS[p] || [p]).forEach((m) => out.add(m));
-  }
-  return [...out];
-}
 
 /**
  * One lineup row (the wire's `id`, `name`, `position`, `nfl_team`, `slot`,
@@ -239,7 +224,8 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
  * `canResolveLockedIrStash`'s exception (a locked, no-longer-eligible IR
  * occupant may still move to BENCH) is a client interaction rule about
  * WHERE a locked player may go, not a fact about whether he is locked, so it
- * stays out of this fact and out of `eligibleSlots` below.
+ * stays out of this fact and out of `slotsFor` (the Roster template entity's
+ * own slot-eligibility fact, `lineupEntries` below).
  */
 export function locked(entry) {
   return Boolean(entry && entry.locked);
@@ -249,42 +235,12 @@ export function locked(entry) {
  * Whether a lineup entry's injury designation is questionable-class (#1330
  * ruling: Q or D, `QUESTIONABLE_DESIGNATIONS` above) - the feed's only two
  * non-null, non-Unavailable codes. Reads the camelCase `injuryStatus` this
- * module's builders produce, matching `eligibleSlots`'s and
- * `availabilityFor`'s own reads of that field.
+ * module's builders produce, matching `availabilityFor`'s own read of that
+ * field.
  */
 export function isQuestionable(entry) {
   const status = (entry && entry.injuryStatus) ?? null;
   return QUESTIONABLE_DESIGNATIONS.has(status);
-}
-
-/**
- * Every slot key a player is eligible to occupy right now: BENCH always, IR
- * only when his injury designation qualifies (IR_ELIGIBLE_DESIGNATIONS), and
- * each of the league's configured starting slots whose eligiblePositions
- * (POSITION_GROUPS expanded) includes his position - in the league's own
- * `roster_slots` order. Mirrors LineupScreen.jsx's
- * slotEligiblePositions/isEligibleForSlot (:65-79) minus the drag-and-drop
- * swap intent: `canResolveLockedIrStash`'s exception (a locked player who
- * lost IR eligibility may still be dragged to BENCH to resolve the stash) is
- * a rule about which moves a locked player's OWN swap may make, not a fact
- * about which slots fit him, so it plays no part here.
- *
- * `entry` reads `position` and `injuryStatus` (the camelCase shape this
- * module's builders produce); `league.roster_slots` is parsed the same way
- * `pairStartersBySlot`'s callers parse it (`parseRosterSlots`, shared/lib).
- */
-export function eligibleSlots(entry, league) {
-  const rosterSlots = parseRosterSlots(league && league.roster_slots);
-  const position = (entry && entry.position) ?? null;
-  const injuryDesignation = (entry && entry.injuryStatus) ?? null;
-  const out = [BENCH];
-  if (IR_ELIGIBLE_DESIGNATIONS.has(injuryDesignation)) out.push(IR);
-  for (const slot of rosterSlots) {
-    const key = slot && slot.key;
-    if (key == null || key === BENCH || key === IR) continue;
-    if (slotEligiblePositions(rosterSlots, key).includes(position)) out.push(key);
-  }
-  return out;
 }
 
 /**
@@ -335,6 +291,12 @@ function availabilityFor(entry) {
  * context) - each a straight pass-through of the wire field
  * `server/services/lineup.service.js`'s `getLineup` now returns, so ticket 5
  * can render a Ledger row without re-deriving any of them.
+ *
+ * `eligibleSlots` (#1502) is built by the Roster template entity's own
+ * `slotsFor(rosterSlots, entry)` (`rosterTemplateModel.js`, #1500) - the same
+ * `rosterSlots` array this function already parsed for ordering above, so
+ * this is not a second parse. This module no longer keeps its own
+ * hand-mirrored slot-eligibility copy to answer that field with.
  *
  * Nothing consumes this yet (#1207, an expand step under #1198).
  */
@@ -430,7 +392,7 @@ export function lineupEntries(rosterWire, league) {
     };
     return {
       ...entry,
-      eligibleSlots: eligibleSlots(entry, league),
+      eligibleSlots: slotsFor(rosterSlots, entry),
       locked: locked(r),
       availability: availabilityFor(entry),
       // The server's own Unavailable reason (#1235), passed through

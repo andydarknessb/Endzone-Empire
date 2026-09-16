@@ -123,6 +123,15 @@ describe('slotsFor', () => {
     expect(slotsFor(EMPTY_TEMPLATE, qb)).toEqual(['BENCH']);
   });
 
+  // Moved from lineupModel.js's deleted `eligibleSlots` describe block
+  // (#1502): a non-empty template that simply names no slot for this
+  // position is BENCH-only too - distinct from the empty-template case
+  // above, which has no slots to check at all.
+  it('is BENCH-only for a position no configured slot in a non-empty template names', () => {
+    const dl = { position: 'DL', injuryStatus: null };
+    expect(slotsFor(DEFAULT_ROSTER_SLOTS, dl)).toEqual(['BENCH']);
+  });
+
   it('is BENCH-only for a null/undefined entry, never throws', () => {
     expect(slotsFor(DEFAULT_ROSTER_SLOTS, null)).toEqual(['BENCH']);
     expect(slotsFor(DEFAULT_ROSTER_SLOTS, undefined)).toEqual(['BENCH']);

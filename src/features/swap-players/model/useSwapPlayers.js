@@ -19,8 +19,8 @@ import { locked, slotsFor, parseRosterTemplate } from '../../../entities/roster'
  * IR-eligibility check on top (`IR_ELIGIBLE_DESIGNATIONS`), which is why it,
  * not `accepts`, belongs here. `template` is optional and falls back to the
  * entry's own precomputed `eligibleSlots` (built by `entities/roster`'s
- * `lineupModel.js` `eligibleSlots`, off the same league roster_slots) when
- * absent - the fallback keeps `isEligibleMove`'s existing callers working
+ * `lineupModel.js` `lineupEntries`, itself off this SAME `slotsFor`, #1502)
+ * when absent - the fallback keeps `isEligibleMove`'s existing callers working
  * unchanged (`widgets/player-decision-card`'s `slotActions.js` calls it
  * directly with no template of its own to thread through).
  */
