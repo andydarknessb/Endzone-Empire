@@ -157,7 +157,7 @@ test('the shipped constants switch the current-season blend ON at the selected p
   );
   // A constants change without a version bump serves rows computed under the
   // old numbers from cache as if they were current.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
 });
 
 test('a zero or absent blend weight reproduces the pre-blend math exactly', () => {
@@ -340,7 +340,7 @@ test('the opportunity component ships switched ON at the selected weight', () =>
   assert.equal(efficiencyPseudoOpportunities, 25);
   // A component that now reaches the output cannot share a cache key with the
   // version that computed without it.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
 });
 
 test('opportunitiesForGame counts attempts for a QB and touches for skill positions', () => {
@@ -585,7 +585,7 @@ test('the home/away factor ships gated off', () => {
   // Shipping false is the whole reason this gate merged without a version
   // bump: at this value the factor cannot reach the output, so no cached row
   // is a number this code would decline to reproduce.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
 });
 
 test('the gate off scores nothing, however rich the sample', () => {
@@ -1302,4 +1302,38 @@ test('a QB is blended on pass attempts, and only on pass attempts', () => {
   // Missing targets are irrelevant to a QB, so the component still applies.
   assert.ok(blended.factors.recentProduction.opportunityValue != null);
   assert.equal(blended.factors.recentProduction.usageBlendWeight, 0.5);
+});
+
+// ---------------------------------------------------------------------------
+// v3.2 (#1483/#1485, ADR 0044): the preserved v3.1 constants are v3.1 to the
+// byte. The hash below is the pin scripts/ci/check-model-constants.js carried
+// from 2026-08-14 until the v3.2 bump - the fingerprint every scheduled
+// holdout-confirm-2026 capture stores as `constants_hash`. If this fails, the
+// successor evaluator's "rebuilt v3.1" column is no longer v3.1.
+// ---------------------------------------------------------------------------
+
+test('MODEL_CONSTANTS_V3_1 hashes to the holdout study captured v3.1 constants exactly', () => {
+  const crypto = require('crypto');
+  const hash = crypto.createHash('sha256').update(JSON.stringify(model.MODEL_CONSTANTS_V3_1)).digest('hex');
+  assert.equal(hash, 'cf0ea6bc58e4e5d840b06097edaf2680b05463257cbf7e2bd58e7c1c22176164');
+  assert.equal(model.MODEL_CONSTANTS_V3_1.decision.lineupRanking, 'median');
+  assert.equal(model.MODEL_CONSTANTS_V3_1.opponent.priorSeasonPseudoGames, undefined);
+  assert.equal(model.MODEL_CONSTANTS_V3_1.simulation.truncateAtPositionFloor, undefined);
+  assert.ok(Object.isFrozen(model.MODEL_CONSTANTS_V3_1.decision), 'the preserved object is immutable');
+});
+
+test('the v3.2 constants differ from v3.1 in exactly the three ticketed keys', () => {
+  const v32 = model.MODEL_CONSTANTS;
+  const v31 = model.MODEL_CONSTANTS_V3_1;
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
+  assert.equal(v32.decision.lineupRanking, 'mean');
+  assert.equal(v32.opponent.priorSeasonPseudoGames, 4);
+  assert.equal(v32.simulation.truncateAtPositionFloor, true);
+  // Everything else is byte-identical: strip the three deltas from a v3.2
+  // clone and the two objects must serialize the same.
+  const stripped = JSON.parse(JSON.stringify(v32));
+  delete stripped.opponent.priorSeasonPseudoGames;
+  delete stripped.simulation.truncateAtPositionFloor;
+  stripped.decision.lineupRanking = 'median';
+  assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
 });

@@ -30,16 +30,27 @@ const disagreeing = () => ({
   projections: new Map([[1, proj(10, 10)], [2, proj(9.5, 14)]]),
 });
 
-test('the shipped constant is median, and the default path is the median path exactly', () => {
-  assert.equal(model.MODEL_CONSTANTS.decision.lineupRanking, 'median');
+test('v3.2 ships mean, v3.1 preserved median, and the default path is the mean path exactly', () => {
+  // #1483: the v3.2 constants rank on the mean; v3.1's preserved constants
+  // still say median so the successor evaluator can rebuild the v3.1 column.
+  assert.equal(model.MODEL_CONSTANTS.decision.lineupRanking, 'mean');
+  assert.equal(model.MODEL_CONSTANTS_V3_1.decision.lineupRanking, 'median');
   const { lineup, projections } = disagreeing();
   const byDefault = buildSuggestions(lineup, projections, new Map(), RB1);
+  const byExplicitMean = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'mean' });
+  assert.deepEqual(byDefault, byExplicitMean);
+  // Mean-ranked: the optimizer moves the boom bench player into the lineup.
+  assert.deepEqual(byDefault.movePlan.map((m) => `${m.playerId}:${m.fromSlot}->${m.toSlot}`).sort(),
+    ['1:RB->BENCH', '2:BENCH->RB']);
+});
+
+test("the v3.1 rule ('median') is still reachable explicitly and benches the boom player", () => {
+  const { lineup, projections } = disagreeing();
   const byExplicitMedian = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'median' });
-  assert.deepEqual(byDefault, byExplicitMedian);
   // Median-ranked: the steady starter keeps the slot and nothing is suggested.
-  assert.equal(byDefault.suggestions.length, 0);
-  assert.deepEqual(byDefault.movePlan, []);
-  assert.equal(byDefault.optimalTotal, 10);
+  assert.equal(byExplicitMedian.suggestions.length, 0);
+  assert.deepEqual(byExplicitMedian.movePlan, []);
+  assert.equal(byExplicitMedian.optimalTotal, 10);
 });
 
 test("'mean' ranks the boom player into the lineup the median would bench", () => {
@@ -96,7 +107,7 @@ test("'mean' gives an unavailable player rank 0, same as the display rule", () =
 
 test('an unknown ranking value behaves as median, never as something new', () => {
   const { lineup, projections } = disagreeing();
-  const byDefault = buildSuggestions(lineup, projections, new Map(), RB1);
+  const byMedian = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'median' });
   const byUnknown = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'p99-yolo' });
-  assert.deepEqual(byUnknown, byDefault);
+  assert.deepEqual(byUnknown, byMedian);
 });

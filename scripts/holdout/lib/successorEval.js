@@ -79,7 +79,14 @@ const MODEL_VERSION_V3_1 = 'free_baseline_v3.1';
  */
 const CONSTANTS_BY_MODEL_VERSION = Object.freeze({
   [model.MODEL_VERSION]: model.MODEL_CONSTANTS,
-  ...(model.MODEL_VERSION === MODEL_VERSION_V3_1 ? { [MODEL_VERSION_V3_1]: model.MODEL_CONSTANTS } : {}),
+  // v3.2 (#1483/#1485) preserved v3.1's constants verbatim under
+  // `model.MODEL_CONSTANTS_V3_1` (its sha256 is pinned to the study's
+  // pre-v3.2 constants hash in projectionModel.test.js), which is exactly the
+  // "preserved constants" the docblock above asks a landing to register. The
+  // HEAD-is-v3.1 branch is kept for a checkout that has not bumped.
+  ...(model.MODEL_CONSTANTS_V3_1
+    ? { [MODEL_VERSION_V3_1]: model.MODEL_CONSTANTS_V3_1 }
+    : (model.MODEL_VERSION === MODEL_VERSION_V3_1 ? { [MODEL_VERSION_V3_1]: model.MODEL_CONSTANTS } : {})),
 });
 
 /**

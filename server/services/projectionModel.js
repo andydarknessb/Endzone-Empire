@@ -56,8 +56,18 @@ const crypto = require('crypto');
  * as current, and the version string also feeds `seedFrom`, so every draw
  * sequence is re-rolled with it. That re-roll is intended: the whole point is
  * that the old sequences were a function of an input we never controlled.
+ *
+ * v3.2 is the successor gated on the 2026 holdout ledger (ADR 0044, spec
+ * #1438). Three constants moved: `decision.lineupRanking` to 'mean' (#1483),
+ * `simulation.truncateAtPositionFloor` to true (#1483) and
+ * `opponent.priorSeasonPseudoGames` to 4 (#1485). v3.1's constants are kept
+ * verbatim as MODEL_CONSTANTS_V3_1 so the successor evaluator can rebuild the
+ * v3.1 column as its permanent error bar (successorEval.js). This version
+ * MUST NOT reach production before the 2026 week 18 capture closes: the
+ * holdout-confirm-2026 study is sealed on v3.1, and its evaluator drops any
+ * captured week whose constants hash disagrees with the season majority.
  */
-const MODEL_VERSION = 'free_baseline_v3.1';
+const MODEL_VERSION = 'free_baseline_v3.2';
 
 /**
  * Model constants. DEFAULTS, not fitted optimums (see the file header).
@@ -179,6 +189,18 @@ const MODEL_CONSTANTS = {
     shrinkPseudoGames: 6,
     // Hard cap on the opponent factor either way.
     maxEffect: 0.12,
+    // How many games of evidence the PRIOR season's points-allowed ratio is
+    // worth when seeding a defense's current-season allowance (#1485, v3.2).
+    // The same pseudo-game idiom as `baseline.priorSeasonPseudoGames`: the
+    // blended ratio is (games * currentRatio + this * priorRatio) / (games +
+    // this), so the prior carries the factor through weeks 1-4 and fades as
+    // real games accrue. 4 makes week 1 exactly meet `minGames`, which is the
+    // point: the factor is live from week 1 on last season's evidence rather
+    // than reporting "insufficient opponent sample" while the card prints the
+    // matchup as if it mattered. A DEFAULT, not a fitted value; judged on the
+    // 2026 holdout ledger like the rest of v3.2. 0 disables the seeding and
+    // reproduces v3.1's current-season-only sample rule exactly.
+    priorSeasonPseudoGames: 4,
   },
   versusOpponent: {
     // Deliberately weak: head-to-head history is mostly noise about a roster
@@ -374,6 +396,21 @@ const MODEL_CONSTANTS = {
     // spread toward it, in pseudo-observations - the same idiom as
     // `priorSeasonPseudoGames`. Read ONLY when smoothingBandwidth > 0.
     smoothingPseudoResiduals: 8,
+    // Whether the simulated draws are truncated at the position's observed
+    // minimum before the quantiles are read (#1483, v3.2). The residual
+    // bootstrap resamples a player's own residuals scaled 1.45x about their
+    // median, and a pool dominated by games above a week-1-deflated baseline
+    // produced a -7.3 Floor for a WR in week 2 2026, a value no real game has
+    // ever scored. The floor itself is DATA (the lowest points any player of
+    // the position group scored over the stored seasons under the run's own
+    // scoring rules), computed by the feature loader per run; this flag only
+    // says whether simulateDistribution applies it. Truncation cannot move
+    // the median (it would need more than half the draws below the floor) and
+    // never touches `mean`, which is reported from the input, so the point
+    // estimate is exactly what it was; only the impossible tail is removed,
+    // which is also what stops probabilityBetter being fed a fictional
+    // negative outcome. false reproduces v3.1's untruncated draws exactly.
+    truncateAtPositionFloor: true,
   },
   confidence: {
     // Effective sample size (recency-weighted games) thresholds.
@@ -382,12 +419,12 @@ const MODEL_CONSTANTS = {
     // Interval width relative to the mean, above which confidence is capped.
     wideIntervalRatio: 1.6,
   },
-  // What the LINEUP OPTIMIZER ranks players by. Distinct from what the UI
-  // displays, which stays the median (the distribution's central outcome is
-  // the honest single number to print) - this governs only which lineup the
-  // optimizer recommends.
+  // What the LINEUP OPTIMIZER ranks players by, and since v3.2 also the
+  // point estimate the advice surfaces print (`toLegacyProjectionMap`): one
+  // statistic everywhere, so the number on the row is the number the rule
+  // ranked on (#1482's consistency, #1483).
   decision: {
-    // 'median' (shipped) or 'mean'.
+    // 'median' (v3.1) or 'mean' (v3.2).
     //
     // The optimizer's objective is the lineup's actual total, and the
     // statistic that maximizes an EXPECTED total is the mean; weekly fantasy
@@ -401,15 +438,57 @@ const MODEL_CONSTANTS = {
     // the entire usage sweep moved regret 0.80, and the preregistered margin
     // was 0.15.
     //
-    // SHIPS 'median', the exact behavior production has always had, so this
-    // merges inert and MODEL_VERSION does not move. Two reasons it is not
-    // flipped here: the measurement above is exploratory (34 paired weeks,
-    // reconstructed rosters, no opponent/usage factors in the harness), and
-    // flipping changes which lineup the app recommends - that is the change
-    // that must ride a preregistered confirmation, not a code merge.
-    lineupRanking: 'median',
+    // v3.1 SHIPPED 'median' because the measurement above was exploratory and
+    // flipping changes which lineup the app recommends. v3.2 flips it (#1483):
+    // the week 1 2026 holdout audit agreed with the frozen-artifact result
+    // (mean Spearman .589 / pairwise .712 against median .577 / .707), and in
+    // week 2 2026 the median ranked Terry McLaurin (mean 7.37 / median 10.06)
+    // over DK Metcalf (mean 9.03 / median 8.21) against every computed input,
+    // because a skewed residual pool pushed one player's median above his
+    // mean. The flip rides the v3.2 version bump and is judged on the 2026
+    // holdout ledger with the rest of v3.2; the preregistered Candidate A test
+    // on the v3.1 ledger still runs and its verdict is recorded regardless.
+    lineupRanking: 'mean',
   },
 };
+
+/**
+ * free_baseline_v3.1's constants, preserved VERBATIM so the successor
+ * evaluator (scripts/holdout/lib/successorEval.js) can rebuild the v3.1
+ * column as the permanent error bar the #1438 gate reads against, after this
+ * checkout's MODEL_VERSION has moved past it. Derived from the live object by
+ * reverting exactly the v3.2 deltas rather than copied, so a v3.1 constant
+ * can never drift from its v3.2 twin by accident; the test suite pins its
+ * sha256 to the hash the holdout-confirm-2026 study captured under
+ * (scripts/ci/check-model-constants.js's pre-v3.2 pin), which is the proof
+ * that this IS v3.1 and not a stand-in. Every v3.2 behaviour change is gated
+ * on one of the reverted keys, so running the engine with this object
+ * reproduces v3.1's output.
+ */
+function cloneConstants(value) {
+  if (Array.isArray(value)) return value.map(cloneConstants);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = cloneConstants(value[key]);
+    return out;
+  }
+  return value;
+}
+
+const MODEL_CONSTANTS_V3_1 = (() => {
+  const v31 = cloneConstants(MODEL_CONSTANTS);
+  // The three v3.2 deltas, reverted. Deleting the two new keys (rather than
+  // zeroing them) keeps JSON.stringify's key order identical to the captured
+  // object, which is what makes the hash comparable at all.
+  delete v31.opponent.priorSeasonPseudoGames;
+  delete v31.simulation.truncateAtPositionFloor;
+  v31.decision.lineupRanking = 'median';
+  const freeze = (o) => {
+    for (const k of Object.keys(o)) if (o[k] && typeof o[k] === 'object') freeze(o[k]);
+    return Object.freeze(o);
+  };
+  return freeze(v31);
+})();
 
 // Position groupings for the opponent / positional-baseline factors. DEF
 // (team defense), K and the individual-defender group are kept SEPARATE from
@@ -1544,6 +1623,7 @@ function projectPlayer({
 module.exports = {
   MODEL_VERSION,
   MODEL_CONSTANTS,
+  MODEL_CONSTANTS_V3_1,
   IDP_POSITIONS,
   positionGroup,
   canonicalJson,

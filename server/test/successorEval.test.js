@@ -54,7 +54,7 @@ test('buildOverrideMaps builds one entry per row, keyed by playerId', () => {
 // ---------------------------------------------------------------------------
 
 test('constantsFor refuses an unregistered MODEL_VERSION rather than falling back to HEAD', () => {
-  assert.throws(() => successorEval.constantsFor('free_baseline_v3.2'), /no constants registered/);
+  assert.throws(() => successorEval.constantsFor('free_baseline_v9.9'), /no constants registered/);
   assert.equal(successorEval.constantsFor(model.MODEL_VERSION), model.MODEL_CONSTANTS);
 });
 
@@ -85,7 +85,7 @@ test('reprojectWeek forwards capture_not_after as the odds bound and the version
 
   await assert.rejects(
     () => successorEval.reprojectWeek({
-      header, rows, rules: {}, modelVersion: 'free_baseline_v3.2', generateProjections: fakeGenerateProjections,
+      header, rows, rules: {}, modelVersion: 'free_baseline_v9.9', generateProjections: fakeGenerateProjections,
     }),
     /no constants registered/
   );
@@ -176,7 +176,12 @@ function makeMockGenerateProjections(captured, profileName) {
   return async ({
     season, week, playerIds, playerContextOverrideById, expertOverrideByPlayerId, modelConstants,
   }) => {
-    assert.equal(modelConstants, model.MODEL_CONSTANTS, 'the v3.1 constants are what a v3.1 reprojection gets');
+    // HEAD is v3.2 (#1483/#1485): the rebuilt-v3.1 column runs with the
+    // preserved MODEL_CONSTANTS_V3_1 and the target column with HEAD's own.
+    assert.ok(
+      modelConstants === model.MODEL_CONSTANTS || modelConstants === model.MODEL_CONSTANTS_V3_1,
+      'a reprojection gets either the preserved v3.1 constants or the head constants, never a stand-in'
+    );
     const projections = new Map();
     for (const playerId of playerIds) {
       const row = captured.get(`${profileName}:${season}:${week}:${playerId}`);
@@ -254,7 +259,7 @@ test('evaluate refuses an unregistered MODEL_VERSION before calling generateProj
   await assert.rejects(
     () => successorEval.evaluate({
       profiles,
-      modelVersion: 'free_baseline_v3.2',
+      modelVersion: 'free_baseline_v9.9',
       generateProjections: async () => { called = true; },
     }),
     /no constants registered/
@@ -275,7 +280,7 @@ test('the v3.1 rebuild and calibration are pinned to MODEL_VERSION_V3_1, never t
   const V3_1 = successorEval.MODEL_VERSION_V3_1;
   assert.equal(V3_1, 'free_baseline_v3.1');
 
-  const FAKE_V3_2 = 'free_baseline_v3.2';
+  const FAKE_V3_2 = 'free_baseline_v9.9';
   const v31Constants = { marker: 'v3.1-constants' };
   const v32Constants = { marker: 'v3.2-constants' };
   const { profiles } = syntheticProfiles();

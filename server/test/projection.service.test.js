@@ -1242,11 +1242,11 @@ test('a run generated for another scoring profile is never reused', async (t) =>
   assert.equal(lookups[0][3], model.MODEL_VERSION, 'so is the model version');
 });
 
-test('the shipped model version is exactly free_baseline_v3.1', () => {
+test('the shipped model version is exactly free_baseline_v3.2', () => {
   // Pinned in the service too, not only in the model: this is the string the
   // cache key is built from, and the service re-exports it to callers.
-  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
-  assert.equal(projection.MODEL_VERSION, 'free_baseline_v3.1');
+  assert.equal(model.MODEL_VERSION, 'free_baseline_v3.2');
+  assert.equal(projection.MODEL_VERSION, 'free_baseline_v3.2');
   assert.notEqual(model.MODEL_VERSION, 'free_baseline_v3', 'v3 rows were drawn from unordered residuals');
 });
 
@@ -1289,10 +1289,10 @@ test('a v3 cached run cannot satisfy a v3.1 lookup', async (t) => {
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
 
   assert.equal(lookups.length, 1);
-  assert.equal(lookups[0][3], 'free_baseline_v3.1', 'the lookup asks for the CURRENT version');
+  assert.equal(lookups[0][3], 'free_baseline_v3.2', 'the lookup asks for the CURRENT version');
   assert.equal(regenerated, true, 'the stale v3 run must be ignored and the week regenerated');
   assert.equal(result.projections.get(1).cached, undefined, 'nothing was served from the v3 cache');
-  assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.1');
+  assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.2');
 });
 
 test('one cached row is NOT a cache hit for a multi-player request', async (t) => {
@@ -1524,8 +1524,8 @@ test('invalidation clears every scoring profile from the stale week onward, and 
   assert.deepEqual(
     store.table.map((r) => `${r.season}:${r.week}:${r.scoring_hash}:${r.model_version}`).sort(),
     [
-      '2025:4:hash-half-ppr:free_baseline_v3.1',
-      '2026:3:hash-half-ppr:free_baseline_v3.1',
+      '2025:4:hash-half-ppr:free_baseline_v3.2',
+      '2026:3:hash-half-ppr:free_baseline_v3.2',
       '2026:4:hash-half-ppr:free_baseline_v2.2',
     ],
     'earlier weeks, other seasons and other model versions are untouched'
@@ -1562,7 +1562,7 @@ test('invalidation defaults to the shipped model version but accepts an explicit
 
   const current = await projection.invalidateWeeklyProjectionRuns({ season: 2026, fromWeek: 4, client: store });
   assert.equal(current.deletedRuns, 1, 'the default scope is the CURRENT model only');
-  assert.equal(store.statements[0].params[2], 'free_baseline_v3.1');
+  assert.equal(store.statements[0].params[2], 'free_baseline_v3.2');
 
   const older = await projection.invalidateWeeklyProjectionRuns({
     season: 2026, fromWeek: 4, modelVersion: 'free_baseline_v3', client: store,

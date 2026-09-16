@@ -11,14 +11,15 @@
  *
  * To change the constants DELIBERATELY (a new model version, outside the
  * study's no-edit corridor), update PINNED_SHA256 in the same commit and
- * say so in the commit message. Pinned 2026-08-14 against the
- * free_baseline_v3.1 constants the study is capturing.
+ * say so in the commit message. Pinned 2026-08-14 against the v3.1 constants,
+ * re-pinned 2026-09-16 for free_baseline_v3.2 (#1483/#1485; v3.1 is preserved as
+ * MODEL_CONSTANTS_V3_1 and its hash is pinned in projectionModel.test.js).
  */
 
 const crypto = require('crypto');
 const { MODEL_CONSTANTS } = require('../../server/services/projectionModel');
 
-const PINNED_SHA256 = 'cf0ea6bc58e4e5d840b06097edaf2680b05463257cbf7e2bd58e7c1c22176164';
+const PINNED_SHA256 = 'e749735142555fb186a4f7962e0b86ce01efbb6303a70f0b935bf3879b1b2582';
 
 const actual = crypto.createHash('sha256').update(JSON.stringify(MODEL_CONSTANTS)).digest('hex');
 
