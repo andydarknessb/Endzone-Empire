@@ -479,7 +479,7 @@ async function tick() {
 async function syncAndScoreLiveWeeks() {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
   const feedSyncRuns = require('../services/feedSyncRuns.service');
-  const scoring = require('../services/scoring.service');
+  const matchupScoring = require('../services/matchupScoring.service');
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
@@ -520,7 +520,7 @@ async function syncAndScoreLiveWeeks() {
 
     try {
       for (const leagueId of leagueIds) {
-        const { scored } = await scoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
+        const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);

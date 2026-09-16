@@ -4,7 +4,7 @@ const { requireAuth } = require('../modules/auth');
 const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
 const { SCORING_RULES, SCORING_PRESETS } = require('../services/scoringRules');
 const feedSyncRuns = require('../services/feedSyncRuns.service');
-const scoring = require('../services/scoring.service');
+const matchupScoring = require('../services/matchupScoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
 const sleeper = require('../services/sleeper.service');
@@ -76,7 +76,7 @@ router.post('/league/:id/matchups', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const result = await scoring.generateMatchups({ leagueId, ...sw });
+    const result = await matchupScoring.generateMatchups({ leagueId, ...sw });
     res.status(201).json(result);
   } catch (error) {
     // The phase refusal (#194) is a 409; map it like the sibling handlers do
@@ -97,7 +97,7 @@ router.post('/league/:id/score', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const result = await scoring.scoreMatchups({ leagueId, ...sw });
+    const result = await matchupScoring.scoreMatchups({ leagueId, ...sw });
     res.json(result);
   } catch (error) {
     console.error('Matchup scoring failed:', error);
@@ -505,7 +505,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
     // above, never to current_week afterwards - finalizeWeekAndAdvance moves
     // it. Score still comes BEFORE finalize: finalize seeds the playoff
     // bracket from computeStandings over these very scores.
-    const scoredResult = await scoring.scoreMatchups({
+    const scoredResult = await matchupScoring.scoreMatchups({
       leagueId,
       season: current_season,
       week: current_week,

@@ -9,7 +9,7 @@ const {
   removeLineupEntries,
   materializeLineup,
 } = require('../services/lineup.service');
-const { scoreMatchups } = require('../services/scoring.service');
+const { scoreMatchups } = require('../services/matchupScoring.service');
 const { finalizeWeekAndAdvance } = require('../services/season.service');
 const { correctLeagueWeek } = require('../services/correction.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
@@ -1353,7 +1353,7 @@ test.after(() => {
 });
 
 test('#190 advance-week asks for settle semantics, pinned to the week it is closing', async (t) => {
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/matchupScoring.service');
   const season = require('../services/season.service');
   const montecarlo = require('../services/montecarlo.service');
 

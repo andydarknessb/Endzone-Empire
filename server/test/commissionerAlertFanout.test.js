@@ -89,7 +89,7 @@ test('a playoff-flipping stat correction alerts every commissioner, not the crea
   ]);
   fake.install(t);
 
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/matchupScoring.service');
   t.mock.method(scoring, 'scoreMatchups', async () => ({}));
 
   const { correctLeagueWeek } = require('../services/correction.service');

@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const liveBoxPoll = require('../modules/liveBoxPoll');
 const liveBox = require('../modules/liveBox');
-const scoring = require('../services/scoring.service');
+const scoring = require('../services/matchupScoring.service');
 const scheduler = require('../modules/scheduler');
 const { createFakePool, select } = require('./helpers/fakePool');
 

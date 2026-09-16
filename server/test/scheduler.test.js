@@ -566,7 +566,7 @@ test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', as
   // DB-only, so it must still run — finals ingested via the recap path get
   // scored promptly this way.
   const feedSyncRuns = require('../services/feedSyncRuns.service');
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/matchupScoring.service');
   createFakePool([
     [/FROM "leagues"/, () => ({ rows: [{ id: 42, current_season: 2026, current_week: 3 }] })],
     [/FROM "nfl_games"/, () => ({ rows: [{ '?column?': 1 }] })],

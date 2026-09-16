@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const feedSyncRuns = require('./feedSyncRuns.service');
-const scoring = require('./scoring.service');
+const matchupScoring = require('./matchupScoring.service');
 const { logTransaction, notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
@@ -134,7 +134,7 @@ async function correctLeagueWeek({ leagueId, season, week }) {
   );
   if (before.rows.length === 0) return { leagueId, changes: [] };
 
-  await scoring.scoreMatchups({ leagueId, season, week });
+  await matchupScoring.scoreMatchups({ leagueId, season, week });
 
   let after;
   try {
