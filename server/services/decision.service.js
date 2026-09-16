@@ -15,6 +15,7 @@ const {
   optimalLineup,
   parseLineupSettings,
   slotEligible,
+  eligibleSlotsFor,
   materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
@@ -964,13 +965,6 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 // ---------------------------------------------------------------------------
 // 4. Waiver suggestions
 // ---------------------------------------------------------------------------
-
-/** Pure: the roster slots (FLEX included) a position is eligible to start in, given `rosterSlots`. */
-function eligibleSlotsFor(position, rosterSlots) {
-  return rosterSlots
-    .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
-    .map((s) => s.key);
-}
 
 /**
  * Pure: the caller's weakest starter among `currentStarters` sitting at a slot

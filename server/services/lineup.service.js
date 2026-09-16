@@ -95,6 +95,21 @@ function slotEligible(slotKey, position, rosterSlots = DEFAULT_ROSTER_SLOTS) {
 }
 
 /**
+ * Pure: the roster slots (FLEX included) a position is eligible to start in,
+ * given `rosterSlots`. A count-0 slot seats nobody, so it is excluded even
+ * when the position would otherwise be eligible for it. Folded in from
+ * decision.service's own local copy (#1503): waiver suggestions are the only
+ * caller, but the mapping is a `slotEligible` question over every starting
+ * slot, so it lives beside `slotEligible` rather than duplicated at the call
+ * site.
+ */
+function eligibleSlotsFor(position, rosterSlots) {
+  return rosterSlots
+    .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
+    .map((s) => s.key);
+}
+
+/**
  * Normalize a league row's roster/lineup configuration (jsonb columns arrive
  * as objects from pg, but tolerate strings for safety).
  */
@@ -1701,6 +1716,7 @@ module.exports = {
   expandEligibility,
   rosterablePositions,
   slotEligible,
+  eligibleSlotsFor,
   parseLineupSettings,
   validateLineup,
   entriesForLineupValidation,
