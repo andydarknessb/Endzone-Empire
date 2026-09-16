@@ -214,6 +214,73 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
 });
 
 /**
+ * #1482, formal review f1: the pace and result Edge lines must read
+ * `projected_points` (the Point estimate the Ledger row now headlines and
+ * `findBenchAboveStarter` already compares by), never `projection` (the
+ * distribution's bare mean) - the exact regression the fix for #1482 could
+ * otherwise reintroduce on a live or final row.
+ */
+test('GET /api/team/lineup: pace and result Edge lines follow the Point estimate, never the bare mean, when they differ (#1482)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Skewed Pace Guy', position: 'WR', nfl_team: 'LAC', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false, week_stats: { actual: 5 } },
+    { id: 2, name: 'Skewed Result Guy', position: 'WR', nfl_team: 'SEA', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false, week_stats: { actual: 20 } },
+  ];
+  const weekly = new Map([
+    // `points` (projected_points on the wire) is deliberately far from
+    // `projection.mean`: reading the mean here would print a different
+    // percentage/diff than the row's own headline number.
+    [1, { points: 8, projection: { mean: 12, p10: 5, p90: 16, factors: {} } }],
+    [2, { points: 14, projection: { mean: 20, p10: 10, p90: 24, factors: {} } }],
+  ]);
+  t.mock.method(projectionService, 'getWeekProjections', async () => weekly);
+  t.mock.method(scoringService, 'calculateFantasyPoints', (stats) => stats.actual);
+
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8, best_ball: false }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
+      rows: [
+        { nfl_team: 'LAC', opponent: 'LV', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'LAC-LV' },
+        { nfl_team: 'SEA', opponent: 'ARI', kickoff_at: '2026-11-01T13:00:00Z', game_key: 'SEA-ARI' },
+      ],
+    })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({
+      rows: [
+        { home_team: 'LAC', away_team: 'LV', game_status: 'in_progress' },
+        { home_team: 'SEA', away_team: 'ARI', game_status: 'final' },
+      ],
+    })],
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/team/lineup?leagueId=5')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  const byId = new Map(response.body.entries.map((entry) => [entry.id, entry]));
+
+  // 5 of projected_points 8 is 63%, never 5 of the mean 12 (42%).
+  assert.deepEqual(byId.get(1).edge, { kind: 'pace', text: '63% of projection so far (5 of 8 pts)' });
+  // 20 beats projected_points 14 by 6, never the mean 20 (a tie, 0 pts).
+  assert.deepEqual(byId.get(2).edge, { kind: 'result', text: 'Beat projection by 6 pts (20 of 14)' });
+
+  fake.assertClean();
+});
+
+/**
  * #1235, f1 (formal review): the Edge line's game state must fall back to
  * 'final' the same way `expectedFinal.service.js`'s `gameStateFor` already
  * does when a game has no `live_game_states` row at all (the table only

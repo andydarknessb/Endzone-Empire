@@ -4,6 +4,12 @@ const entry = (overrides = {}) => ({
   playerId: 1,
   name: 'Player',
   slot: 'QB',
+  // `projectedPoints` (the Point estimate, CONTEXT.md's The projection
+  // engine) is what the bench sorts by (#1482); `projection` (the
+  // distribution's bare mean) rides alongside since real entries always
+  // carry both, but nothing here reads it. Defaulted equal so a case that
+  // only overrides one of them still behaves as every existing test expects.
+  projectedPoints: 10,
   projection: 10,
   availability: { available: true, reason: null },
   ...overrides,
@@ -71,29 +77,45 @@ test('a valid IR stash, or a bench with room, adds no extra bench row', () => {
   expect(room.bench).toHaveLength(2);
 });
 
-test('bench sorts available players by projection descending', () => {
+test('bench sorts available players by projectedPoints descending', () => {
   const entries = [
-    entry({ playerId: 1, slot: 'BENCH', projection: 5 }),
-    entry({ playerId: 2, slot: 'BENCH', projection: 15 }),
-    entry({ playerId: 3, slot: 'BENCH', projection: 10 }),
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 5, projection: 5 }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 15, projection: 15 }),
+    entry({ playerId: 3, slot: 'BENCH', projectedPoints: 10, projection: 10 }),
   ];
   const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 3, irSlots: 0 });
   expect(bench.map((r) => r.entry.playerId)).toEqual([2, 3, 1]);
 });
 
-test('Unavailable bench players sort after every available one, regardless of projection', () => {
+// #1482, formal review f2: the bench sorts by projectedPoints (the Point
+// estimate the Ledger row headlines), never projection (the distribution's
+// bare mean) - a bench that sorted by the mean while the row printed the
+// Point estimate could print visibly out of order, the same statistic
+// mismatch the issue's fix rules out everywhere else on the page.
+test('bench sorts by projectedPoints, never projection, when the two disagree (#1482)', () => {
   const entries = [
-    entry({ playerId: 1, slot: 'BENCH', projection: 20, availability: { available: false, reason: 'out' } }),
-    entry({ playerId: 2, slot: 'BENCH', projection: 1 }),
+    // Higher mean, lower Point estimate - sorts BELOW the other bench entry
+    // once the bug is fixed, even though its mean is the larger number.
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 6, projection: 8 }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 10, projection: 7 }),
   ];
   const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 2, irSlots: 0 });
   expect(bench.map((r) => r.entry.playerId)).toEqual([2, 1]);
 });
 
-test('an unknown (null) projection sorts last among available bench players, never throwing', () => {
+test('Unavailable bench players sort after every available one, regardless of projectedPoints', () => {
   const entries = [
-    entry({ playerId: 1, slot: 'BENCH', projection: null }),
-    entry({ playerId: 2, slot: 'BENCH', projection: 5 }),
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 20, projection: 20, availability: { available: false, reason: 'out' } }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 1, projection: 1 }),
+  ];
+  const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 2, irSlots: 0 });
+  expect(bench.map((r) => r.entry.playerId)).toEqual([2, 1]);
+});
+
+test('an unknown (null) projectedPoints sorts last among available bench players, never throwing', () => {
+  const entries = [
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: null, projection: null }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 5, projection: 5 }),
   ];
   const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 2, irSlots: 0 });
   expect(bench.map((r) => r.entry.playerId)).toEqual([2, 1]);

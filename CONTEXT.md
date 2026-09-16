@@ -1296,6 +1296,23 @@ The identity of the engine's behaviour. Any change to its constants is a new
 version, because numbers from two versions are not comparable.
 _Avoid_: release, build
 
+**Point estimate**:
+The single number a Weekly projection is ranked and shown by: its median or
+its mean, whichever the run's own Model version names as
+`decision.lineupRanking` (`projection.service.js`'s `pointEstimateFor`), the
+other as fallback when the named one is unavailable. One statistic
+everywhere a Weekly projection surfaces as a single number - the Ledger
+row's headline, its Edge line's own comparisons ("Outprojects" and the
+live/final pace and result text), the bench sort order and the Start/Sit
+ranking - so the row a manager reads never contradicts itself, and a future
+Model version that ranks by the mean instead of the median moves every one
+of those surfaces together (#1482, #1483). Distinct from Floor and Ceiling,
+which bracket it rather than replace it.
+_Avoid_: median (unqualified - true only for a version whose ranking
+statistic is the median), the mean (unqualified, same reason), projection
+(too broad: Weekly projection is the whole estimate, this is the one number
+read off it)
+
 **Interval**:
 The band around a projection expressing how uncertain it is.
 _Avoid_: confidence, margin, error bar, range

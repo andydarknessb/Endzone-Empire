@@ -1230,20 +1230,29 @@ function computeEdgeLine(entry, { entries, rosterSlots, factors, liveStatus, act
   const gameState = gameStateFor({
     liveStatus, kickoffAt: entry.kickoff, onBye: Boolean(entry.onBye), points: actualPoints, now,
   });
-  if (gameState === 'in_progress' && Number.isFinite(entry.projection) && entry.projection > 0
+  // Both texts read `entry.projected_points` - the Point estimate
+  // (CONTEXT.md, The projection engine; #1482, #1483), the SAME field the
+  // Ledger row now headlines and `findBenchAboveStarter` already compared -
+  // never `entry.projection` (the distribution's bare mean), so a live or
+  // final row's own Edge line can never quote a different number than the
+  // one printed beside it. `pointEstimateFor` (projection.service.js) picks
+  // this field per the run's own model version, so reading it here (rather
+  // than reasoning about "median" or "mean" in this file) keeps this text
+  // correct under whichever statistic a future model version ranks by.
+  if (gameState === 'in_progress' && Number.isFinite(entry.projected_points) && entry.projected_points > 0
       && Number.isFinite(actualPoints)) {
-    const pct = Math.round((actualPoints / entry.projection) * 100);
+    const pct = Math.round((actualPoints / entry.projected_points) * 100);
     return {
       kind: 'pace',
-      text: `${pct}% of projection so far (${round2(actualPoints)} of ${round2(entry.projection)} pts)`,
+      text: `${pct}% of projection so far (${round2(actualPoints)} of ${round2(entry.projected_points)} pts)`,
     };
   }
-  if (gameState === 'final' && Number.isFinite(entry.projection) && Number.isFinite(actualPoints)) {
-    const diff = round2(actualPoints - entry.projection);
+  if (gameState === 'final' && Number.isFinite(entry.projected_points) && Number.isFinite(actualPoints)) {
+    const diff = round2(actualPoints - entry.projected_points);
     const verb = diff >= 0 ? 'Beat' : 'Fell short of';
     return {
       kind: 'result',
-      text: `${verb} projection by ${round2(Math.abs(diff))} pts (${round2(actualPoints)} of ${round2(entry.projection)})`,
+      text: `${verb} projection by ${round2(Math.abs(diff))} pts (${round2(actualPoints)} of ${round2(entry.projected_points)})`,
     };
   }
   return { kind: 'none', text: null };

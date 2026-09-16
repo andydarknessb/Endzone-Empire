@@ -129,14 +129,16 @@ test('an available row with no points yet (pre-kickoff) shows the projection cel
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
 });
 
-// #1482: the ledger row's headline number is the median (`projectedPoints`,
-// the engine's point estimate that the Edge line's "Outprojects" comparison
-// and the Start/Sit ranking already use), never the mean (`projection`) -
-// the two stats can order two players differently, and a row that headlined
-// the mean while the Edge line reasoned from the median could read either
-// "Outprojects" or a Start/Sit card that contradicts the number on the row
-// it names. Floor and Ceiling are untouched by this ticket (out of scope).
-test('the projection cell headlines the median (projectedPoints), never the mean (projection), when they differ', () => {
+// #1482: the ledger row's headline number is `projectedPoints` (CONTEXT.md's
+// Point estimate, The projection engine - whichever statistic the run's own
+// Model version ranks by, that the Edge line's "Outprojects" comparison and
+// the Start/Sit ranking already read), never `projection` (the
+// distribution's bare mean) - the two can order two players differently, and
+// a row that headlined the mean while the Edge line reasoned from the Point
+// estimate could read either "Outprojects" or a Start/Sit card that
+// contradicts the number on the row it names. Floor and Ceiling are
+// untouched by this ticket (out of scope).
+test('the projection cell headlines projectedPoints (the Point estimate), never projection (the mean), when they differ', () => {
   render(
     <LedgerRow
       slotLabel="FLEX"
@@ -147,6 +149,34 @@ test('the projection cell headlines the median (projectedPoints), never the mean
   );
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('8.2');
   expect(screen.getByTestId('ledger-projection')).not.toHaveTextContent('9.0');
+});
+
+// #1482, formal review f3: the Testing criterion asks for ONE fixture that
+// proves the printed number and the Edge chip agree, not two unrelated
+// fixtures each proving half. A bench row whose projection (mean) is LOWER
+// than its starter's but whose projectedPoints (Point estimate) is HIGHER
+// still headlines its own projectedPoints and still carries the
+// bench-above-starter chip - the same read model output getLineup produces
+// for exactly this shape (server/test/lineup.service.test.js's #1482 case).
+test('a bench row headlines projectedPoints and carries the bench-above-starter chip together, even though its mean is lower (#1482)', () => {
+  render(
+    <LedgerRow
+      slotLabel="BENCH"
+      entry={entry({
+        name: 'Terry McLaurin',
+        slot: 'BENCH',
+        projection: 7.37,
+        projectedPoints: 10.06,
+        edge: { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' },
+      })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('10.1');
+  const line = screen.getByTestId('ledger-edge-line');
+  expect(line).toHaveAttribute('data-edge-kind', 'bench-above-starter');
+  expect(line).toHaveTextContent('Outprojects DK Metcalf at FLEX');
 });
 
 test('an available row with actual points (live or final) shows them in the points cell', () => {

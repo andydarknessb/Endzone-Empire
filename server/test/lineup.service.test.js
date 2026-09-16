@@ -204,14 +204,15 @@ test('getLineup returns league-scored current-week projections and preserves una
 
 // #1482: the Cause section's own repro (DK Metcalf/Terry McLaurin, week 2
 // 2026) - a starter and a bench player whose mean and median disagree on
-// which outprojects the other. `projected_points` (the median, what
-// findBenchAboveStarter's own comparison and the Edge line's
-// "Outprojects" text already read) must order them one way even though
-// `projection` (the mean, what LedgerRow.jsx printed before this ticket)
-// orders them the other way - locking in that the read model's own numbers,
-// not just the client's rendering of them, are what the ledger row and its
-// Edge line agree on.
-test('getLineup: a bench-above-starter Edge line follows the median even when the mean disagrees (#1482)', async (t) => {
+// which outprojects the other. `projected_points` (the Point estimate,
+// CONTEXT.md's The projection engine - the median under today's shipped
+// v3.1 constants, what findBenchAboveStarter's own comparison and the Edge
+// line's "Outprojects" text already read) must order them one way even
+// though `projection` (the distribution's bare mean, what LedgerRow.jsx
+// printed before this ticket) orders them the other way - locking in that
+// the read model's own numbers, not just the client's rendering of them,
+// are what the ledger row and its Edge line agree on.
+test('getLineup: a bench-above-starter Edge line follows the Point estimate even when the mean disagrees (#1482)', async (t) => {
   const entries = [
     { id: 1, name: 'DK Metcalf', position: 'WR', nfl_team: 'SEA', injury_status: null, injury_detail: null, slot: 'FLEX', ir_attested: false },
     { id: 2, name: 'Terry McLaurin', position: 'WR', nfl_team: 'WAS', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
@@ -244,13 +245,14 @@ test('getLineup: a bench-above-starter Edge line follows the median even when th
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(1).projected_points, 8.21, "the starter's median");
+  assert.equal(byId.get(1).projected_points, 8.21, "the starter's Point estimate (the median, under v3.1)");
   assert.equal(byId.get(1).projection, 9.03, "the starter's mean, for comparison - higher than the bench's mean");
-  assert.equal(byId.get(2).projected_points, 10.06, "the bench player's median - higher than the starter's median");
+  assert.equal(byId.get(2).projected_points, 10.06, "the bench player's Point estimate - higher than the starter's");
   assert.equal(byId.get(2).projection, 7.37, "the bench player's mean - lower than the starter's mean");
-  // The read model's Edge line already reasons from the median (unchanged by
-  // this ticket): the bench player's median outprojects the starter's, so he
-  // gets the "Outprojects" chip, even though his mean does not.
+  // The read model's Edge line already reasons from the Point estimate
+  // (unchanged by this ticket): the bench player's Point estimate
+  // outprojects the starter's, so he gets the "Outprojects" chip, even
+  // though his mean does not.
   assert.deepEqual(byId.get(2).edge, { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' });
   fake.assertClean();
 });
