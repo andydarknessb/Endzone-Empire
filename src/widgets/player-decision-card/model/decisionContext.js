@@ -12,9 +12,10 @@
  * `kind` matches CONTEXT.md's Availability states one-for-one - `my_team`,
  * `free_agent`, `waivers`, `rostered` - plus `draft` (#1313: the Draft room's
  * fifth context, not an Availability state) and `fromCard` (#1311, ADR 0040
- * ruling c: a caller with no Availability fact of its own, TransactionLog,
- * defers `kind` to the `/card` payload the way `contextFromCard` already
- * does).
+ * ruling c: a caller with no Availability fact of its own, TransactionLog and
+ * the public profile's "In your leagues" card, defers `kind` to the `/card`
+ * payload - #1514 moved this off the earlier loose `contextFromCard` prop
+ * onto `context.fromCard`, which `ui/PlayerDecisionCard.jsx` reads instead).
  */
 
 function requirePlainObject(value, label) {
@@ -140,9 +141,11 @@ export function draft({
 /**
  * #1311, ADR 0040 ruling (c): a caller with no Availability fact of its own
  * (TransactionLog's activity segments carry only `{ playerId, name }`) defers
- * `kind` to the `/card` payload's own `availability.state` once it answers,
- * exactly like the existing `contextFromCard` prop. `kind: null` matches none
- * of the card's context branches until then.
+ * `kind` to the `/card` payload's own `availability.state` once it answers.
+ * `kind: null` matches none of the card's context branches until then;
+ * `ui/PlayerDecisionCard.jsx` reads the `fromCard` flag below (#1514 -
+ * replacing the earlier loose `contextFromCard` prop, now retired) to know
+ * to defer.
  */
 export function fromCard() {
   return { kind: null, fromCard: true };

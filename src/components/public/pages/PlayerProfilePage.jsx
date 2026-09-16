@@ -20,7 +20,7 @@ import { STAT_DEFINITIONS } from '../../../shared/ui/AbbreviationTooltip';
 import { hasSessionHint } from '../../../lib/sessionHint';
 import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib/a11y';
 import { toDecisionCardEntry } from '../../../entities/player';
-import PlayerDecisionCard from '../../../widgets/player-decision-card';
+import PlayerDecisionCard, { fromCard } from '../../../widgets/player-decision-card';
 
 // `testId` is an optional test-only seam: a stat card is a layout container
 // with no role, so the value and its label share no queryable ancestor.
@@ -165,7 +165,11 @@ function inYourLeaguesCopy({ leagueName, availability }) {
  * safe, and the deliberate consequence - a Free agent/Waivers card here
  * shows no drop list, roster count, FAAB field or priority - is the "the
  * card does the rest; the profile adds no action" boundary the issue body
- * names, not a bug to fix here.
+ * names, not a bug to fix here. #1514: `context` is `fromCard()` - this
+ * block has no `roster` to give `freeAgent`/`waivers` their required array,
+ * so it defers `kind` to the fetched card's own Availability (ADR 0040
+ * ruling c) exactly as TransactionLog does, rather than building one of the
+ * four Availability-state contexts directly.
  *
  * Components stay on the theme's APP tokens throughout (Ruling): `LoadingRows`
  * (already used elsewhere on this page) for the loading line, and a plain
@@ -245,7 +249,7 @@ function InYourLeaguesBlock({ player }) {
         onClose={() => setCardOpen(false)}
         entry={entry}
         leagueId={openLine?.leagueId}
-        context={openLine?.availability?.state}
+        context={fromCard()}
         availability={openLine?.availability}
       />
     </Box>

@@ -292,8 +292,9 @@ test('clicking a player name opens the Decision card', async () => {
 });
 
 // #1311, ADR 0040 ruling (c): TransactionLog has no roster fact of its own
-// to classify a segment's player by, so it passes `contextFromCard` and the
-// card's own `availability.state` decides which action bar renders.
+// to classify a segment's player by, so it passes `context={fromCard()}`
+// (#1514) and the card's own `availability.state` decides which action bar
+// renders.
 test("the Decision card derives its context from the /card payload once it answers", async () => {
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/transactions')) {

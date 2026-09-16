@@ -5,7 +5,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import * as slotActions from '../model/slotActions';
-import { myTeam, draft } from '../model/decisionContext';
+import { myTeam, draft, fromCard } from '../model/decisionContext';
 
 /**
  * player-decision-card widget tests (#1240). LineupPage.test.jsx (AC8) covers
@@ -382,12 +382,13 @@ describe('context object builders (#1512, ADR 0040)', () => {
 
 // #1311, ADR 0040 ruling (c): TransactionLog cannot derive `context` itself
 // (its activity segments carry only `{ playerId, name }`, no roster fact),
-// so it passes `contextFromCard` instead and omits `context` entirely.
-describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
+// so it passes `context={fromCard()}` instead of a kind of its own (#1514
+// migrated this off the earlier loose `contextFromCard` boolean prop).
+describe('context={fromCard()} (#1311, ADR 0040 ruling c; #1514)', () => {
   test('renders no action bar until the card payload answers', async () => {
     apiClient.get.mockImplementation(() => new Promise(() => {})); // the card never resolves
     renderCard({
-      contextFromCard: true,
+      context: fromCard(),
       entry: { playerId: 7, name: 'Breece Hall' },
       entries: undefined,
       onSwap: undefined,
@@ -414,7 +415,7 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
   test('a failed /card read shows a visible error, never an action bar or the loading announcement', async () => {
     apiClient.get.mockRejectedValue(new Error('network error'));
     renderCard({
-      contextFromCard: true,
+      context: fromCard(),
       entry: { playerId: 7, name: 'Breece Hall' },
       entries: undefined,
       onSwap: undefined,
@@ -439,7 +440,7 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
       availability: { state: 'rostered' },
     });
     renderCard({
-      contextFromCard: true,
+      context: fromCard(),
       entry: { playerId: 7, name: 'Justin Jefferson' },
       entries: undefined,
       onSwap: undefined,
@@ -465,7 +466,7 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
   test('a my_team payload with no lineup wiring renders Open lineup, not Propose trade', async () => {
     mockCardRoute({ availability: { state: 'my_team' } });
     renderCard({
-      contextFromCard: true,
+      context: fromCard(),
       entry: { playerId: 7, name: 'Breece Hall' },
       entries: undefined,
       onSwap: undefined,
@@ -480,7 +481,7 @@ describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
 
   test('an existing caller passing a full entry and a real leagueId/playerId is untouched (context stays the prop, not the card)', async () => {
     mockCardRoute({ availability: { state: 'waivers' } });
-    renderCard({ context: 'my_team' }); // contextFromCard defaults false
+    renderCard({ context: 'my_team' }); // no fromCard() context passed, so effectiveContext stays context.kind
 
     await screen.findByTestId('decision-card-bench-action');
     expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();

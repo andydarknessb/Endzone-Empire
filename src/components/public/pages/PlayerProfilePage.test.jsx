@@ -395,6 +395,28 @@ test('clicking the Rostered by line opens the Decision card with that league\'s 
   expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('/api/players/42/card?leagueId=12'));
 });
 
+// #1514 ("green for the wrong reason"): the card's action bar has to come
+// from the FETCHED /card payload's own availability.state (context={
+// fromCard()}), never from the "In your leagues" line's own availability -
+// this line's state is 'rostered', but the mocked /card payload answers
+// 'my_team', so Open lineup (not Propose trade) proves the fetch is what's
+// actually driving the bar rather than the line the manager clicked.
+test('the Decision card derives its action bar from the fetched card payload, not the clicked line\'s own availability', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    if (String(url).includes('/card?')) return Promise.resolve({ data: { availability: { state: 'my_team' } } });
+    return Promise.reject(new Error(`unexpected apiClient url ${url}`));
+  });
+  setSessionHint(true);
+  renderPage('/players/42');
+  await screen.findByRole('heading', { name: 'Alpha Back' });
+
+  await userEvent.click(await screen.findByText('Rostered by Rival Squad in Beta League'));
+
+  expect(await screen.findByTestId('decision-card-open-lineup')).toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
+});
+
 test('maps the public profile\'s camelCase fields into the Decision card entry (formal-001 f3)', async () => {
   // toDecisionCardEntry (entities/player) reads snake_case (nfl_team,
   // photo_url); the public payload is camelCase (nflTeam, photoUrl). A
@@ -442,6 +464,10 @@ test('shows an aria-busy loading region for a signed-in viewer before the league
 test('closing the card holds its context through the exit transition, not the my_team default', async () => {
   apiClient.get.mockImplementation((url) => {
     if (String(url).includes('/in-your-leagues')) return Promise.resolve({ data: IN_YOUR_LEAGUES_RESPONSE });
+    // #1514: the card passes context={fromCard()} here, so the rostered
+    // action bar this test asserts on only renders once the /card payload's
+    // own availability.state answers (ADR 0040 ruling c).
+    if (String(url).includes('/card?')) return Promise.resolve({ data: { availability: { state: 'rostered' } } });
     return Promise.reject(new Error(`unexpected apiClient url ${url}`));
   });
   setSessionHint(true);
