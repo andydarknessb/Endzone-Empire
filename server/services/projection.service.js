@@ -379,19 +379,33 @@ function projectFromBundle({
   const onBye = byeWeek != null && Number(byeWeek) === Number(week);
 
   const allowance = context && opponentTeam ? context.allowedByDefense.get(opponentTeam) : null;
+  // #1485: last season's allowance for this group/opponent, seeding the
+  // factor through the weeks the current-season scan has not accrued enough
+  // games for yet (week 1 has none at all, since `bundle.leagueContext` is
+  // only populated for week > 1). `prior` is null whenever the bundle was not
+  // built with a prior-season context (e.g. a hand-built test fixture), which
+  // opponentEffect treats identically to "no prior season available".
+  const prior = group && bundle.priorSeasonContext ? bundle.priorSeasonContext.get(group) : null;
+  const priorAllowance = prior && opponentTeam ? prior.allowedByDefense.get(opponentTeam) : null;
   const opponent = model.opponentEffect({
     allowedPerGame: allowance ? allowance.allowedPerGame : null,
     leagueAveragePerGame: context ? context.leagueAllowedPerGame : null,
     games: allowance ? allowance.games : 0,
     opponentTeam,
     constants: constants.opponent,
+    priorAllowedPerGame: priorAllowance ? priorAllowance.allowedPerGame : null,
+    priorLeagueAveragePerGame: prior ? prior.leagueAllowedPerGame : null,
   });
   // #1342 Ruling item 1: rank is a read-side annotation on the opponent Factor
   // the engine already computed, never a second producer. Only an `available`
   // factor is guaranteed a resolvable entry in `allowedByDefense` (opponentEffect
   // itself gates on `games >= constants.minGames`), so a NEUTRAL factor (no
-  // opponent data, insufficient sample) carries neither `rank` nor `of`.
-  if (opponent.available) {
+  // opponent data, insufficient sample) carries neither `rank` nor `of`. #1485
+  // adds a second reason rank can be unavailable even on an AVAILABLE factor:
+  // at week 1 (or any week the seed alone clears minGames) `context` itself is
+  // null, since the current-season league scan never ran, so there is no
+  // current-season `allowedByDefense` map to rank within at all.
+  if (opponent.available && context) {
     const opponentRank = rankOpponentDefense(context.allowedByDefense, opponentTeam);
     if (opponentRank) {
       opponent.rank = opponentRank.rank;

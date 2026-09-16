@@ -7,11 +7,20 @@
  * unit-tested directly.
  */
 
-/** vs {opponent}, plus the defense's points allowed to this position when known. */
-export function opponentContextText({ opponent, opponentPointsAllowed, position }) {
+/**
+ * vs {opponent}, plus the defense's points allowed to this position when
+ * known. `opponentApplied` (#1485) says whether the projection engine's own
+ * opponent factor actually fired for this player - `false` still shows the
+ * points-allowed figure but labels the line "context only" rather than
+ * implying it moved the projection above it. A legacy payload with no
+ * `opponentApplied` field (`undefined`) keeps the old, unqualified text: only
+ * an explicit `false` qualifies the line.
+ */
+export function opponentContextText({ opponent, opponentPointsAllowed, position, opponentApplied }) {
   if (!opponent) return null;
   if (opponentPointsAllowed == null || position == null) return `vs ${opponent}`;
-  return `vs ${opponent} (allows ${Number(opponentPointsAllowed).toFixed(1)} to ${position})`;
+  const allowed = `vs ${opponent} (allows ${Number(opponentPointsAllowed).toFixed(1)} to ${position}`;
+  return opponentApplied === false ? `${allowed}, context only)` : `${allowed})`;
 }
 
 /** The earlier of two kickoff instants (ISO strings); either may be absent. */
@@ -49,6 +58,7 @@ function sideView(side, entriesById) {
       opponent: side.opponent,
       opponentPointsAllowed: side.opponentPointsAllowed,
       position,
+      opponentApplied: side.opponentApplied,
     }),
   };
 }

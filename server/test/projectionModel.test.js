@@ -523,6 +523,120 @@ test('opponentEffect is neutral when there is no opponent data at all', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Opponent adjustment: prior-season seeding (#1485)
+// ---------------------------------------------------------------------------
+
+test('opponentEffect seeds week 1 from the prior season when both prior inputs are supplied', () => {
+  // games 0, prior 30/20 (ratio 1.5), default pseudo 4, default shrink 6:
+  // effectiveGames = 0 + 4 = 4, which exactly meets minGames (4).
+  // shrunk = (4*1.5 + 6) / (4 + 6) = 12 / 10 = 1.2, effect = min(0.2, 0.12) = 0.12 (capped).
+  const effect = model.opponentEffect({
+    allowedPerGame: null, leagueAveragePerGame: null, games: 0, opponentTeam: 'NE',
+    priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
+  });
+  assert.equal(effect.available, true);
+  assert.equal(effect.seededFromPriorSeason, true);
+  assert.equal(effect.effectiveGames, 4);
+  assert.equal(effect.priorSeasonGames, 4);
+  assert.equal(effect.games, 0);
+  assert.equal(effect.allowedPerGame, null);
+  assert.equal(effect.leagueAveragePerGame, null);
+  assert.equal(effect.priorAllowedPerGame, 30);
+  assert.equal(effect.priorLeagueAveragePerGame, 20);
+  assert.ok(Math.abs(effect.effect - 0.12) < 1e-9, `got ${effect.effect}`);
+});
+
+test('opponentEffect uses the prior ratio alone when current games is 0, even with a current league average', () => {
+  const effect = model.opponentEffect({
+    allowedPerGame: 15, leagueAveragePerGame: 20, games: 0, opponentTeam: 'NE',
+    priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
+  });
+  assert.equal(effect.available, true);
+  assert.equal(effect.effectiveGames, 4);
+  assert.equal(effect.games, 0);
+  assert.equal(effect.allowedPerGame, 15);
+  assert.equal(effect.leagueAveragePerGame, 20);
+  // Same blended ratio as the fully-empty case above: current games is 0, so
+  // the current ratio never enters the blend and the prior ratio (1.5) alone
+  // drives it to the same capped 0.12.
+  assert.ok(Math.abs(effect.effect - 0.12) < 1e-9, `got ${effect.effect}`);
+});
+
+test('opponentEffect blends toward the current-season ratio as real games accrue (#1485)', () => {
+  // maxEffect raised so the math is visible instead of hitting the cap; every
+  // other constant (minGames, shrinkPseudoGames, priorSeasonPseudoGames)
+  // stays at the shipped default.
+  const constants = { ...model.MODEL_CONSTANTS.opponent, maxEffect: 1 };
+  const fewGames = model.opponentEffect({
+    allowedPerGame: 10, leagueAveragePerGame: 10, games: 4, opponentTeam: 'NE',
+    constants, priorAllowedPerGame: 30, priorLeagueAveragePerGame: 15,
+  });
+  const manyGames = model.opponentEffect({
+    allowedPerGame: 10, leagueAveragePerGame: 10, games: 12, opponentTeam: 'NE',
+    constants, priorAllowedPerGame: 30, priorLeagueAveragePerGame: 15,
+  });
+  // Current ratio 1.0, prior ratio 2.0.
+  // games 4: effectiveGames 8, blended = (4*1 + 4*2)/8 = 1.5, shrunk = (8*1.5+6)/14 = 18/14.
+  assert.ok(Math.abs(fewGames.effect - (18 / 14 - 1)) < 1e-9, `got ${fewGames.effect}`);
+  // games 12: effectiveGames 16, blended = (12*1 + 4*2)/16 = 1.25, shrunk = (16*1.25+6)/22 = 26/22.
+  assert.ok(Math.abs(manyGames.effect - (26 / 22 - 1)) < 1e-9, `got ${manyGames.effect}`);
+  // The prior's pull weakens as real games accrue: more games moves the
+  // blended ratio closer to the neutral current ratio (1.0).
+  assert.ok(manyGames.effect < fewGames.effect, `expected ${manyGames.effect} < ${fewGames.effect}`);
+});
+
+test('opponentEffect stays neutral when even the seeded sample is too small', () => {
+  const constants = { ...model.MODEL_CONSTANTS.opponent, priorSeasonPseudoGames: 1 };
+  const effect = model.opponentEffect({
+    allowedPerGame: null, leagueAveragePerGame: null, games: 0, opponentTeam: 'NE',
+    constants, priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
+  });
+  assert.equal(effect.available, false);
+  assert.equal(effect.effect, 0);
+  assert.match(effect.reason, /insufficient/);
+  assert.equal(effect.effectiveGames, 1);
+  assert.equal(effect.games, 0);
+});
+
+test('opponentEffect ignores the prior season under MODEL_CONSTANTS_V3_1 (no priorSeasonPseudoGames key)', () => {
+  const withPrior = model.opponentEffect({
+    allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+    constants: model.MODEL_CONSTANTS_V3_1.opponent,
+    priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
+  });
+  const withoutPrior = model.opponentEffect({
+    allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+    constants: model.MODEL_CONSTANTS_V3_1.opponent,
+  });
+  assert.deepEqual(withPrior, withoutPrior);
+  assert.equal(withPrior.seededFromPriorSeason, undefined);
+});
+
+test('opponentEffect ignores the prior season when priorSeasonPseudoGames is explicitly 0', () => {
+  const constants = { ...model.MODEL_CONSTANTS.opponent, priorSeasonPseudoGames: 0 };
+  const withPrior = model.opponentEffect({
+    allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+    constants, priorAllowedPerGame: 30, priorLeagueAveragePerGame: 20,
+  });
+  const withoutPrior = model.opponentEffect({
+    allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG', constants,
+  });
+  assert.deepEqual(withPrior, withoutPrior);
+});
+
+test('opponentEffect ignores prior seeding when prior inputs are absent, even under the seeded default constants', () => {
+  const withNullPrior = model.opponentEffect({
+    allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+    priorAllowedPerGame: null, priorLeagueAveragePerGame: null,
+  });
+  const withoutPriorArgs = model.opponentEffect({
+    allowedPerGame: 14, leagueAveragePerGame: 10, games: 8, opponentTeam: 'NYG',
+  });
+  assert.deepEqual(withNullPrior, withoutPriorArgs);
+  assert.equal(withNullPrior.seededFromPriorSeason, undefined);
+});
+
+// ---------------------------------------------------------------------------
 // Player vs. opponent history
 // ---------------------------------------------------------------------------
 

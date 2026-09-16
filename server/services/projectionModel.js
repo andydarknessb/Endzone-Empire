@@ -816,6 +816,22 @@ const NEUTRAL = (reason, extra = {}) => ({ available: false, effect: 0, reason, 
  * Raw "fantasy points allowed" is famously misleading over a handful of games
  * (it mostly measures who a defense happened to play), which is exactly why
  * the shrinkage and the minimum-games gate are not optional here.
+ *
+ * Prior-season seeding (#1485, v3.2): `priorAllowedPerGame` /
+ * `priorLeagueAveragePerGame` are the SAME two numbers for last season, and
+ * `constants.priorSeasonPseudoGames` (0 under MODEL_CONSTANTS_V3_1, which has
+ * no such key) says how many games of evidence the prior season's ratio is
+ * worth. When it applies, the prior ratio is blended into the current-season
+ * ratio as PSEUDO-GAMES of evidence: `effectiveGames = games +
+ * priorSeasonPseudoGames`, exactly the idiom `baseline.priorSeasonPseudoGames`
+ * already uses, then that blended ratio is what gets shrunk and capped, with
+ * `effectiveGames` (not the observed `games`) as the shrinkage's evidence
+ * count. This is what lets the factor be live from week 1 on last season's
+ * numbers instead of reporting "insufficient opponent sample" every opener.
+ * With no prior season available (either input missing, or the constants have
+ * no positive `priorSeasonPseudoGames`), the seed contributes nothing and this
+ * function returns EXACTLY what it always has, same keys, same NEUTRAL
+ * reasons, which is what keeps MODEL_CONSTANTS_V3_1 byte-identical to v3.1.
  */
 function opponentEffect({
   allowedPerGame,
@@ -823,28 +839,77 @@ function opponentEffect({
   games,
   opponentTeam = null,
   constants = MODEL_CONSTANTS.opponent,
+  priorAllowedPerGame = null,
+  priorLeagueAveragePerGame = null,
 } = {}) {
-  if (!isNum(allowedPerGame) || !isNum(leagueAveragePerGame) || Number(leagueAveragePerGame) <= 0) {
-    return NEUTRAL('no opponent data', { opponentTeam: opponentTeam || null });
-  }
   const observedGames = Math.max(0, Number(games) || 0);
-  if (observedGames < constants.minGames) {
+  const priorPseudo =
+    isNum(constants.priorSeasonPseudoGames) && Number(constants.priorSeasonPseudoGames) > 0
+    && isNum(priorAllowedPerGame) && isNum(priorLeagueAveragePerGame)
+    && Number(priorLeagueAveragePerGame) > 0
+      ? Number(constants.priorSeasonPseudoGames)
+      : 0;
+
+  if (priorPseudo === 0) {
+    // No prior season to seed from: identical to the pre-#1485 function.
+    if (!isNum(allowedPerGame) || !isNum(leagueAveragePerGame) || Number(leagueAveragePerGame) <= 0) {
+      return NEUTRAL('no opponent data', { opponentTeam: opponentTeam || null });
+    }
+    if (observedGames < constants.minGames) {
+      return NEUTRAL('insufficient opponent sample', {
+        opponentTeam: opponentTeam || null,
+        games: observedGames,
+      });
+    }
+    const ratio = Number(allowedPerGame) / Number(leagueAveragePerGame);
+    const shrunk =
+      (observedGames * ratio + constants.shrinkPseudoGames * 1) /
+      (observedGames + constants.shrinkPseudoGames);
+    return {
+      available: true,
+      effect: clamp(shrunk - 1, constants.maxEffect),
+      opponentTeam: opponentTeam || null,
+      games: observedGames,
+      allowedPerGame: round2(allowedPerGame),
+      leagueAveragePerGame: round2(leagueAveragePerGame),
+    };
+  }
+
+  // Seeded path: the prior season's ratio extends the sample as pseudo-games.
+  const priorRatio = Number(priorAllowedPerGame) / Number(priorLeagueAveragePerGame);
+  const currentRatio =
+    isNum(allowedPerGame) && isNum(leagueAveragePerGame)
+    && Number(leagueAveragePerGame) > 0 && observedGames > 0
+      ? Number(allowedPerGame) / Number(leagueAveragePerGame)
+      : null;
+  const effectiveGames = observedGames + priorPseudo;
+  const blendedRatio = currentRatio == null
+    ? priorRatio
+    : (observedGames * currentRatio + priorPseudo * priorRatio) / effectiveGames;
+
+  if (effectiveGames < constants.minGames) {
     return NEUTRAL('insufficient opponent sample', {
       opponentTeam: opponentTeam || null,
       games: observedGames,
+      effectiveGames,
     });
   }
-  const ratio = Number(allowedPerGame) / Number(leagueAveragePerGame);
+
   const shrunk =
-    (observedGames * ratio + constants.shrinkPseudoGames * 1) /
-    (observedGames + constants.shrinkPseudoGames);
+    (effectiveGames * blendedRatio + constants.shrinkPseudoGames * 1) /
+    (effectiveGames + constants.shrinkPseudoGames);
   return {
     available: true,
     effect: clamp(shrunk - 1, constants.maxEffect),
     opponentTeam: opponentTeam || null,
     games: observedGames,
-    allowedPerGame: round2(allowedPerGame),
-    leagueAveragePerGame: round2(leagueAveragePerGame),
+    allowedPerGame: isNum(allowedPerGame) ? round2(allowedPerGame) : null,
+    leagueAveragePerGame: isNum(leagueAveragePerGame) ? round2(leagueAveragePerGame) : null,
+    effectiveGames,
+    priorSeasonGames: priorPseudo,
+    priorAllowedPerGame: round2(priorAllowedPerGame),
+    priorLeagueAveragePerGame: round2(priorLeagueAveragePerGame),
+    seededFromPriorSeason: true,
   };
 }
 

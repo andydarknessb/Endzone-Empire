@@ -392,7 +392,19 @@ async function startSitAdvice({ leagueId, userId, week }) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;
     const teamDefense = opponent ? defense.get(opponent) : null;
     const opponentPointsAllowed = teamDefense ? teamDefense[entry.position] ?? null : null;
-    defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed });
+    // #1485: whether the projection engine actually APPLIED an opponent
+    // factor for this player, as opposed to `opponentPointsAllowed` above
+    // merely being displayable. The two can now disagree: `opponentPointsAllowed`
+    // reads getPositionDefense's raw allowance regardless of sample size,
+    // while the engine's own `factors.opponent.available` is the gated,
+    // shrunk-and-possibly-seeded value that actually moved the projection.
+    // Read straight off the projection the client will show, so a lineup that
+    // only ever displays one number cannot silently disagree with itself.
+    const detail = detailOf(projections, entry.id);
+    const opponentApplied = Boolean(
+      detail.factors && detail.factors.opponent && detail.factors.opponent.available
+    );
+    defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed, opponentApplied });
   }
 
   const lineupEntries = lineup.entries.map((e) => ({

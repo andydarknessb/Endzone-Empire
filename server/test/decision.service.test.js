@@ -194,6 +194,24 @@ test('buildSuggestions: missing opponent context defaults to nulls', () => {
   assert.equal(result.suggestions[0].current.opponentPointsAllowed, null);
 });
 
+test('buildSuggestions: carries opponentApplied through, current and suggested independently (#1485)', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = new Map([[1, { points: 5 }], [2, { points: 12 }]]);
+  const defenseByPlayer = new Map([
+    // player 1's factor was seeded from the prior season and applied.
+    [1, { opponent: 'NYG', opponentPointsAllowed: 10, opponentApplied: true }],
+    // player 2's opponent sample was insufficient even with the seed.
+    [2, { opponent: 'DAL', opponentPointsAllowed: 22, opponentApplied: false }],
+  ]);
+  const result = buildSuggestions(lineup, projections, defenseByPlayer, RB1);
+  const { current, suggested } = result.suggestions[0];
+  assert.equal(current.opponentApplied, true);
+  assert.equal(suggested.opponentApplied, false);
+});
+
 // --- new behavior: empty slots, availability, distributions ---------------
 
 test('buildSuggestions: an EMPTY starting slot is reported as a fill, not a swap', () => {

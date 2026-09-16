@@ -447,6 +447,7 @@ async function loadFeatureBundle({
       seasonRowsByPlayer: new Map(),
       targetGames: new Map(),
       leagueContext: new Map(),
+      priorSeasonContext: new Map(),
       byeByTeam: new Map(),
       opponentByTeamWeek: new Map(),
       defenseGamesByTeam: new Map(),
@@ -599,22 +600,78 @@ async function loadFeatureBundle({
     ? positions
     : [...new Set([...players.values()].map((r) => r.position).filter(Boolean))];
   let leagueRows = [];
-  if (scanPositions.length > 0 && Number(week) > 1) {
-    const scan = await client.query(
-      `SELECT "ps"."player_id", "ps"."week", "ps"."stats", "p"."position",
-              fn_normalize_nfl_team("ng"."opponent") AS "defense",
-              "ng"."home_away", "ng"."neutral_site"
-       FROM "player_stats" "ps"
-       JOIN "players" "p" ON "p"."id" = "ps"."player_id"
-       LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
-         AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
-       WHERE "ps"."season" = $1 AND "ps"."week" < $2 AND "p"."position" = ANY($3::text[])
-       ORDER BY "ps"."player_id", "ps"."week"
-       LIMIT $4`,
-      [season, week, scanPositions, MAX_LEAGUE_SCAN_ROWS]
-    );
-    leagueRows = scan.rows;
+  let priorSeasonRows = [];
+  let priorSeasonDefenseRows = [];
+  if (scanPositions.length > 0) {
+    const priorSeason = Number(season) - 1;
+    const [currentScan, priorScan, priorDefenseGamesResult] = await Promise.all([
+      // The current-season scan needs at least one completed week to read, so
+      // it stays gated on week > 1 exactly as before - that gap is precisely
+      // what the prior-season scan below exists to cover.
+      Number(week) > 1
+        ? client.query(
+          `SELECT "ps"."player_id", "ps"."week", "ps"."stats", "p"."position",
+                  fn_normalize_nfl_team("ng"."opponent") AS "defense",
+                  "ng"."home_away", "ng"."neutral_site"
+           FROM "player_stats" "ps"
+           JOIN "players" "p" ON "p"."id" = "ps"."player_id"
+           LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
+             AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
+           WHERE "ps"."season" = $1 AND "ps"."week" < $2 AND "p"."position" = ANY($3::text[])
+           ORDER BY "ps"."player_id", "ps"."week"
+           LIMIT $4`,
+          [season, week, scanPositions, MAX_LEAGUE_SCAN_ROWS]
+        )
+        : Promise.resolve({ rows: [] }),
+      // Prior-season opponent seed (#1485): ALWAYS run, including week 1 -
+      // exactly the week the current-season scan above cannot cover. A prior
+      // season is complete by definition, so this query never needs the
+      // input-cutoff week filter the current-season scan carries.
+      //
+      // The opponent here comes from the STORED per-week `gameOpponent` key,
+      // not a join through the player's CURRENT team the way the current-season
+      // scan resolves `defense`. A player traded mid-season played some of
+      // last year's games for a team that is not `players.nfl_team` today, so
+      // joining through today's team would credit (or blame) the wrong
+      // defense for those weeks. Rows whose stored stats have no
+      // `gameOpponent` (pre-backfill rows) simply contribute no allowance,
+      // the same as any other row this file cannot place.
+      client.query(
+        `SELECT "pps"."player_id", "pps"."week", "pps"."stats", "p"."position",
+                fn_normalize_nfl_team("pps"."stats"->>'gameOpponent') AS "defense"
+         FROM "player_stats" "pps"
+         JOIN "players" "p" ON "p"."id" = "pps"."player_id"
+         WHERE "pps"."season" = $1 AND "p"."position" = ANY($2::text[])
+         ORDER BY "pps"."player_id", "pps"."week"
+         LIMIT $3`,
+        [priorSeason, scanPositions, MAX_LEAGUE_SCAN_ROWS]
+      ),
+      client.query(
+        `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "prior_games"
+         FROM "nfl_games" WHERE "season" = $1
+         GROUP BY 1`,
+        [priorSeason]
+      ),
+    ]);
+    leagueRows = currentScan.rows;
+    priorSeasonRows = priorScan.rows;
+    priorSeasonDefenseRows = priorDefenseGamesResult.rows;
   }
+
+  const priorSeasonDefenseGames = new Map();
+  for (const row of priorSeasonDefenseRows) {
+    priorSeasonDefenseGames.set(row.team, Number(row.prior_games));
+  }
+  // Only `allowedByDefense` and `leagueAllowedPerGame` are consumed from this
+  // context (projection.service.js's opponent seed); the rest of what this
+  // pure builder returns for the prior season (baselinePerGame, homeAway,
+  // residuals, efficiencyPerOpportunity) is computed the same as any other
+  // call but is unused here.
+  const priorSeasonContext = buildLeagueContext({
+    rows: priorSeasonRows,
+    rules,
+    defenseGamesByTeam: priorSeasonDefenseGames,
+  });
 
   // Defense games must be keyed the same way the scan's `defense` column is.
   // Gated on the TARGET season's completed weeks specifically: the count below
@@ -662,11 +719,14 @@ async function loadFeatureBundle({
     seasonRowsByPlayer,
     targetGames,
     leagueContext,
+    priorSeasonContext,
     byeByTeam,
     opponentByTeamWeek,
     defenseGamesByTeam: normalizedDefenseGames,
     leagueScanRows: leagueRows.length,
     scanTruncated: leagueRows.length >= MAX_LEAGUE_SCAN_ROWS,
+    priorSeasonScanRows: priorSeasonRows.length,
+    priorScanTruncated: priorSeasonRows.length >= MAX_LEAGUE_SCAN_ROWS,
     inputCutoff,
     sourceCoverage: null, // filled in by the engine, which knows about weather/expert too
   };

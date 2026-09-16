@@ -47,6 +47,12 @@ function mockPool(t, {
   priorSchedule = [],
   leagueScan = [],
   defenseGames = [],
+  // #1485: the prior-season opponent seed. Routed separately from
+  // `leagueScan`/`defenseGames` because the query text is deliberately
+  // disjoint from theirs (aliased "pps" / "prior_games") so both scans can
+  // run in the same request without one mock swallowing the other's query.
+  priorSeasonScan = [],
+  priorDefenseGames = [],
   byeRows = [],
   runRow = null,
   // #1403: the weeks that HAVE a run under the batch (`"week" = ANY`) shape;
@@ -81,8 +87,10 @@ function mockPool(t, {
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
+    if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
     if (text.includes('FROM "player_stats"')) return { rows: weeklyStats };
+    if (text.includes('AS "prior_games"')) return { rows: priorDefenseGames };
     if (text.includes('COUNT(*)::int AS "games"')) return { rows: defenseGames };
     if (text.includes('JOIN unnest(')) return { rows: byeRows };
     if (text.includes('FROM "nfl_games"') && text.includes('"week" = $2')) return { rows: targetSchedule };
@@ -232,7 +240,9 @@ test('the stats query can only ever select weeks before the target week', async 
     players: [player(1, 'RB')],
     weeklyStats: [weeklyRow(1, 3, { rushingYards: 80, rushingTDs: 1 })],
     onQuery: (text, params) => {
-      if (text.includes('FROM "player_stats"') && !text.includes('"ps"')) statsParams = { text, params };
+      if (text.includes('FROM "player_stats"') && !text.includes('"ps"') && !text.includes('"pps"')) {
+        statsParams = { text, params };
+      }
     },
   });
 
@@ -326,6 +336,143 @@ test('the league scan orders deterministically BEFORE its LIMIT', async (t) => {
     /ORDER BY\s+"ps"\."player_id",\s*"ps"\."week"/,
     'ordering must be total, not just by week'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Prior-season opponent seed (#1485)
+// ---------------------------------------------------------------------------
+
+test('the prior-season scan runs even at week 1, when the current-season scan does not', async (t) => {
+  const seen = [];
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [],
+    onQuery: (text) => {
+      if (text.includes('"player_stats" "ps"')) seen.push('current');
+      if (text.includes('"player_stats" "pps"')) seen.push('prior');
+    },
+  });
+
+  await features.loadFeatureBundle({ season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES });
+  assert.ok(!seen.includes('current'), 'week 1 has no completed current-season week to scan');
+  assert.ok(seen.includes('prior'), 'the prior-season scan must still run at week 1');
+});
+
+test('the prior-season scan queries season - 1 and orders before its LIMIT', async (t) => {
+  let priorSql = null;
+  let priorParams = null;
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: [],
+    onQuery: (text, params) => {
+      if (text.includes('"player_stats" "pps"')) {
+        priorSql = text;
+        priorParams = params;
+      }
+    },
+  });
+
+  await features.loadFeatureBundle({ season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES });
+  assert.ok(priorSql, 'the prior-season scan ran');
+  assert.equal(priorParams[0], SEASON - 1, 'the prior scan reads last season, not the current one');
+  const orderAt = priorSql.indexOf('ORDER BY');
+  const limitAt = priorSql.indexOf('LIMIT');
+  assert.notEqual(orderAt, -1);
+  assert.notEqual(limitAt, -1);
+  assert.ok(orderAt < limitAt, 'ORDER BY must precede LIMIT');
+});
+
+test('a week-1 bundle exposes the prior season allowance by defense from stored gameOpponent', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'WR')],
+    weeklyStats: [],
+    // `defense` is stated directly here the way the real SQL would compute it
+    // (fn_normalize_nfl_team applied to the STORED "gameOpponent" key), since
+    // the mock returns fixture rows verbatim rather than executing SQL.
+    priorSeasonScan: [
+      { player_id: 10, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 90, receptions: 6, gameOpponent: 'NE' } },
+      { player_id: 10, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 70, receptions: 5, gameOpponent: 'MIA' } },
+      { player_id: 11, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameOpponent: 'NE' } },
+    ],
+    priorDefenseGames: [{ team: 'NE', prior_games: 2 }, { team: 'MIA', prior_games: 1 }],
+  });
+
+  const bundle = await features.loadFeatureBundle({
+    season: SEASON, week: 1, playerIds: [1], rules: SCORING_RULES,
+  });
+  const wr = bundle.priorSeasonContext.get('WR');
+  assert.ok(wr, 'a WR prior-season context must exist');
+  const ne = wr.allowedByDefense.get('NE');
+  assert.ok(ne, 'NE must have a prior-season allowance');
+  assert.equal(ne.games, 2);
+  assert.ok(ne.allowedPerGame > 0);
+});
+
+test('a week-1 run seeds the opponent factor from the prior season, with no rank (#1485)', async (t) => {
+  const target = [
+    { team_key: 'BUF', opponent_key: 'NE', nfl_team: 'BUF', opponent: 'NE', kickoff_at: '2026-09-10T17:00:00Z', game_key: 'k1', home_away: 'home', roof: 'outdoors', latitude: null, longitude: null },
+  ];
+  mockPool(t, {
+    players: [player(1, 'WR')],
+    weeklyStats: [],
+    seasonStats: [{
+      player_id: 1, season: 2025, games_played: 16,
+      stats: { receivingYards: 900, receptions: 70 }, fantasy_points: null,
+    }],
+    targetSchedule: target,
+    priorSeasonScan: [
+      { player_id: 20, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 120, receptions: 9, gameOpponent: 'NE' } },
+      { player_id: 20, week: 2, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameOpponent: 'NE' } },
+      { player_id: 21, week: 1, position: 'WR', defense: 'MIA', stats: { receivingYards: 40, receptions: 3, gameOpponent: 'MIA' } },
+      { player_id: 21, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 30, receptions: 2, gameOpponent: 'MIA' } },
+    ],
+    priorDefenseGames: [{ team: 'NE', prior_games: 2 }, { team: 'MIA', prior_games: 2 }],
+  });
+
+  const result = await run({ season: SEASON, week: 1, league: league(), playerIds: [1] });
+  const factors = result.projections.get(1).factors;
+  assert.equal(factors.opponent.available, true);
+  assert.equal(factors.opponent.seededFromPriorSeason, true);
+  assert.equal(factors.opponent.rank, undefined, 'no current-season allowedByDefense map exists yet at week 1');
+  assert.equal(factors.opponent.of, undefined);
+});
+
+test('the same week-1 fixture under MODEL_CONSTANTS_V3_1 reports insufficient opponent sample', async (t) => {
+  const target = [
+    { team_key: 'BUF', opponent_key: 'NE', nfl_team: 'BUF', opponent: 'NE', kickoff_at: '2026-09-10T17:00:00Z', game_key: 'k1', home_away: 'home', roof: 'outdoors', latitude: null, longitude: null },
+  ];
+  mockPool(t, {
+    players: [player(1, 'WR')],
+    weeklyStats: [],
+    seasonStats: [{
+      player_id: 1, season: 2025, games_played: 16,
+      stats: { receivingYards: 900, receptions: 70 }, fantasy_points: null,
+    }],
+    targetSchedule: target,
+    priorSeasonScan: [
+      { player_id: 20, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 120, receptions: 9, gameOpponent: 'NE' } },
+      { player_id: 20, week: 2, position: 'WR', defense: 'NE', stats: { receivingYards: 110, receptions: 8, gameOpponent: 'NE' } },
+      { player_id: 21, week: 1, position: 'WR', defense: 'MIA', stats: { receivingYards: 40, receptions: 3, gameOpponent: 'MIA' } },
+      { player_id: 21, week: 2, position: 'WR', defense: 'MIA', stats: { receivingYards: 30, receptions: 2, gameOpponent: 'MIA' } },
+    ],
+    priorDefenseGames: [{ team: 'NE', prior_games: 2 }, { team: 'MIA', prior_games: 2 }],
+  });
+
+  // getWeeklyProjections (the public cache-aware entry point `run()` calls)
+  // does not accept a modelConstants override; generateProjections is the
+  // seam that does (see the existing swept-constants tests above).
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_1,
+  });
+  const factors = generated.projections.get(1).factors;
+  assert.equal(factors.opponent.available, false);
+  // No current-season league scan exists yet at week 1 (leagueContext is
+  // empty), and MODEL_CONSTANTS_V3_1 has no priorSeasonPseudoGames key to seed
+  // from, so this is the same "no opponent data" v3.1 has always reported at
+  // week 1 - not the seeded "insufficient opponent sample" gate.
+  assert.equal(factors.opponent.reason, 'no opponent data');
+  assert.equal(factors.opponent.seededFromPriorSeason, undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -1364,8 +1511,8 @@ test('refresh regenerates even when a complete run exists', async (t) => {
 // Batching and determinism
 // ---------------------------------------------------------------------------
 
-test('a 12-player request is batched, not one query per player', async (t) => {
-  const ids = Array.from({ length: 12 }, (_, i) => i + 1);
+test('a 20-player request is batched, not one query per player', async (t) => {
+  const ids = Array.from({ length: 20 }, (_, i) => i + 1);
   const calls = mockPool(t, {
     players: ids.map((id) => player(id, 'RB')),
     weeklyStats: ids.flatMap((id) => [weeklyRow(id, 1, { rushingYards: 50 + id })]),
@@ -1374,7 +1521,7 @@ test('a 12-player request is batched, not one query per player', async (t) => {
   await run({ season: SEASON, week: 5, league: league(), playerIds: ids });
 
   const statsReads = calls.filter(
-    (c) => c.text.includes('FROM "player_stats"') && !c.text.includes('"ps"')
+    (c) => c.text.includes('FROM "player_stats"') && !c.text.includes('"ps"') && !c.text.includes('"pps"')
   );
   const writes = calls.filter((c) => c.text.includes('INSERT INTO "player_week_projections"'));
   assert.equal(statsReads.length, 1, 'one batched stats read for the whole roster');
