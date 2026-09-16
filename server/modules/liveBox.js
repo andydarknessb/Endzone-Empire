@@ -30,7 +30,7 @@ const { tank01Get, getQuotaState } = require('./tank01Client');
 const { captureMessage } = require('./sentry');
 const espnBoxSource = require('../services/espnBoxSource');
 const tank01BoxSource = require('../services/tank01BoxSource');
-const { tank01Body } = require('../services/scoring.service');
+const { tank01Body } = require('../services/tank01Feed');
 const { recordDataSyncRun } = require('./syncRun');
 
 const ESPN_SUMMARY_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary';
@@ -177,7 +177,7 @@ async function fetchLiveBox({ gameId, espnEventId, inProgress = true, now = Date
  * emitted. Delegates the write and the Final box guard to applyGameBoxScore.
  */
 async function applyLiveBox({ liveBox, season, week, maps }) {
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/boxScoreApply.service');
   const previous = lastSourceByGame.get(liveBox.gameId);
   const suppressPlays = previous !== undefined && previous !== liveBox.source;
   const result = await scoring.applyGameBoxScore({ liveBox, season, week, maps, suppressPlays });

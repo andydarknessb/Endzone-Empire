@@ -31,7 +31,7 @@ const path = require('path');
 const pool = require('../modules/pool');
 const evaluator = require('../../scripts/holdout/lib/evaluate');
 const { renderReport } = require('../../scripts/holdout/lib/report');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS } = require('../services/scoringRules');
 const model = require('../services/projectionModel');
 const rootSafety = require('../../scripts/backtest/lib/rootSafety');
 

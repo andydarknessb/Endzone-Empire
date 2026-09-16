@@ -4,7 +4,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 // The ONE pricer the settle pass uses. The waiver steal is priced under the
 // league's rules, the identical formula the score of record uses, not the
 // stored default-rules `fantasy_points` column (#739, ADR 0024).
-const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
+const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 
 /**
  * Weekly league recaps: after a week is finalized, gather its storylines

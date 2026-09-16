@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const model = require('./projectionModel');
 const features = require('./projectionFeatures');
-const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoring.service');
+const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
 const { lastPlayoffWeek } = require('./season.service');
 const { expertCoverage, getExpertProvider } = require('./expertProjection.provider');
 const {

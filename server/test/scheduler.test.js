@@ -134,7 +134,7 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
  * syncInjuries appends a row exactly as the real one does.
  */
 function injuryWorld(t, { inWindow = false } = {}) {
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/feedSyncRuns.service');
   const previousKey = process.env.RAPID_API_KEY;
   const previousHost = process.env.RAPID_API_HOST;
   process.env.RAPID_API_KEY = 'test-key';
@@ -565,13 +565,14 @@ test('syncAndScoreLiveWeeks still scores when the stat sync fetched nothing', as
   // Every game final and already ingested (or quota exhausted): scoreMatchups is
   // DB-only, so it must still run — finals ingested via the recap path get
   // scored promptly this way.
-  const scoring = require('../services/scoring.service');
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
+  const scoring = require('../services/matchupScoring.service');
   createFakePool([
     [/FROM "leagues"/, () => ({ rows: [{ id: 42, current_season: 2026, current_week: 3 }] })],
     [/FROM "nfl_games"/, () => ({ rows: [{ '?column?': 1 }] })],
     [/./, () => ({ rows: [] })],
   ]).install(t);
-  t.mock.method(scoring, 'syncWeekStats', async () => {
+  t.mock.method(feedSyncRuns, 'syncWeekStats', async () => {
     throw new Error('quota exhausted');
   });
   let scoredFor = null;

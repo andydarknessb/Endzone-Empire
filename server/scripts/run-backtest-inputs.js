@@ -172,7 +172,7 @@ const { generateProjections } = require('../services/projection.service');
 const { availabilityFor } = require('../services/projectionModel');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const model = require('../services/projectionModel');
-const { SCORING_PRESETS, calculateFantasyPoints } = require('../services/scoring.service');
+const { SCORING_PRESETS, calculateFantasyPoints } = require('../services/scoringRules');
 const { usageFromStats } = require('../services/projectionFeatures');
 
 /**

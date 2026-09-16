@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const { requireMember } = require('./leagueMembership.service');
 const { impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame } = require('./nwsWeather.service');
-const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
+const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 
 /**

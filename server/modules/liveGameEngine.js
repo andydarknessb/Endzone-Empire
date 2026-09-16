@@ -24,7 +24,7 @@
  * one per game.
  */
 const pool = require('./pool');
-const { tank01Body } = require('../services/scoring.service');
+const { tank01Body } = require('../services/tank01Feed');
 const { tank01Get, getQuotaState, priorityAllowed } = require('./tank01Client');
 const espnScoreboard = require('./espnScoreboard');
 const gameRecap = require('../services/gameRecap.service');

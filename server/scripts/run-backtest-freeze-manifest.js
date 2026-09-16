@@ -62,7 +62,7 @@ const { execFileSync } = require('child_process');
 
 const freezeManifest = require('../../scripts/backtest/lib/freezeManifest');
 const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS } = require('../services/scoringRules');
 
 // ---------------------------------------------------------------------------
 // CLI

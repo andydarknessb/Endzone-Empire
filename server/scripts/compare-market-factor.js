@@ -66,7 +66,7 @@
 const fs = require('fs');
 const path = require('path');
 const pool = require('../modules/pool');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS } = require('../services/scoringRules');
 const runSuccessorEval = require('./run-successor-eval');
 const marketFactorReplay = require('../../scripts/holdout/lib/marketFactorReplay');
 const rootSafety = require('../../scripts/backtest/lib/rootSafety');

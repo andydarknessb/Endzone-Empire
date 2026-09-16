@@ -2,7 +2,7 @@ const axios = require('axios');
 const pool = require('../modules/pool');
 const { runSyncJob } = require('../modules/syncRun');
 const { ESPN_SCOREBOARD_URL, espnAbbrToOurs } = require('../modules/espnScoreboard');
-const { buildGameKey } = require('./scoring.service');
+const { buildGameKey } = require('./tank01Feed');
 
 /**
  * The ESPN implementation of the odds provider seam (`vegasOdds.provider.js`,

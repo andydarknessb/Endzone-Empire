@@ -1,6 +1,7 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
-const scoring = require('./scoring.service');
+const tank01Feed = require('./tank01Feed');
+const boxScoreApply = require('./boxScoreApply.service');
 const correction = require('./correction.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -441,7 +442,7 @@ function buildScheduleRows(rows, { season }) {
     if (!home || !away || !kickoffAt) continue; // kickoff_at is NOT NULL
     const location = optionalText(row.location);
     const context = {
-      gameKey: scoring.buildGameKey({ season, week, away, home }),
+      gameKey: tank01Feed.buildGameKey({ season, week, away, home }),
       // games.csv's `location` is 'Home' for a normal game and 'Neutral' for a
       // neutral-site one. An absent column leaves the flag unknown (null)
       // rather than asserting "not neutral".
@@ -760,7 +761,7 @@ async function applyNflverseFullWeek({
   // diverges on the Rams) already lands on WAS and keeps matching;
   // normalizeNflTeam('WAS') is a no-op. Sharing the builder is what stops the
   // live path (#431) from being the only one that reconciles WSH.
-  const defByTeamCode = await scoring.loadDefUnitsByTeamCode();
+  const defByTeamCode = await boxScoreApply.loadDefUnitsByTeamCode();
 
   const playerUpdates = buildFullStatUpdates({
     rows: weekPlayerRows,

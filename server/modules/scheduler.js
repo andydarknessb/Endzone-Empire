@@ -315,7 +315,7 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
     }
   }
   if (!injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) })) return null;
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/feedSyncRuns.service');
   return scoring.syncInjuries();
 }
 
@@ -478,7 +478,8 @@ async function tick() {
  */
 async function syncAndScoreLiveWeeks() {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
-  const scoring = require('../services/scoring.service');
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
+  const matchupScoring = require('../services/matchupScoring.service');
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
@@ -511,7 +512,7 @@ async function syncAndScoreLiveWeeks() {
     try {
       // Typed touchdown events from this sync ride the scores:updated emit so
       // the live matchup UI can fire team-accurate cutscenes.
-      const synced = await scoring.syncWeekStats({ season, week });
+      const synced = await feedSyncRuns.syncWeekStats({ season, week });
       plays = synced.plays || [];
     } catch (err) {
       console.error('live stat sync failed for %s week %s:', season, week, err.message);
@@ -519,7 +520,7 @@ async function syncAndScoreLiveWeeks() {
 
     try {
       for (const leagueId of leagueIds) {
-        const { scored } = await scoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
+        const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);

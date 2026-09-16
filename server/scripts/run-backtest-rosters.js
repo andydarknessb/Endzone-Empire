@@ -128,7 +128,7 @@ const { collectColumns } = require('../../scripts/backtest/lib/csv');
 const { makeSourceReader } = require('../../scripts/backtest/snapshot-checks');
 
 const { normalizeTeamKey } = require('../services/projectionFeatures');
-const { calculateFantasyPoints, SCORING_RULES } = require('../services/scoring.service');
+const { calculateFantasyPoints, SCORING_RULES } = require('../services/scoringRules');
 const { normalizeNflversePlayerStats, filterRowsForWeek } = require('../services/nflverseSync.service');
 
 // ---------------------------------------------------------------------------

@@ -83,7 +83,7 @@ const globalPool = require('../modules/pool');
 const { normalizeTeamKey } = require('../services/projectionFeatures');
 const { generateProjections } = require('../services/projection.service');
 const model = require('../services/projectionModel');
-const { SCORING_RULES } = require('../services/scoring.service');
+const { SCORING_RULES } = require('../services/scoringRules');
 
 /** The ONE variable a credential may arrive in. No fallback, by design. */
 const CREDENTIAL_ENV_VAR = 'BACKTEST_RO_DATABASE_URL';

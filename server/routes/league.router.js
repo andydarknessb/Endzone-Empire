@@ -776,7 +776,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
 
     const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
     const leagueRow = leagueResult.rows[0];
-    const { rulesForLeague, calculateFantasyPoints } = require('../services/scoring.service');
+    const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
     const {
       materializeLineup, rowsHeldAsPlayed,
     } = require('../services/lineup.service');

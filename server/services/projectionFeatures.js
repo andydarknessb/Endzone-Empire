@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
-const { calculateFantasyPoints, normalizeTeamAbbr } = require('./scoring.service');
+const { calculateFantasyPoints } = require('./scoringRules');
+const { normalizeTeamAbbr } = require('./tank01Feed');
 const { computeByeWeeks } = require('./bye.service');
 const model = require('./projectionModel');
 

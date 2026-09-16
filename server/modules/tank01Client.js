@@ -250,9 +250,9 @@ function createTank01Client({ store = pgStore, transport, now = () => new Date()
 
   function resolveTransport() {
     if (transport) return transport;
-    // Lazy require: scoring.service requires this module at load time, so a
+    // Lazy require: tank01Feed requires this module at load time, so a
     // top-level require here would be a cycle.
-    return require('../services/scoring.service').rapidApiClient();
+    return require('../services/tank01Feed').rapidApiClient();
   }
 
   /**

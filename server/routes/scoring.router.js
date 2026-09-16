@@ -2,7 +2,9 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
-const scoring = require('../services/scoring.service');
+const { SCORING_RULES, SCORING_PRESETS } = require('../services/scoringRules');
+const feedSyncRuns = require('../services/feedSyncRuns.service');
+const matchupScoring = require('../services/matchupScoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
 const sleeper = require('../services/sleeper.service');
@@ -55,7 +57,7 @@ router.post('/sync', async (req, res) => {
   const sw = validSeasonWeek(req, res);
   if (!sw) return;
   try {
-    const result = await scoring.syncWeekStats(sw);
+    const result = await feedSyncRuns.syncWeekStats(sw);
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -74,7 +76,7 @@ router.post('/league/:id/matchups', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const result = await scoring.generateMatchups({ leagueId, ...sw });
+    const result = await matchupScoring.generateMatchups({ leagueId, ...sw });
     res.status(201).json(result);
   } catch (error) {
     // The phase refusal (#194) is a 409; map it like the sibling handlers do
@@ -95,7 +97,7 @@ router.post('/league/:id/score', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const result = await scoring.scoreMatchups({ leagueId, ...sw });
+    const result = await matchupScoring.scoreMatchups({ leagueId, ...sw });
     res.json(result);
   } catch (error) {
     console.error('Matchup scoring failed:', error);
@@ -153,7 +155,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
       });
       return res.json(result);
     }
-    await withDatabaseRetry(() => scoring.syncWeekStats({
+    await withDatabaseRetry(() => feedSyncRuns.syncWeekStats({
       season: correctionRequest.season,
       week: correctionRequest.week,
     }));
@@ -179,7 +181,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
 
 // GET /api/scoring/rules — default rules plus the selectable presets
 router.get('/rules', (req, res) => {
-  res.json({ defaults: scoring.SCORING_RULES, presets: scoring.SCORING_PRESETS });
+  res.json({ defaults: SCORING_RULES, presets: SCORING_PRESETS });
 });
 
 // POST /api/scoring/sync-schedule — pull the NFL schedule into nfl_games.
@@ -199,7 +201,7 @@ router.post('/sync-schedule', async (req, res) => {
   try {
     const result = source === 'nflverse'
       ? await nflverseSync.syncScheduleFromNflverse({ season: seasonYear })
-      : await scoring.syncSchedule({ season: seasonYear });
+      : await feedSyncRuns.syncSchedule({ season: seasonYear });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -215,7 +217,7 @@ router.post('/sync-players', async (req, res) => {
     return res.status(400).json({ error: 'season (integer year) is required' });
   }
   try {
-    const result = await scoring.syncPlayers({ season: seasonYear });
+    const result = await feedSyncRuns.syncPlayers({ season: seasonYear });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -287,7 +289,7 @@ router.post('/backfill-seasons', async (req, res) => {
     }
   }
   try {
-    const result = await scoring.syncPlayerSeasonStats({ currentSeason });
+    const result = await feedSyncRuns.syncPlayerSeasonStats({ currentSeason });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -299,7 +301,7 @@ router.post('/backfill-seasons', async (req, res) => {
 // POST /api/scoring/sync-injuries — refresh player injury designations
 router.post('/sync-injuries', async (req, res) => {
   try {
-    const result = await scoring.syncInjuries();
+    const result = await feedSyncRuns.syncInjuries();
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -503,7 +505,7 @@ router.post('/league/:id/advance-week', async (req, res) => {
     // above, never to current_week afterwards - finalizeWeekAndAdvance moves
     // it. Score still comes BEFORE finalize: finalize seeds the playoff
     // bracket from computeStandings over these very scores.
-    const scoredResult = await scoring.scoreMatchups({
+    const scoredResult = await matchupScoring.scoreMatchups({
       leagueId,
       season: current_season,
       week: current_week,

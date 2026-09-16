@@ -47,7 +47,7 @@
 require('dotenv').config();
 
 const pool = require('../server/modules/pool');
-const scoring = require('../server/services/scoring.service');
+const scoring = require('../server/services/feedSyncRuns.service');
 const nflverse = require('../server/services/nflverseSync.service');
 const { retryAfterMs } = require('../server/services/gameRecap.service');
 

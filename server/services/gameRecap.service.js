@@ -22,7 +22,7 @@ const {
   DATA_VERSION,
   GENERATOR_VERSION,
 } = require('../modules/recapStorage');
-const { tank01Body } = require('./scoring.service');
+const { tank01Body } = require('./tank01Feed');
 const { tank01Get, retryAfterMs } = require('../modules/tank01Client');
 const { statLine } = require('./publicRead.service');
 
@@ -303,7 +303,7 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
   // Mon-Thu nflverse finalization pass is the authoritative backstop either way.
   if (!state.final_stats_synced_at) {
     try {
-      const scoring = require('./scoring.service');
+      const scoring = require('./boxScoreApply.service');
       const maps = await scoring.loadWeekMaps({ season: state.season, week: state.week });
       const liveBox = require('./tank01BoxSource').fromBox(box);
       // This IS the Final box landing: stats are written, no Scoring play is

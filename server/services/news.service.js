@@ -13,7 +13,7 @@
  * kept WITHOUT expiry and served stale on a quota block or an upstream error,
  * rather than turning a nice-to-have widget into a 5xx.
  */
-const { tank01Body } = require('./scoring.service');
+const { tank01Body } = require('./tank01Feed');
 const { tank01Get } = require('../modules/tank01Client');
 const { getRedisClient } = require('../modules/redis');
 
