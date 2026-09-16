@@ -31,7 +31,7 @@ const { IDP_POSITIONS } = require('./feedSyncRuns.service');
 const {
   getSeasonPositionRank,
   projectSeasonPoints,
-} = require('./scoring.service');
+} = require('./seasonSummary.service');
 
 const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', ...IDP_POSITIONS];
 const MAX_RANKINGS_LIMIT = 100;

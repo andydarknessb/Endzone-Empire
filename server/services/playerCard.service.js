@@ -12,7 +12,7 @@ const irPolicy = require('./irPolicy.service');
 // can no longer be mocked afterwards.
 const byeService = require('./bye.service');
 const scoringRules = require('./scoringRules');
-const scoringService = require('./scoring.service');
+const seasonSummary = require('./seasonSummary.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
@@ -691,7 +691,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   // shipped, which this route supersedes) rather than inventing a second stat
   // line format is the conservative reading; flagged in the PR as an open
   // question rather than a settled one.
-  const summary = scoringService.buildPlayerSummary({
+  const summary = seasonSummary.buildPlayerSummary({
     player, weeklyRows: weeklyResult.rows, seasonRows: seasonResult.rows, rules, byeWeek, currentSeasonYear: season,
   });
   const log = {

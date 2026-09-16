@@ -1,9 +1,7 @@
 const pool = require('../modules/pool');
 const { rulesForLeague } = require('./scoringRules');
 const { IDP_POSITIONS } = require('./feedSyncRuns.service');
-const {
-  projectSeasonPoints,
-} = require('./scoring.service');
+const { projectSeasonPoints } = require('./seasonSummary.service');
 const { computeByeWeeks, REG_SEASON_WEEKS } = require('./bye.service');
 const { requireMember, MembershipError } = require('./leagueMembership.service');
 const { rosterablePositions } = require('./lineup.service');
