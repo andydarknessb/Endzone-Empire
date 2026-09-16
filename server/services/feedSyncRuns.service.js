@@ -326,7 +326,12 @@ async function applyScheduleUnit(client, { season, games, failedWeeks }) {
   return { season, gamesUpserted: upserted, failedWeeks };
 }
 
-/** Map a RapidAPI injury designation to our badge codes (Q/D/O/IR). */
+/**
+ * Map a RapidAPI injury designation to our badge codes (Q/D/O/IR).
+ *
+ * Exported as a test-only seam (an injury normaliser), not cross-module
+ * interface: no other module calls this directly.
+ */
 function normalizeInjuryStatus(raw) {
   const s = String(raw || '').toLowerCase();
   if (!s) return null;

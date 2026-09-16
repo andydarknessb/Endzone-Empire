@@ -161,8 +161,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
     const league = leagueResult.rows[0];
     const rules = rulesForLeague(league);
     // The counted-roster module owns the summing rule but not the pricer, so
-    // scoring.service (which defines the pricer) hands it in. Keeps the module
-    // free of a require back into this file.
+    // this module (which imports the pricer from scoringRules.js) hands it
+    // in. Keeps counted-roster free of a require back into this file.
     const price = (stats) => calculateFantasyPoints(stats, rules);
     const matchupsResult = await client.query(
       `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 FOR UPDATE`,
