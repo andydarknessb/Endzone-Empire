@@ -44,11 +44,13 @@
  *     CONCRETE `shared/lib/rosterSlots` module, not the `shared/lib` barrel
  *     this file itself uses (line 7). The barrel also exports
  *     `chipsForRosterSlots` (`shared/lib/positionChips.js`), which imports
- *     `src/lib/draftSim/templates.js` for `DEFAULT_ROSTER_SLOTS` - so
- *     importing the barrel from the entity would read back into `shared`
- *     mid-evaluation of the very module supplying `DEFAULT_ROSTER_SLOTS` to
- *     it. `shared/lib/rosterSlots` is a leaf with no imports of its own, so
- *     this narrows the edge without losing anything the barrel offered.
+ *     `DEFAULT_ROSTER_SLOTS` from THIS SAME `model/rosterTemplateModel.js`
+ *     directly (#1502) and `templateFor` from `src/lib/draftSim/templates.js`
+ *     (which itself imports `DEFAULT_ROSTER_SLOTS` from this same model
+ *     file) - so importing the barrel from THIS file would read back into
+ *     `shared` mid-evaluation of the very model file this import statement
+ *     is on. `shared/lib/rosterSlots` is a leaf with no imports of its own,
+ *     so this narrows the edge without losing anything the barrel offered.
  *   - `src/lib/draftSim/templates.js` imports `DEFAULT_ROSTER_SLOTS` from
  *     `model/rosterTemplateModel.js` directly, not from THIS index - going
  *     through this index would pull in `lineupModel.js` above (line 37),
