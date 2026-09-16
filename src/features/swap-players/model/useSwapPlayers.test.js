@@ -155,7 +155,7 @@ test('isEligibleTarget refuses an ineligible slot pairing and allows a matching 
 });
 
 // #1500: proves the hook's slot check genuinely comes from the league's own
-// roster template (via `accepts`), not from the entry's own precomputed
+// roster template (via `slotsFor`), not from the entry's own precomputed
 // `eligibleSlots` - the fixture's `eligibleSlots` deliberately lies (claims
 // FLEX for a QB, which no template grants) so a regression that quietly kept
 // reading `eligibleSlots` instead of the template would still pass every
@@ -173,6 +173,48 @@ test('the slot check comes from the league template, not a stale eligibleSlots a
   // The template's FLEX now accepts RB only; a QB must be refused there even
   // though its own (stale) eligibleSlots array claims otherwise.
   expect(result.current.isEligibleTarget(null, 'FLEX')).toBe(false);
+});
+
+// Formal review f1: `slotFits` used to call `accepts(template, slotKey,
+// position)` directly, and `accepts` accepts IR for ANY position
+// unconditionally (a pure, position-only question by design) - so with a
+// template present, a healthy player was wrongly offered an empty IR slot,
+// could swap with an IR occupant, and appeared in the IR quick-pick list.
+// The fix routes the check through `slotsFor(template, entry)` instead,
+// which layers the injury-designation gate on top. These four cases are the
+// red-tells: each would have passed under the old bare-`accepts` body.
+describe('IR gate (formal review f1)', () => {
+  test('a healthy entry (no injury designation) is refused at an empty IR slot', () => {
+    const healthyWr = entry({ playerId: 1, slot: 'WR', position: 'WR', injuryStatus: null });
+    const { result } = setup({ entries: [healthyWr] });
+    act(() => result.current.onRowClick(healthyWr, 'WR'));
+    expect(result.current.isEligibleTarget(null, 'IR')).toBe(false);
+  });
+
+  test('a healthy entry is refused as a source into an occupied IR slot', () => {
+    const healthyWr = entry({ playerId: 1, slot: 'WR', position: 'WR', injuryStatus: null });
+    const irOccupant = entry({ playerId: 2, slot: 'IR', position: 'RB', injuryStatus: 'IR' });
+    const { result } = setup({ entries: [healthyWr, irOccupant] });
+    act(() => result.current.onRowClick(healthyWr, 'WR'));
+    expect(result.current.isEligibleTarget(irOccupant, 'IR')).toBe(false);
+  });
+
+  test('a healthy entry never appears in an IR-slot quick pick', () => {
+    const healthyWr = entry({ playerId: 1, slot: 'BENCH', position: 'WR', injuryStatus: null });
+    const { result } = setup({ entries: [healthyWr] });
+    act(() => result.current.onRowClick(null, 'IR', { currentTarget: null }));
+    expect(result.current.quickPickEligible.map((e) => e.playerId)).toEqual([]);
+  });
+
+  test.each(['O', 'IR'])(
+    'an IR-eligible entry (designation %s) is still accepted at an empty IR slot',
+    (designation) => {
+      const stashable = entry({ playerId: 1, slot: 'BENCH', position: 'RB', injuryStatus: designation });
+      const { result } = setup({ entries: [stashable] });
+      act(() => result.current.onRowClick(stashable, 'BENCH'));
+      expect(result.current.isEligibleTarget(null, 'IR')).toBe(true);
+    }
+  );
 });
 
 // Formal review round 3 finding s1: no prior case exercised isEligibleTarget

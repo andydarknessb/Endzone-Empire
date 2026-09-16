@@ -29,10 +29,34 @@
  * Roster template's one rule (CONTEXT.md's Roster template glossary entry):
  * "may this position sit in this Slot" (`accepts`) and "which Slots fit this
  * player" (`slotsFor`) answered off the same template. `DEFAULT_ROSTER_SLOTS`
- * moved here from `src/lib/draftSim/templates.js`, which now imports it from
- * this index rather than declaring its own copy - templates.js's own
+ * moved here from `src/lib/draftSim/templates.js` - templates.js's own
  * POSITION_GROUPS/expandEligibility/slotEligible stay put for now (the
  * Draft Simulator's existing hand-mirrored copy, unaffected by this move).
+ *
+ * TWO NAMED EXCEPTIONS to "through the index" (ADR 0029's 2026-09-05
+ * amendment names the entity's own index docblock as the audit surface for
+ * an entity's below-island/index edges, the same way the Matchup entity's
+ * two below-island edges are named above their own index), both existing
+ * to avoid one import cycle (formal review f3, #1500):
+ *
+ *   - `model/rosterTemplateModel.js` imports `parseRosterSlots` from the
+ *     CONCRETE `shared/lib/rosterSlots` module, not the `shared/lib` barrel
+ *     this file itself uses (line 7). The barrel also exports
+ *     `chipsForRosterSlots` (`shared/lib/positionChips.js`), which imports
+ *     `src/lib/draftSim/templates.js` for `DEFAULT_ROSTER_SLOTS` - so
+ *     importing the barrel from the entity would read back into `shared`
+ *     mid-evaluation of the very module supplying `DEFAULT_ROSTER_SLOTS` to
+ *     it. `shared/lib/rosterSlots` is a leaf with no imports of its own, so
+ *     this narrows the edge without losing anything the barrel offered.
+ *   - `src/lib/draftSim/templates.js` imports `DEFAULT_ROSTER_SLOTS` from
+ *     `model/rosterTemplateModel.js` directly, not from THIS index - going
+ *     through this index would pull in `lineupModel.js` above (line 37),
+ *     which reaches the `shared/lib` barrel, which reaches
+ *     `positionChips.js`, which imports templates.js: the same cycle,
+ *     closed a different way. templates.js is legacy `src/lib`, not one of
+ *     the "page" consumers ADR 0029 names as the sanctioned index bridge;
+ *     this is a narrower, additional exception for exactly this one import,
+ *     documented at both ends (also in templates.js's own docblock).
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked, isQuestionable } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';

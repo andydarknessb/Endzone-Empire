@@ -2,21 +2,30 @@ import { useState } from 'react';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { locked, accepts, parseRosterTemplate } from '../../../entities/roster';
+import { locked, slotsFor, parseRosterTemplate } from '../../../entities/roster';
 
 /**
  * Whether `entry` may occupy `slotKey` (#1500): delegates to the Roster
- * template entity's `accepts(template, slotKey, position)` whenever a real
- * template is available, so the swap feature carries no slot-eligibility
- * rule of its own. `template` is optional and falls back to the entry's own
- * precomputed `eligibleSlots` (built by `entities/roster`'s `lineupModel.js`
- * `eligibleSlots`, off the same league roster_slots) when absent - the
- * fallback keeps `isEligibleMove`'s existing callers working unchanged
- * (`widgets/player-decision-card`'s `slotActions.js` calls it directly with
- * no template of its own to thread through).
+ * template entity's `slotsFor(template, entry)` whenever a real template is
+ * available, so the swap feature carries no slot-eligibility rule of its
+ * own. Membership in `slotsFor`'s result, NOT a bare `accepts(template,
+ * slotKey, position)` call: `accepts` alone answers the pure, POSITION-only
+ * question and accepts IR for any position unconditionally by design (its
+ * own docblock) - a healthy entry's IR-eligibility is a fact about an injury
+ * designation `accepts` never reads. Formal review f1: an earlier version of
+ * this function called `accepts` directly, so a healthy player was offered
+ * an empty IR slot, could swap with an IR occupant, and appeared in the IR
+ * quick-pick list. `slotsFor` is the entity function that already layers the
+ * IR-eligibility check on top (`IR_ELIGIBLE_DESIGNATIONS`), which is why it,
+ * not `accepts`, belongs here. `template` is optional and falls back to the
+ * entry's own precomputed `eligibleSlots` (built by `entities/roster`'s
+ * `lineupModel.js` `eligibleSlots`, off the same league roster_slots) when
+ * absent - the fallback keeps `isEligibleMove`'s existing callers working
+ * unchanged (`widgets/player-decision-card`'s `slotActions.js` calls it
+ * directly with no template of its own to thread through).
  */
 function slotFits(entry, slotKey, template) {
-  if (template && template.length > 0) return accepts(template, slotKey, entry?.position);
+  if (template && template.length > 0) return slotsFor(template, entry).includes(slotKey);
   return Array.isArray(entry?.eligibleSlots) && entry.eligibleSlots.includes(slotKey);
 }
 
@@ -85,7 +94,7 @@ function canResolveLockedIrStash(entry, targetSlot, bestBall) {
  * `template` (#1500, optional): the league's parsed roster template
  * (`entities/roster`'s `parseRosterTemplate`), threaded through by
  * `useSwapPlayers` below so the reciprocal slot check delegates to the
- * Roster template entity's `accepts` (`slotFits` above) instead of trusting
+ * Roster template entity's `slotsFor` (`slotFits` above) instead of trusting
  * a caller-supplied `eligibleSlots` array alone. Omitted, `slotFits` falls
  * back to that array unchanged - every gate above the slot check (Best Ball,
  * unsettled, lock, spent) stays exactly as it was, which is what keeps
@@ -139,7 +148,7 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * and `useLineupData.js` already read to build `entries[].eligibleSlots` -
  * no second fetch) via `parseRosterTemplate`. Threaded into every slot check
  * this hook makes (`isEligibleTarget`, `quickPickEligible`) so they delegate
- * to the Roster template entity's `accepts` rather than re-deriving
+ * to the Roster template entity's `slotsFor` rather than re-deriving
  * eligibility from `entries[].eligibleSlots` a second time.
  */
 export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {

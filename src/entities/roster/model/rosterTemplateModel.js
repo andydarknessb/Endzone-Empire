@@ -55,6 +55,14 @@ const IR = 'IR';
 // slot's configured eligiblePositions may name a defensive GROUP key rather
 // than a specific position, and it expands to every specific position Tank01
 // reports in that group.
+//
+// KNOWN DUPLICATION (formal review f4, #1500, non-blocking): this table,
+// IR_ELIGIBLE_DESIGNATIONS below and the expand-group loop
+// (`expandEligibility`) now exist twice within this same entity folder -
+// this file and `lineupModel.js`'s own copies. Folding `lineupModel.js`'s
+// `eligibleSlots`/`slotEligiblePositions` onto this module (so there is one
+// copy, not two) is real cleanup but touches a file outside this issue's own
+// reservations; left for a follow-up rather than done here.
 const POSITION_GROUPS = {
   DL: ['DL', 'DE', 'DT', 'NT'],
   LB: ['LB', 'ILB', 'OLB'],
