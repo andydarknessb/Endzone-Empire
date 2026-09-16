@@ -1,4 +1,10 @@
-import { expandEligibility } from './draftSim/templates';
+// Read from the entity's concrete model file, not its index (#1501) - src/lib
+// is not one of the ADR-0029 "page" consumers the entity's index sanctions,
+// the same reason templates.js's own DEFAULT_ROSTER_SLOTS import bypasses the
+// index (entities/roster/index.js docblock). This used to read
+// `expandEligibility` from `./draftSim/templates`, the Draft Simulator's own
+// slot-eligibility copy, now deleted.
+import { expandEligibility } from '../entities/roster/model/rosterTemplateModel';
 
 /**
  * Which roster slot did each drafted player land in?
@@ -54,8 +60,9 @@ export function expandSlotInstances(rosterSlots = []) {
     const baseLabel = slot.label || String(slot.key);
     // Eligibility is captured per ARRAY INDEX and never looked up by key.
     // Nothing validates key uniqueness in a league's roster_slots, and
-    // templates.js slotEligible() resolves by key with a .find(), so two slots
-    // sharing a key would silently collapse into one.
+    // The Roster template entity's accepts()/expandEligibility() resolve by
+    // key with a .find()/lookup, so two slots sharing a key would silently
+    // collapse into one.
     const eligiblePositions = Array.isArray(slot.eligiblePositions) ? slot.eligiblePositions : [];
     const eligible = expandEligibility(eligiblePositions);
     for (let i = 0; i < count; i++) {

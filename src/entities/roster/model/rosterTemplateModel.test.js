@@ -4,6 +4,8 @@ import {
   slotsFor,
   rosterablePositions,
   DEFAULT_ROSTER_SLOTS,
+  expandEligibility,
+  POSITION_GROUPS,
 } from './rosterTemplateModel';
 
 const SUPERFLEX_TEMPLATE = [
@@ -124,6 +126,26 @@ describe('slotsFor', () => {
   it('is BENCH-only for a null/undefined entry, never throws', () => {
     expect(slotsFor(DEFAULT_ROSTER_SLOTS, null)).toEqual(['BENCH']);
     expect(slotsFor(DEFAULT_ROSTER_SLOTS, undefined)).toEqual(['BENCH']);
+  });
+});
+
+// #1501: this table and expand-group loop moved here from the Draft
+// Simulator's own hand-mirrored copy (src/lib/draftSim/templates.js), which
+// now imports both from here rather than declaring its own (along with
+// analysis.js, cpuBrain.js, engine.js, src/lib/rosterAssignment.js and
+// shared/lib/positionChips.js) - this coverage moved with the implementation.
+describe('expandEligibility / POSITION_GROUPS (mirror of lineup.service.js)', () => {
+  it('expands DL/LB/DB group keys to every member position', () => {
+    expect([...expandEligibility(['DL'])].sort()).toEqual(['DE', 'DL', 'DT', 'NT']);
+    expect([...expandEligibility(['RB', 'WR', 'TE'])].sort()).toEqual(['RB', 'TE', 'WR']);
+  });
+
+  it('keeps POSITION_GROUPS identical to the server groups', () => {
+    expect(POSITION_GROUPS).toEqual({
+      DL: ['DL', 'DE', 'DT', 'NT'],
+      LB: ['LB', 'ILB', 'OLB'],
+      DB: ['DB', 'CB', 'S', 'FS', 'SS'],
+    });
   });
 });
 

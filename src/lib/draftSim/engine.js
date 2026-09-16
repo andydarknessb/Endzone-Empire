@@ -16,7 +16,12 @@
  * is unit-testable without React.
  */
 import { mulberry32 } from './rng';
-import { templateFor, roundsForTemplate, slotEligible } from './templates';
+import { templateFor, roundsForTemplate } from './templates';
+// `accepts` read from the entity's concrete model file, not its index
+// (#1501) - see analysis.js's identical note and entities/roster/index.js's
+// docblock. Replaces this module's own `slotEligible` call, deleted from
+// templates.js.
+import { accepts } from '../../entities/roster/model/rosterTemplateModel';
 import {
   teamIndexForPick as turnTeamIndexForPick,
   remainingPickNumbersFor,
@@ -221,7 +226,7 @@ export function unfilledDedicatedSlots(state, teamId) {
     for (const player of roster) {
       if (used.has(player.playerId)) continue;
       if (filled >= slot.count) break;
-      if (slotEligible(slot.key, player.position, template.slots)) {
+      if (accepts(template.slots, slot.key, player.position)) {
         used.add(player.playerId);
         filled += 1;
       }
