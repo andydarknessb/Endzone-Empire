@@ -136,6 +136,48 @@ test('runDailyStatCorrections never runs outside the UTC Tue/Wed window, restart
   assert.equal(fake.calls.length, 0, 'no data_sync_runs read outside the window');
 });
 
+// ---------------------------------------------------------------------------
+// The cadence gate (server/modules/cadence.js, spec #1492 step two, #1508):
+// stat-corrections is the first job on it. These two stub the gate itself
+// (not data_sync_runs) and assert delegation only - every "is it actually
+// due" case is the cadence table suite's job (server/test/cadence.test.js).
+// ---------------------------------------------------------------------------
+
+test('runDailyStatCorrections delegates the due/not-due decision to the cadence gate', async (t) => {
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  let dueOpts = null;
+  t.mock.method(cadence, 'due', async (args, opts) => {
+    dueArgs = args;
+    dueOpts = opts;
+    return { due: true, reason: 'stubbed due' };
+  });
+  let resyncCalls = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
+  createFakePool([[/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })]]).install(t);
+
+  const now = new Date('2030-06-04T12:00:00Z'); // a Tuesday, inside the correction window
+  const result = await scheduler.runDailyStatCorrections({ now });
+
+  assert.deepEqual(dueArgs, { job: 'stat-corrections', every: 'utc-day', now });
+  assert.equal(typeof dueOpts.lastRun, 'function', 'a job-specific lastRun reader is injected, per cadence.js\'s own contract');
+  assert.equal(resyncCalls, 1, 'due: true delegates straight to resyncPriorWeeks');
+  assert.deepEqual(result, { corrected: [], invalidated: [] });
+});
+
+test('runDailyStatCorrections never runs the pass when the cadence gate says it is not due', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let resyncCalls = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
+
+  const now = new Date('2030-06-05T12:00:00Z'); // a Wednesday, inside the window, a different day from above
+  const result = await scheduler.runDailyStatCorrections({ now });
+
+  assert.equal(result, null);
+  assert.equal(resyncCalls, 0, 'due: false never reaches resyncPriorWeeks');
+});
+
 test('runNightlyProjectionFill refills outside its off-peak window when the last successful correction pass is newer than the last successful fill', async (t) => {
   const generated = [];
   t.mock.method(projection, 'getWeeklyProjections', async ({ league, week, playerIds }) => {
