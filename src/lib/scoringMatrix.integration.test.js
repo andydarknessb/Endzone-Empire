@@ -22,15 +22,9 @@ const axios = require('axios');
 const pool = require('../../server/modules/pool');
 const { createClient } = require('@supabase/supabase-js');
 const payload = require('./fixtures/tank01-scoring-matrix.json');
-const {
-  calculateFantasyPoints,
-  extractPlayByPlayBonusStats,
-  isValidTierArray,
-  normalizeTank01IdpStats,
-  normalizeTank01Stats,
-  rulesForLeague,
-  syncWeekStats,
-} = require('../../server/services/scoring.service');
+const { calculateFantasyPoints, isValidTierArray, rulesForLeague } = require('../../server/services/scoringRules');
+const { extractPlayByPlayBonusStats, normalizeTank01IdpStats, normalizeTank01Stats } = require('../../server/services/tank01Feed');
+const { syncWeekStats } = require('../../server/services/feedSyncRuns.service');
 
 const ORIGINAL_ENV = {
   rapidApiKey: process.env.RAPID_API_KEY,

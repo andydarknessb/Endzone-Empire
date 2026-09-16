@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, update } = require('./helpers/fakePool');
 const { installRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
-const { scoreMatchups } = require('../services/scoring.service');
+const { scoreMatchups } = require('../services/matchupScoring.service');
 const expectedFinalService = require('../services/expectedFinal.service');
 
 /**

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildRecapFacts, pickWaiverSteal, templateNarrative } = require('../services/recap.service');
-const { rulesForLeague } = require('../services/scoring.service');
+const { rulesForLeague } = require('../services/scoringRules');
 const { createFakePool } = require('./helpers/fakePool');
 
 const matchup = (home, away, hs, as, final = true) => ({

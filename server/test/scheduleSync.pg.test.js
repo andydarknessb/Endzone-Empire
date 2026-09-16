@@ -59,7 +59,7 @@ if (!ENABLED) {
   // advisory lock this file observes is the SAME lock syncSchedule and
   // syncScheduleFromNflverse take.
   const pool = require('../modules/pool');
-  const { syncSchedule } = require('../services/scoring.service');
+  const { syncSchedule } = require('../services/feedSyncRuns.service');
   const { syncScheduleFromNflverse } = require('../services/nflverseSync.service');
 
   // Disposable-DB-only season numbers, well outside any real NFL season, so

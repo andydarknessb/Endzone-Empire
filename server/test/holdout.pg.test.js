@@ -212,7 +212,7 @@ if (!ENABLED) {
 
     const first = await holdout.snapshotWeek({
       season, week: 1, profileName: 'standard',
-      rules: require('../services/scoring.service').SCORING_PRESETS.standard,
+      rules: require('../services/scoringRules').SCORING_PRESETS.standard,
       client: pool,
     });
     assert.ok(first.snapshotId > 0);
@@ -220,7 +220,7 @@ if (!ENABLED) {
 
     const again = await holdout.snapshotWeek({
       season, week: 1, profileName: 'standard',
-      rules: require('../services/scoring.service').SCORING_PRESETS.standard,
+      rules: require('../services/scoringRules').SCORING_PRESETS.standard,
       client: pool,
     });
     assert.equal(again.skipped, 'already complete', 'byte-for-byte identical provenance skips');
@@ -230,7 +230,7 @@ if (!ENABLED) {
     await assert.rejects(
       holdout.snapshotWeek({
         season, week: 1, profileName: 'standard',
-        rules: require('../services/scoring.service').SCORING_PRESETS.standard,
+        rules: require('../services/scoringRules').SCORING_PRESETS.standard,
         client: pool,
       }),
       /provenance mismatch/,

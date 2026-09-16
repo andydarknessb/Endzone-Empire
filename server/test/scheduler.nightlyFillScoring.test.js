@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
 const scheduler = require('../modules/scheduler');
 const projection = require('../services/projection.service');
-const { rulesForLeague, SCORING_RULES } = require('../services/scoring.service');
+const { rulesForLeague, SCORING_RULES } = require('../services/scoringRules');
 
 // Found while verifying release 17f8dd4e (#1447): the nightly fill generated
 // 3,702 rows per week under the DEFAULT scoring hash for both live leagues,

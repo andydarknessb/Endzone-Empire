@@ -5,7 +5,7 @@ const {
   SCORING_PRESETS,
   rulesForLeague,
   calculateFantasyPoints,
-} = require('../services/scoring.service');
+} = require('../services/scoringRules');
 
 test('presets: standard has 0 pt receptions, half_ppr 0.5, ppr 1', () => {
   assert.equal(SCORING_PRESETS.standard.receiving.reception, 0);
@@ -104,4 +104,93 @@ test('rulesForLeague accepts interceptionReturnYards as a known idp key', () => 
   assert.equal(rules.idp.interceptionReturnYards, 0.05);
   // and the default tree carries it at 0 so the editor renders the field
   assert.equal(SCORING_RULES.idp.interceptionReturnYards, 0);
+});
+
+// The following moved from scoring.service.test.js (#1506, spec #1492): the
+// tests exercise scoringRules.js exports, same as the rest of this file.
+
+test('SCORING_RULES is defined', () => {
+  assert(SCORING_RULES);
+  assert.equal(SCORING_RULES.passing.yards, 0.04);
+  assert.equal(SCORING_RULES.passing.touchdowns, 4);
+  assert.equal(SCORING_RULES.passing.interceptions, -2);
+  assert.equal(SCORING_RULES.rushing.yards, 0.1);
+  assert.equal(SCORING_RULES.rushing.touchdowns, 6);
+  assert.equal(SCORING_RULES.receiving.reception, 0.5);
+  assert.equal(SCORING_RULES.receiving.yards, 0.1);
+  // Tiered stats are sorted, non-overlapping tier arrays. FG uses the five
+  // NFL.com distance buckets, priced identically to the old three (0-39 = 3).
+  assert.deepEqual(SCORING_RULES.kicking.fieldGoal.map((t) => [t.min, t.max, t.points]), [
+    [0, 19, 3], [20, 29, 3], [30, 39, 3], [40, 49, 4], [50, null, 5],
+  ]);
+  assert.equal(SCORING_RULES.teamDefense.pointsAllowed.at(-1).max, null);
+  assert.equal(SCORING_RULES.idp.sack, 2);
+  // NFL.com-parity leaves: return TD scores like a touchdown by default;
+  // yardage rates and kick-miss penalties default to 0 (opt-in).
+  assert.equal(SCORING_RULES.misc.returnTDs, 6);
+  assert.equal(SCORING_RULES.misc.puntReturnYards, 0);
+  assert.equal(SCORING_RULES.misc.kickReturnYards, 0);
+  assert.equal(SCORING_RULES.kicking.fieldGoalMissed, 0);
+  assert.equal(SCORING_RULES.kicking.extraPointMissed, 0);
+});
+
+test('calculateFantasyPoints returns 0 for empty object', () => {
+  assert.equal(calculateFantasyPoints({}), 0);
+});
+
+test('calculateFantasyPoints returns 0 for null', () => {
+  assert.equal(calculateFantasyPoints(null), 0);
+});
+
+test('calculateFantasyPoints returns 0 for undefined', () => {
+  assert.equal(calculateFantasyPoints(undefined), 0);
+});
+
+test('calculateFantasyPoints: QB line {passingYards: 300, passingTDs: 2, interceptions: 1} = 18', () => {
+  const stats = { passingYards: 300, passingTDs: 2, interceptions: 1 };
+  const result = calculateFantasyPoints(stats);
+  assert.equal(result, 18);
+});
+
+test('calculateFantasyPoints: RB line {rushingYards: 100, rushingTDs: 1, receptions: 4, receivingYards: 25} = 20.5', () => {
+  const stats = {
+    rushingYards: 100,
+    rushingTDs: 1,
+    receptions: 4,
+    receivingYards: 25,
+  };
+  const result = calculateFantasyPoints(stats);
+  assert.equal(result, 20.5);
+});
+
+test('calculateFantasyPoints: a return TD scores 6 by default; return yards and kick misses are 0 until configured', () => {
+  assert.equal(calculateFantasyPoints({ returnTDs: 1, puntReturnYards: 40, kickReturnYards: 55 }), 6);
+  assert.equal(calculateFantasyPoints({ fieldGoalMissed: 2, extraPointMissed: 1 }), 0);
+  const missPenaltyRules = JSON.parse(JSON.stringify(SCORING_RULES));
+  missPenaltyRules.kicking.fieldGoalMissed = -1;
+  missPenaltyRules.misc.puntReturnYards = 0.04; // 1 pt / 25 yds
+  assert.equal(calculateFantasyPoints({ fieldGoalMissed: 2, puntReturnYards: 50 }, missPenaltyRules), 0);
+});
+
+test('calculateFantasyPoints ignores unknown stat keys', () => {
+  const stats = { bogusStat: 999 };
+  assert.equal(calculateFantasyPoints(stats), 0);
+});
+
+test('calculateFantasyPoints ignores non-numeric values', () => {
+  const stats = { passingYards: 'abc' };
+  assert.equal(calculateFantasyPoints(stats), 0);
+});
+
+test('calculateFantasyPoints rounds result to 2 decimals', () => {
+  const stats = { passingYards: 333 };
+  // 333 * 0.04 = 13.32, should round correctly
+  const result = calculateFantasyPoints(stats);
+  assert.equal(result, 13.32);
+});
+
+test('calculateFantasyPoints: mixed valid and invalid values', () => {
+  const stats = { passingYards: 100, passingTDs: 'invalid', rushingYards: 50 };
+  // 100 * 0.04 + 50 * 0.1 = 4 + 5 = 9
+  assert.equal(calculateFantasyPoints(stats), 9);
 });

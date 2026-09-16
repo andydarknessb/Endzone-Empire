@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
-const { scoreMatchups } = require('../services/scoring.service');
+const { scoreMatchups } = require('../services/matchupScoring.service');
 const { correctLeagueWeek } = require('../services/correction.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
