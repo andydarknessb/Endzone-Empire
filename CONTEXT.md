@@ -879,6 +879,14 @@ FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
 property of a player; a slot is a place in a lineup.
 _Avoid_: position
 
+**Roster template**:
+A league's ordered list of Slots, each with the positions it accepts and how
+many of it a lineup holds. One rule answers both "may this position sit in
+this Slot" and "which Slots fit this player"; BENCH and IR accept anyone.
+Every surface that asks either question, the Lineup, the Decision card, the
+draft simulator, the Team summary and the Players page, asks the same rule.
+_Avoid_: lineup settings, roster slots (the wire column), slot config,
+position limits
 **Rosterable position**:
 A position at least one starting slot in the league's roster template
 accepts, once group keys (DL, LB, DB) are expanded to their member codes.
@@ -997,6 +1005,12 @@ sends a team to the back of the order until the next reset.
 A swap of players between two teams, optionally subject to a review window in
 which uninvolved managers can vote to veto.
 
+**Players page**:
+The surface that lists the player pool for one manager in one league: only
+Rosterable positions, each player with his Availability, Unavailable reason
+and Weekly projection, filtered by slot chip, sorted and paged. Opening a
+player from it opens the Decision card. One read answers the whole page.
+_Avoid_: Player Browser, player list, player pool page, players route
 **Availability**:
 Which of four states a player is in for one team's manager: Free agent, on
 waivers (dropped, or kicked off this week, until the week clears), Rostered by
