@@ -30,7 +30,7 @@ const { tank01Get, getQuotaState } = require('./tank01Client');
 const { captureMessage } = require('./sentry');
 const espnBoxSource = require('../services/espnBoxSource');
 const tank01BoxSource = require('../services/tank01BoxSource');
-const { tank01Body } = require('../services/scoring.service');
+const { tank01Body } = require('../services/tank01Feed');
 const { recordDataSyncRun } = require('./syncRun');
 
 const ESPN_SUMMARY_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary';

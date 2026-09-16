@@ -62,7 +62,7 @@ const ESPN_TO_OUR_ABBR = {
  * flex-scheduled games, which would otherwise mint junk live_game_states rows.
  */
 const OUR_TEAM_CODES = new Set(
-  Object.values(require('../services/scoring.service').NFL_TEAM_NAME_TO_ABBR)
+  Object.values(require('../services/tank01Feed').NFL_TEAM_NAME_TO_ABBR)
     .filter((code) => code !== 'WAS')
     .concat('WSH')
 );

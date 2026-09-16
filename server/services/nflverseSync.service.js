@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const tank01Feed = require('./tank01Feed');
 const scoring = require('./scoring.service');
 const correction = require('./correction.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
@@ -441,7 +442,7 @@ function buildScheduleRows(rows, { season }) {
     if (!home || !away || !kickoffAt) continue; // kickoff_at is NOT NULL
     const location = optionalText(row.location);
     const context = {
-      gameKey: scoring.buildGameKey({ season, week, away, home }),
+      gameKey: tank01Feed.buildGameKey({ season, week, away, home }),
       // games.csv's `location` is 'Home' for a normal game and 'Neutral' for a
       // neutral-site one. An absent column leaves the flag unknown (null)
       // rather than asserting "not neutral".

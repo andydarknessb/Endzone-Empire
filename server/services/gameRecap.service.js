@@ -22,7 +22,7 @@ const {
   DATA_VERSION,
   GENERATOR_VERSION,
 } = require('../modules/recapStorage');
-const { tank01Body } = require('./scoring.service');
+const { tank01Body } = require('./tank01Feed');
 const { tank01Get, retryAfterMs } = require('../modules/tank01Client');
 const { statLine } = require('./publicRead.service');
 
