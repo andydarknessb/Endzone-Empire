@@ -1,4 +1,5 @@
-import { DEFAULT_ROSTER_SLOTS, expandEligibility } from '../../lib/draftSim/templates';
+import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
+import { expandEligibility } from '../../entities/roster/model/rosterTemplateModel';
 import { CANONICAL_CHIP_ORDER, FULL_CANONICAL_SLOTS, isFlexSlot, chipsForRosterSlots } from './positionChips';
 
 // Roster templates a league's `roster_slots` can carry (#1419), mirroring the

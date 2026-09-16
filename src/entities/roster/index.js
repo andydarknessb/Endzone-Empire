@@ -30,8 +30,9 @@
  * "may this position sit in this Slot" (`accepts`) and "which Slots fit this
  * player" (`slotsFor`) answered off the same template. `DEFAULT_ROSTER_SLOTS`
  * moved here from `src/lib/draftSim/templates.js` - templates.js's own
- * POSITION_GROUPS/expandEligibility/slotEligible stay put for now (the
- * Draft Simulator's existing hand-mirrored copy, unaffected by this move).
+ * POSITION_GROUPS/expandEligibility/slotEligible stayed put at the time
+ * (#1500), the Draft Simulator's existing hand-mirrored copy, unaffected by
+ * that move. #1501 below deletes that copy.
  *
  * TWO NAMED EXCEPTIONS to "through the index" (ADR 0029's 2026-09-05
  * amendment names the entity's own index docblock as the audit surface for
@@ -57,6 +58,19 @@
  *     the "page" consumers ADR 0029 names as the sanctioned index bridge;
  *     this is a narrower, additional exception for exactly this one import,
  *     documented at both ends (also in templates.js's own docblock).
+ *
+ * SIX MORE (#1501, same narrowing): the Draft Simulator's own slot-eligibility
+ * copy (`POSITION_GROUPS`/`expandEligibility`/`slotEligible`) is deleted, and
+ * every place that read it now reads `accepts`/`expandEligibility`/
+ * `POSITION_GROUPS` from `model/rosterTemplateModel.js` directly rather than
+ * through this index - none of `src/lib/draftSim/{templates,analysis,cpuBrain,
+ * engine}.js`, `src/lib/rosterAssignment.js` or `shared/lib/positionChips.js`
+ * is an ADR-0029 "page" consumer, so none was ever a sanctioned index bridge,
+ * and `positionChips.js` additionally sits in the same cycle the two
+ * exceptions above close (index -> lineupModel -> shared barrel ->
+ * positionChips.js). Each import is a plain read of a pure function/table,
+ * never a widened dependency: `POSITION_GROUPS` and `expandEligibility` are
+ * exported from `rosterTemplateModel.js` for exactly these six modules.
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked, isQuestionable } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';

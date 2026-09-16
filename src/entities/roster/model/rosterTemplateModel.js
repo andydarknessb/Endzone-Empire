@@ -50,20 +50,26 @@ import { parseRosterSlots } from '../../../shared/lib/rosterSlots';
 const BENCH = 'BENCH';
 const IR = 'IR';
 
-// Mirrors POSITION_GROUPS in server/services/lineup.service.js,
-// entities/roster/model/lineupModel.js and src/lib/draftSim/templates.js: a
-// slot's configured eligiblePositions may name a defensive GROUP key rather
-// than a specific position, and it expands to every specific position Tank01
-// reports in that group.
+// Mirrors POSITION_GROUPS in server/services/lineup.service.js and
+// entities/roster/model/lineupModel.js: a slot's configured eligiblePositions
+// may name a defensive GROUP key rather than a specific position, and it
+// expands to every specific position Tank01 reports in that group.
 //
-// KNOWN DUPLICATION (formal review f4, #1500, non-blocking): this table,
-// IR_ELIGIBLE_DESIGNATIONS below and the expand-group loop
-// (`expandEligibility`) now exist twice within this same entity folder -
-// this file and `lineupModel.js`'s own copies. Folding `lineupModel.js`'s
-// `eligibleSlots`/`slotEligiblePositions` onto this module (so there is one
-// copy, not two) is real cleanup but touches a file outside this issue's own
-// reservations; left for a follow-up rather than done here.
-const POSITION_GROUPS = {
+// Exported (#1501): src/lib/draftSim/templates.js, analysis.js, cpuBrain.js
+// and engine.js, src/lib/rosterAssignment.js and src/shared/lib/
+// positionChips.js used to each hand-mirror this table (and the
+// `expandEligibility` expand-group loop below) rather than reading it from
+// here - the Draft Simulator's own copy was the one that omitted IR. They now
+// import both directly from this module (entities/roster/index.js's docblock
+// names each edge and why it bypasses the index).
+//
+// KNOWN DUPLICATION (formal review f4, #1500, non-blocking): this table and
+// IR_ELIGIBLE_DESIGNATIONS below still exist twice within this same entity
+// folder - this file and `lineupModel.js`'s own copies. Folding
+// `lineupModel.js`'s `eligibleSlots`/`slotEligiblePositions` onto this module
+// (so there is one copy, not two) is real cleanup but touches a file outside
+// this issue's own reservations; left for a follow-up rather than done here.
+export const POSITION_GROUPS = {
   DL: ['DL', 'DE', 'DT', 'NT'],
   LB: ['LB', 'ILB', 'OLB'],
   DB: ['DB', 'CB', 'S', 'FS', 'SS'],
@@ -100,7 +106,8 @@ export function parseRosterTemplate(raw) {
   return parseRosterSlots(raw);
 }
 
-function expandEligibility(eligiblePositions) {
+/** A slot's eligiblePositions with DL/LB/DB group keys expanded (#1501, exported for the same callers named above). */
+export function expandEligibility(eligiblePositions) {
   const out = new Set();
   for (const p of eligiblePositions || []) {
     (POSITION_GROUPS[p] || [p]).forEach((m) => out.add(m));
