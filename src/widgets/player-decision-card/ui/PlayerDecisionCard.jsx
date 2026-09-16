@@ -168,6 +168,16 @@ function isTypingTarget(el) {
  * new fetch: the one `/card` read every context makes is the whole of it, so
  * the Draft room's own cadence rule (ADR 0025: refetch `draft:state` on
  * reconnect, nothing else polls) is untouched.
+ *
+ * #1512: `context` also accepts an OBJECT, one of the six pure builders in
+ * `model/decisionContext.js` (`myTeam`, `freeAgent`, `waivers`, `rostered`,
+ * `draft`, `fromCard`) - Lineup is the first caller to build one
+ * (`myTeam({ managed: true })`). Only `context.kind` is read here, in place
+ * of the bare string every branch above already compares against; a caller
+ * that passes no context object (the bare string, or nothing at all) is
+ * unchanged. The other fields a builder bundles (`onSwap`, `entries`,
+ * `bestBall`, and so on) stay separate loose props on this component until a
+ * later ticket (T19) moves them under `context` for good.
  */
 export default function PlayerDecisionCard({
   open,
@@ -328,12 +338,19 @@ export default function PlayerDecisionCard({
   // `!loading && error && <Alert severity="error">`.
   const cardFailed = contextFromCard && cardStatus === 'error';
 
+  // #1512: `context` is either the legacy bare string ('my_team' | 'free_agent'
+  // | 'waivers' | 'rostered' | 'draft', still the default) or one of the six
+  // pure builders' context objects (`model/decisionContext.js`), which carry
+  // their kind as `context.kind` alongside the fields those builders bundle
+  // for a later ticket (T19) to finish wiring - this ticket reads `.kind`
+  // alone, so a builder's object behaves exactly like the string it replaces.
+  const contextKind = context != null && typeof context === 'object' ? context.kind : context;
   // #1311, ADR 0040 ruling (c): a `contextFromCard` caller (TransactionLog)
   // supplies no `context` of its own - the effective context is the card
   // payload's own availability fact, and stays null (matching none of the
   // branches below) until that payload answers, so no action bar renders on
   // a bare `{ playerId, name }` entry before then.
-  const effectiveContext = contextFromCard ? (card?.availability?.state ?? null) : context;
+  const effectiveContext = contextFromCard ? (card?.availability?.state ?? null) : contextKind;
   // f1 (formal review round 1, blocker): see the docblock above.
   const lineupManaged = effectiveContext === 'my_team' && typeof onSwap === 'function';
 

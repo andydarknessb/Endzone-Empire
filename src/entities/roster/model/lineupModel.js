@@ -74,7 +74,7 @@ const IR = 'IR';
 // injury_status codes that are "questionable-class" rather than Unavailable
 // (#1330 ruling): the feed's `normalizeInjuryStatus`
 // (server/services/scoring.service.js) writes exactly four non-null codes -
-// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (`availabilityFor`
+// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (`unavailableReasonFor`
 // below), so the remaining two, Q and D, are the whole set. This is the one
 // spelling of "questionable"; a widget reads it through `isQuestionable`
 // below rather than inventing its own designation list.
@@ -235,8 +235,8 @@ export function locked(entry) {
  * Whether a lineup entry's injury designation is questionable-class (#1330
  * ruling: Q or D, `QUESTIONABLE_DESIGNATIONS` above) - the feed's only two
  * non-null, non-Unavailable codes. Reads the camelCase `injuryStatus` this
- * module's builders produce, matching `availabilityFor`'s own read of that
- * field.
+ * module's builders produce, matching `unavailableReasonFor`'s own read of
+ * that field.
  */
 export function isQuestionable(entry) {
   const status = (entry && entry.injuryStatus) ?? null;
@@ -252,7 +252,7 @@ export function isQuestionable(entry) {
  * just `{ available, reason }` - this entity does not model
  * activeProbability or autoRecommend, which are start/sit advisor concerns.
  */
-function availabilityFor(entry) {
+function unavailableReasonFor(entry) {
   if (entry.onBye) return { available: false, reason: 'bye' };
   const status = entry.injuryStatus;
   if (status === 'O') return { available: false, reason: 'out' };
@@ -394,7 +394,7 @@ export function lineupEntries(rosterWire, league) {
       ...entry,
       eligibleSlots: slotsFor(rosterSlots, entry),
       locked: locked(r),
-      availability: availabilityFor(entry),
+      availability: unavailableReasonFor(entry),
       // The server's own Unavailable reason (#1235), passed through
       // unchanged alongside this model's locally-derived `availability`
       // above - the two can never disagree, since both ultimately read the

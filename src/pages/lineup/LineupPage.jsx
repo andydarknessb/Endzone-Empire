@@ -14,7 +14,7 @@ import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import { useApplyAdvice } from '../../features/apply-advice';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useLiveScores } from './model/useLiveScores';
@@ -460,6 +460,18 @@ export default function LineupPage() {
         onSwap={swap.performMove}
         onRequestDrop={drop.requestDrop}
         canDropEntry={canDropEntry}
+        // #1512: the built context - Lineup is the first surface to pass one.
+        // The loose props above stay as they were (the card only reads
+        // context.kind today; T19 finishes moving them under context).
+        context={myTeam({
+          managed: true,
+          onSwap: swap.performMove,
+          onRequestDrop: drop.requestDrop,
+          canDropEntry,
+          entries: lineup?.entries || [],
+          bestBall,
+          leagueUnsettled,
+        })}
       />
     </Box>
   );

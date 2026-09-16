@@ -63,3 +63,8 @@
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';
+
+// #1512: the six pure context builders (`model/decisionContext.js`, beside
+// `model/slotActions.js`) - the ONLY way a caller should build the `context`
+// object below; the widget's public surface, same as the component itself.
+export { myTeam, freeAgent, waivers, rostered, draft, fromCard } from './model/decisionContext';

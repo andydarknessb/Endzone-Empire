@@ -5,6 +5,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import * as slotActions from '../model/slotActions';
+import { myTeam, draft } from '../model/decisionContext';
 
 /**
  * player-decision-card widget tests (#1240). LineupPage.test.jsx (AC8) covers
@@ -312,6 +313,70 @@ describe('context (#1307, ADR 0040)', () => {
     renderCard(); // the suite's own default props: entry+entries+onSwap+onRequestDrop+canDropEntry
     await screen.findByTestId('decision-card-bench-action');
     expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+});
+
+// #1512: the six pure builders (`model/decisionContext.js`) produce the
+// context OBJECT AC2 has the card read `context.kind` from - a builder's
+// object must drive the SAME branches the bare string above does, since
+// AC2 only adds an object form beside the string one, never a second rule.
+describe('context object builders (#1512, ADR 0040)', () => {
+  test('context={myTeam({ managed: true, ... })} behaves exactly like context="my_team" (Bench/Start/Compare/Trade/Drop)', async () => {
+    const onSwap = jest.fn();
+    const onRequestDrop = jest.fn();
+    const canDropEntry = () => true;
+    const entries = [entry()];
+    renderCard({
+      context: myTeam({
+        managed: true,
+        onSwap,
+        onRequestDrop,
+        canDropEntry,
+        entries,
+        bestBall: false,
+        leagueUnsettled: false,
+      }),
+      entries,
+      onSwap,
+      onRequestDrop,
+      canDropEntry,
+    });
+
+    await screen.findByTestId('decision-card-bench-action');
+    expect(screen.getByTestId('decision-card-compare-action')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-trade')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-drop')).toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  });
+
+  // AC4 ("green for the wrong reason"): the draft action bar must actually
+  // render, proving `context.kind` reached the draft branch - a test that
+  // only asserted the two absences below would pass just as well if the
+  // context wiring silently fell through to nothing at all.
+  test('context={draft({...})} renders Draft/Queue but neither bench options nor Watch', async () => {
+    mockCardRoute(null);
+    const onDraft = jest.fn();
+    const onQueue = jest.fn();
+    // `context.kind` is the only field of the builder's object the card
+    // reads today (AC2) - the action bar's own facts (canDraft/onDraft/
+    // onQueue/queued) stay separate loose props until T19, exactly as they
+    // are for the bare-string `context="draft"` tests above.
+    renderCard({
+      context: draft({ canDraft: true, queued: false, onDraft, onQueue }),
+      entry: availabilityEntry(),
+      entries: undefined,
+      leagueId: 3,
+      canDraft: true,
+      queued: false,
+      onDraft,
+      onQueue,
+    });
+
+    expect(await screen.findByRole('button', { name: 'Draft' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-watch')).not.toBeInTheDocument();
   });
 });
 
