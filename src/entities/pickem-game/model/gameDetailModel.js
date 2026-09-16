@@ -49,16 +49,31 @@ export function weatherDisplayModel(weather) {
 }
 
 /**
- * The cut that informs a pick is the one each team is about to play in (road
- * for the visitor, home for the host); a neutral-site game drops the split
- * and keeps the total (CONTEXT.md, Record).
+ * One Record string per side, in the canvas shape (docs/design/pickem/
+ * GameCard.dc.html): the total first, then the cut each team is about to play
+ * in (road for the visitor, home for the host), "6-1 · home 4-0". The cut is
+ * the part that informs a pick (CONTEXT.md, Record); the total is what a
+ * manager reads as the team's record, and #1488 is what printing the cut
+ * alone looked like in week 2: a 1-0 team that opened on the road showed
+ * "0-0". A neutral-site game drops the split and keeps the total; a missing
+ * cut leaves the total alone; a missing total leaves the labelled cut alone.
  */
+function recordText(side, cutLabel, neutral) {
+  if (side == null) return null;
+  const total = side.total ?? null;
+  const cut = neutral ? null : (side[cutLabel] ?? null);
+  if (total != null && cut != null) return `${total} · ${cutLabel} ${cut}`;
+  if (total != null) return total;
+  if (cut != null) return `${cutLabel} ${cut}`;
+  return null;
+}
+
 export function recordsDisplayModel(records, venue) {
   if (!records) return null;
   const neutral = Boolean(venue && venue.neutralSite);
   return {
-    home: records.home == null ? null : (neutral ? records.home.total : records.home.home) ?? null,
-    away: records.away == null ? null : (neutral ? records.away.total : records.away.road) ?? null,
+    home: recordText(records.home, 'home', neutral),
+    away: recordText(records.away, 'road', neutral),
   };
 }
 
