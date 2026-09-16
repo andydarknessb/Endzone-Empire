@@ -854,7 +854,7 @@ test('the capture pipeline never touches the projection cache tables', async (t)
 
 test('a full correction pass emits no SQL that references the ledger tables', async (t) => {
   const poolModule = require('../modules/pool');
-  const scoringSvc = require('../services/scoring.service');
+  const scoringSvc = require('../services/feedSyncRuns.service');
   const nflverse = require('../services/nflverseSync.service');
   const correctionSvc = require('../services/correction.service');
   t.mock.method(console, 'error', () => {});

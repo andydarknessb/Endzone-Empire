@@ -103,7 +103,7 @@ router.post('/sync/:job', async (req, res) => {
   const season = Number((req.body || {}).season) || new Date().getFullYear();
   const week = Number((req.body || {}).week) || null;
   try {
-    const scoring = require('../services/scoring.service');
+    const scoring = require('../services/feedSyncRuns.service');
     let result;
     if (job === 'players') {
       result = await scoring.syncPlayers({ season });

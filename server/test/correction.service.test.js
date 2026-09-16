@@ -138,6 +138,7 @@ test('manual correction fails closed for cross-season, week-one, and ambiguous t
 
 const poolModule = require('../modules/pool');
 const correctionSvc = require('../services/correction.service');
+const feedSyncRuns = require('../services/feedSyncRuns.service');
 const scoringSvc = require('../services/scoring.service');
 const nflverse = require('../services/nflverseSync.service');
 const recapSvc = require('../services/recap.service');
@@ -158,7 +159,7 @@ test('resyncPriorWeeks defaults to nflverse and never calls Tank01', async (t) =
   stubOneInSeasonLeague(t);
   let tankCalls = 0;
   let nflverseArgs = null;
-  t.mock.method(scoringSvc, 'syncWeekStats', async () => {
+  t.mock.method(feedSyncRuns, 'syncWeekStats', async () => {
     tankCalls += 1;
     return { plays: [] };
   });
@@ -179,7 +180,7 @@ test('resyncPriorWeeks defaults to nflverse and never calls Tank01', async (t) =
 test('resyncPriorWeeks can still be asked for the Tank01 source explicitly', async (t) => {
   stubOneInSeasonLeague(t);
   let tankArgs = null;
-  t.mock.method(scoringSvc, 'syncWeekStats', async (args) => {
+  t.mock.method(feedSyncRuns, 'syncWeekStats', async (args) => {
     tankArgs = args;
     return { plays: [] };
   });

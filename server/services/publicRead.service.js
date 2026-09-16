@@ -27,8 +27,9 @@ const { upcomingNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { calculateFantasyPoints, SCORING_PRESETS } = require('./scoringRules');
+const { IDP_POSITIONS } = require('./feedSyncRuns.service');
 const {
-  IDP_POSITIONS, getSeasonPositionRank,
+  getSeasonPositionRank,
   projectSeasonPoints,
 } = require('./scoring.service');
 

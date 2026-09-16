@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
 const { SCORING_RULES, SCORING_PRESETS } = require('../services/scoringRules');
+const feedSyncRuns = require('../services/feedSyncRuns.service');
 const scoring = require('../services/scoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
@@ -56,7 +57,7 @@ router.post('/sync', async (req, res) => {
   const sw = validSeasonWeek(req, res);
   if (!sw) return;
   try {
-    const result = await scoring.syncWeekStats(sw);
+    const result = await feedSyncRuns.syncWeekStats(sw);
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -154,7 +155,7 @@ router.post('/league/:id/correct-week', async (req, res) => {
       });
       return res.json(result);
     }
-    await withDatabaseRetry(() => scoring.syncWeekStats({
+    await withDatabaseRetry(() => feedSyncRuns.syncWeekStats({
       season: correctionRequest.season,
       week: correctionRequest.week,
     }));
@@ -200,7 +201,7 @@ router.post('/sync-schedule', async (req, res) => {
   try {
     const result = source === 'nflverse'
       ? await nflverseSync.syncScheduleFromNflverse({ season: seasonYear })
-      : await scoring.syncSchedule({ season: seasonYear });
+      : await feedSyncRuns.syncSchedule({ season: seasonYear });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -216,7 +217,7 @@ router.post('/sync-players', async (req, res) => {
     return res.status(400).json({ error: 'season (integer year) is required' });
   }
   try {
-    const result = await scoring.syncPlayers({ season: seasonYear });
+    const result = await feedSyncRuns.syncPlayers({ season: seasonYear });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -288,7 +289,7 @@ router.post('/backfill-seasons', async (req, res) => {
     }
   }
   try {
-    const result = await scoring.syncPlayerSeasonStats({ currentSeason });
+    const result = await feedSyncRuns.syncPlayerSeasonStats({ currentSeason });
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
@@ -300,7 +301,7 @@ router.post('/backfill-seasons', async (req, res) => {
 // POST /api/scoring/sync-injuries — refresh player injury designations
 router.post('/sync-injuries', async (req, res) => {
   try {
-    const result = await scoring.syncInjuries();
+    const result = await feedSyncRuns.syncInjuries();
     res.json(result);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });

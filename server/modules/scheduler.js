@@ -315,7 +315,7 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
     }
   }
   if (!injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) })) return null;
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/feedSyncRuns.service');
   return scoring.syncInjuries();
 }
 
@@ -478,6 +478,7 @@ async function tick() {
  */
 async function syncAndScoreLiveWeeks() {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
   const scoring = require('../services/scoring.service');
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
@@ -511,7 +512,7 @@ async function syncAndScoreLiveWeeks() {
     try {
       // Typed touchdown events from this sync ride the scores:updated emit so
       // the live matchup UI can fire team-accurate cutscenes.
-      const synced = await scoring.syncWeekStats({ season, week });
+      const synced = await feedSyncRuns.syncWeekStats({ season, week });
       plays = synced.plays || [];
     } catch (err) {
       console.error('live stat sync failed for %s week %s:', season, week, err.message);

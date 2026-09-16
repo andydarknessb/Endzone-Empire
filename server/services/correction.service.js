@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
+const feedSyncRuns = require('./feedSyncRuns.service');
 const scoring = require('./scoring.service');
 const { logTransaction, notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
@@ -346,7 +347,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
         // correctLeagueWeek path, so skip its own re-score loop.
         await nflverseSync.correctWeekFromNflverse({ season, week, rescoreLeagues: false });
       } else {
-        await scoring.syncWeekStats({ season, week });
+        await feedSyncRuns.syncWeekStats({ season, week });
       }
     } catch (err) {
       console.error('stat correction: sync failed for %s week %s:', season, week, err.message);

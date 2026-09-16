@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../modules/auth');
-const scoring = require('../services/scoring.service');
+const scoring = require('../services/feedSyncRuns.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const scoringRouter = require('../routes/scoring.router');
 
