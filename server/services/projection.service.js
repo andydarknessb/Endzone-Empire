@@ -387,6 +387,17 @@ function projectFromBundle({
   // opponentEffect treats identically to "no prior season available".
   const prior = group && bundle.priorSeasonContext ? bundle.priorSeasonContext.get(group) : null;
   const priorAllowance = prior && opponentTeam ? prior.allowedByDefense.get(opponentTeam) : null;
+  // #1483: the position floor `simulateDistribution` truncates its draws at -
+  // the lowest points any player of this group scored, over whichever of the
+  // current-season and prior-season scans actually have rows. Both contexts
+  // report `minObservedPoints: null` when they saw no rows at all (week 1's
+  // current-season context, or a hand-built fixture with no prior context),
+  // so this is the minimum of whichever finite values exist, and null when
+  // neither does - never a fabricated 0.
+  const observedFloors = [context, prior]
+    .map((c) => (c ? c.minObservedPoints : null))
+    .filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const positionFloor = observedFloors.length > 0 ? Math.min(...observedFloors) : null;
   const opponent = model.opponentEffect({
     allowedPerGame: allowance ? allowance.allowedPerGame : null,
     leagueAveragePerGame: context ? context.leagueAllowedPerGame : null,
@@ -477,6 +488,7 @@ function projectFromBundle({
     positionEfficiencyPerOpportunity: context ? context.efficiencyPerOpportunity : null,
     playerResiduals: playerResidualsFrom(priorGames),
     pooledResiduals: context ? context.residuals : [],
+    positionFloor,
     opponent,
     versusOpponent,
     homeAway,
@@ -1100,7 +1112,7 @@ async function getRestOfSeason(playerIds, leagueId, { client = pool, runsByWeek 
         && projection.factors.availability
         && projection.factors.availability.available === false);
       if (unavailable) continue; // bye/Out/IR: zero, and never counted toward perGame
-      const point = projection.median != null ? projection.median : projection.mean;
+      const point = pointEstimateFor(projection);
       if (point == null) continue;
       totals.set(id, Math.round((totals.get(id) + Number(point)) * 100) / 100);
       coveredGames.set(id, coveredGames.get(id) + 1);
@@ -1144,19 +1156,38 @@ async function getRestOfSeason(playerIds, leagueId, { client = pool, runsByWeek 
 }
 
 /**
+ * Pure: the ONE point estimate every manager-facing surface reads (#1482's
+ * consistency, #1483) - whichever statistic `constants.decision.lineupRanking`
+ * says the optimizer ranks lineups by, so the number on the row is the number
+ * the rule ranked on. 'mean' (the v3.2 default) reads `projection.mean`,
+ * falling back to `median` when a distribution had no mean (there is no such
+ * case today, but the fallback costs nothing and matches the median arm's own
+ * fallback); anything else (v3.1's 'median') reads `projection.median`,
+ * falling back to `mean`. A projection with neither reports `null`, never a
+ * fabricated 0.
+ */
+function pointEstimateFor(projection, constants = model.MODEL_CONSTANTS) {
+  const meanFirst = constants && constants.decision && constants.decision.lineupRanking === 'mean';
+  const primary = meanFirst ? projection.mean : projection.median;
+  const fallback = meanFirst ? projection.median : projection.mean;
+  return primary != null ? primary : fallback;
+}
+
+/**
  * Adapter: a v2 run -> the legacy `Map<playerId, { points, source }>` every
  * existing consumer expects, with the new fields carried alongside so callers
  * can adopt them one at a time.
  *
- * `points` is the MEDIAN when we have one (the middle of the simulated
- * outcomes, which is the number a manager should compare) and falls back to
- * the mean. A player with no projection at all reports `points: null` and
- * `source: 'unavailable'` — never a fabricated 0.
+ * `points` is the RANKING statistic (`pointEstimateFor`, #1483) - the mean
+ * under the shipped v3.2 constants, so the row, the Edge line, the card and
+ * the optimizer all read the same number the lineup rule ranked on. A player
+ * with no projection at all reports `points: null` and `source: 'unavailable'`
+ * — never a fabricated 0.
  */
 function toLegacyProjectionMap(run) {
   const out = new Map();
   for (const [playerId, projection] of run.projections) {
-    const point = projection.median != null ? projection.median : projection.mean;
+    const point = pointEstimateFor(projection);
     out.set(playerId, {
       points: point == null ? null : Number(point),
       source: point == null ? 'unavailable' : model.MODEL_VERSION,
@@ -1196,4 +1227,5 @@ module.exports = {
   buildSourceCoverage,
   distinctGamesFor,
   toLegacyProjectionMap,
+  pointEstimateFor,
 };

@@ -233,11 +233,15 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     pinned,
   });
 
-  // The DISPLAYED optimal total is always median-based points, whatever the
-  // optimizer ranked by: under 'mean' the assignment's own totals are means,
-  // and printing a mean next to per-player medians would be a total that does
-  // not add up on screen. At 'median' the maps are the same object and this
-  // recomputation reproduces optimal.total exactly.
+  // The DISPLAYED optimal total is always the DISPLAYED points
+  // (`effectivePointsFor`, projection.service.js's `pointEstimateFor` -
+  // #1483 - the mean under the shipped v3.2 constants, the median under
+  // v3.1), whatever statistic the optimizer itself ranked by: under 'mean'
+  // ranking the two happen to be the same statistic today, but this
+  // recomputation is what keeps the total adding up on screen even if that
+  // ever changes, rather than mixing a ranking-only statistic into a row of
+  // displayed per-player numbers. At 'median' the maps are the same object
+  // and this recomputation reproduces optimal.total exactly.
   let optimalTotal = optimal.total;
   if (rankingPointsFor !== effectivePointsFor) {
     let displayTotal = 0;

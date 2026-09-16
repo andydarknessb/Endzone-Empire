@@ -1255,8 +1255,22 @@ function standardNormal(rand) {
  *
  * Residuals come from the player's own league-scored prior games when he has
  * enough of them, otherwise from the pooled position-level residuals. Negative
- * draws are NOT clamped: IDP and DST scoring produce genuinely negative weeks,
- * and clipping them would quietly bias every interval upward.
+ * draws are NOT clamped by default: IDP and DST scoring produce genuinely
+ * negative weeks, and clipping them would quietly bias every interval upward.
+ *
+ * `floor` (#1483, v3.2) is the one deliberate exception, and it is opt-in
+ * twice over: it only clamps a draw when `constants.truncateAtPositionFloor`
+ * is true AND a finite `floor` was actually supplied. The floor itself is
+ * DATA (the lowest points any player of the position group scored over the
+ * stored seasons, computed by the feature loader), never a constant, so this
+ * function only applies it; it does not decide what it is. Clamping runs
+ * AFTER the smoothing drift correction and BEFORE the quantiles are read, so
+ * it can only ever raise the bottom of the sorted draw set, never shift its
+ * center: `mean` is reported from the input either way, and `median` moves
+ * only in the fixture that must not occur in practice - more than half the
+ * draws sitting below the floor. `truncatedBelowFloor` reports how many draws
+ * were actually clamped (0 whenever the flag/floor combination did not apply),
+ * which is what lets a caller tell whether the reported p10 was pinned.
  *
  * "Deterministic" here means deterministic in the CONTENT of its inputs, not
  * merely in its seed. Residuals are sampled by INDEX, so the caller's array
@@ -1264,8 +1278,8 @@ function standardNormal(rand) {
  * (a different query plan upstream, a row order Postgres never promised) would
  * produce different draws, hence a different median and different quantiles,
  * from identical data. The pool is therefore canonically sorted before any
- * draw. The invariant is: same residual multiset, mean, constants and seed =>
- * byte-identical output, whatever order the residuals came in.
+ * draw. The invariant is: same residual multiset, mean, constants, seed and
+ * floor => byte-identical output, whatever order the residuals came in.
  */
 function simulateDistribution({
   mean,
@@ -1273,9 +1287,16 @@ function simulateDistribution({
   pooledResiduals = [],
   seed = 0,
   constants = MODEL_CONSTANTS.simulation,
+  // The position floor (#1483, v3.2): DATA computed by the feature loader,
+  // never a constant. Only consulted when `constants.truncateAtPositionFloor`
+  // is also true; see the function docblock.
+  floor = null,
 }) {
   if (!isNum(mean)) {
-    return { mean: null, median: null, p10: null, p25: null, p75: null, p90: null, residualSource: null };
+    return {
+      mean: null, median: null, p10: null, p25: null, p75: null, p90: null,
+      residualSource: null, truncatedBelowFloor: 0,
+    };
   }
   // `.filter().map()` already yields fresh arrays, so nothing below can reach
   // the caller's own arrays; the sort is applied to these copies deliberately
@@ -1308,7 +1329,10 @@ function simulateDistribution({
     // No dispersion evidence at all: report the point estimate and say so,
     // rather than manufacturing an interval out of nothing.
     const point = round2(mean);
-    return { mean: point, median: point, p10: null, p25: null, p75: null, p90: null, residualSource: null };
+    return {
+      mean: point, median: point, p10: null, p25: null, p75: null, p90: null,
+      residualSource: null, truncatedBelowFloor: 0,
+    };
   }
 
   const rand = mulberry32(seed);
@@ -1359,6 +1383,30 @@ function simulateDistribution({
       for (let i = 0; i < draws.length; i++) draws[i] -= drift;
     }
   }
+
+  // Position-floor truncation (#1483, v3.2): opt-in on the flag AND a real
+  // floor, applied AFTER the drift correction above and BEFORE the quantiles
+  // below are read. `draws` is already ascending, so `Math.max` is a
+  // monotone transform and needs no re-sort; counting draws below the floor
+  // BEFORE clamping (rather than after) is what makes `truncatedBelowFloor`
+  // mean "how many draws this actually changed", not merely "how many now
+  // equal the floor" - a distinction that matters whenever a draw already
+  // happened to land exactly on it.
+  let truncatedBelowFloor = 0;
+  if (constants.truncateAtPositionFloor === true && isNum(floor)) {
+    const floorValue = Number(floor);
+    for (let i = 0; i < draws.length; i++) {
+      if (draws[i] < floorValue) {
+        truncatedBelowFloor += 1;
+        draws[i] = floorValue;
+      } else {
+        // Ascending order means every later draw is >= this one, so once a
+        // draw clears the floor none of the rest can be below it either.
+        break;
+      }
+    }
+  }
+
   return {
     mean: round2(mean),
     median: round2(quantile(draws, 0.5)),
@@ -1367,6 +1415,7 @@ function simulateDistribution({
     p75: round2(quantile(draws, 0.75)),
     p90: round2(quantile(draws, 0.9)),
     residualSource,
+    truncatedBelowFloor,
   };
 }
 
@@ -1481,6 +1530,12 @@ function projectPlayer({
   availability = null,
   hasRoleData = true,
   constants = MODEL_CONSTANTS,
+  // The position floor (#1483, v3.2): DATA (the lowest points any player of
+  // this position group scored over the stored seasons under the run's own
+  // scoring rules), computed by the feature loader and forwarded verbatim to
+  // `simulateDistribution` as `floor`. Null means the caller had no floor to
+  // give (a hand-built fixture, or a group/scope with no scanned rows).
+  positionFloor = null,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5). Validated
   // unconditionally, at the top of the function body, before ANY other
   // logic - including before the `baseline.value == null` early return
@@ -1636,6 +1691,7 @@ function projectPlayer({
     pooledResiduals,
     seed: seedFrom(modelVersion, scoringHashValue, season, week, playerId),
     constants: constants.simulation,
+    floor: positionFloor,
   });
 
   const confidence = confidenceFor({
@@ -1664,6 +1720,15 @@ function projectPlayer({
     reasons: confidence.reasons,
     residualSource: distribution.residualSource,
   };
+  // #1483: only added when the flag is actually on, so a v3.1 payload (no
+  // `truncateAtPositionFloor` key) is byte-identical to what it always was.
+  // `floorTruncated` reads `truncatedBelowFloor` rather than re-deriving "was
+  // the untruncated p10 below the floor" itself, so this can never disagree
+  // with what simulateDistribution actually did.
+  if (constants.simulation && constants.simulation.truncateAtPositionFloor === true) {
+    factors.dataQuality.positionFloor = isNum(positionFloor) ? Number(positionFloor) : null;
+    factors.dataQuality.floorTruncated = distribution.truncatedBelowFloor > 0;
+  }
 
   return {
     playerId,

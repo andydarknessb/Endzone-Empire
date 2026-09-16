@@ -260,6 +260,10 @@ function buildPriorGames({
  *    which is what gives a thin-sample player a usable interval,
  *  - `efficiencyPerOpportunity`: league-scored points per opportunity, the
  *    shrinkage target for the model's usage component.
+ *  - `minObservedPoints`: the lowest points any player of this group scored
+ *    over the scanned rows (#1483) — the DATA half of the position floor
+ *    `simulateDistribution` truncates its draws at; `null` when the group has
+ *    no rows at all, never 0, since 0 is a real and often unremarkable score.
  *
  * That last one is accumulated over the SAME scanned rows as everything else
  * (one pass, one cap) and only over rows whose opportunity count is actually
@@ -285,6 +289,7 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
         opportunityPoints: 0,
         opportunities: 0,
         opportunityGames: 0,
+        minPoints: null,
       });
     }
     return byGroup.get(group);
@@ -297,6 +302,7 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
     const bucket = groupBucket(group);
     bucket.totalPoints += points;
     bucket.totalGames += 1;
+    bucket.minPoints = bucket.minPoints === null ? points : Math.min(bucket.minPoints, points);
     if (row.defense) {
       bucket.allowed.set(row.defense, (bucket.allowed.get(row.defense) || 0) + points);
     }
@@ -366,6 +372,7 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
         ? bucket.opportunityPoints / bucket.opportunities
         : null,
       opportunityGames: bucket.opportunityGames,
+      minObservedPoints: bucket.minPoints,
     });
   }
   return context;
@@ -662,8 +669,10 @@ async function loadFeatureBundle({
   for (const row of priorSeasonDefenseRows) {
     priorSeasonDefenseGames.set(row.team, Number(row.prior_games));
   }
-  // Only `allowedByDefense` and `leagueAllowedPerGame` are consumed from this
-  // context (projection.service.js's opponent seed); the rest of what this
+  // `allowedByDefense` and `leagueAllowedPerGame` feed projection.service.js's
+  // opponent seed, and `minObservedPoints` feeds its position floor (#1483,
+  // v3.2) - the only two things this scan exists to seed at week 1, before
+  // the current-season scan has any rows of its own. The rest of what this
   // pure builder returns for the prior season (baselinePerGame, homeAway,
   // residuals, efficiencyPerOpportunity) is computed the same as any other
   // call but is unused here.

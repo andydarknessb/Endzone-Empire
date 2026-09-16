@@ -898,6 +898,46 @@ test('simulateDistribution does not clamp negative outcomes', () => {
   assert.ok(distribution.p10 < 0, 'IDP and DST weeks are genuinely negative');
 });
 
+test('a supplied floor truncates only the impossible tail (#1483)', () => {
+  // Skewed enough that the untruncated p10 (-10.8) sits well below a floor
+  // (-8) that itself sits below the median (-5): the fixture the ticket
+  // describes as producing "a value no real game has ever scored".
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+  const untruncated = model.simulateDistribution(args);
+  const truncated = model.simulateDistribution({ ...args, floor: -8 });
+
+  assert.equal(truncated.p10, -8, 'p10 is pinned to the floor, not left below it');
+  assert.equal(truncated.median, untruncated.median, 'truncation must not move the median');
+  assert.equal(truncated.mean, untruncated.mean, 'mean is reported from the input, untouched by truncation');
+  assert.equal(truncated.p90, untruncated.p90, 'the upper tail is not touched at all');
+});
+
+test('a floor is inert under MODEL_CONSTANTS_V3_1 (byte-identical to the untruncated call)', () => {
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+  const v31Untruncated = model.simulateDistribution({ ...args, constants: model.MODEL_CONSTANTS_V3_1.simulation });
+  const v31WithFloor = model.simulateDistribution({
+    ...args, floor: -8, constants: model.MODEL_CONSTANTS_V3_1.simulation,
+  });
+  assert.deepEqual(v31WithFloor, v31Untruncated, 'v3.1 has no truncateAtPositionFloor key, so a floor is a no-op');
+});
+
+test('a null floor under v3.2 constants leaves the draws exactly as they were', () => {
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+  const untruncated = model.simulateDistribution(args);
+  const withNullFloor = model.simulateDistribution({ ...args, floor: null });
+  assert.deepEqual(withNullFloor, untruncated);
+});
+
+test('a floor above the median cannot exist in practice, but the output stays monotone', () => {
+  // Documented rather than guarded against: truncation only pins the median to
+  // the floor when more than half the draws sit below it, which real position
+  // floors never do. This fixture forces that (floor 0 sits above the -5
+  // median) purely to prove p10 <= median <= p90 keeps holding even then.
+  const args = { mean: -1, playerResiduals: [-8, -6, -4, 2, 3], seed: 7 };
+  const truncated = model.simulateDistribution({ ...args, floor: 0 });
+  assert.ok(truncated.p10 <= truncated.median && truncated.median <= truncated.p90);
+});
+
 test('simulateDistribution falls back to pooled residuals, then to no interval', () => {
   const pooled = model.simulateDistribution({
     mean: 10, playerResiduals: [1], pooledResiduals: [-6, -3, -1, 0, 1, 2, 5, 8], seed: 3,
@@ -1131,6 +1171,35 @@ test('projectPlayer returns a distribution and per-factor point contributions', 
   const rebuilt = projection.factors.recentProduction.pointsContribution
     + projection.factors.opponent.pointsContribution;
   assert.ok(Math.abs(rebuilt - projection.mean) < 0.05, `${rebuilt} vs ${projection.mean}`);
+});
+
+test('projectPlayer truncates p10 at a supplied position floor and records it on dataQuality (#1483)', () => {
+  const untruncated = model.projectPlayer(projectArgs());
+  assert.ok(untruncated.p10 < 9, 'the fixture must actually need truncation for this test to prove anything');
+
+  const truncated = model.projectPlayer(projectArgs({ positionFloor: 9 }));
+  assert.equal(truncated.p10, 9, 'p10 is pinned to the floor');
+  assert.equal(truncated.median, untruncated.median, 'truncation must not move the median');
+  assert.equal(truncated.mean, untruncated.mean);
+  assert.equal(truncated.factors.dataQuality.positionFloor, 9);
+  assert.equal(truncated.factors.dataQuality.floorTruncated, true);
+});
+
+test('projectPlayer records a null positionFloor and floorTruncated:false when no floor was supplied', () => {
+  const projection = model.projectPlayer(projectArgs());
+  assert.equal(projection.factors.dataQuality.positionFloor, null);
+  assert.equal(projection.factors.dataQuality.floorTruncated, false);
+});
+
+test('projectPlayer never adds the two dataQuality floor keys under MODEL_CONSTANTS_V3_1', () => {
+  const projection = model.projectPlayer(projectArgs({
+    positionFloor: 9, constants: model.MODEL_CONSTANTS_V3_1,
+  }));
+  assert.equal('positionFloor' in projection.factors.dataQuality, false);
+  assert.equal('floorTruncated' in projection.factors.dataQuality, false);
+  // And, since the flag is absent from v3.1, the floor never actually applies.
+  const untruncated = model.projectPlayer(projectArgs({ constants: model.MODEL_CONSTANTS_V3_1 }));
+  assert.equal(projection.p10, untruncated.p10);
 });
 
 test('projectPlayer marks an unavailable factor null rather than a zero contribution', () => {

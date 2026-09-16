@@ -475,6 +475,51 @@ test('the same week-1 fixture under MODEL_CONSTANTS_V3_1 reports insufficient op
   assert.equal(factors.opponent.seededFromPriorSeason, undefined);
 });
 
+test('a week-1 run truncates p10 at the prior-season position floor (#1483)', async (t) => {
+  // Only the prior-season scan has rows at week 1 (the current-season
+  // leagueContext is empty), so the WR floor of -4 here can only come from
+  // `priorSeasonContext.minObservedPoints`. Player 30's -4 (0 rushing yards,
+  // two fumbles lost) is the group minimum; player 31's 20 is well above it.
+  const priorSeasonScan = [
+    { player_id: 30, week: 1, position: 'WR', defense: 'NE', stats: { rushingYards: 0, fumbles: 2, gameOpponent: 'NE' } },
+    { player_id: 31, week: 1, position: 'WR', defense: 'MIA', stats: { rushingYards: 200, gameOpponent: 'MIA' } },
+  ];
+  const priorDefenseGames = [{ team: 'NE', prior_games: 1 }, { team: 'MIA', prior_games: 1 }];
+  // Player 1's OWN history (a prior season, since week 1 has no in-season
+  // weeks before it) is wide enough that the untruncated p10 lands below -4:
+  // this is what proves the truncation actually fires, not merely that the
+  // floor was computed.
+  const weeklyStats = [
+    weeklyRow(1, 1, { rushingYards: 300 }, SEASON - 1),
+    weeklyRow(1, 2, { rushingYards: 20 }, SEASON - 1),
+    weeklyRow(1, 3, { rushingYards: 250 }, SEASON - 1),
+    weeklyRow(1, 4, { rushingYards: 100 }, SEASON - 1),
+  ];
+
+  mockPool(t, {
+    players: [player(1, 'WR')], weeklyStats, priorSeasonScan, priorDefenseGames,
+  });
+  const shipped = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS,
+  });
+  const shippedProjection = shipped.projections.get(1);
+  assert.equal(shippedProjection.p10, -4, 'p10 is pinned to the -4 position floor');
+  assert.equal(shippedProjection.factors.dataQuality.positionFloor, -4);
+  assert.equal(shippedProjection.factors.dataQuality.floorTruncated, true);
+
+  mockPool(t, {
+    players: [player(1, 'WR')], weeklyStats, priorSeasonScan, priorDefenseGames,
+  });
+  const v31 = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_1,
+  });
+  const v31Projection = v31.projections.get(1);
+  assert.ok(v31Projection.p10 < -4, 'v3.1 has no truncateAtPositionFloor key, so the floor never applies');
+  assert.equal('positionFloor' in v31Projection.factors.dataQuality, false);
+});
+
 // ---------------------------------------------------------------------------
 // Opponent / schedule factors through the full engine
 // ---------------------------------------------------------------------------
@@ -1251,6 +1296,34 @@ test('buildLeagueContext reports no efficiency at all when no row qualifies', ()
   }
 });
 
+test('buildLeagueContext reports the group minimum observed points, for the position floor (#1483)', () => {
+  const context = features.buildLeagueContext({
+    rows: [
+      // 120 rushing yards = 12 points.
+      { player_id: 1, week: 1, position: 'WR', stats: { rushingYards: 120 }, defense: 'NYJ', home_away: 'home' },
+      // 10 rushing yards (1 point) minus two fumbles lost (-4) = -3 points,
+      // the group minimum this test exists to catch.
+      { player_id: 2, week: 1, position: 'WR', stats: { rushingYards: 10, fumbles: 2 }, defense: 'MIA', home_away: 'away' },
+      // 400 rushing yards = 40 points.
+      { player_id: 3, week: 1, position: 'WR', stats: { rushingYards: 400 }, defense: 'BUF', home_away: 'home' },
+    ],
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map(),
+  });
+  assert.equal(context.get('WR').minObservedPoints, -3, 'the lowest of 12, -3 and 40');
+});
+
+test('buildLeagueContext reports no minimum observed points for a group with no rows', () => {
+  const context = features.buildLeagueContext({
+    rows: [
+      { player_id: 1, week: 1, position: 'WR', stats: { rushingYards: 120 }, defense: 'NYJ', home_away: 'home' },
+    ],
+    rules: SCORING_RULES,
+    defenseGamesByTeam: new Map(),
+  });
+  assert.equal(context.get('RB'), undefined, 'a group that was never scanned has no bucket at all');
+});
+
 test('the shipped engine prices enriched usage and leaves bare rows on the points baseline', async (t) => {
   // Steady 17 touches a week, but wildly varying yardage on them. That is the
   // case the component exists for: the volume is the stable signal and the
@@ -1586,15 +1659,49 @@ test('toLegacyProjectionMap keeps the { points, source } contract and adds field
     generatedAt: '2026-10-08T00:00:00.000Z',
     inputCutoff: '2026-10-11T17:00:00.000Z',
     projections: new Map([
-      [1, { playerId: 1, mean: 12.2, median: 11.8, confidence: 'high', activeProbability: 1, factors: {} }],
+      // #1483: under the shipped v3.2 constants (lineupRanking 'mean'), points
+      // follows the RANKING statistic - the mean, not the median - so the row
+      // the optimizer ranked on is the row the wire reports.
+      [1, { playerId: 1, mean: 9.03, median: 8.21, confidence: 'high', activeProbability: 1, factors: {} }],
       [2, { playerId: 2, mean: null, median: null, confidence: 'low', activeProbability: null, factors: {} }],
     ]),
   });
-  assert.equal(legacy.get(1).points, 11.8, 'the median is the headline number');
+  assert.equal(legacy.get(1).points, 9.03, 'the mean is the headline number under v3.2');
   assert.equal(legacy.get(1).source, model.MODEL_VERSION);
   assert.equal(legacy.get(1).confidence, 'high');
   assert.equal(legacy.get(2).points, null);
   assert.equal(legacy.get(2).source, 'unavailable');
+});
+
+test('toLegacyProjectionMap falls back to the median when the ranking statistic (mean) is null', () => {
+  const legacy = projection.toLegacyProjectionMap({
+    modelVersion: model.MODEL_VERSION,
+    generatedAt: '2026-10-08T00:00:00.000Z',
+    inputCutoff: '2026-10-11T17:00:00.000Z',
+    projections: new Map([
+      [1, { playerId: 1, mean: null, median: 5, confidence: 'low', activeProbability: 1, factors: {} }],
+    ]),
+  });
+  assert.equal(legacy.get(1).points, 5);
+});
+
+test('pointEstimateFor reads the median under MODEL_CONSTANTS_V3_1 (lineupRanking: median)', () => {
+  const p = { mean: 9.03, median: 8.21 };
+  assert.equal(projection.pointEstimateFor(p, model.MODEL_CONSTANTS_V3_1), 8.21);
+  assert.equal(projection.pointEstimateFor(p, model.MODEL_CONSTANTS), 9.03);
+});
+
+test('pointEstimateFor falls back to the other statistic whichever one is missing', () => {
+  assert.equal(
+    projection.pointEstimateFor({ mean: null, median: 5 }, model.MODEL_CONSTANTS),
+    5,
+    'mean ranking with no mean falls back to the median'
+  );
+  assert.equal(
+    projection.pointEstimateFor({ mean: 9, median: null }, model.MODEL_CONSTANTS_V3_1),
+    9,
+    'median ranking with no median falls back to the mean'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1943,17 +2050,26 @@ test('getRestOfSeason: a caller passing runsByWeek gets its total from those run
   const calls = mockPool(t, { players: [player(1, 'RB')], leagueRow: leagueAt(10) });
   const runsByWeek = new Map();
   for (let week = 10; week <= 18; week++) {
+    // #1483: the per-week total follows the RANKING statistic (mean under the
+    // shipped v3.2 constants), so median 10 everywhere is a distractor - it
+    // must never win over mean 9 except at week 16, where mean is null and
+    // the read falls back to the median.
     runsByWeek.set(week, {
       week,
-      projections: new Map([[1, { median: week === 16 ? null : 10, mean: 9, factors: { availability: { available: week !== 12 } } }]]),
+      projections: new Map([[1, {
+        mean: week === 16 ? null : 9,
+        median: week === 16 ? 12 : 10,
+        factors: { availability: { available: week !== 12 } },
+      }]]),
     });
   }
 
   const result = await projection.getRestOfSeason([1], 1, { runsByWeek });
 
-  // Weeks 10..16 covered: 12 is unavailable (skipped), 16 falls back to its mean 9.
-  assert.equal(result.get(1).total, 10 * 5 + 9);
-  assert.equal(result.get(1).perGame, Math.round(((10 * 5 + 9) / 6) * 100) / 100);
+  // Weeks 10..16 covered: 12 is unavailable (skipped), 16 falls back to its
+  // median 12 since its mean is null.
+  assert.equal(result.get(1).total, 9 * 5 + 12);
+  assert.equal(result.get(1).perGame, Math.round(((9 * 5 + 12) / 6) * 100) / 100);
   assert.equal(readsOf(calls, 'FROM "projection_runs"'), 0);
   assert.equal(readsOf(calls, 'FROM "player_week_projections"'), 0);
 });
