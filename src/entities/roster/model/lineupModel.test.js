@@ -1,4 +1,5 @@
-import { lineupModel, pairStartersBySlot, locked, eligibleSlots, lineupEntries, isQuestionable } from './lineupModel';
+import { lineupModel, pairStartersBySlot, locked, lineupEntries, isQuestionable } from './lineupModel';
+import { slotsFor } from './rosterTemplateModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
 // (server/services/lineup.service.js getLineup: id, name, position,
@@ -377,46 +378,6 @@ describe('locked: the wire boolean, read as a fact', () => {
   });
 });
 
-// #1207 (part of #1198): `eligibleSlots` as an exported fact, mirroring
-// LineupScreen.jsx's slotEligiblePositions/isEligibleForSlot (:65-79) minus
-// the drag-and-drop swap intent (canResolveLockedIrStash's locked-IR-to-BENCH
-// exception, which belongs to the swap interaction, not this fact).
-describe('eligibleSlots: every slot key a player may occupy right now', () => {
-  const league = {
-    roster_slots: [
-      { key: 'QB', count: 1, eligiblePositions: ['QB'] },
-      { key: 'RB', count: 2, eligiblePositions: ['RB'] },
-      { key: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
-      { key: 'DL', count: 1, eligiblePositions: ['DL'] },
-    ],
-  };
-
-  test('a healthy player is eligible for BENCH and every configured slot naming his position', () => {
-    expect(eligibleSlots({ position: 'RB', injuryStatus: null }, league)).toEqual(['BENCH', 'RB', 'FLEX']);
-  });
-
-  test('a group key (DL) expands to every specific position Tank01 reports in that group', () => {
-    expect(eligibleSlots({ position: 'DE', injuryStatus: null }, league)).toEqual(['BENCH', 'DL']);
-  });
-
-  // Red-tell: dropping the IR_ELIGIBLE_DESIGNATIONS check would make IR
-  // eligibility fall through to slotEligiblePositions, which never names 'IR'
-  // in eligiblePositions, so IR would silently disappear for every player.
-  test('a player carrying an IR-eligible injury designation (O or IR) is also eligible for IR', () => {
-    expect(eligibleSlots({ position: 'RB', injuryStatus: 'O' }, league)).toEqual(['BENCH', 'IR', 'RB', 'FLEX']);
-    expect(eligibleSlots({ position: 'RB', injuryStatus: 'IR' }, league)).toEqual(['BENCH', 'IR', 'RB', 'FLEX']);
-  });
-
-  test('a Questionable or Doubtful player is not IR-eligible (only O/IR qualify)', () => {
-    expect(eligibleSlots({ position: 'RB', injuryStatus: 'Q' }, league)).toEqual(['BENCH', 'RB', 'FLEX']);
-    expect(eligibleSlots({ position: 'RB', injuryStatus: 'D' }, league)).toEqual(['BENCH', 'RB', 'FLEX']);
-  });
-
-  test('a position no configured slot names is eligible for BENCH alone', () => {
-    expect(eligibleSlots({ position: 'K', injuryStatus: null }, league)).toEqual(['BENCH']);
-  });
-});
-
 // #1330: isQuestionable is the one spelling of the questionable-class
 // designation (Q, D) - the feed's only two non-null, non-Unavailable codes.
 describe('isQuestionable: the questionable-class injury designation (Q, D)', () => {
@@ -521,9 +482,35 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(byId(4).availability).toEqual({ available: true, reason: null });
   });
 
-  test('each entry carries its own eligibleSlots, computed the same way the standalone fact does', () => {
+  // #1502: eligibleSlots is no longer this module's own fact - it is built by
+  // the Roster template entity's `slotsFor(rosterSlots, entry)`
+  // (rosterTemplateModel.js), fed the same league.roster_slots this function
+  // already parsed for ordering above.
+  test('each entry carries its own eligibleSlots, computed by the Roster template entity\'s slotsFor', () => {
     const entries = lineupEntries([row({ id: 1, slot: 'QB', position: 'QB' })], league);
-    expect(entries[0].eligibleSlots).toEqual(eligibleSlots({ position: 'QB', injuryStatus: null }, league));
+    expect(entries[0].eligibleSlots).toEqual(slotsFor(league.roster_slots, { position: 'QB', injuryStatus: null }));
+  });
+
+  // Red-tell (AC, #1502): dropping IR eligibility from the template lookup
+  // (or feeding it the wrong template) would make an IR-eligible starter's
+  // eligibleSlots miss IR - this is the case the ticket's own AC names.
+  test('an IR-eligible entry\'s eligibleSlots includes IR', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'FLEX', position: 'RB', injury_status: 'O' })],
+      league
+    );
+    expect(entries[0].eligibleSlots).toEqual(['BENCH', 'IR', 'FLEX']);
+  });
+
+  // Moved from the deleted `eligibleSlots` describe block (#1502): a position
+  // no configured slot names is eligible for BENCH alone, even though the
+  // template is not itself empty.
+  test('a position no configured slot names leaves eligibleSlots as BENCH alone', () => {
+    const entries = lineupEntries(
+      [row({ id: 1, slot: 'BENCH', position: 'K' })],
+      league
+    );
+    expect(entries[0].eligibleSlots).toEqual(['BENCH']);
   });
 
   test('projectedPoints, name, nflTeam and opponent carry through as lineupModel already coerces them', () => {

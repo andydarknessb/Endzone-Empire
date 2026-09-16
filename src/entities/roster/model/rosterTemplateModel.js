@@ -63,12 +63,15 @@ const IR = 'IR';
 // import both directly from this module (entities/roster/index.js's docblock
 // names each edge and why it bypasses the index).
 //
-// KNOWN DUPLICATION (formal review f4, #1500, non-blocking): this table and
-// IR_ELIGIBLE_DESIGNATIONS below still exist twice within this same entity
-// folder - this file and `lineupModel.js`'s own copies. Folding
-// `lineupModel.js`'s `eligibleSlots`/`slotEligiblePositions` onto this module
-// (so there is one copy, not two) is real cleanup but touches a file outside
-// this issue's own reservations; left for a follow-up rather than done here.
+// RESOLVED (#1502): the KNOWN DUPLICATION this comment used to flag (formal
+// review f4, #1500) - this table and IR_ELIGIBLE_DESIGNATIONS existing twice
+// within this same entity folder, this file and `lineupModel.js`'s own
+// copies - is gone. `lineupModel.js` deleted its `eligibleSlots`/
+// `slotEligiblePositions`/POSITION_GROUPS/IR_ELIGIBLE_DESIGNATIONS copy
+// outright (its `lineupEntries` now calls THIS module's `slotsFor` instead),
+// rather than folding it onto this module, since deleting `eligibleSlots`
+// left them unused there. This module's own copies below are the only ones
+// left.
 export const POSITION_GROUPS = {
   DL: ['DL', 'DE', 'DT', 'NT'],
   LB: ['LB', 'ILB', 'OLB'],

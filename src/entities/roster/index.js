@@ -8,8 +8,8 @@
  * the Matchup and Standings slices use). Everything else in this folder is
  * internal.
  *
- * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots`, `locked` and
- * `isQuestionable` are all exported from HERE - `isQuestionable` (#1330) is
+ * `pairStartersBySlot`, `lineupEntries`, `locked` and `isQuestionable` are
+ * all exported from HERE - `isQuestionable` (#1330) is
  * the one spelling of the questionable-class injury designation (Q, D), read
  * by the team-summary-strip widget rather than that widget inventing its own
  * designation list (ADR 0029: a widget reads an entity's public surface).
@@ -72,7 +72,7 @@
  * never a widened dependency: `POSITION_GROUPS` and `expandEligibility` are
  * exported from `rosterTemplateModel.js` for exactly these six modules.
  */
-export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked, isQuestionable } from './model/lineupModel';
+export { lineupModel, pairStartersBySlot, lineupEntries, locked, isQuestionable } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';
 export {
   parseRosterTemplate,

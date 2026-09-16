@@ -1,4 +1,4 @@
-import { DEFAULT_ROSTER_SLOTS, templateFor } from '../../lib/draftSim/templates';
+import { templateFor } from '../../lib/draftSim/templates';
 // Imported from the entity's concrete model file, not its index (#1501; ADR
 // 0029 normally requires the index): the index re-exports `lineupModel.js`,
 // which reaches this very barrel (`shared/lib/index.js`), which exports
@@ -6,7 +6,12 @@ import { DEFAULT_ROSTER_SLOTS, templateFor } from '../../lib/draftSim/templates'
 // that cycle mid-evaluation (entities/roster/index.js docblock). This used to
 // read `expandEligibility` from `src/lib/draftSim/templates.js`, the Draft
 // Simulator's own copy, now deleted (#1501: templates.js no longer has one).
-import { expandEligibility } from '../../entities/roster/model/rosterTemplateModel';
+// `DEFAULT_ROSTER_SLOTS` joined this same import (#1502): it used to arrive
+// via `templates.js`'s own re-export of the entity's value (`lib/draftSim/
+// templates.js` still keeps that re-export for `templates.parity.test.js`),
+// one indirection this module no longer needs now that it already reaches
+// this concrete module for `expandEligibility`.
+import { DEFAULT_ROSTER_SLOTS, expandEligibility } from '../../entities/roster/model/rosterTemplateModel';
 
 /**
  * The chip vocabulary a roster-scoped position menu offers, in the order the

@@ -1,9 +1,12 @@
 import { useEndpoint, parseRosterSlots, isPickemOnly, lineupAttention, ordinal } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
-import { useTeamLineup } from '../../../entities/roster';
+// `DEFAULT_ROSTER_SLOTS` (#1502) reads from the Roster template entity
+// directly (its public index, ADR 0029) rather than from `lib/draftSim/
+// templates.js`'s re-export of the same value - this widget already reads
+// `useTeamLineup` off the same index, so this is one import, not a new edge.
+import { useTeamLineup, DEFAULT_ROSTER_SLOTS } from '../../../entities/roster';
 import { draftRosterSize } from '../../../lib/rosterShape';
-import { DEFAULT_ROSTER_SLOTS } from '../../../lib/draftSim/templates';
 
 /**
  * Data model for the my-team summary widget (League Dashboard hero-left,
