@@ -1,0 +1,382 @@
+{
+  "generatedAt": "2026-09-16T05:58:38.006Z",
+  "arms": [
+    {
+      "key": "market-off",
+      "maxEffect": 0,
+      "shrink": 1
+    },
+    {
+      "key": "cap0.05-shrink1",
+      "maxEffect": 0.05,
+      "shrink": 1
+    },
+    {
+      "key": "cap0.05-shrink0.5",
+      "maxEffect": 0.05,
+      "shrink": 0.5
+    },
+    {
+      "key": "cap0.10-shrink1",
+      "maxEffect": 0.1,
+      "shrink": 1
+    },
+    {
+      "key": "cap0.10-shrink0.5",
+      "maxEffect": 0.1,
+      "shrink": 0.5
+    },
+    {
+      "key": "cap0.15-shrink1",
+      "maxEffect": 0.15,
+      "shrink": 1
+    },
+    {
+      "key": "cap0.15-shrink0.5",
+      "maxEffect": 0.15,
+      "shrink": 0.5
+    },
+    {
+      "key": "cap0.25-shrink1",
+      "maxEffect": 0.25,
+      "shrink": 1
+    },
+    {
+      "key": "cap0.25-shrink0.5",
+      "maxEffect": 0.25,
+      "shrink": 0.5
+    }
+  ],
+  "profiles": {
+    "standard": {
+      "eligibleWeeks": [],
+      "excludedWeeks": [
+        {
+          "week": 1,
+          "reason": "no slate baseline"
+        }
+      ],
+      "byArm": {
+        "market-off": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.05-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.05-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.10-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.10-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.15-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.15-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.25-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.25-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        }
+      }
+    },
+    "half_ppr": {
+      "eligibleWeeks": [],
+      "excludedWeeks": [
+        {
+          "week": 1,
+          "reason": "no slate baseline"
+        }
+      ],
+      "byArm": {
+        "market-off": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.05-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.05-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.10-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.10-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.15-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.15-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.25-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.25-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        }
+      }
+    },
+    "ppr": {
+      "eligibleWeeks": [],
+      "excludedWeeks": [
+        {
+          "week": 1,
+          "reason": "no slate baseline"
+        }
+      ],
+      "byArm": {
+        "market-off": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.05-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.05-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.10-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.10-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.15-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.15-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.25-shrink1": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        },
+        "cap0.25-shrink0.5": {
+          "weekly": [],
+          "season": {
+            "mae": null,
+            "spearman": null,
+            "pairwise": null,
+            "cov80": null,
+            "cov50": null,
+            "weeksScored": 0
+          }
+        }
+      }
+    }
+  }
+}
