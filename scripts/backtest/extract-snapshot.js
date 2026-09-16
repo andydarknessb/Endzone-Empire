@@ -140,6 +140,15 @@ const ORACLE_PLAYERS_PER_POSITION = 5;
  * 2025 W1 and 2024 W1 are NOT evaluated weeks (the window is weeks 2-18). They
  * exist solely to pin the scan-off / defense-count-off branch that no evaluated
  * week reaches.
+ *
+ * `priorSeasonScan` and `priorSeasonDefenseGameCount` (#1485) are two MORE
+ * conditional queries in the production surface, gated on `scanPositions.length
+ * > 0` rather than on week - so, unlike `leagueScan`, they fire in EVERY oracle
+ * week here, week 1 included, because every oracle cohort covers every
+ * position (`selectOracleCohort`). This table carries no columns for them: with
+ * a real cohort there is no OFF state among these six weeks to pin, so they are
+ * accepted and recorded via `observedSql` rather than added to this fired/
+ * not-fired table.
  */
 const ORACLE_WEEKS = Object.freeze([
   Object.freeze({ season: 2025, week: 1, leagueScan: false, defenseGameCount: false, evaluated: false }),
@@ -182,7 +191,7 @@ const EXTRACTION_SQL = Object.freeze({
   // again at :629/:548). Without it the reconstruction has no way to say which
   // roster row belongs to which database player, and the whole cohort is
   // unbuildable. Capturing it costs one column and closes that gap; it is NOT
-  // added to the 8-query surface, which stays exactly what production issues.
+  // added to the 10-query surface, which stays exactly what production issues.
   players: `SELECT "id", "external_id", "name", "position", "nfl_team", "injury_status",
             "injury_detail", "adp",
             fn_normalize_nfl_team("nfl_team") AS "team_key"
@@ -447,7 +456,7 @@ function createRecordingClient(client, { surfaceOnly = false, label = 'query' } 
       const entry = SQL_BY_SIGNATURE.get(signature);
       if (surfaceOnly && !entry) {
         throw new Error(
-          `${label}: production issued SQL the pinned 8-query surface does not contain ` +
+          `${label}: production issued SQL the pinned 10-query surface does not contain ` +
           `(signature ${signature}). The snapshot client could not answer it offline, so the ` +
           `snapshot would not reproduce production. First 120 characters: ` +
           `${normalizeSql(sql).slice(0, 120)}`

@@ -152,7 +152,7 @@ function reconstructedClient({ season = 2025, week = 3, policy } = {}) {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-test('the client answers exactly the 8 production queries and throws on a ninth', async () => {
+test('the client answers exactly the 10 production queries and throws on an eleventh', async () => {
   const c = offClient();
   for (const entry of surface.SQL_SURFACE) {
     const params = {
@@ -163,16 +163,18 @@ test('the client answers exactly the 8 production queries and throws on a ninth'
       historyWindowSchedule: [2023, 2025, 3],
       leagueScan: [2025, 3, ['QB', 'RB', 'WR'], 60000],
       defenseGameCount: [2025, 3],
+      priorSeasonScan: [2024, ['QB', 'RB', 'WR'], 60000],
+      priorSeasonDefenseGameCount: [2024],
       byeWeeks: [2025, ['KC'], 18],
     }[entry.name];
     const result = await c.query(entry.text, params);
     assert.ok(Array.isArray(result.rows), `${entry.name} returned rows`);
   }
-  assert.equal(c.counters.queries, 8);
+  assert.equal(c.counters.queries, 10);
 
   await assert.rejects(
     () => c.query('SELECT * FROM "projection_runs"', []),
-    /unknown SQL.*will not guess at a ninth/s
+    /unknown SQL.*will not guess at an eleventh/s
   );
   // Whitespace-only differences are the SAME query: re-indenting production is
   // not a behaviour change.
@@ -203,6 +205,23 @@ test('a client bound to one week refuses a query parameterized for another', asy
     /history window starts at 2020, expected 2023/);
   await assert.rejects(() => c.query(sqlFor('priorPlayerSeasonStats'), [[1], 2024]),
     /bound to season 2025 but the query asks for 2024/);
+});
+
+test('the two prior-season queries are bound to season - 1, not to season or week', async () => {
+  // A client built for 2025 W3 has a prior season of 2024. Neither the SQL nor
+  // the binding carries a week at all - a completed season has no cutoff - so
+  // only the priorSeason parameter is checked.
+  const c = offClient({ season: 2025, week: 3 });
+  await assert.rejects(() => c.query(sqlFor('priorSeasonScan'), [2023, ['QB'], 60000]),
+    /bound to season 2025, so its prior season is 2024, but the query asks for prior season 2023/);
+  await assert.rejects(() => c.query(sqlFor('priorSeasonScan'), [2025, ['QB'], 60000]),
+    /bound to season 2025, so its prior season is 2024, but the query asks for prior season 2025/);
+  await assert.rejects(() => c.query(sqlFor('priorSeasonDefenseGameCount'), [2023]),
+    /bound to season 2025, so its prior season is 2024, but the query asks for prior season 2023/);
+  const ok = await c.query(sqlFor('priorSeasonScan'), [2024, ['QB'], 60000]);
+  assert.ok(Array.isArray(ok.rows));
+  assert.equal(surface.SQL_BY_NAME.get('priorSeasonScan').binding.season, undefined);
+  assert.equal(surface.SQL_BY_NAME.get('priorSeasonScan').binding.week, undefined);
 });
 
 test('byeWeeks is season-bound but deliberately NOT week-bound', async () => {
@@ -646,6 +665,128 @@ test('the defense-game count and bye query read the schedule the same way SQL do
     /no captured row spells team "Nowhere FC"/);
 });
 
+// ---------------------------------------------------------------------------
+// The prior-season opponent seed (#1485)
+// ---------------------------------------------------------------------------
+
+test('priorSeasonDefenseGameCount counts the whole prior season, with no week cutoff', async () => {
+  const c = offClient({ season: 2025, week: 3 });
+  const counts = await c.query(sqlFor('priorSeasonDefenseGameCount'), [2024]);
+  const byTeam = Object.fromEntries(counts.rows.map((r) => [r.team, r.prior_games]));
+  // games(2024) has KC in weeks 1, 2 AND 3 - all three count, unlike
+  // `defenseGameCount`, because a completed prior season has no target week to
+  // stop short of.
+  assert.equal(byTeam.KC, 3);
+  assert.equal(byTeam.WAS, 2);
+  assert.equal(byTeam.LAR, 1);
+  assert.equal(byTeam.BUF, 2);
+  assert.equal(typeof counts.rows[0].prior_games, 'number', 'COUNT(*)::int is an int4');
+
+  // Which week of THIS season is being projected changes nothing: the prior
+  // season is complete regardless.
+  const atWeek1 = await offClient({ season: 2025, week: 1 })
+    .query(sqlFor('priorSeasonDefenseGameCount'), [2024]);
+  assert.deepEqual(Object.fromEntries(atWeek1.rows.map((r) => [r.team, r.prior_games])), byTeam);
+});
+
+test('priorSeasonScan reads the whole prior season, with defense from gameOpponent and null when absent', async () => {
+  const priorStats = [
+    { player_id: 1, season: 2024, week: 1, stats: { passingYards: 300, gameOpponent: 'WSH' } },
+    { player_id: 1, season: 2024, week: 2, stats: { passingYards: 250 } }, // no gameOpponent
+    { player_id: 2, season: 2024, week: 1, stats: { rushingYards: 50, gameOpponent: 'BUF' } },
+    { player_id: 3, season: 2024, week: 2, stats: { receptions: 4, gameOpponent: 'KC' } },
+    // A CURRENT-season row must never leak into the PRIOR-season query.
+    { player_id: 1, season: 2025, week: 1, stats: { passingYards: 999, gameOpponent: 'WSH' } },
+  ];
+  const snapshot = client.assembleSnapshot({
+    manifest: MANIFEST,
+    players: PLAYERS,
+    playerStats: priorStats,
+    playerSeasonStats: [],
+    nflGamesBySeason: new Map([[2023, []], [2024, games(2024)], [2025, games(2025)]]),
+  });
+  const c = client.createSnapshotClient({ snapshot, season: 2025, week: 1, mode: MODES.OFF });
+  const scan = await c.query(sqlFor('priorSeasonScan'), [2024, ['QB', 'RB', 'WR'], 60000]);
+
+  // Every week of 2024 is fair game (no cutoff), but the 2025 row never
+  // appears - it belongs to a different season entirely.
+  assert.equal(scan.rows.length, 4);
+  assert.equal(scan.rows.some((r) => r.stats.passingYards === 999), false);
+
+  const p1w1 = scan.rows.find((r) => r.player_id === 1 && r.week === 1);
+  assert.equal(p1w1.defense, 'WAS', 'gameOpponent "WSH" folds to the canonical WAS key');
+  assert.equal(p1w1.position, 'QB', 'off mode joins to the CURRENT players row for position');
+
+  const p1w2 = scan.rows.find((r) => r.player_id === 1 && r.week === 2);
+  assert.equal(p1w2.defense, null, 'no gameOpponent means no lookup and no defense');
+
+  // ORDER BY (player_id, week).
+  const keys = scan.rows.map((r) => `${r.player_id}:${r.week}`);
+  assert.deepEqual(keys, [...keys].sort());
+
+  // LIMIT truncates to a whole-row prefix, exactly like leagueScan.
+  const limited = await c.query(sqlFor('priorSeasonScan'), [2024, ['QB', 'RB', 'WR'], 2]);
+  assert.deepEqual(limited.rows, scan.rows.slice(0, 2));
+});
+
+test('the reconstructed prior-season scan takes position from the ROSTER for the prior season, and skips what it cannot place', async () => {
+  const priorStats = [
+    // Player 1 was an RB in the prior season, not today's QB.
+    { player_id: 1, season: 2024, week: 1, stats: { passingYards: 300, gameOpponent: 'WSH' } },
+    // Player 2 is on reserve that prior week, so the cohort excludes him.
+    { player_id: 2, season: 2024, week: 1, stats: { rushingYards: 50, gameOpponent: 'BUF' } },
+    // Player 5 has no gsis mapping at all.
+    { player_id: 5, season: 2024, week: 1, stats: { receptions: 2 } },
+  ];
+  const rosterIndex = asOf.buildRosterIndex([
+    { season: 2024, week: 1, team: 'KC', position: 'RB', status: 'ACT', gsis_id: '00-0000001', full_name: 'Aaron QB', game_type: 'REG' },
+    { season: 2024, week: 1, team: 'WAS', position: 'RB', status: 'RES', gsis_id: '00-0000002', full_name: 'Bella RB', game_type: 'REG' },
+  ]);
+  const snapshot = client.assembleSnapshot({
+    // `seasons: []`: this test is about the prior-season scan, not the
+    // overlay-coverage gate, so it opts out of that gate the same way the
+    // "EXPLICIT empty overlay" test does.
+    manifest: { ...MANIFEST, seasons: [] },
+    players: [...PLAYERS, {
+      id: 5, name: 'No Mapping', position: 'WR', nfl_team: 'KC',
+      injury_status: null, injury_detail: null, adp: null, team_key: 'KC',
+    }],
+    playerStats: priorStats,
+    playerSeasonStats: [],
+    nflGamesBySeason: new Map([[2023, []], [2024, games(2024)], [2025, games(2025)]]),
+  });
+  const c = client.createSnapshotClient({
+    snapshot,
+    season: 2025,
+    week: 1,
+    mode: MODES.RECONSTRUCTED,
+    reconstruction: {
+      rosterIndex,
+      policy: asOf.INJURY_POLICIES.PRIMARY,
+      normalizeTeamKey,
+      overlayRows: [],
+      gsisByPlayerId: new Map([[1, '00-0000001'], [2, '00-0000002']]), // player 5 unmapped
+      viewFor: ({ season, week, gsisId }) => asOf.reconstructPlayerWeek({
+        rosterIndex, season, week, gsisId, normalizeTeamKey,
+      }),
+    },
+  });
+  const scan = await c.query(sqlFor('priorSeasonScan'), [2024, ['RB', 'WR'], 60000]);
+
+  // Player 2 (not in cohort) and player 5 (no gsis mapping) are both omitted,
+  // exactly as leagueScan omits what it cannot place. Only player 1 remains,
+  // labelled by the ROSTER's position rather than today's QB.
+  assert.deepEqual(scan.rows.map((r) => r.player_id), [1]);
+  assert.equal(scan.rows[0].position, 'RB');
+  assert.equal(scan.rows[0].defense, 'WAS');
+
+  // Off mode, on the same snapshot, still says QB - proving the difference is
+  // the reconstruction's doing.
+  const off = await client.createSnapshotClient({ snapshot, season: 2025, week: 1, mode: MODES.OFF })
+    .query(sqlFor('priorSeasonScan'), [2024, ['QB'], 60000]);
+  assert.equal(off.rows.find((r) => r.player_id === 1).position, 'QB');
+});
+
 test('playersById serves production\'s EXACT 8 columns, in both modes', async () => {
   // Every other handler builds an explicit row object, so it can only serve
   // production's column list. playersById used to pass the captured row
@@ -853,7 +994,7 @@ test('two queries that normalize alike are refused, because dispatch is BY signa
     { name: 'a', text: 'SELECT 1' }, { name: 'b', text: 'SELECT 2' },
   ]);
   assert.equal(ok.size, 2);
-  assert.equal(surface.assertUniqueSignatures(surface.SQL_SURFACE).size, 8);
+  assert.equal(surface.assertUniqueSignatures(surface.SQL_SURFACE).size, 10);
 });
 
 test('the shared SQL surface is the single definition both phases use', () => {
@@ -861,7 +1002,7 @@ test('the shared SQL surface is the single definition both phases use', () => {
   // Same object, not a copy: a drifting duplicate is exactly what this prevents.
   assert.equal(extract.SQL_SURFACE, surface.SQL_SURFACE);
   assert.equal(extract.normalizeSql, surface.normalizeSql);
-  assert.equal(surface.SQL_SURFACE.length, 8);
+  assert.equal(surface.SQL_SURFACE.length, 10);
   for (const entry of surface.SQL_SURFACE) {
     assert.ok(entry.binding, `${entry.name} declares a parameter binding`);
   }

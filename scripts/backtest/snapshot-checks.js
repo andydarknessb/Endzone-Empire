@@ -40,6 +40,7 @@ const { readVerified, readProvenanceRecords, sha256Hex } = require('./lib/verifi
 const { collectColumns } = require('./lib/csv');
 const { SOURCES, sourceByName, assertSafeSourceFile, GAMES_CSV_SHA256 } = require('./lib/sources');
 const store = require('./lib/snapshotStore');
+const { SQL_SURFACE, SQL_BY_NAME, sqlSignature } = require('./lib/sqlSurface');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const DEFAULT_DATA_DIR = path.join(REPO_ROOT, 'backtest-data');
@@ -599,11 +600,35 @@ function checkManifestCompleteness({ manifest }) {
   if (missing.length > 0) {
     return fail('manifest', `missing field(s) ${missing.join(', ')}`);
   }
-  if (!Array.isArray(manifest.sqlSurface) || manifest.sqlSurface.length !== 8) {
-    return fail('manifest',
-      `sqlSurface pins ${(manifest.sqlSurface || []).length} SQL texts, expected the 8 the ` +
-      'production read surface issues');
+  if (!Array.isArray(manifest.sqlSurface)) {
+    return fail('manifest', 'sqlSurface is not a list of pinned SQL texts');
   }
+  // The pinned surface is checked entry by entry against the CURRENT one, not
+  // by count. Every entry the manifest pins must still exist with the same
+  // signature (an edited query is a different query), every entry that
+  // existed when the sealed study was extracted must be pinned, and an entry
+  // the surface gained later (`since` on the surface entry, e.g. the v3.2
+  // prior-season pair) may be absent from an older manifest: the sealed
+  // pit-sweep-2024-2025 snapshot was captured under the original 8 and stays
+  // valid as a capture of those 8, which is what this check is for.
+  const pinnedByName = new Map(manifest.sqlSurface.map((e) => [e.name, e]));
+  const unknown = manifest.sqlSurface.filter((e) => !SQL_BY_NAME.has(e.name)).map((e) => e.name);
+  if (unknown.length > 0) {
+    return fail('manifest', `sqlSurface pins SQL text(s) the production read surface does not issue: ${unknown.join(', ')}`);
+  }
+  const drifted = manifest.sqlSurface
+    .filter((e) => SQL_BY_NAME.get(e.name) && sqlSignature(SQL_BY_NAME.get(e.name).text) !== e.signature)
+    .map((e) => e.name);
+  if (drifted.length > 0) {
+    return fail('manifest', `sqlSurface pins a different text than production now issues for: ${drifted.join(', ')}`);
+  }
+  const missingRequired = SQL_SURFACE.filter((e) => !e.since && !pinnedByName.has(e.name)).map((e) => e.name);
+  if (missingRequired.length > 0) {
+    return fail('manifest',
+      `sqlSurface pins ${manifest.sqlSurface.length} SQL texts and does not pin ${missingRequired.join(', ')}, ` +
+      `which the production read surface issues (${SQL_SURFACE.length} texts today)`);
+  }
+  const notPinnedSince = SQL_SURFACE.filter((e) => e.since && !pinnedByName.has(e.name)).map((e) => e.name);
   const failedChecks = (manifest.integrityChecks || []).filter((c) => c.status !== 'passed');
   if (failedChecks.length > 0) {
     return fail('manifest',
@@ -619,8 +644,12 @@ function checkManifestCompleteness({ manifest }) {
     return fail('manifest',
       'the manifest does not record that the orientation overlay was NOT written to the database');
   }
-  return pass('manifest', 'every field the freeze manifest will pin is present', {
+  return pass('manifest', notPinnedSince.length > 0
+    ? 'every field the freeze manifest will pin is present; the surface gained '
+      + `${notPinnedSince.join(', ')} after this manifest was extracted`
+    : 'every field the freeze manifest will pin is present', {
     sqlTexts: manifest.sqlSurface.length,
+    sqlTextsAddedSince: notPinnedSince.length,
     integrityChecks: (manifest.integrityChecks || []).length,
     datasets: manifest.datasets.length,
   });

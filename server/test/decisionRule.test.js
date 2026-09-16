@@ -43,8 +43,13 @@ test('the shipped constant is median, and the default path is the median path ex
 });
 
 test("'mean' ranks the boom player into the lineup the median would bench", () => {
+  // Tied to the successor constant rather than a hardcoded string, so this
+  // test breaks loudly if MODEL_CONSTANTS_V3_2's ranking statistic ever moves.
+  assert.equal(model.MODEL_CONSTANTS_V3_2.decision.lineupRanking, 'mean');
   const { lineup, projections } = disagreeing();
-  const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'mean' });
+  const result = buildSuggestions(
+    lineup, projections, new Map(), RB1, { lineupRanking: model.MODEL_CONSTANTS_V3_2.decision.lineupRanking }
+  );
   // The optimizer's choice changes: 2 in, 1 out.
   assert.deepEqual(result.movePlan.map((m) => `${m.playerId}:${m.fromSlot}->${m.toSlot}`).sort(),
     ['1:RB->BENCH', '2:BENCH->RB']);
@@ -96,7 +101,7 @@ test("'mean' gives an unavailable player rank 0, same as the display rule", () =
 
 test('an unknown ranking value behaves as median, never as something new', () => {
   const { lineup, projections } = disagreeing();
-  const byDefault = buildSuggestions(lineup, projections, new Map(), RB1);
+  const byMedian = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'median' });
   const byUnknown = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'p99-yolo' });
-  assert.deepEqual(byUnknown, byDefault);
+  assert.deepEqual(byUnknown, byMedian);
 });

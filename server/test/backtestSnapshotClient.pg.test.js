@@ -2,7 +2,7 @@
  * Disposable-Postgres CONTRACT tests for the snapshot client: the properties a
  * JS emulation can only claim until a real Postgres has agreed with it.
  *
- * The snapshot client re-implements eight SQL queries in JavaScript. Every one
+ * The snapshot client re-implements ten SQL queries in JavaScript. Every one
  * of those re-implementations is a guess about what Postgres does until it is
  * checked against Postgres. The guesses that actually bite are not the obvious
  * ones - they are `ANY` on an empty array, a `LEFT JOIN` that produces nulls

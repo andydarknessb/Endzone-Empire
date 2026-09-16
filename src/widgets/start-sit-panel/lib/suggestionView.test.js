@@ -14,6 +14,32 @@ describe('opponentContextText', () => {
   test('no opponent (a bye) reads as null, never a guessed line', () => {
     expect(opponentContextText({ opponent: null, opponentPointsAllowed: 15.2, position: 'RB' })).toBeNull();
   });
+
+  // #1485: the matchup line reads as descriptive-only (never applied to the
+  // number above it) when the engine's own opponent factor did not fire, even
+  // though a raw points-allowed figure is still displayable.
+  test('marks the line context-only when the engine did not apply the opponent factor', () => {
+    expect(opponentContextText({
+      opponent: 'CIN', opponentPointsAllowed: 28.6, position: 'WR', opponentApplied: false,
+    })).toBe('vs CIN (allows 28.6 to WR, context only)');
+  });
+
+  test('reads as an applied matchup when opponentApplied is true', () => {
+    expect(opponentContextText({
+      opponent: 'CIN', opponentPointsAllowed: 28.6, position: 'WR', opponentApplied: true,
+    })).toBe('vs CIN (allows 28.6 to WR)');
+  });
+
+  test('a legacy payload with no opponentApplied field keeps the old, unqualified text', () => {
+    expect(opponentContextText({ opponent: 'CIN', opponentPointsAllowed: 28.6, position: 'WR' }))
+      .toBe('vs CIN (allows 28.6 to WR)');
+  });
+
+  test('context-only never applies to the bare-opponent fallback (no points allowed to qualify)', () => {
+    expect(opponentContextText({
+      opponent: 'CIN', opponentPointsAllowed: null, position: 'RB', opponentApplied: false,
+    })).toBe('vs CIN');
+  });
 });
 
 describe('earlierKickoff', () => {
@@ -65,6 +91,17 @@ describe('buildSuggestionView', () => {
       playerId: 2, name: 'Start Guy', projection: 14.5, floor: 9, ceiling: 20,
       position: 'RB', kickoff: '2026-09-14T20:00:00Z', opponentContext: 'vs NYJ (allows 21.4 to RB)',
     });
+  });
+
+  test('forwards side.opponentApplied into opponentContext (#1485)', () => {
+    const seeded = {
+      ...suggestion,
+      current: { ...suggestion.current, opponentApplied: false },
+      suggested: { ...suggestion.suggested, opponentApplied: true },
+    };
+    const view = buildSuggestionView(seeded, entriesById);
+    expect(view.sit.opponentContext).toBe('vs CIN (allows 12.1 to RB, context only)');
+    expect(view.start.opponentContext).toBe('vs NYJ (allows 21.4 to RB)');
   });
 
   test('decideBy is the earlier of the two kickoffs', () => {

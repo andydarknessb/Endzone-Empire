@@ -1303,8 +1303,28 @@ _Avoid_: confidence, margin, error bar, range
 **Floor** and **Ceiling**:
 The manager-facing names for the ends of an Interval: Floor is its 10th
 percentile, Ceiling its 90th. They are presentation names for the interval,
-never a separate estimate.
+never a separate estimate. From free_baseline_v3.2 the simulated draws are
+truncated at the Position floor before either is read, so a Floor is never
+a value no real game has scored (ADR 0047).
 _Avoid_: low, high, worst case, best case, range
+
+**Position floor**:
+The lowest score any player of a position group has recorded over the
+prior season and the current season to date under the league's own
+scoring rules. Data computed per
+projection run, never a constant; the engine truncates its simulated draws
+there so the Floor and the start/sit probability are not fed an impossible
+negative outcome (ADR 0047).
+_Avoid_: minimum projection, clamp at zero
+
+**Seeded opponent sample**:
+The opponent Factor's evidence in the early weeks: the prior season's points
+allowed per position, worth four pseudo-games, blended toward the current
+season as real games accrue. It is why the Factor applies from week 1
+instead of reporting an insufficient sample until week 4. The advice card
+labels the matchup line "context only" when the Factor did not apply
+(ADR 0047).
+_Avoid_: last year's defense, carry-over
 
 **Start/sit advice**:
 The engine's recommendation about which rostered players to start, including an

@@ -68,11 +68,12 @@ function opponentRankOf(projections, playerId) {
 
 /**
  * Classifies one `getWeeklyProjections` result for one week (formal review
- * f3): unavailable, with the 'on IR' | 'out' reason, or a point value
- * (median falling back to mean, `null` when the producer had neither).
- * Shared by `buildWeeksForPage` (the list, #1309) and `buildWeeklyBars` (the
- * card, #1306) so the two never classify the same projection two different
- * ways - the list and the card must agree here (spec #1303, story 7).
+ * f3): unavailable, with the 'on IR' | 'out' reason, or a point value (the
+ * RANKING statistic, `projectionService.pointEstimateFor` - #1483 - `null`
+ * when the producer had neither). Shared by `buildWeeksForPage` (the list,
+ * #1309) and `buildWeeklyBars` (the card, #1306) so the two never classify the
+ * same projection two different ways - the list and the card must agree here
+ * (spec #1303, story 7).
  */
 function classifyWeekProjection(projection) {
   const unavailable = !!(projection
@@ -82,7 +83,7 @@ function classifyWeekProjection(projection) {
   if (unavailable) {
     return { unavailable: true, reason: projection.factors.availability.reason === 'ir' ? 'on IR' : 'out' };
   }
-  const point = projection ? (projection.median != null ? projection.median : projection.mean) : null;
+  const point = projection ? projectionService.pointEstimateFor(projection) : null;
   return { unavailable: false, points: point == null ? null : Number(point) };
 }
 

@@ -298,11 +298,12 @@ function extractionDeps(overrides = {}) {
 // The 8 SQL texts
 // ---------------------------------------------------------------------------
 
-test('the pinned SQL surface is exactly the 8 texts production issues, each still verbatim in its source', () => {
-  assert.equal(SQL_SURFACE.length, 8);
+test('the pinned SQL surface is exactly the 10 texts production issues, each still verbatim in its source', () => {
+  assert.equal(SQL_SURFACE.length, 10);
   assert.deepEqual(SQL_SURFACE.map((e) => e.name), [
     'playersById', 'priorPlayerStats', 'priorPlayerSeasonStats', 'targetWeekSchedule',
-    'historyWindowSchedule', 'leagueScan', 'defenseGameCount', 'byeWeeks',
+    'historyWindowSchedule', 'leagueScan', 'defenseGameCount',
+    'priorSeasonScan', 'priorSeasonDefenseGameCount', 'byeWeeks',
   ]);
   // Read production as TEXT, never require it: requiring projectionFeatures
   // from here would be fine, but the point is that the PIN is checked against
@@ -319,9 +320,12 @@ test('the pinned SQL surface is exactly the 8 texts production issues, each stil
       `${entry.name} no longer appears verbatim in ${file}; the pinned surface has drifted`
     );
   }
-  // Exactly two are conditional, matching the preregistration's section-15 table.
+  // Exactly four are conditional: the original two, plus the prior-season
+  // opponent seed's two (#1485), matching the preregistration's section-15
+  // table for the original two and `loadFeatureBundle`'s `scanPositions.length
+  // > 0` gate for the two added afterward.
   assert.deepEqual(SQL_SURFACE.filter((e) => e.conditional).map((e) => e.name),
-    ['leagueScan', 'defenseGameCount']);
+    ['leagueScan', 'defenseGameCount', 'priorSeasonScan', 'priorSeasonDefenseGameCount']);
 });
 
 test('signatures are whitespace-invariant but change on any real edit', () => {
@@ -335,8 +339,8 @@ test('signatures are whitespace-invariant but change on any real edit', () => {
     extract.sqlSignature(players.text.replace('"adp"', '"adp2"'))
   );
   const signed = extract.sqlSurfaceSignatures();
-  assert.equal(signed.length, 8);
-  assert.equal(new Set(signed.map((s) => s.signature)).size, 8);
+  assert.equal(signed.length, 10);
+  assert.equal(new Set(signed.map((s) => s.signature)).size, 10);
   for (const entry of signed) assert.match(entry.signature, /^[0-9a-f]{64}$/);
 });
 
@@ -346,7 +350,7 @@ test('the recording client refuses SQL the pinned surface does not contain', asy
   await recording.query(SQL_SURFACE[0].text, [[1]]);
   await assert.rejects(
     () => recording.query('SELECT * FROM "projection_runs"', []),
-    /the pinned 8-query surface does not contain/
+    /the pinned 10-query surface does not contain/
   );
   assert.deepEqual(recording.observedNames(), ['playersById']);
 });
@@ -660,11 +664,16 @@ test('ORACLE_WEEKS is the section-15 table of the SEALED preregistration, parsed
   const prose = section.replace(/\s+/g, ' ');
   assert.ok(prose.includes('**Week 1 is NOT an evaluated week.**'));
   assert.ok(prose.includes('weeks 2-18'));
-  // And the document names the same 8-query surface this module pins.
+  // And the document names the 8-query surface this module pinned when the
+  // preregistration was sealed. The sealed document is never edited, so this
+  // count is pinned to the literal 8 it always described - NOT to
+  // `SQL_SURFACE.length`, which has since grown to 10 with the prior-season
+  // opponent seed (#1485), added after the seal and therefore absent from
+  // this prose by design.
   const surfacePhrases = ['players by id', 'prior `player_stats`', 'prior `player_season_stats`',
     'target-week `nfl_games`', 'history-window `nfl_games`', 'the league-wide scan',
     'the normalized defense-game count', '`computeByeWeeks`'];
-  assert.equal(surfacePhrases.length, SQL_SURFACE.length);
+  assert.equal(surfacePhrases.length, 8);
   for (const fragment of surfacePhrases) {
     assert.ok(prose.includes(fragment), `section 15 should name ${fragment}`);
   }
@@ -800,7 +809,7 @@ test('an oracle that issues unknown SQL, or misses an unconditional query, fails
     generateProjections: makeFakeGenerateProjections({ extraSql: 'SELECT 1 FROM "leagues"' }),
     players: DB_PLAYERS, nameRankById, rules: {}, hashValue: 'h', modelConstants: {},
     oracleWeeks: [{ season: 2025, week: 9, leagueScan: true, defenseGameCount: true }],
-  }), /the pinned 8-query surface does not contain/);
+  }), /the pinned 10-query surface does not contain/);
 
   // A scan-OFF week, so the conditional-branch check is satisfied and the
   // MISSING UNCONDITIONAL query is what the failure has to be about.
@@ -1102,8 +1111,8 @@ test('--apply writes every dataset, and the manifest pins what the freeze needs'
   assert.deepEqual(manifest.capturedAsEmpty.nfl_games, [2022, 2023],
     'a season the schedule query reached and found empty is recorded as an observation');
 
-  // The 8 SQL texts, signed.
-  assert.equal(manifest.sqlSurface.length, 8);
+  // The 10 SQL texts, signed.
+  assert.equal(manifest.sqlSurface.length, 10);
   assert.deepEqual(manifest.sqlSurface.map((s) => s.signature),
     extract.sqlSurfaceSignatures().map((s) => s.signature));
 

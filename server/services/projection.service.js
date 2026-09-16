@@ -331,6 +331,7 @@ function projectFromBundle({
   // expertConsensusBlend for why the difference matters downstream.
   oddsByGameKey = null, slateAverageImplied = null, expertByPlayerId = null,
   constants = model.MODEL_CONSTANTS,
+  modelVersion = model.MODEL_VERSION,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5), forwarded
   // unchanged to model.projectPlayer. Validated at the top of the function
   // body, before ANY other logic - including before the `!player` early
@@ -379,19 +380,44 @@ function projectFromBundle({
   const onBye = byeWeek != null && Number(byeWeek) === Number(week);
 
   const allowance = context && opponentTeam ? context.allowedByDefense.get(opponentTeam) : null;
+  // #1485: last season's allowance for this group/opponent, seeding the
+  // factor through the weeks the current-season scan has not accrued enough
+  // games for yet (week 1 has none at all, since `bundle.leagueContext` is
+  // only populated for week > 1). `prior` is null whenever the bundle was not
+  // built with a prior-season context (e.g. a hand-built test fixture), which
+  // opponentEffect treats identically to "no prior season available".
+  const prior = group && bundle.priorSeasonContext ? bundle.priorSeasonContext.get(group) : null;
+  const priorAllowance = prior && opponentTeam ? prior.allowedByDefense.get(opponentTeam) : null;
+  // #1483: the position floor `simulateDistribution` truncates its draws at -
+  // the lowest points any player of this group scored, over whichever of the
+  // current-season and prior-season scans actually have rows. Both contexts
+  // report `minObservedPoints: null` when they saw no rows at all (week 1's
+  // current-season context, or a hand-built fixture with no prior context),
+  // so this is the minimum of whichever finite values exist, and null when
+  // neither does - never a fabricated 0.
+  const observedFloors = [context, prior]
+    .map((c) => (c ? c.minObservedPoints : null))
+    .filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const positionFloor = observedFloors.length > 0 ? Math.min(...observedFloors) : null;
   const opponent = model.opponentEffect({
     allowedPerGame: allowance ? allowance.allowedPerGame : null,
     leagueAveragePerGame: context ? context.leagueAllowedPerGame : null,
     games: allowance ? allowance.games : 0,
     opponentTeam,
     constants: constants.opponent,
+    priorAllowedPerGame: priorAllowance ? priorAllowance.allowedPerGame : null,
+    priorLeagueAveragePerGame: prior ? prior.leagueAllowedPerGame : null,
   });
   // #1342 Ruling item 1: rank is a read-side annotation on the opponent Factor
   // the engine already computed, never a second producer. Only an `available`
   // factor is guaranteed a resolvable entry in `allowedByDefense` (opponentEffect
   // itself gates on `games >= constants.minGames`), so a NEUTRAL factor (no
-  // opponent data, insufficient sample) carries neither `rank` nor `of`.
-  if (opponent.available) {
+  // opponent data, insufficient sample) carries neither `rank` nor `of`. #1485
+  // adds a second reason rank can be unavailable even on an AVAILABLE factor:
+  // at week 1 (or any week the seed alone clears minGames) `context` itself is
+  // null, since the current-season league scan never ran, so there is no
+  // current-season `allowedByDefense` map to rank within at all.
+  if (opponent.available && context) {
     const opponentRank = rankOpponentDefense(context.allowedByDefense, opponentTeam);
     if (opponentRank) {
       opponent.rank = opponentRank.rank;
@@ -453,6 +479,7 @@ function projectFromBundle({
     season,
     week,
     constants,
+    modelVersion,
     scoringHashValue: hashValue,
     priorGames,
     priorSeasonPerGame: priorSeasonPerGame(bundle.seasonRowsByPlayer.get(playerId), rules, season),
@@ -463,6 +490,7 @@ function projectFromBundle({
     positionEfficiencyPerOpportunity: context ? context.efficiencyPerOpportunity : null,
     playerResiduals: playerResidualsFrom(priorGames),
     pooledResiduals: context ? context.residuals : [],
+    positionFloor,
     opponent,
     versusOpponent,
     homeAway,
@@ -533,6 +561,12 @@ async function generateProjections({
   // Overridable so scripts/backtest-weekly-projections.js can sweep
   // half-life / shrinkage alternatives against the same weeks.
   modelConstants = model.MODEL_CONSTANTS,
+  // The version string stamped on the run and every projection, and part of
+  // every draw's seed. A caller running a REGISTERED successor's constants
+  // (the #1439 evaluator with MODEL_CONSTANTS_V3_2) passes its version so the
+  // rows say which constants produced them and `pointEstimateFor` can read
+  // the ranking statistic back off the row. Defaults to what HEAD ships.
+  modelVersion = model.MODEL_VERSION,
   // The odds seam's read bound, and NOTHING else (#1268, ADR 0039): forwarded
   // untouched to `getWeeklyOdds({ observedAtOrBefore })`. `input_cutoff` (the
   // week's first kickoff) is never this value. `holdout.service.js`'s
@@ -564,6 +598,9 @@ async function generateProjections({
   }
   const bundle = await features.loadFeatureBundle({
     season, week, playerIds, rules, client, playerContextOverrideById,
+    // The run's constants decide whether the prior-season scan runs at all
+    // (#1485 seeding, #1483 Position floor): under v3.1 no new query is issued.
+    constants: modelConstants,
   });
 
   // Weather is strictly optional context and must never be able to fail the
@@ -634,6 +671,7 @@ async function generateProjections({
         playerId, bundle, rules, season, week, hashValue, weatherByGameKey,
         oddsByGameKey, slateAverageImplied: slateAverage, expertByPlayerId,
         constants: modelConstants,
+        modelVersion,
         onPreHomeAwayBaseline,
       })
     );
@@ -641,6 +679,7 @@ async function generateProjections({
 
   return {
     projections,
+    modelVersion,
     inputCutoff: bundle.inputCutoff,
     sourceCoverage: buildSourceCoverage({ bundle, projections, weatherCoverage }),
   };
@@ -1086,7 +1125,7 @@ async function getRestOfSeason(playerIds, leagueId, { client = pool, runsByWeek 
         && projection.factors.availability
         && projection.factors.availability.available === false);
       if (unavailable) continue; // bye/Out/IR: zero, and never counted toward perGame
-      const point = projection.median != null ? projection.median : projection.mean;
+      const point = pointEstimateFor(projection);
       if (point == null) continue;
       totals.set(id, Math.round((totals.get(id) + Number(point)) * 100) / 100);
       coveredGames.set(id, coveredGames.get(id) + 1);
@@ -1130,22 +1169,48 @@ async function getRestOfSeason(playerIds, leagueId, { client = pool, runsByWeek 
 }
 
 /**
+ * Pure: the ONE point estimate every manager-facing surface reads (#1482's
+ * consistency, #1483) - whichever statistic `constants.decision.lineupRanking`
+ * says the optimizer ranks lineups by, so the number on the row is the number
+ * the rule ranked on. 'mean' (the v3.2 default) reads `projection.mean`,
+ * falling back to `median` when a distribution had no mean (there is no such
+ * case today, but the fallback costs nothing and matches the median arm's own
+ * fallback); anything else (v3.1's 'median') reads `projection.median`,
+ * falling back to `mean`. A projection with neither reports `null`, never a
+ * fabricated 0.
+ */
+function pointEstimateFor(
+  projection,
+  // The RUN's constants, read back off the row's own `modelVersion` through
+  // the registry (#1483: the display follows the ranking statistic of the
+  // constants that produced the number, never the module default). A row
+  // stamped with a version this checkout cannot run falls back to HEAD's.
+  constants = model.constantsForVersion(projection && projection.modelVersion) || model.MODEL_CONSTANTS
+) {
+  const meanFirst = constants && constants.decision && constants.decision.lineupRanking === 'mean';
+  const primary = meanFirst ? projection.mean : projection.median;
+  const fallback = meanFirst ? projection.median : projection.mean;
+  return primary != null ? primary : fallback;
+}
+
+/**
  * Adapter: a v2 run -> the legacy `Map<playerId, { points, source }>` every
  * existing consumer expects, with the new fields carried alongside so callers
  * can adopt them one at a time.
  *
- * `points` is the MEDIAN when we have one (the middle of the simulated
- * outcomes, which is the number a manager should compare) and falls back to
- * the mean. A player with no projection at all reports `points: null` and
- * `source: 'unavailable'` — never a fabricated 0.
+ * `points` is the RANKING statistic (`pointEstimateFor`, #1483) - the mean
+ * under the shipped v3.2 constants, so the row, the Edge line, the card and
+ * the optimizer all read the same number the lineup rule ranked on. A player
+ * with no projection at all reports `points: null` and `source: 'unavailable'`
+ * — never a fabricated 0.
  */
 function toLegacyProjectionMap(run) {
   const out = new Map();
   for (const [playerId, projection] of run.projections) {
-    const point = projection.median != null ? projection.median : projection.mean;
+    const point = pointEstimateFor(projection);
     out.set(playerId, {
       points: point == null ? null : Number(point),
-      source: point == null ? 'unavailable' : model.MODEL_VERSION,
+      source: point == null ? 'unavailable' : (run.modelVersion || model.MODEL_VERSION),
       projection,
       confidence: projection.confidence,
       activeProbability: projection.activeProbability,
@@ -1182,4 +1247,5 @@ module.exports = {
   buildSourceCoverage,
   distinctGamesFor,
   toLegacyProjectionMap,
+  pointEstimateFor,
 };
