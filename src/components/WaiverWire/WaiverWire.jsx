@@ -36,7 +36,7 @@ import PlayerRow, { PlayerRowTableHead } from '../../widgets/player-row';
 import { useClaimPlayer } from '../../features/claim-player';
 import WaiverClaimItem from './WaiverClaimItem';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
-import { sortRosterForDrop } from '../../shared/lib';
+import { sortRosterForDrop, isRosterAtCapacity } from '../../shared/lib';
 
 // #1310 formal review f2: the On waivers table reuses `player-row` (the same
 // widget PlayerManagement's Players list renders), read from
@@ -246,6 +246,17 @@ function WaiverWire() {
   const faabRemaining = data?.myTeam?.faab_remaining ?? 0;
   const sortedRosterForDrop = sortRosterForDrop(roster);
 
+  // The same gate the Decision card's claim bar applies (ClaimPlayerAction):
+  // at capacity a claim with no drop can only 409 "roster capacity of N
+  // reached; choose a player to drop", so the drop pick is required before
+  // Submit rather than refused after it. Capacity is occupancy-based (#97):
+  // a 19-of-20 roster whose IR slot holds a non-eligible player is full, which
+  // the roster count alone never shows the manager. The count comes from the
+  // cards read's own context, the one read on this page that carries it.
+  const atCapacity = isRosterAtCapacity(cardsContext);
+  const dropMissing = atCapacity && dropPlayerId === '';
+  const dropLabel = atCapacity ? 'Drop a player' : 'Drop a player (optional)';
+
   const bidIsValidNumber = bid !== '' && !Number.isNaN(Number(bid));
   const bidInvalid =
     isFaab && (!bidIsValidNumber || Number(bid) < 0 || Number(bid) > faabRemaining);
@@ -449,16 +460,21 @@ function WaiverWire() {
           )}
         </DialogTitle>
         <DialogContent>
+          {atCapacity && (
+            <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 1 }} data-testid="claim-dialog-capacity-note">
+              Your roster is full. Choose a player to drop when this claim clears.
+            </Typography>
+          )}
           <FormControl fullWidth sx={{ mt: 1, minWidth: 250 }}>
-            <InputLabel id="drop-player-select-label">Drop a player (optional)</InputLabel>
+            <InputLabel id="drop-player-select-label">{dropLabel}</InputLabel>
             <Select
               labelId="drop-player-select-label"
               id="drop-player-select"
               value={dropPlayerId}
-              label="Drop a player (optional)"
+              label={dropLabel}
               onChange={(e) => setDropPlayerId(e.target.value)}
             >
-              <MenuItem value="">No drop</MenuItem>
+              <MenuItem value="">{atCapacity ? 'Choose a player to drop' : 'No drop'}</MenuItem>
               {sortedRosterForDrop.map((p) => (
                 <MenuItem key={p.id} value={p.id}>
                   {p.name} ({p.position})
@@ -491,7 +507,7 @@ function WaiverWire() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseClaim}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmitClaim} disabled={bidInvalid}>
+          <Button variant="contained" onClick={handleSubmitClaim} disabled={bidInvalid || dropMissing}>
             Submit Claim
           </Button>
         </DialogActions>

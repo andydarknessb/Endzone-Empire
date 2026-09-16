@@ -1498,6 +1498,14 @@ async function setLineup({ leagueId, userId, week, moves }) {
         [team.id, season, targetWeek]
       );
       const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
+      // Who occupies an invalid stash BEFORE this save's moves (#1480). The
+      // move that takes one of them to BENCH is forgiven one bench seat below;
+      // the set is read now because the moves mutate these rows in place.
+      const staleStashIds = new Set(
+        league.best_ball
+          ? []
+          : entriesResult.rows.filter((r) => r.slot === IR && !isValidStash(r)).map((r) => r.player_id)
+      );
       // Snapshot the pre-save slots NOW: the repair below and the moves both
       // mutate these rows in place, and the validation at the bottom forgives
       // only the overflow that stood before this save touched anything.
@@ -1553,7 +1561,6 @@ async function setLineup({ leagueId, userId, week, moves }) {
           markChanged(entry);
         }
       }
-      let resolvesLockedZeroBenchStash = false;
       for (const move of moves) {
         const entry = byPlayer.get(move.playerId);
         if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
@@ -1566,9 +1573,6 @@ async function setLineup({ leagueId, userId, week, moves }) {
           && entry.slot === IR
           && move.slot === BENCH
           && !isValidStash(entry);
-        resolvesLockedZeroBenchStash ||= resolvesStaleIrStash
-          && locked.has(entry.player_id)
-          && league.bench_slots === 0;
         if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
           throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
         }
@@ -1591,8 +1595,24 @@ async function setLineup({ leagueId, userId, week, moves }) {
         );
       }
 
-      const validationSettings = resolvesLockedZeroBenchStash
-        ? { ...settings, benchSlots: 1 }
+      // A full bench must never wedge the resolution (#1480). Every save that
+      // leaves a stale stash standing is refused above, and with the bench
+      // full the one save that resolves it - the occupant to BENCH - would be
+      // refused by the cap for the overflow it creates. No single save is
+      // legal, and the only way out is a drop the page never names. So the
+      // occupant who ENDS this save on BENCH is forgiven one seat: the
+      // inherited overflow of one that leaves behind is exactly what
+      // validateLineup already tolerates on every later save. Forgiveness is
+      // counted per resolving occupant and only for himself: a second bench
+      // arrival in the same save, or the occupant passing through BENCH on
+      // his way to a starting slot while someone else takes the seat, is still
+      // refused at the ordinary cap. This subsumes the earlier zero-bench,
+      // locked-only forgiveness (`benchSlots: 1`), which was this same rule
+      // for one league shape.
+      const benchForgiven = [...staleStashIds].filter((id) => byPlayer.get(id).slot === BENCH).length;
+      const baselineBench = baseline.filter((entry) => entry.slot === BENCH).length;
+      const validationSettings = benchForgiven > 0
+        ? { ...settings, benchSlots: Math.max(settings.benchSlots, baselineBench) + benchForgiven }
         : settings;
       const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
       const errors = validateLineup(

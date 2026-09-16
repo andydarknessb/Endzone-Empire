@@ -40,6 +40,37 @@ test('builds one IR row per irSlots, filled from IR entries', () => {
   expect(ir[1].entry).toBeNull();
 });
 
+// #1480: with the bench full there was no empty bench row to move a stale
+// stash occupant to, and every other save is refused until he leaves IR.
+test('an invalid IR stash on a full bench adds one empty bench row to move him to', () => {
+  const entries = [
+    entry({ playerId: 9, slot: 'IR', validStash: false }),
+    entry({ playerId: 1, slot: 'BENCH' }),
+    entry({ playerId: 2, slot: 'BENCH' }),
+  ];
+  const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 2, irSlots: 1 });
+  expect(bench).toHaveLength(3);
+  expect(bench[2].entry).toBeNull();
+  expect(bench[2].testId).toBe('slot-row-BENCH-empty-2');
+});
+
+test('a valid IR stash, or a bench with room, adds no extra bench row', () => {
+  const full = buildLedgerSections({
+    entries: [entry({ playerId: 9, slot: 'IR', validStash: true }), entry({ playerId: 1, slot: 'BENCH' })],
+    rosterSlots: [],
+    benchSlots: 1,
+    irSlots: 1,
+  });
+  expect(full.bench).toHaveLength(1);
+  const room = buildLedgerSections({
+    entries: [entry({ playerId: 9, slot: 'IR', validStash: false }), entry({ playerId: 1, slot: 'BENCH' })],
+    rosterSlots: [],
+    benchSlots: 2,
+    irSlots: 1,
+  });
+  expect(room.bench).toHaveLength(2);
+});
+
 test('bench sorts available players by projection descending', () => {
   const entries = [
     entry({ playerId: 1, slot: 'BENCH', projection: 5 }),

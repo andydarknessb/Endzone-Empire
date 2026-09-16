@@ -31,6 +31,7 @@ const {
 const { isMember, joinLeague, MembershipError } = require('../services/leagueMembership.service');
 const { getMarketStatus } = require('../services/adp.service');
 const { teamIdentityColumns, teamIdentityJoin, viewerTeamIdOf } = require('../services/teamIdentity');
+const irPolicy = require('../services/irPolicy.service');
 const { assertFantasyLeague } = require('../services/leagueType');
 const { parseSettingsPatch, updateLeagueSettings, LeagueSettingsError } = require('../services/leagueSettings.service');
 const { listLeagueChatFeed, listCombinedDraftFeed } = require('../services/leagueFeed');
@@ -415,6 +416,16 @@ router.get('/:id', async (req, res) => {
     // flagged exactly when a grant names it. Team identity on both sides of
     // the match, so there is nothing to explain about which column is which.
     const grantedTeamIds = coCommissionerTeamIds(coCommissionerRows);
+    // roster_capacity beside roster_count (#1475): how many players the team
+    // may hold RIGHT NOW under the occupancy-based rule (CONTEXT.md, Roster
+    // capacity) - the draft roster size plus one spot per IR-eligible player
+    // actually stashed in IR. roster_limit stays on the league row with its
+    // IR-inclusive meaning; a "19/20" built from it reads as a spot to spare
+    // on a roster the waiver claim and free-agent add both refuse as full.
+    const capacityByTeam = await irPolicy.rosterCapacityByTeam(pool, {
+      league,
+      teamIds: teamsResult.rows.map((team) => team.id),
+    });
     const teams = teamsResult.rows.map((team) => {
       // A teams[] entry names its manager by Team identity only. `owner_id`
       // rode on the raw row so viewerTeamIdOf() could resolve the caller's team
@@ -422,7 +433,11 @@ router.get('/:id', async (req, res) => {
       // manager's account id (#343, #115). `owner` (the username) is no longer
       // selected; the delete is defensive against a raw row that still carries
       // one.
-      const entry = { ...team, is_co_commissioner: grantedTeamIds.has(team.teamId) };
+      const entry = {
+        ...team,
+        roster_capacity: capacityByTeam.get(Number(team.id)) ?? null,
+        is_co_commissioner: grantedTeamIds.has(team.teamId),
+      };
       delete entry.owner_id;
       delete entry.owner;
       return entry;

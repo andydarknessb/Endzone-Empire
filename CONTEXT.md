@@ -920,14 +920,21 @@ a standing entitlement. A commissioner may attest a player IR-eligible when
 the feed is wrong, and that attested stash grants capacity like any other.
 A player a team acquires - by waiver, trade, commissioner add or free agency -
 always arrives on the bench and earns nothing; only undoing a drop returns a
-player to the stash it interrupted.
+player to the stash it interrupted. Every surface that tells a manager how
+full a roster is names this number, never the roster limit: the league detail
+payload carries it per team as roster_capacity beside roster_count, and the
+Players list context as rosterCapacity beside rosterCount (#1475).
 _Avoid_: roster limit, effective limit
 
 **IR-eligible**:
 A player whose current injury designation (out or injured reserve) qualifies
 him to occupy an IR slot. Eligibility is a live property of the player, not a
 grant to the team: it is checked when a manager places him on IR, and losing
-it while stashed is what flags the roster for resolution.
+it while stashed is what flags the roster for resolution. Resolution is the
+occupant leaving IR, and a full bench never wedges it: the save that moves
+him to the bench is forgiven one bench seat for him, leaving an inherited
+overflow of one that later saves tolerate, so a drop is a choice rather than
+a prerequisite (#1480).
 _Avoid_: injured (too broad — questionable and doubtful players are injured
 but not IR-eligible), stashable
 
