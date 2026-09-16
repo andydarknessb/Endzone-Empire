@@ -4,7 +4,7 @@ const {
   projectSeasonPoints,
   IDP_POSITIONS,
 } = require('./scoring.service');
-const { computeByeWeeks } = require('./bye.service');
+const { computeByeWeeks, REG_SEASON_WEEKS } = require('./bye.service');
 const { requireMember, MembershipError } = require('./leagueMembership.service');
 const { rosterablePositions } = require('./lineup.service');
 const irPolicy = require('./irPolicy.service');
@@ -207,7 +207,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
     availableOnly,
     availability,
     view,
-    byeWeeksFilter,
+    byeWeeksRaw,
     sortField,
     dir,
   } = query;
@@ -219,9 +219,22 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // drew between the two.
   const leagueIdNum = leagueId ? Number(leagueId) : null;
 
+  // These three checks run in the same relative order the pre-module route
+  // handler ran them in (availability, then view/sort, then byeWeeks) -
+  // preserved deliberately, not just each check's own status/message: a
+  // request that fails more than one at once must still surface the SAME
+  // one it did before (a risk review on #1497 caught this reordering when
+  // the checks first moved here split across the route and this module).
+  if (availability && (!leagueId || !AVAILABILITY_STATES.has(availability))) {
+    throw new PlayersPageError(
+      400,
+      'AVAILABILITY_REQUIRES_LEAGUE',
+      'availability requires leagueId and must be free_agent, waivers, my_team, or rostered',
+    );
+  }
   // view=cards (ADR 0040 slice 6, #1309) and sort=upgrade (Ruling item 10)
   // are both meaningless outside the caller's own league and lineup, so both
-  // require leagueId up front, in the style of the availability check below.
+  // require leagueId up front, in the style of the availability check above.
   if ((view === 'cards' || LEAGUE_SCOPED_SORT_FIELDS.includes(sortField)) && !leagueId) {
     throw new PlayersPageError(
       400,
@@ -229,12 +242,28 @@ async function readPlayersPage(query, { db = pool } = {}) {
       'view=cards and sort=upgrade require leagueId',
     );
   }
-  if (availability && (!leagueId || !AVAILABILITY_STATES.has(availability))) {
-    throw new PlayersPageError(
-      400,
-      'AVAILABILITY_REQUIRES_LEAGUE',
-      'availability requires leagueId and must be free_agent, waivers, my_team, or rostered',
-    );
+  // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
+  // across the FULL eligible pool below (not just the current page) - see
+  // `needsFullPool`. Comma-separated integers in 1..REG_SEASON_WEEKS; anything
+  // else is a 400, same treatment as the other whitelisted inputs the route
+  // itself already validated.
+  let byeWeeksFilter = [];
+  if (byeWeeksRaw) {
+    if (!/^\d+(,\d+)*$/.test(byeWeeksRaw)) {
+      throw new PlayersPageError(
+        400,
+        'INVALID_BYE_WEEKS_FILTER',
+        'byeWeeks must be a comma-separated list of integers',
+      );
+    }
+    byeWeeksFilter = [...new Set(byeWeeksRaw.split(',').map(Number))];
+    if (byeWeeksFilter.some((week) => week < 1 || week > REG_SEASON_WEEKS)) {
+      throw new PlayersPageError(
+        400,
+        'INVALID_BYE_WEEKS_FILTER',
+        `byeWeeks must be between 1 and ${REG_SEASON_WEEKS}`,
+      );
+    }
   }
 
   // Scoring context for the season projection below: use the named league's

@@ -173,25 +173,17 @@ router.get('/', requireAuth, async (req, res) => {
   // rostered availability.teamId/teamName).
   const view = req.query.view === 'cards' ? 'cards' : null;
 
-  // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Applied
-  // across the FULL eligible pool (not just the current page) inside the
-  // module. Comma-separated integers in 1..REG_SEASON_WEEKS; anything else
-  // is a 400, same treatment as the other whitelisted inputs above.
-  let byeWeeksFilter = [];
-  if (req.query.byeWeeks !== undefined && req.query.byeWeeks !== '') {
-    const raw = String(req.query.byeWeeks);
-    if (!/^\d+(,\d+)*$/.test(raw)) {
-      return res
-        .status(400)
-        .json({ error: 'byeWeeks must be a comma-separated list of integers' });
-    }
-    byeWeeksFilter = [...new Set(raw.split(',').map(Number))];
-    if (byeWeeksFilter.some((week) => week < 1 || week > REG_SEASON_WEEKS)) {
-      return res
-        .status(400)
-        .json({ error: `byeWeeks must be between 1 and ${REG_SEASON_WEEKS}` });
-    }
-  }
+  // Optional multi-select Bye-week filter, e.g. `byeWeeks=6,9,14`. Format and
+  // range validation (comma-separated integers in 1..REG_SEASON_WEEKS) stays
+  // inside the module rather than here: the pre-module handler validated it
+  // AFTER the availability and view/sort league-requirement checks, and a
+  // request that fails more than one of these at once must keep surfacing
+  // the same 400 it did before (byte-equal responses, not just byte-equal
+  // status codes) - only the module knows where those two checks land in
+  // its own sequence, so only it can keep byeWeeks validation behind them.
+  const byeWeeksRaw = req.query.byeWeeks !== undefined && req.query.byeWeeks !== ''
+    ? String(req.query.byeWeeks)
+    : null;
 
   // Ordering: whitelisted sort key + direction — never interpolate raw user
   // input into SQL. ADP is the default (best pick first, undrafted last).
@@ -212,7 +204,7 @@ router.get('/', requireAuth, async (req, res) => {
         availableOnly,
         availability,
         view,
-        byeWeeksFilter,
+        byeWeeksRaw,
         sortField,
         dir,
       },

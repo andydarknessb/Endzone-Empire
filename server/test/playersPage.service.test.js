@@ -22,7 +22,7 @@ function baseQuery(overrides = {}) {
     availableOnly: false,
     availability: null,
     view: null,
-    byeWeeksFilter: [],
+    byeWeeksRaw: null,
     sortField: null,
     dir: 'ASC',
     ...overrides,
@@ -272,6 +272,50 @@ test('green for the wrong reason: sort=upgrade without a league is refused with 
       assert.equal(error.code, 'VIEW_OR_SORT_REQUIRES_LEAGUE');
       assert.equal(error.statusCode, 400);
       assert.equal(error.message, 'view=cards and sort=upgrade require leagueId');
+      return true;
+    },
+  );
+});
+
+// A risk review on #1497 caught the pre-module handler's three pure-input
+// refusals (availability, view/sort, byeWeeks) losing their relative order
+// once split across the route and this module: a request that fails more
+// than one at once must still surface the SAME one it did before the move,
+// not just the same status code. These three pin that order directly
+// against the module, independent of which of the three checks happens to
+// live in the route vs. here.
+test('refusal precedence: availability beats view/sort beats byeWeeks, same as before the module existed', async () => {
+  const fake = createFakePool([]);
+
+  await assert.rejects(
+    () => readPlayersPage(baseQuery({ view: 'cards', availability: 'bogus' }), { db: fake }),
+    (error) => {
+      assert.equal(error.code, 'AVAILABILITY_REQUIRES_LEAGUE');
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    () => readPlayersPage(
+      baseQuery({ availability: 'bogus', leagueId: '1', byeWeeksRaw: '99' }),
+      { db: fake },
+    ),
+    (error) => {
+      assert.equal(error.code, 'AVAILABILITY_REQUIRES_LEAGUE');
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    () => readPlayersPage(
+      baseQuery({ availability: 'free_agent', leagueId: '1', byeWeeksRaw: 'abc' }),
+      { db: fake },
+    ),
+    (error) => {
+      // `availability=free_agent` with a leagueId passes the availability
+      // check, and `view`/`sortField` are absent, so byeWeeks - the only
+      // remaining failing check - is the one that must fire.
+      assert.equal(error.code, 'INVALID_BYE_WEEKS_FILTER');
       return true;
     },
   );
