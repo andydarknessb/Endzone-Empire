@@ -7,6 +7,7 @@ const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const {
   slotEligible,
+  eligibleSlotsFor,
   validateLineup,
   parseLineupSettings,
   annotateLineupEntries,
@@ -1214,6 +1215,43 @@ test('slotEligible: a DP slot expands DL/LB/DB group keys to specific positions'
     assert.equal(slotEligible('DP', position, dpSlots), true);
   }
   assert.equal(slotEligible('DP', 'QB', dpSlots), false);
+});
+
+// ---------------------------------------------------------------------------
+// eligibleSlotsFor (folded in from decision.service's local copy, #1503: the
+// decision module now imports this rather than keeping its own)
+// ---------------------------------------------------------------------------
+
+test('eligibleSlotsFor: a dedicated position resolves to its own slot only', () => {
+  assert.deepEqual(eligibleSlotsFor('QB', DEFAULT_ROSTER_SLOTS), ['QB']);
+  assert.deepEqual(eligibleSlotsFor('K', DEFAULT_ROSTER_SLOTS), ['K']);
+  assert.deepEqual(eligibleSlotsFor('DEF', DEFAULT_ROSTER_SLOTS), ['DEF']);
+});
+
+test('eligibleSlotsFor: a FLEX-eligible position resolves to its dedicated slot plus FLEX', () => {
+  assert.deepEqual(eligibleSlotsFor('RB', DEFAULT_ROSTER_SLOTS), ['RB', 'FLEX']);
+  assert.deepEqual(eligibleSlotsFor('WR', DEFAULT_ROSTER_SLOTS), ['WR', 'FLEX']);
+  assert.deepEqual(eligibleSlotsFor('TE', DEFAULT_ROSTER_SLOTS), ['TE', 'FLEX']);
+});
+
+test('eligibleSlotsFor: a position with no eligible slot resolves to an empty list', () => {
+  assert.deepEqual(eligibleSlotsFor('LS', DEFAULT_ROSTER_SLOTS), []);
+});
+
+test('eligibleSlotsFor: a count-0 slot is excluded even when the position would otherwise be eligible', () => {
+  const noFlexSlots = DEFAULT_ROSTER_SLOTS.map((s) => (s.key === 'FLEX' ? { ...s, count: 0 } : s));
+  assert.deepEqual(eligibleSlotsFor('RB', noFlexSlots), ['RB']);
+});
+
+test('eligibleSlotsFor: a DP slot\'s DL/LB/DB group keys make it eligible for every member position', () => {
+  const dpSlots = [
+    ...DEFAULT_ROSTER_SLOTS,
+    { key: 'DP', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] },
+  ];
+  for (const position of ['DE', 'DT', 'NT', 'LB', 'ILB', 'OLB', 'CB', 'S', 'FS', 'SS']) {
+    assert.deepEqual(eligibleSlotsFor(position, dpSlots), ['DP']);
+  }
+  assert.deepEqual(eligibleSlotsFor('QB', dpSlots), ['QB']);
 });
 
 const entry = (position, slot, playerId = 1) => ({ playerId, position, slot });
