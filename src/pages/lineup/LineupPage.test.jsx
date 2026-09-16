@@ -125,11 +125,13 @@ const entryRow = (over = {}) => ({
   nfl_team: 'BUF',
   slot: 'QB',
   // #1482: `projected_points` is the wire's own Point estimate (CONTEXT.md,
-  // The projection engine) - the Ledger row's headline number since this
-  // ticket, distinct from `projection` (the distribution's bare mean, read
-  // by the Floor/Projection/Ceiling range elsewhere on the page). Defaulted
-  // equal to `projection` here since this fixture isn't testing the two
-  // statistics diverging (LedgerRow.test.jsx owns that case); a caller that
+  // The projection engine) - the Ledger row's headline number, and (formal
+  // review round 2) the Decision card's Proj text/RangeBar marker and Bench
+  // options number/sort, since this ticket. `projection` is a separate
+  // field, the distribution's bare mean, that nothing on the Lineup page
+  // reads for display any more. Defaulted equal to `projection` here since
+  // this fixture isn't testing the two statistics diverging (LedgerRow.test
+  // .jsx and PlayerDecisionCard.test.jsx own that case); a caller that
   // overrides `projection` overrides this alongside it.
   projected_points: 10,
   projection: 10,
@@ -681,9 +683,11 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
   expect(within(card).getByRole('heading', { name: 'Josh Allen' })).toBeInTheDocument();
   // The row's own fields (AC1: paints immediately, before the extras load).
   // Formal review round 2 finding r6: this is the one page-level case that
-  // must carry a genuinely populated mean (Josh Allen's fixture projection
-  // is 24.3), not just prove the RangeBar mounted - a null-projection
-  // subject would pass this assertion even with the mean broken.
+  // must carry a genuinely populated Point estimate (Josh Allen's fixture
+  // projectedPoints is 24.3), not just prove the RangeBar mounted - a
+  // null-estimate subject would pass this assertion even with the number
+  // broken. (#1482, formal-002-f1: the RangeBar marker reads projectedPoints,
+  // not projection; this fixture keeps both equal, so the value is unchanged.)
   expect(within(card).getByTestId('decision-card-range-bar')).toHaveAttribute(
     'aria-label',
     'Josh Allen, Floor 18.0, Projection 24.3, Ceiling 30.0'

@@ -6,6 +6,10 @@ const entry = (over = {}) => ({
   position: 'RB',
   nflTeam: 'BUF',
   slot: 'BENCH',
+  // #1482: `projectedPoints` (the Point estimate, CONTEXT.md's The
+  // projection engine) is what benchOptionsForSlot sorts by; `projection`
+  // (the bare mean) rides alongside since a real entry always carries both.
+  projectedPoints: 10,
   projection: 10,
   eligibleSlots: ['BENCH'],
   locked: false,
@@ -29,12 +33,23 @@ describe('benchOptionsForSlot', () => {
     expect(result.map((r) => r.entry.playerId)).toEqual([2]);
   });
 
-  test('sorts by projection descending, a null projection sorting last', () => {
-    const a = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projection: 5 });
-    const b = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projection: 12 });
-    const c = entry({ playerId: 4, eligibleSlots: ['BENCH', 'RB'], projection: null });
+  test('sorts by projectedPoints descending, a null value sorting last', () => {
+    const a = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 5, projection: 5 });
+    const b = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 12, projection: 12 });
+    const c = entry({ playerId: 4, eligibleSlots: ['BENCH', 'RB'], projectedPoints: null, projection: null });
     const result = benchOptionsForSlot([a, b, c], 'RB');
     expect(result.map((r) => r.entry.playerId)).toEqual([3, 2, 4]);
+  });
+
+  // #1482, formal review round 2 (formal-002-f1): the sort must follow
+  // projectedPoints (the Point estimate), never projection (the bare mean),
+  // when the two disagree - the same DK Metcalf/Terry McLaurin shape as the
+  // issue's own repro.
+  test('sorts by projectedPoints, never projection, when the two disagree (#1482)', () => {
+    const higherMeanLowerEstimate = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projection: 9.03, projectedPoints: 8.21 });
+    const lowerMeanHigherEstimate = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projection: 7.37, projectedPoints: 10.06 });
+    const result = benchOptionsForSlot([higherMeanLowerEstimate, lowerMeanHigherEstimate], 'RB');
+    expect(result.map((r) => r.entry.playerId)).toEqual([3, 2]);
   });
 
   test('marks a locked candidate', () => {

@@ -1303,8 +1303,10 @@ its mean, whichever the run's own Model version names as
 other as fallback when the named one is unavailable. One statistic
 everywhere a Weekly projection surfaces as a single number - the Ledger
 row's headline, its Edge line's own comparisons ("Outprojects" and the
-live/final pace and result text), the bench sort order and the Start/Sit
-ranking - so the row a manager reads never contradicts itself, and a future
+live/final pace and result text), the bench sort order, the Decision card's
+Proj text and RangeBar marker, its own Bench options number and sort, and
+the Start/Sit ranking - so the row a manager reads, and the card it opens
+into, never contradict themselves, and a future
 Model version that ranks by the mean instead of the median moves every one
 of those surfaces together (#1482, #1483). Distinct from Floor and Ceiling,
 which bracket it rather than replace it.

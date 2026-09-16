@@ -15,8 +15,9 @@ import { isEligibleMove } from '../../../features/swap-players';
  *
  * `benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnsettled })`:
  * the bench players who could fill `slot` (AC4, "the bench options for the
- * player's slot"), sorted by projection descending - a null projection
- * sorts last, the same rule `widgets/lineup-ledger/model/
+ * player's slot"), sorted by `projectedPoints` (CONTEXT.md's Point estimate,
+ * #1482 - never `projection`, the distribution's bare mean) descending - a
+ * null value sorts last, the same rule `widgets/lineup-ledger/model/
  * buildLedgerSections.js`'s own bench sort applies, restated here rather
  * than imported since that module's export is a full section builder, not
  * this narrower filter. Only a real starting slot has bench options: a card
@@ -62,8 +63,8 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
   return eligible
     .slice()
     .sort((a, b) => {
-      const ap = Number.isFinite(a.projection) ? a.projection : -Infinity;
-      const bp = Number.isFinite(b.projection) ? b.projection : -Infinity;
+      const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
+      const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
       return bp - ap;
     })
     .map((candidate) => {
