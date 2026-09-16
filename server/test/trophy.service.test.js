@@ -42,6 +42,10 @@ function awardWorld({
     // reason as the lock above.
     [/^SELECT "id", "team_id", "data" FROM "trophies"/, () => ({ rows: existingTrophies }), 'client'],
     [/^DELETE FROM "trophies"/, () => ({ rows: [] }), 'client'],
+    // #1477: a tied incumbent whose stored points have drifted from the
+    // week's high is updated in place, not re-inserted or deleted.
+    // 'client'-scoped for the same reason the SELECT and DELETE above are.
+    [/^UPDATE "trophies"/, () => ({ rows: [] }), 'client'],
     [/^INSERT INTO "trophies"/, () => ({ rows: [{ id: 1 }] })],
     [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
       rows: [{ owner_id: 1000 + Number(params[0]) }],
@@ -101,6 +105,29 @@ test('#1467: awardWeeklyTrophies keeps a tied incumbent instead of inserting a s
 
   await trophySvc.awardWeeklyTrophies({ leagueId, season, week });
 
+  assert.equal(fake.matching(/^INSERT INTO "trophies"/).length, 0, 'the tied incumbent is not re-awarded');
+  assert.equal(fake.matching(/^DELETE FROM "trophies"/).length, 0, 'the tied incumbent is not deleted');
+  assert.equal(fake.matching(/^UPDATE "trophies"/).length, 0, 'unchanged points issue no UPDATE');
+
+  fake.assertClean();
+});
+
+test("#1477: awardWeeklyTrophies updates a tied incumbent's stored points in place under the same lock", async (t) => {
+  const leagueId = 7;
+  const season = 2026;
+  const week = 5;
+  const fake = awardWorld({
+    leagueId, homeTeamId: 20, awayTeamId: 10, homeScore: 100, awayScore: 100,
+    existingTrophies: [{ id: 5, team_id: 10, data: { points: 90 } }],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId, season, week });
+
+  const updates = fake.matching(/^UPDATE "trophies"/);
+  assert.equal(updates.length, 1, 'exactly one UPDATE for the tied incumbent');
+  assert.equal(updates[0].params[0], 5);
+  assert.equal(JSON.parse(updates[0].params[1]).points, 100);
   assert.equal(fake.matching(/^INSERT INTO "trophies"/).length, 0, 'the tied incumbent is not re-awarded');
   assert.equal(fake.matching(/^DELETE FROM "trophies"/).length, 0, 'the tied incumbent is not deleted');
 
