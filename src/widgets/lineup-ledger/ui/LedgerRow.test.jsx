@@ -12,6 +12,7 @@ const entry = (overrides = {}) => ({
   opponent: 'KC',
   kickoff: '2026-09-14T17:00:00Z',
   gameKey: 'g1',
+  projectedPoints: 24.3,
   projection: 24.3,
   floor: 18,
   ceiling: 30,
@@ -126,6 +127,26 @@ test('an available row with no points yet (pre-kickoff) shows the projection cel
   render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('24.3');
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
+});
+
+// #1482: the ledger row's headline number is the median (`projectedPoints`,
+// the engine's point estimate that the Edge line's "Outprojects" comparison
+// and the Start/Sit ranking already use), never the mean (`projection`) -
+// the two stats can order two players differently, and a row that headlined
+// the mean while the Edge line reasoned from the median could read either
+// "Outprojects" or a Start/Sit card that contradicts the number on the row
+// it names. Floor and Ceiling are untouched by this ticket (out of scope).
+test('the projection cell headlines the median (projectedPoints), never the mean (projection), when they differ', () => {
+  render(
+    <LedgerRow
+      slotLabel="FLEX"
+      entry={entry({ projection: 9.03, projectedPoints: 8.21 })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('8.2');
+  expect(screen.getByTestId('ledger-projection')).not.toHaveTextContent('9.0');
 });
 
 test('an available row with actual points (live or final) shows them in the points cell', () => {
