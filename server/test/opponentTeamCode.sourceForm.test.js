@@ -13,7 +13,8 @@ const path = require('node:path');
  * SCOPE. Four sites read `nfl_games.opponent` and put it straight onto a
  * wire payload's `opponent:` field: the matchup-detail starter row and the
  * lineup entry the issue's triage named (league.router.js, lineup.service.js),
- * the scoring play that was already correct (scoring.service.js), and the
+ * the scoring play that was already correct (scoring.service.js, moved to
+ * boxScoreApply.service.js by #1504's split - same code, new home), and the
  * public player profile's recentGames row (publicRead.service.js) - a fourth
  * site triage missed, caught on PR review (#1136 review round 1): its query
  * already folds both sides of the LEFT JOIN to find the row, then shipped the
@@ -105,8 +106,8 @@ test('lineup.service.js: weekOpponents folds both the team key and the opponent 
   );
 });
 
-test('scoring.service.js: both scoring-play opponent assignments fold before leaving the server (positive control)', () => {
-  const source = read('services/scoring.service.js');
+test('boxScoreApply.service.js: both scoring-play opponent assignments fold before leaving the server (positive control)', () => {
+  const source = read('services/boxScoreApply.service.js');
   const assignments = source.split('\n').filter((line) => /^\s*opponent:/.test(line));
   assert.equal(assignments.length, 2, `expected exactly 2 opponent: assignments, found ${assignments.length}`);
   for (const line of assignments) {
