@@ -2,6 +2,7 @@ import { useEndpoint, parseRosterSlots, isPickemOnly, lineupAttention, ordinal }
 import { useLeague } from '../../../hooks/useLeague';
 import { useLeagueStandings, findTeamStanding } from '../../../entities/standings';
 import { useTeamLineup } from '../../../entities/roster';
+import { draftRosterSize } from '../../../lib/rosterShape';
 import { DEFAULT_ROSTER_SLOTS } from '../../../lib/draftSim/templates';
 
 /**
@@ -85,22 +86,38 @@ const numberOrNull = (raw) => {
  */
 function capacityFact(league, team) {
   if (!league || !team) return null;
-  const [label, have, cap] =
-    league.waiver_type === 'faab'
-      ? ['FAAB left', numberOrNull(team.faab_remaining), numberOrNull(league.faab_budget)]
-      : [
-          'Roster',
-          numberOrNull(team.roster_count),
-          // The team's occupancy-based capacity (#1475: league.router.js
-          // publishes roster_capacity beside roster_count), never the
-          // IR-inclusive roster_limit: "19/20" on a 20-limit, one-IR league
-          // reads as a spot to spare, when the 20th spot exists only for an
-          // IR-eligible occupant and a claim or add is refused as full.
-          // roster_limit stays as the fallback for a payload without it.
-          numberOrNull(team.roster_capacity) ?? numberOrNull(league.roster_limit),
-        ];
-  if (have == null || cap == null) return null;
-  return { label, text: `${have}/${cap}` };
+  if (league.waiver_type === 'faab') {
+    const have = numberOrNull(team.faab_remaining);
+    const cap = numberOrNull(league.faab_budget);
+    if (have == null || cap == null) return null;
+    return { label: 'FAAB left', text: `${have}/${cap}` };
+  }
+  return rosterFact(league, team);
+}
+
+/**
+ * "18/19 + 1 IR": the roster spots (the draft roster size, roster_limit
+ * minus the IR slots) and how many of them are taken, with the IR slots named
+ * beside them rather than folded into one IR-inclusive total (#1475; the
+ * owner's wording: "19 roster spots plus 1 IR"). A player in a VALID stash
+ * takes no roster spot - that is the spot the stash earns - so the count of
+ * taken spots is roster_count minus the spots the team's capacity says its
+ * stashes earned (league.router.js publishes roster_capacity beside
+ * roster_count; capacity minus the draft roster size is exactly that number).
+ * A player in an invalid stash earns nothing and so still takes a roster
+ * spot, which is why "18/19" and "capacity 19" agree for a team with a
+ * questionable player sitting in IR. Without roster_capacity on the payload
+ * every rostered player counts, which is right whenever nothing is stashed.
+ */
+function rosterFact(league, team) {
+  const have = numberOrNull(team.roster_count);
+  const spots = numberOrNull(league.roster_limit) == null ? null : draftRosterSize(league);
+  if (have == null || spots == null) return null;
+  const capacity = numberOrNull(team.roster_capacity);
+  const earnedByStash = capacity == null ? 0 : Math.max(0, capacity - spots);
+  const irSlots = Math.max(0, numberOrNull(league.ir_slots) ?? 0);
+  const text = `${have - earnedByStash}/${spots}${irSlots > 0 ? ` + ${irSlots} IR` : ''}`;
+  return { label: 'Roster', text };
 }
 
 // The starters section (#1101) shows this many rows before folding the rest

@@ -285,18 +285,30 @@ test('a waiver-priority league states roster fullness instead', async () => {
   expect(tile).toHaveTextContent('9/15');
 });
 
-test("the roster tile sizes by the team's own capacity, not the IR-inclusive roster_limit", async () => {
+test('the roster tile names the roster spots and the IR slots apart, never one IR-inclusive total', async () => {
   // A 20-limit, one-IR league whose IR slot holds a Q player: the server's
-  // roster_capacity is 19 and the roster is full (#1475). "19/20" would say
-  // there is a spot to spare.
+  // roster_capacity is 19, the invalid stash earns nothing, and the roster is
+  // full (#1475). "19/20" would say there is a spot to spare.
   mountWith({
-    league: { waiver_type: 'priority', faab_budget: 100, roster_limit: 20 },
+    league: { waiver_type: 'priority', faab_budget: 100, roster_limit: 20, ir_slots: 1 },
     teams: [{ teamId: 1, id: 1, teamName: 'Jesus 1', faab_remaining: 100, roster_count: 19, roster_capacity: 19 }],
   });
 
   const tile = await screen.findByTestId('stat-capacity');
-  expect(tile).toHaveTextContent('19/19');
+  expect(tile).toHaveTextContent('19/19 + 1 IR');
   expect(tile).not.toHaveTextContent('19/20');
+});
+
+test('a valid IR stash takes no roster spot in the roster tile', async () => {
+  // 20 rostered with an eligible player stashed: capacity 20, so the stash
+  // earned its spot and 19 roster spots are taken.
+  mountWith({
+    league: { waiver_type: 'priority', faab_budget: 100, roster_limit: 20, ir_slots: 1 },
+    teams: [{ teamId: 1, id: 1, teamName: 'Stashers', faab_remaining: 100, roster_count: 20, roster_capacity: 20 }],
+  });
+
+  const tile = await screen.findByTestId('stat-capacity');
+  expect(tile).toHaveTextContent('19/19 + 1 IR');
 });
 
 test('no capacity tile when the league row is missing the half that sizes it', async () => {

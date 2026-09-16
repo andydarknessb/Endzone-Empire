@@ -19,10 +19,10 @@
  * overflow its bench, and an overflowing player without a row is one a
  * manager can neither see nor drop).
  *
- * Deliberately NOT reproduced from the legacy page (each a narrow,
- * best-ball-only edge case; left as a follow-up rather than blocking this
- * ticket): the zero-bench-slots IR-recovery placeholder row, and best
- * ball's extra bench row for the "resolve an ineligible IR stash" case.
+ * One extra empty bench row when an invalid IR stash stands and the bench is
+ * full (#1480): the row the occupant is moved to. The legacy page had this
+ * for best ball only; a full bench wedges a standard league exactly the same
+ * way, so it is unconditional here.
  *
  * `testId` restores the legacy page's own `slot-row-<SLOT>-<index>` /
  * `slot-row-<SLOT>-<entryId>` contract byte-for-byte (LineupScreen.jsx):
@@ -66,7 +66,13 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
 
   const benchEntries = bySlot.get('BENCH') || [];
   const sortedBench = sortBenchEntries(benchEntries);
-  const benchRowCount = Math.max(Number(benchSlots) || 0, sortedBench.length);
+  // An invalid stash on a full bench gets one extra empty bench row (#1480):
+  // the server forgives that occupant one seat when he moves to BENCH, but
+  // with the bench padded only to its occupied count there was no row to
+  // move him to, and every other save is refused until he leaves IR.
+  const staleStashOnFullBench = irEntries.some((entry) => entry && entry.validStash === false)
+    && sortedBench.length >= (Number(benchSlots) || 0);
+  const benchRowCount = Math.max(Number(benchSlots) || 0, sortedBench.length) + (staleStashOnFullBench ? 1 : 0);
   const bench = Array.from({ length: benchRowCount }, (_, i) => {
     const entry = sortedBench[i] || null;
     return {

@@ -796,6 +796,76 @@ test('setLineup lets a locked stale stash leave IR when the league has no bench 
   fake.assertClean();
 });
 
+// #1480 (Winsconsota "Jesus 1", 2026-09-15): a full bench plus a stale stash
+// wedged the team. Moving the occupant to BENCH refused "too many players at
+// BENCH (8/7)", and every other save refused "cannot remain in IR", so no
+// single save was legal and the only way out was a drop the page never
+// named. The resolving move is now forgiven one bench seat for the occupant
+// himself: an inherited overflow of one, which validateLineup's own rule
+// already tolerates on every later save.
+test('setLineup lets a stale stash leave IR for a bench that is already full', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    leagueOverrides: { bench_slots: 1 },
+    extraEntries: [{
+      player_id: 2,
+      name: 'Bench Warmer',
+      position: 'RB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'BENCH',
+      ir_attested: false,
+    }],
+  });
+
+  const result = await setLineup({
+    leagueId: 5,
+    userId: 7,
+    week: 8,
+    moves: [{ playerId: 1, slot: 'BENCH' }],
+  });
+
+  assert.equal(result.updated, 1);
+  fake.assertClean();
+});
+
+test('setLineup forgives the full bench only for the stash occupant, not a second bench arrival', async (t) => {
+  const fake = installSetLineupWorld(t, 'Q', {
+    slot: 'IR',
+    leagueOverrides: { bench_slots: 1 },
+    extraEntries: [{
+      player_id: 2,
+      name: 'Bench Warmer',
+      position: 'RB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'BENCH',
+      ir_attested: false,
+    }, {
+      player_id: 3,
+      name: 'Starting Runner',
+      position: 'RB',
+      nfl_team: 'KC',
+      injury_status: null,
+      slot: 'RB',
+      ir_attested: false,
+    }],
+  });
+
+  await assert.rejects(
+    setLineup({
+      leagueId: 5,
+      userId: 7,
+      week: 8,
+      moves: [{ playerId: 1, slot: 'BENCH' }, { playerId: 3, slot: 'BENCH' }],
+    }),
+    (error) => error.statusCode === 400 && /too many players at BENCH \(3\/2\)/.test(error.message)
+  );
+
+  assertNoSlotWrite(fake);
+  fake.assertClean();
+});
+
 test('setLineup cannot launder zero-bench recovery into an ordinary bench slot', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
