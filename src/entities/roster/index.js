@@ -23,6 +23,23 @@
  * imports `pairStartersBySlot` from HERE directly (ADR 0029 permits a page
  * importing an entity), and nothing under `entities/matchup` imports this
  * entity any more.
+ *
+ * `parseRosterTemplate`, `accepts`, `slotsFor`, `rosterablePositions` and
+ * `DEFAULT_ROSTER_SLOTS` (#1500, `model/rosterTemplateModel.js`) are the
+ * Roster template's one rule (CONTEXT.md's Roster template glossary entry):
+ * "may this position sit in this Slot" (`accepts`) and "which Slots fit this
+ * player" (`slotsFor`) answered off the same template. `DEFAULT_ROSTER_SLOTS`
+ * moved here from `src/lib/draftSim/templates.js`, which now imports it from
+ * this index rather than declaring its own copy - templates.js's own
+ * POSITION_GROUPS/expandEligibility/slotEligible stay put for now (the
+ * Draft Simulator's existing hand-mirrored copy, unaffected by this move).
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked, isQuestionable } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';
+export {
+  parseRosterTemplate,
+  accepts,
+  slotsFor,
+  rosterablePositions,
+  DEFAULT_ROSTER_SLOTS,
+} from './model/rosterTemplateModel';

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { LINEUP_MUTATION_REPLAYED_EVENT, PENDING_LINEUP_MUTATIONS_KEY, readPendingLineupMutations } from '../../../lib/pendingLineupMutations';
+import { DEFAULT_ROSTER_SLOTS } from '../../../entities/roster';
 import { isEligibleMove, useSwapPlayers } from './useSwapPlayers';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -21,6 +22,7 @@ afterEach(() => {
 const entry = (overrides = {}) => ({
   playerId: 1,
   slot: 'QB',
+  position: 'QB',
   locked: false,
   spent: false,
   validStash: false,
@@ -28,8 +30,17 @@ const entry = (overrides = {}) => ({
   ...overrides,
 });
 
+// #1500: the hook parses `raw.rosterSlots` into the Roster template entity's
+// template and delegates every slot check to `accepts` (position-driven,
+// entry.eligibleSlots is no longer read by the hook path). Every test below
+// that does not supply its own `raw` gets the standard template by default,
+// mirroring a real league's default roster shape; a test still supplies
+// `eligibleSlots` on its fixtures for the standalone `isEligibleMove` describe
+// block below, which calls the exported function directly with no template
+// and so exercises its fallback.
 function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget } = {}) {
-  let currentRaw = raw ?? { week: 4, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
+  let currentRaw =
+    raw ?? { week: 4, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
   const setRaw = jest.fn((updater) => {
     currentRaw = typeof updater === 'function' ? updater(currentRaw) : updater;
   });
@@ -136,11 +147,32 @@ test('a failed save rolls back the optimistic move and notifies the error', asyn
 
 test('isEligibleTarget refuses an ineligible slot pairing and allows a matching one', () => {
   const qb = entry({ playerId: 1, slot: 'QB', eligibleSlots: ['BENCH', 'QB'] });
-  const wr = entry({ playerId: 2, slot: 'WR', eligibleSlots: ['BENCH', 'WR'] });
+  const wr = entry({ playerId: 2, slot: 'WR', position: 'WR', eligibleSlots: ['BENCH', 'WR'] });
   const { result } = setup({ entries: [qb, wr] });
   act(() => result.current.onRowClick(qb, 'QB'));
   expect(result.current.isEligibleTarget(wr, 'WR')).toBe(false);
   expect(result.current.isEligibleTarget(null, 'BENCH')).toBe(true);
+});
+
+// #1500: proves the hook's slot check genuinely comes from the league's own
+// roster template (via `accepts`), not from the entry's own precomputed
+// `eligibleSlots` - the fixture's `eligibleSlots` deliberately lies (claims
+// FLEX for a QB, which no template grants) so a regression that quietly kept
+// reading `eligibleSlots` instead of the template would still pass every
+// other test in this file.
+test('the slot check comes from the league template, not a stale eligibleSlots array', () => {
+  const narrowedTemplate = DEFAULT_ROSTER_SLOTS.map((slot) =>
+    slot.key === 'FLEX' ? { ...slot, eligiblePositions: ['RB'] } : slot
+  );
+  const qb = entry({ playerId: 1, slot: 'QB', position: 'QB', eligibleSlots: ['BENCH', 'QB', 'FLEX'] });
+  const { result } = setup({
+    entries: [qb],
+    raw: { week: 4, rosterSlots: narrowedTemplate, entries: [{ id: 1, slot: 'QB' }] },
+  });
+  act(() => result.current.onRowClick(qb, 'QB'));
+  // The template's FLEX now accepts RB only; a QB must be refused there even
+  // though its own (stale) eligibleSlots array claims otherwise.
+  expect(result.current.isEligibleTarget(null, 'FLEX')).toBe(false);
 });
 
 // Formal review round 3 finding s1: no prior case exercised isEligibleTarget
@@ -189,7 +221,7 @@ describe('quick pick', () => {
 
   test('quickPickEligible only lists players eligible for the target slot and unlocked', () => {
     const eligible = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
-    const ineligible = entry({ playerId: 3, slot: 'BENCH', eligibleSlots: ['BENCH', 'WR'] });
+    const ineligible = entry({ playerId: 3, slot: 'BENCH', position: 'WR', eligibleSlots: ['BENCH', 'WR'] });
     const lockedPlayer = entry({ playerId: 4, slot: 'BENCH', locked: true, eligibleSlots: ['BENCH', 'QB'] });
     const { result } = setup({ entries: [eligible, ineligible, lockedPlayer] });
     act(() => result.current.onRowClick(null, 'QB', { currentTarget: null }));

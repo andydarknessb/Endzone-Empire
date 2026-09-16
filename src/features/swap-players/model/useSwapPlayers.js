@@ -2,7 +2,23 @@ import { useState } from 'react';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { locked } from '../../../entities/roster';
+import { locked, accepts, parseRosterTemplate } from '../../../entities/roster';
+
+/**
+ * Whether `entry` may occupy `slotKey` (#1500): delegates to the Roster
+ * template entity's `accepts(template, slotKey, position)` whenever a real
+ * template is available, so the swap feature carries no slot-eligibility
+ * rule of its own. `template` is optional and falls back to the entry's own
+ * precomputed `eligibleSlots` (built by `entities/roster`'s `lineupModel.js`
+ * `eligibleSlots`, off the same league roster_slots) when absent - the
+ * fallback keeps `isEligibleMove`'s existing callers working unchanged
+ * (`widgets/player-decision-card`'s `slotActions.js` calls it directly with
+ * no template of its own to thread through).
+ */
+function slotFits(entry, slotKey, template) {
+  if (template && template.length > 0) return accepts(template, slotKey, entry?.position);
+  return Array.isArray(entry?.eligibleSlots) && entry.eligibleSlots.includes(slotKey);
+}
 
 // Slots Best Ball still lets a manager manage manually (BENCH/IR roster
 // actions) even though starting-slot assignment is read-only, matching
@@ -65,8 +81,18 @@ function canResolveLockedIrStash(entry, targetSlot, bestBall) {
  * `onRowClick` already refuses a spent entry before it can become
  * `selectedEntry`, and `LineupPage.jsx` already disables the whole Ledger
  * (`disabled={leagueUnsettled}`) whenever the league is unsettled.
+ *
+ * `template` (#1500, optional): the league's parsed roster template
+ * (`entities/roster`'s `parseRosterTemplate`), threaded through by
+ * `useSwapPlayers` below so the reciprocal slot check delegates to the
+ * Roster template entity's `accepts` (`slotFits` above) instead of trusting
+ * a caller-supplied `eligibleSlots` array alone. Omitted, `slotFits` falls
+ * back to that array unchanged - every gate above the slot check (Best Ball,
+ * unsettled, lock, spent) stays exactly as it was, which is what keeps
+ * `widgets/player-decision-card`'s `slotActions.js` (a direct caller with no
+ * template of its own to thread through) working unchanged.
  */
-export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBall, leagueUnsettled }) {
+export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBall, leagueUnsettled, template }) {
   if (leagueUnsettled) return false;
   if (!selectedEntry) return false;
   if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(selectedEntry.slot)) return false;
@@ -74,11 +100,11 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
   if (selectedEntry.spent) return false;
   if (targetEntry?.spent) return false;
   if (locked(selectedEntry) && !canResolveLockedIrStash(selectedEntry, targetSlot, bestBall)) return false;
-  if (!targetEntry) return selectedEntry.eligibleSlots.includes(targetSlot);
+  if (!targetEntry) return slotFits(selectedEntry, targetSlot, template);
   if (locked(targetEntry)) return false;
   return (
-    selectedEntry.eligibleSlots.includes(targetEntry.slot) &&
-    targetEntry.eligibleSlots.includes(selectedEntry.slot)
+    slotFits(selectedEntry, targetEntry.slot, template) &&
+    slotFits(targetEntry, selectedEntry.slot, template)
   );
 }
 
@@ -107,6 +133,14 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * empty-slot capacity), so the page supplies it, built from the Ledger
  * widget's own row enumeration (`buildLedgerSections`) over `isEligibleMove`
  * below. Consulted only at the moment a fresh selection would begin.
+ *
+ * `template` (#1500): the league's roster template, parsed here from `raw`'s
+ * own `rosterSlots` (the same wire field `entities/roster`'s `lineupModel`
+ * and `useLineupData.js` already read to build `entries[].eligibleSlots` -
+ * no second fetch) via `parseRosterTemplate`. Threaded into every slot check
+ * this hook makes (`isEligibleTarget`, `quickPickEligible`) so they delegate
+ * to the Roster template entity's `accepts` rather than re-deriving
+ * eligibility from `entries[].eligibleSlots` a second time.
  */
 export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
   const notify = useSnackbar();
@@ -114,6 +148,7 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
 
+  const template = parseRosterTemplate(raw?.rosterSlots);
   const list = Array.isArray(entries) ? entries : [];
   const byId = new Map(list.map((e) => [e.playerId, e]));
 
@@ -142,7 +177,7 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   // this hook's own state/props around the exported `isEligibleMove` (#1240
   // round 2), which used to be this function's entire body inline.
   const isEligibleTarget = (targetEntry, slotType) =>
-    isEligibleMove({ selectedEntry, targetEntry, targetSlot: slotType, bestBall, leagueUnsettled });
+    isEligibleMove({ selectedEntry, targetEntry, targetSlot: slotType, bestBall, leagueUnsettled, template });
 
   const closeQuickPick = () => setQuickPick(null);
 
@@ -198,7 +233,7 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
         const bestBallSourceAllowed =
           !bestBall || (BEST_BALL_MANAGED_SLOTS.has(e.slot) && e.slot !== quickPick.slotType);
         const lockAllowsMove = !locked(e) || (!bestBall && canResolveLockedIrStash(e, quickPick.slotType, bestBall));
-        return bestBallSourceAllowed && lockAllowsMove && e.eligibleSlots.includes(quickPick.slotType);
+        return bestBallSourceAllowed && lockAllowsMove && slotFits(e, quickPick.slotType, template);
       })
     : [];
 
