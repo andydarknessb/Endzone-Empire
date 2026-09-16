@@ -103,8 +103,16 @@ describe('rostered: the rostered-by-another-team context', () => {
     expect(() => rostered({})).toThrow(/availability/);
   });
 
-  it('rejects an availability with no teamName', () => {
-    expect(() => rostered({ availability: {} })).toThrow(/teamName/);
+  // f1 (formal review): the card treats teamName as optional ("Rostered by"
+  // renders only when it is set) and PlayerManagement already opens this
+  // context with no teamName - a missing one is an accepted shape.
+  it('accepts an availability with no teamName', () => {
+    const availability = {};
+    expect(rostered({ availability })).toEqual({ kind: 'rostered', availability });
+  });
+
+  it('rejects a present, non-string teamName', () => {
+    expect(() => rostered({ availability: { teamName: 42 } })).toThrow(/teamName/);
   });
 });
 

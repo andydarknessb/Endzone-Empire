@@ -93,8 +93,14 @@ export function waivers({ availability, roster } = {}) {
  */
 export function rostered({ availability } = {}) {
   requirePlainObject(availability, 'rostered(...): availability');
-  if (typeof availability.teamName !== 'string' || availability.teamName === '') {
-    throw new Error('rostered(...): availability.teamName is required');
+  // Formal review (f1): the card treats `teamName` as optional
+  // (`PlayerDecisionCard.jsx`'s "Rostered by" line renders only when it is
+  // set, and Propose trade either way), and the next caller to wire this,
+  // PlayerManagement, already handles a missing one - a required teamName
+  // would throw the day that caller lands. Only a PRESENT non-string value
+  // is a rejected shape.
+  if (availability.teamName != null && typeof availability.teamName !== 'string') {
+    throw new Error('rostered(...): availability.teamName must be a string when present');
   }
   return { kind: 'rostered', availability };
 }
