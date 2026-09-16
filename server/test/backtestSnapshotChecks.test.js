@@ -9,6 +9,7 @@ const extract = require('../../scripts/backtest/extract-snapshot');
 const store = require('../../scripts/backtest/lib/snapshotStore');
 const { sha256Hex } = require('../../scripts/backtest/lib/verifiedBytes');
 const { SOURCES } = require('../../scripts/backtest/lib/sources');
+const surface = require('../../scripts/backtest/lib/sqlSurface');
 const { normalizeTeamKey } = require('../services/projectionFeatures');
 
 /**
@@ -714,10 +715,13 @@ test('a manifest missing a field the freeze will pin fails completeness', async 
 
   const again = await buildSnapshot('incomplete2');
   const m2 = store.loadManifest(again.root);
-  m2.sqlSurface = m2.sqlSurface.slice(0, 7);
+  // Dropping a query the ORIGINAL surface issued (byeWeeks is the last entry)
+  // is incompleteness; dropping only the two `since: free_baseline_v3.2`
+  // entries is an older-but-valid manifest (tested separately below).
+  m2.sqlSurface = m2.sqlSurface.filter((e) => e.name !== 'byeWeeks');
   store.saveManifest(again.root, m2);
   out = run(again.root, again.readSource);
-  assert.ok(out.failures.some((f) => /pins 7 SQL texts, expected the 8/.test(f.detail)));
+  assert.ok(out.failures.some((f) => /pins 9 SQL texts and does not pin byeWeeks/.test(f.detail)));
 
   const third = await buildSnapshot('incomplete3');
   const m3 = store.loadManifest(third.root);
@@ -866,4 +870,40 @@ test('formatResults hides passes in quiet mode but never hides a failure', () =>
   assert.equal(quiet.length, 1);
   assert.match(quiet[0], /FAIL b: broken/);
   assert.equal(checks.formatResults(results).length, 3);
+});
+
+test('a manifest extracted before the v3.2 prior-season queries existed still passes completeness, and a drifted signature fails it', async () => {
+  // The sealed pit-sweep-2024-2025 snapshot pins the original 8 texts. The
+  // surface gained priorSeasonScan / priorSeasonDefenseGameCount with
+  // free_baseline_v3.2 (#1485); an older manifest is a valid capture of the
+  // 8 it saw, and the check must say so rather than demand a re-extraction.
+  const older = await buildSnapshot('older-surface');
+  const m = store.loadManifest(older.root);
+  const sinceNames = surface.SQL_SURFACE.filter((e) => e.since).map((e) => e.name);
+  assert.deepEqual(sinceNames.sort(), ['priorSeasonDefenseGameCount', 'priorSeasonScan']);
+  m.sqlSurface = m.sqlSurface.filter((e) => !sinceNames.includes(e.name));
+  assert.equal(m.sqlSurface.length, 8);
+  store.saveManifest(older.root, m);
+  let out = run(older.root, older.readSource);
+  const manifestResult = out.results.find((r) => r.name === 'manifest');
+  assert.equal(manifestResult.ok, true, manifestResult.detail);
+  assert.match(manifestResult.detail, /gained priorSeasonScan, priorSeasonDefenseGameCount after this manifest/);
+  assert.equal(manifestResult.counts.sqlTextsAddedSince, 2);
+
+  // A pinned text that production has since edited is a different query and
+  // must fail whatever the count says.
+  const drifted = await buildSnapshot('drifted-surface');
+  const md = store.loadManifest(drifted.root);
+  md.sqlSurface.find((e) => e.name === 'leagueScan').signature = 'f'.repeat(64);
+  store.saveManifest(drifted.root, md);
+  out = run(drifted.root, drifted.readSource);
+  assert.ok(out.failures.some((f) => /different text than production now issues for: leagueScan/.test(f.detail)));
+
+  // A pinned name the surface never issued is refused too.
+  const stray = await buildSnapshot('stray-surface');
+  const ms = store.loadManifest(stray.root);
+  ms.sqlSurface.push({ name: 'somethingElse', signature: 'a'.repeat(64) });
+  store.saveManifest(stray.root, ms);
+  out = run(stray.root, stray.readSource);
+  assert.ok(out.failures.some((f) => /does not issue: somethingElse/.test(f.detail)));
 });

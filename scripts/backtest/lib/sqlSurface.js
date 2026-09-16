@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The production read surface: the 8 SQL texts `generateProjections` issues,
+ * The production read surface: the 10 SQL texts `generateProjections` issues,
  * their whitespace-normalized signatures, and the parameter shape each one
  * carries.
  *
@@ -39,6 +39,11 @@ const crypto = require('crypto');
  *
  *   - `season` / `week`: parameter index carrying the target season/week
  *   - `firstSeason`: index carrying `season - HISTORY_SEASONS`
+ *   - `priorSeason`: index carrying `season - 1`. Unlike `firstSeason` (the
+ *     start of the multi-season history window), `priorSeason` names the
+ *     ONE completed season immediately before the target - the prior-season
+ *     opponent seed (#1485) reads that season whole, with no week cutoff,
+ *     because a prior season is complete by definition.
  *   - `ids`: index carrying the player-id array
  *   - `weekIsExclusiveUpperBound`: the query reads `week < $n` rather than
  *     `week = $n`, which is what makes it a prior-weeks read
@@ -115,6 +120,44 @@ const SQL_SURFACE = Object.freeze([
     text: `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "games"
        FROM "nfl_games" WHERE "season" = $1 AND "week" < $2
        GROUP BY 1`,
+  },
+  {
+    // Prior-season opponent seed (#1485). ALWAYS run whenever `scanPositions`
+    // is non-empty - including week 1, which the current-season `leagueScan`
+    // above cannot cover because no week of the target season has completed
+    // yet. A prior season is complete by definition, so this carries no
+    // week cutoff at all: every week of `priorSeason` is fair game.
+    name: 'priorSeasonScan',
+    source: 'server/services/projectionFeatures.js:647',
+    // Added with free_baseline_v3.2 (#1485), after the pit-sweep-2024-2025
+    // snapshot was sealed. A manifest extracted before this entry existed
+    // legitimately does not pin it; `snapshot-checks` treats `since` entries
+    // as optional for such a manifest and still requires the signature to
+    // match when one is pinned.
+    since: 'free_baseline_v3.2',
+    conditional: 'scanPositions.length > 0',
+    binding: { priorSeason: 0, positions: 1, limit: 2 },
+    text: `SELECT "pps"."player_id", "pps"."week", "pps"."stats", "p"."position",
+                fn_normalize_nfl_team("pps"."stats"->>'gameOpponent') AS "defense"
+         FROM "player_stats" "pps"
+         JOIN "players" "p" ON "p"."id" = "pps"."player_id"
+         WHERE "pps"."season" = $1 AND "p"."position" = ANY($2::text[])
+         ORDER BY "pps"."player_id", "pps"."week"
+         LIMIT $3`,
+  },
+  {
+    // The prior season's per-team game count, for normalizing the prior-season
+    // scan's allowance the same way `defenseGameCount` normalizes the
+    // current-season one. No week cutoff, for the same reason as
+    // `priorSeasonScan`: the prior season is complete.
+    name: 'priorSeasonDefenseGameCount',
+    source: 'server/services/projectionFeatures.js:657',
+    since: 'free_baseline_v3.2',
+    conditional: 'scanPositions.length > 0',
+    binding: { priorSeason: 0 },
+    text: `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "prior_games"
+         FROM "nfl_games" WHERE "season" = $1
+         GROUP BY 1`,
   },
   {
     name: 'byeWeeks',
