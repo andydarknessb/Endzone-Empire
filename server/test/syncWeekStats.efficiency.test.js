@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
-const scoring = require('../services/scoring.service');
+const scoring = { ...require('../services/boxScoreApply.service'), ...require('../services/feedSyncRuns.service') };
 const finalBox = require('../modules/finalBox');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
 

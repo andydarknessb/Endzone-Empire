@@ -60,7 +60,7 @@ if (!ENABLED) {
 } else {
   // The same pool runSyncJob itself requires, connected from PG* env.
   const pool = require('../modules/pool');
-  const { syncPlayers, syncPlayerSeasonStats } = require('../services/scoring.service');
+  const { syncPlayers, syncPlayerSeasonStats } = require('../services/feedSyncRuns.service');
   const { syncNflverseWeek } = require('../services/nflverseSync.service');
   const { lastRun } = require('../modules/syncRun');
 

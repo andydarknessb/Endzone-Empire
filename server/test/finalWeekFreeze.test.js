@@ -6,7 +6,7 @@ const {
   materializeLineup,
   benchAcquiredPlayer,
 } = require('../services/lineup.service');
-const { scoreMatchups } = require('../services/scoring.service');
+const { scoreMatchups } = require('../services/matchupScoring.service');
 const { correctLeagueWeek } = require('../services/correction.service');
 const { finalizeWeekAndAdvance } = require('../services/season.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');

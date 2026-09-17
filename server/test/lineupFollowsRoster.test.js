@@ -800,7 +800,7 @@ function scoringWorld({ bestBall = false, entries }) {
 }
 
 const scoreFinalWeek = async () => {
-  const { scoreMatchups } = require('../services/scoring.service');
+  const { scoreMatchups } = require('../services/matchupScoring.service');
   await scoreMatchups({ leagueId: 5, season: CURRENT_SEASON, week: CURRENT_WEEK });
 };
 

@@ -12,7 +12,7 @@ const backtestArms = require('../../scripts/backtest/lib/arms');
 const naive = require('../../scripts/backtest/lib/naive');
 const { PRIMARY_SCORING_PROFILE } = require('../../scripts/backtest/lib/freezeManifest');
 const model = require('../services/projectionModel');
-const { SCORING_PRESETS, calculateFantasyPoints } = require('../services/scoring.service');
+const { SCORING_PRESETS, calculateFantasyPoints } = require('../services/scoringRules');
 
 /**
  * The `--inputs` producer's WIRING (increment 3). Everything here runs on

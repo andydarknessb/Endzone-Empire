@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const finalBox = require('../modules/finalBox');
 const liveBox = require('../modules/liveBox');
 const pool = require('../modules/pool');
-const scoring = require('../services/scoring.service');
+const scoring = require('../services/feedSyncRuns.service');
 const { priorityAllowed } = require('../modules/tank01Client');
 const { createFakePool, insert, update } = require('./helpers/fakePool');
 

@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizePlayerEntry, resolveHeadshotUrl } = require('../services/scoring.service');
+const { normalizePlayerEntry } = require('../services/feedSyncRuns.service');
+const { resolveHeadshotUrl } = require('../services/tank01Feed');
 
 // Tank01 getNFLPlayerList entry shape: { playerID, longName, pos, team, ... }
 

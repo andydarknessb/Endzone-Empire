@@ -4,7 +4,7 @@ const pool = require('../modules/pool');
 const projection = require('../services/projection.service');
 const features = require('../services/projectionFeatures');
 const model = require('../services/projectionModel');
-const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoring.service');
+const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoringRules');
 
 /**
  * These tests drive the real engine against a mocked `pool`, so the SQL the

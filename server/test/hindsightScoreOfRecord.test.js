@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const { weekHindsight } = require('../services/decision.service');
-const { scoreMatchups } = require('../services/scoring.service');
+const { scoreMatchups } = require('../services/matchupScoring.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 
 // scoreMatchups now emits through getDraftRoomBroadcast(), which THROWS when no

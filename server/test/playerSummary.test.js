@@ -5,10 +5,9 @@ const {
   aggregateSeasonStats,
   buildPlayerSummary,
   projectSeasonPoints,
-  hasTeamDefenseTiers,
   getSeasonPositionRank,
-  SCORING_PRESETS,
-} = require('../services/scoring.service');
+} = require('../services/seasonSummary.service');
+const { hasTeamDefenseTiers, SCORING_PRESETS } = require('../services/scoringRules');
 
 // --- getSeasonPositionRank --------------------------------------------------
 

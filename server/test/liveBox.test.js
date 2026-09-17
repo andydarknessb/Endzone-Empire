@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const liveBox = require('../modules/liveBox');
 const sentryModule = require('../modules/sentry');
-const scoring = require('../services/scoring.service');
+const scoring = require('../services/boxScoreApply.service');
 const { createFakePool, insert } = require('./helpers/fakePool');
 const summary = require('./fixtures/espn-summary-2026-w1-ne-sea-final.json');
 

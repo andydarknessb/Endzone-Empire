@@ -10,7 +10,7 @@ const {
 const { DRAFT_FROZEN_SETTING_KEYS } = require('../services/leaguePhase');
 const { POSITION_KEYS } = require('../services/draftValidation.service');
 const { POSITION_GROUPS } = require('../services/lineup.service');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS } = require('../services/scoringRules');
 
 /**
  * parseSettingsPatch is the pure half of PUT /api/league/:id (spec #71, PR 1).

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, insert, select, update } = require('./helpers/fakePool');
 const prefs = require('../services/prefs.service');
 const push = require('../services/push.service');
-const { normalizeInjuryStatus, syncInjuries, NFL_PLAYER_LIST_FLOOR } = require('../services/scoring.service');
+const { normalizeInjuryStatus, syncInjuries, NFL_PLAYER_LIST_FLOOR } = require('../services/feedSyncRuns.service');
 const { DEFAULT_ROSTER_SLOTS, setLineup } = require('../services/lineup.service');
 
 test('normalizeInjuryStatus maps designations to badge codes', () => {
