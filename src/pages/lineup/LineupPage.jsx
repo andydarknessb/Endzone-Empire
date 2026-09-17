@@ -6,7 +6,7 @@ import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
-import LineupLedger, { buildLedgerSections } from '../../widgets/lineup-ledger';
+import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
@@ -24,16 +24,6 @@ import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
-
-// The Game cell's own status split (`widgets/lineup-ledger/lib/gameCell.js`'s
-// `gameCellView`), off `game_status` alone - see the finished-game refetch
-// comment below for why this is a narrow local copy rather than an import.
-function gameCellStatusKind(liveRow) {
-  if (!liveRow) return 'pre';
-  if (liveRow.game_status === 'final') return 'final';
-  if (liveRow.game_status === 'in_progress') return 'live';
-  return 'pre';
-}
 
 /**
  * The Lineup page slice (ADR 0037, #1237): replaces the legacy
@@ -130,12 +120,13 @@ export default function LineupPage() {
   // it is server text that only refreshes on `GET /api/team/lineup` - so a
   // game going final (or, in either direction, changing state at all) left
   // the old sentence under the new icon until the page next reloaded.
-  // `gameCellStatusKind` below is the same `pre`/`live`/`final` split
-  // `gameCell.js`'s own `gameCellView` makes off `liveRow.game_status`
-  // (duplicated here, not imported, since this page's own reservation for
-  // this ticket does not extend to that file; it deliberately leaves out
-  // that function's `unavailable` branch, which is a per-ENTRY fact, not a
-  // per-GAME one). `seenGameKindsRef` remembers the last kind observed for
+  // `gameStatusKind` (imported above, from the widget's public index per
+  // ADR 0020 - #1557) is the same `pre`/`live`/`final` split `gameCell.js`'s
+  // own `gameCellView` makes off `liveRow.game_status`; this page no longer
+  // keeps its own copy of it. It deliberately leaves out that module's
+  // `unavailable` branch, which is a per-ENTRY fact, not a per-GAME one -
+  // `gameCellView` alone checks that, above its own call to this function.
+  // `seenGameKindsRef` remembers the last kind observed for
   // each `gameKey`; a kind differing from an already-seen one (never the
   // first observation - the initial fetch that seeds it is already fresh)
   // triggers exactly one silent refetch (`{ silent: true }`,
@@ -151,7 +142,7 @@ export default function LineupPage() {
     let changed = false;
     for (const row of liveGames) {
       const key = String(row.tank01_game_id);
-      const kind = gameCellStatusKind(row);
+      const kind = gameStatusKind(row);
       const prevKind = seen.get(key);
       if (prevKind !== undefined && prevKind !== kind) changed = true;
       seen.set(key, kind);
