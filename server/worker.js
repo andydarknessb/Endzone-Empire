@@ -121,6 +121,10 @@ function installProcessHandlers(proc = process, {
   const exitAfterShutdown = (reason, code) => {
     if (exiting) return;
     exiting = true;
+    // Set first: if shutdown leaves nothing holding the loop open, Node may
+    // exit on its own before either exit() below runs, and it must not
+    // report success after a fatal event.
+    proc.exitCode = code;
     let exited = false;
     const exitOnce = (why) => {
       if (exited) return;
