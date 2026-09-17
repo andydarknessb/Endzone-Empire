@@ -789,7 +789,7 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * own HTTP fetches also stay off that transaction this way, matching ADR
  * 0036's "fetch outside any transaction" for the same reason.
  *
- * Runs at most once per local calendar day inside
+ * Runs at most once per UTC calendar day inside
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
  * a brand-new deployment or a mid-week draft must not sit blocked on a
  * stat-correction pass that has never run) - and, outside that window,
@@ -810,7 +810,7 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * `runNflverseFinalization`/`runDailyStatCorrections` below.
  */
 async function runNightlyProjectionFill({ now = new Date() } = {}) {
-  const today = now.toLocaleDateString('en-CA');
+  const today = cadence.utcDateKey(now);
   const inWindow = now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR && lastProjectionFillDay !== today;
   if (!inWindow) {
     const gate = await cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after: 'stat-corrections', now });
