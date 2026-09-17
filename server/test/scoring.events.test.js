@@ -107,25 +107,49 @@ test('a kicker\'s FG + XP in one sync price separately and sum to the whole, not
   assert.equal(sum2(deltas), wholeDelta);
 });
 
-test('a QB\'s passing TD + rushing TD + yardage in one sync sum to the whole, with the yardage residual on the first event', () => {
+test('a QB\'s passing TD + rushing TD + yardage in one sync sum to the whole, with the yardage residual on the LAST event', () => {
   const prev = { passingYards: 200, passingTDs: 1, rushingYards: 20, rushingTDs: 0 };
   const next = { passingYards: 220, passingTDs: 2, rushingYards: 25, rushingTDs: 1 };
   const events = detectScoringEvents(prev, next);
   assert.equal(events.length, 2);
   const wholeDelta = 11.3; // 4 (passing TD) + 6 (rushing TD) + 0.8 (pass yds) + 0.5 (rush yds)
   const deltas = attributePlayPoints(prev, next, events, wholeDelta);
-  assert.deepEqual(deltas, [5.3, 6]);
+  // Residual (1.3, the two yardage bonuses) rides the LAST event (rushingTDs),
+  // not the first: the passing TD keeps its clean marginal.
+  assert.deepEqual(deltas, [4, 7.3]);
   assert.equal(sum2(deltas), wholeDelta);
 });
 
-test('a DEF fumbleRecovery + defensiveTD with a points-allowed tier change sum to the whole', () => {
+test('a DEF fumbleRecovery + defensiveTD with a points-allowed tier change sum to the whole, residual on the LAST event', () => {
   const prev = { fumbleRecovery: 0, defensiveTD: 0, pointsAllowed: 3 }; // tier 1-6 -> 7 pts
   const next = { fumbleRecovery: 1, defensiveTD: 1, pointsAllowed: 10 }; // tier 7-13 -> 4 pts
   const events = detectScoringEvents(prev, next);
   assert.equal(events.length, 2);
   const wholeDelta = 5; // (2 + 6 + 4) - (0 + 0 + 7)
   const deltas = attributePlayPoints(prev, next, events, wholeDelta);
-  assert.deepEqual(deltas, [3, 2]);
+  // events = [defensiveTD, fumbleRecovery] (PLAY_STAT_EVENTS order); the tier
+  // drop's residual (-3) rides fumbleRecovery, the last event, leaving the
+  // touchdown play's own marginal (6) untouched.
+  assert.deepEqual(deltas, [6, -1]);
+  assert.equal(sum2(deltas), wholeDelta);
+});
+
+// Regression for the QA fuzz finding: with the residual on the FIRST event,
+// PLAY_STAT_EVENTS' touchdown-keys-first ordering meant a touchdown play
+// routinely carried the fuzzy (or, on a big enough residual, negative) leftover
+// - a QB's passing TD showing "+0.8" instead of its clean +4, say. The two
+// thrown INTs here have no tracked event of their own (only a defensive
+// interception RETURN is tracked), so their -4 is pure residual; with the
+// residual on the LAST event it lands on rushingTDs instead, and the passing
+// TD keeps its clean marginal.
+test('a touchdown play keeps its clean marginal when a later non-touchdown-priced residual exists', () => {
+  const prev = { passingTDs: 1, rushingTDs: 0, interceptions: 0 };
+  const next = { passingTDs: 2, rushingTDs: 1, interceptions: 2 };
+  const events = detectScoringEvents(prev, next);
+  assert.equal(events.length, 2);
+  const wholeDelta = 6; // 4 (passing TD) + 6 (rushing TD) - 4 (2 thrown INTs)
+  const deltas = attributePlayPoints(prev, next, events, wholeDelta);
+  assert.deepEqual(deltas, [4, 2], 'the passing TD is untouched at its clean +4');
   assert.equal(sum2(deltas), wholeDelta);
 });
 

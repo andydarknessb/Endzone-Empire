@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
 import { Card } from '../../../shared/ui';
-import { playLabel } from '../../../entities/matchup';
+import { playLabel, formatSignedPoints } from '../../../entities/matchup';
 
 /**
  * The last-plays ticker of the Scoreboard view (ADR 0031, #903), transcribed
@@ -20,10 +20,6 @@ import { playLabel } from '../../../entities/matchup';
  * on the surface too. The dot carries no meaning of its own: the side is
  * exposed as `data-side` and the row's text names the scorer.
  */
-function formatPoints(delta) {
-  return `+${(Number(delta) || 0).toFixed(1)}`;
-}
-
 export default function LastPlays({ items, mobile = false }) {
   const list = Array.isArray(items) ? items : [];
   if (list.length === 0) return null;
@@ -73,7 +69,7 @@ export default function LastPlays({ items, mobile = false }) {
               <Box component="span" sx={{ color: 'var(--dash-dim)' }}>{playLabel(item)}</Box>
               {' '}
               <Box component="span" sx={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                {formatPoints(item.pointsDelta)}
+                {formatSignedPoints(item.pointsDelta)}
               </Box>
             </Box>
           );

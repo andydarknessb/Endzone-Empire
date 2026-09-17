@@ -143,10 +143,15 @@ function detectScoringEvents(prevStats, newStats) {
 // key calculateFantasyPoints actually prices from. `fieldGoal` is a plain
 // make-count (Tank01's fgMade) with no rate of its own in STAT_KEY_PATHS —
 // a made kick's real price lives on `fieldGoalDistances`, the per-make
-// distance array scoreTieredValues tier-matches. Every other tracked event
-// key already prices itself directly (the TD counters, teamDefense's sack/
-// interceptionReturn/fumbleRecovery/defensiveTD, misc's returnTDs, kicking's
-// extraPoint) — only field goals need this redirect.
+// distance array scoreTieredValues tier-matches, so it needs this redirect.
+// `puntReturns` has the opposite shape: it has no STAT_KEY_PATHS entry AT ALL
+// (only `puntReturnYards` does, defaulting to a 0 rate) - unmapped, it prices
+// at a marginal of 0 and whatever it's actually worth (yardage, if a
+// commissioner has priced it) lands in the residual, same as any other
+// untracked stat. Every other tracked event key already prices itself
+// directly (the TD counters, teamDefense's sack/interceptionReturn/
+// fumbleRecovery/defensiveTD, misc's returnTDs, kicking's extraPoint) - only
+// field goals need the redirect below.
 const EVENT_PRICING_KEY = { fieldGoal: 'fieldGoalDistances' };
 
 /**
@@ -163,14 +168,22 @@ const EVENT_PRICING_KEY = { fieldGoal: 'fieldGoalDistances' };
  * on its own. Whatever that leaves over against the true whole change
  * (yardage, length/yardage bonuses, a DEF points-allowed/yards-allowed tier
  * move — nothing tied to a single tracked stat key) is folded as a residual
- * onto the FIRST event, so the returned deltas always sum to `wholeDelta`
+ * onto the LAST event, so the returned deltas always sum to `wholeDelta`
  * exactly (worked in integer cents so the rounding is exact, never
- * approximate).
+ * approximate). Last, not first: PLAY_STAT_EVENTS orders touchdown keys
+ * before the non-touchdown ones, so a first-event residual would routinely
+ * land the fuzzy leftover (or, on a tier drop, a negative one) on the
+ * touchdown play - the cutscene surfaces read. Putting it last instead keeps
+ * a touchdown play's own clean marginal whenever a later, non-touchdown event
+ * exists to absorb the remainder.
  *
  * A single event returns `[wholeDelta]` unchanged (today's one-play-per-sync
  * shape, still the overwhelmingly common case) — the marginal split only
  * runs when there is more than one event to split across. Zero events
  * returns `[]`.
+ *
+ * Exported as a test-only seam (server/test/scoring.events.test.js), not
+ * cross-module interface: no other module calls this directly.
  *
  * @param {object} prev  the player's stat line before this sync (null/undefined reads as all-zero)
  * @param {object} next  the player's stat line after this sync
@@ -191,7 +204,8 @@ function attributePlayPoints(prev, next, events, wholeDelta) {
   });
   const wholeCents = Math.round(wholeDelta * 100);
   const sumCents = marginalCents.reduce((s, c) => s + c, 0);
-  marginalCents[0] += wholeCents - sumCents; // residual, exact in integer cents
+  const last = marginalCents.length - 1;
+  marginalCents[last] += wholeCents - sumCents; // residual, exact in integer cents
   return marginalCents.map((c) => c / 100);
 }
 
