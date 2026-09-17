@@ -1,4 +1,4 @@
-import { gameCellView } from './gameCell';
+import { gameCellView, gameStatusKind } from './gameCell';
 
 const entry = (overrides = {}) => ({
   nflTeam: 'BUF',
@@ -128,6 +128,21 @@ test('a live/final row that names neither side as the entry\'s team scores null 
 
 test('a null entry never throws', () => {
   expect(gameCellView(null, null)).toBeNull();
+});
+
+// #1557: the per-GAME status split, exported directly so the Lineup page's
+// finished-game refetch can import it instead of keeping its own copy.
+describe('gameStatusKind', () => {
+  test.each([
+    [null, 'pre'],
+    [undefined, 'pre'],
+    [{}, 'pre'],
+    [{ game_status: 'final' }, 'final'],
+    [{ game_status: 'in_progress' }, 'live'],
+    [{ game_status: 'postponed' }, 'pre'],
+  ])('%j -> %s', (liveRow, expected) => {
+    expect(gameStatusKind(liveRow)).toBe(expected);
+  });
 });
 
 // #1329 (ADR 0037): the pre-kickoff cell's Line/weather text, off the

@@ -47,12 +47,12 @@ export function gameCellView(entry, liveRow) {
     return { kind: 'unavailable', reason: entry.availability.reason, reasonLabel: unavailableLabel(entry.availability.reason) };
   }
 
-  const status = liveRow ? liveRow.game_status : null;
-  if (status === 'final') {
+  const kind = gameStatusKind(liveRow);
+  if (kind === 'final') {
     const { teamScore, opponentScore } = scoresFor(entry, liveRow);
     return { kind: 'final', teamScore, opponentScore };
   }
-  if (status === 'in_progress') {
+  if (kind === 'live') {
     const trailing = `${liveRow.quarter || ''} ${liveRow.time_remaining || ''}`.trim() || 'Live';
     const { teamScore, opponentScore } = scoresFor(entry, liveRow);
     return {
@@ -73,6 +73,24 @@ export function gameCellView(entry, liveRow) {
     lineText: lineTextFor(entry.line),
     weatherText: weatherTextFor(entry.weather),
   };
+}
+
+/**
+ * The per-GAME half of the Game cell's status split (#1557; the ruling on
+ * that issue thread): `'pre' | 'live' | 'final'` off `liveRow.game_status`
+ * alone, with `null`, `undefined` and any unrecognised status all reading as
+ * `'pre'`. Deliberately leaves out the per-ENTRY `unavailable` branch above
+ * - that is `entry.availability`, not a fact this row's `liveRow` carries -
+ * so `gameCellView` still checks it before ever calling this. The Lineup
+ * page's finished-game silent refetch (`pages/lineup/LineupPage.jsx`) reads
+ * this same split through the widget's public index (ADR 0020) rather than
+ * keeping its own copy.
+ */
+export function gameStatusKind(liveRow) {
+  if (!liveRow) return 'pre';
+  if (liveRow.game_status === 'final') return 'final';
+  if (liveRow.game_status === 'in_progress') return 'live';
+  return 'pre';
 }
 
 // Pure: the pre-kickoff Line text (#1329, per the canvas: "KC -3.5 · O/U

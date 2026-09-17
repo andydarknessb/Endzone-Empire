@@ -17,3 +17,4 @@
  */
 export { default } from './ui/LineupLedger';
 export { buildLedgerSections } from './model/buildLedgerSections';
+export { gameStatusKind } from './lib/gameCell';
