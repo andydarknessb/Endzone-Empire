@@ -128,12 +128,15 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
 });
 
 /**
- * #1188: the once-a-day gate is the last successful `injuries` row in
- * data_sync_runs, not a module variable, so a worker restart (a fresh module
- * instance) cannot re-run the sync. The world below is that table: the mocked
- * syncInjuries appends a row exactly as the real one does.
+ * #1188: inside a game window, the every-windowMs decision reads the last
+ * successful `injuries` run in data_sync_runs, not a module variable, so a
+ * worker restart (a fresh module instance) cannot re-run it more often than
+ * the window allows. Outside a window the once-a-day decision is the cadence
+ * gate's own concern instead (#1509, below), so this world only ever needs to
+ * answer the WINDOW-mode read - the outside-window tests stub cadence.due
+ * directly and never reach this fake pool at all.
  */
-function injuryWorld(t, { inWindow = false } = {}) {
+function injuryWorld(t, { inWindow = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');
   const previousKey = process.env.RAPID_API_KEY;
   const previousHost = process.env.RAPID_API_HOST;
@@ -147,8 +150,11 @@ function injuryWorld(t, { inWindow = false } = {}) {
   });
   const world = { runs: [], calls: 0, fail: false, inWindow, clock: null };
   const fake = createFakePool([
-    // lastInjurySyncAt now reads lastRun('injuries') (#1205): shape the row the
-    // way syncRun.js's lastRun query does, `{ latest, latestOk }`.
+    // Serves lastInjurySyncAt's WINDOW-mode read only now (#1509 formal
+    // review f3): lastRun('injuries') (#1205), shaped the way syncRun.js's
+    // lastRun query does, `{ latest, latestOk }`. The once-a-day OUTSIDE-
+    // window decision no longer reaches this fake at all - it is the cadence
+    // gate's own concern, stubbed directly in the tests below.
     [/FROM "data_sync_runs"/, () => {
       const sorted = [...world.runs].sort((a, b) => b.finished_at - a.finished_at);
       const latest = sorted[0];
@@ -180,44 +186,33 @@ function injuryWorld(t, { inWindow = false } = {}) {
   return world;
 }
 
-test('runDailyInjurySync: with a successful data_sync_runs row for today the sync does not run; with none it does (#1188)', async (t) => {
-  const world = injuryWorld(t);
-  const firstDay = new Date('2026-08-20T12:00:00-05:00');
-  assert.deepEqual(await world.run(firstDay), { playersUpdated: 10, irFlags: 1 });
-  // "A fresh module instance": nothing in memory is consulted, only the table.
-  assert.equal(await world.run(new Date('2026-08-20T13:00:00-05:00')), null);
-  assert.equal(world.calls, 1);
-
-  // A failed day records ok=false, which does not move the gate: the next tick retries.
-  world.fail = true;
-  const nextDay = new Date('2026-08-21T12:00:00-05:00');
-  await assert.rejects(world.run(nextDay), /Tank01 unavailable/);
-  world.fail = false;
-  assert.deepEqual(await world.run(new Date('2026-08-21T12:05:00-05:00')), { playersUpdated: 10, irFlags: 1 });
-  assert.equal(await world.run(new Date('2026-08-21T18:00:00-05:00')), null);
-  assert.equal(world.calls, 3);
-});
-
-test('runDailyInjurySync: inside a game window it runs every 15 minutes, not every 10, and not at all outside one the same day (#1188)', async (t) => {
+test('runDailyInjurySync: inside a game window it runs every 15 minutes, not every 10 (#1188)', async (t) => {
   const world = injuryWorld(t, { inWindow: true });
   const T = new Date('2026-09-13T12:00:00-05:00'); // Sunday, first kickoff minus 90 min
-  assert.ok(await world.run(T), 'first run of the day');
+  assert.ok(await world.run(T), 'first run of the window');
   assert.equal(await world.run(new Date(T.getTime() + 10 * 60 * 1000)), null, 'ten minutes on: not yet');
   assert.ok(await world.run(new Date(T.getTime() + 15 * 60 * 1000)), 'fifteen minutes on: runs');
   assert.equal(world.calls, 2);
-  world.inWindow = false;
-  assert.equal(await world.run(new Date(T.getTime() + 60 * 60 * 1000)), null, 'outside a window the daily gate holds');
-  assert.equal(world.calls, 2);
 });
 
-test('injurySyncDue is the whole cadence rule, and INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
+test('runDailyInjurySync never consults the cadence gate while inside a game window', async (t) => {
+  // Inside a window, injurySyncDue/lastInjurySyncAt decide alone; the cadence
+  // gate is an outside-window concern only (#1509).
+  const world = injuryWorld(t, { inWindow: true });
+  const cadence = require('../modules/cadence');
+  let dueCalls = 0;
+  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
+
+  await world.run(new Date('2026-09-13T12:00:00-05:00'));
+  assert.equal(dueCalls, 0);
+});
+
+test('injurySyncDue is the in-window cadence rule; INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
   const now = new Date('2026-09-13T15:00:00-05:00');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: false, windowMs: 900000 }), false, 'same day, no window');
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true, 'never run: due regardless of window');
   assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: true, windowMs: 900000 }), true);
   assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), inWindow: true, windowMs: 900000 }), false);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(26 * 60), inWindow: false, windowMs: 900000 }), true, 'yesterday: due');
   const prev = process.env.INJURY_GAME_WINDOW_MS;
   delete process.env.INJURY_GAME_WINDOW_MS;
   try {
@@ -228,6 +223,73 @@ test('injurySyncDue is the whole cadence rule, and INJURY_GAME_WINDOW_MS doubles
   } finally {
     if (prev === undefined) delete process.env.INJURY_GAME_WINDOW_MS; else process.env.INJURY_GAME_WINDOW_MS = prev;
   }
+});
+
+// ---- outside a window: daily injury sync (#1188, #1509) --------------------
+// The once-a-day decision is the cadence gate's own concern (server/modules/
+// cadence.js, spec #1492 step two, #1509, spec #1493 "UTC day everywhere").
+// Same shape as the ADP/ESPN/odds sections above: these stub cadence.due
+// directly and assert this function's OWN behavior around that decision and
+// delegation to feedSyncRuns.service.syncInjuries.
+
+function withInjuryCreds(t) {
+  const previousKey = process.env.RAPID_API_KEY;
+  const previousHost = process.env.RAPID_API_HOST;
+  process.env.RAPID_API_KEY = 'test-key';
+  process.env.RAPID_API_HOST = 'test-host';
+  t.after(() => {
+    if (previousKey === undefined) delete process.env.RAPID_API_KEY;
+    else process.env.RAPID_API_KEY = previousKey;
+    if (previousHost === undefined) delete process.env.RAPID_API_HOST;
+    else process.env.RAPID_API_HOST = previousHost;
+  });
+}
+
+test('runDailyInjurySync delegates the outside-a-window due/not-due decision to the cadence gate', async (t) => {
+  withInjuryCreds(t);
+  const scoring = require('../services/feedSyncRuns.service');
+  const cadence = require('../modules/cadence');
+  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t); // outside any window
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(scoring, 'syncInjuries', async (opts) => {
+    calls.push(opts);
+    return { playersUpdated: 10, irFlags: 1 };
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyInjurySync({ now }), { playersUpdated: 10, irFlags: 1 });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncInjuries with the same now');
+  assert.deepEqual(dueArgs, { job: 'injuries', every: 'utc-day', now });
+});
+
+test('runDailyInjurySync never calls syncInjuries outside a window when the cadence gate says it is not due', async (t) => {
+  withInjuryCreds(t);
+  const scoring = require('../services/feedSyncRuns.service');
+  const cadence = require('../modules/cadence');
+  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(scoring, 'syncInjuries', async () => { calls += 1; return { playersUpdated: 10, irFlags: 1 }; });
+
+  const result = await scheduler.runDailyInjurySync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('runDailyInjurySync propagates a thrown syncInjuries outside a window so the next tick retries (a throw never moves the gate)', async (t) => {
+  withInjuryCreds(t);
+  const scoring = require('../services/feedSyncRuns.service');
+  const cadence = require('../modules/cadence');
+  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(scoring, 'syncInjuries', async () => { throw new Error('Tank01 unavailable'); });
+
+  await assert.rejects(
+    scheduler.runDailyInjurySync({ now: new Date('2026-08-20T12:00:00-05:00') }),
+    /Tank01 unavailable/
+  );
 });
 
 test('tickUnlocked registers the daily injury sync duty', () => {
@@ -242,34 +304,136 @@ test('tickUnlocked registers the daily injury sync duty', () => {
   assert.match(tickBody, /await runDailyInjurySync\(\);/);
 });
 
-// ---- daily ADP sync (#747) --------------------------------------------------
+// ---- daily ADP sync (#747, #1509) -------------------------------------------
+// The due/not-due decision is the cadence gate's own concern (server/modules/
+// cadence.js, cadence.test.js's table suite covers the 'utc-day' cadence and
+// the "a failed run is never latestOk" case generically). No in-memory day
+// stamp remains here (#1509 AC1), so these stub cadence.due directly and
+// assert this function's OWN behavior around that decision and delegation to
+// it.
 
-test('runDailyAdpSync runs once per local day and retries a thrown day', async (t) => {
-  // Same day-stamp-after-success contract as the injury sync, but with no
-  // credential gate: FFC is free and keyless, so the ADP job runs all year.
+test('runDailyAdpSync delegates the due/not-due decision to the cadence gate', async (t) => {
   const adp = require('../services/adp.service');
-  let calls = 0;
-  let fail = false;
-  t.mock.method(adp, 'syncAdp', async () => {
-    calls += 1;
-    if (fail) throw new Error('FFC unavailable');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  let dueOpts = null;
+  t.mock.method(cadence, 'due', async (args, opts) => { dueArgs = args; dueOpts = opts; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(adp, 'syncAdp', async (opts) => {
+    calls.push(opts);
     return { ok: true, playersUpdated: 180 };
   });
 
-  const firstDay = new Date('2026-08-20T12:00:00-05:00');
-  assert.deepEqual(await scheduler.runDailyAdpSync({ now: firstDay }), { ok: true, playersUpdated: 180 });
-  // A second tick the same local day does not run it again.
-  assert.equal(await scheduler.runDailyAdpSync({ now: firstDay }), null);
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyAdpSync({ now }), { ok: true, playersUpdated: 180 });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncAdp with the same now');
+  assert.deepEqual(dueArgs, { job: 'adp', every: 'utc-day', now });
+  // Pinned at stub level (formal review, optional item 4): the gate is
+  // handed adpLastRun, not its own plain default reader - a same-day
+  // refusal must close the gate the same way a success does (#1509 risk
+  // review, see the adpLastRun tests below).
+  assert.equal(dueOpts && dueOpts.lastRun, scheduler.adpLastRun);
+});
 
-  fail = true;
-  const nextDay = new Date('2026-08-21T12:00:00-05:00');
-  // A throw does not stamp the day: the next tick retries.
-  await assert.rejects(scheduler.runDailyAdpSync({ now: nextDay }), /FFC unavailable/);
-  fail = false;
-  assert.deepEqual(await scheduler.runDailyAdpSync({ now: nextDay }), { ok: true, playersUpdated: 180 });
-  // ...and once it succeeds, the day is stamped so it does not run a third time.
-  assert.equal(await scheduler.runDailyAdpSync({ now: nextDay }), null);
-  assert.equal(calls, 3);
+test('runDailyAdpSync never calls syncAdp when the cadence gate says it is not due', async (t) => {
+  const adp = require('../services/adp.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(adp, 'syncAdp', async () => { calls += 1; return { ok: true }; });
+
+  const result = await scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('runDailyAdpSync propagates a thrown syncAdp so the next tick retries (a throw never moves the gate)', async (t) => {
+  const adp = require('../services/adp.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(adp, 'syncAdp', async () => { throw new Error('FFC unavailable'); });
+
+  await assert.rejects(
+    scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:00:00-05:00') }),
+    /FFC unavailable/
+  );
+});
+
+// The two tests below exercise the REAL cadence gate (not stubbed) against a
+// fake data_sync_runs table, because the gate's own `latestOk`-only read is
+// exactly what #1509's risk review found wrong for this job: a thin-market/
+// thin-match refusal (adp.service.js's wipe guard) resolves rather than
+// throws and records ok=false, so on the gate's plain default reader it would
+// never close for the day, and every five-minute tick would re-hit FFC for
+// the rest of the UTC day while the market stays thin - the exact hazard the
+// pre-#1509 in-memory `lastAdpSyncDay` stamp existed to prevent. `adpLastRun`
+// (scheduler.js) fixes this by substituting a same-day refusal for `latestOk`
+// when it is the newest run.
+//
+// Built on `dataSyncRunsPool` below (formal review, fix 3) rather than a
+// second hand-rolled data_sync_runs fake: `adp` is a GETTER, so
+// `byJob['adp']` recomputes `{ latest, latestOk }` from the live `runs` array
+// on every read, the same way the hand-rolled version did, with no separate
+// pattern of its own.
+function adpRunsWorld(t) {
+  const runs = [];
+  dataSyncRunsPool({
+    get adp() {
+      const sorted = [...runs].sort((a, b) => b.finished_at - a.finished_at);
+      const latest = sorted[0];
+      const latestOk = sorted.find((r) => r.ok);
+      return {
+        latest: latest ? { id: sorted.length, finished_at: latest.finished_at, ok: latest.ok, detail: latest.detail } : null,
+        latestOk: latestOk ? { id: sorted.length, finished_at: latestOk.finished_at, ok: true, detail: latestOk.detail } : null,
+      };
+    },
+  }).install(t);
+  return runs;
+}
+
+test('runDailyAdpSync: a same-UTC-day refusal (thin market) also closes the gate, not just a success (#1509 risk review)', async (t) => {
+  const adp = require('../services/adp.service');
+  const cadenceModule = require('../modules/cadence');
+  const runs = adpRunsWorld(t);
+  let calls = 0;
+  t.mock.method(adp, 'syncAdp', async ({ now }) => {
+    calls += 1;
+    const day = cadenceModule.utcDateKey(now);
+    runs.push({ finished_at: now, ok: false, detail: { day, reason: 'refused', refusalReason: 'thin_market', adpPlayers: 40 } });
+    return { ok: false, skipped: true, reason: 'thin_market', format: 'half-ppr', teams: 12, adpPlayers: 40, playersMatched: 0, playersUpdated: 0 };
+  });
+
+  const firstDay = new Date('2026-08-20T12:00:00-05:00');
+  assert.ok(await scheduler.runDailyAdpSync({ now: firstDay }));
+  assert.equal(calls, 1);
+  // A second tick the same UTC day must NOT re-hit FFC, even though the only
+  // recorded run so far is a refusal (ok=false), not a success.
+  assert.equal(await scheduler.runDailyAdpSync({ now: new Date('2026-08-20T18:00:00-05:00') }), null);
+  assert.equal(calls, 1, 'a same-day refusal closes the gate the same way a success would');
+  // The next UTC day, the gate opens again.
+  assert.ok(await scheduler.runDailyAdpSync({ now: new Date('2026-08-21T12:00:00-05:00') }));
+  assert.equal(calls, 2);
+});
+
+test('runDailyAdpSync: a thrown syncAdp (fetch_failed/write_failed) never closes the gate, so the very next tick retries', async (t) => {
+  const adp = require('../services/adp.service');
+  const runs = adpRunsWorld(t);
+  let calls = 0;
+  t.mock.method(adp, 'syncAdp', async ({ now }) => {
+    calls += 1;
+    // fetch_failed carries no run-level detail (runSyncJob.js): the throw
+    // happens before any { units, detail } wrapper is returned, so there is
+    // no detail.day and no detail.reason === 'refused' to substitute for
+    // latestOk - this row must never close the gate.
+    runs.push({ finished_at: now, ok: false, detail: { reason: 'fetch_failed', message: 'FFC unavailable' } });
+    throw new Error('FFC unavailable');
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  await assert.rejects(scheduler.runDailyAdpSync({ now }), /FFC unavailable/);
+  assert.equal(calls, 1);
+  await assert.rejects(scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:05:00-05:00') }), /FFC unavailable/);
+  assert.equal(calls, 2, 'a thrown run never closes the gate, so the very next tick retries');
 });
 
 test('tickUnlocked runs the daily ADP sync in its own containment, so a throw does not stop the duties after it', () => {
@@ -284,6 +448,93 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
     source.indexOf('async function runRetention')
   );
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
+});
+
+// ---- daily ESPN depth-chart & Ownership syncs (#1308, #1509) ----------------
+// Same shape as the ADP section above: the due/not-due decision is the
+// cadence gate's own concern, so these stub cadence.due directly and assert
+// this function's OWN behavior around that decision and delegation to
+// espnFactsSync.runDepthChartSync / runOwnershipSync. No in-memory day stamp
+// or lastEspnFactsSyncAt wrapper remains for either job (#1509 AC1).
+
+test('runDailyEspnDepthChartSync delegates the due/not-due decision to the cadence gate', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(espnFactsSync, 'runDepthChartSync', async (opts) => {
+    calls.push(opts);
+    return { results: [] };
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyEspnDepthChartSync({ now }), { results: [] });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to runDepthChartSync with the same now');
+  assert.deepEqual(dueArgs, { job: 'espn-depth-chart', every: 'utc-day', now });
+});
+
+test('runDailyEspnDepthChartSync never calls runDepthChartSync when the cadence gate says it is not due', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(espnFactsSync, 'runDepthChartSync', async () => { calls += 1; return { results: [] }; });
+
+  const result = await scheduler.runDailyEspnDepthChartSync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('tickUnlocked runs the daily ESPN depth-chart sync in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runDailyEspnDepthChartSync\(\);\s*\} catch/);
+});
+
+test('runDailyEspnOwnershipSync delegates the due/not-due decision to the cadence gate', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(espnFactsSync, 'runOwnershipSync', async (opts) => {
+    calls.push(opts);
+    return { written: 4000 };
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyEspnOwnershipSync({ now }), { written: 4000 });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to runOwnershipSync with the same now');
+  assert.deepEqual(dueArgs, { job: 'espn-ownership', every: 'utc-day', now });
+});
+
+test('runDailyEspnOwnershipSync never calls runOwnershipSync when the cadence gate says it is not due', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(espnFactsSync, 'runOwnershipSync', async () => { calls += 1; return { written: 4000 }; });
+
+  const result = await scheduler.runDailyEspnOwnershipSync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('tickUnlocked runs the daily ESPN ownership sync in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runDailyEspnOwnershipSync\(\);\s*\} catch/);
 });
 
 // ---- hourly odds sync (#1234, #1510) ------------------------------------------
@@ -1332,7 +1583,7 @@ test('a season with no week-18 rows on file is held (and warned about), never co
 // All `now` values below land inside NIGHTLY_PROJECTION_FILL_UTC_HOUR (9
 // UTC, scheduler.js) and use distinct calendar days: the once-a-day stamp is
 // shared module state across every test in this file, same as
-// lastAdpSyncDay above.
+// lastRetentionDay above.
 
 test('runNightlyProjectionFill only runs inside its own off-peak UTC hour', async (t) => {
   const calls = [];

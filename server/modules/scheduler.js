@@ -56,17 +56,16 @@ let lastCorrectionDay = null;
 let lastRetentionDay = null;
 // The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
-// ADP market refresh (#747): same successful-run day stamp. No credential gate -
-// FFC is free and keyless, so it runs all year. A thrown run does not stamp, so
-// the next tick retries; a thin-market run (recorded ok = false, market left
-// intact by the wipe guard) does stamp, so it does not hammer FFC all day - the
-// stale freshness signal is what surfaces the problem instead.
-let lastAdpSyncDay = null;
+// ADP market refresh (#747): the once-a-day decision is now the cadence gate's
+// own concern (#1509) - see runDailyAdpSync below.
 // Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
 // and correction passes above.
 let lastProjectionFillDay = null;
-// Nightly player_stats integrity scan (week 1 2026 audit): same once-a-day
-// stamp pattern. A thrown scan does not stamp, so the next tick retries.
+// Nightly player_stats integrity scan (week 1 2026 audit): the once-a-day
+// decision is the cadence gate's own concern now (#1509), with this stamp
+// kept as a same-process short-circuit ahead of that read - the same shape
+// runDailyStatCorrections keeps its own in-memory stamp in. A thrown scan
+// does not stamp, so the next tick retries.
 let lastIntegrityScanDay = null;
 
 async function tickUnlocked() {
@@ -282,99 +281,120 @@ async function inGameWindow() {
 }
 
 /**
- * Pure: should the injury sync run now? Once per local day outside a game
- * window; every `windowMs` inside one (#1188).
+ * Pure: should the injury sync run right now, INSIDE a game window - every
+ * `windowMs` (#1188)? Outside a window the once-a-day decision is the
+ * cadence gate's own concern now (server/modules/cadence.js, spec #1492 step
+ * two, #1509, spec #1493 "UTC day everywhere") - see `runDailyInjurySync`
+ * below, which only consults this function when `inWindow` is true.
  *
  * @param {{ now: Date, lastRunAt: ?Date, inWindow: boolean, windowMs: number }} args
  */
 function injurySyncDue({ now, lastRunAt, inWindow, windowMs }) {
   if (!lastRunAt) return true;
-  if (inWindow) return now.getTime() - lastRunAt.getTime() >= windowMs;
-  return lastRunAt.toLocaleDateString('en-CA') !== now.toLocaleDateString('en-CA');
+  return inWindow && now.getTime() - lastRunAt.getTime() >= windowMs;
 }
 
 /**
  * Tank01 injury refresh: daily, and every INJURY_GAME_WINDOW_MS during a game
- * window. The once-a-day gate reads the last successful `injuries` run from
- * data_sync_runs (written by syncInjuries itself), so a worker restart cannot
- * re-run it (#1188). A thrown run records ok=false and does not move the gate,
- * so the next tick retries.
+ * window. Inside a window, `injurySyncDue` above decides off the last
+ * successful `injuries` run (`lastInjurySyncAt`, data_sync_runs); outside one,
+ * the cadence gate decides instead (`cadence.due({ job: 'injuries', every:
+ * 'utc-day' })`, #1509) - `syncInjuries` already records one `data_sync_runs`
+ * row per run through `runSyncJob`, so the gate reads that same row and this
+ * adds no second one. Either way a worker restart cannot re-run it (#1188),
+ * and a thrown run records ok=false and does not move either gate, so the
+ * next tick retries.
  */
 async function runDailyInjurySync({ now = new Date() } = {}) {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
-  const [lastRunAt, inWindow] = await Promise.all([lastInjurySyncAt(), inGameWindow()]);
-  let quotaMode = 'ok';
+  const inWindow = await inGameWindow();
+  let due;
   if (inWindow) {
+    let quotaMode = 'ok';
     try {
       quotaMode = (await require('./tank01Client').getQuotaState()).mode;
     } catch (err) {
       quotaMode = 'ok';
     }
+    const lastRunAt = await lastInjurySyncAt();
+    due = injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) });
+  } else {
+    ({ due } = await cadence.due({ job: 'injuries', every: 'utc-day', now }));
   }
-  if (!injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) })) return null;
+  if (!due) return null;
   const scoring = require('../services/feedSyncRuns.service');
-  return scoring.syncInjuries();
+  return scoring.syncInjuries({ now });
 }
 
 /**
- * Daily ADP market refresh (#747). Runs at most once per local calendar day,
+ * A `lastRun`-shaped reader for the ADP gate (pre-PR-ready risk review,
+ * #1509): the cadence gate's `'utc-day'` cadence only ever reads `latestOk`
+ * (cadence.js), but a thin-market/thin-match refusal (adp.service.js's wipe
+ * guard) RESOLVES rather than throws and records `ok: false` - so on its own
+ * the gate would never close for the day on a refusal, and every five-minute
+ * tick would re-hit FFC for the rest of the UTC day while the market stays
+ * thin (the pre-#1509 in-memory stamp closed on any non-throwing outcome,
+ * refusal included, for exactly this reason - see the deleted
+ * `lastAdpSyncDay` comment history). `latest` is always the same run as
+ * `latestOk` or a STRICTLY NEWER one (`lastRun`'s own two-subquery
+ * definition), so when the newest attempt is itself a same-UTC-day refusal,
+ * substituting it for `latestOk` closes the gate the same way a real success
+ * would; a genuinely thrown run (`fetch_failed`/`write_failed`) is excluded
+ * by the `reason === 'refused'` check and still leaves `latestOk` (and so the
+ * gate) untouched, so it keeps retrying every tick, same as before #1509.
+ */
+async function adpLastRun(job) {
+  const { latest, latestOk } = await lastRun(job);
+  const latestIsRefusal = Boolean(latest) && !latest.ok && latest.detail && latest.detail.reason === 'refused';
+  return { latest, latestOk: latestIsRefusal ? latest : latestOk };
+}
+
+/**
+ * Daily ADP market refresh (#747). Runs at most once per UTC calendar day,
  * all year - FFC is free and keyless, so unlike the injury sync there is no
- * credential gate. The wipe guard and the data_sync_runs record live inside
- * adp.syncAdp(); this wrapper only enforces once-a-day and stamps the day after
- * a run that did not throw, so a transient upstream failure retries next tick.
+ * credential gate. The due/not-due decision is the cadence gate's own concern
+ * (server/modules/cadence.js, spec #1492 step two, #1509), reading the job's
+ * own `data_sync_runs` rows (job: 'adp') through `adpLastRun` above rather
+ * than the gate's plain default reader - `adp.syncAdp` already records one
+ * row through `runSyncJob`, so this adds no second, scheduler-level row,
+ * mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory
+ * once-a-day stamp remains: the gate's own read survives a worker restart,
+ * where the old in-memory stamp reset on every one. The wipe guard still
+ * lives inside `adp.syncAdp` and is unaffected by this gate.
  */
 async function runDailyAdpSync({ now = new Date() } = {}) {
-  const today = now.toLocaleDateString('en-CA');
-  if (lastAdpSyncDay === today) return null;
+  const gate = await cadence.due({ job: 'adp', every: 'utc-day', now }, { lastRun: adpLastRun });
+  if (!gate.due) return null;
   const adp = require('../services/adp.service');
-  const result = await adp.syncAdp();
-  lastAdpSyncDay = today;
-  return result;
+  return adp.syncAdp({ now });
 }
 
 /**
- * The last SUCCESSFUL run of an ESPN facts job, read via `lastRun(job)`
- * rather than an in-memory day stamp (#1308 risk review, mirroring
- * `lastInjurySyncAt` above / #1188): an in-memory stamp resets on every
- * worker restart AND is per-process, so a deploy or a second worker would
- * repeat the whole 32-team sweep (or the ~4000-player Ownership pull) outside
- * this file's control over when - possibly mid-slate, ahead of the
- * time-sensitive duties these jobs already run after (see the call site
- * below). Reading `data_sync_runs` is durable across both. Deliberately
- * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
- * so the next tick retries it - same rule as the injury sync.
+ * The daily ESPN depth-chart and Ownership Sync runs' once-a-day decision
+ * (#1509, #1308, spec #1493 "UTC day everywhere"): the cadence gate's own
+ * concern (server/modules/cadence.js, spec #1492 step two), each reading its
+ * own job's `data_sync_runs` rows - `espnFactsSync.runDepthChartSync`/
+ * `runOwnershipSync` already record one through `runSyncJob`, so neither
+ * function below adds a second, scheduler-level row, mirroring
+ * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
+ * stamp remains for either job: the gate's own read survives a worker
+ * restart, where an in-memory stamp would not have (a deploy or a second
+ * worker mid-slate would otherwise repeat the whole 32-team sweep or the
+ * ~4000-player Ownership pull - the exact hazard #1308's original
+ * `lastEspnFactsSyncAt` was built to avoid, by reading `data_sync_runs`
+ * directly rather than module state; #1509 only changes which calendar the
+ * day comparison runs on, UTC instead of local).
  */
-async function lastEspnFactsSyncAt(job) {
-  try {
-    const { latestOk } = await lastRun(job);
-    return latestOk ? latestOk.finishedAt : null;
-  } catch (err) {
-    console.warn('lastEspnFactsSyncAt: data_sync_runs read failed, treating as never run:', err.message);
-    return null;
-  }
+async function runDailyEspnDepthChartSync({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'espn-depth-chart', every: 'utc-day', now });
+  if (!gate.due) return null;
+  return require('./espnFactsSync').runDepthChartSync({ now });
 }
-
-/**
- * Builds a once-a-day wrapper for one ESPN facts job (#1308, ADR 0041/0036;
- * formal review f4 - the two callers below were identical apart from the job
- * name and which `espnFactsSync` export they call, so a later fix to the
- * gate only had to land once). Runs at most once per local calendar day
- * (gate: `lastEspnFactsSyncAt` above); the job itself owns its own
- * `data_sync_runs` row and the row-level idempotency (ON CONFLICT DO
- * NOTHING). A thrown run (including a `fetch_failed` from an ESPN outage,
- * formal review f3) records `ok: false` and does not move the gate, so the
- * next tick retries.
- */
-function dailyEspnFactsSyncRunner(job, runJob) {
-  return async function runDailyEspnSync({ now = new Date() } = {}) {
-    const lastRunAt = await lastEspnFactsSyncAt(job);
-    if (lastRunAt && lastRunAt.toLocaleDateString('en-CA') === now.toLocaleDateString('en-CA')) return null;
-    return runJob({ now });
-  };
+async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'espn-ownership', every: 'utc-day', now });
+  if (!gate.due) return null;
+  return require('./espnFactsSync').runOwnershipSync({ now });
 }
-
-const runDailyEspnDepthChartSync = dailyEspnFactsSyncRunner('espn-depth-chart', (opts) => require('./espnFactsSync').runDepthChartSync(opts));
-const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
 
@@ -546,8 +566,10 @@ async function syncAndScoreLiveWeeks() {
 /**
  * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
  * that treats a read failure as "never run" (`{ latest: null, latestOk:
- * null }`), the same safe direction `lastInjurySyncAt`/`lastEspnFactsSyncAt`
- * take above: the corrections pass is idempotent, so running it on a flaky
+ * null }`), the same safe direction `lastInjurySyncAt` takes above (and
+ * `lastEspnFactsSyncAt` used to, before #1509 moved both ESPN facts jobs onto
+ * the gate and removed it): the corrections pass is idempotent, so running it
+ * on a flaky
  * read is the safe side, unlike silently skipping a correction day.
  * Otherwise passed straight through - the "day stamped at start" rule (QA
  * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01
@@ -569,20 +591,32 @@ async function statCorrectionsLastRun(job) {
  * disagree with its stats (playerStatsIntegrity.service). A Sync run per ADR
  * 0036 with one unit and no lock (nothing else writes the anomalies table),
  * so its data_sync_runs row is the freshness the health route reads. Runs at
- * most once per local calendar day and only inside the same off-peak UTC
- * hour as the projection fill: it pages every player_stats row, and the tick
- * lock it holds while doing so must never sit inside a game window. The day
- * is stamped only after a scan that did not throw, so a transient database
- * failure retries on the next tick inside the window.
+ * most once per UTC calendar day (#1509, spec #1493 "UTC day everywhere"),
+ * gated by the cadence gate (server/modules/cadence.js, spec #1492 step two)
+ * reading the scan's own Sync run row (job: `player-stats-integrity`) - with
+ * the in-memory `lastIntegrityScanDay` stamp as a same-process short-circuit
+ * ahead of that read, the same shape `runDailyStatCorrections` above keeps
+ * its own in-memory stamp in - and only inside the same off-peak UTC hour as
+ * the projection fill: it pages every player_stats row, and the tick lock it
+ * holds while doing so must never sit inside a game window. The UTC day is
+ * computed once at the start of the run and carried as `detail.day` on the
+ * recorded row; both the in-memory stamp and that row are written only after
+ * a scan that did not throw, so a transient database failure retries on the
+ * next tick inside the window.
  */
 async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
   if (now.getUTCHours() !== NIGHTLY_PROJECTION_FILL_UTC_HOUR) return null;
-  const today = now.toLocaleDateString('en-CA');
-  if (lastIntegrityScanDay === today) return null;
   const integrity = require('../services/playerStatsIntegrity.service');
+  const today = cadence.utcDateKey(now);
+  if (lastIntegrityScanDay === today) return null;
+  const gate = await cadence.due({ job: integrity.JOB, every: 'utc-day', now });
+  if (!gate.due) {
+    lastIntegrityScanDay = today;
+    return null;
+  }
   const result = await runSyncJob({
     job: integrity.JOB,
-    fetch: async () => [{}],
+    fetch: async () => ({ units: [{}], detail: { day: today } }),
     apply: (client) => integrity.scanPlayerStats({ db: client }),
   });
   lastIntegrityScanDay = today;
@@ -1181,6 +1215,7 @@ module.exports = {
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
+  adpLastRun,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,
   runHourlyOddsSync,
