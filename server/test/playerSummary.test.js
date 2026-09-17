@@ -7,7 +7,7 @@ const {
   projectSeasonPoints,
   getSeasonPositionRank,
 } = require('../services/seasonSummary.service');
-const { hasTeamDefenseTiers, SCORING_PRESETS } = require('../services/scoringRules');
+const { hasTeamDefenseTiers, calculateFantasyPoints, SCORING_PRESETS } = require('../services/scoringRules');
 
 // --- getSeasonPositionRank --------------------------------------------------
 
@@ -264,6 +264,36 @@ test('hasTeamDefenseTiers flags rows carrying per-game tier stats only', () => {
   assert.equal(hasTeamDefenseTiers({ soloTackle: 6, idpSack: 1 }), false);
   assert.equal(hasTeamDefenseTiers({ receivingYards: 100 }), false);
   assert.equal(hasTeamDefenseTiers(null), false);
+});
+
+// A real DEF row whose feed carried neither tier figure (#1549) still
+// answers `false`, and the chain that makes that safe (#1558): a season
+// aggregate carries a tier key only when some week did, so a keyless
+// aggregate means no week had a per-game tier hit to double-match, and
+// calculateFantasyPoints only prices the keys actually present.
+test('hasTeamDefenseTiers chain: a keyless DEF aggregate is still safe to score whole', () => {
+  const week1 = { sack: 2, fumbleRecovery: 1 };
+  const week2 = { sack: 1 };
+  const aggregate = aggregateSeasonStats([week1, week2]);
+
+  // (a) neither tier key survives aggregation, and the guard says false.
+  assert.equal('pointsAllowed' in aggregate.stats, false);
+  assert.equal('yardsAllowed' in aggregate.stats, false);
+  assert.equal(hasTeamDefenseTiers(aggregate.stats), false);
+
+  // (b) scoring the aggregate whole equals scoring each week and summing —
+  // safe precisely because there is no tier table to double-match, and the
+  // sum is non-zero so this isn't just 0 = 0.
+  const wholeScore = calculateFantasyPoints(aggregate.stats);
+  const weeklySum = calculateFantasyPoints(week1) + calculateFantasyPoints(week2);
+  assert.equal(wholeScore, weeklySum);
+  assert.notEqual(wholeScore, 0);
+
+  // (c) once a week carries a tier key, the aggregate does too, and the
+  // guard flips back to true.
+  const withTier = aggregateSeasonStats([week1, { ...week2, yardsAllowed: 250 }]);
+  assert.equal('yardsAllowed' in withTier.stats, true);
+  assert.equal(hasTeamDefenseTiers(withTier.stats), true);
 });
 
 test('buildPlayerSummary prices a DEF season from its weekly lines, not the aggregate', () => {
