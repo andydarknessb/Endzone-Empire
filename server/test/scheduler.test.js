@@ -305,13 +305,12 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
 });
 
-// ---- daily ESPN depth-chart sync (#1308, #1509) -----------------------------
+// ---- daily ESPN depth-chart & Ownership syncs (#1308, #1509) ----------------
 // Same shape as the ADP section above: the due/not-due decision is the
 // cadence gate's own concern, so these stub cadence.due directly and assert
 // this function's OWN behavior around that decision and delegation to
-// espnFactsSync.runDepthChartSync. Ownership (below the integrity scan and
-// injuries sections) still runs on the old lastEspnFactsSyncAt wrapper until
-// its own commit.
+// espnFactsSync.runDepthChartSync / runOwnershipSync. No in-memory day stamp
+// or lastEspnFactsSyncAt wrapper remains for either job (#1509 AC1).
 
 test('runDailyEspnDepthChartSync delegates the due/not-due decision to the cadence gate', async (t) => {
   const espnFactsSync = require('../modules/espnFactsSync');
@@ -351,6 +350,46 @@ test('tickUnlocked runs the daily ESPN depth-chart sync in its own containment',
     source.indexOf('async function runRetention')
   );
   assert.match(tickBody, /try \{\s*await runDailyEspnDepthChartSync\(\);\s*\} catch/);
+});
+
+test('runDailyEspnOwnershipSync delegates the due/not-due decision to the cadence gate', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(espnFactsSync, 'runOwnershipSync', async (opts) => {
+    calls.push(opts);
+    return { written: 4000 };
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyEspnOwnershipSync({ now }), { written: 4000 });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to runOwnershipSync with the same now');
+  assert.deepEqual(dueArgs, { job: 'espn-ownership', every: 'utc-day', now });
+});
+
+test('runDailyEspnOwnershipSync never calls runOwnershipSync when the cadence gate says it is not due', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(espnFactsSync, 'runOwnershipSync', async () => { calls += 1; return { written: 4000 }; });
+
+  const result = await scheduler.runDailyEspnOwnershipSync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('tickUnlocked runs the daily ESPN ownership sync in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runDailyEspnOwnershipSync\(\);\s*\} catch/);
 });
 
 // ---- hourly odds sync (#1234, #1510) ------------------------------------------

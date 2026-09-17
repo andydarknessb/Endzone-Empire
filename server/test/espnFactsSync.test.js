@@ -244,3 +244,20 @@ test('runOwnershipSync: an ESPN fetch failure (null) records fetch_failed (ok=fa
   assert.equal(detail.reason, 'fetch_failed');
   assert.equal(fake.matching(/^BEGIN$/).length, 0, 'a fetch_failed run never opens a write transaction');
 });
+
+test('runOwnershipSync: stamps the run\'s UTC day into detail.day, computed once at the start of the run (#1509)', async (t) => {
+  t.mock.method(espnAthleteClient, 'ownership', async () => [{ athleteId: '4431452', percentOwned: 99.31, percentStarted: 78.37, percentChange: -0.03 }]);
+  const fake = createFakePool([
+    [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [{ id: 55, external_id: 4431452 }] })],
+    [insert('player_ownership'), (text, params) => ({ rowCount: params[0].length })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // 23:30 US Central on the 20th is already 04:30 UTC the 21st - the input
+  // that turns a local-calendar-day comparison red (fleet#1509 red-tell).
+  await runOwnershipSync({ now: new Date('2026-08-20T23:30:00-05:00') });
+
+  const runs = dataSyncRuns(fake.calls);
+  const detail = JSON.parse(runs[0].params[3]);
+  assert.equal(detail.day, '2026-08-21', 'the UTC day, not the local en-CA day (2026-08-20)');
+});

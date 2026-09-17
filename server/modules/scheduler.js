@@ -332,72 +332,31 @@ async function runDailyAdpSync({ now = new Date() } = {}) {
 }
 
 /**
- * The last SUCCESSFUL run of an ESPN facts job, read via `lastRun(job)`
- * rather than an in-memory day stamp (#1308 risk review, mirroring
- * `lastInjurySyncAt` above / #1188): an in-memory stamp resets on every
- * worker restart AND is per-process, so a deploy or a second worker would
- * repeat the whole 32-team sweep (or the ~4000-player Ownership pull) outside
- * this file's control over when - possibly mid-slate, ahead of the
- * time-sensitive duties these jobs already run after (see the call site
- * below). Reading `data_sync_runs` is durable across both. Deliberately
- * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
- * so the next tick retries it - same rule as the injury sync.
- */
-async function lastEspnFactsSyncAt(job) {
-  try {
-    const { latestOk } = await lastRun(job);
-    return latestOk ? latestOk.finishedAt : null;
-  } catch (err) {
-    console.warn('lastEspnFactsSyncAt: data_sync_runs read failed, treating as never run:', err.message);
-    return null;
-  }
-}
-
-/**
- * Builds a once-a-day wrapper for an ESPN facts job still on the old
- * `lastEspnFactsSyncAt` gate (#1308, ADR 0041/0036; formal review f4 - the
- * callers below were identical apart from the job name and which
- * `espnFactsSync` export they call, so a later fix to the gate only had to
- * land once). Runs at most once per local calendar day (gate:
- * `lastEspnFactsSyncAt` above); the job itself owns its own `data_sync_runs`
- * row and the row-level idempotency (ON CONFLICT DO NOTHING). A thrown run
- * (including a `fetch_failed` from an ESPN outage, formal review f3) records
- * `ok: false` and does not move the gate, so the next tick retries.
- *
- * #1509 migrates each ESPN facts job onto the cadence gate one at a time
- * (spec #1493 story 13, ruled one PR/five commits): depth-chart has already
- * moved below, off this builder entirely. Ownership is still built from it
- * here; once it moves too, this builder and `lastEspnFactsSyncAt` above have
- * no more callers and go with it.
- */
-function dailyEspnFactsSyncRunner(job, runJob) {
-  return async function runDailyEspnSync({ now = new Date() } = {}) {
-    const lastRunAt = await lastEspnFactsSyncAt(job);
-    if (lastRunAt && lastRunAt.toLocaleDateString('en-CA') === now.toLocaleDateString('en-CA')) return null;
-    return runJob({ now });
-  };
-}
-
-/**
- * The daily ESPN depth-chart Sync run's once-a-day decision (#1509, spec
- * #1493 "UTC day everywhere"): the cadence gate's own concern now
- * (server/modules/cadence.js, spec #1492 step two), reading job
- * 'espn-depth-chart's own `data_sync_runs` rows -
- * `espnFactsSync.runDepthChartSync` already records one through `runSyncJob`,
- * so this adds no second, scheduler-level row, mirroring
+ * The daily ESPN depth-chart and Ownership Sync runs' once-a-day decision
+ * (#1509, #1308, spec #1493 "UTC day everywhere"): the cadence gate's own
+ * concern (server/modules/cadence.js, spec #1492 step two), each reading its
+ * own job's `data_sync_runs` rows - `espnFactsSync.runDepthChartSync`/
+ * `runOwnershipSync` already record one through `runSyncJob`, so neither
+ * function below adds a second, scheduler-level row, mirroring
  * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
- * stamp remains for this job: the gate's own read survives a worker restart,
- * where the old `lastEspnFactsSyncAt` local-day comparison did not (that
- * comparison itself was already durable across restarts - the day it dropped
- * was the LOCAL day, not the worker's own memory - #1509's move is UTC day,
- * not durability, which #1308 already delivered).
+ * stamp remains for either job: the gate's own read survives a worker
+ * restart, where an in-memory stamp would not have (a deploy or a second
+ * worker mid-slate would otherwise repeat the whole 32-team sweep or the
+ * ~4000-player Ownership pull - the exact hazard #1308's original
+ * `lastEspnFactsSyncAt` was built to avoid, by reading `data_sync_runs`
+ * directly rather than module state; #1509 only changes which calendar the
+ * day comparison runs on, UTC instead of local).
  */
 async function runDailyEspnDepthChartSync({ now = new Date() } = {}) {
   const gate = await cadence.due({ job: 'espn-depth-chart', every: 'utc-day', now });
   if (!gate.due) return null;
   return require('./espnFactsSync').runDepthChartSync({ now });
 }
-const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
+async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'espn-ownership', every: 'utc-day', now });
+  if (!gate.due) return null;
+  return require('./espnFactsSync').runOwnershipSync({ now });
+}
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
 
@@ -569,8 +528,10 @@ async function syncAndScoreLiveWeeks() {
 /**
  * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
  * that treats a read failure as "never run" (`{ latest: null, latestOk:
- * null }`), the same safe direction `lastInjurySyncAt`/`lastEspnFactsSyncAt`
- * take above: the corrections pass is idempotent, so running it on a flaky
+ * null }`), the same safe direction `lastInjurySyncAt` takes above (and
+ * `lastEspnFactsSyncAt` used to, before #1509 moved both ESPN facts jobs onto
+ * the gate and removed it): the corrections pass is idempotent, so running it
+ * on a flaky
  * read is the safe side, unlike silently skipping a correction day.
  * Otherwise passed straight through - the "day stamped at start" rule (QA
  * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01

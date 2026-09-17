@@ -59,9 +59,9 @@ const CONSECUTIVE_FAILURE_LIMIT = 3;
  * circuit breaker above; an empty-but-successful team is simply not a unit.
  * Throws when either the breaker trips or every team failed, so
  * `runSyncJob` records `fetch_failed` and the once-a-day gate
- * (`scheduler.js`'s `lastEspnFactsSyncAt`) stays open for the next tick to
- * retry - a same-day rerun once ESPN recovers is exactly the point (formal
- * review f3: recording `ok: true` with zero rows on a total ESPN outage
+ * (server/modules/cadence.js, job `'espn-depth-chart'`) stays open for the
+ * next tick to retry - a same-day rerun once ESPN recovers is exactly the
+ * point (formal review f3: recording `ok: true` with zero rows on a total ESPN outage
  * would otherwise look identical to a real, empty snapshot and silently
  * close that gate until tomorrow).
  */
@@ -188,13 +188,22 @@ function applyOwnershipUnit(capturedDate) {
   };
 }
 
-/** The daily ESPN Ownership Sync run (job `'espn-ownership'`), one unit for
- * the whole pool. */
-async function runOwnershipSync({ now, transport } = {}) {
+/**
+ * The daily ESPN Ownership Sync run (job `'espn-ownership'`), one unit for
+ * the whole pool.
+ *
+ * `now` (#1509, spec #1493 "UTC day everywhere"): the UTC calendar day this
+ * run belongs to, computed once via `cadence.utcDateKey(now)` and carried as
+ * `detail.day` on the recorded row - not `capturedDate` above, which stays
+ * the LOCAL calendar day `player_ownership` rows key on, same distinction as
+ * `runDepthChartSync`.
+ */
+async function runOwnershipSync({ now = new Date(), transport } = {}) {
   const capturedDate = today(now);
+  const day = cadence.utcDateKey(now);
   return runSyncJob({
     job: 'espn-ownership',
-    fetch: () => fetchOwnership({ transport }),
+    fetch: async () => ({ units: await fetchOwnership({ transport }), detail: { day } }),
     apply: applyOwnershipUnit(capturedDate),
   });
 }
