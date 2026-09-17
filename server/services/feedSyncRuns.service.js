@@ -14,6 +14,7 @@ const pool = require('../modules/pool');
 const { PLAYERS_BULK_WRITE_LOCK, NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { tank01Get } = require('../modules/tank01Client');
 const { runSyncJob } = require('../modules/syncRun');
+const cadence = require('../modules/cadence');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { fantasySideWhereSql } = require('./leagueType');
@@ -371,6 +372,15 @@ const NFL_PLAYER_LIST_FLOOR = 3000;
  * transitions exactly once; IR flag rows commit with the designation updates
  * before best-effort push.
  *
+ * `now` (#1509, spec #1493 "UTC day everywhere"): the UTC calendar day this
+ * run belongs to, computed once via `cadence.utcDateKey(now)` and carried as
+ * `detail.day` on the recorded row alongside `floorGuardTripped` (both are
+ * run-level, not any one unit's own apply result). Defaults to `new Date()`
+ * so the router caller (scoring.router.js) and admin.router.js are unchanged;
+ * the scheduler (`runDailyInjurySync`) passes its own `now` outside a game
+ * window, where the cadence gate (server/modules/cadence.js) reads this same
+ * `detail.day` back.
+ *
  * #1385: this is also the only writer that ever clears nfl_team for a player
  * who has left the NFL - present in our table but absent from the feed, or
  * present with no team - and it does so only when the feed cleared
@@ -382,7 +392,7 @@ const NFL_PLAYER_LIST_FLOOR = 3000;
  * same column live and a departure clear mid-lock would unlock an as-played
  * row (risk-001 f1, #627).
  */
-async function syncInjuries({ api = tank01Get } = {}) {
+async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
   // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
   // the advisory lock and the one data_sync_runs row per run - the shape
   // #961 hand-rolled here is now written once, in server/modules/syncRun.js.
@@ -392,11 +402,12 @@ async function syncInjuries({ api = tank01Get } = {}) {
   // `{ refused: true }`). The IR flag push is deliberately OUTSIDE runSyncJob:
   // it must run only after the designation write has committed, and it is not
   // part of the shape the module owns.
+  const day = cadence.utcDateKey(now);
   let irFlagsForPush = [];
   const result = await runSyncJob({
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
-    fetch: () => fetchInjuryUnits(api),
+    fetch: () => fetchInjuryUnits(api, day),
     apply: (client, unit) => applyInjuryUnit(client, unit, (flags) => { irFlagsForPush = flags; }),
   });
   try {
@@ -415,9 +426,11 @@ async function syncInjuries({ api = tank01Get } = {}) {
  * atomic write (ADR 0036: "injuries: one unit, the Tank01 player list").
  * `floorGuardTripped` is also carried as run-level `detail` (#1202) so a
  * short feed's guard state is logged on the run's data_sync_runs row even
- * though it belongs to the whole run, not to apply's own result.
+ * though it belongs to the whole run, not to apply's own result. `day`
+ * (#1509) is `syncInjuries`'s already-computed UTC day key, carried
+ * alongside `floorGuardTripped` in the same run-level `detail`.
  */
-async function fetchInjuryUnits(api) {
+async function fetchInjuryUnits(api, day) {
   let response;
   try {
     response = await api('/getNFLPlayerList');
@@ -460,7 +473,7 @@ async function fetchInjuryUnits(api) {
   // list - a transient truncation must never read as the whole league
   // departing at once - so applyInjuryUnit clears no nfl_team this run.
   const floorGuardTripped = feedByExternal.size < NFL_PLAYER_LIST_FLOOR;
-  return { units: [{ feedByExternal, floorGuardTripped }], detail: { floorGuardTripped } };
+  return { units: [{ feedByExternal, floorGuardTripped }], detail: { day, floorGuardTripped } };
 }
 
 /**

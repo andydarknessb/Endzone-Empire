@@ -281,38 +281,49 @@ async function inGameWindow() {
 }
 
 /**
- * Pure: should the injury sync run now? Once per local day outside a game
- * window; every `windowMs` inside one (#1188).
+ * Pure: should the injury sync run right now, INSIDE a game window - every
+ * `windowMs` (#1188)? Outside a window the once-a-day decision is the
+ * cadence gate's own concern now (server/modules/cadence.js, spec #1492 step
+ * two, #1509, spec #1493 "UTC day everywhere") - see `runDailyInjurySync`
+ * below, which only consults this function when `inWindow` is true.
  *
  * @param {{ now: Date, lastRunAt: ?Date, inWindow: boolean, windowMs: number }} args
  */
 function injurySyncDue({ now, lastRunAt, inWindow, windowMs }) {
   if (!lastRunAt) return true;
-  if (inWindow) return now.getTime() - lastRunAt.getTime() >= windowMs;
-  return lastRunAt.toLocaleDateString('en-CA') !== now.toLocaleDateString('en-CA');
+  return inWindow && now.getTime() - lastRunAt.getTime() >= windowMs;
 }
 
 /**
  * Tank01 injury refresh: daily, and every INJURY_GAME_WINDOW_MS during a game
- * window. The once-a-day gate reads the last successful `injuries` run from
- * data_sync_runs (written by syncInjuries itself), so a worker restart cannot
- * re-run it (#1188). A thrown run records ok=false and does not move the gate,
- * so the next tick retries.
+ * window. Inside a window, `injurySyncDue` above decides off the last
+ * successful `injuries` run (`lastInjurySyncAt`, data_sync_runs); outside one,
+ * the cadence gate decides instead (`cadence.due({ job: 'injuries', every:
+ * 'utc-day' })`, #1509) - `syncInjuries` already records one `data_sync_runs`
+ * row per run through `runSyncJob`, so the gate reads that same row and this
+ * adds no second one. Either way a worker restart cannot re-run it (#1188),
+ * and a thrown run records ok=false and does not move either gate, so the
+ * next tick retries.
  */
 async function runDailyInjurySync({ now = new Date() } = {}) {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
-  const [lastRunAt, inWindow] = await Promise.all([lastInjurySyncAt(), inGameWindow()]);
-  let quotaMode = 'ok';
+  const inWindow = await inGameWindow();
+  let due;
   if (inWindow) {
+    let quotaMode = 'ok';
     try {
       quotaMode = (await require('./tank01Client').getQuotaState()).mode;
     } catch (err) {
       quotaMode = 'ok';
     }
+    const lastRunAt = await lastInjurySyncAt();
+    due = injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) });
+  } else {
+    ({ due } = await cadence.due({ job: 'injuries', every: 'utc-day', now }));
   }
-  if (!injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) })) return null;
+  if (!due) return null;
   const scoring = require('../services/feedSyncRuns.service');
-  return scoring.syncInjuries();
+  return scoring.syncInjuries({ now });
 }
 
 /**

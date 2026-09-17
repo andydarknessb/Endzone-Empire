@@ -128,12 +128,15 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
 });
 
 /**
- * #1188: the once-a-day gate is the last successful `injuries` row in
- * data_sync_runs, not a module variable, so a worker restart (a fresh module
- * instance) cannot re-run the sync. The world below is that table: the mocked
- * syncInjuries appends a row exactly as the real one does.
+ * #1188: inside a game window, the every-windowMs decision reads the last
+ * successful `injuries` run in data_sync_runs, not a module variable, so a
+ * worker restart (a fresh module instance) cannot re-run it more often than
+ * the window allows. Outside a window the once-a-day decision is the cadence
+ * gate's own concern instead (#1509, below), so this world only ever needs to
+ * answer the WINDOW-mode read - the outside-window tests stub cadence.due
+ * directly and never reach this fake pool at all.
  */
-function injuryWorld(t, { inWindow = false } = {}) {
+function injuryWorld(t, { inWindow = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');
   const previousKey = process.env.RAPID_API_KEY;
   const previousHost = process.env.RAPID_API_HOST;
@@ -147,9 +150,12 @@ function injuryWorld(t, { inWindow = false } = {}) {
   });
   const world = { runs: [], calls: 0, fail: false, inWindow, clock: null };
   const fake = createFakePool([
-    // lastInjurySyncAt now reads lastRun('injuries') (#1205): shape the row the
-    // way syncRun.js's lastRun query does, `{ latest, latestOk }`.
-    [/FROM "data_sync_runs"/, () => {
+    // lastInjurySyncAt reads lastRun('injuries') (#1205): shape the row the
+    // way syncRun.js's lastRun query does, `{ latest, latestOk }`. Matched on
+    // the quoted table name alone (#1509 retired the once-a-day gate's own
+    // fabricated read here: the outside-window decision is the cadence
+    // gate's own concern now, stubbed directly in the tests below).
+    [/"data_sync_runs"/, () => {
       const sorted = [...world.runs].sort((a, b) => b.finished_at - a.finished_at);
       const latest = sorted[0];
       const latestOk = sorted.find((r) => r.ok);
@@ -180,44 +186,33 @@ function injuryWorld(t, { inWindow = false } = {}) {
   return world;
 }
 
-test('runDailyInjurySync: with a successful data_sync_runs row for today the sync does not run; with none it does (#1188)', async (t) => {
-  const world = injuryWorld(t);
-  const firstDay = new Date('2026-08-20T12:00:00-05:00');
-  assert.deepEqual(await world.run(firstDay), { playersUpdated: 10, irFlags: 1 });
-  // "A fresh module instance": nothing in memory is consulted, only the table.
-  assert.equal(await world.run(new Date('2026-08-20T13:00:00-05:00')), null);
-  assert.equal(world.calls, 1);
-
-  // A failed day records ok=false, which does not move the gate: the next tick retries.
-  world.fail = true;
-  const nextDay = new Date('2026-08-21T12:00:00-05:00');
-  await assert.rejects(world.run(nextDay), /Tank01 unavailable/);
-  world.fail = false;
-  assert.deepEqual(await world.run(new Date('2026-08-21T12:05:00-05:00')), { playersUpdated: 10, irFlags: 1 });
-  assert.equal(await world.run(new Date('2026-08-21T18:00:00-05:00')), null);
-  assert.equal(world.calls, 3);
-});
-
-test('runDailyInjurySync: inside a game window it runs every 15 minutes, not every 10, and not at all outside one the same day (#1188)', async (t) => {
+test('runDailyInjurySync: inside a game window it runs every 15 minutes, not every 10 (#1188)', async (t) => {
   const world = injuryWorld(t, { inWindow: true });
   const T = new Date('2026-09-13T12:00:00-05:00'); // Sunday, first kickoff minus 90 min
-  assert.ok(await world.run(T), 'first run of the day');
+  assert.ok(await world.run(T), 'first run of the window');
   assert.equal(await world.run(new Date(T.getTime() + 10 * 60 * 1000)), null, 'ten minutes on: not yet');
   assert.ok(await world.run(new Date(T.getTime() + 15 * 60 * 1000)), 'fifteen minutes on: runs');
   assert.equal(world.calls, 2);
-  world.inWindow = false;
-  assert.equal(await world.run(new Date(T.getTime() + 60 * 60 * 1000)), null, 'outside a window the daily gate holds');
-  assert.equal(world.calls, 2);
 });
 
-test('injurySyncDue is the whole cadence rule, and INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
+test('runDailyInjurySync never consults the cadence gate while inside a game window', async (t) => {
+  // Inside a window, injurySyncDue/lastInjurySyncAt decide alone; the cadence
+  // gate is an outside-window concern only (#1509).
+  const world = injuryWorld(t, { inWindow: true });
+  const cadence = require('../modules/cadence');
+  let dueCalls = 0;
+  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
+
+  await world.run(new Date('2026-09-13T12:00:00-05:00'));
+  assert.equal(dueCalls, 0);
+});
+
+test('injurySyncDue is the in-window cadence rule; INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
   const now = new Date('2026-09-13T15:00:00-05:00');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: false, windowMs: 900000 }), false, 'same day, no window');
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true, 'never run: due regardless of window');
   assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: true, windowMs: 900000 }), true);
   assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), inWindow: true, windowMs: 900000 }), false);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(26 * 60), inWindow: false, windowMs: 900000 }), true, 'yesterday: due');
   const prev = process.env.INJURY_GAME_WINDOW_MS;
   delete process.env.INJURY_GAME_WINDOW_MS;
   try {
@@ -228,6 +223,73 @@ test('injurySyncDue is the whole cadence rule, and INJURY_GAME_WINDOW_MS doubles
   } finally {
     if (prev === undefined) delete process.env.INJURY_GAME_WINDOW_MS; else process.env.INJURY_GAME_WINDOW_MS = prev;
   }
+});
+
+// ---- outside a window: daily injury sync (#1188, #1509) --------------------
+// The once-a-day decision is the cadence gate's own concern (server/modules/
+// cadence.js, spec #1492 step two, #1509, spec #1493 "UTC day everywhere").
+// Same shape as the ADP/ESPN/odds sections above: these stub cadence.due
+// directly and assert this function's OWN behavior around that decision and
+// delegation to feedSyncRuns.service.syncInjuries.
+
+function withInjuryCreds(t) {
+  const previousKey = process.env.RAPID_API_KEY;
+  const previousHost = process.env.RAPID_API_HOST;
+  process.env.RAPID_API_KEY = 'test-key';
+  process.env.RAPID_API_HOST = 'test-host';
+  t.after(() => {
+    if (previousKey === undefined) delete process.env.RAPID_API_KEY;
+    else process.env.RAPID_API_KEY = previousKey;
+    if (previousHost === undefined) delete process.env.RAPID_API_HOST;
+    else process.env.RAPID_API_HOST = previousHost;
+  });
+}
+
+test('runDailyInjurySync delegates the outside-a-window due/not-due decision to the cadence gate', async (t) => {
+  withInjuryCreds(t);
+  const scoring = require('../services/feedSyncRuns.service');
+  const cadence = require('../modules/cadence');
+  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t); // outside any window
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(scoring, 'syncInjuries', async (opts) => {
+    calls.push(opts);
+    return { playersUpdated: 10, irFlags: 1 };
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyInjurySync({ now }), { playersUpdated: 10, irFlags: 1 });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncInjuries with the same now');
+  assert.deepEqual(dueArgs, { job: 'injuries', every: 'utc-day', now });
+});
+
+test('runDailyInjurySync never calls syncInjuries outside a window when the cadence gate says it is not due', async (t) => {
+  withInjuryCreds(t);
+  const scoring = require('../services/feedSyncRuns.service');
+  const cadence = require('../modules/cadence');
+  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(scoring, 'syncInjuries', async () => { calls += 1; return { playersUpdated: 10, irFlags: 1 }; });
+
+  const result = await scheduler.runDailyInjurySync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('runDailyInjurySync propagates a thrown syncInjuries outside a window so the next tick retries (a throw never moves the gate)', async (t) => {
+  withInjuryCreds(t);
+  const scoring = require('../services/feedSyncRuns.service');
+  const cadence = require('../modules/cadence');
+  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(scoring, 'syncInjuries', async () => { throw new Error('Tank01 unavailable'); });
+
+  await assert.rejects(
+    scheduler.runDailyInjurySync({ now: new Date('2026-08-20T12:00:00-05:00') }),
+    /Tank01 unavailable/
+  );
 });
 
 test('tickUnlocked registers the daily injury sync duty', () => {
