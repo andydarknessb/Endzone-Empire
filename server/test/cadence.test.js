@@ -11,8 +11,8 @@ const { due, utcDateKey } = require('../modules/cadence');
 
 const NEVER = async () => ({ latest: null, latestOk: null });
 
-function okAt(iso) {
-  return { id: 1, finishedAt: new Date(iso), ok: true, detail: null };
+function okAt(iso, detail = null) {
+  return { id: 1, finishedAt: new Date(iso), ok: true, detail };
 }
 
 function failedAt(iso) {
@@ -32,13 +32,16 @@ const CASES = [
     expected: { due: true, reason: 'never run' },
   },
   {
-    name: 'ok today (UTC) is not due again',
+    // No `detail.day` on this row's run: the finishedAt fallback (no job
+    // stamped a day) is what decides it.
+    name: 'ok today (UTC) is not due again (no detail.day: the finishedAt fallback applies)',
     lastRun: fakeLastRun({ widgets: { latest: okAt('2026-09-16T03:00:00Z'), latestOk: okAt('2026-09-16T03:00:00Z') } }),
     args: { job: 'widgets', every: 'utc-day', now: new Date('2026-09-16T23:59:00Z') },
     expected: { due: false, reason: 'already succeeded today (UTC)' },
   },
   {
-    name: 'ok yesterday (UTC) is due today',
+    // Also no `detail.day` - the fallback again, this time on the due side.
+    name: 'ok yesterday (UTC) is due today (no detail.day: the finishedAt fallback applies)',
     lastRun: fakeLastRun({ widgets: { latest: okAt('2026-09-15T03:00:00Z'), latestOk: okAt('2026-09-15T03:00:00Z') } }),
     args: { job: 'widgets', every: 'utc-day', now: new Date('2026-09-16T00:30:00Z') },
     expected: { due: true, reason: 'last success was a prior UTC day' },
@@ -100,10 +103,21 @@ const CASES = [
     expected: { due: false, reason: 'already succeeded today (UTC)' },
   },
   {
-    name: 'green for the wrong reason: 00:01 UTC with a run finished 00:00 UTC the previous day is due',
-    // Only one minute has elapsed - a naive elapsed-time cadence would call
-    // this not due - but the calendar day crossed, so utc-day cadence is due.
-    lastRun: fakeLastRun({ widgets: { latest: okAt('2026-09-15T00:00:00Z'), latestOk: okAt('2026-09-15T00:00:00Z') } }),
+    name: 'green for the wrong reason: a run finished 00:00 UTC but stamped for the previous UTC day is due at 00:01 UTC',
+    // finishedAt (2026-09-16T00:00Z) and now (2026-09-16T00:01Z) are only one
+    // minute apart AND share the same UTC calendar day, so a finishedAt-only
+    // (or naive elapsed-time) cadence reads this as "already succeeded
+    // today" and answers not due. But the run stamped detail.day '2026-09-15'
+    // at start (spec #1493, "UTC day everywhere"), so it belongs to the PRIOR
+    // UTC day and today's pass is due. lastSuccessDayKey's detail.day-first
+    // read is what this row pins; it goes red on a finishedAt-only branch and
+    // green once detail.day wins (fleet#1508 f2).
+    lastRun: fakeLastRun({
+      widgets: {
+        latest: okAt('2026-09-16T00:00:00Z', { day: '2026-09-15' }),
+        latestOk: okAt('2026-09-16T00:00:00Z', { day: '2026-09-15' }),
+      },
+    }),
     args: { job: 'widgets', every: 'utc-day', now: new Date('2026-09-16T00:01:00Z') },
     expected: { due: true, reason: 'last success was a prior UTC day' },
   },

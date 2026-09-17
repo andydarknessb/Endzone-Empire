@@ -535,34 +535,23 @@ async function syncAndScoreLiveWeeks() {
 
 /**
  * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
- * that treats the calendar day a stat-corrections run belongs to as the day
- * it STARTED (`detail.day`, stamped by `runDailyStatCorrections` below), not
- * the day it happened to finish: a pass that starts at 23:58 UTC Tuesday and
- * finishes at 00:01 Wednesday still belongs to Tuesday, and Wednesday's own
- * pass must still run (QA finding on #1449). `finished_at` is the fallback
- * for a row with no `day` (a legacy row, or any other job). The cadence gate
- * itself knows nothing of this - it only ever compares `finishedAt` values -
- * so this translation lives here, next to the one job that needs it, per
- * cadence.js's own contract for an injected `lastRun`. A read failure
- * degrades to `{ latest: null, latestOk: null }` ("never run"), the same
- * safe direction `lastInjurySyncAt`/`lastEspnFactsSyncAt` take above: the
- * corrections pass is idempotent, so running it on a flaky read is the safe
- * side, unlike silently skipping a correction day.
+ * that treats a read failure as "never run" (`{ latest: null, latestOk:
+ * null }`), the same safe direction `lastInjurySyncAt`/`lastEspnFactsSyncAt`
+ * take above: the corrections pass is idempotent, so running it on a flaky
+ * read is the safe side, unlike silently skipping a correction day.
+ * Otherwise passed straight through - the "day stamped at start" rule (QA
+ * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01
+ * Wednesday still belongs to Tuesday) is now the cadence gate's own
+ * `'utc-day'` contract (spec #1493, "UTC day everywhere"; see cadence.js's
+ * `lastSuccessDayKey`), so no job-specific translation lives here anymore.
  */
 async function statCorrectionsLastRun(job) {
   try {
-    const { latest, latestOk } = await lastRun(job);
-    return { latest: withStampedDay(latest), latestOk: withStampedDay(latestOk) };
+    return await lastRun(job);
   } catch (err) {
     console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
     return { latest: null, latestOk: null };
   }
-}
-
-/** `run` with `finishedAt` overridden to its stamped `detail.day` (midnight UTC) when one exists. */
-function withStampedDay(run) {
-  if (!run || !run.detail || typeof run.detail.day !== 'string') return run;
-  return { ...run, finishedAt: new Date(`${run.detail.day}T00:00:00.000Z`) };
 }
 
 /**

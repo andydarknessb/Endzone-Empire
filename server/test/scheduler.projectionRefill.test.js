@@ -37,26 +37,32 @@ function dataSyncRunsHandler(byJob) {
   }];
 }
 
-test('a pass that starts before UTC midnight and finishes after it still counts for the day it ran FOR, so the next day\'s pass runs (QA finding on #1449)', async (t) => {
+// The due/not-due decision itself (a pass crossing UTC midnight, a durable
+// row surviving a restart) is now the cadence gate's own concern and lives as
+// cadence.test.js table rows (fleet#1508 f3): the "green for the wrong
+// reason" row there covers the midnight-crossing case this file used to fake
+// a pool read for, and the "ok today" row covers the restart/no-repeat case.
+// What is left here is the scheduler's OWN behavior around that decision,
+// with cadence.due stubbed directly - no fabricated `FROM "data_sync_runs"`
+// read decides due or not due in this file.
+
+test('a successful pass records its own Sync run, with detail.day set to the UTC day it started', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
-  const fake = createFakePool([
-    // Tuesday's pass was triggered 23:58Z, finished_at (DB now()) landed on
-    // Wednesday 00:01Z; the row says which day it belonged to.
-    dataSyncRunsHandler({
-      'stat-corrections': { latest: '2026-09-23T00:01:00Z', latestOk: '2026-09-23T00:01:00Z', detail: { day: '2026-09-22' } },
-    }),
-    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-  ]).install(t);
+  const fake = createFakePool([[/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })]]).install(t);
 
   const result = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-23T00:06:00Z') });
-  assert.equal(resyncCalls, 1, 'Wednesday\'s pass must not be mistaken for already run');
+  assert.equal(resyncCalls, 1, 'due: true delegates straight to resyncPriorWeeks');
   assert.ok(result);
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
-  assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-23', 'the new row records the day it ran for');
+  assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-23', 'the new row records the UTC day the pass started');
 });
 
-test('a thrown pass records a failed Sync run for its day and does not move the gate', async (t) => {
+test('a thrown pass records a failed Sync run for its day and does not move the in-memory short-circuit', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => {
     resyncCalls += 1;
@@ -65,7 +71,6 @@ test('a thrown pass records a failed Sync run for its day and does not move the 
     throw err;
   });
   const fake = createFakePool([
-    dataSyncRunsHandler({}),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
 
@@ -75,42 +80,30 @@ test('a thrown pass records a failed Sync run for its day and does not move the 
   assert.equal(inserted.params[0], 'stat-corrections');
   assert.equal(inserted.params[2], false);
   assert.equal(JSON.parse(inserted.params[3]).day, '2026-09-29');
-  // Same day, next tick: the failed row never stamped the day, so it retries.
+  // Same day, next tick: a failed run never sets the in-memory stamp (the
+  // gate is stubbed due: true throughout, so this is the scheduler's own
+  // "did not stamp" behavior, not a gate re-decision), so it retries.
   await assert.rejects(() => scheduler.runDailyStatCorrections({ now: new Date('2026-09-29T00:09:00Z') }));
   assert.equal(resyncCalls, 2);
 });
 
-test('runDailyStatCorrections does not repeat the pass after a restart when data_sync_runs already records today\'s successful pass', async (t) => {
-  let resyncCalls = 0;
-  t.mock.method(correction, 'resyncPriorWeeks', async () => { resyncCalls += 1; return { corrected: [], invalidated: [] }; });
-  const fake = createFakePool([
-    dataSyncRunsHandler({ 'stat-corrections': '2026-09-15T00:05:00Z' }),
-    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-  ]).install(t);
-
-  // Tuesday 17:01 UTC: the worker just restarted on a release, in-memory
-  // stamps are gone, but the durable row says this UTC day's pass already ran.
-  const result = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-15T17:01:00Z') });
-  assert.equal(result, null);
-  assert.equal(resyncCalls, 0, 'the pass (and its cache wipe) must not run a second time on the same correction day');
-  assert.equal(fake.calls.filter((c) => c.text.startsWith('INSERT INTO "data_sync_runs"')).length, 0);
-});
-
-test('runDailyStatCorrections runs once on a correction day with no successful pass recorded, and records it as its own Sync run', async (t) => {
+test('runDailyStatCorrections runs once on a correction day and records it as its own Sync run; a same-day retry short-circuits before the gate is asked again', async (t) => {
+  const cadence = require('../modules/cadence');
+  let dueCalls = 0;
+  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
   let resyncCalls = 0;
   t.mock.method(correction, 'resyncPriorWeeks', async () => {
     resyncCalls += 1;
     return { corrected: [], invalidated: [{ season: 2026, fromWeek: 2, deletedRuns: 31 }] };
   });
   const fake = createFakePool([
-    // Yesterday's pass, not today's: Wednesday is the second correction day.
-    dataSyncRunsHandler({ 'stat-corrections': '2026-09-15T00:05:00Z' }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
   ]).install(t);
 
   const now = new Date('2026-09-16T00:04:00Z');
   const result = await scheduler.runDailyStatCorrections({ now });
   assert.equal(resyncCalls, 1);
+  assert.equal(dueCalls, 1);
   assert.deepEqual(result.invalidated, [{ season: 2026, fromWeek: 2, deletedRuns: 31 }]);
 
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
@@ -120,11 +113,11 @@ test('runDailyStatCorrections runs once on a correction day with no successful p
   const detail = JSON.parse(inserted.params[3]);
   assert.equal(detail.invalidated[0].deletedRuns, 31);
 
-  // Same process, same day: the in-memory stamp short-circuits before any read.
-  const readsBefore = fake.calls.filter((c) => /FROM "data_sync_runs"/.test(c.text)).length;
+  // Same process, same day: the in-memory stamp short-circuits BEFORE the
+  // gate is even asked again.
   assert.equal(await scheduler.runDailyStatCorrections({ now: new Date('2026-09-16T00:09:00Z') }), null);
   assert.equal(resyncCalls, 1);
-  assert.equal(fake.calls.filter((c) => /FROM "data_sync_runs"/.test(c.text)).length, readsBefore);
+  assert.equal(dueCalls, 1, 'the cadence gate is never re-consulted the same UTC day once this process has already run the pass');
 });
 
 test('runDailyStatCorrections never runs outside the UTC Tue/Wed window, restart or not', async (t) => {
