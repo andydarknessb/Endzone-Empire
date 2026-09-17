@@ -175,24 +175,44 @@ function extractPlayByPlayBonusStats(plays) {
  * 0) — `pointsAllowed` then falls back to `d.ptsAllowed` rather than
  * reading a shutout that isn't real. A present `opponentScore`, including a
  * real 0, always wins over `ptsAllowed`.
+ *
+ * `pointsAllowed` and `yardsAllowed` are omitted from the result (not set to
+ * `null`) when their figure is absent: `d.ptsAllowed`/`d.ydsAllowed` missing,
+ * null, empty or non-numeric, with no `opponentScore` to use instead for
+ * `pointsAllowed`. calculateFantasyPoints (scoringRules.js) skips a key
+ * that's not there, so an absent figure scores no tier rather than the
+ * best (0-yard/0-point) one `num`'s 0-default would otherwise produce
+ * (#1549). A present figure, including a real 0, is kept and scores
+ * normally; the key is omitted rather than nulled because `Number(null)`
+ * is 0 and would score the best tier again.
  */
 function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
   const num = (value) => {
     const parsed = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
+  // Like `num`, but returns undefined (never 0) for an absent/non-numeric
+  // figure instead of defaulting it, so the caller can omit the key.
+  const numOrAbsent = (value) => {
+    if (value === null || value === undefined || value === '') return undefined;
+    const parsed = Number(String(value).replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
   const d = dstSide || {};
   const opp = opponentTeamStats || {};
-  return {
+  const stats = {
     sack: num(d.sacks),
     interceptionReturn: num(d.defensiveInterceptions),
     fumbleRecovery: num(d.fumblesRecovered),
     defensiveTD: num(d.defTD),
     safety: num(d.safeties),
     blockedKick: num(opp.blockedFG) + num(opp.blockedXP) + num(opp.blockedPunt),
-    pointsAllowed: opponentScore == null ? num(d.ptsAllowed) : num(opponentScore),
-    yardsAllowed: num(d.ydsAllowed),
   };
+  const pointsAllowed = opponentScore != null ? num(opponentScore) : numOrAbsent(d.ptsAllowed);
+  if (pointsAllowed !== undefined) stats.pointsAllowed = pointsAllowed;
+  const yardsAllowed = numOrAbsent(d.ydsAllowed);
+  if (yardsAllowed !== undefined) stats.yardsAllowed = yardsAllowed;
+  return stats;
 }
 
 module.exports = {
