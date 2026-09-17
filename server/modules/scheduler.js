@@ -400,16 +400,18 @@ const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
  * so a league mid-transition to a new week still gets both weeks' slates
  * priced.
  *
- * A single week's throw is logged and does not stop the other weeks' syncs;
- * since `runSyncJob` records that week's run `ok: false`, it never becomes
- * the job's `latestOk`, so the gate is still due on the very next (five
- * minute) tick rather than waiting out the full hour - the retry spec #1493
- * story 5 wants. When no live league is on any slate this tick, the loop
- * below never runs and no `odds` row is written at all, so the gate answers
- * due again on every following tick too; the only recurring cost is this
- * function's own leagues read, same as a read failure here (caught and
- * logged by `tickUnlocked`) retrying next tick same as everywhere else in
- * this module.
+ * A single week's throw is logged and does not stop the other weeks' syncs.
+ * `lastRun('odds')` is per JOB, not per week, so a failed week's own row never
+ * becomes the job's `latestOk` - but a SIBLING week's successful row still
+ * does, and that moves the gate for every week alike. So a failed week waits
+ * out the full hour behind a live sibling's success; only when EVERY week on
+ * the tick fails does no row become `latestOk`, and the gate is still due on
+ * the very next (five minute) tick instead - the retry spec #1493 story 5
+ * wants. When no live league is on any slate this tick, the loop below never
+ * runs and no `odds` row is written at all, so the gate answers due again on
+ * every following tick too; the only recurring cost is this function's own
+ * leagues read, same as a read failure here (caught and logged by
+ * `tickUnlocked`) retrying next tick same as everywhere else in this module.
  */
 async function runHourlyOddsSync({ now = new Date() } = {}) {
   const gate = await cadence.due({ job: 'odds', every: { ms: ODDS_SYNC_INTERVAL_MS }, now });
