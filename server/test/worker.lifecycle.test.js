@@ -52,13 +52,50 @@ test('an uncaught exception whose shutdown settles exits 1 once, and the deadlin
   assert.equal(proc.exit.mock.callCount(), 1, 'the deadline must not fire a second exit');
 });
 
-test('an unhandled rejection exits 1; a shutdown that throws still exits 1', async () => {
+test('an unhandled rejection exits 1; a shutdown that rejects still exits 1', async () => {
   const proc = fakeProcess();
   install(proc, { shutdown: async () => { throw new Error('pool.end failed'); }, deadlineMs: 20 });
   proc.emit('unhandledRejection', new Error('rejected'));
   await tick(5);
   assert.equal(proc.exit.mock.callCount(), 1);
   assert.deepEqual(proc.exit.mock.calls[0].arguments, [1]);
+});
+
+test('a shutdown that throws synchronously still exits 1', async () => {
+  const proc = fakeProcess();
+  install(proc, { shutdown: () => { throw new Error('sync boom'); }, deadlineMs: 20 });
+  proc.emit('uncaughtException', new Error('fatal'));
+  await tick(5);
+  assert.equal(proc.exit.mock.callCount(), 1);
+  assert.deepEqual(proc.exit.mock.calls[0].arguments, [1]);
+});
+
+test('the exit code is set the instant a fatal event lands, so a loop that drains on its own cannot exit 0', () => {
+  const proc = fakeProcess();
+  install(proc, { shutdown: () => new Promise(() => {}), deadlineMs: 1000 });
+  proc.emit('uncaughtException', new Error('fatal'));
+  assert.equal(proc.exitCode, 1);
+  const term = fakeProcess();
+  install(term, { shutdown: () => new Promise(() => {}), deadlineMs: 1000 });
+  term.emit('SIGTERM');
+  assert.equal(term.exitCode, 0);
+});
+
+test('the production wiring uses the real shutdown by default', async () => {
+  // A fake shutdown is injected everywhere above; this pins that the default
+  // is the module's own shutdown, so a typo in the default cannot hide.
+  const redis = require('../modules/redis');
+  const closeRedis = mock.method(redis, 'closeRedis', async () => {});
+  const proc = fakeProcess();
+  try {
+    install(proc, { deadlineMs: 5000 });
+    proc.emit('SIGTERM');
+    await tick(200);
+    assert.equal(closeRedis.mock.callCount(), 1, 'the default shutdown ran (it closes Redis)');
+    assert.deepEqual(proc.exit.mock.calls[0].arguments, [0]);
+  } finally {
+    closeRedis.mock.restore();
+  }
 });
 
 test('SIGTERM and SIGINT run shutdown with the signal name and exit 0', async () => {
@@ -80,15 +117,4 @@ test('a second fatal event after the first never produces a second exit', async 
   proc.emit('uncaughtException', new Error('two'));
   await tick(10);
   assert.equal(proc.exit.mock.callCount(), 1);
-});
-
-test('shutdown closes the Redis clients the emitter transport and cache hold open', async () => {
-  const redis = require('../modules/redis');
-  const closeRedis = mock.method(redis, 'closeRedis', async () => {});
-  try {
-    await worker.shutdown('test');
-    assert.equal(closeRedis.mock.callCount(), 1, 'closeRedis is what lets the event loop drain');
-  } finally {
-    closeRedis.mock.restore();
-  }
 });
