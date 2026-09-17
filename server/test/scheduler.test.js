@@ -286,10 +286,18 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
 });
 
-// ---- hourly odds sync (#1234) ------------------------------------------
+// ---- hourly odds sync (#1234, #1510) ------------------------------------------
+// The due/not-due decision is the cadence gate's own concern (server/modules/
+// cadence.js, cadence.test.js's table suite covers the { ms } cadence and the
+// "a failed run is never latestOk" cases generically). No in-memory epoch
+// remains here (#1510 AC2), so these stub cadence.due directly and assert
+// this function's OWN behavior around that decision and delegation to it.
 
-test('runHourlyOddsSync runs once per hour, syncing every distinct live-league week', async (t) => {
+test('runHourlyOddsSync delegates the due/not-due decision to the cadence gate', async (t) => {
   const espnOdds = require('../services/espnOdds.provider');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
   const calls = [];
   t.mock.method(espnOdds, 'syncOdds', async ({ season, week }) => {
     calls.push({ season, week });
@@ -299,23 +307,28 @@ test('runHourlyOddsSync runs once per hour, syncing every distinct live-league w
     [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
   ]).install(t);
 
-  const first = new Date('2026-09-11T12:00:00Z');
-  assert.deepEqual(await scheduler.runHourlyOddsSync({ now: first }), [{ gamesWritten: 1 }]);
-  assert.deepEqual(calls, [{ season: 2026, week: 2 }]);
+  const now = new Date('2026-09-11T12:00:00Z');
+  assert.deepEqual(await scheduler.runHourlyOddsSync({ now }), [{ gamesWritten: 1 }]);
+  assert.deepEqual(calls, [{ season: 2026, week: 2 }], 'due: true delegates straight to the leagues read and syncOdds');
+  assert.deepEqual(dueArgs, { job: 'odds', every: { ms: scheduler.ODDS_SYNC_INTERVAL_MS }, now });
+});
 
-  // A tick 10 minutes later is not due yet.
-  const soon = new Date('2026-09-11T12:10:00Z');
-  assert.equal(await scheduler.runHourlyOddsSync({ now: soon }), null);
-  assert.equal(calls.length, 1);
+test('runHourlyOddsSync never reads the leagues table when the cadence gate says it is not due', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
+  ]).install(t);
 
-  // An hour later it runs again.
-  const later = new Date('2026-09-11T13:01:00Z');
-  await scheduler.runHourlyOddsSync({ now: later });
-  assert.equal(calls.length, 2);
+  const result = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-11T12:10:00Z') });
+  assert.equal(result, null);
+  assert.equal(fake.calls.length, 0, 'due: false never reaches the leagues read');
 });
 
 test('runHourlyOddsSync syncs every distinct (season, week) a live league is on, and one week failing does not stop another', async (t) => {
   const espnOdds = require('../services/espnOdds.provider');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   const calls = [];
   t.mock.method(espnOdds, 'syncOdds', async ({ season, week }) => {
     calls.push({ season, week });
@@ -331,12 +344,91 @@ test('runHourlyOddsSync syncs every distinct (season, week) a live league is on,
     })],
   ]).install(t);
 
-  // A day past the previous test's own last stamp, so this module-level
-  // interval gate (shared across every test in this file, same as
-  // lastAdpSyncDay above) is unambiguously due regardless of run order.
   const results = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:00:00Z') });
   assert.deepEqual(calls, [{ season: 2026, week: 2 }, { season: 2026, week: 3 }]);
   assert.deepEqual(results, [{ gamesWritten: 3 }], 'the failed week is skipped, not thrown');
+});
+
+// The three cases below drive the REAL cadence.due (no stub on cadence
+// itself), stubbing only `syncRun.lastRun` - the gate's own default reader -
+// so the gate's actual due/not-due arithmetic is what decides each case, per
+// the lead's review (pl-endzone, PR #1530 f2).
+
+test('runHourlyOddsSync reads the leagues table again on the very next call when no league was live, because nothing ever became latestOk', async (t) => {
+  const espnOdds = require('../services/espnOdds.provider');
+  const syncRun = require('../modules/syncRun');
+  t.mock.method(syncRun, 'lastRun', async (job) => {
+    assert.equal(job, 'odds');
+    return { latest: null, latestOk: null }; // never run
+  });
+  let syncCalls = 0;
+  t.mock.method(espnOdds, 'syncOdds', async () => { syncCalls += 1; return { gamesWritten: 1 }; });
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const first = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:00:00Z') });
+  assert.deepEqual(first, [], 'no live league, so no odds Sync run is attempted');
+  assert.equal(syncCalls, 0);
+  assert.equal(fake.calls.filter((c) => c.text.includes('FROM "leagues"')).length, 1);
+
+  // Ten minutes later: nothing was ever written, so `latestOk` is still null
+  // and the real gate is still due - the leagues table is read again rather
+  // than staying silent for the rest of the hour.
+  const second = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:10:00Z') });
+  assert.deepEqual(second, []);
+  assert.equal(fake.calls.filter((c) => c.text.includes('FROM "leagues"')).length, 2, 'the gate answers due again, so the leagues read repeats');
+});
+
+test('runHourlyOddsSync retries on the very next tick, not the full hour, when every week on a tick fails', async (t) => {
+  const espnOdds = require('../services/espnOdds.provider');
+  const syncRun = require('../modules/syncRun');
+  t.mock.method(syncRun, 'lastRun', async () => ({ latest: null, latestOk: null })); // no week has ever succeeded
+  let syncCalls = 0;
+  t.mock.method(espnOdds, 'syncOdds', async ({ week }) => {
+    syncCalls += 1;
+    throw new Error(`ESPN unavailable for week ${week}`);
+  });
+  createFakePool([
+    [/FROM "leagues"/, () => ({
+      rows: [
+        { current_season: 2026, current_week: 2 },
+        { current_season: 2026, current_week: 3 },
+      ],
+    })],
+  ]).install(t);
+
+  const first = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:00:00Z') });
+  assert.deepEqual(first, [], 'every week failed, so no result is pushed');
+  assert.equal(syncCalls, 2);
+
+  // Five minutes later, same never-succeeded lastRun (no failed week's row
+  // ever becomes latestOk): the real gate is still due, so both weeks are
+  // retried - the retry spec #1493 story 5 wants, rather than waiting out
+  // the full hour.
+  const second = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:05:00Z') });
+  assert.deepEqual(second, []);
+  assert.equal(syncCalls, 4, 'both weeks are retried on the very next tick');
+});
+
+test('runHourlyOddsSync is not due when the job already succeeded inside the hour (contrast case)', async (t) => {
+  const espnOdds = require('../services/espnOdds.provider');
+  const syncRun = require('../modules/syncRun');
+  t.mock.method(syncRun, 'lastRun', async () => ({
+    latest: { id: 1, finishedAt: new Date('2026-09-12T11:55:00Z'), ok: true, detail: { gamesWritten: 3 } },
+    latestOk: { id: 1, finishedAt: new Date('2026-09-12T11:55:00Z'), ok: true, detail: { gamesWritten: 3 } },
+  }));
+  let syncCalls = 0;
+  t.mock.method(espnOdds, 'syncOdds', async () => { syncCalls += 1; return { gamesWritten: 1 }; });
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
+  ]).install(t);
+
+  // Only 10 minutes after the last success - well inside the hour.
+  const result = await scheduler.runHourlyOddsSync({ now: new Date('2026-09-12T12:05:00Z') });
+  assert.equal(result, null);
+  assert.equal(syncCalls, 0);
+  assert.equal(fake.calls.length, 0, 'not due, so the leagues table is never read');
 });
 
 test('tickUnlocked runs the hourly odds sync in its own containment', () => {
