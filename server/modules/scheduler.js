@@ -56,12 +56,8 @@ let lastCorrectionDay = null;
 let lastRetentionDay = null;
 // The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
-// ADP market refresh (#747): same successful-run day stamp. No credential gate -
-// FFC is free and keyless, so it runs all year. A thrown run does not stamp, so
-// the next tick retries; a thin-market run (recorded ok = false, market left
-// intact by the wipe guard) does stamp, so it does not hammer FFC all day - the
-// stale freshness signal is what surfaces the problem instead.
-let lastAdpSyncDay = null;
+// ADP market refresh (#747): the once-a-day decision is now the cadence gate's
+// own concern (#1509) - see runDailyAdpSync below.
 // Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
 // and correction passes above.
 let lastProjectionFillDay = null;
@@ -317,19 +313,22 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
 }
 
 /**
- * Daily ADP market refresh (#747). Runs at most once per local calendar day,
+ * Daily ADP market refresh (#747). Runs at most once per UTC calendar day,
  * all year - FFC is free and keyless, so unlike the injury sync there is no
- * credential gate. The wipe guard and the data_sync_runs record live inside
- * adp.syncAdp(); this wrapper only enforces once-a-day and stamps the day after
- * a run that did not throw, so a transient upstream failure retries next tick.
+ * credential gate. The due/not-due decision is the cadence gate's own concern
+ * (server/modules/cadence.js, spec #1492 step two, #1509), reading the job's
+ * own `data_sync_runs` rows (job: 'adp') - `adp.syncAdp` already records one
+ * through `runSyncJob`, so this adds no second, scheduler-level row, mirroring
+ * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
+ * stamp remains: the gate's own read survives a worker restart, where the old
+ * in-memory stamp reset on every one. The wipe guard still lives inside
+ * `adp.syncAdp` and is unaffected by this gate.
  */
 async function runDailyAdpSync({ now = new Date() } = {}) {
-  const today = now.toLocaleDateString('en-CA');
-  if (lastAdpSyncDay === today) return null;
+  const gate = await cadence.due({ job: 'adp', every: 'utc-day', now });
+  if (!gate.due) return null;
   const adp = require('../services/adp.service');
-  const result = await adp.syncAdp();
-  lastAdpSyncDay = today;
-  return result;
+  return adp.syncAdp({ now });
 }
 
 /**

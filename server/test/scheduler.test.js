@@ -242,34 +242,53 @@ test('tickUnlocked registers the daily injury sync duty', () => {
   assert.match(tickBody, /await runDailyInjurySync\(\);/);
 });
 
-// ---- daily ADP sync (#747) --------------------------------------------------
+// ---- daily ADP sync (#747, #1509) -------------------------------------------
+// The due/not-due decision is the cadence gate's own concern (server/modules/
+// cadence.js, cadence.test.js's table suite covers the 'utc-day' cadence and
+// the "a failed run is never latestOk" case generically). No in-memory day
+// stamp remains here (#1509 AC1), so these stub cadence.due directly and
+// assert this function's OWN behavior around that decision and delegation to
+// it.
 
-test('runDailyAdpSync runs once per local day and retries a thrown day', async (t) => {
-  // Same day-stamp-after-success contract as the injury sync, but with no
-  // credential gate: FFC is free and keyless, so the ADP job runs all year.
+test('runDailyAdpSync delegates the due/not-due decision to the cadence gate', async (t) => {
   const adp = require('../services/adp.service');
-  let calls = 0;
-  let fail = false;
-  t.mock.method(adp, 'syncAdp', async () => {
-    calls += 1;
-    if (fail) throw new Error('FFC unavailable');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(adp, 'syncAdp', async (opts) => {
+    calls.push(opts);
     return { ok: true, playersUpdated: 180 };
   });
 
-  const firstDay = new Date('2026-08-20T12:00:00-05:00');
-  assert.deepEqual(await scheduler.runDailyAdpSync({ now: firstDay }), { ok: true, playersUpdated: 180 });
-  // A second tick the same local day does not run it again.
-  assert.equal(await scheduler.runDailyAdpSync({ now: firstDay }), null);
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyAdpSync({ now }), { ok: true, playersUpdated: 180 });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncAdp with the same now');
+  assert.deepEqual(dueArgs, { job: 'adp', every: 'utc-day', now });
+});
 
-  fail = true;
-  const nextDay = new Date('2026-08-21T12:00:00-05:00');
-  // A throw does not stamp the day: the next tick retries.
-  await assert.rejects(scheduler.runDailyAdpSync({ now: nextDay }), /FFC unavailable/);
-  fail = false;
-  assert.deepEqual(await scheduler.runDailyAdpSync({ now: nextDay }), { ok: true, playersUpdated: 180 });
-  // ...and once it succeeds, the day is stamped so it does not run a third time.
-  assert.equal(await scheduler.runDailyAdpSync({ now: nextDay }), null);
-  assert.equal(calls, 3);
+test('runDailyAdpSync never calls syncAdp when the cadence gate says it is not due', async (t) => {
+  const adp = require('../services/adp.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(adp, 'syncAdp', async () => { calls += 1; return { ok: true }; });
+
+  const result = await scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('runDailyAdpSync propagates a thrown syncAdp so the next tick retries (a throw never moves the gate)', async (t) => {
+  const adp = require('../services/adp.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(adp, 'syncAdp', async () => { throw new Error('FFC unavailable'); });
+
+  await assert.rejects(
+    scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:00:00-05:00') }),
+    /FFC unavailable/
+  );
 });
 
 test('tickUnlocked runs the daily ADP sync in its own containment, so a throw does not stop the duties after it', () => {
@@ -1332,7 +1351,7 @@ test('a season with no week-18 rows on file is held (and warned about), never co
 // All `now` values below land inside NIGHTLY_PROJECTION_FILL_UTC_HOUR (9
 // UTC, scheduler.js) and use distinct calendar days: the once-a-day stamp is
 // shared module state across every test in this file, same as
-// lastAdpSyncDay above.
+// lastRetentionDay above.
 
 test('runNightlyProjectionFill only runs inside its own off-peak UTC hour', async (t) => {
   const calls = [];
