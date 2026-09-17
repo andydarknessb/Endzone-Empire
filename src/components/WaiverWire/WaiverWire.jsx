@@ -532,19 +532,19 @@ function WaiverWire() {
             (claimPlayer && claimPlayer.id === quickViewId ? claimPlayer : null)
         )}
         leagueId={Number(leagueId)}
-        // #1513, ADR 0040 follow-up: the built context, from the same values
-        // this call already passes loose below (the card still reads those,
-        // not context.availability/.roster - T19 finishes that move).
-        context={waivers({ availability: waiverAvailability, roster })}
-        availability={waiverAvailability}
-        roster={roster}
-        onActionDone={fetchAll}
+        // #1515 (T19): the built context - availability/roster/onActionDone/
+        // prev-next all ride inside it now, no loose prop stays beside it.
         // Second risk review, finding 3: the table renders `sortedOnWaivers`
         // (the Upgrade sort, on by default once the cards read loads), not
         // the raw fetch order - `playerIds` must name the SAME order or the
         // "Player N of M" caption and Next both point at the wrong row.
-        playerIds={sortedOnWaivers.map((p) => p.id)}
-        onNavigate={setQuickViewId}
+        context={waivers({
+          availability: waiverAvailability,
+          roster,
+          onActionDone: fetchAll,
+          playerIds: sortedOnWaivers.map((p) => p.id),
+          onNavigate: setQuickViewId,
+        })}
       />
     </Container>
   );

@@ -464,9 +464,10 @@ function TradeCenter() {
   const decisionCardIsMyPlayer = (myRoster?.players || []).some((p) => p.id === decisionCardPlayerId);
   // #1513, ADR 0040 follow-up: the built context - myTeam({ managed: false })
   // read-only (TradeCenter wires no lineup handlers), rostered otherwise,
-  // named off the owning roster already loaded here. The card still reads
-  // "Rostered by" off the loose `availability` prop, not the context object
-  // (T19 finishes that move), so the same value goes to both.
+  // named off the owning roster already loaded here. #1515 (T19): the card
+  // now reads "Rostered by" off `context.availability` - `rostered(...)`
+  // already carries this same value, so the loose `availability` prop below
+  // was redundant and is gone.
   const decisionCardOwnerRoster = decisionCardIsMyPlayer
     ? null
     : rosters.find((r) => (r.players || []).some((p) => p.id === decisionCardPlayerId));
@@ -709,13 +710,14 @@ function TradeCenter() {
         </DialogActions>
       </Dialog>
 
+      {/* #1515 (T19): `availability` rides inside the built context now (the
+          rostered() builder already carries it) - no loose prop beside it. */}
       <PlayerDecisionCard
         open={decisionCardPlayerId != null}
         onClose={() => setDecisionCardPlayerId(null)}
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
         context={decisionCardBuiltContext}
-        availability={decisionCardAvailability}
       />
     </Container>
   );

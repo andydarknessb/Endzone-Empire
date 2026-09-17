@@ -448,21 +448,15 @@ export default function LineupPage() {
         onSelect={swap.handleQuickPickSelect}
       />
       <DropConfirmationDialog entry={drop.dropCandidate} onClose={drop.closeDropConfirmation} onConfirm={drop.confirmDrop} />
+      {/* #1515 (T19): the managed set (entries/onSwap/onRequestDrop/
+          canDropEntry/bestBall/leagueUnsettled) rides inside the built
+          context now - no loose prop stays beside it. */}
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
         onClose={() => setDecisionCardEntryId(null)}
         entry={(lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null}
-        entries={lineup?.entries}
         leagueId={selectedLeagueId}
         week={lineup?.week}
-        bestBall={bestBall}
-        leagueUnsettled={leagueUnsettled}
-        onSwap={swap.performMove}
-        onRequestDrop={drop.requestDrop}
-        canDropEntry={canDropEntry}
-        // #1512: the built context - Lineup is the first surface to pass one.
-        // The loose props above stay as they were (the card only reads
-        // context.kind today; T19 finishes moving them under context).
         context={myTeam({
           managed: true,
           onSwap: swap.performMove,
