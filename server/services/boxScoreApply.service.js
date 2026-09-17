@@ -139,6 +139,62 @@ function detectScoringEvents(prevStats, newStats) {
   return events;
 }
 
+// A tracked event's own `statKey` (PLAY_STAT_EVENTS, above) is not always the
+// key calculateFantasyPoints actually prices from. `fieldGoal` is a plain
+// make-count (Tank01's fgMade) with no rate of its own in STAT_KEY_PATHS —
+// a made kick's real price lives on `fieldGoalDistances`, the per-make
+// distance array scoreTieredValues tier-matches. Every other tracked event
+// key already prices itself directly (the TD counters, teamDefense's sack/
+// interceptionReturn/fumbleRecovery/defensiveTD, misc's returnTDs, kicking's
+// extraPoint) — only field goals need this redirect.
+const EVENT_PRICING_KEY = { fieldGoal: 'fieldGoalDistances' };
+
+/**
+ * Pure: split one player's whole per-sync points change (`wholeDelta`,
+ * already priced by the caller as `calculateFantasyPoints(next) -
+ * calculateFantasyPoints(prev)`) across the several tracked events one sync
+ * produced for them, so the returned deltas SUM to `wholeDelta` instead of
+ * each one carrying it whole.
+ *
+ * Each event's own marginal prices ONLY the one stat key it actually scores
+ * from (EVENT_PRICING_KEY's redirect for field goals, the event's own
+ * `statKey` otherwise), moved from `prev`'s value to `next`'s, against an
+ * otherwise-unchanged `prev` line — the value that one make/score is worth
+ * on its own. Whatever that leaves over against the true whole change
+ * (yardage, length/yardage bonuses, a DEF points-allowed/yards-allowed tier
+ * move — nothing tied to a single tracked stat key) is folded as a residual
+ * onto the FIRST event, so the returned deltas always sum to `wholeDelta`
+ * exactly (worked in integer cents so the rounding is exact, never
+ * approximate).
+ *
+ * A single event returns `[wholeDelta]` unchanged (today's one-play-per-sync
+ * shape, still the overwhelmingly common case) — the marginal split only
+ * runs when there is more than one event to split across. Zero events
+ * returns `[]`.
+ *
+ * @param {object} prev  the player's stat line before this sync (null/undefined reads as all-zero)
+ * @param {object} next  the player's stat line after this sync
+ * @param {Array<{statKey: string}>} events  detectScoringEvents' output for this diff
+ * @param {number} wholeDelta  the player's whole, already-rounded points change for the sync
+ * @returns {number[]} one pointsDelta per event, same order as `events`, summing to `wholeDelta`
+ */
+function attributePlayPoints(prev, next, events, wholeDelta) {
+  if (!events || events.length === 0) return [];
+  if (events.length === 1) return [wholeDelta];
+  const base = prev || {};
+  const after = next || {};
+  const baseScore = calculateFantasyPoints(base);
+  const marginalCents = events.map((ev) => {
+    const pricingKey = EVENT_PRICING_KEY[ev.statKey] || ev.statKey;
+    const withOne = { ...base, [pricingKey]: after[pricingKey] };
+    return Math.round((calculateFantasyPoints(withOne) - baseScore) * 100);
+  });
+  const wholeCents = Math.round(wholeDelta * 100);
+  const sumCents = marginalCents.reduce((s, c) => s + c, 0);
+  marginalCents[0] += wholeCents - sumCents; // residual, exact in integer cents
+  return marginalCents.map((c) => c / 100);
+}
+
 /**
  * The rostered DEF (team-defense) units, keyed by Team code, for matching a
  * box score's team-level DST aggregate.
@@ -256,8 +312,14 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
   let updated = 0;
   const plays = [];
 
-  // The funnel scores the row it stores; that one score is also the one the
-  // Scoring play's pointsDelta is priced from, so the two can never disagree.
+  // The funnel scores the row it stores; that one score is also the one a
+  // sync's plays' pointsDelta values are priced from, so the two can never
+  // disagree. The pointsDelta values of ONE sync's plays for a player add up
+  // to that player's whole points change for the sync (attributePlayPoints);
+  // consumers SUM them. One score event can carry plays from more than one
+  // sync (liveBoxPoll's rescore gate buckets a league's plays across 30s
+  // engine ticks and flushes on a 60s floor), so consumers must never dedupe
+  // per player.
   const upsertStats = async (playerId, stats) => {
     const { fantasyPoints } = await upsertPlayerStats(client, { playerId, season, week, stats });
     // Keep the diff baseline current so a re-apply of the same box (the recap
@@ -280,15 +342,16 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
     const events = suppressPlays ? [] : detectScoringEvents(prev, stats);
     if (events.length > 0) {
       const meta = metaById.get(playerId) || {};
-      const pointsDelta =
+      const wholeDelta =
         Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+      const deltas = attributePlayPoints(prev, stats, events, wholeDelta);
       // The opponent map is keyed by the raw `nfl_games.nfl_team` and looked up
       // with the raw `meta.nfl_team` (its partner): that pairing stays raw-on-raw
       // (#431). The play object it feeds is a different contract: `nflTeam` and
       // `opponent` on a Scoring play are Team codes (CONTEXT.md **Team code**),
       // so both are folded through normalizeNflTeam before they leave the server.
       const rawOpponent = opponentByTeam.get(meta.nfl_team) || null;
-      for (const ev of events) {
+      events.forEach((ev, i) => {
         plays.push({
           playerId,
           name: meta.name,
@@ -297,10 +360,10 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
           opponent: rawOpponent ? normalizeNflTeam(rawOpponent) : null,
           type: ev.type,
           tdDelta: ev.tdDelta,
-          pointsDelta,
+          pointsDelta: deltas[i],
           isTouchdown: ev.isTouchdown,
         });
-      }
+      });
     }
   }
 
@@ -325,10 +388,11 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
     const points = await upsertStats(defPlayer.id, stats);
     const events = suppressPlays ? [] : detectScoringEvents(prev, stats);
     if (events.length > 0) {
-      const pointsDelta =
+      const wholeDelta =
         Math.round((points - calculateFantasyPoints(prev || {})) * 100) / 100;
+      const deltas = attributePlayPoints(prev, stats, events, wholeDelta);
       const rawOpponent = opponentByTeamCode.get(teamCode) || null;
-      for (const ev of events) {
+      events.forEach((ev, i) => {
         plays.push({
           playerId: defPlayer.id,
           name: defPlayer.name,
@@ -337,10 +401,10 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
           opponent: rawOpponent ? normalizeNflTeam(rawOpponent) : null,
           type: ev.type,
           tdDelta: ev.tdDelta,
-          pointsDelta,
+          pointsDelta: deltas[i],
           isTouchdown: ev.isTouchdown,
         });
-      }
+      });
     }
   }
 
@@ -404,4 +468,5 @@ module.exports = {
   pickPresentKeys,
   mergeCarriedStats,
   detectScoringEvents,
+  attributePlayPoints,
 };
