@@ -442,6 +442,138 @@ test('tickUnlocked runs the hourly odds sync in its own containment', () => {
   assert.match(tickBody, /try \{\s*await runHourlyOddsSync\(\);\s*\} catch/);
 });
 
+// ---- nflverse IDP-finalization pass (#1511) --------------------------------
+// The second consumer of the cadence gate (server/modules/cadence.js, spec
+// #1492 step two): `syncNflverseWeek` (nflverseSync.service.js) already
+// writes a `nflverse-week` Sync run through `runSyncJob` for every
+// (season, week) `finalizePriorWeeks` processes, on every run regardless of
+// outcome (ADR 0036), so the gate reads that job directly - no second,
+// scheduler-level row, same as `runHourlyOddsSync`'s `job: 'odds'` gate
+// above. Deliberately no `after: 'stat-corrections'` (pl-endzone formal
+// review f1, #1511): this pass runs Mon-Thu, stat-corrections only ever
+// succeeds Tue/Wed, and an `after` dependency here starved Monday and
+// Thursday outright (on those days stat-corrections' last success is never
+// fresher than nflverse-week's own). Every "is it actually due" case is the
+// cadence table suite's job (cadence.test.js); these stub the gate directly
+// and assert only this function's OWN delegation to it and its Mon-Thu day
+// filter, which has no gate equivalent and so stays a plain check beside the
+// gate call.
+
+test('runNflverseFinalization delegates the due/not-due decision to the cadence gate', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  let finalizeCalls = 0;
+  t.mock.method(nflverseSync, 'finalizePriorWeeks', async () => { finalizeCalls += 1; return { finalized: [{ season: 2026, week: 2, playersUpdated: 4 }] }; });
+
+  const now = new Date('2026-09-22T12:00:00Z'); // a Tuesday, inside the Mon-Thu window
+  const result = await scheduler.runNflverseFinalization({ now });
+
+  assert.equal(finalizeCalls, 1, 'due: true delegates straight to finalizePriorWeeks');
+  assert.deepEqual(dueArgs, { job: 'nflverse-week', every: 'utc-day', now }, 'no `after` (f1): this pass never depended on stat-corrections');
+  assert.deepEqual(result, { finalized: [{ season: 2026, week: 2, playersUpdated: 4 }] });
+});
+
+test('runNflverseFinalization never calls finalizePriorWeeks when the cadence gate says it is not due', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let finalizeCalls = 0;
+  t.mock.method(nflverseSync, 'finalizePriorWeeks', async () => { finalizeCalls += 1; return { finalized: [] }; });
+
+  const now = new Date('2026-09-23T12:00:00Z'); // a Wednesday, inside the window, a different day from above
+  const result = await scheduler.runNflverseFinalization({ now });
+
+  assert.equal(result, null);
+  assert.equal(finalizeCalls, 0, 'due: false never reaches finalizePriorWeeks');
+});
+
+// The Mon-Thu day filter (`isNflverseFinalizationDay`) has no cadence
+// equivalent, so it is pinned at the SCHEDULER, not the gate: a day outside
+// the window must never even ask the gate, and Thursday - the window's last
+// day - must still reach it.
+
+test('runNflverseFinalization never consults the gate on a Friday, outside its Mon-Thu window', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const cadence = require('../modules/cadence');
+  let dueCalls = 0;
+  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
+  let finalizeCalls = 0;
+  t.mock.method(nflverseSync, 'finalizePriorWeeks', async () => { finalizeCalls += 1; return { finalized: [] }; });
+
+  const result = await scheduler.runNflverseFinalization({ now: new Date('2026-09-25T12:00:00Z') }); // Friday
+  assert.equal(result, null);
+  assert.equal(dueCalls, 0, 'the day filter short-circuits before the gate is ever asked');
+  assert.equal(finalizeCalls, 0);
+});
+
+test('Thursday: runNflverseFinalization still consults the gate, the last day of its Mon-Thu window (pinned at the scheduler)', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const cadence = require('../modules/cadence');
+  let dueCalls = 0;
+  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
+  let finalizeCalls = 0;
+  t.mock.method(nflverseSync, 'finalizePriorWeeks', async () => { finalizeCalls += 1; return { finalized: [] }; });
+
+  await scheduler.runNflverseFinalization({ now: new Date('2026-09-24T12:00:00Z') }); // Thursday
+  assert.equal(dueCalls, 1, 'Thursday is still inside the window, so the gate is consulted');
+  assert.equal(finalizeCalls, 1);
+});
+
+// pl-endzone formal review f1 (#1511): finalization's behaviour no longer
+// depends on stat-corrections at all (no `after`), driving the REAL
+// cadence.due (no stub) through a fake `syncRun.lastRun`, same style as
+// `runHourlyOddsSync`'s real-gate cases. `lastRun` asserts it is never asked
+// for 'stat-corrections' - proving independence, not merely a case where
+// corrections happens to be irrelevant.
+
+test('runNflverseFinalization runs on a Tuesday off its own cadence alone, never reading stat-corrections (pinned at the gate)', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const syncRun = require('../modules/syncRun');
+  let finalizeCalls = 0;
+  t.mock.method(nflverseSync, 'finalizePriorWeeks', async () => { finalizeCalls += 1; return { finalized: [{ season: 2026, week: 2, playersUpdated: 4 }] }; });
+  t.mock.method(syncRun, 'lastRun', async (job) => {
+    assert.equal(job, 'nflverse-week', 'no `after` dependency: stat-corrections is never read');
+    // Last succeeded Monday, a prior UTC day relative to Tuesday's `now`.
+    return { latest: { id: 2, finishedAt: new Date('2026-09-21T09:10:00Z'), ok: true, detail: null }, latestOk: { id: 2, finishedAt: new Date('2026-09-21T09:10:00Z'), ok: true, detail: null } };
+  });
+
+  const result = await scheduler.runNflverseFinalization({ now: new Date('2026-09-22T12:00:00Z') }); // Tuesday
+  assert.deepEqual(result, { finalized: [{ season: 2026, week: 2, playersUpdated: 4 }] });
+  assert.equal(finalizeCalls, 1);
+});
+
+test('runNflverseFinalization runs on a Thursday after a Wednesday success (regression pin: an after: stat-corrections dependency would starve this day, f1)', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const syncRun = require('../modules/syncRun');
+  let finalizeCalls = 0;
+  t.mock.method(nflverseSync, 'finalizePriorWeeks', async () => { finalizeCalls += 1; return { finalized: [{ season: 2026, week: 3, playersUpdated: 2 }] }; });
+  t.mock.method(syncRun, 'lastRun', async (job) => {
+    assert.equal(job, 'nflverse-week');
+    // Wednesday's run is the last success; stat-corrections' own last success
+    // (also Wednesday) would never look fresher than this under `after` -
+    // exactly the starvation f1 found. Without `after`, the plain daily
+    // cadence alone is due: Wednesday is a prior UTC day relative to Thursday.
+    return { latest: { id: 3, finishedAt: new Date('2026-09-23T09:10:00Z'), ok: true, detail: null }, latestOk: { id: 3, finishedAt: new Date('2026-09-23T09:10:00Z'), ok: true, detail: null } };
+  });
+
+  const result = await scheduler.runNflverseFinalization({ now: new Date('2026-09-24T12:00:00Z') }); // Thursday
+  assert.deepEqual(result, { finalized: [{ season: 2026, week: 3, playersUpdated: 2 }] });
+  assert.equal(finalizeCalls, 1);
+});
+
+test('tickUnlocked runs the nflverse finalization pass in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runNflverseFinalization\(\);\s*\} catch/);
+});
+
 // ---- hourly game-context Sync run (#1262, ADR 0038) ------------------------
 // Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
 // CONTEXT.md's Line is the spread/total Sync run tested above as
@@ -1207,6 +1339,11 @@ test('runNightlyProjectionFill only runs inside its own off-peak UTC hour', asyn
   createFakePool([
     [/FROM "leagues"/, () => { calls.push('leagues'); return { rows: [] }; }],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    // Outside the window this hits the cadence gate (#1511); nothing has ever
+    // run, so `after: 'stat-corrections'` is unsatisfied and the gate itself
+    // answers not due - the fixture does not need a real owed scenario for
+    // this test, which is only about the hour boundary.
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ latest: null, latestOk: null }] })],
   ]).install(t);
 
   assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T08:59:00Z') }), null);
@@ -1305,6 +1442,10 @@ test('runNightlyProjectionFill skips a week every player already has cached, and
     })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    // The second call below falls outside `inWindow` (this process already
+    // filled today) and so reaches the cadence gate (#1511); nothing owed in
+    // this fixture, so it answers not due regardless.
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ latest: null, latestOk: null }] })],
   ]).install(t);
 
   const first = new Date('2026-09-16T09:05:00Z');

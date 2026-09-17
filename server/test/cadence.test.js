@@ -94,13 +94,72 @@ const CASES = [
     expected: { due: true, reason: 'last success was a prior UTC day' },
   },
   {
-    name: '"after" is never consulted when the job\'s own cadence already says not due',
+    // `after` is now ALWAYS consulted (fleet#1511 f2), even when the job's
+    // own cadence already says not due - it just gives no reason to override
+    // that verdict here, because `gizmos` (missing entirely, so `fakeLastRun`
+    // answers its null default - it never throws) has produced nothing at
+    // all, let alone anything fresher than `widgets`' own last success.
+    name: '"after" cannot override an already-succeeded-today verdict when the dependency has produced nothing',
     lastRun: fakeLastRun({
       widgets: { latest: okAt('2026-09-16T03:00:00Z'), latestOk: okAt('2026-09-16T03:00:00Z') },
-      // No entry for gizmos at all: a lookup would throw were this reached.
     }),
     args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T23:00:00Z') },
     expected: { due: false, reason: 'already succeeded today (UTC)' },
+  },
+  {
+    // The other half of that: `after` HAS produced something, but it is no
+    // fresher than `widgets`' own last success - still no reason to override.
+    name: '"after" cannot override an already-succeeded-today verdict when the dependency is no fresher than this job\'s own last success',
+    lastRun: fakeLastRun({
+      widgets: { latest: okAt('2026-09-16T09:10:00Z'), latestOk: okAt('2026-09-16T09:10:00Z') },
+      gizmos: { latest: okAt('2026-09-15T17:02:00Z'), latestOk: okAt('2026-09-15T17:02:00Z') },
+    }),
+    args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T23:00:00Z') },
+    expected: { due: false, reason: 'already succeeded today (UTC)' },
+  },
+  {
+    // fleet#1511 f2: `after` DOES override an already-succeeded-today verdict
+    // when it has produced something fresher than this job's own last
+    // success, even on the SAME UTC day - the case a stat-correction pass
+    // that succeeds after the day's off-peak projection fill has already run
+    // needs, so the wipe it just caused is refilled on the very next tick
+    // rather than sitting cold until tomorrow's window.
+    name: '"after" overrides an already-succeeded-today verdict when the dependency has succeeded more recently, even on the same UTC day',
+    lastRun: fakeLastRun({
+      widgets: { latest: okAt('2026-09-16T09:10:00Z'), latestOk: okAt('2026-09-16T09:10:00Z') },
+      gizmos: { latest: okAt('2026-09-16T17:02:00Z'), latestOk: okAt('2026-09-16T17:02:00Z') },
+    }),
+    args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T17:10:00Z') },
+    expected: { due: true, reason: '"gizmos" succeeded since this job\'s last success' },
+  },
+  {
+    // Neither of the four original `after` cases above has the OWN job never
+    // run at all (they all give `widgets` a `latestOk`); this is the gap
+    // #1511 AC3 asks for - a brand-new nightly-projection-run job with
+    // `after: 'stat-corrections'` before that dependency has ever succeeded
+    // either. `latestOk` is null, so `afterIsFresher` in due() falls back to
+    // "has `after` produced anything at all" - the missing dependency wins.
+    name: '"after" unsatisfied: the job itself has never run and neither has its dependency',
+    lastRun: fakeLastRun({
+      gizmos: { latest: null, latestOk: null },
+      // No entry for widgets: `fakeLastRun` answers its null default for a
+      // missing key rather than throwing, so this also pins that `due()`
+      // reads `after`, not `job`, for the dependency check.
+    }),
+    args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T00:30:00Z') },
+    expected: { due: false, reason: 'waiting on "gizmos" to succeed' },
+  },
+  {
+    // The other half of that gap: the job itself has never run, but its
+    // dependency already has - `afterIsFresher` is true unconditionally here
+    // (there is no `latestOk` to compare against), so the never-run reason
+    // from the job's own cadence wins outright.
+    name: '"after" satisfied by default: the job itself has never run, and its dependency already has',
+    lastRun: fakeLastRun({
+      gizmos: { latest: okAt('2026-09-10T03:00:00Z'), latestOk: okAt('2026-09-10T03:00:00Z') },
+    }),
+    args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T00:30:00Z') },
+    expected: { due: true, reason: 'never run' },
   },
   {
     name: 'green for the wrong reason: a run finished 00:00 UTC but stamped for the previous UTC day is due at 00:01 UTC',

@@ -20,6 +20,12 @@ const projection = require('../services/projection.service');
 // scheduler's module-level day stamps start null here - exactly the state a
 // freshly restarted worker is in.
 
+// A single live league on week 2 of a 14-week regular season with a 4-team
+// playoff (last playoff week 16): the fixture every test below shares that
+// only cares that SOME live league exists, not its particular shape
+// (pl-endzone formal review n2, #1511).
+const LIVE_LEAGUE_ROW = { id: 137, current_season: 2026, current_week: 2, regular_season_weeks: 14, playoff_teams: 4 };
+
 /**
  * `lastRun`-shaped rows for the two jobs the gates read, keyed by job: a
  * string is one successful run at that instant; `{ latest, latestOk }` sets
@@ -171,7 +177,96 @@ test('runDailyStatCorrections never runs the pass when the cadence gate says it 
   assert.equal(resyncCalls, 0, 'due: false never reaches resyncPriorWeeks');
 });
 
-test('runNightlyProjectionFill refills outside its off-peak window when the last successful correction pass is newer than the last successful fill', async (t) => {
+// ---------------------------------------------------------------------------
+// The owed-check itself used to be a hand-rolled `data_sync_runs` comparison
+// (`projectionRefillOwed`); it is now the cadence gate's own concern
+// (server/modules/cadence.js, spec #1492 step two, #1511):
+// `cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after:
+// 'stat-corrections' })`. Every "is it actually owed" case - the `after`
+// dependency's own arithmetic - is the cadence table suite's job
+// (cadence.test.js); these two stub the gate directly and assert only this
+// function's OWN delegation to it, mirroring `runHourlyOddsSync`'s and
+// `runDailyStatCorrections`' equivalent pair of tests (#1510, #1508).
+// ---------------------------------------------------------------------------
+
+test('runNightlyProjectionFill delegates the due/not-due decision to the cadence gate', async (t) => {
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const generated = [];
+  t.mock.method(projection, 'getWeeklyProjections', async ({ league, week, playerIds }) => {
+    generated.push({ leagueId: league.id, week });
+    return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
+  });
+  createFakePool([
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({
+      rows: [LIVE_LEAGUE_ROW],
+    })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }, { id: 202 }] })],
+  ]).install(t);
+
+  // 17:10 UTC, hours outside NIGHTLY_PROJECTION_FILL_UTC_HOUR: due: true alone
+  // (no game window open) is what delegates straight to the fill.
+  const now = new Date('2026-09-18T17:10:00Z');
+  const result = await scheduler.runNightlyProjectionFill({ now });
+  assert.ok(result && result.weeksGenerated > 0, `a refill ran: ${JSON.stringify(result)}`);
+  assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  assert.deepEqual(dueArgs, { job: 'nightly-projection-run', every: 'utc-day', after: 'stat-corrections', now });
+});
+
+test('runNightlyProjectionFill never reads the leagues table when the cadence gate says it is not due', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+  ]).install(t);
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-19T17:10:00Z') });
+  assert.equal(result, null);
+  assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'due: false never reaches the leagues read');
+});
+
+// ---------------------------------------------------------------------------
+// #1511 AC4: the three pinned cases, driving the REAL cadence.due (no stub on
+// cadence itself) through fake `data_sync_runs` rows - same style as
+// `runHourlyOddsSync`'s real-gate cases (#1510). Both cases below are pinned
+// AT THE GATE: `cadence.due`'s own `after`-dependency arithmetic (covered
+// generically by cadence.test.js) is what decides due or not due here: this
+// function only acts on the verdict. The projection fill has no day-of-week
+// filter of its own (unlike `runDailyStatCorrections`'/`runNflverseFinalization`'s
+// Tue-Wed/Mon-Thu windows), so its "Thursday" case is not distinct from any
+// other non-correction day; that pinned case lives with nflverse finalization
+// in scheduler.test.js instead, where Mon-Thu is a real scheduler-level
+// filter beside the gate.
+// ---------------------------------------------------------------------------
+
+test('Tuesday with a failed corrections pass: an owed refill does not run (pinned at the gate)', async (t) => {
+  let calls = 0;
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
+    calls += 1;
+    return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
+  });
+  const fake = createFakePool([
+    dataSyncRunsHandler({
+      // Tuesday's correction attempt failed, so stat-corrections' last
+      // SUCCESS is still last Tuesday - no fresher than the fill's own last
+      // success (Monday), so the gate's `after` dependency stays unsatisfied.
+      'stat-corrections': '2026-09-15T00:06:00Z',
+      'nightly-projection-run': '2026-09-21T09:10:00Z',
+    }),
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  // Tuesday 2026-09-22, outside the off-peak window.
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-22T17:10:00Z') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+  assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'not due, so the eligibility read never happens');
+});
+
+test('Tuesday with a successful corrections pass: an owed refill runs (pinned at the gate)', async (t) => {
   const generated = [];
   t.mock.method(projection, 'getWeeklyProjections', async ({ league, week, playerIds }) => {
     generated.push({ leagueId: league.id, week });
@@ -179,20 +274,19 @@ test('runNightlyProjectionFill refills outside its off-peak window when the last
   });
   createFakePool([
     dataSyncRunsHandler({
-      'stat-corrections': '2026-09-15T17:02:00Z',
-      'nightly-projection-run': '2026-09-15T09:10:00Z',
+      // This Tuesday's correction succeeded fresh (00:06); the fill's own
+      // last success is still Monday's, so the gate's `after` dependency is
+      // satisfied and the daily cadence itself is due (no success yet today).
+      'stat-corrections': '2026-09-22T00:06:00Z',
+      'nightly-projection-run': '2026-09-21T09:10:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-    [/FROM "live_game_states"/, () => ({ rows: [] })],
-    [/FROM "leagues"/, () => ({
-      rows: [{ id: 137, current_season: 2026, current_week: 2, regular_season_weeks: 14, playoff_teams: 4 }],
-    })],
-    [/FROM "players"/, () => ({ rows: [{ id: 101 }, { id: 202 }] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  // 17:10 UTC on the correction day: hours outside NIGHTLY_PROJECTION_FILL_UTC_HOUR,
-  // and the wipe at 17:02 post-dates the 09:10 fill, so a refill is owed now.
-  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:10:00Z') });
+  // 17:10 UTC Tuesday: outside the off-peak window, so this is the owed path.
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-22T17:10:00Z') });
   assert.ok(result && result.weeksGenerated > 0, `a refill ran: ${JSON.stringify(result)}`);
   assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 });
@@ -219,7 +313,70 @@ test('an owed refill waits out an open game window (the Tuesday 00:00 UTC pass l
   assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0);
 });
 
-test('an owed refill is attempted once per wipe: a failed fill attempt newer than the wipe defers the rest to the off-peak window', async (t) => {
+// pl-endzone formal review f2 (#1511): a stat-correction pass that succeeds
+// AFTER the day's off-peak fill has already run once - even on the same UTC
+// day - must still refill on the very next tick. `cadence.due`'s `after`
+// override (cadence.js, same fleet#1511 f2) is what makes this due despite
+// the fill's own `every: 'utc-day'` cadence already having fired today; see
+// cadence.test.js's "overrides an already-succeeded-today verdict" case for
+// the gate arithmetic itself. AC4's "a Tuesday with a successful pass ...
+// unchanged" covers this timing, not only the corrections-before-fill order
+// the two pinned tests above exercise.
+
+test('an owed refill runs on the very next tick when a corrections pass succeeds after today\'s off-peak fill, even on the same UTC day', async (t) => {
+  const generated = [];
+  t.mock.method(projection, 'getWeeklyProjections', async ({ league, week, playerIds }) => {
+    generated.push({ leagueId: league.id, week });
+    return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
+  });
+  createFakePool([
+    dataSyncRunsHandler({
+      // The fill already succeeded once today at 09:10 (the window run);
+      // corrections then succeeded LATER the same day, at 17:02.
+      'nightly-projection-run': '2026-09-15T09:10:00Z',
+      'stat-corrections': '2026-09-15T17:02:00Z',
+    }),
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:10:00Z') });
+  assert.ok(result && result.weeksGenerated > 0, `the same-day wipe was refilled: ${JSON.stringify(result)}`);
+  assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+});
+
+test('a successful same-day owed refill is not repeated on the following tick', async (t) => {
+  let calls = 0;
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
+    calls += 1;
+    return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };
+  });
+  const fake = createFakePool([
+    dataSyncRunsHandler({
+      // The owed refill above already succeeded at 17:10, AFTER corrections'
+      // 17:02 success: nothing is fresher than the fill's own last success
+      // any more, so the override no longer fires.
+      'nightly-projection-run': '2026-09-15T17:10:00Z',
+      'stat-corrections': '2026-09-15T17:02:00Z',
+    }),
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:15:00Z') }), null);
+  assert.equal(calls, 0, 'no re-run on the very next tick');
+  assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0);
+});
+
+// pl-endzone formal review f4 (#1511): spec #1493 story 5 changes the fill's
+// failure behaviour - a failed attempt now retries on the very next tick,
+// where the old `projectionRefillOwed` treated ANY attempt (`latest`, failed
+// or not) as having addressed a wipe and deferred a retry to the next
+// off-peak window. The gate reads `latestOk` only, so a failed `latest`
+// attempt is invisible to it and never blocks a retry.
+
+test('an owed refill that failed earlier today is retried on the very next tick, not deferred to tomorrow\'s window (spec #1493 story 5)', async (t) => {
   let calls = 0;
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
     calls += 1;
@@ -227,19 +384,19 @@ test('an owed refill is attempted once per wipe: a failed fill attempt newer tha
   });
   createFakePool([
     dataSyncRunsHandler({
-      'stat-corrections': '2026-09-15T17:02:00Z',
-      // The owed attempt at 17:06 failed on one league (ok=false); the last
-      // SUCCESSFUL fill is still the 09:10 window run.
-      'nightly-projection-run': { latest: '2026-09-15T17:06:00Z', latestOk: '2026-09-15T09:10:00Z' },
+      // A failed attempt at 05:00 today; the fill's own last SUCCESS is still
+      // yesterday's window run, older than today's stat-corrections success.
+      'nightly-projection-run': { latest: '2026-09-16T05:00:00Z', latestOk: '2026-09-15T09:10:00Z' },
+      'stat-corrections': '2026-09-16T00:06:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-    [/FROM "leagues"/, () => ({ rows: [{ id: 137, current_season: 2026, current_week: 2, regular_season_weeks: 14, playoff_teams: 4 }] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 
-  assert.equal(await scheduler.projectionRefillOwed(), false);
-  assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:11:00Z') }), null);
-  assert.equal(calls, 0, 'no five-minute retry storm for the rest of the day');
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-16T05:05:00Z') });
+  assert.ok(result && result.weeksGenerated > 0, `retried despite the earlier failed attempt: ${JSON.stringify(result)}`);
+  assert.ok(calls > 0);
 });
 
 test('runNightlyProjectionFill stays inside its window when the last successful fill post-dates the last correction pass', async (t) => {
@@ -254,7 +411,7 @@ test('runNightlyProjectionFill stays inside its window when the last successful 
       'nightly-projection-run': '2026-09-16T09:10:00Z',
     }),
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
-    [/FROM "leagues"/, () => ({ rows: [{ id: 137, current_season: 2026, current_week: 2, regular_season_weeks: 14, playoff_teams: 4 }] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
     [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
   ]).install(t);
 

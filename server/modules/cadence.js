@@ -26,7 +26,15 @@ const syncRun = require('./syncRun');
  *   cadence above. A job that is due by its own cadence still waits when the
  *   job it depends on has produced nothing fresher than this job's own last
  *   success. This comparison is always on `finishedAt` (an instant, not a
- *   calendar day - `detail.day` plays no part here).
+ *   calendar day - `detail.day` plays no part here). The reverse also holds:
+ *   when `after` HAS produced something fresher than this job's own last
+ *   success, this job is due even when its own cadence already fired more
+ *   recently (a same-UTC-day `'utc-day'` success, say) - `after` is a
+ *   standing "something changed since I last ran" signal, not merely a gate
+ *   consulted only when the cadence alone already says due (fleet#1511 f2:
+ *   without this, a stat-correction pass that succeeds AFTER the day's
+ *   off-peak projection fill has already run once left its wipe unrefilled
+ *   until the next UTC day).
  * - `lastRun` defaults to the Sync run module's reader
  *   (`server/modules/syncRun.js`'s `lastRun`, ADR 0036). A caller may inject
  *   its own reader - one whose read can fail differently, or that decorates
@@ -41,17 +49,21 @@ async function due({ job, every, after, now = new Date() } = {}, { lastRun = syn
   assertValidEvery(every);
   const { latestOk } = await lastRun(job);
   const cadenceVerdict = evaluateCadence(every, latestOk, now);
-  if (!cadenceVerdict.due) return cadenceVerdict;
   if (!after) return cadenceVerdict;
 
   const { latestOk: afterLatestOk } = await lastRun(after);
+  const afterIsFresher = Boolean(afterLatestOk) &&
+    (!latestOk || afterLatestOk.finishedAt.getTime() > latestOk.finishedAt.getTime());
+  if (afterIsFresher) {
+    // `after` has produced something new since this job's own last success:
+    // due regardless of whether the cadence above already fired today.
+    return cadenceVerdict.due ? cadenceVerdict : { due: true, reason: `"${after}" succeeded since this job's last success` };
+  }
+  if (!cadenceVerdict.due) return cadenceVerdict; // own cadence already says not due, and `after` gives no reason to override it
   if (!afterLatestOk) {
     return { due: false, reason: `waiting on "${after}" to succeed` };
   }
-  if (latestOk && afterLatestOk.finishedAt.getTime() <= latestOk.finishedAt.getTime()) {
-    return { due: false, reason: `waiting on "${after}" to succeed again` };
-  }
-  return cadenceVerdict;
+  return { due: false, reason: `waiting on "${after}" to succeed again` };
 }
 
 /** Throws on an `every` shape that is neither `'utc-day'` nor `{ ms }`, regardless of run history. */
