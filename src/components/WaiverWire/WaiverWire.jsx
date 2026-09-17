@@ -30,7 +30,7 @@ import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
 import PlayerRow, { PlayerRowTableHead } from '../../widgets/player-row';
 import { useClaimPlayer } from '../../features/claim-player';
@@ -322,6 +322,17 @@ function WaiverWire() {
     );
   }
 
+  // #1513, ADR 0040 follow-up: the Decision card's own copy (roster count for
+  // the drop-pick gate, priority/FAAB for a claim) - the same shape the
+  // built `waivers(...)` context below bundles and the card's loose
+  // `availability` prop still reads (T19 finishes that move).
+  const waiverAvailability = {
+    rosterCount: cardsContext?.rosterCount,
+    rosterCapacity: cardsContext?.rosterCapacity,
+    waiverPriority: !isFaab ? data?.myTeam?.waiver_priority : undefined,
+    faabRemaining: isFaab ? faabRemaining : undefined,
+  };
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <LeagueBreadcrumb />
@@ -521,13 +532,11 @@ function WaiverWire() {
             (claimPlayer && claimPlayer.id === quickViewId ? claimPlayer : null)
         )}
         leagueId={Number(leagueId)}
-        context="waivers"
-        availability={{
-          rosterCount: cardsContext?.rosterCount,
-          rosterCapacity: cardsContext?.rosterCapacity,
-          waiverPriority: !isFaab ? data?.myTeam?.waiver_priority : undefined,
-          faabRemaining: isFaab ? faabRemaining : undefined,
-        }}
+        // #1513, ADR 0040 follow-up: the built context, from the same values
+        // this call already passes loose below (the card still reads those,
+        // not context.availability/.roster - T19 finishes that move).
+        context={waivers({ availability: waiverAvailability, roster })}
+        availability={waiverAvailability}
         roster={roster}
         onActionDone={fetchAll}
         // Second risk review, finding 3: the table renders `sortedOnWaivers`

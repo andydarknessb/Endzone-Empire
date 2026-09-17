@@ -147,7 +147,8 @@ test('shows skeleton placeholders before data arrives', () => {
 });
 
 // #1307, ADR 0040: WaiverWire opens the Decision card (context="waivers")
-// instead of PlayerQuickView.
+// instead of PlayerQuickView. #1513: the context is now built through
+// waivers({ availability, roster }), the same values passed loose below.
 test('clicking a player name opens the Decision card in the waivers context, not PlayerQuickView', async () => {
   setupGet({ waivers: waiversResponse(), roster: rosterResponse() });
   renderScreen();
@@ -156,6 +157,7 @@ test('clicking a player name opens the Decision card in the waivers context, not
 
   const card = await screen.findByTestId('decision-card');
   expect(within(card).getByRole('heading', { name: 'Breece Hall' })).toBeInTheDocument();
+  expect(within(card).getByTestId('claim-player-action')).toBeInTheDocument();
   expect(within(card).getByRole('button', { name: 'Claim' })).toBeInTheDocument();
   expect(screen.queryByTestId('quickview-content')).not.toBeInTheDocument();
 });
