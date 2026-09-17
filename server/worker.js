@@ -17,6 +17,9 @@ const {
   getLiveGameEngineStatus,
 } = require('./modules/liveGameEngine');
 const { recordWorkerHeartbeat } = require('./services/workerHeartbeat.service');
+// The module object, not a destructured function, so a test can stub
+// closeRedis on it (server/test/worker.lifecycle.test.js).
+const redis = require('./modules/redis');
 
 let heartbeatTimer = null;
 let stopping = false;
@@ -75,33 +78,87 @@ async function shutdown(reason) {
   stopLiveGameEngine();
   await heartbeat().catch(() => {});
   await pool.end();
+  // The cache client and the draft emitter's publisher hold Redis sockets
+  // open. Left open they keep the event loop alive after everything else has
+  // stopped, which is how the worker sat "live" with no timers for 17 hours
+  // on 2026-09-16 (#1535). Best effort: a failed quit must not block the exit
+  // below, which no longer depends on the loop draining anyway.
+  await redis.closeRedis().catch((error) => {
+    logger.warn({ err: error }, 'redis close failed during shutdown');
+  });
   await flushSentry();
 }
 
+// How long a fatal event or a signal waits for shutdown() before the process
+// is exited regardless. Render restarts an exited worker within seconds; a
+// hung one it never touches.
+const SHUTDOWN_DEADLINE_MS = 10 * 1000;
+
+/**
+ * Wire the fatal and signal handlers on `proc` so that the worker EXITS.
+ *
+ * Before #1535 the handlers ran shutdown() and set `process.exitCode`, which
+ * only takes effect once the event loop drains. On 2026-09-16 at 17:55:50Z a
+ * pooled Postgres client being closed took `read ECONNABORTED`, the error had
+ * no listener, `uncaughtException` fired, shutdown() cleared every timer and
+ * wrote one last heartbeat, and then the Redis sockets kept the loop alive: a
+ * process with nothing left to do, reported as running, for 17 hours. Every
+ * scheduled job (waivers, live scoring, pick'em, reminders, syncs) stopped
+ * with it, and the uptime watchdog's page was the only signal.
+ *
+ * Now the handler exits explicitly when shutdown settles, or at
+ * `deadlineMs` if it does not, whichever comes first, and exactly once.
+ * Injectable `proc`, `exit`, `shutdown` and `deadlineMs` are the test seam
+ * (server/test/worker.lifecycle.test.js); production passes nothing.
+ */
+function installProcessHandlers(proc = process, {
+  exit = (code) => proc.exit(code),
+  shutdown: doShutdown = shutdown,
+  deadlineMs = SHUTDOWN_DEADLINE_MS,
+  log = logger,
+} = {}) {
+  let exiting = false;
+  const exitAfterShutdown = (reason, code) => {
+    if (exiting) return;
+    exiting = true;
+    let exited = false;
+    const exitOnce = (why) => {
+      if (exited) return;
+      exited = true;
+      if (why) log.fatal({ reason, code }, why);
+      exit(code);
+    };
+    const deadline = setTimeout(() => exitOnce('worker shutdown deadline elapsed; exiting anyway'), deadlineMs);
+    if (typeof deadline.unref === 'function') deadline.unref();
+    Promise.resolve()
+      .then(() => doShutdown(reason))
+      .catch((error) => log.error({ err: error, reason }, 'worker shutdown failed'))
+      .finally(() => {
+        clearTimeout(deadline);
+        exitOnce(null);
+      });
+  };
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    proc.once(signal, () => exitAfterShutdown(signal, 0));
+  }
+  proc.once('uncaughtException', (error) => {
+    log.fatal({ err: error }, 'worker uncaught exception');
+    exitAfterShutdown('uncaughtException', 1);
+  });
+  proc.once('unhandledRejection', (error) => {
+    log.fatal({ err: error }, 'worker unhandled rejection');
+    exitAfterShutdown('unhandledRejection', 1);
+  });
+}
+
 if (require.main === module) {
+  installProcessHandlers(process);
   startWorker().catch(async (error) => {
     logger.fatal({ err: error }, 'background worker failed to start');
     captureError(error);
     await flushSentry();
-    process.exitCode = 1;
-  });
-  for (const signal of ['SIGTERM', 'SIGINT']) {
-    process.once(signal, () => shutdown(signal).then(() => {
-      process.exitCode = 0;
-    }));
-  }
-  process.once('uncaughtException', (error) => {
-    logger.fatal({ err: error }, 'worker uncaught exception');
-    shutdown('uncaughtException').finally(() => {
-      process.exitCode = 1;
-    });
-  });
-  process.once('unhandledRejection', (error) => {
-    logger.fatal({ err: error }, 'worker unhandled rejection');
-    shutdown('unhandledRejection').finally(() => {
-      process.exitCode = 1;
-    });
+    process.exit(1);
   });
 }
 
-module.exports = { heartbeat, shutdown, startWorker };
+module.exports = { heartbeat, shutdown, startWorker, installProcessHandlers, SHUTDOWN_DEADLINE_MS };
