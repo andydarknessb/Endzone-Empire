@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
@@ -24,6 +24,16 @@ import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 const MIN_WEEK = 1;
 const MAX_WEEK = 18;
 const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
+
+// The Game cell's own status split (`widgets/lineup-ledger/lib/gameCell.js`'s
+// `gameCellView`), off `game_status` alone - see the finished-game refetch
+// comment below for why this is a narrow local copy rather than an import.
+function gameCellStatusKind(liveRow) {
+  if (!liveRow) return 'pre';
+  if (liveRow.game_status === 'final') return 'final';
+  if (liveRow.game_status === 'in_progress') return 'live';
+  return 'pre';
+}
 
 /**
  * The Lineup page slice (ADR 0037, #1237): replaces the legacy
@@ -113,6 +123,41 @@ export default function LineupPage() {
   const gameKeys = Array.from(new Set((lineup?.entries || []).map((e) => e.gameKey).filter(Boolean)));
   const liveGames = useLiveGameStates(selectedLeagueId, gameKeys);
   const liveGamesByKey = new Map(liveGames.map((row) => [String(row.tank01_game_id), row]));
+
+  // The finished-game refetch (#1546, ADR 0037 ticket 9): `displayEdgeKind`
+  // (widgets/lineup-ledger/lib/edgeLine.js) flips the Edge line's icon and
+  // colour from the Realtime row alone, instantly, but the sentence beside
+  // it is server text that only refreshes on `GET /api/team/lineup` - so a
+  // game going final (or, in either direction, changing state at all) left
+  // the old sentence under the new icon until the page next reloaded.
+  // `gameCellStatusKind` below is the same `pre`/`live`/`final` split
+  // `gameCell.js`'s own `gameCellView` makes off `liveRow.game_status`
+  // (duplicated here, not imported, since this page's own reservation for
+  // this ticket does not extend to that file; it deliberately leaves out
+  // that function's `unavailable` branch, which is a per-ENTRY fact, not a
+  // per-GAME one). `seenGameKindsRef` remembers the last kind observed for
+  // each `gameKey`; a kind differing from an already-seen one (never the
+  // first observation - the initial fetch that seeds it is already fresh)
+  // triggers exactly one silent refetch (`{ silent: true }`,
+  // `useLineupData.js`), the same silent shape the socket reconnect resync
+  // uses (`useLiveScores.js`), so the Ledger never flashes its skeleton for
+  // a refresh the manager did not ask for.
+  const seenGameKindsRef = useRef(new Map());
+  useEffect(() => {
+    seenGameKindsRef.current = new Map();
+  }, [selectedLeagueId, week]);
+  useEffect(() => {
+    const seen = seenGameKindsRef.current;
+    let changed = false;
+    for (const row of liveGames) {
+      const key = String(row.tank01_game_id);
+      const kind = gameCellStatusKind(row);
+      const prevKind = seen.get(key);
+      if (prevKind !== undefined && prevKind !== kind) changed = true;
+      seen.set(key, kind);
+    }
+    if (changed) refetch({ silent: true });
+  }, [liveGames, refetch]);
 
   // Live points (AC2, #1241, ADR 0037 ticket 9): the same scores socket Game
   // Center and Matchup Detail already read, subscribed once here and handed

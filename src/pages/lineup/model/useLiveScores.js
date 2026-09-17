@@ -24,7 +24,17 @@ import { playsFromScoreEvent } from '../../../entities/matchup';
  * re-derives purely from its next list read once `scoreEvent` is null again)
  * and refetches the lineup (dropping any optimistic per-player deltas in
  * favour of the authoritative body) - mirroring `useMatchup.js`'s own silent
- * resync.
+ * resync: `refetch` is called with `{ silent: true }` (`useLineupData.js`'s
+ * own option, shaped like `useMatchup.js`'s `loadMatchup`), so the resync
+ * never blanks the Ledger behind the loading skeleton.
+ *
+ * The week guard (#1546): the server stamps `event.week` on every
+ * `scores:updated` event (`matchupScoring.service.js`), and the patch below
+ * only applies when it equals the lineup's own `prev.week` - keyed inside
+ * the `setRaw` updater itself, where `prev` is read. A manager looking at a
+ * settled week while a later week's slate plays live must see nothing move;
+ * an event carrying no `week` at all (the server always stamps one, but a
+ * defensive read never assumes it) reads as a mismatch, same as a wrong one.
  */
 export function useLiveScores({ leagueId, setRaw, refetch }) {
   const [scoreEvent, setScoreEvent] = useState(null);
@@ -46,6 +56,9 @@ export function useLiveScores({ leagueId, setRaw, refetch }) {
         if (deltaById.size === 0) return;
         setRaw((prev) => {
           if (!prev || !Array.isArray(prev.entries)) return prev;
+          // The week guard: an event stamped for a week other than the one
+          // on screen (or stamped with no week at all) changes nothing here.
+          if (event.week == null || event.week !== prev.week) return prev;
           let touched = false;
           const entries = prev.entries.map((e) => {
             const delta = deltaById.get(e.id);
@@ -59,7 +72,7 @@ export function useLiveScores({ leagueId, setRaw, refetch }) {
       },
       resync: () => {
         setScoreEvent(null);
-        refetchRef.current?.();
+        refetchRef.current?.({ silent: true });
       },
     });
     return unsubscribe;
