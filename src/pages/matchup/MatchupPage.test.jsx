@@ -1174,6 +1174,10 @@ test('a starter\'s name opens the Decision card for that player in this league, 
 
   expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
   expect(screen.getByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/1/lineup');
+  // #1513: myTeam({ managed: false }) carries no onSwap, so lineupManaged
+  // stays false and neither Bench/Start action nor Drop renders.
+  expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-drop')).not.toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/5/card?leagueId=1');
 });
 
@@ -1190,6 +1194,9 @@ test('an opponent\'s starter name opens the Decision card in rostered context', 
 
   expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/1/trades');
   expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  // #1513: rostered({ availability: { teamName } }) - Matchup already knows
+  // the other side's team name (Team B), so the card names the owner.
+  expect(screen.getByText('Rostered by Team B')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/players/6/card?leagueId=1');
 });
 
