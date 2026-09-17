@@ -32,7 +32,9 @@ export {
   applyIdentityPatch,
   matchupStatusView,
 } from './model/matchupModel';
-export { playsFromScoreEvent, matchupPlaySide, playLabel } from './model/play';
+export {
+  playsFromScoreEvent, matchupPlaySide, playLabel, formatSignedPoints,
+} from './model/play';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
 export { useMatchup } from './model/useMatchup';
 export { useLiveGameStates } from './model/useLiveGameStates';

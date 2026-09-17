@@ -41,6 +41,17 @@ describe('classifyPlays', () => {
     expect(out.summaryToast.message).toMatch(/2 more TDs: \+11\.4/);
   });
 
+  // Regression (#1241 follow-up): the overflow sum can be negative (a
+  // non-touchdown event absorbing the server's residual lands in the same
+  // `plays` array); the summary message must print its own hyphen sign, not
+  // "+-6" (the old hardcoded "+" ahead of an already-signed `round1`).
+  test('a negative overflow sum prints its own sign, never "+-"', () => {
+    const plays = [td(1), td(2), td(3), td(4, { pointsDelta: -6 })];
+    const out = classifyPlays(plays, ctx());
+    expect(out.summaryToast.message).toBe('1 more TD: -6');
+    expect(out.summaryToast.message).not.toContain('+-');
+  });
+
   test('opponent TD -> toast only, never a cutscene', () => {
     const out = classifyPlays([td(90)], ctx());
     expect(out.cutscenes).toHaveLength(0);

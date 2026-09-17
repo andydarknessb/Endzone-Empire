@@ -1,4 +1,4 @@
-import { matchupPlaySide } from '../../../entities/matchup';
+import { matchupPlaySide, formatSignedPoints } from '../../../entities/matchup';
 
 // At most this many cutscenes play back-to-back; the rest collapse into one
 // summary toast so a big sync window never becomes an unskippable reel.
@@ -68,7 +68,7 @@ export function classifyPlays(plays, opts = {}) {
       side: 'own',
       count: overflow.length,
       pointsDelta: round1(pts),
-      message: `${overflow.length} more TD${overflow.length > 1 ? 's' : ''}: +${round1(pts)}`,
+      message: `${overflow.length} more TD${overflow.length > 1 ? 's' : ''}: ${formatSignedPoints(pts, { trim: true })}`,
     };
   }
 

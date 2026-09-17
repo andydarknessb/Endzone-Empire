@@ -361,6 +361,51 @@ test('detectScoringEvents ignores every nflverse-only key', () => {
   }
 });
 
+// --- one sync's plays for a player must SUM to the whole points change ------
+
+/**
+ * liveBoxPoll's rescore gate (createRescoreGate) buckets a league's plays
+ * across 30s engine ticks and flushes on a 60s floor, so one score event
+ * routinely carries plays from more than one sync for the same player. A
+ * client can never dedupe those plays per player - it must sum them - which
+ * only works if the plays THEMSELVES add up to the whole points change,
+ * instead of each one carrying the whole thing (the pre-fix bug). This drives
+ * the real apply path (not attributePlayPoints directly) so a regression at
+ * either call site is caught.
+ */
+test('applyGameBoxScore: a DEF unit with two tracked events in one sync emits plays that sum to the points change', async (t) => {
+  const upserts = stubUpserts(t);
+  const prevStats = { fumbleRecovery: 0, defensiveTD: 0, pointsAllowed: 3 }; // tier 1-6 -> 7 pts
+  const maps = {
+    idByExternal: new Map(),
+    metaById: new Map(),
+    defByTeamCode: new Map([['KC', { id: 91, name: 'Kansas City Chiefs', nfl_team: 'Kansas City Chiefs' }]]),
+    prevById: new Map([[91, prevStats]]),
+    opponentByTeam: new Map([['KC', 'BUF']]),
+  };
+  const box = {
+    playerStats: {},
+    DST: { home: { teamAbv: 'KC', fumblesRecovered: '1', defTD: '1', ptsAllowed: '10' } }, // tier 7-13 -> 4 pts
+    teamStats: { away: {} },
+  };
+  const out = await scoring.applyGameBoxScore({ box, season: 2026, week: 2, maps });
+
+  const plays = out.plays.filter((p) => p.playerId === 91);
+  assert.equal(plays.length, 2, 'both fumbleRecovery and defensiveTD fired');
+
+  const stored = JSON.parse(upserts[0][3]);
+  const wholeDelta = Math.round(
+    (scoring.calculateFantasyPoints(stored) - scoring.calculateFantasyPoints(prevStats)) * 100
+  ) / 100;
+  const sum = Math.round(plays.reduce((s, p) => s + p.pointsDelta, 0) * 100) / 100;
+  assert.equal(sum, wholeDelta, "the sync's plays must sum to the whole points change");
+  assert.notDeepEqual(
+    plays.map((p) => p.pointsDelta),
+    [wholeDelta, wholeDelta],
+    'each play must not carry the whole delta (the old stamp-it-on-every-play bug)'
+  );
+});
+
 test('applyGameBoxScore: a carried usageTargets produces no play', async (t) => {
   stubUpserts(t);
   // Prior row already has the touchdown, so the only DIFFERENCE this apply sees

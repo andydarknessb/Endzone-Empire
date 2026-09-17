@@ -32,6 +32,16 @@ test('a whole-number points delta still prints one decimal', () => {
   expect(screen.getByRole('status')).toHaveTextContent('D. Adams · receiving TD (+6.0)');
 });
 
+// Regression (#1241 follow-up): a play with a negative delta (a non-touchdown
+// event absorbing the server's residual) must print its own hyphen sign, not
+// "(+-6.0)" (the old hardcoded "+" ahead of an already-signed `points1`).
+test('a negative points delta prints its own sign, never "+-"', () => {
+  render(<MatchupToasts toasts={[{ ...opponentToast, pointsDelta: -6 }]} onDismiss={jest.fn()} />);
+  const status = screen.getByRole('status');
+  expect(status).toHaveTextContent('D. Adams · receiving TD (-6.0)');
+  expect(status.textContent).not.toContain('+-');
+});
+
 // The dismiss control is a real button and the toast body is plain content
 // (#911). Red-tell: putting the `onClick` back on the `role="status"` body
 // turns the first assertion red (the body dismisses again), and dropping the

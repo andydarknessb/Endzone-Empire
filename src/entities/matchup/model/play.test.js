@@ -1,4 +1,6 @@
-import { playsFromScoreEvent, matchupPlaySide, playLabel } from './play';
+import {
+  playsFromScoreEvent, matchupPlaySide, playLabel, formatSignedPoints,
+} from './play';
 
 const rawPlay = (playerId, over = {}) => ({
   playerId,
@@ -99,5 +101,37 @@ describe('playLabel', () => {
     expect(playLabel(rawPlay(1, { type: 'sack', isTouchdown: false }))).toBe('SACK');
     expect(playLabel(rawPlay(1, { type: 'fieldGoal', isTouchdown: false }))).toBe('FIELD GOAL');
     expect(playLabel(rawPlay(1, { type: 'interception', isTouchdown: false }))).toBe('INTERCEPTED');
+  });
+});
+
+describe('formatSignedPoints', () => {
+  test.each([
+    [10.4, '+10.4'],
+    [7, '+7.0'],
+    [6, '+6.0'],
+    [0, '+0.0'],
+    [-2, '-2.0'],
+    [6.25, '+6.3'],
+    [-0.04, '+0.0'],
+    ['9.3', '+9.3'],
+    [null, '+0.0'],
+    ['nope', '+0.0'],
+  ])('%p reads as %s (default: one decimal, padded)', (input, expected) => {
+    expect(formatSignedPoints(input)).toBe(expected);
+  });
+
+  // The bug this formatter exists to fix: a negative delta (a play absorbing
+  // a negative residual, #1241 follow-up) must never render as "+-8.0".
+  test('a negative delta prints a real hyphen sign, never "+-"', () => {
+    expect(formatSignedPoints(-8)).toBe('-8.0');
+    expect(formatSignedPoints(-8)).not.toContain('+-');
+    expect(formatSignedPoints(-2)).not.toContain('−'); // no unicode minus
+  });
+
+  test('trim: true drops a whole number\'s trailing .0 (the cutscene\'s style)', () => {
+    expect(formatSignedPoints(4, { trim: true })).toBe('+4');
+    expect(formatSignedPoints(6.5, { trim: true })).toBe('+6.5');
+    expect(formatSignedPoints(-8, { trim: true })).toBe('-8');
+    expect(formatSignedPoints(-8, { trim: true })).not.toContain('+-');
   });
 });

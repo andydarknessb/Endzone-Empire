@@ -1,5 +1,5 @@
 {
-  "_comment": "Golden for the Box source seam (#1183). expected was captured from applyGameBoxScore at origin/integration 705a7598 (pre-refactor) with pool.query stubbed; upserts are [playerId, season, week, stats, fantasyPoints] in write order. Regenerating this file is a behaviour change and needs a review, not a rerun. #1384 added `box.lineScore`: pointsAllowed is now read from the opponent's lineScore total instead of DST.*.ptsAllowed (tank01BoxSource.sideFinalScore), so lineScore.away sums to 17 and lineScore.home sums to 31 to match the DST.*.ptsAllowed values this golden already pinned — pointsAllowed and every downstream expected value are unchanged. #1386 credits an interception-return TD as idpDefensiveTD, so row 14 (defTD 1, interceptionTDs 1) now reads 1 and its points move by the defensive-TD value.",
+  "_comment": "Golden for the Box source seam (#1183). expected was captured from applyGameBoxScore at origin/integration 705a7598 (pre-refactor) with pool.query stubbed; upserts are [playerId, season, week, stats, fantasyPoints] in write order. Regenerating this file is a behaviour change and needs a review, not a rerun. #1384 added `box.lineScore`: pointsAllowed is now read from the opponent's lineScore total instead of DST.*.ptsAllowed (tank01BoxSource.sideFinalScore), so lineScore.away sums to 17 and lineScore.home sums to 31 to match the DST.*.ptsAllowed values this golden already pinned — pointsAllowed and every downstream expected value are unchanged. #1386 credits an interception-return TD as idpDefensiveTD, so row 14 (defTD 1, interceptionTDs 1) now reads 1 and its points move by the defensive-TD value. #1545 changed how one sync's plays for a player are priced: pointsDelta used to be the player's whole points change stamped on every one of that player's plays; now each play carries its own marginal share (attributePlayPoints), with the residual folded onto that player's LAST play - byte-identical everywhere else, and each multi-play player's new pointsDelta values still sum to the exact number this golden pinned before (player 15: 0+6=6; player 11: 4+9.78=13.78; player 13: 3+2=5; player 91: 6+2+4+8=20; player 92: 2+4=6).",
   "box": {
     "gameID": "20260913_JAC@WSH",
     "gameStatus": "Live - In Progress",
@@ -362,7 +362,7 @@
         "opponent": "JAX",
         "type": "puntReturn",
         "tdDelta": 3,
-        "pointsDelta": 6,
+        "pointsDelta": 0,
         "isTouchdown": false
       },
       {
@@ -384,7 +384,7 @@
         "opponent": "JAX",
         "type": "passing",
         "tdDelta": 1,
-        "pointsDelta": 13.78,
+        "pointsDelta": 4,
         "isTouchdown": true
       },
       {
@@ -395,7 +395,7 @@
         "opponent": "JAX",
         "type": "rushing",
         "tdDelta": 1,
-        "pointsDelta": 13.78,
+        "pointsDelta": 9.78,
         "isTouchdown": true
       },
       {
@@ -406,7 +406,7 @@
         "opponent": "JAX",
         "type": "fieldGoal",
         "tdDelta": 1,
-        "pointsDelta": 5,
+        "pointsDelta": 3,
         "isTouchdown": false
       },
       {
@@ -417,7 +417,7 @@
         "opponent": "JAX",
         "type": "extraPoint",
         "tdDelta": 2,
-        "pointsDelta": 5,
+        "pointsDelta": 2,
         "isTouchdown": false
       },
       {
@@ -428,7 +428,7 @@
         "opponent": "JAX",
         "type": "defensive",
         "tdDelta": 1,
-        "pointsDelta": 20,
+        "pointsDelta": 6,
         "isTouchdown": true
       },
       {
@@ -439,7 +439,7 @@
         "opponent": "JAX",
         "type": "sack",
         "tdDelta": 2,
-        "pointsDelta": 20,
+        "pointsDelta": 2,
         "isTouchdown": false
       },
       {
@@ -450,7 +450,7 @@
         "opponent": "JAX",
         "type": "interception",
         "tdDelta": 2,
-        "pointsDelta": 20,
+        "pointsDelta": 4,
         "isTouchdown": false
       },
       {
@@ -461,7 +461,7 @@
         "opponent": "JAX",
         "type": "fumble",
         "tdDelta": 1,
-        "pointsDelta": 20,
+        "pointsDelta": 8,
         "isTouchdown": false
       },
       {
@@ -472,7 +472,7 @@
         "opponent": "WAS",
         "type": "sack",
         "tdDelta": 2,
-        "pointsDelta": 6,
+        "pointsDelta": 2,
         "isTouchdown": false
       },
       {
@@ -483,7 +483,7 @@
         "opponent": "WAS",
         "type": "interception",
         "tdDelta": 1,
-        "pointsDelta": 6,
+        "pointsDelta": 4,
         "isTouchdown": false
       }
     ],

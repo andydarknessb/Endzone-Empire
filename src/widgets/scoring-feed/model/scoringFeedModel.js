@@ -27,6 +27,7 @@
  *     another matchup. The feed paints it as the home / away / neutral dot;
  *     without it every dot is neutral.
  */
+import { formatSignedPoints } from '../../../entities/matchup';
 
 /** The idle line both surfaces render before the first play of the week lands. */
 export const IDLE_LINE = 'Live scoring plays will appear here once games kick off.';
@@ -41,16 +42,15 @@ export function toMs(at) {
 }
 
 /**
- * A signed points delta to one decimal: "+10.4", "-2.0", "+0.0". The sign is a
- * hyphen for a negative play (house style: hyphens in scores, never a minus
- * glyph the font may lack), a plus for zero and above. A non-numeric delta
- * reads as "+0.0" rather than "NaN".
+ * A signed points delta to one decimal: "+10.4", "-2.0", "+0.0". A thin
+ * re-export of the entity's shared formatter (`entities/matchup`'s
+ * `formatSignedPoints`, #1241 follow-up) at this widget's own default
+ * precision, so every points-delta display in the app - this strip, the
+ * ticker, the toasts, the cutscene - reads off the same "sign + magnitude"
+ * spelling instead of five hand-rolled copies.
  */
 export function formatPoints(pointsDelta) {
-  const n = Number(pointsDelta);
-  const value = Number.isFinite(n) ? n : 0;
-  const rounded = Math.round(Math.abs(value) * 10) / 10;
-  return `${value < 0 && rounded > 0 ? '-' : '+'}${rounded.toFixed(1)}`;
+  return formatSignedPoints(pointsDelta);
 }
 
 /**

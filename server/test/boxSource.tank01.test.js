@@ -8,10 +8,10 @@ const golden = require('./fixtures/tank01-box-golden.json');
 /**
  * The Box source seam (#1183, ADR 0035): applyGameBoxScore consumes one
  * source-neutral Live box, and the Tank01 adapter is the first thing behind it.
- * This golden pins the refactor to zero behaviour change: the adapter's output,
- * applied, must write byte-identical player_stats.stats and emit an identical
- * plays array to the pre-refactor path (captured from origin/integration
- * 705a7598 in fixtures/tank01-box-golden.json).
+ * This golden pins the adapter's applied output: player_stats.stats stays
+ * byte-identical to the pre-refactor path captured from origin/integration
+ * 705a7598, while the plays array reflects the per-play pointsDelta contract
+ * introduced by #1545.
  *
  * Green for the wrong reason is the risk: the second test seeds a wrong key
  * and proves the comparison goes red before the first test's green is trusted.
@@ -40,7 +40,7 @@ function stubUpserts(t) {
   return upserts;
 }
 
-test('tank01BoxSource: the adapter output applied through applyGameBoxScore matches the pre-refactor golden byte for byte', async (t) => {
+test('tank01BoxSource: the adapter output applied through applyGameBoxScore matches the golden contract', async (t) => {
   const upserts = stubUpserts(t);
   const liveBox = tank01BoxSource.fromBox(golden.box);
   assert.equal(liveBox.source, 'tank01');
@@ -56,6 +56,25 @@ test('tank01BoxSource: the adapter output applied through applyGameBoxScore matc
     golden.expected.upserts.map((u) => [u[0], u[1], u[2], JSON.stringify(u[3]), u[4]])
   );
   assert.deepEqual(out.plays, golden.expected.plays);
+
+  // #1545 self-check, independent of the golden file: a multi-play player's
+  // pointsDelta values changed (each play now carries its own marginal share
+  // instead of the whole change stamped on every play), but they must still
+  // SUM to the exact single value the pre-refactor golden (705a7598) stamped
+  // on every one of that player's plays. Hardcoded here rather than read back
+  // off `golden.expected`, so a bad regen of the fixture (e.g. one that
+  // silently drops points somewhere) cannot agree with its own wrong values.
+  const PRE_REFACTOR_WHOLE_DELTA_BY_PLAYER = { 15: 6, 11: 13.78, 13: 5, 91: 20, 92: 6 };
+  const sumByPlayer = new Map();
+  for (const p of out.plays) {
+    sumByPlayer.set(p.playerId, Math.round(((sumByPlayer.get(p.playerId) || 0) + p.pointsDelta) * 100) / 100);
+  }
+  for (const [playerId, whole] of Object.entries(PRE_REFACTOR_WHOLE_DELTA_BY_PLAYER)) {
+    assert.equal(
+      sumByPlayer.get(Number(playerId)), whole,
+      `player ${playerId}'s plays must still sum to the pre-refactor whole delta ${whole}`
+    );
+  }
 });
 
 test('tank01BoxSource golden: a drifted key is caught (the comparison can go red)', async (t) => {
