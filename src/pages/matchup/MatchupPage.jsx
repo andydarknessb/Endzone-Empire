@@ -10,7 +10,7 @@ import RetroScoreboard from '../../widgets/retro-scoreboard';
 import BenchWhatIf from '../../features/bench-what-if';
 import ToggleMatchupView, { VIEW_SCOREBOARD, VIEW_STANDARD } from '../../features/toggle-matchup-view';
 import CelebrateTouchdown, { CelebrationsCaption } from '../../features/celebrate-touchdown';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry } from '../../entities/player';
 import { useMatchupPage } from './model/useMatchupPage';
 import BenchCard from './ui/BenchCard';
@@ -147,7 +147,8 @@ export default function MatchupPage() {
   // nfl_team, injury_status, ...) `useMatchup` hands both, unpaired only by
   // slot - and converts it through `entities/player`'s `toDecisionCardEntry`,
   // the one WaiverWire and TradeCenter already use for a non-lineup entry.
-  // `context` is 'my_team' only on the viewer's own team's side.
+  // The built context is `myTeam({ managed: false })` only on the viewer's
+  // own team's side, `rostered({ ... })` otherwise (#1513).
   const homePlayers = starterRows.map((row) => row.home).concat(benches.home || []);
   const awayPlayers = starterRows.map((row) => row.away).concat(benches.away || []);
   const decisionCardSide = decisionCardPlayerId == null
@@ -168,7 +169,18 @@ export default function MatchupPage() {
     : decisionCardSide === 'away'
       ? matchup?.away?.teamId
       : null;
-  const decisionCardContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId ? 'my_team' : 'rostered';
+  // #1513, ADR 0040 follow-up: the built context - the viewer's own player
+  // read-only (no lineup wiring here, PlayerManagement's own-player case) or
+  // rostered by the other side, named when the other side's team name is
+  // known (homeName/awayName, the same names the header already renders).
+  // The card still reads "Rostered by" off the loose `availability` prop,
+  // not the context object (T19 finishes that move), so the same value goes
+  // to both.
+  const decisionCardOwnerName = decisionCardSide === 'home' ? homeName : decisionCardSide === 'away' ? awayName : null;
+  const decisionCardAvailability = decisionCardOwnerName ? { teamName: decisionCardOwnerName } : {};
+  const decisionCardBuiltContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId
+    ? myTeam({ managed: false })
+    : rostered({ availability: decisionCardAvailability });
   const whatIfCard = isLive ? (
     <BenchWhatIf whatIf={whatIf} hasRoster={viewerHasRoster} leagueId={leagueId} headingLevel={2} />
   ) : null;
@@ -250,7 +262,8 @@ export default function MatchupPage() {
         onClose={() => setDecisionCardPlayerId(null)}
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
-        context={decisionCardContext}
+        context={decisionCardBuiltContext}
+        availability={decisionCardAvailability}
       />
     </Shell>
   );
