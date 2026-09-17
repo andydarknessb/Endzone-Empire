@@ -282,10 +282,14 @@ function buildLine(snapshotRow) {
 /**
  * Pure: weather is null outright for an indoor game (there is nothing to
  * report) or when no forecast snapshot exists yet — never a fields-null
- * object, unlike the Decision card's own weather shape.
+ * object, unlike the Decision card's own weather shape. Indoor is read from
+ * either signal that says so: the schedule's own `roof` column, or the live
+ * overlay's `is_indoor` (`live_game_states.is_indoor`, the same column
+ * `buildVenue` reads). A dome game with no `roof` value synced yet still
+ * reports no weather once the live overlay knows it is indoor.
  */
-function buildWeather(roof, snapshotRow) {
-  if (isIndoorGame({ roof })) return null;
+function buildWeather(roof, snapshotRow, isIndoor) {
+  if (isIndoorGame({ roof }) || isIndoor === true) return null;
   if (!snapshotRow) return null;
   return {
     shortForecast: snapshotRow.short_forecast || null,
@@ -343,6 +347,23 @@ function buildSituation(game, locked) {
     lastPlay,
     homeWinProbability,
   };
+}
+
+/**
+ * Pure: `{ home, away }` from the live row's raw `linescores` jsonb, each
+ * side an array or null — the one display field that reached the wire as
+ * raw passthrough while every sibling field (`buildLine`, `buildWeather`,
+ * `buildVenue`, `buildRecords`, `buildSituation`) goes through a build*
+ * helper. Null outright when `raw` is not a plain object (the writer's own
+ * shape, `espnScoreboard.js`, is always `{ home, away }` or absent) or when
+ * both sides come back null.
+ */
+function buildLinescores(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const home = Array.isArray(raw.home) ? raw.home : null;
+  const away = Array.isArray(raw.away) ? raw.away : null;
+  if (home == null && away == null) return null;
+  return { home, away };
 }
 
 /**
@@ -876,12 +897,12 @@ async function getWeekView({ leagueId, userId, season, week, mode, now = new Dat
       isTie,
       pickedCount: pickedCountByKey.get(game.gameKey) || 0,
       line: buildLine(lineRow),
-      weather: buildWeather(game.roof, weatherRow),
+      weather: buildWeather(game.roof, weatherRow, game.isIndoor),
       venue: buildVenue(game),
       broadcast: game.broadcast,
       records: buildRecords(game),
       situation: buildSituation(game, locked),
-      linescores: game.linescores,
+      linescores: buildLinescores(game.linescores),
       headline: game.headline,
     };
   });
@@ -1101,6 +1122,7 @@ module.exports = {
   buildVenue,
   buildRecords,
   buildSituation,
+  buildLinescores,
   // I/O
   loadLeague,
   getSettings,
