@@ -5,7 +5,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 require(path.join(REPO, 'node_modules', 'dotenv')).config({ path: path.join(REPO, '.env') });
 const fs = require('fs');
 const pool = require(path.join(REPO, 'server/modules/pool'));
-const { SCORING_RULES, calculateFantasyPoints } = require(path.join(REPO, 'server/services/scoring.service'));
+const { SCORING_RULES, calculateFantasyPoints } = require(path.join(REPO, 'server/services/scoringRules'));
 const { DEFAULT_ROSTER_SLOTS } = require(path.join(REPO, 'server/services/lineup.service'));
 const { optimalAssignment } = require(path.join(REPO, 'server/services/lineupOptimizer'));
 const bt = require(path.join(REPO, 'scripts/backtest-weekly-projections.js'));

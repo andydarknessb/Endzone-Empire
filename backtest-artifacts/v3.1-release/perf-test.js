@@ -8,7 +8,7 @@ require(path.join(REPO, 'node_modules', 'dotenv')).config({ path: path.join(REPO
 const pool = require(path.join(REPO, 'server/modules/pool'));
 const projection = require(path.join(REPO, 'server/services/projection.service'));
 const model = require(path.join(REPO, 'server/services/projectionModel'));
-const { SCORING_RULES } = require(path.join(REPO, 'server/services/scoring.service'));
+const { SCORING_RULES } = require(path.join(REPO, 'server/services/scoringRules'));
 
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const SCAN = (orderBy) => `
