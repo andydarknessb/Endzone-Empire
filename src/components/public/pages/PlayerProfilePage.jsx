@@ -161,15 +161,17 @@ function inYourLeaguesCopy({ leagueName, availability }) {
  * open, with `entry` mapped from this page's own (camelCase) player payload
  * into `toDecisionCardEntry`'s snake_case input shape (lead correction 2 -
  * `toDecisionCardEntry` itself is untouched). `availability` is the line's
- * own payload as-is and `roster` is not passed (lead correction 3): both are
- * safe, and the deliberate consequence - a Free agent/Waivers card here
- * shows no drop list, roster count, FAAB field or priority - is the "the
- * card does the rest; the profile adds no action" boundary the issue body
- * names, not a bug to fix here. #1514: `context` is `fromCard()` - this
- * block has no `roster` to give `freeAgent`/`waivers` their required array,
- * so it defers `kind` to the fetched card's own Availability (ADR 0040
- * ruling c) exactly as TransactionLog does, rather than building one of the
- * four Availability-state contexts directly.
+ * own payload as-is, passed through `fromCard({ availability })` (#1515,
+ * T19 - the card no longer takes a loose `availability` prop); `roster` is
+ * not passed at all (lead correction 3): both are safe, and the deliberate
+ * consequence - a Free agent/Waivers card here shows no drop list, roster
+ * count, FAAB field or priority - is the "the card does the rest; the
+ * profile adds no action" boundary the issue body names, not a bug to fix
+ * here. #1514: `context.kind` is `fromCard()`'s own `null` - this block has
+ * no `roster` to give `freeAgent`/`waivers` their required array, so it
+ * defers `kind` to the fetched card's own Availability (ADR 0040 ruling c)
+ * exactly as TransactionLog does, rather than building one of the four
+ * Availability-state contexts directly.
  *
  * Components stay on the theme's APP tokens throughout (Ruling): `LoadingRows`
  * (already used elsewhere on this page) for the loading line, and a plain
@@ -244,13 +246,14 @@ function InYourLeaguesBlock({ player }) {
           ))}
         </Stack>
       )}
+      {/* #1515 (T19): `availability` rides inside fromCard()'s own context
+          object now - no loose prop beside it. */}
       <PlayerDecisionCard
         open={cardOpen}
         onClose={() => setCardOpen(false)}
         entry={entry}
         leagueId={openLine?.leagueId}
-        context={fromCard()}
-        availability={openLine?.availability}
+        context={fromCard({ availability: openLine?.availability })}
       />
     </Box>
   );

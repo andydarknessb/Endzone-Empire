@@ -1178,18 +1178,9 @@ function DraftBoard() {
         onClose={() => setQuickViewId(null)}
         entry={quickViewEntry}
         leagueId={Number(leagueId)}
-        draftedBy={quickViewDraftedBy}
-        adp={quickViewAdp}
-        canDraft={!!quickViewAvail && !quickViewDraftedBy && pickState.canManualPick}
-        draftUnavailableReason={pickState.pickUnavailable ? pickState.explanation : null}
-        queued={queue.some((p) => p.id === quickViewId)}
-        onDraft={() => quickViewAvail && requestDraftPlayer(quickViewAvail.id)}
-        onQueue={() => quickViewAvail && handleQueuePlayer(quickViewAvail)}
-        playerIds={availablePlayers.map((p) => p.id)}
-        onNavigate={setQuickViewId}
-        // #1514: the built context - the loose props above stay as they were
-        // (the card only reads context.kind today; T19 finishes moving them
-        // under context, same deferral #1512 left for myTeam()).
+        // #1515 (T19): every field the draft action bar, its pool tiles and
+        // its prev/next need now rides inside the built context - no loose
+        // prop stays beside it.
         context={draft({
           draftedBy: quickViewDraftedBy,
           adp: quickViewAdp,
@@ -1198,6 +1189,8 @@ function DraftBoard() {
           queued: queue.some((p) => p.id === quickViewId),
           onDraft: () => quickViewAvail && requestDraftPlayer(quickViewAvail.id),
           onQueue: () => quickViewAvail && handleQueuePlayer(quickViewAvail),
+          playerIds: availablePlayers.map((p) => p.id),
+          onNavigate: setQuickViewId,
         })}
       />
 

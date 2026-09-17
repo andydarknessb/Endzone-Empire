@@ -561,19 +561,21 @@ function PlayerManagement() {
   // #1513, ADR 0040 follow-up: the built context, picked by the same
   // `quickViewContext` state above. `rostered` reads the row's own
   // `availability` fact directly (it already carries `teamName` when known,
-  // same as the Trade action's helper text below) - the loose props above
-  // stay exactly as they are; the card doesn't read context.availability/
-  // .roster yet (T19 finishes that move).
+  // same as the Trade action's helper text below). #1515 (T19): every
+  // builder here also carries the prev/next pair over this page's own
+  // player list; the two acquire builders additionally carry the
+  // action-done refresh (spec #1494) - no loose prop stays beside `context`.
+  const quickViewNavigation = { playerIds: players.map((player) => player.id), onNavigate: setQuickViewId };
   const quickViewBuiltContext =
     !quickViewPlayer
-      ? myTeam({ managed: false })
+      ? myTeam({ managed: false, ...quickViewNavigation })
       : quickViewContext === "free_agent"
-      ? freeAgent({ availability: quickViewAvailability, roster })
+      ? freeAgent({ availability: quickViewAvailability, roster, onActionDone: refreshAfterAction, ...quickViewNavigation })
       : quickViewContext === "waivers"
-      ? waivers({ availability: quickViewAvailability, roster })
+      ? waivers({ availability: quickViewAvailability, roster, onActionDone: refreshAfterAction, ...quickViewNavigation })
       : quickViewContext === "rostered"
-      ? rostered({ availability: quickViewPlayer.availability || {} })
-      : myTeam({ managed: false });
+      ? rostered({ availability: quickViewPlayer.availability || {}, ...quickViewNavigation })
+      : myTeam({ managed: false, ...quickViewNavigation });
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
   const columnCount = playerRowColumnCount(bestBall);
   // #1312 Ruling: the Watching toggle's own client-side filter, applied to
@@ -977,11 +979,6 @@ function PlayerManagement() {
         entry={toDecisionCardEntry(quickViewPlayer)}
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
         context={quickViewBuiltContext}
-        availability={quickViewAvailability}
-        roster={roster}
-        onActionDone={refreshAfterAction}
-        playerIds={players.map((player) => player.id)}
-        onNavigate={setQuickViewId}
       />
     </Box>
   );

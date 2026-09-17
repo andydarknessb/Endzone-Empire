@@ -40,6 +40,15 @@ describe('myTeam: the your-team context, managed vs read-only (#1512, ADR 0040)'
     });
   });
 
+  // #1515 (T19): PlayerManagement's read-only own-player open still pages
+  // through the caller's own player list.
+  it('managed: false carries an optional playerIds/onNavigate pair', () => {
+    const onNavigate = noop;
+    const context = myTeam({ managed: false, playerIds: [1, 2, 3], onNavigate });
+    expect(context.playerIds).toEqual([1, 2, 3]);
+    expect(context.onNavigate).toBe(onNavigate);
+  });
+
   it('rejects a missing managed flag', () => {
     expect(() => myTeam({})).toThrow(/managed/);
   });
@@ -75,6 +84,18 @@ describe('freeAgent: the free-agent action-bar context', () => {
   it('rejects a roster that is not an array', () => {
     expect(() => freeAgent({ availability: {}, roster: null })).toThrow(/roster/);
   });
+
+  // #1515 (T19), spec #1494 ("Acquire builders ... carry the action-done
+  // callback"): onActionDone, plus the same optional prev/next pair every
+  // list-opened builder carries.
+  it('carries onActionDone and an optional playerIds/onNavigate pair', () => {
+    const onActionDone = noop;
+    const onNavigate = noop;
+    const context = freeAgent({ availability: {}, roster: [], onActionDone, playerIds: [1, 2], onNavigate });
+    expect(context.onActionDone).toBe(onActionDone);
+    expect(context.playerIds).toEqual([1, 2]);
+    expect(context.onNavigate).toBe(onNavigate);
+  });
 });
 
 describe('waivers: the waivers action-bar context', () => {
@@ -90,6 +111,17 @@ describe('waivers: the waivers action-bar context', () => {
 
   it('rejects a roster that is not an array', () => {
     expect(() => waivers({ availability: {}, roster: undefined })).toThrow(/roster/);
+  });
+
+  // #1515 (T19), spec #1494: the same onActionDone/playerIds/onNavigate trio
+  // freeAgent carries.
+  it('carries onActionDone and an optional playerIds/onNavigate pair', () => {
+    const onActionDone = noop;
+    const onNavigate = noop;
+    const context = waivers({ availability: {}, roster: [], onActionDone, playerIds: [1, 2], onNavigate });
+    expect(context.onActionDone).toBe(onActionDone);
+    expect(context.playerIds).toEqual([1, 2]);
+    expect(context.onNavigate).toBe(onNavigate);
   });
 });
 
@@ -113,6 +145,16 @@ describe('rostered: the rostered-by-another-team context', () => {
 
   it('rejects a present, non-string teamName', () => {
     expect(() => rostered({ availability: { teamName: 42 } })).toThrow(/teamName/);
+  });
+
+  // #1515 (T19): PlayerManagement's own prev/next; no onActionDone - the
+  // spec's acquire-builder ruling doesn't cover this context.
+  it('carries an optional playerIds/onNavigate pair, and no onActionDone field', () => {
+    const onNavigate = noop;
+    const context = rostered({ availability: {}, playerIds: [1, 2], onNavigate });
+    expect(context.playerIds).toEqual([1, 2]);
+    expect(context.onNavigate).toBe(onNavigate);
+    expect(context.onActionDone).toBeUndefined();
   });
 });
 
@@ -139,10 +181,26 @@ describe('draft: the Draft room context (#1313, not an Availability state)', () 
   it('canDraft: true rejects a missing onDraft', () => {
     expect(() => draft({ canDraft: true, onQueue: noop })).toThrow(/onDraft/);
   });
+
+  // #1515 (T19): DraftBoard's own prev/next over the available-players list.
+  it('carries an optional playerIds/onNavigate pair', () => {
+    const onNavigate = noop;
+    const context = draft({ onQueue: noop, playerIds: [1, 2], onNavigate });
+    expect(context.playerIds).toEqual([1, 2]);
+    expect(context.onNavigate).toBe(onNavigate);
+  });
 });
 
 describe('fromCard: defers kind to the /card payload (#1311, ADR 0040 ruling c)', () => {
   it('carries no kind of its own', () => {
     expect(fromCard()).toEqual({ kind: null, fromCard: true });
+  });
+
+  // #1515 (T19): the public profile's "In your leagues" line has its own
+  // availability fact (its own /in-your-leagues payload) even though it
+  // still defers `kind` to the fetched card.
+  it('carries an optional availability fact', () => {
+    const availability = { teamName: 'The Waterboys' };
+    expect(fromCard({ availability })).toEqual({ kind: null, fromCard: true, availability });
   });
 });

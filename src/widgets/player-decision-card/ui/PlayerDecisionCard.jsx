@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
@@ -192,35 +193,54 @@ function isTypingTarget(el) {
  * pass a `contextFromCard` boolean at all - `context.fromCard === true` is
  * now the ONLY way this component learns to defer `effectiveContext` to the
  * fetched card's own `availability.state` (see the #1311 paragraph above).
+ *
+ * #1515 (T19): the eighteen context-specific loose props named above, and
+ * the `contextFromCard` boolean they replaced, are gone. `open`, `onClose`,
+ * `entry`, `leagueId`, `week` and `context` are the whole contract now - a
+ * builder's object (`model/decisionContext.js`) is the only shape `context`
+ * accepts, and every field a kind's action bar, its Watch toggle or its
+ * prev/next needs rides inside it. `ALLOWED_PROPS` below throws in
+ * development on anything else, so a caller that still passes one of the
+ * eighteen fails loudly instead of the extra prop silently doing nothing.
  */
-export default function PlayerDecisionCard({
-  open,
-  onClose,
-  entry,
-  entries,
-  leagueId,
-  week,
-  bestBall,
-  leagueUnsettled,
-  onSwap,
-  onRequestDrop,
-  canDropEntry,
-  context = 'my_team',
-  availability,
-  roster,
-  onActionDone,
-  playerIds,
-  onNavigate,
+const ALLOWED_PROPS = ['open', 'onClose', 'entry', 'leagueId', 'week', 'context'];
+
+export default function PlayerDecisionCard(props) {
+  if (process.env.NODE_ENV !== 'production') {
+    const unknown = Object.keys(props).filter((key) => !ALLOWED_PROPS.includes(key));
+    if (unknown.length > 0) {
+      throw new Error(
+        `PlayerDecisionCard: removed prop(s) ${unknown.join(', ')} - every context-specific field now rides ` +
+          'inside `context` (see widgets/player-decision-card/model/decisionContext.js).'
+      );
+    }
+  }
+  const { open, onClose, entry, leagueId, week, context } = props;
+  // #1515: every context-specific field the eighteen removed loose props used
+  // to carry now lives on the builder's own object (`model/decisionContext.js`)
+  // - read once here, under the SAME local names the rest of this component
+  // already used, so nothing below this block changes shape.
+  const entries = context?.entries;
+  const bestBall = context?.bestBall;
+  const leagueUnsettled = context?.leagueUnsettled;
+  const onSwap = context?.onSwap;
+  const onRequestDrop = context?.onRequestDrop;
+  const canDropEntry = context?.canDropEntry;
+  const availability = context?.availability;
+  const roster = context?.roster;
+  const onActionDone = context?.onActionDone;
+  const playerIds = context?.playerIds;
+  const onNavigate = context?.onNavigate;
   // #1313: the draft context's own action bar and pool facts, driven by
   // DraftBoard's own live draft state - see the docblock above.
-  draftedBy,
-  adp,
-  canDraft,
-  draftUnavailableReason,
-  queued,
-  onDraft,
-  onQueue,
-}) {
+  const draftedBy = context?.draftedBy;
+  const adp = context?.adp;
+  const canDraft = context?.canDraft;
+  const draftUnavailableReason = context?.draftUnavailableReason;
+  const queued = context?.queued;
+  const onDraft = context?.onDraft;
+  const onQueue = context?.onQueue;
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const [startMenuAnchor, setStartMenuAnchor] = useState(null);
@@ -336,13 +356,11 @@ export default function PlayerDecisionCard({
   const isCurrentSeasonSelected = Boolean(
     selectedSeasonEntry && currentSeasonEntry && selectedSeasonEntry.season === currentSeasonEntry.season
   );
-  // #1512: `context` is either the legacy bare string ('my_team' | 'free_agent'
-  // | 'waivers' | 'rostered' | 'draft', still the default) or one of the six
-  // pure builders' context objects (`model/decisionContext.js`), which carry
-  // their kind as `context.kind` alongside the fields those builders bundle
-  // for a later ticket (T19) to finish wiring - this ticket reads `.kind`
-  // alone, so a builder's object behaves exactly like the string it replaces.
-  const contextKind = context != null && typeof context === 'object' ? context.kind : context;
+  // #1515 (T19): `context` is always one of the six pure builders' objects
+  // (`model/decisionContext.js`) now - the legacy bare string this used to
+  // also accept is gone along with the eighteen loose props, since every
+  // production caller and this widget's own test suite build one.
+  const contextKind = context?.kind ?? null;
   // #1311, ADR 0040 ruling (c), migrated onto the `fromCard()` builder at
   // #1514: a caller with no Availability fact of its own (TransactionLog, the
   // public profile's "In your leagues" card) passes `context={fromCard()}` -
@@ -351,7 +369,7 @@ export default function PlayerDecisionCard({
   // stays null (matching none of the branches below) until that payload
   // answers, so no action bar renders on a bare `{ playerId, name }` entry
   // before then.
-  const isFromCard = context != null && typeof context === 'object' && context.fromCard === true;
+  const isFromCard = context?.fromCard === true;
   const effectiveContext = isFromCard ? (card?.availability?.state ?? null) : contextKind;
 
   // Risk review (#1311): every OTHER caller hands a full `entry`, so the
@@ -1005,6 +1023,19 @@ export default function PlayerDecisionCard({
     </Drawer>
   );
 }
+
+// AC1: the six-prop contract itself - `context`'s own shape is one of the
+// six builders' objects (`model/decisionContext.js`), never validated here
+// field-by-field (each builder already validates its own inputs; this widget
+// only ever reads `.kind` and the handful of fields a given kind carries).
+PlayerDecisionCard.propTypes = {
+  open: PropTypes.bool,
+  onClose: PropTypes.func,
+  entry: PropTypes.object,
+  leagueId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  week: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  context: PropTypes.object,
+};
 
 // The phone sheet's drag handle (AC6): decorative only - the sheet closes on
 // Escape and the close control, never by an actual drag gesture this ticket

@@ -709,13 +709,14 @@ function TradeCenter() {
         </DialogActions>
       </Dialog>
 
+      {/* #1515 (T19): `availability` rides inside the built context now (the
+          rostered() builder already carries it) - no loose prop beside it. */}
       <PlayerDecisionCard
         open={decisionCardPlayerId != null}
         onClose={() => setDecisionCardPlayerId(null)}
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
         context={decisionCardBuiltContext}
-        availability={decisionCardAvailability}
       />
     </Container>
   );
