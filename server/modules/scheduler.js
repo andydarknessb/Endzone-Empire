@@ -1215,6 +1215,7 @@ module.exports = {
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
+  adpLastRun,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,
   runHourlyOddsSync,

@@ -175,13 +175,18 @@ function buildAdpUpdates(players, entries) {
  *
  * `now` (#1509, spec #1493 "UTC day everywhere"): the UTC calendar day this
  * run belongs to, computed ONCE here via `cadence.utcDateKey(now)` before
- * `fetch` runs, and carried as `detail.day` on every recorded row - the ok
- * body, both refusal shapes, and a `fetch_failed` throw alike (`fetchDetail`
- * merges into every one of `runSyncJob`'s recorded-detail shapes) - so the
- * cadence gate (server/modules/scheduler.js's `runDailyAdpSync`,
- * server/modules/cadence.js) has a `detail.day` to read back regardless of
- * outcome. Defaults to `new Date()` so the router callers (admin.router.js,
- * scoring.router.js) are unchanged.
+ * `fetch` runs, and carried as `detail.day` on every row `fetch` itself
+ * resolves into - the ok body and both refusal shapes (`fetchDetail` merges
+ * into `runSyncJob`'s recorded detail for each). NOT a `fetch_failed` throw:
+ * that happens before `fetchAdpUnit` returns anything, so `runSyncJob`'s
+ * fetch-catch records only `{ reason, message }`, with no `detail.day` to
+ * merge (`syncRun.js`'s own docblock: "a throw happens before any
+ * `{ units, detail }` wrapper is returned"). The cadence gate
+ * (server/modules/scheduler.js's `runDailyAdpSync`, `adpLastRun`,
+ * server/modules/cadence.js) only ever reads `detail.day` off a successful or
+ * refused row for exactly this reason - a `fetch_failed` row has none, so it
+ * can never be mistaken for a same-day refusal. Defaults to `new Date()` so
+ * the router callers (admin.router.js, scoring.router.js) are unchanged.
  */
 async function syncAdp({ format = 'half-ppr', teams = 12, year, now = new Date() } = {}) {
   const fmt = VALID_FORMATS.has(format) ? format : 'half-ppr';
@@ -227,10 +232,13 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year, now = new Date()
  * wipe guard and the roster read/match that used to run between the guard and
  * `withTransaction` in this function. A non-2xx or throwing FFC call is an
  * untagged throw, tagged `fetch_failed` by `runSyncJob`; an unexpected body
- * shape is pre-tagged `bad_response` (statusCode 502) here, same as before.
- * `day` (#1509) is `syncAdp`'s already-computed UTC day key; every return
- * shape below carries it in `detail` so `runSyncJob` merges it onto the
- * recorded row regardless of which of the three shapes this run ends in.
+ * shape is pre-tagged `bad_response` (statusCode 502) here, same as before -
+ * either way this function THROWS rather than returning, so `runSyncJob`
+ * records only `{ reason, message }` for that row, no `detail.day` (see
+ * `syncAdp`'s own docblock above). `day` (#1509) is `syncAdp`'s
+ * already-computed UTC day key; each of the shapes this function actually
+ * RETURNS below (both refusals, and the success wrapper) carries it in
+ * `detail` so `runSyncJob` merges it onto the recorded row.
  *
  * THE WIPE GUARD (#747, decision 5, amended 2026-09-11). The apply step NULLs
  * every ADP before setting the matched values, so a Success body with too

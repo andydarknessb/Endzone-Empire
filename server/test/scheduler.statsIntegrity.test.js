@@ -39,6 +39,17 @@ test('runNightlyStatsIntegrityScan only runs inside the off-peak UTC hour, then 
   assert.equal(calls, 1);
 });
 
+test('runNightlyStatsIntegrityScan calls the cadence gate with its own job name and every: utc-day (formal review, optional item 4)', async (t) => {
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  t.mock.method(integrity, 'scanPlayerStats', async () => ({ scanned: 1, open: 0, resolved: 0 }));
+  createFakePool([[/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })]]).install(t);
+
+  const now = new Date('2026-09-25T09:10:00Z');
+  await scheduler.runNightlyStatsIntegrityScan({ now });
+  assert.deepEqual(dueArgs, { job: integrity.JOB, every: 'utc-day', now });
+});
+
 test('runNightlyStatsIntegrityScan never calls the scan when the cadence gate says it is not due', async (t) => {
   t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
   let calls = 0;
@@ -81,6 +92,19 @@ test('runNightlyStatsIntegrityScan is a Sync run: the scan runs on the unit clie
 });
 
 test('runNightlyStatsIntegrityScan stamps the UTC day, not the local en-CA day, into detail.day (#1509)', async (t) => {
+  // Pinned so this discriminates regardless of the host's own ambient
+  // timezone: 09:30 UTC falls on the SAME calendar day in UTC and in every US
+  // zone (including this suite's own America/Chicago), so a bare UTC `now`
+  // here passed unchanged even after reverting the scan to
+  // `now.toLocaleDateString('en-CA')` (formal review f1). Pacific/Honolulu is
+  // UTC-10 with no DST, far enough behind that any `now` inside the 00:00-
+  // 09:59 UTC off-peak window lands on the PREVIOUS calendar day there.
+  const prevTz = process.env.TZ;
+  process.env.TZ = 'Pacific/Honolulu';
+  t.after(() => {
+    if (prevTz === undefined) delete process.env.TZ; else process.env.TZ = prevTz;
+  });
+
   t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   t.mock.method(integrity, 'scanPlayerStats', async () => ({ scanned: 1, open: 0, resolved: 0 }));
   const recorded = [];
@@ -88,9 +112,11 @@ test('runNightlyStatsIntegrityScan stamps the UTC day, not the local en-CA day, 
     [/INSERT INTO "data_sync_runs"/, (text, params) => { recorded.push(params); return { rows: [] }; }],
   ]).install(t);
 
-  // 09:30 UTC is already inside the window; use a `now` whose UTC and local
-  // (en-CA) calendar days differ so a reversion to the old comparison would
-  // stamp the wrong day here without any test going red for the wrong reason.
+  // 09:30 UTC is already inside the window. Under the pinned Pacific/Honolulu
+  // zone this is 2026-08-20 23:30 local - a different calendar day from the
+  // UTC one - so a reversion to `now.toLocaleDateString('en-CA')` stamps
+  // '2026-08-20' here and this assertion goes red for the right reason
+  // (verified by hand against the reverted line before this fix landed).
   await scheduler.runNightlyStatsIntegrityScan({ now: new Date('2026-08-21T09:30:00Z') });
 
   assert.equal(JSON.parse(recorded[0][3]).day, '2026-08-21');

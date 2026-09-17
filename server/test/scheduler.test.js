@@ -150,12 +150,12 @@ function injuryWorld(t, { inWindow = true } = {}) {
   });
   const world = { runs: [], calls: 0, fail: false, inWindow, clock: null };
   const fake = createFakePool([
-    // lastInjurySyncAt reads lastRun('injuries') (#1205): shape the row the
-    // way syncRun.js's lastRun query does, `{ latest, latestOk }`. Matched on
-    // the quoted table name alone (#1509 retired the once-a-day gate's own
-    // fabricated read here: the outside-window decision is the cadence
-    // gate's own concern now, stubbed directly in the tests below).
-    [/"data_sync_runs"/, () => {
+    // Serves lastInjurySyncAt's WINDOW-mode read only now (#1509 formal
+    // review f3): lastRun('injuries') (#1205), shaped the way syncRun.js's
+    // lastRun query does, `{ latest, latestOk }`. The once-a-day OUTSIDE-
+    // window decision no longer reaches this fake at all - it is the cadence
+    // gate's own concern, stubbed directly in the tests below.
+    [/FROM "data_sync_runs"/, () => {
       const sorted = [...world.runs].sort((a, b) => b.finished_at - a.finished_at);
       const latest = sorted[0];
       const latestOk = sorted.find((r) => r.ok);
@@ -316,7 +316,8 @@ test('runDailyAdpSync delegates the due/not-due decision to the cadence gate', a
   const adp = require('../services/adp.service');
   const cadence = require('../modules/cadence');
   let dueArgs = null;
-  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  let dueOpts = null;
+  t.mock.method(cadence, 'due', async (args, opts) => { dueArgs = args; dueOpts = opts; return { due: true, reason: 'stubbed due' }; });
   const calls = [];
   t.mock.method(adp, 'syncAdp', async (opts) => {
     calls.push(opts);
@@ -327,6 +328,11 @@ test('runDailyAdpSync delegates the due/not-due decision to the cadence gate', a
   assert.deepEqual(await scheduler.runDailyAdpSync({ now }), { ok: true, playersUpdated: 180 });
   assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncAdp with the same now');
   assert.deepEqual(dueArgs, { job: 'adp', every: 'utc-day', now });
+  // Pinned at stub level (formal review, optional item 4): the gate is
+  // handed adpLastRun, not its own plain default reader - a same-day
+  // refusal must close the gate the same way a success does (#1509 risk
+  // review, see the adpLastRun tests below).
+  assert.equal(dueOpts && dueOpts.lastRun, scheduler.adpLastRun);
 });
 
 test('runDailyAdpSync never calls syncAdp when the cadence gate says it is not due', async (t) => {
@@ -363,21 +369,25 @@ test('runDailyAdpSync propagates a thrown syncAdp so the next tick retries (a th
 // pre-#1509 in-memory `lastAdpSyncDay` stamp existed to prevent. `adpLastRun`
 // (scheduler.js) fixes this by substituting a same-day refusal for `latestOk`
 // when it is the newest run.
+//
+// Built on `dataSyncRunsPool` below (formal review, fix 3) rather than a
+// second hand-rolled data_sync_runs fake: `adp` is a GETTER, so
+// `byJob['adp']` recomputes `{ latest, latestOk }` from the live `runs` array
+// on every read, the same way the hand-rolled version did, with no separate
+// pattern of its own.
 function adpRunsWorld(t) {
   const runs = [];
-  createFakePool([
-    [/FROM "data_sync_runs"/, () => {
+  dataSyncRunsPool({
+    get adp() {
       const sorted = [...runs].sort((a, b) => b.finished_at - a.finished_at);
       const latest = sorted[0];
       const latestOk = sorted.find((r) => r.ok);
       return {
-        rows: [{
-          latest: latest ? { id: sorted.length, finished_at: latest.finished_at, ok: latest.ok, detail: latest.detail } : null,
-          latestOk: latestOk ? { id: sorted.length, finished_at: latestOk.finished_at, ok: true, detail: latestOk.detail } : null,
-        }],
+        latest: latest ? { id: sorted.length, finished_at: latest.finished_at, ok: latest.ok, detail: latest.detail } : null,
+        latestOk: latestOk ? { id: sorted.length, finished_at: latestOk.finished_at, ok: true, detail: latestOk.detail } : null,
       };
-    }],
-  ]).install(t);
+    },
+  }).install(t);
   return runs;
 }
 
