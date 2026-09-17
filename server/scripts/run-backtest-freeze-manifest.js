@@ -177,7 +177,7 @@ function readRuntimeIdentity(sidecarPath) {
 /**
  * The three preregistered scoring profiles, pinned by their exact serialized
  * rules AND a SHA-256 hash of that serialization (prereg 4.3), built from the
- * REAL rule sets in `server/services/scoring.service.js` - the same module
+ * REAL rule sets in `server/services/scoringRules.js` - the same module
  * `run-backtest-rosters.js` scores every candidate through, so a manifest
  * reader can check the pinned rules genuinely match what produced the study's
  * numbers, not a hand-transcribed copy of them.
@@ -192,7 +192,7 @@ function readRuntimeIdentity(sidecarPath) {
 /**
  * The one guard standing between "the manifest pins Commit A's scoring rules"
  * and "the manifest pins whatever happens to be on disk right now": this
- * script `require()`s `server/services/scoring.service.js` via normal Node
+ * script `require()`s `server/services/scoringRules.js` via normal Node
  * module resolution, which reads whatever is checked out at the CALLER's
  * cwd/tree - NOT necessarily Commit A. Unlike the git SHAs above (resolved
  * directly via `git rev-parse`/`git ls-tree` against the commit, never
