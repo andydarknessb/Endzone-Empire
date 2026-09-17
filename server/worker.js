@@ -20,6 +20,10 @@ const { recordWorkerHeartbeat } = require('./services/workerHeartbeat.service');
 // The module object, not a destructured function, so a test can stub
 // closeRedis on it (server/test/worker.lifecycle.test.js).
 const redis = require('./modules/redis');
+const {
+  installProcessHandlers: installSharedProcessHandlers,
+  SHUTDOWN_DEADLINE_MS,
+} = require('./modules/processHandlers');
 
 let heartbeatTimer = null;
 let stopping = false;
@@ -89,11 +93,6 @@ async function shutdown(reason) {
   await flushSentry();
 }
 
-// How long a fatal event or a signal waits for shutdown() before the process
-// is exited regardless. Render restarts an exited worker within seconds; a
-// hung one it never touches.
-const SHUTDOWN_DEADLINE_MS = 10 * 1000;
-
 /**
  * Wire the fatal and signal handlers on `proc` so that the worker EXITS.
  *
@@ -106,52 +105,18 @@ const SHUTDOWN_DEADLINE_MS = 10 * 1000;
  * scheduled job (waivers, live scoring, pick'em, reminders, syncs) stopped
  * with it, and the uptime watchdog's page was the only signal.
  *
- * Now the handler exits explicitly when shutdown settles, or at
- * `deadlineMs` if it does not, whichever comes first, and exactly once.
- * Injectable `proc`, `exit`, `shutdown` and `deadlineMs` are the test seam
- * (server/test/worker.lifecycle.test.js); production passes nothing.
+ * The handler itself now lives in the shared server/modules/processHandlers.js
+ * (#1537, lifted here for the API too); this wraps it with the worker's own
+ * `shutdown` and `name: 'worker'` as defaults, so
+ * server/test/worker.lifecycle.test.js keeps passing unchanged. Injectable
+ * `proc`, `exit`, `shutdown` and `deadlineMs` remain the test seam; production
+ * passes nothing.
  */
-function installProcessHandlers(proc = process, {
-  exit = (code) => proc.exit(code),
-  shutdown: doShutdown = shutdown,
-  deadlineMs = SHUTDOWN_DEADLINE_MS,
-  log = logger,
-} = {}) {
-  let exiting = false;
-  const exitAfterShutdown = (reason, code) => {
-    if (exiting) return;
-    exiting = true;
-    // Set first: if shutdown leaves nothing holding the loop open, Node may
-    // exit on its own before either exit() below runs, and it must not
-    // report success after a fatal event.
-    proc.exitCode = code;
-    let exited = false;
-    const exitOnce = (why) => {
-      if (exited) return;
-      exited = true;
-      if (why) log.fatal({ reason, code }, why);
-      exit(code);
-    };
-    const deadline = setTimeout(() => exitOnce('worker shutdown deadline elapsed; exiting anyway'), deadlineMs);
-    if (typeof deadline.unref === 'function') deadline.unref();
-    Promise.resolve()
-      .then(() => doShutdown(reason))
-      .catch((error) => log.error({ err: error, reason }, 'worker shutdown failed'))
-      .finally(() => {
-        clearTimeout(deadline);
-        exitOnce(null);
-      });
-  };
-  for (const signal of ['SIGTERM', 'SIGINT']) {
-    proc.once(signal, () => exitAfterShutdown(signal, 0));
-  }
-  proc.once('uncaughtException', (error) => {
-    log.fatal({ err: error }, 'worker uncaught exception');
-    exitAfterShutdown('uncaughtException', 1);
-  });
-  proc.once('unhandledRejection', (error) => {
-    log.fatal({ err: error }, 'worker unhandled rejection');
-    exitAfterShutdown('unhandledRejection', 1);
+function installProcessHandlers(proc = process, options = {}) {
+  return installSharedProcessHandlers(proc, {
+    shutdown,
+    name: 'worker',
+    ...options,
   });
 }
 
