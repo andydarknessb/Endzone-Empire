@@ -17,6 +17,13 @@ const {
   getLiveGameEngineStatus,
 } = require('./modules/liveGameEngine');
 const { recordWorkerHeartbeat } = require('./services/workerHeartbeat.service');
+// The module object, not a destructured function, so a test can stub
+// closeRedis on it (server/test/worker.lifecycle.test.js).
+const redis = require('./modules/redis');
+const {
+  installProcessHandlers: installSharedProcessHandlers,
+  SHUTDOWN_DEADLINE_MS,
+} = require('./modules/processHandlers');
 
 let heartbeatTimer = null;
 let stopping = false;
@@ -75,33 +82,52 @@ async function shutdown(reason) {
   stopLiveGameEngine();
   await heartbeat().catch(() => {});
   await pool.end();
+  // The cache client and the draft emitter's publisher hold Redis sockets
+  // open. Left open they keep the event loop alive after everything else has
+  // stopped, which is how the worker sat "live" with no timers for 17 hours
+  // on 2026-09-16 (#1535). Best effort: a failed quit must not block the exit
+  // below, which no longer depends on the loop draining anyway.
+  await redis.closeRedis().catch((error) => {
+    logger.warn({ err: error }, 'redis close failed during shutdown');
+  });
   await flushSentry();
 }
 
+/**
+ * Wire the fatal and signal handlers on `proc` so that the worker EXITS.
+ *
+ * Before #1535 the handlers ran shutdown() and set `process.exitCode`, which
+ * only takes effect once the event loop drains. On 2026-09-16 at 17:55:50Z a
+ * pooled Postgres client being closed took `read ECONNABORTED`, the error had
+ * no listener, `uncaughtException` fired, shutdown() cleared every timer and
+ * wrote one last heartbeat, and then the Redis sockets kept the loop alive: a
+ * process with nothing left to do, reported as running, for 17 hours. Every
+ * scheduled job (waivers, live scoring, pick'em, reminders, syncs) stopped
+ * with it, and the uptime watchdog's page was the only signal.
+ *
+ * The handler itself now lives in the shared server/modules/processHandlers.js
+ * (#1537, lifted here for the API too); this wraps it with the worker's own
+ * `shutdown` and `name: 'worker'` as defaults, so
+ * server/test/worker.lifecycle.test.js keeps passing unchanged. Injectable
+ * `proc`, `exit`, `shutdown` and `deadlineMs` remain the test seam; production
+ * passes nothing.
+ */
+function installProcessHandlers(proc = process, options = {}) {
+  return installSharedProcessHandlers(proc, {
+    shutdown,
+    name: 'worker',
+    ...options,
+  });
+}
+
 if (require.main === module) {
+  installProcessHandlers(process);
   startWorker().catch(async (error) => {
     logger.fatal({ err: error }, 'background worker failed to start');
     captureError(error);
     await flushSentry();
-    process.exitCode = 1;
-  });
-  for (const signal of ['SIGTERM', 'SIGINT']) {
-    process.once(signal, () => shutdown(signal).then(() => {
-      process.exitCode = 0;
-    }));
-  }
-  process.once('uncaughtException', (error) => {
-    logger.fatal({ err: error }, 'worker uncaught exception');
-    shutdown('uncaughtException').finally(() => {
-      process.exitCode = 1;
-    });
-  });
-  process.once('unhandledRejection', (error) => {
-    logger.fatal({ err: error }, 'worker unhandled rejection');
-    shutdown('unhandledRejection').finally(() => {
-      process.exitCode = 1;
-    });
+    process.exit(1);
   });
 }
 
-module.exports = { heartbeat, shutdown, startWorker };
+module.exports = { heartbeat, shutdown, startWorker, installProcessHandlers, SHUTDOWN_DEADLINE_MS };

@@ -177,7 +177,7 @@ function readRuntimeIdentity(sidecarPath) {
 /**
  * The three preregistered scoring profiles, pinned by their exact serialized
  * rules AND a SHA-256 hash of that serialization (prereg 4.3), built from the
- * REAL rule sets in `server/services/scoring.service.js` - the same module
+ * REAL rule sets in `server/services/scoringRules.js` - the same module
  * `run-backtest-rosters.js` scores every candidate through, so a manifest
  * reader can check the pinned rules genuinely match what produced the study's
  * numbers, not a hand-transcribed copy of them.
@@ -192,7 +192,7 @@ function readRuntimeIdentity(sidecarPath) {
 /**
  * The one guard standing between "the manifest pins Commit A's scoring rules"
  * and "the manifest pins whatever happens to be on disk right now": this
- * script `require()`s `server/services/scoring.service.js` via normal Node
+ * script `require()`s `server/services/scoringRules.js` via normal Node
  * module resolution, which reads whatever is checked out at the CALLER's
  * cwd/tree - NOT necessarily Commit A. Unlike the git SHAs above (resolved
  * directly via `git rev-parse`/`git ls-tree` against the commit, never
@@ -205,9 +205,9 @@ function readRuntimeIdentity(sidecarPath) {
  * blob hash against Commit A's own recorded blob hash for that exact path
  * closes that gap independent of cwd, worktree, or invocation style.
  */
-function assertScoringServiceMatchesCommitA({ commitASha, git, label = 'run-backtest-freeze-manifest' }) {
-  const REQUIRED_PATH = 'server/services/scoring.service.js';
-  const onDiskPath = require.resolve('../services/scoring.service');
+function assertScoringRulesMatchesCommitA({ commitASha, git, label = 'run-backtest-freeze-manifest' }) {
+  const REQUIRED_PATH = 'server/services/scoringRules.js';
+  const onDiskPath = require.resolve('../services/scoringRules');
   const onDiskSha = git(['hash-object', onDiskPath]).trim();
   let committedSha;
   try {
@@ -219,7 +219,7 @@ function assertScoringServiceMatchesCommitA({ commitASha, git, label = 'run-back
     throw new Error(
       `${label}: the required ${REQUIRED_PATH} (git blob ${onDiskSha}) does not match the copy committed `
       + `at commit A (${commitASha}, git blob ${committedSha}) - this script must be run against a checkout `
-      + 'whose scoring.service.js is byte-identical to Commit A\'s, or the pinned scoring profiles would not '
+      + 'whose scoringRules.js is byte-identical to Commit A\'s, or the pinned scoring profiles would not '
       + 'be the rules that actually produced the study\'s numbers'
     );
   }
@@ -253,7 +253,7 @@ function main(argv, deps = {}) {
   const treeSha = resolveTreeSha(commitASha, { git, label: 'commit A' });
   const blobSha = resolveArtifactBlobSha(commitMSha, { git, label: 'commit M' });
   const sidecar = readSidecar(args.runtimeIdentity);
-  assertScoringServiceMatchesCommitA({ commitASha, git });
+  assertScoringRulesMatchesCommitA({ commitASha, git });
 
   const manifest = freezeManifest.buildManifest({
     commitA: { sha: commitASha, treeSha },
