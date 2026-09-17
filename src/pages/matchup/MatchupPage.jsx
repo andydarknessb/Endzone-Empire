@@ -173,9 +173,9 @@ export default function MatchupPage() {
   // read-only (no lineup wiring here, PlayerManagement's own-player case) or
   // rostered by the other side, named when the other side's team name is
   // known (homeName/awayName, the same names the header already renders).
-  // The card still reads "Rostered by" off the loose `availability` prop,
-  // not the context object (T19 finishes that move), so the same value goes
-  // to both.
+  // #1515 (T19): the card now reads "Rostered by" off `context.availability`
+  // - `rostered(...)` already carries this same value, so the loose
+  // `availability` prop is gone.
   const decisionCardOwnerName = decisionCardSide === 'home' ? homeName : decisionCardSide === 'away' ? awayName : null;
   const decisionCardAvailability = decisionCardOwnerName ? { teamName: decisionCardOwnerName } : {};
   const decisionCardBuiltContext = viewerTeamId != null && decisionCardTeamId === viewerTeamId

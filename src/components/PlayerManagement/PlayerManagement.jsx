@@ -543,10 +543,12 @@ function PlayerManagement() {
         }
       : null);
   const quickViewContext = quickViewPlayer ? availabilityOf(quickViewPlayer) : "my_team";
-  // #1307, ADR 0040: the availability action bar's own copy (roster count
-  // for the drop-pick gate, priority/FAAB for a claim) - `rostered`'s team
-  // name isn't on this route yet (ADR 0040's Plan, a later slice), so its
-  // action bar renders the plain Propose-trade link with no team name line.
+  // #1307, ADR 0040: the free-agent/waivers action bar's own copy (roster
+  // count for the drop-pick gate, priority/FAAB for a claim). `rostered`'s
+  // own availability (below, `quickViewPlayer.availability`) already carries
+  // `teamName` when known - #1515 (T19) is what lets the card actually show
+  // it now that `context.availability` is read for every kind, not only the
+  // loose prop the free_agent/waivers branches used before.
   const quickViewAvailability =
     quickViewContext === "free_agent"
       ? { rosterCount: marketContext?.rosterCount, rosterCapacity: marketContext?.rosterCapacity }
