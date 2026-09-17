@@ -103,6 +103,35 @@ const CASES = [
     expected: { due: false, reason: 'already succeeded today (UTC)' },
   },
   {
+    // Neither of the four existing `after` cases above has the OWN job never
+    // run at all (they all give `widgets` a `latestOk`); this is the gap
+    // #1511 AC3 asks for - a brand-new nightly-projection-run/nflverse-week
+    // job with `after: 'stat-corrections'` before that dependency has ever
+    // succeeded either. `latestOk` is null so the `<=` comparison in due()
+    // never runs; the missing dependency wins.
+    name: '"after" unsatisfied: the job itself has never run and neither has its dependency',
+    lastRun: fakeLastRun({
+      gizmos: { latest: null, latestOk: null },
+      // No entry for widgets: a lookup would throw were the day-cadence read
+      // reached with the wrong key, so this also pins that `due()` reads
+      // `after`, not `job`, for the dependency check.
+    }),
+    args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T00:30:00Z') },
+    expected: { due: false, reason: 'waiting on "gizmos" to succeed' },
+  },
+  {
+    // The other half of that gap: the job itself has never run, but its
+    // dependency already has - due() must not fall into the `<=` comparison
+    // at all here (there is no `latestOk` to compare against), so the
+    // never-run reason from the job's own cadence wins outright.
+    name: '"after" satisfied by default: the job itself has never run, and its dependency already has',
+    lastRun: fakeLastRun({
+      gizmos: { latest: okAt('2026-09-10T03:00:00Z'), latestOk: okAt('2026-09-10T03:00:00Z') },
+    }),
+    args: { job: 'widgets', every: 'utc-day', after: 'gizmos', now: new Date('2026-09-16T00:30:00Z') },
+    expected: { due: true, reason: 'never run' },
+  },
+  {
     name: 'green for the wrong reason: a run finished 00:00 UTC but stamped for the previous UTC day is due at 00:01 UTC',
     // finishedAt (2026-09-16T00:00Z) and now (2026-09-16T00:01Z) are only one
     // minute apart AND share the same UTC calendar day, so a finishedAt-only
