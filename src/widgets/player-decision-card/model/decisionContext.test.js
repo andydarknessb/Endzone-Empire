@@ -49,6 +49,30 @@ describe('myTeam: the your-team context, managed vs read-only (#1512, ADR 0040)'
     expect(context.onNavigate).toBe(onNavigate);
   });
 
+  // Formal review f1: the Watch toggle's refresh, restored for
+  // PlayerManagement's own-player open (AC4 - it had this before the ticket,
+  // via the loose prop every context shared).
+  it('managed: false carries an optional onActionDone (the Watch refresh)', () => {
+    const onActionDone = noop;
+    expect(myTeam({ managed: false, onActionDone }).onActionDone).toBe(onActionDone);
+  });
+
+  // Watch renders on a managed my_team open too (ADR 0040 follow-up, grill
+  // ruling Q6), so onActionDone is read regardless of `managed` - never
+  // gated the way the lineup-management handlers are.
+  it('managed: true also carries an optional onActionDone', () => {
+    const onActionDone = noop;
+    const context = myTeam({
+      managed: true,
+      onSwap: noop,
+      onRequestDrop: noop,
+      canDropEntry: noop,
+      entries: [],
+      onActionDone,
+    });
+    expect(context.onActionDone).toBe(onActionDone);
+  });
+
   it('rejects a missing managed flag', () => {
     expect(() => myTeam({})).toThrow(/managed/);
   });
@@ -147,14 +171,19 @@ describe('rostered: the rostered-by-another-team context', () => {
     expect(() => rostered({ availability: { teamName: 42 } })).toThrow(/teamName/);
   });
 
-  // #1515 (T19): PlayerManagement's own prev/next; no onActionDone - the
-  // spec's acquire-builder ruling doesn't cover this context.
-  it('carries an optional playerIds/onNavigate pair, and no onActionDone field', () => {
+  // #1515 (T19): PlayerManagement's own prev/next.
+  it('carries an optional playerIds/onNavigate pair', () => {
     const onNavigate = noop;
     const context = rostered({ availability: {}, playerIds: [1, 2], onNavigate });
     expect(context.playerIds).toEqual([1, 2]);
     expect(context.onNavigate).toBe(onNavigate);
-    expect(context.onActionDone).toBeUndefined();
+  });
+
+  // Formal review f1: the Watch toggle's refresh, restored for
+  // PlayerManagement's rostered open (AC4).
+  it('carries an optional onActionDone (the Watch refresh)', () => {
+    const onActionDone = noop;
+    expect(rostered({ availability: {}, onActionDone }).onActionDone).toBe(onActionDone);
   });
 });
 

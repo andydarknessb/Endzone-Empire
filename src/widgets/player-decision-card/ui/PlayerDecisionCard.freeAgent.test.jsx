@@ -5,6 +5,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import { freeAgent } from '../model/decisionContext';
+import { availabilityEntry, mockCardRoute } from './decisionCardTestFixtures';
 
 /**
  * player-decision-card widget tests, the `free_agent` kind (#1515, T19: the
@@ -24,28 +25,6 @@ beforeEach(() => {
 afterEach(() => {
   jest.clearAllMocks();
 });
-
-// #1307 (ADR 0040): a non-lineup player row, the shape WaiverWire and
-// PlayerManagement map their own rows into - no slot/locked/spent/
-// eligibleSlots, since neither surface has a lineup to read those from.
-const availabilityEntry = (over = {}) => ({
-  playerId: 7,
-  name: 'Breece Hall',
-  position: 'RB',
-  nflTeam: 'NYJ',
-  slot: 'RB',
-  injuryStatus: null,
-  opponent: 'KC',
-  kickoff: '2026-09-14T17:00:00Z',
-  ...over,
-});
-
-function mockCardRoute(card) {
-  apiClient.get.mockImplementation((url) => {
-    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
-    return Promise.resolve({ data: { line: null, weather: null, usage: null } });
-  });
-}
 
 function renderCard(props = {}) {
   const {

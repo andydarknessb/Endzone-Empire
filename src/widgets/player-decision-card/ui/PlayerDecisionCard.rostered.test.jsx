@@ -5,6 +5,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import { rostered } from '../model/decisionContext';
+import { availabilityEntry, mockCardRoute } from './decisionCardTestFixtures';
 
 /**
  * player-decision-card widget tests, the `rostered` kind (#1515, T19: the
@@ -25,25 +26,6 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-const availabilityEntry = (over = {}) => ({
-  playerId: 7,
-  name: 'Breece Hall',
-  position: 'RB',
-  nflTeam: 'NYJ',
-  slot: 'RB',
-  injuryStatus: null,
-  opponent: 'KC',
-  kickoff: '2026-09-14T17:00:00Z',
-  ...over,
-});
-
-function mockCardRoute(card) {
-  apiClient.get.mockImplementation((url) => {
-    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
-    return Promise.resolve({ data: { line: null, weather: null, usage: null } });
-  });
-}
-
 function renderCard(props = {}) {
   const {
     open = true,
@@ -54,6 +36,7 @@ function renderCard(props = {}) {
     availability = {},
     playerIds,
     onNavigate,
+    onActionDone,
   } = props;
   const merged = {
     open,
@@ -61,7 +44,7 @@ function renderCard(props = {}) {
     entry,
     leagueId,
     week,
-    context: rostered({ availability, playerIds, onNavigate }),
+    context: rostered({ availability, playerIds, onNavigate, onActionDone }),
   };
   return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
 }
@@ -109,4 +92,20 @@ test('a single-player open (TradeCenter/MatchupPage) renders no prev/next contro
   await screen.findByTestId('decision-card-propose-trade');
   expect(screen.queryByTestId('decision-card-prev')).not.toBeInTheDocument();
   expect(screen.queryByTestId('decision-card-next')).not.toBeInTheDocument();
+});
+
+// Formal review f1 (risk-001-f1): PlayerManagement's rostered open had a
+// refresh-after-Watch before this ticket (the loose `onActionDone` prop
+// every context shared) - AC4 means `rostered`'s own `onActionDone` field
+// restores it.
+test('Watch calls onActionDone from the built context on a rostered open', async () => {
+  mockCardRoute({ watching: false });
+  const onActionDone = jest.fn();
+  renderCard({ availability: { teamName: 'Polk High Legends' }, onActionDone });
+
+  apiClient.put.mockResolvedValue({});
+  await userEvent.click(await screen.findByRole('button', { name: 'Watch' }));
+
+  expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+  expect(onActionDone).toHaveBeenCalledTimes(1);
 });

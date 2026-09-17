@@ -26,12 +26,17 @@
  * through, exactly as before.
  *
  * `onActionDone` (#1515, spec #1494: "Acquire builders (Free agent, on
- * waivers) carry ... the action-done callback"): only `freeAgent` and
- * `waivers` carry it - the two contexts whose action bar (Add/Claim) reports
- * a completed action back to the caller. `myTeam` and `rostered` carry none;
- * the Watch toggle's own best-effort refresh hook (`WatchPlayerAction`'s
- * `onDone`) is simply unset there, never a seventh always-prop invented to
- * give it one.
+ * waivers) carry ... the action-done callback"): every builder but `draft`
+ * and `fromCard` carries it. Formal review (f1): the spec's acquire-builder
+ * ruling gives `freeAgent`/`waivers` this field for Add/Claim's own
+ * completion, but AC4 ("every surface's card behaviour is unchanged")
+ * outranks it for the Watch toggle - `WatchPlayerAction`'s `onDone` reads
+ * the SAME field across every Availability context (ADR 0040 follow-up,
+ * grill ruling Q6: Watch is shown on my_team/free_agent/waivers/rostered
+ * alike), so `myTeam` and `rostered` carry it too, restoring the refresh
+ * PlayerManagement's own-player and rostered opens had before this ticket.
+ * `draft` has no Watch action at all (#1313: not an Availability state) and
+ * carries no `onActionDone`.
  */
 
 function requirePlainObject(value, label) {
@@ -53,6 +58,15 @@ function requirePlainObject(value, label) {
  * open still pages through the caller's own player list, exactly as its
  * `freeAgent`/`waivers`/`rostered` opens do - optional either way, and never
  * set by LineupPage's managed open (no list to page through there).
+ *
+ * `onActionDone` (#1515, formal review f1): the Watch toggle's best-effort
+ * refresh hook, restored for PlayerManagement's own-player open (it had it
+ * before this ticket, via the loose prop every context shared). Read
+ * regardless of `managed` - Watch renders on a managed my_team open too
+ * (ADR 0040 follow-up, grill ruling Q6), and nothing about `managed` bears
+ * on whether the CALLER wants a refresh after toggling it, so this field
+ * is never gated by it the way the lineup-management handlers are.
+ * LineupPage's managed open has never passed it and still doesn't need to.
  */
 export function myTeam({
   managed,
@@ -64,6 +78,7 @@ export function myTeam({
   leagueUnsettled = false,
   playerIds,
   onNavigate,
+  onActionDone,
 } = {}) {
   if (typeof managed !== 'boolean') {
     throw new Error('myTeam(...): managed must be a boolean');
@@ -89,6 +104,7 @@ export function myTeam({
     leagueUnsettled: Boolean(leagueUnsettled),
     playerIds,
     onNavigate,
+    onActionDone,
   };
 }
 
@@ -127,11 +143,16 @@ export function waivers({ availability, roster, onActionDone, playerIds, onNavig
  * owning team's name is known, "Rostered by <team>".
  *
  * `playerIds`/`onNavigate` (#1515): PlayerManagement's own prev/next, unset
- * by TradeCenter/MatchupPage's single-player open. No `onActionDone` - the
- * spec's acquire-builder ruling doesn't cover this context (its only action,
- * Propose trade, is a real navigation, not a completed in-place action).
+ * by TradeCenter/MatchupPage's single-player open.
+ *
+ * `onActionDone` (#1515, formal review f1): the Watch toggle's best-effort
+ * refresh, restored for PlayerManagement's rostered open the same way
+ * `myTeam` restores it for the own-player open - Propose trade itself is a
+ * real navigation with nothing to report back, but Watch renders on this
+ * context too (ADR 0040 follow-up, grill ruling Q6) and needs the same hook
+ * every other Availability context gives it.
  */
-export function rostered({ availability, playerIds, onNavigate } = {}) {
+export function rostered({ availability, playerIds, onNavigate, onActionDone } = {}) {
   requirePlainObject(availability, 'rostered(...): availability');
   // Formal review (f1): the card treats `teamName` as optional
   // (`PlayerDecisionCard.jsx`'s "Rostered by" line renders only when it is
@@ -142,7 +163,7 @@ export function rostered({ availability, playerIds, onNavigate } = {}) {
   if (availability.teamName != null && typeof availability.teamName !== 'string') {
     throw new Error('rostered(...): availability.teamName must be a string when present');
   }
-  return { kind: 'rostered', availability, playerIds, onNavigate };
+  return { kind: 'rostered', availability, playerIds, onNavigate, onActionDone };
 }
 
 /**

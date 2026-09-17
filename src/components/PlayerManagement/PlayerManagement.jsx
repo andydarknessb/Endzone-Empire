@@ -565,19 +565,27 @@ function PlayerManagement() {
   // `availability` fact directly (it already carries `teamName` when known,
   // same as the Trade action's helper text below). #1515 (T19): every
   // builder here also carries the prev/next pair over this page's own
-  // player list; the two acquire builders additionally carry the
-  // action-done refresh (spec #1494) - no loose prop stays beside `context`.
-  const quickViewNavigation = { playerIds: players.map((player) => player.id), onNavigate: setQuickViewId };
+  // player list. Formal review f1: `onActionDone` (the Watch toggle's
+  // refresh, spec #1494's action-done callback for the two acquire builders
+  // too) goes to all four now - AC4 ("every surface's card behaviour is
+  // unchanged") means the own-player and rostered opens keep the SAME
+  // refresh-after-Watch they had before this ticket, via the loose prop
+  // every context shared.
+  const quickViewShared = {
+    playerIds: players.map((player) => player.id),
+    onNavigate: setQuickViewId,
+    onActionDone: refreshAfterAction,
+  };
   const quickViewBuiltContext =
     !quickViewPlayer
-      ? myTeam({ managed: false, ...quickViewNavigation })
+      ? myTeam({ managed: false, ...quickViewShared })
       : quickViewContext === "free_agent"
-      ? freeAgent({ availability: quickViewAvailability, roster, onActionDone: refreshAfterAction, ...quickViewNavigation })
+      ? freeAgent({ availability: quickViewAvailability, roster, ...quickViewShared })
       : quickViewContext === "waivers"
-      ? waivers({ availability: quickViewAvailability, roster, onActionDone: refreshAfterAction, ...quickViewNavigation })
+      ? waivers({ availability: quickViewAvailability, roster, ...quickViewShared })
       : quickViewContext === "rostered"
-      ? rostered({ availability: quickViewPlayer.availability || {}, ...quickViewNavigation })
-      : myTeam({ managed: false, ...quickViewNavigation });
+      ? rostered({ availability: quickViewPlayer.availability || {}, ...quickViewShared })
+      : myTeam({ managed: false, ...quickViewShared });
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
   const columnCount = playerRowColumnCount(bestBall);
   // #1312 Ruling: the Watching toggle's own client-side filter, applied to

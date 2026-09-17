@@ -5,6 +5,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import { draft } from '../model/decisionContext';
+import { availabilityEntry, mockCardRoute } from './decisionCardTestFixtures';
 
 /**
  * player-decision-card widget tests, the `draft` kind (#1313, ADR 0040's own
@@ -23,25 +24,6 @@ beforeEach(() => {
 afterEach(() => {
   jest.clearAllMocks();
 });
-
-const availabilityEntry = (over = {}) => ({
-  playerId: 7,
-  name: 'Breece Hall',
-  position: 'RB',
-  nflTeam: 'NYJ',
-  slot: 'RB',
-  injuryStatus: null,
-  opponent: 'KC',
-  kickoff: '2026-09-14T17:00:00Z',
-  ...over,
-});
-
-function mockCardRoute(card) {
-  apiClient.get.mockImplementation((url) => {
-    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
-    return Promise.resolve({ data: { line: null, weather: null, usage: null } });
-  });
-}
 
 function renderCard(props = {}) {
   const {

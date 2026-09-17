@@ -1050,3 +1050,22 @@ test('Watch renders on the caller\'s own player (my_team) too, matching the desi
 
   expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
 });
+
+// Formal review f1 (risk-001-f1): PlayerManagement's own-player open had a
+// refresh-after-Watch before this ticket (the loose `onActionDone` prop
+// every context shared) - AC4 means the read-only myTeam context restores
+// it via its own `onActionDone` field, same as it always worked.
+test('Watch calls onActionDone from the built context on a read-only (managed: false) myTeam open', async () => {
+  mockCardRoute({ watching: false });
+  const onActionDone = jest.fn();
+  renderCard({
+    entry: availabilityEntry(),
+    context: myTeam({ managed: false, onActionDone }),
+  });
+
+  apiClient.put.mockResolvedValue({});
+  await userEvent.click(await screen.findByRole('button', { name: 'Watch' }));
+
+  expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+  expect(onActionDone).toHaveBeenCalledTimes(1);
+});
