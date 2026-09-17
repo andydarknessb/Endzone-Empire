@@ -3,6 +3,7 @@ const pool = require('../modules/pool');
 const { runSyncJob } = require('../modules/syncRun');
 const { ESPN_SCOREBOARD_URL, espnAbbrToOurs } = require('../modules/espnScoreboard');
 const { buildGameKey } = require('./tank01Feed');
+const { isPresentNumber: isNum } = require('./numericPresence');
 
 /**
  * The ESPN implementation of the odds provider seam (`vegasOdds.provider.js`,
@@ -27,12 +28,6 @@ const { buildGameKey } = require('./tank01Feed');
 
 const ESPN_TIMEOUT_MS = Number(process.env.ESPN_TIMEOUT_MS) || 10000;
 const ESPN_ODDS_SOURCE = 'espn';
-
-/** Same guard as vegasOdds.provider.js's own — duplicated rather than shared so this boundary carries no dependency on that one either. `Number(null)` is 0, so a naive finite check would turn a missing field into a measured zero. */
-function isNum(v) {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return false;
-  return Number.isFinite(Number(v));
-}
 
 /**
  * Pure: the HOME team's signed spread from one odds entry's `details` string

@@ -46,20 +46,17 @@
  * @property {string} observedAt  - ISO-8601 instant the quote was observed
  */
 
+const { isPresentNumber: isNum } = require('./numericPresence');
+
 const VEGAS_SOURCE_UNAVAILABLE = 'unavailable';
 
-/**
- * "Is this an actual number?" — deliberately NOT `Number.isFinite(Number(v))`,
- * which is the same trap `projectionModel.isNum` documents: `Number(null)` is
- * 0, so a book that has posted a total but pulled the spread would silently
- * become a pick-em and hand back two confident implied totals nobody quoted.
- * Duplicated rather than imported so this boundary stays free of a model
- * dependency; it is four lines and the shared version is not exported.
- */
-function isNum(v) {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return false;
-  return Number.isFinite(Number(v));
-}
+// "Is this an actual number?" (numericPresence.js, #1555) — deliberately not
+// a naive `Number.isFinite(Number(v))`, which is the same trap
+// `projectionModel.isNum` documents: `Number(null)` is 0, so a book that has
+// posted a total but pulled the spread would silently become a pick-em and
+// hand back two confident implied totals nobody quoted. Bound from the shared
+// leaf (zero `require`s of its own) rather than duplicated, so this boundary
+// still carries no dependency on the model or on another provider.
 
 /** The active provider. Swap this for a real one behind an env flag when a licensed feed exists. */
 function noopVegasOddsProvider() {

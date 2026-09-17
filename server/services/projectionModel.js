@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { isPresentNumber: isNum } = require('./numericPresence');
 
 /**
  * `free_baseline_v2` — the pure math behind the weekly start/sit projection
@@ -597,16 +598,10 @@ function clamp(value, limit) {
   return Math.max(-limit, Math.min(limit, value));
 }
 
-/**
- * "Is this an actual number?" — and NOT `Number.isFinite(Number(v))`, because
- * `Number(null)` is 0. That coercion is exactly how a missing measurement
- * turns into a confident zero, which is the one thing this model must never
- * do, so null/undefined/''/booleans are rejected explicitly.
- */
-function isNum(v) {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return false;
-  return Number.isFinite(Number(v));
-}
+// "Is this an actual number?" (numericPresence.js, #1555) — and NOT a naive
+// `Number.isFinite(Number(v))`, because `Number(null)` is 0. That coercion is
+// exactly how a missing measurement turns into a confident zero, which is the
+// one thing this model must never do.
 
 /** Pure: linear-interpolated quantile of an ASCENDING-sorted numeric array. */
 function quantile(sorted, q) {

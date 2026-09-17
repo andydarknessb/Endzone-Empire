@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
+const { isPresentNumber: isRealNumber } = require('./numericPresence');
 
 /**
  * Free game-day weather context from the US National Weather Service.
@@ -42,16 +43,11 @@ const REQUEST_TIMEOUT_MS = 3500;
 const HORIZON_BUCKET_HOURS = 6;
 const MAX_HORIZON_HOURS = 168; // NWS hourly forecasts run about a week out.
 
-/**
- * "Is this a real coordinate?" — deliberately not `Number.isFinite(Number(v))`,
- * because `Number(null)` is 0 and 0,0 is a valid-looking point in the Gulf of
- * Guinea. A missing stadium coordinate must read as missing, not as a forecast
- * for the middle of the Atlantic.
- */
-function isRealNumber(v) {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return false;
-  return Number.isFinite(Number(v));
-}
+// "Is this a real coordinate?" (numericPresence.js, #1555) — deliberately not
+// a naive `Number.isFinite(Number(v))`, because `Number(null)` is 0 and 0,0
+// is a valid-looking point in the Gulf of Guinea. A missing stadium
+// coordinate must read as missing, not as a forecast for the middle of the
+// Atlantic.
 
 /** Pure: is this game played under a roof (so weather cannot matter)? */
 function isIndoorGame(game) {

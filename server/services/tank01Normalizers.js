@@ -191,10 +191,18 @@ function normalizeTank01DstStats(dstSide, opponentTeamStats, opponentScore) {
     const parsed = Number(String(value ?? '').replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
-  // Like `num`, but returns undefined (never 0) for an absent/non-numeric
-  // figure instead of defaulting it, so the caller can omit the key.
+  /**
+   * Like `num`, but returns undefined (never 0) for an absent/non-numeric
+   * figure instead of defaulting it, so the caller can omit the key. Member
+   * of the "number-or-absent" family this ticket (#1555) named and fixed:
+   * the emptiness test trims before checking, the same rule
+   * `server/services/numericPresence.js`'s `isPresentNumber` enforces, so a
+   * whitespace-only `ydsAllowed`/`ptsAllowed` (which also comma-strips and
+   * `Number()`-coerces to `0`) is treated as absent rather than a real 0.
+   */
   const numOrAbsent = (value) => {
-    if (value === null || value === undefined || value === '') return undefined;
+    if (value === null || value === undefined || typeof value === 'boolean') return undefined;
+    if (String(value).trim() === '') return undefined;
     const parsed = Number(String(value).replace(/,/g, ''));
     return Number.isFinite(parsed) ? parsed : undefined;
   };

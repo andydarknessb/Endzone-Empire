@@ -187,6 +187,16 @@ test('normalizeTank01DstStats keeps a real 0 figure for yardsAllowed and pointsA
   assert.equal(result.pointsAllowed, 0);
 });
 
+test('normalizeTank01DstStats omits yardsAllowed and pointsAllowed for a whitespace-only figure, and keeps a real 0 (#1555)', () => {
+  const result = normalizeTank01DstStats({ teamAbv: 'BAL', sacks: '1', ydsAllowed: ' ', ptsAllowed: '\t' }, null, 14);
+  assert.equal('yardsAllowed' in result, false);
+  assert.equal('pointsAllowed' in result, true, 'opponentScore param (14) wins over the blank ptsAllowed field');
+  assert.equal(result.pointsAllowed, 14);
+
+  const zeroResult = normalizeTank01DstStats({ teamAbv: 'BAL', ydsAllowed: '0' }, null, 0);
+  assert.equal(zeroResult.yardsAllowed, 0);
+});
+
 test('normalizeTank01DstStats attributes a blocked kick to the OPPONENT\'s teamStats line', () => {
   // The blocked side's own kick got blocked (their teamStats), so the block
   // credit belongs to the other side's defense — this call is for that side.
