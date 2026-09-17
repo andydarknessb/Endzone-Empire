@@ -181,6 +181,10 @@ describe('my_team (#1307, ADR 0040)', () => {
     expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+    // #1533: the read-only own-player open (myTeam({ managed: false })) renders
+    // no Drop control either - Spec #1494's Testing Decisions asked for both
+    // halves of this and only the Bench/Start/bench-options half was pinned.
+    expect(screen.queryByTestId('decision-card-drop')).not.toBeInTheDocument();
   });
 
   test('with lineup wiring (the base Lineup case) renders the Bench/Start/Compare/Trade/Drop bar, not the Open lineup link', async () => {
