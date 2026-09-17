@@ -759,21 +759,21 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
  * a brand-new deployment or a mid-week draft must not sit blocked on a
  * stat-correction pass that has never run) - and, outside that window,
- * whenever a refill is owed. Owed-ness used to be its own 150-line
- * hand-rolled check; it is now the cadence gate's own concern
+ * whenever a refill is owed. Owed-ness used to be its own hand-rolled
+ * `data_sync_runs` comparison; it is now the cadence gate's own concern
  * (server/modules/cadence.js, spec #1492 step two, #1511):
  * `cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after:
- * 'stat-corrections' })` is due exactly when this job has not itself
- * succeeded today AND the stat-correction pass - which wipes every Weekly
- * projection run from week+1 onward, correction.service - has succeeded more
- * recently than this job's own last success. Without this, a wipe landing
- * after the window (a stat-correction pass delayed past 09:00 UTC by a
- * restart, say) would otherwise sit uncached until the NEXT day's window - a
- * whole day of list pages rebuilding 25 players x 17 weeks on demand, the
- * incident this gate exists to prevent. The off-peak hour window itself has
- * no gate equivalent (it is unique to this one job), so it stays a plain
- * caller-side check beside the gate call, same as the Mon-Thu/Tue-Wed day
- * filters beside `runNflverseFinalization`/`runDailyStatCorrections` below.
+ * 'stat-corrections' })` is due whenever the stat-correction pass - which
+ * wipes every Weekly projection run from week+1 onward, correction.service -
+ * has succeeded more recently than this job's own last success, EVEN when
+ * this job has already succeeded once today: `after`'s override (cadence.js,
+ * fleet#1511 f2) is what makes a same-UTC-day correction (one that succeeds
+ * after the 09:00 window has already run once) refill immediately rather
+ * than sitting cold until tomorrow's window - the exact #1447 incident class
+ * this gate exists to prevent. The off-peak hour window itself has no gate
+ * equivalent (it is unique to this one job), so it stays a plain caller-side
+ * check beside the gate call, same as the Mon-Thu/Tue-Wed day filters beside
+ * `runNflverseFinalization`/`runDailyStatCorrections` below.
  */
 async function runNightlyProjectionFill({ now = new Date() } = {}) {
   const today = now.toLocaleDateString('en-CA');
@@ -866,25 +866,34 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
  * yardage and individual safety for the prior week's defenders (see
  * nflverseSync.service) and re-score any league whose scores moved. The
  * second consumer of the cadence gate (server/modules/cadence.js, spec #1492
- * step two, #1511, same shape as the nightly projection fill above):
- * `cadence.due({ job: 'nflverse-week', every: 'utc-day', after:
- * 'stat-corrections' })` reads `nflverse-week`'s own `data_sync_runs` rows -
- * `syncNflverseWeek` (nflverseSync.service.js) already writes one through
- * `runSyncJob` for every (season, week) `finalizePriorWeeks` processes, on
- * every run regardless of outcome (ADR 0036), so this adds no second,
- * scheduler-level row, mirroring `runHourlyOddsSync`'s `job: 'odds'` gate
- * above. The Mon-Thu window is `isNflverseFinalizationDay`'s own day filter,
- * not a cadence: nothing in cadence.js expresses "these four weekdays only",
- * so it stays a plain check beside the gate rather than inside it - the same
- * split `runDailyStatCorrections` already uses for its Tue/Wed window. No
+ * step two, #1511): `cadence.due({ job: 'nflverse-week', every: 'utc-day' })`
+ * reads `nflverse-week`'s own `data_sync_runs` rows - `syncNflverseWeek`
+ * (nflverseSync.service.js) already writes one through `runSyncJob` for
+ * every (season, week) `finalizePriorWeeks` processes, on every run
+ * regardless of outcome (ADR 0036), so this adds no second, scheduler-level
+ * row, mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. The Mon-Thu
+ * window is `isNflverseFinalizationDay`'s own day filter, not a cadence:
+ * nothing in cadence.js expresses "these four weekdays only", so it stays a
+ * plain check beside the gate rather than inside it - the same split
+ * `runDailyStatCorrections` already uses for its Tue/Wed window. No
  * in-memory once-per-day stamp remains (#1510 removed the odds sync's
  * `lastOddsSyncAt` the same way): the gate's own `data_sync_runs` read
  * survives a worker restart, where an in-memory stamp reset on every one.
+ *
+ * Deliberately no `after: 'stat-corrections'` (pl-endzone formal review f1,
+ * #1511): this pass never depended on the correction pass before, runs on
+ * FOUR days a week (Mon-Thu) where corrections only ever succeeds on TWO
+ * (Tue/Wed), and spec #1493's Out of Scope rules out changing any job's
+ * cadence. An `after` dependency here would starve Monday and Thursday
+ * outright - on those days `stat-corrections`' last success is never fresher
+ * than this job's own (both last moved on Wednesday), so `due()` would
+ * answer "waiting on stat-corrections to succeed again" forever on exactly
+ * the two days the Mon-Thu window exists to cover that Tue/Wed does not.
  */
 async function runNflverseFinalization({ now = new Date() } = {}) {
   const nflverseSync = require('../services/nflverseSync.service');
   if (!nflverseSync.isNflverseFinalizationDay(now)) return null;
-  const gate = await cadence.due({ job: 'nflverse-week', every: 'utc-day', after: 'stat-corrections', now });
+  const gate = await cadence.due({ job: 'nflverse-week', every: 'utc-day', now });
   if (!gate.due) return null;
   const result = await nflverseSync.finalizePriorWeeks();
   if (result.finalized && result.finalized.length > 0) {
