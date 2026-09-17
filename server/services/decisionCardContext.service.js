@@ -4,6 +4,7 @@ const { impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame } = require('./nwsWeather.service');
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
+const { isPresentNumber: isNum } = require('./numericPresence');
 
 /**
  * The Decision card's per-player context (#1236, ADR 0037, ADR 0032):
@@ -58,15 +59,6 @@ class DecisionCardError extends Error {
 // No existing route emitted a coded refusal for "not your roster" (searched
 // at 8b56887e); named here per pre-launch ruling 5.
 const PLAYER_NOT_ON_ROSTER = 'PLAYER_NOT_ON_ROSTER';
-
-// See vegasOdds.provider.js / projectionFeatures.js: `Number(null)` is 0, so
-// a naive finite check would turn a missing usage key into a measured zero.
-// Duplicated locally rather than imported, the same deliberate isolation
-// those two modules already document.
-function isNum(v) {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return false;
-  return Number.isFinite(Number(v));
-}
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;

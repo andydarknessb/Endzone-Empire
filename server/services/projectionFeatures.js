@@ -3,6 +3,7 @@ const { calculateFantasyPoints } = require('./scoringRules');
 const { normalizeTeamAbbr } = require('./tank01Feed');
 const { computeByeWeeks } = require('./bye.service');
 const model = require('./projectionModel');
+const { isPresentNumber: isNum } = require('./numericPresence');
 
 /**
  * Feature extraction for the weekly projection engine.
@@ -40,13 +41,6 @@ const HISTORY_SEASONS = 2;
 // asks for an implausible window, in which case the affected factors report
 // themselves unavailable rather than the request timing out.
 const MAX_LEAGUE_SCAN_ROWS = 60000;
-
-// See projectionModel.isNum: `Number(null)` is 0, so a naive finite check
-// silently converts missing evidence into a measured zero.
-function isNum(v) {
-  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return false;
-  return Number.isFinite(Number(v));
-}
 
 /** Pure: how many "recency weeks" separate a historical game from the target week. */
 function weeksAgo({ gameSeason, gameWeek, season, week, seasonWeekSpan = model.MODEL_CONSTANTS.baseline.seasonWeekSpan }) {
