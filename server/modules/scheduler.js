@@ -61,8 +61,11 @@ let lastRetentionDay = null;
 // Nightly projection fill (#1305): same once-a-day stamp pattern as the ADP
 // and correction passes above.
 let lastProjectionFillDay = null;
-// Nightly player_stats integrity scan (week 1 2026 audit): same once-a-day
-// stamp pattern. A thrown scan does not stamp, so the next tick retries.
+// Nightly player_stats integrity scan (week 1 2026 audit): the once-a-day
+// decision is the cadence gate's own concern now (#1509), with this stamp
+// kept as a same-process short-circuit ahead of that read - the same shape
+// runDailyStatCorrections keeps its own in-memory stamp in. A thrown scan
+// does not stamp, so the next tick retries.
 let lastIntegrityScanDay = null;
 
 async function tickUnlocked() {
@@ -553,20 +556,32 @@ async function statCorrectionsLastRun(job) {
  * disagree with its stats (playerStatsIntegrity.service). A Sync run per ADR
  * 0036 with one unit and no lock (nothing else writes the anomalies table),
  * so its data_sync_runs row is the freshness the health route reads. Runs at
- * most once per local calendar day and only inside the same off-peak UTC
- * hour as the projection fill: it pages every player_stats row, and the tick
- * lock it holds while doing so must never sit inside a game window. The day
- * is stamped only after a scan that did not throw, so a transient database
- * failure retries on the next tick inside the window.
+ * most once per UTC calendar day (#1509, spec #1493 "UTC day everywhere"),
+ * gated by the cadence gate (server/modules/cadence.js, spec #1492 step two)
+ * reading the scan's own Sync run row (job: `player-stats-integrity`) - with
+ * the in-memory `lastIntegrityScanDay` stamp as a same-process short-circuit
+ * ahead of that read, the same shape `runDailyStatCorrections` above keeps
+ * its own in-memory stamp in - and only inside the same off-peak UTC hour as
+ * the projection fill: it pages every player_stats row, and the tick lock it
+ * holds while doing so must never sit inside a game window. The UTC day is
+ * computed once at the start of the run and carried as `detail.day` on the
+ * recorded row; both the in-memory stamp and that row are written only after
+ * a scan that did not throw, so a transient database failure retries on the
+ * next tick inside the window.
  */
 async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
   if (now.getUTCHours() !== NIGHTLY_PROJECTION_FILL_UTC_HOUR) return null;
-  const today = now.toLocaleDateString('en-CA');
-  if (lastIntegrityScanDay === today) return null;
   const integrity = require('../services/playerStatsIntegrity.service');
+  const today = cadence.utcDateKey(now);
+  if (lastIntegrityScanDay === today) return null;
+  const gate = await cadence.due({ job: integrity.JOB, every: 'utc-day', now });
+  if (!gate.due) {
+    lastIntegrityScanDay = today;
+    return null;
+  }
   const result = await runSyncJob({
     job: integrity.JOB,
-    fetch: async () => [{}],
+    fetch: async () => ({ units: [{}], detail: { day: today } }),
     apply: (client) => integrity.scanPlayerStats({ db: client }),
   });
   lastIntegrityScanDay = today;
