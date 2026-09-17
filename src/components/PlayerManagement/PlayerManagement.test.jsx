@@ -209,6 +209,9 @@ test("clicking one of the caller's own players' name opens the Decision card wit
     "/league/1/lineup",
   );
   expect(within(card).queryByTestId("decision-card-bench-action")).not.toBeInTheDocument();
+  // #1513: myTeam({ managed: false }) carries no onSwap, so lineupManaged
+  // stays false and Drop renders no more than Bench/Start does.
+  expect(within(card).queryByTestId("decision-card-drop")).not.toBeInTheDocument();
 });
 
 // Formal review round 1, f3: without a roster prop, the required drop pick
@@ -269,6 +272,27 @@ test("renders the server-authoritative availability actions, state-driven", asyn
   // Status now names the owning team (ADR 0040 Lead correction item 2) -
   // the opposite of the old PlayerQuickView-era rule this replaces.
   expect(screen.getByText("Rival Squad")).toBeInTheDocument();
+});
+
+// #1513: the Decision card's own build - rostered({ availability }) - shows
+// Propose trade, not the Open lineup link a my_team player gets.
+test("clicking a rostered player's name opens the Decision card with a Propose trade action", async () => {
+  mockBrowser({
+    players: [
+      player({
+        id: 4,
+        name: "Rival Player",
+        availability: { state: "rostered", teamId: 9, teamName: "Rival Squad", availableAt: null },
+      }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Rival Player" }));
+
+  const card = await screen.findByTestId("decision-card");
+  expect(within(card).getByTestId("decision-card-propose-trade")).toBeInTheDocument();
+  expect(within(card).queryByTestId("decision-card-open-lineup")).not.toBeInTheDocument();
 });
 
 test("a rostered row's Trade action deep-links into TradeCenter with the owning team and this player preselected", async () => {

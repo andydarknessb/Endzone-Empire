@@ -36,7 +36,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import SwapVertIcon from "@mui/icons-material/SwapVert";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
-import PlayerDecisionCard from "../../widgets/player-decision-card";
+import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import SegmentedControl from "../../shared/ui/SegmentedControl";
@@ -558,6 +558,22 @@ function PlayerManagement() {
           faabRemaining: marketContext?.waiverType === "faab" ? marketContext?.faabRemaining : undefined,
         }
       : undefined;
+  // #1513, ADR 0040 follow-up: the built context, picked by the same
+  // `quickViewContext` state above. `rostered` reads the row's own
+  // `availability` fact directly (it already carries `teamName` when known,
+  // same as the Trade action's helper text below) - the loose props above
+  // stay exactly as they are; the card doesn't read context.availability/
+  // .roster yet (T19 finishes that move).
+  const quickViewBuiltContext =
+    !quickViewPlayer
+      ? myTeam({ managed: false })
+      : quickViewContext === "free_agent"
+      ? freeAgent({ availability: quickViewAvailability, roster })
+      : quickViewContext === "waivers"
+      ? waivers({ availability: quickViewAvailability, roster })
+      : quickViewContext === "rostered"
+      ? rostered({ availability: quickViewPlayer.availability || {} })
+      : myTeam({ managed: false });
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
   const columnCount = playerRowColumnCount(bestBall);
   // #1312 Ruling: the Watching toggle's own client-side filter, applied to
@@ -960,7 +976,7 @@ function PlayerManagement() {
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
-        context={quickViewContext}
+        context={quickViewBuiltContext}
         availability={quickViewAvailability}
         roster={roster}
         onActionDone={refreshAfterAction}
