@@ -7,6 +7,7 @@ const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 const { lastRun, runSyncJob, recordDataSyncRun } = require('./syncRun');
+const cadence = require('./cadence');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -532,35 +533,24 @@ async function syncAndScoreLiveWeeks() {
   return ranAny;
 }
 
-/** UTC calendar date key, the same day boundary `isCorrectionDay` uses. */
-function utcDayKey(date) {
-  return date.toISOString().slice(0, 10);
-}
-
 /**
- * The last successful stat-correction pass, read via `lastRun` the way the
- * injury sync's gate is (#1188): the in-memory day stamp alone reset on every
- * worker restart, so on a correction day with three releases (2026-09-15) the
- * pass ran three times, and each run wiped every Weekly projection run from
- * week+1 onward (correction.service) that the nightly fill had just rebuilt.
- * Null when no successful pass exists or the read fails, which then runs the
- * pass: the safe direction for the corrections themselves (idempotent), and
- * the refill owed after the wipe is what `runNightlyProjectionFill` covers.
+ * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
+ * that treats a read failure as "never run" (`{ latest: null, latestOk:
+ * null }`), the same safe direction `lastInjurySyncAt`/`lastEspnFactsSyncAt`
+ * take above: the corrections pass is idempotent, so running it on a flaky
+ * read is the safe side, unlike silently skipping a correction day.
+ * Otherwise passed straight through - the "day stamped at start" rule (QA
+ * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01
+ * Wednesday still belongs to Tuesday) is now the cadence gate's own
+ * `'utc-day'` contract (spec #1493, "UTC day everywhere"; see cadence.js's
+ * `lastSuccessDayKey`), so no job-specific translation lives here anymore.
  */
-async function lastStatCorrectionsDay() {
+async function statCorrectionsLastRun(job) {
   try {
-    const { latestOk } = await lastRun('stat-corrections');
-    if (!latestOk) return null;
-    // The day the pass ran FOR, recorded in detail when it started - never
-    // derived from finished_at: a pass that starts at 23:58 UTC Tuesday and
-    // finishes at 00:01 Wednesday would otherwise read as Wednesday's, and
-    // Wednesday's own pass would be skipped for the week (QA finding on
-    // #1449). finished_at is the fallback only for a row with no `day`.
-    if (latestOk.detail && typeof latestOk.detail.day === 'string') return latestOk.detail.day;
-    return latestOk.finishedAt ? utcDayKey(latestOk.finishedAt) : null;
+    return await lastRun(job);
   } catch (err) {
     console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
-    return null;
+    return { latest: null, latestOk: null };
   }
 }
 
@@ -596,10 +586,13 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * Tue/Wed stat-correction pass: re-pull last week's stats and re-score any
  * league whose scores moved (see correction.service). Runs at most once per
  * UTC calendar day - the window `isCorrectionDay` is defined on - gated by
- * the pass's own Sync run row (`stat-corrections`) so a worker restart
- * cannot repeat it, with the in-memory stamp as a same-process short-circuit.
- * Source is nflverse — free and, by Tuesday, more accurate than Tank01 — so
- * this pass costs no quota and needs no credentials.
+ * the cadence gate (server/modules/cadence.js, spec #1492 step two) reading
+ * the pass's own Sync run row (`stat-corrections`) so a worker restart cannot
+ * repeat it, with the in-memory stamp as a same-process short-circuit ahead
+ * of that read. Source is nflverse — free and, by Tuesday, more accurate than
+ * Tank01 — so this pass costs no quota and needs no credentials. The first
+ * job on the cadence gate; every other job in this file keeps its own
+ * hand-rolled once-a-day check for now.
  *
  * Recorded with `recordDataSyncRun` directly rather than through
  * `runSyncJob`: that wrapper runs its unit inside one `withTransaction`, and
@@ -607,18 +600,22 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * `correctLeagueWeek` opens its own transaction per league on other clients,
  * beside the tick's session-level advisory lock - is the idle-in-transaction
  * shape #839 already bit this repo with under the pooler. The row carries the
- * UTC `day` the pass ran for (see lastStatCorrectionsDay). A thrown pass
- * (including the aggregate cache-maintenance error resyncPriorWeeks raises
- * after finishing) records ok=false, does not move the gate, and bubbles to
- * tickUnlocked's catch, so the next 5-minute tick retries instead of
- * silently skipping the rest of a correction day.
+ * UTC `day` the pass ran for (see `statCorrectionsLastRun` above). A thrown
+ * pass (including the aggregate cache-maintenance error resyncPriorWeeks
+ * raises after finishing) records ok=false, does not move the gate, and
+ * bubbles to tickUnlocked's catch, so the next 5-minute tick retries instead
+ * of silently skipping the rest of a correction day.
  */
 async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
   if (!correction.isCorrectionDay(now)) return null;
-  const today = utcDayKey(now);
+  const today = cadence.utcDateKey(now);
   if (lastCorrectionDay === today) return null;
-  if ((await lastStatCorrectionsDay()) === today) {
+  const gate = await cadence.due(
+    { job: 'stat-corrections', every: 'utc-day', now },
+    { lastRun: statCorrectionsLastRun }
+  );
+  if (!gate.due) {
     lastCorrectionDay = today;
     return null;
   }
