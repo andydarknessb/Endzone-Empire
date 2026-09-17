@@ -381,31 +381,43 @@ const runDailyEspnDepthChartSync = dailyEspnFactsSyncRunner('espn-depth-chart', 
 const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
-let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
 
 /**
- * Hourly Line refresh (#1234, ADR 0036/0037): ESPN's scoreboard needs no key
- * and is not quota-metered, so unlike the injury sync this job has no
- * credential gate, and an in-memory interval gate is safe even across a
- * worker restart - the worst case is one extra free, unmetered fetch, not a
- * wasted budget. Runs the odds Sync run (services/espnOdds.provider.js) once
- * per distinct (season, week) slate any live fantasy league is currently on,
- * read with the same `fantasySeasonLiveWhereSql()` predicate
- * `syncAndScoreLiveWeeks` uses below (that function then dedupes in JS and
- * keeps each league's id; this one only needs the distinct pairs, so it lets
- * SQL do the DISTINCT and discards ids) - so a league mid-transition to a new
- * week still gets both weeks' slates priced.
+ * Hourly Line refresh (#1234, ADR 0036/0037, #1510): ESPN's scoreboard needs
+ * no key and is not quota-metered, so unlike the injury sync this job has no
+ * credential gate. The due/not-due decision is the cadence gate's own concern
+ * (server/modules/cadence.js, spec #1492 step two), reading the job's own
+ * `data_sync_runs` rows (job: 'odds', ADR 0036 - `syncOdds` below already
+ * records them through `runSyncJob`, so this adds no second, scheduler-level
+ * row) rather than the in-memory epoch this used to keep: the gate's source
+ * of truth survives a worker restart, so a restart inside the hour cannot
+ * cause a double fetch (#1510 AC2). Runs the odds Sync run
+ * (services/espnOdds.provider.js) once per distinct (season, week) slate any
+ * live fantasy league is currently on, read with the same
+ * `fantasySeasonLiveWhereSql()` predicate `syncAndScoreLiveWeeks` uses below
+ * (that function then dedupes in JS and keeps each league's id; this one only
+ * needs the distinct pairs, so it lets SQL do the DISTINCT and discards ids) -
+ * so a league mid-transition to a new week still gets both weeks' slates
+ * priced.
+ *
  * A single week's throw is logged and does not stop the other weeks' syncs;
- * the interval is stamped once the set of weeks is known, so a read failure
- * here retries next tick same as everywhere else in this module.
+ * since `runSyncJob` records that week's run `ok: false`, it never becomes
+ * the job's `latestOk`, so the gate is still due on the very next (five
+ * minute) tick rather than waiting out the full hour - the retry spec #1493
+ * story 5 wants. When no live league is on any slate this tick, the loop
+ * below never runs and no `odds` row is written at all, so the gate answers
+ * due again on every following tick too; the only recurring cost is this
+ * function's own leagues read, same as a read failure here (caught and
+ * logged by `tickUnlocked`) retrying next tick same as everywhere else in
+ * this module.
  */
 async function runHourlyOddsSync({ now = new Date() } = {}) {
-  if (now.getTime() - lastOddsSyncAt < ODDS_SYNC_INTERVAL_MS) return null;
+  const gate = await cadence.due({ job: 'odds', every: { ms: ODDS_SYNC_INTERVAL_MS }, now });
+  if (!gate.due) return null;
   const leaguesResult = await pool.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
   );
-  lastOddsSyncAt = now.getTime();
   const odds = require('../services/espnOdds.provider');
   const results = [];
   for (const row of leaguesResult.rows) {
@@ -1182,4 +1194,5 @@ module.exports = {
   INTERVAL_MS,
   DRAFT_CLOCK_MS,
   SYNC_EVERY_TICKS,
+  ODDS_SYNC_INTERVAL_MS,
 };
