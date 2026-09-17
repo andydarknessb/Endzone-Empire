@@ -185,6 +185,33 @@ test('an optimistic per-starter bump reaches homeStarters without a refetch', as
   expect(apiClient.get.mock.calls.length).toBe(before);
 });
 
+// Regression: one `scores:updated` event can carry plays from MORE THAN ONE
+// live sync for the same player - liveBoxPoll's rescore gate (createRescoreGate)
+// buckets a league's plays across 30s engine ticks and flushes on a 60s floor.
+// Each play's pointsDelta is that sync's own marginal share (server's
+// attributePlayPoints), not the player's whole change repeated, so the client
+// MUST keep summing per player - deduping to "first play wins" silently drops
+// the later sync's points. Do not "fix" this back to a dedupe.
+test('two plays for the same starter with different deltas in one event still sum (rescore-gate plays are incremental, not repeated)', async () => {
+  apiClient.get.mockResolvedValue(detailWithStarters());
+
+  const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'] }));
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+
+  act(() => {
+    socket.fire('scores:updated', {
+      scored: [{ matchupId: 9, homeScore: 47.2, awayScore: 55.9 }],
+      plays: [
+        { playerId: 1, pointsDelta: 3 },
+        { playerId: 1, pointsDelta: 1 },
+      ],
+    });
+  });
+
+  const qb = result.current.homeStarters.find((s) => s.id === 1);
+  expect(qb.points).toBe(24);
+});
+
 test('a live score event for this matchup moves the model without a refetch', async () => {
   apiClient.get.mockResolvedValue(detailBody());
 

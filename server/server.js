@@ -53,8 +53,14 @@ const { startLiveGameEngine, stopLiveGameEngine } = require('./modules/liveGameE
 const { createRateLimiter } = require('./modules/rateLimit');
 const { requestLogMiddleware } = require('./modules/requestLog');
 const { getClientOrigins, getCorsOptions } = require('./modules/clientOrigins');
-const { closeRedis } = require('./modules/redis');
+// The module object, not a destructured function, so a test can stub
+// closeRedis on it after this module has already been required
+// (server/test/server.lifecycle.test.js), same as server/worker.js.
+const redis = require('./modules/redis');
 const { markReady, markShuttingDown } = require('./modules/runtimeState');
+const {
+  installProcessHandlers: installSharedProcessHandlers,
+} = require('./modules/processHandlers');
 
 // No csurf middleware: every state-changing route requires an `Authorization:
 // Bearer` header (server/modules/auth.js), which a cross-site page cannot
@@ -226,7 +232,7 @@ async function shutdown(reason = 'shutdown') {
       await new Promise((resolve) => server.close(resolve));
     }
     await closeDraftSocket(io);
-    await closeRedis();
+    await redis.closeRedis();
     await pool.end();
     await flushSentry();
     logger.info({ reason }, 'graceful shutdown complete');
@@ -234,32 +240,30 @@ async function shutdown(reason = 'shutdown') {
   return shutdownPromise;
 }
 
+// Wraps the shared handler (server/modules/processHandlers.js, lifted from
+// the worker's #1535 fix) with the API's own `shutdown` and `name: 'api'` as
+// defaults, so server/test/server.lifecycle.test.js can install on an
+// injected `proc` while production passes nothing. Before #1537 the fatal
+// and signal handlers below ran shutdown() and only set `process.exitCode`,
+// which takes effect only once the event loop drains; a connected draft
+// socket or a hung `pool.end()` left a process that had started shutting
+// down and would never exit.
+function installProcessHandlers(proc = process, options = {}) {
+  return installSharedProcessHandlers(proc, {
+    shutdown,
+    name: 'api',
+    ...options,
+  });
+}
+
 if (require.main === module) {
   startServer().catch(async (error) => {
     logger.fatal({ err: error }, 'api failed to start');
     captureError(error);
     await flushSentry();
-    process.exitCode = 1;
+    process.exit(1);
   });
-  for (const signal of ['SIGTERM', 'SIGINT']) {
-    process.once(signal, () => {
-      shutdown(signal).then(() => {
-        process.exitCode = 0;
-      });
-    });
-  }
-  process.once('uncaughtException', (error) => {
-    logger.fatal({ err: error }, 'uncaught exception');
-    shutdown('uncaughtException').finally(() => {
-      process.exitCode = 1;
-    });
-  });
-  process.once('unhandledRejection', (error) => {
-    logger.fatal({ err: error }, 'unhandled rejection');
-    shutdown('unhandledRejection').finally(() => {
-      process.exitCode = 1;
-    });
-  });
+  installProcessHandlers(process);
 }
 
-module.exports = { app, io, server, shutdown, startServer };
+module.exports = { app, io, server, shutdown, startServer, installProcessHandlers };

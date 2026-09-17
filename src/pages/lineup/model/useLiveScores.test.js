@@ -60,6 +60,34 @@ test('a plays delta patches the matching entry\'s actualPoints, summed per playe
   expect(next.entries).toEqual([{ id: 2, actualPoints: 12 }, { id: 3, actualPoints: 1 }]);
 });
 
+// Regression: one `scores:updated` event can carry plays from MORE THAN ONE
+// live sync for the same player - liveBoxPoll's rescore gate (createRescoreGate)
+// buckets a league's plays across 30s engine ticks and flushes on a 60s floor,
+// so a kicker's FG at tick 1 and XP at tick 2 can both ride the same event.
+// Each play's pointsDelta is that sync's own marginal share (server's
+// attributePlayPoints), not the player's whole change repeated, so the client
+// MUST keep summing per player - deduping to "first play wins" silently drops
+// the later sync's points. Do not "fix" this back to a dedupe.
+test('two plays for the same player with different deltas in one event still sum (rescore-gate plays are incremental, not repeated)', () => {
+  const setRaw = jest.fn();
+  renderHook(() => useLiveScores({ leagueId: 1, setRaw, refetch: jest.fn() }));
+
+  act(() => {
+    socket.fire('scores:updated', {
+      scored: [{ matchupId: 55, homeScore: 20, awayScore: 10 }],
+      plays: [
+        { playerId: 2, pointsDelta: 3, isTouchdown: false },
+        { playerId: 2, pointsDelta: 1, isTouchdown: false },
+      ],
+    });
+  });
+
+  expect(setRaw).toHaveBeenCalledTimes(1);
+  const updater = setRaw.mock.calls[0][0];
+  const next = updater(rawLineup([{ id: 2, actualPoints: 4 }, { id: 3, actualPoints: 1 }]));
+  expect(next.entries).toEqual([{ id: 2, actualPoints: 8 }, { id: 3, actualPoints: 1 }]);
+});
+
 test('a play for a player not in the lineup is a no-op: the same raw object comes back', () => {
   const setRaw = jest.fn();
   renderHook(() => useLiveScores({ leagueId: 1, setRaw, refetch: jest.fn() }));

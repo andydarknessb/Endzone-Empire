@@ -459,6 +459,37 @@ test('syncAdp wipe guard issues no BEGIN when the market is refused (#882)', asy
   assert.equal(fake.matching(/^BEGIN$/).length, 0, 'no transaction is opened on a refused run');
 });
 
+// ---- the cadence gate's day stamp (#1509, spec #1493 "UTC day everywhere") -
+
+test('syncAdp stamps the run\'s UTC day into detail.day, computed once at the start of the run', async (t) => {
+  stubFfc(t, ffcBody(200));
+  const fake = createFakePool([
+    [select('players'), () => ({ rows: fullRoster(150) })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] })],
+    [update('players'), () => ({ rows: [], rowCount: 150 })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  // 23:30 US Central on the 20th is already 04:30 UTC the 21st - the input
+  // that turns a local-calendar-day comparison red (fleet#1509 red-tell).
+  await syncAdp({ now: new Date('2026-08-20T23:30:00-05:00') });
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runDetail(runs[0]).day, '2026-08-21', 'the UTC day, not the local en-CA day (2026-08-20)');
+});
+
+test('syncAdp stamps detail.day on a refused (thin_market) run too', async (t) => {
+  stubFfc(t, ffcBody(MARKET_FLOOR - 50));
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }], rowCount: 1 })],
+  ]).install(t);
+
+  await syncAdp({ now: new Date('2026-08-20T23:30:00-05:00') });
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runDetail(runs[0]).day, '2026-08-21');
+});
+
 test('a failed data_sync_runs record never masks a correctly refreshed market', async (t) => {
   // The record is best-effort observability. If it throws (e.g. the carve-out
   // migration has not landed yet, so the table does not exist), the market was

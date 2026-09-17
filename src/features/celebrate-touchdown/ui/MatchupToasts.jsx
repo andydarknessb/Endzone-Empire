@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { playLabel } from '../../../entities/matchup';
+import { playLabel, formatSignedPoints } from '../../../entities/matchup';
 
 /**
  * The bottom toast stack of the celebrate-touchdown feature (ADR 0031, #903),
@@ -29,11 +29,6 @@ import { playLabel } from '../../../entities/matchup';
  * The tone is exposed as `data-tone` for a test to read.
  */
 export const TOAST_MS = 2400;
-
-/** Points to one decimal always: "+6.0", never "+6". */
-function points1(n) {
-  return (Number(n) || 0).toFixed(1);
-}
 
 /**
  * The dismiss button's glyph: a plain cross on the canvas's 20px grid, drawn
@@ -66,7 +61,7 @@ function Toast({ toast, onDismiss }) {
     return () => clearTimeout(id);
   }, [toast.id, onDismiss]);
   const positive = toast.tone === 'positive';
-  const message = toast.message || `${toast.name} · ${playLabel(toast)} (+${points1(toast.pointsDelta)})`;
+  const message = toast.message || `${toast.name} · ${playLabel(toast)} (${formatSignedPoints(toast.pointsDelta)})`;
   return (
     <Box
       role="status"

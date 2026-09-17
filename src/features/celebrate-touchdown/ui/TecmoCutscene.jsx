@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getSpriteColors, getNameColors } from '../../../shared/lib';
-import { playLabel } from '../../../entities/matchup';
+import { playLabel, formatSignedPoints } from '../../../entities/matchup';
 import { Sprite, RefereeSprite, GoalPostSprite } from '../../../shared/ui';
 import './TecmoCutscene.css';
 
@@ -106,8 +106,7 @@ function TecmoCutscene({ play, onDone }) {
   const restoreRef = useRef(null);
 
   const { runner, defender } = getSpriteColors(play.nflTeam, play.opponent);
-  const pts = Number(play.pointsDelta) || 0;
-  const ptsLabel = `+${Math.round(pts * 10) / 10}`;
+  const ptsLabel = formatSignedPoints(play.pointsDelta, { trim: true });
 
   // Hard cut from the runner beat to the referee frame.
   useEffect(() => {

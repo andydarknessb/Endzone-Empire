@@ -385,7 +385,9 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  const result = await syncInjuries({ api: healthyToQuestionableApi });
+  // 23:30 US Central on the 20th is already 04:30 UTC the 21st - the input
+  // that turns a local-calendar-day comparison red (fleet#1509 red-tell).
+  const result = await syncInjuries({ api: healthyToQuestionableApi, now: new Date('2026-08-20T23:30:00-05:00') });
 
   assert.deepEqual(result, { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
   const records = dataSyncRuns(fake.calls);
@@ -396,10 +398,12 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
   assert.equal(records[0].params[2], true, 'ok is true');
   // #1385: floorGuardTripped rides in from fetch's run-level detail (#1202) -
   // this one-entry feed is far below NFL_PLAYER_LIST_FLOOR, so it reads true.
+  // #1509: `day` rides the same run-level detail, the UTC day, not the local
+  // en-CA day (2026-08-20).
   assert.deepEqual(
     JSON.parse(records[0].params[3]),
-    { floorGuardTripped: true, playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 },
-    'detail carries the run counts and the floor guard state',
+    { day: '2026-08-21', floorGuardTripped: true, playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 },
+    'detail carries the UTC day, the run counts and the floor guard state',
   );
   // Recorded after the run committed, never mid-transaction.
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');

@@ -95,3 +95,31 @@ export function playLabel(play) {
   }
   return `${type} TD`;
 }
+
+/**
+ * A signed points delta, "+10.4", "-2.0", "+0.0" by default (one decimal,
+ * padded) - the ONE spelling of "sign + magnitude" every points-delta display
+ * (the ticker, the toasts, the cutscene, the scoring feed) reads off, so a
+ * play with a negative delta (the server's attributePlayPoints can land a
+ * negative residual on a non-touchdown event, #1241 follow-up) never renders
+ * as "+-8.0". The sign is a hyphen for a negative value (house style: hyphens
+ * in scores, never a minus glyph the font may lack), a plus for zero and
+ * above. A non-numeric delta reads as "+0.0" (or the zero-decimals
+ * equivalent) rather than "NaN".
+ *
+ * `trim: true` drops a whole number's trailing ".0" (the cutscene's own
+ * style, "+4" not "+4.0"); every other caller keeps the padded decimal.
+ *
+ * @param {number} pointsDelta
+ * @param {{decimals?: number, trim?: boolean}} [opts]
+ * @returns {string}
+ */
+export function formatSignedPoints(pointsDelta, { decimals = 1, trim = false } = {}) {
+  const n = Number(pointsDelta);
+  const value = Number.isFinite(n) ? n : 0;
+  const factor = 10 ** decimals;
+  const rounded = Math.round(Math.abs(value) * factor) / factor;
+  const sign = value < 0 && rounded > 0 ? '-' : '+';
+  const magnitude = trim ? String(rounded) : rounded.toFixed(decimals);
+  return `${sign}${magnitude}`;
+}

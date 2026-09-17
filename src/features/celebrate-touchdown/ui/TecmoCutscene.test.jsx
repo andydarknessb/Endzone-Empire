@@ -214,3 +214,15 @@ test('the reduced-motion card takes focus, holds it, and hands it back', () => {
   expect(trigger).toHaveFocus();
   trigger.remove();
 });
+
+// Regression (#1241 follow-up): a play with a negative delta (a non-touchdown
+// event absorbing the server's residual) must print its own hyphen sign, not
+// "+-6" (the old `+${Math.round(pts * 10) / 10}` template ahead of an
+// already-negative number).
+test('a negative points delta prints its own sign, never "+-"', () => {
+  setReducedMotion(true);
+  render(<TecmoCutscene play={{ ...play, pointsDelta: -6 }} onDone={jest.fn()} />);
+  const overlay = screen.getByRole('alertdialog');
+  expect(overlay).toHaveAttribute('aria-label', 'Touchdown, P. Mahomes, -6 points');
+  expect(overlay.getAttribute('aria-label')).not.toContain('+-');
+});
