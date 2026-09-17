@@ -160,6 +160,23 @@ test('runDepthChartSync: an occasional single failed team (not consecutive enoug
   assert.equal(runs[0].params[2], true);
 });
 
+test('runDepthChartSync: stamps the run\'s UTC day into detail.day, computed once at the start of the run (#1509)', async (t) => {
+  mockTeamDepthChart(t, { teamCode: 'NE', rows: [{ athleteId: '4372030', teamCode: 'NE', positionGroup: 'LDE', rank: 1 }] });
+  const fake = createFakePool([
+    [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [{ id: 501, external_id: 4372030 }] })],
+    [insert('player_depth_chart'), (text, params) => ({ rowCount: params[0].length })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // 23:30 US Central on the 20th is already 04:30 UTC the 21st - the input
+  // that turns a local-calendar-day comparison red (fleet#1509 red-tell).
+  await runDepthChartSync({ now: new Date('2026-08-20T23:30:00-05:00') });
+
+  const runs = dataSyncRuns(fake.calls);
+  const detail = JSON.parse(runs[0].params[3]);
+  assert.equal(detail.day, '2026-08-21', 'the UTC day, not the local en-CA day (2026-08-20)');
+});
+
 // ---------------------------------------------------------------------------
 // runOwnershipSync
 // ---------------------------------------------------------------------------

@@ -305,6 +305,54 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
 });
 
+// ---- daily ESPN depth-chart sync (#1308, #1509) -----------------------------
+// Same shape as the ADP section above: the due/not-due decision is the
+// cadence gate's own concern, so these stub cadence.due directly and assert
+// this function's OWN behavior around that decision and delegation to
+// espnFactsSync.runDepthChartSync. Ownership (below the integrity scan and
+// injuries sections) still runs on the old lastEspnFactsSyncAt wrapper until
+// its own commit.
+
+test('runDailyEspnDepthChartSync delegates the due/not-due decision to the cadence gate', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  const calls = [];
+  t.mock.method(espnFactsSync, 'runDepthChartSync', async (opts) => {
+    calls.push(opts);
+    return { results: [] };
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  assert.deepEqual(await scheduler.runDailyEspnDepthChartSync({ now }), { results: [] });
+  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to runDepthChartSync with the same now');
+  assert.deepEqual(dueArgs, { job: 'espn-depth-chart', every: 'utc-day', now });
+});
+
+test('runDailyEspnDepthChartSync never calls runDepthChartSync when the cadence gate says it is not due', async (t) => {
+  const espnFactsSync = require('../modules/espnFactsSync');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let calls = 0;
+  t.mock.method(espnFactsSync, 'runDepthChartSync', async () => { calls += 1; return { results: [] }; });
+
+  const result = await scheduler.runDailyEspnDepthChartSync({ now: new Date('2026-08-20T12:00:00-05:00') });
+  assert.equal(result, null);
+  assert.equal(calls, 0);
+});
+
+test('tickUnlocked runs the daily ESPN depth-chart sync in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runDailyEspnDepthChartSync\(\);\s*\} catch/);
+});
+
 // ---- hourly odds sync (#1234, #1510) ------------------------------------------
 // The due/not-due decision is the cadence gate's own concern (server/modules/
 // cadence.js, cadence.test.js's table suite covers the { ms } cadence and the

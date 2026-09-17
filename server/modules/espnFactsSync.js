@@ -17,6 +17,7 @@
  */
 const espnAthleteClient = require('./espnAthleteClient');
 const { runSyncJob } = require('./syncRun');
+const cadence = require('./cadence');
 
 /** Today's date, local calendar day, `YYYY-MM-DD` - the `captured_date` every
  * row this run writes shares (same `en-CA` stamp the rest of this module
@@ -126,12 +127,21 @@ function applyDepthChartUnit(capturedDate) {
  * The daily ESPN depth-chart Sync run (job `'espn-depth-chart'`). One unit
  * per team that returned rows; one team failing to resolve any known player
  * never stops another team's write (`runSyncJob`'s per-unit transactions).
+ *
+ * `now` (#1509, spec #1493 "UTC day everywhere"): the UTC calendar day this
+ * run belongs to, computed once via `cadence.utcDateKey(now)` and carried as
+ * `detail.day` on the recorded row - not `capturedDate` above, which stays the
+ * LOCAL calendar day `player_depth_chart` rows key on (unrelated to the
+ * cadence gate, and unconverted by this ticket). A `fetch_failed` throw
+ * carries no `detail.day` (runSyncJob never reaches the wrapper on a throw),
+ * same as every other job on the gate.
  */
-async function runDepthChartSync({ now, transport } = {}) {
+async function runDepthChartSync({ now = new Date(), transport } = {}) {
   const capturedDate = today(now);
+  const day = cadence.utcDateKey(now);
   return runSyncJob({
     job: 'espn-depth-chart',
-    fetch: () => fetchDepthCharts({ transport }),
+    fetch: async () => ({ units: await fetchDepthCharts({ transport }), detail: { day } }),
     apply: applyDepthChartUnit(capturedDate),
   });
 }

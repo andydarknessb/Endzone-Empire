@@ -354,15 +354,21 @@ async function lastEspnFactsSyncAt(job) {
 }
 
 /**
- * Builds a once-a-day wrapper for one ESPN facts job (#1308, ADR 0041/0036;
- * formal review f4 - the two callers below were identical apart from the job
- * name and which `espnFactsSync` export they call, so a later fix to the
- * gate only had to land once). Runs at most once per local calendar day
- * (gate: `lastEspnFactsSyncAt` above); the job itself owns its own
- * `data_sync_runs` row and the row-level idempotency (ON CONFLICT DO
- * NOTHING). A thrown run (including a `fetch_failed` from an ESPN outage,
- * formal review f3) records `ok: false` and does not move the gate, so the
- * next tick retries.
+ * Builds a once-a-day wrapper for an ESPN facts job still on the old
+ * `lastEspnFactsSyncAt` gate (#1308, ADR 0041/0036; formal review f4 - the
+ * callers below were identical apart from the job name and which
+ * `espnFactsSync` export they call, so a later fix to the gate only had to
+ * land once). Runs at most once per local calendar day (gate:
+ * `lastEspnFactsSyncAt` above); the job itself owns its own `data_sync_runs`
+ * row and the row-level idempotency (ON CONFLICT DO NOTHING). A thrown run
+ * (including a `fetch_failed` from an ESPN outage, formal review f3) records
+ * `ok: false` and does not move the gate, so the next tick retries.
+ *
+ * #1509 migrates each ESPN facts job onto the cadence gate one at a time
+ * (spec #1493 story 13, ruled one PR/five commits): depth-chart has already
+ * moved below, off this builder entirely. Ownership is still built from it
+ * here; once it moves too, this builder and `lastEspnFactsSyncAt` above have
+ * no more callers and go with it.
  */
 function dailyEspnFactsSyncRunner(job, runJob) {
   return async function runDailyEspnSync({ now = new Date() } = {}) {
@@ -372,7 +378,25 @@ function dailyEspnFactsSyncRunner(job, runJob) {
   };
 }
 
-const runDailyEspnDepthChartSync = dailyEspnFactsSyncRunner('espn-depth-chart', (opts) => require('./espnFactsSync').runDepthChartSync(opts));
+/**
+ * The daily ESPN depth-chart Sync run's once-a-day decision (#1509, spec
+ * #1493 "UTC day everywhere"): the cadence gate's own concern now
+ * (server/modules/cadence.js, spec #1492 step two), reading job
+ * 'espn-depth-chart's own `data_sync_runs` rows -
+ * `espnFactsSync.runDepthChartSync` already records one through `runSyncJob`,
+ * so this adds no second, scheduler-level row, mirroring
+ * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
+ * stamp remains for this job: the gate's own read survives a worker restart,
+ * where the old `lastEspnFactsSyncAt` local-day comparison did not (that
+ * comparison itself was already durable across restarts - the day it dropped
+ * was the LOCAL day, not the worker's own memory - #1509's move is UTC day,
+ * not durability, which #1308 already delivered).
+ */
+async function runDailyEspnDepthChartSync({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'espn-depth-chart', every: 'utc-day', now });
+  if (!gate.due) return null;
+  return require('./espnFactsSync').runDepthChartSync({ now });
+}
 const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
