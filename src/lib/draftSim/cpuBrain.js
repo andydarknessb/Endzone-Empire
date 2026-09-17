@@ -20,9 +20,12 @@
  * Everything is pure and takes its randomness from an injected `rng()`, so a
  * seeded sim replays identically (see rng.js).
  */
-import {
-  POSITION_GROUPS, IDP_POSITIONS, templateFor, slotEligible,
-} from './templates';
+import { IDP_POSITIONS, templateFor } from './templates';
+// `accepts`/`POSITION_GROUPS` read from the entity's concrete model file, not
+// its index (#1501) - see analysis.js's identical note and
+// entities/roster/index.js's docblock. Replaces this module's own
+// `slotEligible`/`POSITION_GROUPS` mirror, deleted from templates.js.
+import { accepts, POSITION_GROUPS } from '../../entities/roster/model/rosterTemplateModel';
 import { rosterFor, availablePlayers, currentRound, picksRemainingFor, unfilledDedicatedSlots } from './engine';
 import { rngForPick } from './rng';
 
@@ -64,7 +67,7 @@ export function positionGroupKey(position) {
 export function slotCapacityFor(template, position) {
   let capacity = 0;
   for (const slot of template.slots) {
-    if (slotEligible(slot.key, position, template.slots)) capacity += slot.count;
+    if (accepts(template.slots, slot.key, position)) capacity += slot.count;
   }
   return capacity;
 }
@@ -130,7 +133,7 @@ export function eligibleCandidates(state, teamId) {
   const unfilledCount = [...unfilled.values()].reduce((sum, n) => sum + n, 0);
   if (unfilledCount > 0 && picksRemainingFor(state, teamId) <= unfilledCount) {
     const mustFill = available.filter((player) =>
-      [...unfilled.keys()].some((slotKey) => slotEligible(slotKey, player.position, template.slots))
+      [...unfilled.keys()].some((slotKey) => accepts(template.slots, slotKey, player.position))
     );
     if (mustFill.length > 0) return mustFill;
   }

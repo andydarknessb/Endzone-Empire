@@ -1,37 +1,19 @@
 import {
-  LEAGUE_TEMPLATES, POSITION_GROUPS, DEFAULT_ROSTER_SLOTS, SIM_BENCH_SLOTS,
-  slotEligible, expandEligibility, templateFor, roundsForTemplate, starterCount,
-  draftablePositions,
+  LEAGUE_TEMPLATES, DEFAULT_ROSTER_SLOTS, SIM_BENCH_SLOTS, IDP_POSITIONS,
+  templateFor, roundsForTemplate, starterCount, draftablePositions,
 } from './templates';
 
-describe('slot eligibility (mirror of lineup.service.js)', () => {
-  it('expands DL/LB/DB group keys to every member position', () => {
-    expect([...expandEligibility(['DL'])].sort()).toEqual(['DE', 'DL', 'DT', 'NT']);
-    expect([...expandEligibility(['RB', 'WR', 'TE'])].sort()).toEqual(['RB', 'TE', 'WR']);
-  });
-
-  it('matches the server rule set on the default slots', () => {
-    expect(slotEligible('QB', 'QB')).toBe(true);
-    expect(slotEligible('QB', 'RB')).toBe(false);
-    expect(slotEligible('FLEX', 'RB')).toBe(true);
-    expect(slotEligible('FLEX', 'QB')).toBe(false);
-    expect(slotEligible('BENCH', 'K')).toBe(true);
-    expect(slotEligible('NOPE', 'RB')).toBe(false);
-  });
-
-  it('lets a specific defensive code start in its group slot', () => {
-    const idp = templateFor('idp');
-    expect(slotEligible('DL', 'DE', idp.slots)).toBe(true);
-    expect(slotEligible('DB', 'CB', idp.slots)).toBe(true);
-    expect(slotEligible('LB', 'CB', idp.slots)).toBe(false);
-  });
-
-  it('keeps POSITION_GROUPS identical to the server groups', () => {
-    expect(POSITION_GROUPS).toEqual({
-      DL: ['DL', 'DE', 'DT', 'NT'],
-      LB: ['LB', 'ILB', 'OLB'],
-      DB: ['DB', 'CB', 'S', 'FS', 'SS'],
-    });
+// Slot-eligibility itself (POSITION_GROUPS/expandEligibility/accepts) is no
+// longer implemented or exported here (#1501: the Draft Simulator's own copy,
+// the one that omitted IR, is deleted). That coverage lives on the Roster
+// template entity's own test, src/entities/roster/model/rosterTemplateModel.test.js;
+// this file only covers what still lives here - the league shapes and the
+// derived IDP_POSITIONS/draftablePositions helpers.
+describe('IDP_POSITIONS (derived from the entity, not a re-declared group table)', () => {
+  it('is every DL/LB/DB member code', () => {
+    expect([...IDP_POSITIONS].sort()).toEqual(
+      ['CB', 'DB', 'DE', 'DL', 'DT', 'FS', 'ILB', 'LB', 'NT', 'OLB', 'S', 'SS'].sort()
+    );
   });
 });
 
@@ -49,7 +31,7 @@ describe('league templates (mirror of CommissionerTools LINEUP_TEMPLATES)', () =
     expect(superflex.slots.map((s) => s.key)).toEqual([
       'QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'SFLX',
     ]);
-    expect(slotEligible('SFLX', 'QB', superflex.slots)).toBe(true);
+    expect(superflex.slots.find((s) => s.key === 'SFLX').eligiblePositions).toContain('QB');
   });
 
   it('adds DL/LB/DB to Standard for IDP', () => {

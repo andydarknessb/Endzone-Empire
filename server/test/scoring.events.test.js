@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectScoringEvents } = require('../services/scoring.service');
+const { detectScoringEvents } = require('../services/boxScoreApply.service');
 
 test('detects a new rushing touchdown from a stat delta', () => {
   const prev = { rushingYards: 40, rushingTDs: 0 };
@@ -59,4 +59,27 @@ test('a sack is a non-touchdown moment event', () => {
   const events = detectScoringEvents({ sack: 0 }, { sack: 1 });
   assert.equal(events[0].type, 'sack');
   assert.equal(events[0].isTouchdown, false);
+});
+
+// The following moved from scoring.service.test.js (#1506, spec #1492): same
+// module (boxScoreApply.service's detectScoringEvents) as the rest of this file.
+
+test('detectScoringEvents fires a touchdown-caliber event for a new passing TD', () => {
+  const events = detectScoringEvents({ passingTDs: 1 }, { passingTDs: 2 });
+  assert.deepEqual(events, [{ type: 'passing', statKey: 'passingTDs', tdDelta: 1, isTouchdown: true }]);
+});
+
+test('detectScoringEvents fires a non-touchdown event for a new sack/field goal/fumble recovery', () => {
+  const events = detectScoringEvents(
+    { sack: 0, fieldGoal: 0, fumbleRecovery: 0 },
+    { sack: 1, fieldGoal: 1, fumbleRecovery: 1 }
+  );
+  const types = events.map((e) => e.type).sort();
+  assert.deepEqual(types, ['fieldGoal', 'fumble', 'sack']);
+  assert(events.every((e) => e.isTouchdown === false));
+});
+
+test('detectScoringEvents produces nothing for yardage-only changes or unchanged stats', () => {
+  assert.deepEqual(detectScoringEvents({ passingYards: 100 }, { passingYards: 300 }), []);
+  assert.deepEqual(detectScoringEvents({ sack: 2 }, { sack: 2 }), []);
 });

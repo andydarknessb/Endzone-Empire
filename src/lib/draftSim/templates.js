@@ -1,22 +1,26 @@
 /**
- * Roster shapes and slot-eligibility rules for the Draft Simulator.
+ * Roster shapes for the Draft Simulator.
  *
  * SYNC OBLIGATION (repo convention — see src/lib/positionCapsFeasibility.js):
- *   - POSITION_GROUPS, expandEligibility and slotEligible are hand-mirrored
- *     from server/services/lineup.service.js; if the server's group
- *     membership or slot-eligibility semantics change, change them here too.
- *     There is no shared module between client and server in this repo at
- *     runtime (react-scripts's ModuleScopePlugin confines runtime imports to
- *     src/), and these three carry no pin: nothing in the test suite would
- *     notice a miss.
- *   - DEFAULT_ROSTER_SLOTS is hand-mirrored from the pure leaf
- *     server/services/rosterSlots.js, the server's single source for this
- *     shape. It is likewise a hand-kept copy at runtime for the same
- *     ModuleScopePlugin reason, but unlike the three above it is pinned
- *     equal to the leaf by a test, templates.parity.test.js, which jest can
- *     run across that line even though the build can't. If the server's
- *     default roster shape changes, change it here too; the test will catch
- *     a miss.
+ *   - The Draft Simulator's own slot-eligibility rule (POSITION_GROUPS,
+ *     expandEligibility, slotEligible - the copy that omitted IR) is deleted
+ *     (#1501). This module, `analysis.js`, `cpuBrain.js` and `engine.js`, plus
+ *     `src/lib/rosterAssignment.js` and `shared/lib/positionChips.js`, now
+ *     import `expandEligibility`/`POSITION_GROUPS` (and `accepts` in place of
+ *     `slotEligible`) from the Roster template entity's concrete model file,
+ *     `src/entities/roster/model/rosterTemplateModel.js`, the same narrow
+ *     edge this module already used for `DEFAULT_ROSTER_SLOTS` below -
+ *     documented in that entity's own index docblock.
+ *   - DEFAULT_ROSTER_SLOTS (#1500) moved into the Roster template entity,
+ *     `src/entities/roster`'s `model/rosterTemplateModel.js`, and is
+ *     imported from there rather than declared here. The entity's own copy
+ *     is hand-mirrored from the pure leaf server/services/rosterSlots.js,
+ *     the server's single source for this shape, for the same
+ *     ModuleScopePlugin reason the other three constants above are, and is
+ *     pinned equal to the leaf by templates.parity.test.js (which still
+ *     imports `DEFAULT_ROSTER_SLOTS` from THIS module, re-exported below
+ *     unchanged) - if the server's default roster shape changes, change the
+ *     entity's copy; the test will catch a miss.
  *   - LEAGUE_TEMPLATES mirrors LINEUP_TEMPLATES in
  *     src/components/LeagueDashboard/CommissionerTools.jsx (Standard /
  *     Superflex / IDP starter) so a mock draft's roster shape is one a
@@ -26,56 +30,26 @@
  * client-side — so these are the only definitions it has.
  */
 
-/**
- * Group keys usable in a slot's eligiblePositions alongside literal position
- * codes. Mirrors lineup.service.js POSITION_GROUPS.
- */
-export const POSITION_GROUPS = {
-  DL: ['DL', 'DE', 'DT', 'NT'],
-  LB: ['LB', 'ILB', 'OLB'],
-  DB: ['DB', 'CB', 'S', 'FS', 'SS'],
-};
+// Imported from the entity's concrete model file, not its index (ADR 0029
+// normally requires the index): the index also re-exports `lineupModel.js`,
+// which reaches the `shared/lib` barrel - and that barrel exports
+// `chipsForRosterSlots` (`shared/lib/positionChips.js`), which imports THIS
+// module for `DEFAULT_ROSTER_SLOTS`/`templateFor`. Going through the index
+// would close that cycle (this module -> entities/roster index ->
+// lineupModel -> shared barrel -> positionChips -> this module,
+// mid-evaluation) and read `DEFAULT_ROSTER_SLOTS` as `undefined` at the far
+// end (#1500). The narrower edge below avoids it without losing the pin.
+// `expandEligibility` is imported the same narrow way (#1501): this module no
+// longer keeps its own slot-eligibility copy (see the file docblock).
+import { DEFAULT_ROSTER_SLOTS, expandEligibility, rosterablePositions } from '../../entities/roster/model/rosterTemplateModel';
 
-/** Every specific position code that belongs to an IDP group. */
-export const IDP_POSITIONS = [
-  ...POSITION_GROUPS.DL,
-  ...POSITION_GROUPS.LB,
-  ...POSITION_GROUPS.DB,
-];
-
-export const BENCH = 'BENCH';
+export { DEFAULT_ROSTER_SLOTS };
 
 /**
- * Mirrors server/services/rosterSlots.js DEFAULT_ROSTER_SLOTS, pinned equal
- * to it by templates.parity.test.js.
+ * Every specific position code that belongs to an IDP group (#1501: derived
+ * from the entity's `expandEligibility`, not a re-declared group table).
  */
-export const DEFAULT_ROSTER_SLOTS = [
-  { key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] },
-  { key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] },
-  { key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] },
-  { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
-  { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
-  { key: 'K', label: 'K', count: 1, eligiblePositions: ['K'] },
-  { key: 'DEF', label: 'DEF', count: 1, eligiblePositions: ['DEF'] },
-];
-
-/** A slot's eligiblePositions with DL/LB/DB group keys expanded. Mirrors lineup.service.js. */
-export function expandEligibility(eligiblePositions) {
-  const out = new Set();
-  for (const p of eligiblePositions || []) {
-    if (POSITION_GROUPS[p]) POSITION_GROUPS[p].forEach((m) => out.add(m));
-    else out.add(p);
-  }
-  return out;
-}
-
-/** Pure: may a player of this position sit in this named slot? Mirrors lineup.service.js. */
-export function slotEligible(slotKey, position, rosterSlots = DEFAULT_ROSTER_SLOTS) {
-  if (slotKey === BENCH) return true;
-  const slot = rosterSlots.find((s) => s.key === slotKey);
-  if (!slot) return false;
-  return expandEligibility(slot.eligiblePositions).has(position);
-}
+export const IDP_POSITIONS = Array.from(expandEligibility(['DL', 'LB', 'DB']));
 
 const STANDARD_LINEUP = DEFAULT_ROSTER_SLOTS;
 
@@ -140,11 +114,12 @@ export function roundsForTemplate(template) {
   return starterCount(template) + SIM_BENCH_SLOTS;
 }
 
-/** Every position code a template's slots can start (group keys expanded). */
+/**
+ * Every position code a template's slots can start (group keys expanded).
+ * Delegates to the entity's `rosterablePositions` (#1501) rather than
+ * re-walking `template.slots` here: none of the simulator's own templates
+ * carry a BENCH/IR entry, so the two answer identically.
+ */
 export function draftablePositions(template) {
-  const out = new Set();
-  for (const slot of template.slots) {
-    expandEligibility(slot.eligiblePositions).forEach((p) => out.add(p));
-  }
-  return out;
+  return rosterablePositions(template.slots);
 }

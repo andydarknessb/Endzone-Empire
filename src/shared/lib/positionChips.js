@@ -1,14 +1,28 @@
-import { DEFAULT_ROSTER_SLOTS, expandEligibility, templateFor } from '../../lib/draftSim/templates';
+import { templateFor } from '../../lib/draftSim/templates';
+// Imported from the entity's concrete model file, not its index (#1501; ADR
+// 0029 normally requires the index): the index re-exports `lineupModel.js`,
+// which reaches this very barrel (`shared/lib/index.js`), which exports
+// `chipsForRosterSlots` below - so importing the index from here would close
+// that cycle mid-evaluation (entities/roster/index.js docblock). This used to
+// read `expandEligibility` from `src/lib/draftSim/templates.js`, the Draft
+// Simulator's own copy, now deleted (#1501: templates.js no longer has one).
+// `DEFAULT_ROSTER_SLOTS` joined this same import (#1502): it used to arrive
+// via `templates.js`'s own re-export of the entity's value (`lib/draftSim/
+// templates.js` still keeps that re-export for `templates.parity.test.js`),
+// one indirection this module no longer needs now that it already reaches
+// this concrete module for `expandEligibility`.
+import { DEFAULT_ROSTER_SLOTS, expandEligibility } from '../../entities/roster/model/rosterTemplateModel';
 
 /**
  * The chip vocabulary a roster-scoped position menu offers, in the order the
  * manager sees them (#1419): "All" first, then this canonical order with any
  * key absent from the selected league's roster template dropped. There is no
- * position-group table here - expandEligibility (src/lib/draftSim/templates.js)
- * is the only one, reused rather than re-declared, the same table the Draft
- * Sim mirrors from the server's lineup.service.js. The only new list is this
- * order itself (formal review f4): whether a chip is flex-type is read from
- * the slot, not a second hand-kept list.
+ * position-group table here - expandEligibility (the Roster template entity's
+ * `model/rosterTemplateModel.js`, #1501) is the only one, reused rather than
+ * re-declared, the same table the Draft Sim mirrors from the server's
+ * lineup.service.js. The only new list is this order itself (formal review
+ * f4): whether a chip is flex-type is read from the slot, not a second
+ * hand-kept list.
  *
  * Promoted out of PlayerManagement.jsx (#1420, "no third copy"): the Draft
  * room's own player pool table reuses this derivation instead of carrying a

@@ -14,7 +14,7 @@ const extract = require('../../scripts/backtest/extract-snapshot');
 // generateProjections rather than a stand-in.
 const { generateProjections } = require('../services/projection.service');
 const model = require('../services/projectionModel');
-const { SCORING_RULES } = require('../services/scoring.service');
+const { SCORING_RULES } = require('../services/scoringRules');
 
 const { MODES } = snapshotClient;
 const OID = { int4: 23, int8: 20, text: 25, numeric: 1700, jsonb: 3802, timestamptz: 1184, bool: 16 };

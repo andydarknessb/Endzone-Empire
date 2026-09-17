@@ -244,7 +244,7 @@ test('SCORING_PROFILE_NAMES and PRIMARY_SCORING_PROFILE are the preregistered va
 // ---------------------------------------------------------------------------
 
 const runFreezeManifest = require('../scripts/run-backtest-freeze-manifest');
-const { SCORING_PRESETS } = require('../services/scoring.service');
+const { SCORING_PRESETS } = require('../services/scoringRules');
 
 test('buildScoringProfiles() produces a scoringProfiles block that validates against the real rules', () => {
   const profiles = runFreezeManifest.buildScoringProfiles();

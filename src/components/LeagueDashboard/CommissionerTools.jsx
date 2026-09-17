@@ -51,7 +51,11 @@ import {
   deriveLeaguePhase, draftSettingsFrozen, LEAGUE_PHASE, removability, removeRefusalMessage,
 } from '../../shared/lib/leaguePhase';
 import { teamNameLabel } from '../../shared/lib/teamIdentity';
-import { DEFAULT_ROSTER_SLOTS } from '../../lib/draftSim/templates';
+// Through the entity's index (ADR 0029: this legacy src/components page is
+// the sanctioned bridge) rather than src/lib/draftSim/templates.js's
+// re-export (#1501: every commissioner-tools/roster-assignment/draft-sim
+// reader of the Roster template now imports the entity directly).
+import { DEFAULT_ROSTER_SLOTS } from '../../entities/roster';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { Badge, SegmentedControl } from '../../shared/ui';
@@ -849,11 +853,11 @@ function GeneralSettingsPanel({
 // in instead of hand-building rows. Applying one only replaces the local form
 // state — nothing is saved until Save Roster Settings.
 //
-// The base seven starting slots are the pinned client copy of the standard
-// roster shape (src/lib/draftSim/templates.js's DEFAULT_ROSTER_SLOTS, held
-// equal whole-object to the server leaf server/services/rosterSlots.js by
-// templates.parity.test.js), not a fourth hand-kept copy. Those slots carry a
-// `label` field the roster form does not use: the rows read key/count/
+// The base seven starting slots are the Roster template entity's
+// DEFAULT_ROSTER_SLOTS (src/entities/roster/model/rosterTemplateModel.js,
+// held equal whole-object to the server leaf server/services/rosterSlots.js
+// by src/lib/draftSim/templates.parity.test.js), not a fourth hand-kept copy.
+// Those slots carry a `label` field the roster form does not use: the rows read key/count/
 // eligiblePositions and the save handler picks exactly those three before
 // posting, so `label` rides along in form state but never reaches the API.
 const LINEUP_TEMPLATES = [

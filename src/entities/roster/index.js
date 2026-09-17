@@ -8,8 +8,8 @@
  * the Matchup and Standings slices use). Everything else in this folder is
  * internal.
  *
- * `pairStartersBySlot`, `lineupEntries`, `eligibleSlots`, `locked` and
- * `isQuestionable` are all exported from HERE - `isQuestionable` (#1330) is
+ * `pairStartersBySlot`, `lineupEntries`, `locked` and `isQuestionable` are
+ * all exported from HERE - `isQuestionable` (#1330) is
  * the one spelling of the questionable-class injury designation (Q, D), read
  * by the team-summary-strip widget rather than that widget inventing its own
  * designation list (ADR 0029: a widget reads an entity's public surface).
@@ -23,6 +23,68 @@
  * imports `pairStartersBySlot` from HERE directly (ADR 0029 permits a page
  * importing an entity), and nothing under `entities/matchup` imports this
  * entity any more.
+ *
+ * `parseRosterTemplate`, `accepts`, `slotsFor`, `rosterablePositions` and
+ * `DEFAULT_ROSTER_SLOTS` (#1500, `model/rosterTemplateModel.js`) are the
+ * Roster template's one rule (CONTEXT.md's Roster template glossary entry):
+ * "may this position sit in this Slot" (`accepts`) and "which Slots fit this
+ * player" (`slotsFor`) answered off the same template. `DEFAULT_ROSTER_SLOTS`
+ * moved here from `src/lib/draftSim/templates.js` - templates.js's own
+ * POSITION_GROUPS/expandEligibility/slotEligible stayed put at the time
+ * (#1500), the Draft Simulator's existing hand-mirrored copy, unaffected by
+ * that move. #1501 below deletes that copy.
+ *
+ * TWO NAMED EXCEPTIONS to "through the index" (ADR 0029's 2026-09-05
+ * amendment names the entity's own index docblock as the audit surface for
+ * an entity's below-island/index edges, the same way the Matchup entity's
+ * two below-island edges are named above their own index), both existing
+ * to avoid one import cycle (formal review f3, #1500):
+ *
+ *   - `model/rosterTemplateModel.js` imports `parseRosterSlots` from the
+ *     CONCRETE `shared/lib/rosterSlots` module, not the `shared/lib` barrel
+ *     this file itself uses (line 7). The barrel also exports
+ *     `chipsForRosterSlots` (`shared/lib/positionChips.js`), which imports
+ *     `DEFAULT_ROSTER_SLOTS` from THIS SAME `model/rosterTemplateModel.js`
+ *     directly (#1502) and `templateFor` from `src/lib/draftSim/templates.js`
+ *     (which itself imports `DEFAULT_ROSTER_SLOTS` from this same model
+ *     file) - so importing the barrel from THIS file would read back into
+ *     `shared` mid-evaluation of the very model file this import statement
+ *     is on. `shared/lib/rosterSlots` is a leaf with no imports of its own,
+ *     so this narrows the edge without losing anything the barrel offered.
+ *   - `src/lib/draftSim/templates.js` imports `DEFAULT_ROSTER_SLOTS` from
+ *     `model/rosterTemplateModel.js` directly, not from THIS index - going
+ *     through this index would pull in `lineupModel.js` above (line 37),
+ *     which reaches the `shared/lib` barrel, which reaches
+ *     `positionChips.js`, which imports `templateFor` (#1502; formerly
+ *     `DEFAULT_ROSTER_SLOTS` too) from templates.js: the same cycle,
+ *     closed a different way. templates.js is legacy `src/lib`, not one of
+ *     the "page" consumers ADR 0029 names as the sanctioned index bridge;
+ *     this is a narrower, additional exception for exactly this one import,
+ *     documented at both ends (also in templates.js's own docblock).
+ *
+ * SIX MORE (#1501, same narrowing): the Draft Simulator's own slot-eligibility
+ * copy (`POSITION_GROUPS`/`expandEligibility`/`slotEligible`) is deleted, and
+ * every place that read it now reads `accepts`/`expandEligibility`/
+ * `POSITION_GROUPS` from `model/rosterTemplateModel.js` directly rather than
+ * through this index - none of `src/lib/draftSim/{templates,analysis,cpuBrain,
+ * engine}.js`, `src/lib/rosterAssignment.js` or `shared/lib/positionChips.js`
+ * is an ADR-0029 "page" consumer, so none was ever a sanctioned index bridge,
+ * and `positionChips.js` additionally sits in the same cycle the two
+ * exceptions above close (index -> lineupModel -> shared barrel ->
+ * positionChips.js). Each import is a plain read of a pure function/table,
+ * never a widened dependency: `POSITION_GROUPS` and `expandEligibility` are
+ * exported from `rosterTemplateModel.js` for exactly these six modules, and
+ * (#1502) so is `DEFAULT_ROSTER_SLOTS`, now read the same narrow way by
+ * `positionChips.js` and by `widgets/my-team-summary/model/useMyTeamSummary.js`
+ * (a widget, so it reads it through THIS index instead, ADR 0029's ordinary
+ * "through the index" rule - no exception needed there).
  */
-export { lineupModel, pairStartersBySlot, lineupEntries, eligibleSlots, locked, isQuestionable } from './model/lineupModel';
+export { lineupModel, pairStartersBySlot, lineupEntries, locked, isQuestionable } from './model/lineupModel';
 export { useTeamLineup } from './model/useTeamLineup';
+export {
+  parseRosterTemplate,
+  accepts,
+  slotsFor,
+  rosterablePositions,
+  DEFAULT_ROSTER_SLOTS,
+} from './model/rosterTemplateModel';

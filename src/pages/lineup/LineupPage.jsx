@@ -14,7 +14,7 @@ import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/swap-players';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import { useApplyAdvice } from '../../features/apply-advice';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useLiveScores } from './model/useLiveScores';
@@ -448,18 +448,24 @@ export default function LineupPage() {
         onSelect={swap.handleQuickPickSelect}
       />
       <DropConfirmationDialog entry={drop.dropCandidate} onClose={drop.closeDropConfirmation} onConfirm={drop.confirmDrop} />
+      {/* #1515 (T19): the managed set (entries/onSwap/onRequestDrop/
+          canDropEntry/bestBall/leagueUnsettled) rides inside the built
+          context now - no loose prop stays beside it. */}
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
         onClose={() => setDecisionCardEntryId(null)}
         entry={(lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null}
-        entries={lineup?.entries}
         leagueId={selectedLeagueId}
         week={lineup?.week}
-        bestBall={bestBall}
-        leagueUnsettled={leagueUnsettled}
-        onSwap={swap.performMove}
-        onRequestDrop={drop.requestDrop}
-        canDropEntry={canDropEntry}
+        context={myTeam({
+          managed: true,
+          onSwap: swap.performMove,
+          onRequestDrop: drop.requestDrop,
+          canDropEntry,
+          entries: lineup?.entries || [],
+          bestBall,
+          leagueUnsettled,
+        })}
       />
     </Box>
   );

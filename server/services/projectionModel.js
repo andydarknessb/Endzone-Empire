@@ -56,8 +56,22 @@ const crypto = require('crypto');
  * as current, and the version string also feeds `seedFrom`, so every draw
  * sequence is re-rolled with it. That re-roll is intended: the whole point is
  * that the old sequences were a function of an input we never controlled.
+ *
+ * The SUCCESSOR, free_baseline_v3.2 (ADR 0044, spec #1438), is built while
+ * this string still says v3.1: its constants live in the version-keyed
+ * MODEL_CONSTANTS_BY_VERSION registry below, outside the pinned
+ * MODEL_CONSTANTS (#1442 ruling (4)), so every v3.2 child merges inert. The
+ * holdout-confirm-2026 study is sealed on v3.1 and its evaluator drops any
+ * captured week whose constants hash disagrees with the season majority, so
+ * this string and scripts/ci/check-model-constants.js's pin stay
+ * byte-identical until the one #1438 bump after the 2026 week 18 capture
+ * closes. Until then the engine reaches v3.2 only when a caller passes
+ * MODEL_CONSTANTS_V3_2 explicitly (the successor evaluator, tests).
  */
 const MODEL_VERSION = 'free_baseline_v3.1';
+
+/** The successor's version string. Not what HEAD ships; see MODEL_VERSION. */
+const SUCCESSOR_MODEL_VERSION = 'free_baseline_v3.2';
 
 /**
  * Model constants. DEFAULTS, not fitted optimums (see the file header).
@@ -179,6 +193,7 @@ const MODEL_CONSTANTS = {
     shrinkPseudoGames: 6,
     // Hard cap on the opponent factor either way.
     maxEffect: 0.12,
+    // v3.2 adds `priorSeasonPseudoGames` here (see MODEL_CONSTANTS_V3_2).
   },
   versusOpponent: {
     // Deliberately weak: head-to-head history is mostly noise about a roster
@@ -374,6 +389,7 @@ const MODEL_CONSTANTS = {
     // spread toward it, in pseudo-observations - the same idiom as
     // `priorSeasonPseudoGames`. Read ONLY when smoothingBandwidth > 0.
     smoothingPseudoResiduals: 8,
+    // v3.2 adds `truncateAtPositionFloor` here (see MODEL_CONSTANTS_V3_2).
   },
   confidence: {
     // Effective sample size (recency-weighted games) thresholds.
@@ -382,12 +398,12 @@ const MODEL_CONSTANTS = {
     // Interval width relative to the mean, above which confidence is capped.
     wideIntervalRatio: 1.6,
   },
-  // What the LINEUP OPTIMIZER ranks players by. Distinct from what the UI
-  // displays, which stays the median (the distribution's central outcome is
-  // the honest single number to print) - this governs only which lineup the
-  // optimizer recommends.
+  // What the LINEUP OPTIMIZER ranks players by, and the point estimate the
+  // advice surfaces print (`projection.service.pointEstimateFor` reads it off
+  // the run's constants): one statistic everywhere, so the number on the row
+  // is the number the rule ranked on (#1482's consistency, #1483).
   decision: {
-    // 'median' (shipped) or 'mean'.
+    // 'median' (shipped) or 'mean' (v3.2, see MODEL_CONSTANTS_V3_2).
     //
     // The optimizer's objective is the lineup's actual total, and the
     // statistic that maximizes an EXPECTED total is the mean; weekly fantasy
@@ -401,15 +417,109 @@ const MODEL_CONSTANTS = {
     // the entire usage sweep moved regret 0.80, and the preregistered margin
     // was 0.15.
     //
-    // SHIPS 'median', the exact behavior production has always had, so this
-    // merges inert and MODEL_VERSION does not move. Two reasons it is not
-    // flipped here: the measurement above is exploratory (34 paired weeks,
-    // reconstructed rosters, no opponent/usage factors in the harness), and
-    // flipping changes which lineup the app recommends - that is the change
-    // that must ride a preregistered confirmation, not a code merge.
+    // SHIPS 'median', the exact behavior production has always had. The
+    // measurement above was exploratory and flipping changes which lineup the
+    // app recommends, so the flip is a successor change, not a merge:
+    // MODEL_CONSTANTS_V3_2 below carries 'mean' (#1483).
     lineupRanking: 'median',
   },
 };
+
+/**
+ * The SUCCESSOR's constants, free_baseline_v3.2 (ADR 0044, ADR 0047, spec
+ * #1438): v3.1's object plus exactly the ticketed deltas, derived from the
+ * live object rather than copied so the two can never drift apart by
+ * accident. Kept OUTSIDE the pinned MODEL_CONSTANTS (#1442 ruling (4)) so
+ * every v3.2 child merges inert: HEAD keeps producing v3.1 numbers, the
+ * holdout study's constants hash does not move, and the engine reaches v3.2
+ * only when a caller passes this object (the #1439 successor evaluator runs
+ * both versions from this one checkout; tests do the same). The one #1438
+ * bump, after the 2026 week 18 capture closes, swaps these values into
+ * MODEL_CONSTANTS, moves MODEL_VERSION and re-pins CI in the same commit.
+ *
+ * Every v3.2 code path is gated on one of these keys, so an object lacking
+ * it (v3.1's) behaves exactly as before the path existed:
+ *
+ *  - `decision.lineupRanking: 'mean'` (#1483). The optimizer ranks on the
+ *    distribution mean and `pointEstimateFor` prints the same statistic. v3.1
+ *    shipped 'median' because the frozen-artifact measurement was
+ *    exploratory; the week 1 2026 holdout audit agreed with it (mean Spearman
+ *    .589 / pairwise .712 against median .577 / .707), and in week 2 2026 the
+ *    median ranked Terry McLaurin (mean 7.37 / median 10.06) over DK Metcalf
+ *    (mean 9.03 / median 8.21) against every computed input, because a
+ *    skewed residual pool pushed one player's median above his mean. The
+ *    preregistered Candidate A test on the v3.1 ledger still runs and its
+ *    verdict is recorded regardless.
+ *  - `simulation.truncateAtPositionFloor: true` (#1483). The simulated draws
+ *    are truncated at the Position floor before the quantiles are read. The
+ *    residual bootstrap resamples a player's own residuals scaled 1.45x about
+ *    their median, and a pool dominated by games above a week-1-deflated
+ *    baseline produced a -7.3 Floor for a WR in week 2 2026, a value no real
+ *    game has ever scored. The floor itself is DATA (the lowest points any
+ *    player of the position group scored over the prior season and the
+ *    current season to date under the run's own scoring rules), computed by
+ *    the feature loader per run; the flag only says whether
+ *    simulateDistribution applies it. Truncation cannot move the median (it
+ *    would need more than half the draws below the floor) and never touches
+ *    `mean`, which is reported from the input; only the impossible tail is
+ *    removed, which is also what stops probabilityBetter being fed a
+ *    fictional negative outcome.
+ *  - `opponent.priorSeasonPseudoGames: 4` (#1485). How many games of
+ *    evidence the PRIOR season's points-allowed ratio is worth when seeding a
+ *    defense's current-season allowance, the same pseudo-game idiom as
+ *    `baseline.priorSeasonPseudoGames`: the blended ratio is
+ *    (games * currentRatio + 4 * priorRatio) / (games + 4), so the prior
+ *    carries the factor through weeks 1-4 and fades as real games accrue. 4
+ *    makes week 1 exactly meet `minGames`, which is the point: the factor is
+ *    live from week 1 on last season's evidence rather than reporting
+ *    "insufficient opponent sample" while the card prints the matchup as if
+ *    it mattered. The cap and the shrinkage toward neutral are untouched.
+ *
+ * All three are DEFAULTS, not fitted values, preregistered once and judged
+ * on the 2026 holdout ledger through #1439 with the rest of v3.2; no sweep
+ * on that ledger.
+ */
+function cloneConstants(value) {
+  if (Array.isArray(value)) return value.map(cloneConstants);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = cloneConstants(value[key]);
+    return out;
+  }
+  return value;
+}
+
+function deepFreeze(o) {
+  for (const k of Object.keys(o)) if (o[k] && typeof o[k] === 'object') deepFreeze(o[k]);
+  return Object.freeze(o);
+}
+
+const MODEL_CONSTANTS_V3_2 = (() => {
+  const v32 = cloneConstants(MODEL_CONSTANTS);
+  v32.decision.lineupRanking = 'mean';
+  v32.simulation.truncateAtPositionFloor = true;
+  v32.opponent.priorSeasonPseudoGames = 4;
+  return deepFreeze(v32);
+})();
+
+/**
+ * Version string -> constants, for every version this checkout can run. The
+ * successor evaluator registers from this map; `projection.service` reads a
+ * run's constants back from its `modelVersion` through `constantsForVersion`
+ * so a display decision (which statistic to print) follows the run that
+ * produced the row, never the module default.
+ */
+const MODEL_CONSTANTS_BY_VERSION = Object.freeze({
+  [MODEL_VERSION]: MODEL_CONSTANTS,
+  [SUCCESSOR_MODEL_VERSION]: MODEL_CONSTANTS_V3_2,
+});
+
+/** Pure: the constants a version string names, or null for a version this checkout cannot run. */
+function constantsForVersion(modelVersion) {
+  return Object.prototype.hasOwnProperty.call(MODEL_CONSTANTS_BY_VERSION, modelVersion)
+    ? MODEL_CONSTANTS_BY_VERSION[modelVersion]
+    : null;
+}
 
 // Position groupings for the opponent / positional-baseline factors. DEF
 // (team defense), K and the individual-defender group are kept SEPARATE from
@@ -737,6 +847,22 @@ const NEUTRAL = (reason, extra = {}) => ({ available: false, effect: 0, reason, 
  * Raw "fantasy points allowed" is famously misleading over a handful of games
  * (it mostly measures who a defense happened to play), which is exactly why
  * the shrinkage and the minimum-games gate are not optional here.
+ *
+ * Prior-season seeding (#1485, v3.2): `priorAllowedPerGame` /
+ * `priorLeagueAveragePerGame` are the SAME two numbers for last season, and
+ * `constants.priorSeasonPseudoGames` (absent under the shipped MODEL_CONSTANTS, which has
+ * no such key) says how many games of evidence the prior season's ratio is
+ * worth. When it applies, the prior ratio is blended into the current-season
+ * ratio as PSEUDO-GAMES of evidence: `effectiveGames = games +
+ * priorSeasonPseudoGames`, exactly the idiom `baseline.priorSeasonPseudoGames`
+ * already uses, then that blended ratio is what gets shrunk and capped, with
+ * `effectiveGames` (not the observed `games`) as the shrinkage's evidence
+ * count. This is what lets the factor be live from week 1 on last season's
+ * numbers instead of reporting "insufficient opponent sample" every opener.
+ * With no prior season available (either input missing, or the constants have
+ * no positive `priorSeasonPseudoGames`), the seed contributes nothing and this
+ * function returns EXACTLY what it always has, same keys, same NEUTRAL
+ * reasons, which is what keeps the shipped v3.1 constants byte-identical in output.
  */
 function opponentEffect({
   allowedPerGame,
@@ -744,28 +870,77 @@ function opponentEffect({
   games,
   opponentTeam = null,
   constants = MODEL_CONSTANTS.opponent,
+  priorAllowedPerGame = null,
+  priorLeagueAveragePerGame = null,
 } = {}) {
-  if (!isNum(allowedPerGame) || !isNum(leagueAveragePerGame) || Number(leagueAveragePerGame) <= 0) {
-    return NEUTRAL('no opponent data', { opponentTeam: opponentTeam || null });
-  }
   const observedGames = Math.max(0, Number(games) || 0);
-  if (observedGames < constants.minGames) {
+  const priorPseudo =
+    isNum(constants.priorSeasonPseudoGames) && Number(constants.priorSeasonPseudoGames) > 0
+    && isNum(priorAllowedPerGame) && isNum(priorLeagueAveragePerGame)
+    && Number(priorLeagueAveragePerGame) > 0
+      ? Number(constants.priorSeasonPseudoGames)
+      : 0;
+
+  if (priorPseudo === 0) {
+    // No prior season to seed from: identical to the pre-#1485 function.
+    if (!isNum(allowedPerGame) || !isNum(leagueAveragePerGame) || Number(leagueAveragePerGame) <= 0) {
+      return NEUTRAL('no opponent data', { opponentTeam: opponentTeam || null });
+    }
+    if (observedGames < constants.minGames) {
+      return NEUTRAL('insufficient opponent sample', {
+        opponentTeam: opponentTeam || null,
+        games: observedGames,
+      });
+    }
+    const ratio = Number(allowedPerGame) / Number(leagueAveragePerGame);
+    const shrunk =
+      (observedGames * ratio + constants.shrinkPseudoGames * 1) /
+      (observedGames + constants.shrinkPseudoGames);
+    return {
+      available: true,
+      effect: clamp(shrunk - 1, constants.maxEffect),
+      opponentTeam: opponentTeam || null,
+      games: observedGames,
+      allowedPerGame: round2(allowedPerGame),
+      leagueAveragePerGame: round2(leagueAveragePerGame),
+    };
+  }
+
+  // Seeded path: the prior season's ratio extends the sample as pseudo-games.
+  const priorRatio = Number(priorAllowedPerGame) / Number(priorLeagueAveragePerGame);
+  const currentRatio =
+    isNum(allowedPerGame) && isNum(leagueAveragePerGame)
+    && Number(leagueAveragePerGame) > 0 && observedGames > 0
+      ? Number(allowedPerGame) / Number(leagueAveragePerGame)
+      : null;
+  const effectiveGames = observedGames + priorPseudo;
+  const blendedRatio = currentRatio == null
+    ? priorRatio
+    : (observedGames * currentRatio + priorPseudo * priorRatio) / effectiveGames;
+
+  if (effectiveGames < constants.minGames) {
     return NEUTRAL('insufficient opponent sample', {
       opponentTeam: opponentTeam || null,
       games: observedGames,
+      effectiveGames,
     });
   }
-  const ratio = Number(allowedPerGame) / Number(leagueAveragePerGame);
+
   const shrunk =
-    (observedGames * ratio + constants.shrinkPseudoGames * 1) /
-    (observedGames + constants.shrinkPseudoGames);
+    (effectiveGames * blendedRatio + constants.shrinkPseudoGames * 1) /
+    (effectiveGames + constants.shrinkPseudoGames);
   return {
     available: true,
     effect: clamp(shrunk - 1, constants.maxEffect),
     opponentTeam: opponentTeam || null,
     games: observedGames,
-    allowedPerGame: round2(allowedPerGame),
-    leagueAveragePerGame: round2(leagueAveragePerGame),
+    allowedPerGame: isNum(allowedPerGame) ? round2(allowedPerGame) : null,
+    leagueAveragePerGame: isNum(leagueAveragePerGame) ? round2(leagueAveragePerGame) : null,
+    effectiveGames,
+    priorSeasonPseudoGames: priorPseudo,
+    priorAllowedPerGame: round2(priorAllowedPerGame),
+    priorLeagueAveragePerGame: round2(priorLeagueAveragePerGame),
+    seededFromPriorSeason: true,
   };
 }
 
@@ -1111,8 +1286,22 @@ function standardNormal(rand) {
  *
  * Residuals come from the player's own league-scored prior games when he has
  * enough of them, otherwise from the pooled position-level residuals. Negative
- * draws are NOT clamped: IDP and DST scoring produce genuinely negative weeks,
- * and clipping them would quietly bias every interval upward.
+ * draws are NOT clamped by default: IDP and DST scoring produce genuinely
+ * negative weeks, and clipping them would quietly bias every interval upward.
+ *
+ * `floor` (#1483, v3.2) is the one deliberate exception, and it is opt-in
+ * twice over: it only clamps a draw when `constants.truncateAtPositionFloor`
+ * is true AND a finite `floor` was actually supplied. The floor itself is
+ * DATA (the lowest points any player of the position group scored over the
+ * prior season and current season to date, computed by the feature loader), never a constant, so this
+ * function only applies it; it does not decide what it is. Clamping runs
+ * AFTER the smoothing drift correction and BEFORE the quantiles are read, so
+ * it can only ever raise the bottom of the sorted draw set, never shift its
+ * center: `mean` is reported from the input either way, and `median` moves
+ * only in the fixture that must not occur in practice - more than half the
+ * draws sitting below the floor. `truncatedBelowFloor` reports how many draws
+ * were actually clamped (0 whenever the flag/floor combination did not apply),
+ * which is what lets a caller tell whether the reported p10 was pinned.
  *
  * "Deterministic" here means deterministic in the CONTENT of its inputs, not
  * merely in its seed. Residuals are sampled by INDEX, so the caller's array
@@ -1120,8 +1309,8 @@ function standardNormal(rand) {
  * (a different query plan upstream, a row order Postgres never promised) would
  * produce different draws, hence a different median and different quantiles,
  * from identical data. The pool is therefore canonically sorted before any
- * draw. The invariant is: same residual multiset, mean, constants and seed =>
- * byte-identical output, whatever order the residuals came in.
+ * draw. The invariant is: same residual multiset, mean, constants, seed and
+ * floor => byte-identical output, whatever order the residuals came in.
  */
 function simulateDistribution({
   mean,
@@ -1129,9 +1318,16 @@ function simulateDistribution({
   pooledResiduals = [],
   seed = 0,
   constants = MODEL_CONSTANTS.simulation,
+  // The position floor (#1483, v3.2): DATA computed by the feature loader,
+  // never a constant. Only consulted when `constants.truncateAtPositionFloor`
+  // is also true; see the function docblock.
+  floor = null,
 }) {
   if (!isNum(mean)) {
-    return { mean: null, median: null, p10: null, p25: null, p75: null, p90: null, residualSource: null };
+    return {
+      mean: null, median: null, p10: null, p25: null, p75: null, p90: null,
+      residualSource: null, truncatedBelowFloor: 0,
+    };
   }
   // `.filter().map()` already yields fresh arrays, so nothing below can reach
   // the caller's own arrays; the sort is applied to these copies deliberately
@@ -1164,7 +1360,10 @@ function simulateDistribution({
     // No dispersion evidence at all: report the point estimate and say so,
     // rather than manufacturing an interval out of nothing.
     const point = round2(mean);
-    return { mean: point, median: point, p10: null, p25: null, p75: null, p90: null, residualSource: null };
+    return {
+      mean: point, median: point, p10: null, p25: null, p75: null, p90: null,
+      residualSource: null, truncatedBelowFloor: 0,
+    };
   }
 
   const rand = mulberry32(seed);
@@ -1215,6 +1414,30 @@ function simulateDistribution({
       for (let i = 0; i < draws.length; i++) draws[i] -= drift;
     }
   }
+
+  // Position-floor truncation (#1483, v3.2): opt-in on the flag AND a real
+  // floor, applied AFTER the drift correction above and BEFORE the quantiles
+  // below are read. `draws` is already ascending, so `Math.max` is a
+  // monotone transform and needs no re-sort; counting draws below the floor
+  // BEFORE clamping (rather than after) is what makes `truncatedBelowFloor`
+  // mean "how many draws this actually changed", not merely "how many now
+  // equal the floor" - a distinction that matters whenever a draw already
+  // happened to land exactly on it.
+  let truncatedBelowFloor = 0;
+  if (constants.truncateAtPositionFloor === true && isNum(floor)) {
+    const floorValue = Number(floor);
+    for (let i = 0; i < draws.length; i++) {
+      if (draws[i] < floorValue) {
+        truncatedBelowFloor += 1;
+        draws[i] = floorValue;
+      } else {
+        // Ascending order means every later draw is >= this one, so once a
+        // draw clears the floor none of the rest can be below it either.
+        break;
+      }
+    }
+  }
+
   return {
     mean: round2(mean),
     median: round2(quantile(draws, 0.5)),
@@ -1223,6 +1446,7 @@ function simulateDistribution({
     p75: round2(quantile(draws, 0.75)),
     p90: round2(quantile(draws, 0.9)),
     residualSource,
+    truncatedBelowFloor,
   };
 }
 
@@ -1337,6 +1561,12 @@ function projectPlayer({
   availability = null,
   hasRoleData = true,
   constants = MODEL_CONSTANTS,
+  // The position floor (#1483, v3.2): DATA (the lowest points any player of
+  // this position group scored over the prior season and the current season to date under the run's own
+  // scoring rules), computed by the feature loader and forwarded verbatim to
+  // `simulateDistribution` as `floor`. Null means the caller had no floor to
+  // give (a hand-built fixture, or a group/scope with no scanned rows).
+  positionFloor = null,
   // Gate 2 sweep seam (PHASE5_EXECUTION_SPEC.md section 6.5). Validated
   // unconditionally, at the top of the function body, before ANY other
   // logic - including before the `baseline.value == null` early return
@@ -1492,6 +1722,7 @@ function projectPlayer({
     pooledResiduals,
     seed: seedFrom(modelVersion, scoringHashValue, season, week, playerId),
     constants: constants.simulation,
+    floor: positionFloor,
   });
 
   const confidence = confidenceFor({
@@ -1520,6 +1751,15 @@ function projectPlayer({
     reasons: confidence.reasons,
     residualSource: distribution.residualSource,
   };
+  // #1483: only added when the flag is actually on, so a v3.1 payload (no
+  // `truncateAtPositionFloor` key) is byte-identical to what it always was.
+  // `floorTruncated` reads `truncatedBelowFloor` rather than re-deriving "was
+  // the untruncated p10 below the floor" itself, so this can never disagree
+  // with what simulateDistribution actually did.
+  if (constants.simulation && constants.simulation.truncateAtPositionFloor === true) {
+    factors.dataQuality.positionFloor = isNum(positionFloor) ? Number(positionFloor) : null;
+    factors.dataQuality.floorTruncated = distribution.truncatedBelowFloor > 0;
+  }
 
   return {
     playerId,
@@ -1544,6 +1784,10 @@ function projectPlayer({
 module.exports = {
   MODEL_VERSION,
   MODEL_CONSTANTS,
+  SUCCESSOR_MODEL_VERSION,
+  MODEL_CONSTANTS_V3_2,
+  MODEL_CONSTANTS_BY_VERSION,
+  constantsForVersion,
   IDP_POSITIONS,
   positionGroup,
   canonicalJson,

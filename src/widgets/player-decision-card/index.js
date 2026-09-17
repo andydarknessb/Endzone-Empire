@@ -1,10 +1,13 @@
 /**
  * Public surface of the player-decision-card widget (#1240, ADR 0037; #1307,
- * ADR 0040 extends it with an availability `context`; #1311 adds
- * `contextFromCard`; #1313 adds the `draft` context, not an Availability
- * state). The Lineup page, WaiverWire, PlayerManagement, TradeCenter,
- * TransactionLog, MatchupPage and now the Draft room (DraftBoard.jsx, in
- * place of its own `DraftQuickView`) import from HERE only.
+ * ADR 0040 extends it with an availability `context`; #1311 adds deferring
+ * `kind` to the fetched `/card` payload, originally via a loose
+ * `contextFromCard` prop and, since #1514, via the `fromCard()` builder's own
+ * `context.fromCard` flag; #1313 adds the `draft` context, not an
+ * Availability state). The Lineup page, WaiverWire, PlayerManagement,
+ * TradeCenter, TransactionLog, MatchupPage and now the Draft room
+ * (DraftBoard.jsx, in place of its own `DraftQuickView`) import from HERE
+ * only.
  *
  * `ui/PlayerDecisionCard.jsx` reads `MIN_TOUCH_TARGET_SX` and
  * `NFL_TEAM_COLORS`/`FALLBACK_KIT` from `shared/lib` - ordinary island
@@ -52,14 +55,19 @@
  *     every Availability context (never `draft`) - the same widget-reads-a-
  *     feature-through-its-own-public-index shape `add-player`/`claim-player`
  *     already establish two paragraphs up. The Draft room's own `draft`
- *     context never renders this button (DraftBoard.jsx always passes
- *     `context="draft"`), but the import stays static like its two
- *     neighbours: ADR 0014's Consequences require an endpoint entering the
- *     Draft room's closure to land with a harness entry or a declared
- *     exemption in the same PR (`tests/e2e/fixtures/draftRouteTable.js`),
+ *     context never renders this button (DraftBoard.jsx always passes a
+ *     `draft({...})` built context, #1514), but the import stays static like
+ *     its two neighbours: ADR 0014's Consequences require an endpoint
+ *     entering the Draft room's closure to land with a harness entry or a
+ *     declared exemption in the same PR (`tests/e2e/fixtures/draftRouteTable.js`),
  *     the same treatment `add-player`/`claim-player` already get there -
  *     never a mechanism, like a dynamic `import()`, that hides the edge from
  *     that guard instead of declaring it (formal review finding f1).
  */
 export { default as PlayerDecisionCard } from './ui/PlayerDecisionCard';
 export { default } from './ui/PlayerDecisionCard';
+
+// #1512: the six pure context builders (`model/decisionContext.js`, beside
+// `model/slotActions.js`) - the ONLY way a caller should build the `context`
+// object below; the widget's public surface, same as the component itself.
+export { myTeam, freeAgent, waivers, rostered, draft, fromCard } from './model/decisionContext';

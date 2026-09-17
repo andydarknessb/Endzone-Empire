@@ -93,7 +93,7 @@ async function weekMaps({ season, week, now }) {
   const key = `${season}:${week}`;
   const cached = mapsCache.get(key);
   if (cached && now - cached.loadedAt < MAPS_TTL_MS) return cached.maps;
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/boxScoreApply.service');
   const maps = await scoring.loadWeekMaps({ season, week });
   mapsCache.set(key, { maps, loadedAt: now });
   return maps;
@@ -175,11 +175,11 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
   const rescored = [];
   const due = gate.due(now);
   if (due.length > 0) {
-    const scoring = require('../services/scoring.service');
+    const matchupScoring = require('../services/matchupScoring.service');
     const scheduler = require('./scheduler');
     for (const { leagueId, plays: leaguePlays } of due) {
       try {
-        const { scored } = await scoring.scoreMatchups({ leagueId, season, week, plays: leaguePlays });
+        const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays: leaguePlays });
         gate.markRan(leagueId, now);
         rescored.push(leagueId);
         await scheduler.alertCloseMatchups({ leagueId, week, scored });

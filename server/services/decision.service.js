@@ -15,6 +15,7 @@ const {
   optimalLineup,
   parseLineupSettings,
   slotEligible,
+  eligibleSlotsFor,
   materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
@@ -28,7 +29,7 @@ const { normalizeNflTeam } = require('./nflTeam');
 // custom-scoring league's advisors never contradict its settled score (#739,
 // ADR 0024). They read `player_stats.stats`, never the stored
 // `fantasy_points` column, which is the DEFAULT-rules price.
-const { calculateFantasyPoints, rulesForLeague } = require('./scoring.service');
+const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { countedRoster } = require('./countedRoster.service');
 
 class DecisionError extends Error {
@@ -233,11 +234,15 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     pinned,
   });
 
-  // The DISPLAYED optimal total is always median-based points, whatever the
-  // optimizer ranked by: under 'mean' the assignment's own totals are means,
-  // and printing a mean next to per-player medians would be a total that does
-  // not add up on screen. At 'median' the maps are the same object and this
-  // recomputation reproduces optimal.total exactly.
+  // The DISPLAYED optimal total is always the DISPLAYED points
+  // (`effectivePointsFor`, projection.service.js's `pointEstimateFor` -
+  // #1483 - the mean under the shipped v3.2 constants, the median under
+  // v3.1), whatever statistic the optimizer itself ranked by: under 'mean'
+  // ranking the two happen to be the same statistic today, but this
+  // recomputation is what keeps the total adding up on screen even if that
+  // ever changes, rather than mixing a ranking-only statistic into a row of
+  // displayed per-player numbers. At 'median' the maps are the same object
+  // and this recomputation reproduces optimal.total exactly.
   let optimalTotal = optimal.total;
   if (rankingPointsFor !== effectivePointsFor) {
     let displayTotal = 0;
@@ -392,7 +397,19 @@ async function startSitAdvice({ leagueId, userId, week }) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;
     const teamDefense = opponent ? defense.get(opponent) : null;
     const opponentPointsAllowed = teamDefense ? teamDefense[entry.position] ?? null : null;
-    defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed });
+    // #1485: whether the projection engine actually APPLIED an opponent
+    // factor for this player, as opposed to `opponentPointsAllowed` above
+    // merely being displayable. The two can now disagree: `opponentPointsAllowed`
+    // reads getPositionDefense's raw allowance regardless of sample size,
+    // while the engine's own `factors.opponent.available` is the gated,
+    // shrunk-and-possibly-seeded value that actually moved the projection.
+    // Read straight off the projection the client will show, so a lineup that
+    // only ever displays one number cannot silently disagree with itself.
+    const detail = detailOf(projections, entry.id);
+    const opponentApplied = Boolean(
+      detail.factors && detail.factors.opponent && detail.factors.opponent.available
+    );
+    defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed, opponentApplied });
   }
 
   const lineupEntries = lineup.entries.map((e) => ({
@@ -405,11 +422,16 @@ async function startSitAdvice({ leagueId, userId, week }) {
     onBye: Boolean(e.onBye),
   }));
 
+  // The ranking statistic comes from the RUN's constants (#1483), read back
+  // off the run's modelVersion, so a successor run ranks and displays the
+  // same number and a v3.1 run keeps ranking on the median.
+  const runConstants = projectionModel.constantsForVersion(run.modelVersion) || projectionModel.MODEL_CONSTANTS;
   const plan = buildSuggestions(
     lineupEntries,
     projections,
     defenseByPlayer,
-    lineup.rosterSlots
+    lineup.rosterSlots,
+    { lineupRanking: (runConstants.decision || {}).lineupRanking }
   );
 
   const players = lineupEntries.map((entry) => {
@@ -943,13 +965,6 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 // ---------------------------------------------------------------------------
 // 4. Waiver suggestions
 // ---------------------------------------------------------------------------
-
-/** Pure: the roster slots (FLEX included) a position is eligible to start in, given `rosterSlots`. */
-function eligibleSlotsFor(position, rosterSlots) {
-  return rosterSlots
-    .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
-    .map((s) => s.key);
-}
 
 /**
  * Pure: the caller's weakest starter among `currentStarters` sitting at a slot

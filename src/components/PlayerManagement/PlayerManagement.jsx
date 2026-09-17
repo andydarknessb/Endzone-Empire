@@ -36,7 +36,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import SwapVertIcon from "@mui/icons-material/SwapVert";
 import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
-import PlayerDecisionCard from "../../widgets/player-decision-card";
+import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import SegmentedControl from "../../shared/ui/SegmentedControl";
@@ -543,10 +543,12 @@ function PlayerManagement() {
         }
       : null);
   const quickViewContext = quickViewPlayer ? availabilityOf(quickViewPlayer) : "my_team";
-  // #1307, ADR 0040: the availability action bar's own copy (roster count
-  // for the drop-pick gate, priority/FAAB for a claim) - `rostered`'s team
-  // name isn't on this route yet (ADR 0040's Plan, a later slice), so its
-  // action bar renders the plain Propose-trade link with no team name line.
+  // #1307, ADR 0040: the free-agent/waivers action bar's own copy (roster
+  // count for the drop-pick gate, priority/FAAB for a claim). `rostered`'s
+  // own availability (below, `quickViewPlayer.availability`) already carries
+  // `teamName` when known - #1515 (T19) is what lets the card actually show
+  // it now that `context.availability` is read for every kind, not only the
+  // loose prop the free_agent/waivers branches used before.
   const quickViewAvailability =
     quickViewContext === "free_agent"
       ? { rosterCount: marketContext?.rosterCount, rosterCapacity: marketContext?.rosterCapacity }
@@ -558,6 +560,32 @@ function PlayerManagement() {
           faabRemaining: marketContext?.waiverType === "faab" ? marketContext?.faabRemaining : undefined,
         }
       : undefined;
+  // #1513, ADR 0040 follow-up: the built context, picked by the same
+  // `quickViewContext` state above. `rostered` reads the row's own
+  // `availability` fact directly (it already carries `teamName` when known,
+  // same as the Trade action's helper text below). #1515 (T19): every
+  // builder here also carries the prev/next pair over this page's own
+  // player list. Formal review f1: `onActionDone` (the Watch toggle's
+  // refresh, spec #1494's action-done callback for the two acquire builders
+  // too) goes to all four now - AC4 ("every surface's card behaviour is
+  // unchanged") means the own-player and rostered opens keep the SAME
+  // refresh-after-Watch they had before this ticket, via the loose prop
+  // every context shared.
+  const quickViewShared = {
+    playerIds: players.map((player) => player.id),
+    onNavigate: setQuickViewId,
+    onActionDone: refreshAfterAction,
+  };
+  const quickViewBuiltContext =
+    !quickViewPlayer
+      ? myTeam({ managed: false, ...quickViewShared })
+      : quickViewContext === "free_agent"
+      ? freeAgent({ availability: quickViewAvailability, roster, ...quickViewShared })
+      : quickViewContext === "waivers"
+      ? waivers({ availability: quickViewAvailability, roster, ...quickViewShared })
+      : quickViewContext === "rostered"
+      ? rostered({ availability: quickViewPlayer.availability || {}, ...quickViewShared })
+      : myTeam({ managed: false, ...quickViewShared });
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
   const columnCount = playerRowColumnCount(bestBall);
   // #1312 Ruling: the Watching toggle's own client-side filter, applied to
@@ -960,12 +988,7 @@ function PlayerManagement() {
         onClose={() => setQuickViewId(null)}
         entry={toDecisionCardEntry(quickViewPlayer)}
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
-        context={quickViewContext}
-        availability={quickViewAvailability}
-        roster={roster}
-        onActionDone={refreshAfterAction}
-        playerIds={players.map((player) => player.id)}
-        onNavigate={setQuickViewId}
+        context={quickViewBuiltContext}
       />
     </Box>
   );

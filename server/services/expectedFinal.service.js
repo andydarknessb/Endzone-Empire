@@ -106,7 +106,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   // Required lazily: scoring.service reads this module from inside its own
   // live-score pass, so a top-level require in both directions would leave
   // one side with an empty export object at load time.
-  const { rulesForLeague, calculateFantasyPoints } = require('./scoring.service');
+  const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
   const rules = rulesForLeague(league);
 
   const candidateRows = await db.query(

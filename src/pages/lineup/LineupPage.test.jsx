@@ -124,6 +124,16 @@ const entryRow = (over = {}) => ({
   position: 'QB',
   nfl_team: 'BUF',
   slot: 'QB',
+  // #1482: `projected_points` is the wire's own Point estimate (CONTEXT.md,
+  // The projection engine) - the Ledger row's headline number, and (formal
+  // review round 2) the Decision card's Proj text/RangeBar marker and Bench
+  // options number/sort, since this ticket. `projection` is a separate
+  // field, the distribution's bare mean, that nothing on the Lineup page
+  // reads for display any more. Defaulted equal to `projection` here since
+  // this fixture isn't testing the two statistics diverging (LedgerRow.test
+  // .jsx and PlayerDecisionCard.test.jsx own that case); a caller that
+  // overrides `projection` overrides this alongside it.
+  projected_points: 10,
   projection: 10,
   floor: 5,
   ceiling: 15,
@@ -159,25 +169,25 @@ const lineupBody = (overrides = {}) => ({
     // 90th percentile as the mean).
     entryRow({
       id: 1, name: 'Josh Allen', position: 'QB', slot: 'QB', nfl_team: 'BUF',
-      opponent: 'KC', game_key: 'g1', locked: true, projection: 24.3, floor: 18, ceiling: 30,
+      opponent: 'KC', game_key: 'g1', locked: true, projected_points: 24.3, projection: 24.3, floor: 18, ceiling: 30,
     }),
     // Unlocked RB, final Game cell (liveGameRows below), Edge line kind "result".
     entryRow({
       id: 2, name: 'Derrick King', position: 'RB', slot: 'RB', nfl_team: 'BAL',
-      opponent: 'CIN', game_key: 'g2', locked: false, projection: 15,
+      opponent: 'CIN', game_key: 'g2', locked: false, projected_points: 15, projection: 15,
       edge: { kind: 'result', text: 'Beat projection by 2.1 pts' },
     }),
     // Empty WR starting slot: the swap target.
     // Bench player, Unavailable (out), Edge line kind "injury".
     entryRow({
       id: 10, name: 'Bench Guy', position: 'WR', slot: 'BENCH', nfl_team: 'MIA',
-      injury_status: 'O', projection: null,
+      injury_status: 'O', projected_points: null, projection: null,
       edge: { kind: 'injury', text: 'Out' },
     }),
     // IR player, attested stash.
     entryRow({
       id: 20, name: 'Attested Guy', position: 'RB', slot: 'IR', nfl_team: 'DAL',
-      injury_status: 'IR', ir_attested: true, valid_stash: true, projection: null,
+      injury_status: 'IR', ir_attested: true, valid_stash: true, projected_points: null, projection: null,
     }),
     ...(overrides.extraEntries || []),
   ],
@@ -673,9 +683,11 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
   expect(within(card).getByRole('heading', { name: 'Josh Allen' })).toBeInTheDocument();
   // The row's own fields (AC1: paints immediately, before the extras load).
   // Formal review round 2 finding r6: this is the one page-level case that
-  // must carry a genuinely populated mean (Josh Allen's fixture projection
-  // is 24.3), not just prove the RangeBar mounted - a null-projection
-  // subject would pass this assertion even with the mean broken.
+  // must carry a genuinely populated Point estimate (Josh Allen's fixture
+  // projectedPoints is 24.3), not just prove the RangeBar mounted - a
+  // null-estimate subject would pass this assertion even with the number
+  // broken. (#1482, formal-002-f1: the RangeBar marker reads projectedPoints,
+  // not projection; this fixture keeps both equal, so the value is unchanged.)
   expect(within(card).getByTestId('decision-card-range-bar')).toHaveAttribute(
     'aria-label',
     'Josh Allen, Floor 18.0, Projection 24.3, Ceiling 30.0'
@@ -746,8 +758,8 @@ test('a swap from bench options moves the opened starter and the chosen bench pl
     [LINEUP_URL]: {
       data: lineupBody({
         extraEntries: [
-          entryRow({ id: 40, name: 'Bench RB Fast', slot: 'BENCH', position: 'RB', nfl_team: 'MIA', projection: 9 }),
-          entryRow({ id: 41, name: 'Bench RB Locked', slot: 'BENCH', position: 'RB', nfl_team: 'NYJ', projection: 20, locked: true }),
+          entryRow({ id: 40, name: 'Bench RB Fast', slot: 'BENCH', position: 'RB', nfl_team: 'MIA', projected_points: 9, projection: 9 }),
+          entryRow({ id: 41, name: 'Bench RB Locked', slot: 'BENCH', position: 'RB', nfl_team: 'NYJ', projected_points: 20, projection: 20, locked: true }),
         ],
       }),
     },

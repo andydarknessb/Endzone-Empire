@@ -7,7 +7,7 @@ const { signToken } = require('../modules/auth');
 const leagueRouter = require('../routes/league.router');
 const projectionService = require('../services/projection.service');
 const lineupService = require('../services/lineup.service');
-const scoringService = require('../services/scoring.service');
+const scoringService = require('../services/scoringRules');
 const decisionService = require('../services/decision.service');
 
 /**

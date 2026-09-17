@@ -9,7 +9,7 @@ const {
   removeLineupEntries,
   materializeLineup,
 } = require('../services/lineup.service');
-const { scoreMatchups } = require('../services/scoring.service');
+const { scoreMatchups } = require('../services/matchupScoring.service');
 const { finalizeWeekAndAdvance } = require('../services/season.service');
 const { correctLeagueWeek } = require('../services/correction.service');
 const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
@@ -1353,7 +1353,7 @@ test.after(() => {
 });
 
 test('#190 advance-week asks for settle semantics, pinned to the week it is closing', async (t) => {
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/matchupScoring.service');
   const season = require('../services/season.service');
   const montecarlo = require('../services/montecarlo.service');
 
@@ -1418,10 +1418,12 @@ test('#190 the scoreMatchups docstring describes three populations', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(
-    path.join(__dirname, '..', 'services', 'scoring.service.js'),
+    path.join(__dirname, '..', 'services', 'matchupScoring.service.js'),
     'utf8'
   );
-  const docstring = source.slice(0, source.indexOf('async function scoreMatchups'));
+  const anchorIdx = source.indexOf('async function scoreMatchups');
+  assert.ok(anchorIdx >= 0, 'scoreMatchups must still be found, or this test is checking nothing');
+  const docstring = source.slice(0, anchorIdx);
   const comment = docstring.slice(docstring.lastIndexOf('/**'));
   for (const population of ['Live', 'Settle', 'Final']) {
     assert.match(comment, new RegExp(`- \\*?${population} `, 'i'),

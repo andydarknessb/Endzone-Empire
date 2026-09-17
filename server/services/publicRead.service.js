@@ -26,10 +26,12 @@ const { computeByeWeeks } = require('./bye.service');
 const { upcomingNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { calculateFantasyPoints, SCORING_PRESETS } = require('./scoringRules');
+const { IDP_POSITIONS } = require('./feedSyncRuns.service');
 const {
-  calculateFantasyPoints, SCORING_PRESETS, IDP_POSITIONS, getSeasonPositionRank,
+  getSeasonPositionRank,
   projectSeasonPoints,
-} = require('./scoring.service');
+} = require('./seasonSummary.service');
 
 const POSITION_WHITELIST = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF', ...IDP_POSITIONS];
 const MAX_RANKINGS_LIMIT = 100;

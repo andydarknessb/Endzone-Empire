@@ -3,7 +3,7 @@ const pool = require('../modules/pool');
 const { runSyncJob } = require('../modules/syncRun');
 const { PLAYERS_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { normalizeNameKey } = require('./nameMatch');
-const { IDP_POSITIONS } = require('./scoring.service');
+const { IDP_POSITIONS } = require('./feedSyncRuns.service');
 const { normalizeNflTeam } = require('./nflTeam');
 
 const IDP_POSITION_SET = new Set(IDP_POSITIONS);

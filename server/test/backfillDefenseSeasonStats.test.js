@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, insert } = require('./helpers/fakePool');
 const { parseArgs, checkOutcome } = require('../../scripts/backfill-defense-season-stats');
-const { syncPlayerSeasonStats, DEFENSIVE_POSITIONS, IDP_POSITIONS } = require('../services/scoring.service');
+const { syncPlayerSeasonStats, DEFENSIVE_POSITIONS, IDP_POSITIONS } = require('../services/feedSyncRuns.service');
 
 // --- parseArgs --------------------------------------------------------------
 

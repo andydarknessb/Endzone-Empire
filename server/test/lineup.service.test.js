@@ -7,6 +7,7 @@ const { createFakePool } = require('./helpers/fakePool');
 const { tenureHandlers, tenure } = require('./helpers/tenureFakes');
 const {
   slotEligible,
+  eligibleSlotsFor,
   validateLineup,
   parseLineupSettings,
   annotateLineupEntries,
@@ -199,6 +200,61 @@ test('getLineup returns league-scored current-week projections and preserves una
     // since this row's projection carries no factors at all (`factors: {}`).
     factorExplanation: null,
   });
+  fake.assertClean();
+});
+
+// #1482: the Cause section's own repro (DK Metcalf/Terry McLaurin, week 2
+// 2026) - a starter and a bench player whose mean and median disagree on
+// which outprojects the other. `projected_points` (the Point estimate,
+// CONTEXT.md's The projection engine - the median under today's shipped
+// v3.1 constants, what findBenchAboveStarter's own comparison and the Edge
+// line's "Outprojects" text already read) must order them one way even
+// though `projection` (the distribution's bare mean, what LedgerRow.jsx
+// printed before this ticket) orders them the other way - locking in that
+// the read model's own numbers, not just the client's rendering of them,
+// are what the ledger row and its Edge line agree on.
+test('getLineup: a bench-above-starter Edge line follows the Point estimate even when the mean disagrees (#1482)', async (t) => {
+  const entries = [
+    { id: 1, name: 'DK Metcalf', position: 'WR', nfl_team: 'SEA', injury_status: null, injury_detail: null, slot: 'FLEX', ir_attested: false },
+    { id: 2, name: 'Terry McLaurin', position: 'WR', nfl_team: 'WAS', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map([
+    // The starter's mean (9.03) beats the bench's mean (7.37), but the
+    // starter's median (8.21) is BELOW the bench's median (10.06) - the
+    // exact skew the issue's Cause section measured (run 9525, free_baseline_v3.1).
+    [1, { points: 8.21, projection: { mean: 9.03, p10: 5, p90: 12, factors: {} } }],
+    [2, { points: 10.06, projection: { mean: 7.37, p10: 6, p90: 14, factors: {} } }],
+  ]));
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(1).projected_points, 8.21, "the starter's Point estimate (the median, under v3.1)");
+  assert.equal(byId.get(1).projection, 9.03, "the starter's mean, for comparison - higher than the bench's mean");
+  assert.equal(byId.get(2).projected_points, 10.06, "the bench player's Point estimate - higher than the starter's");
+  assert.equal(byId.get(2).projection, 7.37, "the bench player's mean - lower than the starter's mean");
+  // The read model's Edge line already reasons from the Point estimate
+  // (unchanged by this ticket): the bench player's Point estimate
+  // outprojects the starter's, so he gets the "Outprojects" chip, even
+  // though his mean does not.
+  assert.deepEqual(byId.get(2).edge, { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' });
   fake.assertClean();
 });
 
@@ -1159,6 +1215,43 @@ test('slotEligible: a DP slot expands DL/LB/DB group keys to specific positions'
     assert.equal(slotEligible('DP', position, dpSlots), true);
   }
   assert.equal(slotEligible('DP', 'QB', dpSlots), false);
+});
+
+// ---------------------------------------------------------------------------
+// eligibleSlotsFor (folded in from decision.service's local copy, #1503: the
+// decision module now imports this rather than keeping its own)
+// ---------------------------------------------------------------------------
+
+test('eligibleSlotsFor: a dedicated position resolves to its own slot only', () => {
+  assert.deepEqual(eligibleSlotsFor('QB', DEFAULT_ROSTER_SLOTS), ['QB']);
+  assert.deepEqual(eligibleSlotsFor('K', DEFAULT_ROSTER_SLOTS), ['K']);
+  assert.deepEqual(eligibleSlotsFor('DEF', DEFAULT_ROSTER_SLOTS), ['DEF']);
+});
+
+test('eligibleSlotsFor: a FLEX-eligible position resolves to its dedicated slot plus FLEX', () => {
+  assert.deepEqual(eligibleSlotsFor('RB', DEFAULT_ROSTER_SLOTS), ['RB', 'FLEX']);
+  assert.deepEqual(eligibleSlotsFor('WR', DEFAULT_ROSTER_SLOTS), ['WR', 'FLEX']);
+  assert.deepEqual(eligibleSlotsFor('TE', DEFAULT_ROSTER_SLOTS), ['TE', 'FLEX']);
+});
+
+test('eligibleSlotsFor: a position with no eligible slot resolves to an empty list', () => {
+  assert.deepEqual(eligibleSlotsFor('LS', DEFAULT_ROSTER_SLOTS), []);
+});
+
+test('eligibleSlotsFor: a count-0 slot is excluded even when the position would otherwise be eligible', () => {
+  const noFlexSlots = DEFAULT_ROSTER_SLOTS.map((s) => (s.key === 'FLEX' ? { ...s, count: 0 } : s));
+  assert.deepEqual(eligibleSlotsFor('RB', noFlexSlots), ['RB']);
+});
+
+test('eligibleSlotsFor: a DP slot\'s DL/LB/DB group keys make it eligible for every member position', () => {
+  const dpSlots = [
+    ...DEFAULT_ROSTER_SLOTS,
+    { key: 'DP', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] },
+  ];
+  for (const position of ['DE', 'DT', 'NT', 'LB', 'ILB', 'OLB', 'CB', 'S', 'FS', 'SS']) {
+    assert.deepEqual(eligibleSlotsFor(position, dpSlots), ['DP']);
+  }
+  assert.deepEqual(eligibleSlotsFor('QB', dpSlots), ['QB']);
 });
 
 const entry = (position, slot, playerId = 1) => ({ playerId, position, slot });

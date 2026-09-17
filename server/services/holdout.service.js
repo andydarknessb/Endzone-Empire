@@ -78,7 +78,7 @@ const { withTransaction } = require('../modules/withTransaction');
 const model = require('./projectionModel');
 const projection = require('./projection.service');
 const { normalizeTeamKey } = require('./projectionFeatures');
-const { SCORING_PRESETS } = require('./scoring.service');
+const { SCORING_PRESETS } = require('./scoringRules');
 const {
   verifySeasonManifest,
   CANONICAL_TEAM_KEYS,

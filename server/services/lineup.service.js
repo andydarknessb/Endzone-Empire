@@ -95,6 +95,21 @@ function slotEligible(slotKey, position, rosterSlots = DEFAULT_ROSTER_SLOTS) {
 }
 
 /**
+ * Pure: the roster slots (FLEX included) a position is eligible to start in,
+ * given `rosterSlots`. A count-0 slot seats nobody, so it is excluded even
+ * when the position would otherwise be eligible for it. Folded in from
+ * decision.service's own local copy (#1503): waiver suggestions are the only
+ * caller, but the mapping is a `slotEligible` question over every starting
+ * slot, so it lives beside `slotEligible` rather than duplicated at the call
+ * site.
+ */
+function eligibleSlotsFor(position, rosterSlots) {
+  return rosterSlots
+    .filter((s) => s.count > 0 && slotEligible(s.key, position, rosterSlots))
+    .map((s) => s.key);
+}
+
+/**
  * Normalize a league row's roster/lineup configuration (jsonb columns arrive
  * as objects from pg, but tolerate strings for safety).
  */
@@ -1230,20 +1245,29 @@ function computeEdgeLine(entry, { entries, rosterSlots, factors, liveStatus, act
   const gameState = gameStateFor({
     liveStatus, kickoffAt: entry.kickoff, onBye: Boolean(entry.onBye), points: actualPoints, now,
   });
-  if (gameState === 'in_progress' && Number.isFinite(entry.projection) && entry.projection > 0
+  // Both texts read `entry.projected_points` - the Point estimate
+  // (CONTEXT.md, The projection engine; #1482, #1483), the SAME field the
+  // Ledger row now headlines and `findBenchAboveStarter` already compared -
+  // never `entry.projection` (the distribution's bare mean), so a live or
+  // final row's own Edge line can never quote a different number than the
+  // one printed beside it. `pointEstimateFor` (projection.service.js) picks
+  // this field per the run's own model version, so reading it here (rather
+  // than reasoning about "median" or "mean" in this file) keeps this text
+  // correct under whichever statistic a future model version ranks by.
+  if (gameState === 'in_progress' && Number.isFinite(entry.projected_points) && entry.projected_points > 0
       && Number.isFinite(actualPoints)) {
-    const pct = Math.round((actualPoints / entry.projection) * 100);
+    const pct = Math.round((actualPoints / entry.projected_points) * 100);
     return {
       kind: 'pace',
-      text: `${pct}% of projection so far (${round2(actualPoints)} of ${round2(entry.projection)} pts)`,
+      text: `${pct}% of projection so far (${round2(actualPoints)} of ${round2(entry.projected_points)} pts)`,
     };
   }
-  if (gameState === 'final' && Number.isFinite(entry.projection) && Number.isFinite(actualPoints)) {
-    const diff = round2(actualPoints - entry.projection);
+  if (gameState === 'final' && Number.isFinite(entry.projected_points) && Number.isFinite(actualPoints)) {
+    const diff = round2(actualPoints - entry.projected_points);
     const verb = diff >= 0 ? 'Beat' : 'Fell short of';
     return {
       kind: 'result',
-      text: `${verb} projection by ${round2(Math.abs(diff))} pts (${round2(actualPoints)} of ${round2(entry.projection)})`,
+      text: `${verb} projection by ${round2(Math.abs(diff))} pts (${round2(actualPoints)} of ${round2(entry.projected_points)})`,
     };
   }
   return { kind: 'none', text: null };
@@ -1324,7 +1348,7 @@ async function getLineup({ leagueId, userId, week }) {
       // so a top-level require here would cycle (`generateProjections`'s and
       // `rowsHeldAsPlayed`'s own comments note the same constraint).
       const projectionService = require('./projection.service');
-      const { rulesForLeague, calculateFantasyPoints } = require('./scoring.service');
+      const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
       const rules = rulesForLeague(league);
       const weeklyByPlayer = playerIds.length > 0
         ? await projectionService.getWeekProjections({
@@ -1692,6 +1716,7 @@ module.exports = {
   expandEligibility,
   rosterablePositions,
   slotEligible,
+  eligibleSlotsFor,
   parseLineupSettings,
   validateLineup,
   entriesForLineupValidation,

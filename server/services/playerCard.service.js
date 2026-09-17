@@ -11,7 +11,8 @@ const irPolicy = require('./irPolicy.service');
 // `t.mock.method`, and a destructured binding is captured at require time and
 // can no longer be mocked afterwards.
 const byeService = require('./bye.service');
-const scoringService = require('./scoring.service');
+const scoringRules = require('./scoringRules');
+const seasonSummary = require('./seasonSummary.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
@@ -68,11 +69,12 @@ function opponentRankOf(projections, playerId) {
 
 /**
  * Classifies one `getWeeklyProjections` result for one week (formal review
- * f3): unavailable, with the 'on IR' | 'out' reason, or a point value
- * (median falling back to mean, `null` when the producer had neither).
- * Shared by `buildWeeksForPage` (the list, #1309) and `buildWeeklyBars` (the
- * card, #1306) so the two never classify the same projection two different
- * ways - the list and the card must agree here (spec #1303, story 7).
+ * f3): unavailable, with the 'on IR' | 'out' reason, or a point value (the
+ * RANKING statistic, `projectionService.pointEstimateFor` - #1483 - `null`
+ * when the producer had neither). Shared by `buildWeeksForPage` (the list,
+ * #1309) and `buildWeeklyBars` (the card, #1306) so the two never classify the
+ * same projection two different ways - the list and the card must agree here
+ * (spec #1303, story 7).
  */
 function classifyWeekProjection(projection) {
   const unavailable = !!(projection
@@ -82,7 +84,7 @@ function classifyWeekProjection(projection) {
   if (unavailable) {
     return { unavailable: true, reason: projection.factors.availability.reason === 'ir' ? 'on IR' : 'out' };
   }
-  const point = projection ? (projection.median != null ? projection.median : projection.mean) : null;
+  const point = projection ? projectionService.pointEstimateFor(projection) : null;
   return { unavailable: false, points: point == null ? null : Number(point) };
 }
 
@@ -495,7 +497,7 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
         week: wk,
         opponent,
         kind: 'actual',
-        points: stats ? scoringService.calculateFantasyPoints(stats, rules) : null,
+        points: stats ? scoringRules.calculateFantasyPoints(stats, rules) : null,
       });
       continue;
     }
@@ -554,9 +556,9 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
   );
   const scored = result.rows.map((row) => ({
     playerId: row.player_id,
-    points: scoringService.hasTeamDefenseTiers(row.stats)
+    points: scoringRules.hasTeamDefenseTiers(row.stats)
       ? Number(row.fantasy_points)
-      : scoringService.calculateFantasyPoints(row.stats, rules),
+      : scoringRules.calculateFantasyPoints(row.stats, rules),
   }));
   const mine = scored.find((row) => row.playerId === playerId);
   if (!mine) return null;
@@ -638,7 +640,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   const season = league.current_season;
   const effectiveWeek = week === undefined || week === null ? league.current_week : week;
   const seasonEnd = projectionService.lastPlayoffWeek(league);
-  const rules = scoringService.rulesForLeague(league);
+  const rules = scoringRules.rulesForLeague(league);
 
   const scheduleResult = await pool.query(
     `SELECT "week", "opponent" FROM "nfl_games"
@@ -689,7 +691,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   // shipped, which this route supersedes) rather than inventing a second stat
   // line format is the conservative reading; flagged in the PR as an open
   // question rather than a settled one.
-  const summary = scoringService.buildPlayerSummary({
+  const summary = seasonSummary.buildPlayerSummary({
     player, weeklyRows: weeklyResult.rows, seasonRows: seasonResult.rows, rules, byeWeek, currentSeasonYear: season,
   });
   const log = {
@@ -752,7 +754,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
 
     const weeklyRowsForSeason = weeklyResult.rows.filter((r) => r.season === s);
     const points = Math.round(
-      weeklyRowsForSeason.reduce((sum, r) => sum + scoringService.calculateFantasyPoints(r.stats, rules), 0) * 100
+      weeklyRowsForSeason.reduce((sum, r) => sum + scoringRules.calculateFantasyPoints(r.stats, rules), 0) * 100
     ) / 100;
     const games = weeklyRowsForSeason.length;
 
@@ -812,7 +814,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
           ? normalizeNflTeam(r.stats.gameOpponent)
           : (opponentByWeekForSeason.get(Number(r.week)) ?? null),
         statLine: r.stats,
-        points: scoringService.calculateFantasyPoints(r.stats, rules),
+        points: scoringRules.calculateFantasyPoints(r.stats, rules),
       })),
     });
   }

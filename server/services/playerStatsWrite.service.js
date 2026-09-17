@@ -13,7 +13,7 @@
 async function upsertPlayerStats(db, { playerId, season, week, stats }) {
   // Lazy: scoring.service is the caller of this module on the Live/Final box
   // path, so a load-time require would be a cycle.
-  const { calculateFantasyPoints } = require('./scoring.service');
+  const { calculateFantasyPoints } = require('./scoringRules');
   const fantasyPoints = calculateFantasyPoints(stats);
   await db.query(
     `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")

@@ -879,6 +879,14 @@ FLEX, K, DEF, plus BENCH and IR). Configurable per league. A position is a
 property of a player; a slot is a place in a lineup.
 _Avoid_: position
 
+**Roster template**:
+A league's ordered list of Slots, each with the positions it accepts and how
+many of it a lineup holds. One rule answers both "may this position sit in
+this Slot" and "which Slots fit this player"; BENCH and IR accept anyone.
+Every surface that asks either question, the Lineup, the Decision card, the
+draft simulator, the Team summary and the Players page, asks the same rule.
+_Avoid_: lineup settings, roster slots (the wire column), slot config,
+position limits
 **Rosterable position**:
 A position at least one starting slot in the league's roster template
 accepts, once group keys (DL, LB, DB) are expanded to their member codes.
@@ -997,6 +1005,12 @@ sends a team to the back of the order until the next reset.
 A swap of players between two teams, optionally subject to a review window in
 which uninvolved managers can vote to veto.
 
+**Players page**:
+The surface that lists the player pool for one manager in one league: only
+Rosterable positions, each player with his Availability, Unavailable reason
+and Weekly projection, filtered by slot chip, sorted and paged. Opening a
+player from it opens the Decision card. One read answers the whole page.
+_Avoid_: Player Browser, player list, player pool page, players route
 **Availability**:
 Which of four states a player is in for one team's manager: Free agent, on
 waivers (dropped, or kicked off this week, until the week clears), Rostered by
@@ -1296,6 +1310,25 @@ The identity of the engine's behaviour. Any change to its constants is a new
 version, because numbers from two versions are not comparable.
 _Avoid_: release, build
 
+**Point estimate**:
+The single number a Weekly projection is ranked and shown by: its median or
+its mean, whichever the run's own Model version names as
+`decision.lineupRanking` (`projection.service.js`'s `pointEstimateFor`), the
+other as fallback when the named one is unavailable. One statistic
+everywhere a Weekly projection surfaces as a single number - the Ledger
+row's headline, its Edge line's own comparisons ("Outprojects" and the
+live/final pace and result text), the bench sort order, the Decision card's
+Proj text and RangeBar marker, its own Bench options number and sort, and
+the Start/Sit ranking - so the row a manager reads, and the card it opens
+into, never contradict themselves, and a future
+Model version that ranks by the mean instead of the median moves every one
+of those surfaces together (#1482, #1483). Distinct from Floor and Ceiling,
+which bracket it rather than replace it.
+_Avoid_: median (unqualified - true only for a version whose ranking
+statistic is the median), the mean (unqualified, same reason), projection
+(too broad: Weekly projection is the whole estimate, this is the one number
+read off it)
+
 **Interval**:
 The band around a projection expressing how uncertain it is.
 _Avoid_: confidence, margin, error bar, range
@@ -1303,8 +1336,28 @@ _Avoid_: confidence, margin, error bar, range
 **Floor** and **Ceiling**:
 The manager-facing names for the ends of an Interval: Floor is its 10th
 percentile, Ceiling its 90th. They are presentation names for the interval,
-never a separate estimate.
+never a separate estimate. From free_baseline_v3.2 the simulated draws are
+truncated at the Position floor before either is read, so a Floor is never
+a value no real game has scored (ADR 0047).
 _Avoid_: low, high, worst case, best case, range
+
+**Position floor**:
+The lowest score any player of a position group has recorded over the
+prior season and the current season to date under the league's own
+scoring rules. Data computed per
+projection run, never a constant; the engine truncates its simulated draws
+there so the Floor and the start/sit probability are not fed an impossible
+negative outcome (ADR 0047).
+_Avoid_: minimum projection, clamp at zero
+
+**Seeded opponent sample**:
+The opponent Factor's evidence in the early weeks: the prior season's points
+allowed per position, worth four pseudo-games, blended toward the current
+season as real games accrue. It is why the Factor applies from week 1
+instead of reporting an insufficient sample until week 4. The advice card
+labels the matchup line "context only" when the Factor did not apply
+(ADR 0047).
+_Avoid_: last year's defense, carry-over
 
 **Start/sit advice**:
 The engine's recommendation about which rostered players to start, including an

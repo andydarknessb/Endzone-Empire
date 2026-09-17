@@ -7,6 +7,7 @@ const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 const { lastRun, runSyncJob, recordDataSyncRun } = require('./syncRun');
+const cadence = require('./cadence');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -52,10 +53,6 @@ let lastSyncAt = null;
 // cache from week+1 onward, and repeating THAT on every release of a
 // correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
-// nflverse IDP finalization pass runs once per calendar day on Mon-Thu
-// (nflverse's own "cleanest by Thursday" publishing window). Same
-// in-process, idempotent, repeat-safe pattern as the stat-correction pass.
-let lastNflverseDay = null;
 let lastRetentionDay = null;
 // The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
@@ -315,7 +312,7 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
     }
   }
   if (!injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) })) return null;
-  const scoring = require('../services/scoring.service');
+  const scoring = require('../services/feedSyncRuns.service');
   return scoring.syncInjuries();
 }
 
@@ -380,31 +377,45 @@ const runDailyEspnDepthChartSync = dailyEspnFactsSyncRunner('espn-depth-chart', 
 const runDailyEspnOwnershipSync = dailyEspnFactsSyncRunner('espn-ownership', (opts) => require('./espnFactsSync').runOwnershipSync(opts));
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
-let lastOddsSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
 
 /**
- * Hourly Line refresh (#1234, ADR 0036/0037): ESPN's scoreboard needs no key
- * and is not quota-metered, so unlike the injury sync this job has no
- * credential gate, and an in-memory interval gate is safe even across a
- * worker restart - the worst case is one extra free, unmetered fetch, not a
- * wasted budget. Runs the odds Sync run (services/espnOdds.provider.js) once
- * per distinct (season, week) slate any live fantasy league is currently on,
- * read with the same `fantasySeasonLiveWhereSql()` predicate
- * `syncAndScoreLiveWeeks` uses below (that function then dedupes in JS and
- * keeps each league's id; this one only needs the distinct pairs, so it lets
- * SQL do the DISTINCT and discards ids) - so a league mid-transition to a new
- * week still gets both weeks' slates priced.
- * A single week's throw is logged and does not stop the other weeks' syncs;
- * the interval is stamped once the set of weeks is known, so a read failure
- * here retries next tick same as everywhere else in this module.
+ * Hourly Line refresh (#1234, ADR 0036/0037, #1510): ESPN's scoreboard needs
+ * no key and is not quota-metered, so unlike the injury sync this job has no
+ * credential gate. The due/not-due decision is the cadence gate's own concern
+ * (server/modules/cadence.js, spec #1492 step two), reading the job's own
+ * `data_sync_runs` rows (job: 'odds', ADR 0036 - `syncOdds` below already
+ * records them through `runSyncJob`, so this adds no second, scheduler-level
+ * row) rather than the in-memory epoch this used to keep: the gate's source
+ * of truth survives a worker restart, so a restart inside the hour cannot
+ * cause a double fetch (#1510 AC2). Runs the odds Sync run
+ * (services/espnOdds.provider.js) once per distinct (season, week) slate any
+ * live fantasy league is currently on, read with the same
+ * `fantasySeasonLiveWhereSql()` predicate `syncAndScoreLiveWeeks` uses below
+ * (that function then dedupes in JS and keeps each league's id; this one only
+ * needs the distinct pairs, so it lets SQL do the DISTINCT and discards ids) -
+ * so a league mid-transition to a new week still gets both weeks' slates
+ * priced.
+ *
+ * A single week's throw is logged and does not stop the other weeks' syncs.
+ * `lastRun('odds')` is per JOB, not per week, so a failed week's own row never
+ * becomes the job's `latestOk` - but a SIBLING week's successful row still
+ * does, and that moves the gate for every week alike. So a failed week waits
+ * out the full hour behind a live sibling's success; only when EVERY week on
+ * the tick fails does no row become `latestOk`, and the gate is still due on
+ * the very next (five minute) tick instead - the retry spec #1493 story 5
+ * wants. When no live league is on any slate this tick, the loop below never
+ * runs and no `odds` row is written at all, so the gate answers due again on
+ * every following tick too; the only recurring cost is this function's own
+ * leagues read, same as a read failure here (caught and logged by
+ * `tickUnlocked`) retrying next tick same as everywhere else in this module.
  */
 async function runHourlyOddsSync({ now = new Date() } = {}) {
-  if (now.getTime() - lastOddsSyncAt < ODDS_SYNC_INTERVAL_MS) return null;
+  const gate = await cadence.due({ job: 'odds', every: { ms: ODDS_SYNC_INTERVAL_MS }, now });
+  if (!gate.due) return null;
   const leaguesResult = await pool.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
   );
-  lastOddsSyncAt = now.getTime();
   const odds = require('../services/espnOdds.provider');
   const results = [];
   for (const row of leaguesResult.rows) {
@@ -478,7 +489,8 @@ async function tick() {
  */
 async function syncAndScoreLiveWeeks() {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return false;
-  const scoring = require('../services/scoring.service');
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
+  const matchupScoring = require('../services/matchupScoring.service');
   const leaguesResult = await pool.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
@@ -511,7 +523,7 @@ async function syncAndScoreLiveWeeks() {
     try {
       // Typed touchdown events from this sync ride the scores:updated emit so
       // the live matchup UI can fire team-accurate cutscenes.
-      const synced = await scoring.syncWeekStats({ season, week });
+      const synced = await feedSyncRuns.syncWeekStats({ season, week });
       plays = synced.plays || [];
     } catch (err) {
       console.error('live stat sync failed for %s week %s:', season, week, err.message);
@@ -519,7 +531,7 @@ async function syncAndScoreLiveWeeks() {
 
     try {
       for (const leagueId of leagueIds) {
-        const { scored } = await scoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
+        const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
@@ -531,35 +543,24 @@ async function syncAndScoreLiveWeeks() {
   return ranAny;
 }
 
-/** UTC calendar date key, the same day boundary `isCorrectionDay` uses. */
-function utcDayKey(date) {
-  return date.toISOString().slice(0, 10);
-}
-
 /**
- * The last successful stat-correction pass, read via `lastRun` the way the
- * injury sync's gate is (#1188): the in-memory day stamp alone reset on every
- * worker restart, so on a correction day with three releases (2026-09-15) the
- * pass ran three times, and each run wiped every Weekly projection run from
- * week+1 onward (correction.service) that the nightly fill had just rebuilt.
- * Null when no successful pass exists or the read fails, which then runs the
- * pass: the safe direction for the corrections themselves (idempotent), and
- * the refill owed after the wipe is what `runNightlyProjectionFill` covers.
+ * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
+ * that treats a read failure as "never run" (`{ latest: null, latestOk:
+ * null }`), the same safe direction `lastInjurySyncAt`/`lastEspnFactsSyncAt`
+ * take above: the corrections pass is idempotent, so running it on a flaky
+ * read is the safe side, unlike silently skipping a correction day.
+ * Otherwise passed straight through - the "day stamped at start" rule (QA
+ * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01
+ * Wednesday still belongs to Tuesday) is now the cadence gate's own
+ * `'utc-day'` contract (spec #1493, "UTC day everywhere"; see cadence.js's
+ * `lastSuccessDayKey`), so no job-specific translation lives here anymore.
  */
-async function lastStatCorrectionsDay() {
+async function statCorrectionsLastRun(job) {
   try {
-    const { latestOk } = await lastRun('stat-corrections');
-    if (!latestOk) return null;
-    // The day the pass ran FOR, recorded in detail when it started - never
-    // derived from finished_at: a pass that starts at 23:58 UTC Tuesday and
-    // finishes at 00:01 Wednesday would otherwise read as Wednesday's, and
-    // Wednesday's own pass would be skipped for the week (QA finding on
-    // #1449). finished_at is the fallback only for a row with no `day`.
-    if (latestOk.detail && typeof latestOk.detail.day === 'string') return latestOk.detail.day;
-    return latestOk.finishedAt ? utcDayKey(latestOk.finishedAt) : null;
+    return await lastRun(job);
   } catch (err) {
     console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
-    return null;
+    return { latest: null, latestOk: null };
   }
 }
 
@@ -595,10 +596,13 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * Tue/Wed stat-correction pass: re-pull last week's stats and re-score any
  * league whose scores moved (see correction.service). Runs at most once per
  * UTC calendar day - the window `isCorrectionDay` is defined on - gated by
- * the pass's own Sync run row (`stat-corrections`) so a worker restart
- * cannot repeat it, with the in-memory stamp as a same-process short-circuit.
- * Source is nflverse — free and, by Tuesday, more accurate than Tank01 — so
- * this pass costs no quota and needs no credentials.
+ * the cadence gate (server/modules/cadence.js, spec #1492 step two) reading
+ * the pass's own Sync run row (`stat-corrections`) so a worker restart cannot
+ * repeat it, with the in-memory stamp as a same-process short-circuit ahead
+ * of that read. Source is nflverse — free and, by Tuesday, more accurate than
+ * Tank01 — so this pass costs no quota and needs no credentials. The first
+ * job on the cadence gate; every other job in this file keeps its own
+ * hand-rolled once-a-day check for now.
  *
  * Recorded with `recordDataSyncRun` directly rather than through
  * `runSyncJob`: that wrapper runs its unit inside one `withTransaction`, and
@@ -606,18 +610,22 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * `correctLeagueWeek` opens its own transaction per league on other clients,
  * beside the tick's session-level advisory lock - is the idle-in-transaction
  * shape #839 already bit this repo with under the pooler. The row carries the
- * UTC `day` the pass ran for (see lastStatCorrectionsDay). A thrown pass
- * (including the aggregate cache-maintenance error resyncPriorWeeks raises
- * after finishing) records ok=false, does not move the gate, and bubbles to
- * tickUnlocked's catch, so the next 5-minute tick retries instead of
- * silently skipping the rest of a correction day.
+ * UTC `day` the pass ran for (see `statCorrectionsLastRun` above). A thrown
+ * pass (including the aggregate cache-maintenance error resyncPriorWeeks
+ * raises after finishing) records ok=false, does not move the gate, and
+ * bubbles to tickUnlocked's catch, so the next 5-minute tick retries instead
+ * of silently skipping the rest of a correction day.
  */
 async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
   if (!correction.isCorrectionDay(now)) return null;
-  const today = utcDayKey(now);
+  const today = cadence.utcDateKey(now);
   if (lastCorrectionDay === today) return null;
-  if ((await lastStatCorrectionsDay()) === today) {
+  const gate = await cadence.due(
+    { job: 'stat-corrections', every: 'utc-day', now },
+    { lastRun: statCorrectionsLastRun }
+  );
+  if (!gate.due) {
     lastCorrectionDay = today;
     return null;
   }
@@ -700,38 +708,6 @@ async function runHoldoutSnapshots() {
 const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
 
 /**
- * Is a projection refill owed right now? True when the last successful
- * stat-correction pass (which wipes every Weekly projection run from week+1
- * onward, correction.service) finished AFTER the last nightly fill ATTEMPT -
- * or when a pass exists and no fill ever has. Read from the two jobs' own
- * Sync run rows rather than an in-memory flag, so a worker restarted between
- * the wipe and the refill still knows it owes one.
- *
- * The fill side reads `latest`, not `latestOk`, on purpose: one owed attempt
- * per wipe. A fill that failed on one league still committed every other
- * league's weeks (runSyncJob attempts every unit), and retrying the failing
- * one every five minutes for the rest of the day would be the worker's whole
- * afternoon; the off-peak window's own retry loop covers it from there. A
- * failed read answers false for the same reason: the window still covers
- * the night, and the next tick re-asks.
- */
-async function projectionRefillOwed() {
-  try {
-    const [corrections, fill] = await Promise.all([
-      lastRun('stat-corrections'),
-      lastRun('nightly-projection-run'),
-    ]);
-    const wipedAt = corrections.latestOk ? corrections.latestOk.finishedAt : null;
-    if (!wipedAt) return false;
-    const filledAt = fill.latest ? fill.latest.finishedAt : null;
-    return !filledAt || wipedAt.getTime() > filledAt.getTime();
-  } catch (err) {
-    console.warn('runNightlyProjectionFill: data_sync_runs read failed, treating no refill as owed:', err.message);
-    return false;
-  }
-}
-
-/**
  * Nightly projection run (#1305): for every fantasy league whose season is
  * live (`fantasySeasonLiveWhereSql` — draft complete, season not yet
  * complete, the same eligibility the hourly odds/game-context syncs above
@@ -780,24 +756,36 @@ async function projectionRefillOwed() {
  * 0036's "fetch outside any transaction" for the same reason.
  *
  * Runs at most once per local calendar day inside
- * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` - and, outside that window, whenever a
- * refill is owed (`projectionRefillOwed` below): the stat-correction pass has
- * wiped every run from week+1 onward more recently than this fill last
- * completed, so without this every list page until the next 09:00 UTC
- * window (a whole Tuesday evening) rebuilt 25 players x 17 weeks on demand.
- * A successful owed refill stamps the day too: the window's own run would
- * only confirm rows this one just wrote.
+ * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
+ * a brand-new deployment or a mid-week draft must not sit blocked on a
+ * stat-correction pass that has never run) - and, outside that window,
+ * whenever a refill is owed. Owed-ness used to be its own hand-rolled
+ * `data_sync_runs` comparison; it is now the cadence gate's own concern
+ * (server/modules/cadence.js, spec #1492 step two, #1511):
+ * `cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after:
+ * 'stat-corrections' })` is due whenever the stat-correction pass - which
+ * wipes every Weekly projection run from week+1 onward, correction.service -
+ * has succeeded more recently than this job's own last success, EVEN when
+ * this job has already succeeded once today: `after`'s override (cadence.js,
+ * fleet#1511 f2) is what makes a same-UTC-day correction (one that succeeds
+ * after the 09:00 window has already run once) refill immediately rather
+ * than sitting cold until tomorrow's window - the exact #1447 incident class
+ * this gate exists to prevent. The off-peak hour window itself has no gate
+ * equivalent (it is unique to this one job), so it stays a plain caller-side
+ * check beside the gate call, same as the Mon-Thu/Tue-Wed day filters beside
+ * `runNflverseFinalization`/`runDailyStatCorrections` below.
  */
 async function runNightlyProjectionFill({ now = new Date() } = {}) {
   const today = now.toLocaleDateString('en-CA');
   const inWindow = now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR && lastProjectionFillDay !== today;
-  // An owed refill never starts while a game window is open: the Tuesday
-  // 00:00 UTC correction pass lands during Monday Night Football, and a
-  // multi-minute fill here would hold the tick (and live scoring behind it)
-  // for its whole duration. It runs on the first tick after the slate goes
-  // final, still hours ahead of the off-peak window.
   if (!inWindow) {
-    if (!(await projectionRefillOwed())) return null;
+    const gate = await cadence.due({ job: 'nightly-projection-run', every: 'utc-day', after: 'stat-corrections', now });
+    if (!gate.due) return null;
+    // An owed refill never starts while a game window is open: the Tuesday
+    // 00:00 UTC correction pass lands during Monday Night Football, and a
+    // multi-minute fill here would hold the tick (and live scoring behind it)
+    // for its whole duration. It runs on the first tick after the slate goes
+    // final, still hours ahead of the off-peak window.
     if (await inGameWindow()) return null;
   }
 
@@ -876,19 +864,42 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
 /**
  * Mon-Thu nflverse IDP-finalization pass: patch in sack/TFL/fumble-return
  * yardage and individual safety for the prior week's defenders (see
- * nflverseSync.service) and re-score any league whose scores moved. Runs at
- * most once per calendar day; needs no credentials (nflverse is public).
+ * nflverseSync.service) and re-score any league whose scores moved. The
+ * second consumer of the cadence gate (server/modules/cadence.js, spec #1492
+ * step two, #1511): `cadence.due({ job: 'nflverse-week', every: 'utc-day' })`
+ * reads `nflverse-week`'s own `data_sync_runs` rows - `syncNflverseWeek`
+ * (nflverseSync.service.js) already writes one through `runSyncJob` for
+ * every (season, week) `finalizePriorWeeks` processes, on every run
+ * regardless of outcome (ADR 0036), so this adds no second, scheduler-level
+ * row, mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. The Mon-Thu
+ * window is `isNflverseFinalizationDay`'s own day filter, not a cadence:
+ * nothing in cadence.js expresses "these four weekdays only", so it stays a
+ * plain check beside the gate rather than inside it - the same split
+ * `runDailyStatCorrections` already uses for its Tue/Wed window. No
+ * in-memory once-per-day stamp remains (#1510 removed the odds sync's
+ * `lastOddsSyncAt` the same way): the gate's own `data_sync_runs` read
+ * survives a worker restart, where an in-memory stamp reset on every one.
+ *
+ * Deliberately no `after: 'stat-corrections'` (pl-endzone formal review f1,
+ * #1511): this pass never depended on the correction pass before, runs on
+ * FOUR days a week (Mon-Thu) where corrections only ever succeeds on TWO
+ * (Tue/Wed), and spec #1493's Out of Scope rules out changing any job's
+ * cadence. An `after` dependency here would starve Monday and Thursday
+ * outright - on those days `stat-corrections`' last success is never fresher
+ * than this job's own (both last moved on Wednesday), so `due()` would
+ * answer "waiting on stat-corrections to succeed again" forever on exactly
+ * the two days the Mon-Thu window exists to cover that Tue/Wed does not.
  */
-async function runNflverseFinalization() {
+async function runNflverseFinalization({ now = new Date() } = {}) {
   const nflverseSync = require('../services/nflverseSync.service');
-  if (!nflverseSync.isNflverseFinalizationDay()) return;
-  const today = new Date().toLocaleDateString('en-CA');
-  if (lastNflverseDay === today) return;
+  if (!nflverseSync.isNflverseFinalizationDay(now)) return null;
+  const gate = await cadence.due({ job: 'nflverse-week', every: 'utc-day', now });
+  if (!gate.due) return null;
   const result = await nflverseSync.finalizePriorWeeks();
-  lastNflverseDay = today;
   if (result.finalized && result.finalized.length > 0) {
     console.log(`scheduler: nflverse finalization updated IDP stats for ${result.finalized.length} week(s)`);
   }
+  return result;
 }
 
 /**
@@ -1177,11 +1188,12 @@ module.exports = {
   runHoldoutSnapshots,
   runDailyStatCorrections,
   runNightlyProjectionFill,
-  projectionRefillOwed,
+  runNflverseFinalization,
   runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,
   INTERVAL_MS,
   DRAFT_CLOCK_MS,
   SYNC_EVERY_TICKS,
+  ODDS_SYNC_INTERVAL_MS,
 };

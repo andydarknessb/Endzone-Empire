@@ -19,7 +19,7 @@ const {
   isNflverseFinalizationDay,
   syncNflverseWeek,
 } = require('../services/nflverseSync.service');
-const scoring = require('../services/scoring.service');
+const scoring = { ...require('../services/scoringRules'), ...require('../services/boxScoreApply.service') };
 const correction = require('../services/correction.service');
 
 // --- parseCsv ------------------------------------------------------------

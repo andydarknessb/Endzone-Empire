@@ -63,7 +63,7 @@ const shared = require('./measure-candidate-arms');
 
 const { generateProjections } = require('../services/projection.service');
 const model = require('../services/projectionModel');
-const { SCORING_RULES } = require('../services/scoring.service');
+const { SCORING_RULES } = require('../services/scoringRules');
 const holdout = require('../services/holdout.service');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');

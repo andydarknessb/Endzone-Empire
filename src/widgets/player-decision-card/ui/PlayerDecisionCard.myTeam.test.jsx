@@ -5,14 +5,24 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import * as slotActions from '../model/slotActions';
+import { myTeam } from '../model/decisionContext';
 
 /**
- * player-decision-card widget tests (#1240). LineupPage.test.jsx (AC8) covers
- * the composed page: opening from a row, a swap from bench options, a locked
+ * player-decision-card widget tests (#1240), the `my_team` kind (#1515, T19:
+ * the test file split by kind - AC3). LineupPage.test.jsx (AC8) covers the
+ * composed page: opening from a row, a swap from bench options, a locked
  * option, the sheet at a narrow width, focus return on close. This suite
  * covers the widget's own section visibility, actions and Compare in
  * isolation - each null-source hide rule, the Bench/Start action, and the
- * Compare picker.
+ * Compare picker - plus everything the card renders for EVERY kind (the
+ * sections outside the `lineupManaged` gate: Decision strip, Season summary/
+ * pick, the weekly bars, Game log, Bio) exercised here against the my_team
+ * fixtures they were written against; `PlayerDecisionCard.freeAgent.test.jsx`
+ * and `.waivers.test.jsx` each carry one more assertion that those sections
+ * render in their own kind too (formal-001-f3).
+ *
+ * The six-prop contract itself (AC1) is asserted once here too - it is a
+ * property of the widget, not of any one kind.
  */
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -47,6 +57,13 @@ const entry = (over = {}) => ({
   position: 'QB',
   nflTeam: 'BUF',
   slot: 'QB',
+  // #1482: `projectedPoints` (the Point estimate, CONTEXT.md's The
+  // projection engine) is what the card's Proj text, RangeBar marker and
+  // Bench options number/sort read; `projection` (the bare mean) rides
+  // alongside since a real entry always carries both. Defaulted equal here
+  // since this fixture isn't testing the two statistics diverging (a
+  // dedicated case below owns that).
+  projectedPoints: 24.3,
   projection: 24.3,
   floor: 18,
   ceiling: 30,
@@ -63,27 +80,10 @@ const entry = (over = {}) => ({
   ...over,
 });
 
-function renderCard(props = {}) {
-  const defaults = {
-    open: true,
-    onClose: jest.fn(),
-    entry: entry(),
-    entries: [entry()],
-    leagueId: 1,
-    week: 4,
-    bestBall: false,
-    leagueUnsettled: false,
-    onSwap: jest.fn(),
-    onRequestDrop: jest.fn(),
-    canDropEntry: () => true,
-  };
-  const merged = { ...defaults, ...props };
-  return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
-}
-
 // #1307 (ADR 0040): a non-lineup player row, the shape WaiverWire and
 // PlayerManagement map their own rows into - no slot/locked/spent/
-// eligibleSlots, since neither surface has a lineup to read those from.
+// eligibleSlots, since neither surface has a lineup to read those from. Used
+// here only for the "opened with no lineup wiring at all" case.
 const availabilityEntry = (over = {}) => ({
   playerId: 7,
   name: 'Breece Hall',
@@ -106,27 +106,54 @@ function mockCardRoute(card) {
   });
 }
 
-describe('context (#1307, ADR 0040)', () => {
-  // Red tell: this is the FIRST context test, against a widget whose
-  // `context` prop did not exist before this ticket.
-  test('context="waivers" renders Claim and the news list, and no bench options', async () => {
-    mockCardRoute({ news: [{ headline: 'Questionable for Sunday', publishedAt: null }] });
-    renderCard({
-      context: 'waivers',
-      entry: availabilityEntry(),
-      entries: undefined,
-      availability: { waiverPriority: 3 },
-    });
+// #1515: builds the my_team context from the same flat fields the widget's
+// props used to carry loose, so the bulk of this file (written against those
+// fields) barely changes shape. A caller that needs a DIFFERENT kind, or the
+// non-managed my_team open, passes `context` directly instead.
+function renderCard(props = {}) {
+  const {
+    open = true,
+    onClose = jest.fn(),
+    entry: entryOverride = entry(),
+    entries = [entryOverride],
+    leagueId = 1,
+    week = 4,
+    bestBall = false,
+    leagueUnsettled = false,
+    onSwap = jest.fn(),
+    onRequestDrop = jest.fn(),
+    canDropEntry = () => true,
+    playerIds,
+    onNavigate,
+    context,
+  } = props;
+  const builtContext = context !== undefined
+    ? context
+    : myTeam({ managed: true, onSwap, onRequestDrop, canDropEntry, entries, bestBall, leagueUnsettled, playerIds, onNavigate });
+  const merged = { open, onClose, entry: entryOverride, leagueId, week, context: builtContext };
+  return { ...renderWithProviders(<PlayerDecisionCard {...merged} />), props: merged };
+}
 
-    expect(await screen.findByTestId('claim-player-action')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Claim' })).toBeInTheDocument();
-    expect(await screen.findByText('Questionable for Sunday')).toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
+describe('the six-prop contract (#1515, AC1)', () => {
+  test('open/onClose/entry/leagueId/week/context is the whole prop surface; any other prop throws in development', () => {
+    expect(() =>
+      renderWithProviders(
+        <PlayerDecisionCard
+          open
+          onClose={jest.fn()}
+          entry={entry()}
+          leagueId={1}
+          week={4}
+          context={myTeam({ managed: false })}
+          draftedBy="Polk High Legends"
+        />
+      )
+    ).toThrow(/removed prop/);
   });
+});
 
-  test('context="my_team" (the default) renders bench options and no news', async () => {
+describe('my_team (#1307, ADR 0040)', () => {
+  test('renders bench options and no news', async () => {
     mockCardRoute({ news: [{ headline: 'Should not show for your own player' }] });
     const starter = entry();
     const bench = entry({ playerId: 2, name: 'Bench Guy', slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
@@ -138,280 +165,35 @@ describe('context (#1307, ADR 0040)', () => {
     expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
   });
 
-  test('context="free_agent" at capacity renders the inline drop pick', async () => {
-    mockCardRoute(null);
-    renderCard({
-      context: 'free_agent',
-      entry: availabilityEntry(),
-      entries: undefined,
-      availability: { rosterCount: 16, rosterCapacity: 16 },
-      roster: [{ id: 20, name: 'Bench Guy', position: 'WR', projected_weekly_points: 3.2 }],
-    });
-
-    const action = await screen.findByTestId('add-player-action');
-    expect(within(action).getByLabelText('Drop a player')).toBeInTheDocument();
-    expect(within(action).getByTestId('add-player-submit')).toHaveTextContent('Add and drop');
-  });
-
-  test('a null Upgrade renders no Upgrade tile and no empty label', async () => {
-    mockCardRoute({
-      decision: { projWeek: { week: 4, points: 12 }, ros: { points: 90 }, upgrade: null },
-      news: [],
-    });
-    renderCard({
-      context: 'waivers',
-      entry: availabilityEntry(),
-      entries: undefined,
-      availability: { waiverPriority: 1 },
-    });
-
-    await screen.findByTestId('decision-strip');
-    expect(screen.queryByTestId('decision-strip-upgrade')).not.toBeInTheDocument();
-    expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument();
-  });
-
-  test('context="rostered" shows a Propose trade link and the rostering team', async () => {
-    mockCardRoute(null);
-    renderCard({
-      context: 'rostered',
-      entry: availabilityEntry(),
-      entries: undefined,
-      leagueId: 7,
-      availability: { teamName: 'Polk High Legends' },
-    });
-
-    expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
-    expect(screen.getByText('Rostered by Polk High Legends')).toBeInTheDocument();
-  });
-
-  // #1313 (ADR 0040's own follow-up, grill ruling Q32): the Draft room's own
-  // context, not an Availability state - Draft/Queue mirror DraftBoard.jsx's
-  // identical pool-row actions.
-  test('context="draft" renders Draft and Queue for an undrafted player, and calls onDraft/onQueue', async () => {
-    mockCardRoute(null);
-    const onDraft = jest.fn();
-    const onQueue = jest.fn();
-    renderCard({
-      context: 'draft',
-      entry: availabilityEntry(),
-      entries: undefined,
-      leagueId: 3,
-      canDraft: true,
-      queued: false,
-      onDraft,
-      onQueue,
-    });
-
-    await userEvent.click(await screen.findByRole('button', { name: 'Draft' }));
-    expect(onDraft).toHaveBeenCalledTimes(1);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Queue' }));
-    expect(onQueue).toHaveBeenCalledTimes(1);
-  });
-
-  test('context="draft" omits Draft when canDraft is false, and disables Queue once queued', async () => {
-    mockCardRoute(null);
-    renderCard({
-      context: 'draft',
-      entry: availabilityEntry(),
-      entries: undefined,
-      leagueId: 3,
-      canDraft: false,
-      queued: true,
-    });
-
-    expect(await screen.findByRole('button', { name: 'Queued' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
-  });
-
-  test('context="draft" shows Draft as focusable aria-disabled with the given reason, and suppresses activation', async () => {
-    mockCardRoute(null);
-    const onDraft = jest.fn();
-    renderCard({
-      context: 'draft',
-      entry: availabilityEntry(),
-      entries: undefined,
-      leagueId: 3,
-      canDraft: true,
-      draftUnavailableReason: "You can only Pick when it's your turn and the draft isn't paused.",
-      onDraft,
-    });
-
-    const draftAction = await screen.findByRole('button', { name: 'Draft' });
-    expect(draftAction).not.toBeDisabled();
-    expect(draftAction).toHaveAttribute('aria-disabled', 'true');
-
-    await userEvent.click(draftAction);
-    expect(onDraft).not.toHaveBeenCalled();
-  });
-
-  test('context="draft" replaces the action bar with a Drafted by line once draftedBy is set', async () => {
-    mockCardRoute(null);
-    renderCard({
-      context: 'draft',
-      entry: availabilityEntry(),
-      entries: undefined,
-      leagueId: 3,
-      draftedBy: 'Polk High Legends',
-      canDraft: true,
-      queued: false,
-    });
-
-    expect(await screen.findByText('Drafted by Polk High Legends')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Draft' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument();
-  });
-
-  test('context="draft" shows the pool ADP and Best available tiles from the playerIds index', async () => {
-    mockCardRoute(null);
-    renderCard({
-      context: 'draft',
-      entry: availabilityEntry({ playerId: 7 }),
-      entries: undefined,
-      leagueId: 3,
-      adp: 3.2,
-      canDraft: true,
-      playerIds: [5, 7, 9],
-      onNavigate: jest.fn(),
-    });
-
-    expect(await screen.findByText('ADP 3.2')).toBeInTheDocument();
-    expect(screen.getByText('Best available #2')).toBeInTheDocument();
-  });
-
   // Formal review round 1, f1 (blocker): PlayerManagement opens the card for
-  // the caller's own player too (context="my_team" with no lineup wiring at
-  // all - no entries, no onSwap, no onRequestDrop), which used to crash in
+  // the caller's own player too (my_team with no lineup wiring at all - no
+  // entries, no onSwap, no onRequestDrop), which used to crash in
   // isEligibleMove on an entry with no eligibleSlots.
-  test('context="my_team" with no lineup wiring (opened from a non-Lineup surface) renders an Open lineup link instead of crashing', async () => {
+  test('with no lineup wiring (opened from a non-Lineup surface) renders an Open lineup link instead of crashing', async () => {
     mockCardRoute(null);
     renderCard({
-      context: 'my_team',
       entry: availabilityEntry({ slot: 'RB' }),
-      entries: undefined,
-      onSwap: undefined,
-      onRequestDrop: undefined,
-      canDropEntry: undefined,
       leagueId: 9,
+      context: myTeam({ managed: false }),
     });
 
     expect(await screen.findByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/9/lineup');
     expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-start-action')).not.toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-bench-options')).not.toBeInTheDocument();
+    // #1533: the read-only own-player open (myTeam({ managed: false })) renders
+    // no Drop control either - Spec #1494's Testing Decisions asked for both
+    // halves of this and only the Bench/Start/bench-options half was pinned.
+    expect(screen.queryByTestId('decision-card-drop')).not.toBeInTheDocument();
   });
 
-  test('context="my_team" WITH lineup wiring (the base Lineup case) still renders the Bench/Start/Compare/Trade/Drop bar, not the Open lineup link', async () => {
+  test('with lineup wiring (the base Lineup case) renders the Bench/Start/Compare/Trade/Drop bar, not the Open lineup link', async () => {
     renderCard(); // the suite's own default props: entry+entries+onSwap+onRequestDrop+canDropEntry
     await screen.findByTestId('decision-card-bench-action');
+    expect(screen.getByTestId('decision-card-compare-action')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-trade')).toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-drop')).toBeInTheDocument();
     expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
-  });
-});
-
-// #1311, ADR 0040 ruling (c): TransactionLog cannot derive `context` itself
-// (its activity segments carry only `{ playerId, name }`, no roster fact),
-// so it passes `contextFromCard` instead and omits `context` entirely.
-describe('contextFromCard (#1311, ADR 0040 ruling c)', () => {
-  test('renders no action bar until the card payload answers', async () => {
-    apiClient.get.mockImplementation(() => new Promise(() => {})); // the card never resolves
-    renderCard({
-      contextFromCard: true,
-      entry: { playerId: 7, name: 'Breece Hall' },
-      entries: undefined,
-      onSwap: undefined,
-      onRequestDrop: undefined,
-      canDropEntry: undefined,
-    });
-
-    const card = await screen.findByTestId('decision-card');
-    expect(card).toHaveAttribute('aria-busy', 'true');
-    expect(screen.getByText('Breece Hall')).toBeInTheDocument();
-    // Risk review (#1311): the ONE case where the whole card waits on this
-    // read gets its own polite announcement, and a positionless header
-    // renders no empty PosChip swatch.
-    expect(screen.getByRole('status')).toHaveTextContent('Loading player details');
-    expect(screen.queryByTestId('pos-chip')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('add-player-action')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
-  });
-
-  // Formal review round 1, f1: the error half of risk-001-f3 - a failed
-  // /card read used to leave a silent, near-empty dialog forever.
-  test('a failed /card read shows a visible error, never an action bar or the loading announcement', async () => {
-    apiClient.get.mockRejectedValue(new Error('network error'));
-    renderCard({
-      contextFromCard: true,
-      entry: { playerId: 7, name: 'Breece Hall' },
-      entries: undefined,
-      onSwap: undefined,
-      onRequestDrop: undefined,
-      canDropEntry: undefined,
-    });
-
-    expect(await screen.findByTestId('decision-card-load-error')).toHaveTextContent(
-      "Couldn't load this player's details."
-    );
-    const card = screen.getByTestId('decision-card');
-    expect(card).not.toHaveAttribute('aria-busy');
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-actions')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
-  });
-
-  test('derives context from the card payload once it answers, and the header fills team/position from it', async () => {
-    mockCardRoute({
-      player: { teamCode: 'MIN', photoUrl: null, position: 'WR', injury: { designation: null, detail: null } },
-      availability: { state: 'rostered' },
-    });
-    renderCard({
-      contextFromCard: true,
-      entry: { playerId: 7, name: 'Justin Jefferson' },
-      entries: undefined,
-      onSwap: undefined,
-      onRequestDrop: undefined,
-      canDropEntry: undefined,
-      leagueId: 7,
-    });
-
-    // No `availability` prop is passed (TransactionLog has none to give), so
-    // the rostering team's name is absent - only the header fields the card
-    // payload itself supplies are asserted here.
-    expect(await screen.findByTestId('decision-card-propose-trade')).toHaveAttribute('href', '/league/7/trades');
-    expect(screen.getByText('MIN')).toBeInTheDocument();
-    expect(screen.getByText('WR')).toBeInTheDocument();
-    // The loading announcement and aria-busy clear once the payload answers.
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    expect(screen.getByTestId('decision-card')).not.toHaveAttribute('aria-busy');
-  });
-
-  // Formal review round 1, f2: the other three contextFromCard tests only
-  // exercise availability.state 'rostered'; 'my_team' (the viewer's own
-  // player) is the other direction TradeCenter/MatchupPage already cover.
-  test('a my_team payload with no lineup wiring renders Open lineup, not Propose trade', async () => {
-    mockCardRoute({ availability: { state: 'my_team' } });
-    renderCard({
-      contextFromCard: true,
-      entry: { playerId: 7, name: 'Breece Hall' },
-      entries: undefined,
-      onSwap: undefined,
-      onRequestDrop: undefined,
-      canDropEntry: undefined,
-      leagueId: 7,
-    });
-
-    expect(await screen.findByTestId('decision-card-open-lineup')).toHaveAttribute('href', '/league/7/lineup');
-    expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
-  });
-
-  test('an existing caller passing a full entry and a real leagueId/playerId is untouched (context stays the prop, not the card)', async () => {
-    mockCardRoute({ availability: { state: 'waivers' } });
-    renderCard({ context: 'my_team' }); // contextFromCard defaults false
-
-    await screen.findByTestId('decision-card-bench-action');
-    expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
   });
 });
 
@@ -465,26 +247,33 @@ describe('prev/next over the opening list (formal review round 1, f5)', () => {
     // which own `quickViewId` and re-render the card with a new `entry` on
     // `onNavigate` - a plain `rerender()` call would instead replace the
     // whole MemoryRouter tree `renderWithProviders` wraps this in.
-    function NavigatingCard(props) {
-      const [current, setCurrent] = React.useState(props.entry);
+    function NavigatingCard({ entry: initialEntry, entries, leagueId, week, onSwap, onRequestDrop, canDropEntry, playerIds }) {
+      const [current, setCurrent] = React.useState(initialEntry);
       return (
         <PlayerDecisionCard
-          {...props}
+          open
+          onClose={jest.fn()}
           entry={current}
-          onNavigate={(id) => setCurrent(entry({ playerId: id }))}
+          leagueId={leagueId}
+          week={week}
+          context={myTeam({
+            managed: true,
+            onSwap,
+            onRequestDrop,
+            canDropEntry,
+            entries,
+            playerIds,
+            onNavigate: (id) => setCurrent(entry({ playerId: id })),
+          })}
         />
       );
     }
     renderWithProviders(
       <NavigatingCard
-        open
-        onClose={jest.fn()}
         entry={entry({ playerId: 1 })}
         entries={[entry({ playerId: 1 })]}
         leagueId={1}
         week={4}
-        bestBall={false}
-        leagueUnsettled={false}
         onSwap={jest.fn()}
         onRequestDrop={jest.fn()}
         canDropEntry={() => true}
@@ -683,11 +472,11 @@ test('the injury tile shows the designation and the injury Edge line\'s own deta
   expect(tile).toHaveTextContent('Hamstring, limited in practice');
 });
 
-test('bench options list eligible bench players by projection, and a swap sends both moves', async () => {
+test('bench options list eligible bench players by projectedPoints, and a swap sends both moves', async () => {
   const onSwap = jest.fn();
   const starter = entry();
-  const benchA = entry({ playerId: 2, name: 'Bench Low', slot: 'BENCH', projection: 8, eligibleSlots: ['BENCH', 'QB'] });
-  const benchB = entry({ playerId: 3, name: 'Bench High', slot: 'BENCH', projection: 20, eligibleSlots: ['BENCH', 'QB'] });
+  const benchA = entry({ playerId: 2, name: 'Bench Low', slot: 'BENCH', projectedPoints: 8, projection: 8, eligibleSlots: ['BENCH', 'QB'] });
+  const benchB = entry({ playerId: 3, name: 'Bench High', slot: 'BENCH', projectedPoints: 20, projection: 20, eligibleSlots: ['BENCH', 'QB'] });
   renderCard({ entry: starter, entries: [starter, benchA, benchB], onSwap });
 
   const section = await screen.findByTestId('decision-card-bench-options');
@@ -704,6 +493,37 @@ test('bench options list eligible bench players by projection, and a swap sends 
     { playerId: 3, slot: 'QB' },
     { playerId: 1, slot: 'BENCH' },
   ]);
+});
+
+// #1482, formal review round 2 (formal-002-f1): opening a Ledger row's
+// Decision card must not reintroduce the issue's own contradiction one tap
+// later. DK Metcalf's row headlines his projectedPoints (8.21); his card's
+// Proj text and RangeBar marker must read the same number, never his mean
+// (9.03). Terry McLaurin's bench option must show and sort by HIS
+// projectedPoints (10.06), not his lower mean (7.37) - the exact shape the
+// issue's Cause section measured.
+test('the Proj text, RangeBar marker and Bench options read projectedPoints, never the mean, when they disagree (#1482)', async () => {
+  const dk = entry({
+    playerId: 1, name: 'DK Metcalf', slot: 'FLEX', projection: 9.03, projectedPoints: 8.21,
+    floor: 5, ceiling: 12, eligibleSlots: ['BENCH', 'FLEX'],
+  });
+  const terry = entry({
+    playerId: 2, name: 'Terry McLaurin', slot: 'BENCH', projection: 7.37, projectedPoints: 10.06,
+    eligibleSlots: ['BENCH', 'FLEX'],
+  });
+  renderCard({ entry: dk, entries: [dk, terry] });
+
+  await screen.findByRole('heading', { name: 'DK Metcalf' });
+  expect(screen.getByTestId('decision-card-projection')).toHaveTextContent('Proj 8.2');
+  expect(screen.getByTestId('decision-card-projection')).not.toHaveTextContent('9.0');
+  expect(screen.getByTestId('decision-card-range-bar')).toHaveAttribute(
+    'aria-label',
+    expect.stringContaining('Projection 8.2')
+  );
+
+  const section = await screen.findByTestId('decision-card-bench-options');
+  expect(within(section).getByText('10.1')).toBeInTheDocument();
+  expect(within(section).queryByText('7.4')).not.toBeInTheDocument();
 });
 
 test('a locked bench option is disabled with the lock shown, never swappable', async () => {
@@ -1142,20 +962,6 @@ describe('Season summary and Season pick (#1358)', () => {
     expect(screen.queryByRole('radiogroup', { name: 'Season' })).not.toBeInTheDocument();
   });
 
-  // formal-001-f3: this used to render only `waivers`; `free_agent` is its
-  // own branch (AddPlayerAction vs ClaimPlayerAction) and needs its own
-  // assertion, not just a shared claim it covers both.
-  test.each([
-    ['waivers', () => ({ context: 'waivers', availability: { waiverPriority: 3 } })],
-    ['free_agent', () => ({ context: 'free_agent', availability: { rosterCount: 14, rosterCapacity: 16 } })],
-  ])('the summary and pick render in the %s context too, not only my_team', async (_context, propsFor) => {
-    mockCardRoute({ seasons: [seasonRow(2026), seasonRow(2025)] });
-    renderCard({ ...propsFor(), entry: availabilityEntry(), entries: undefined });
-
-    await screen.findByTestId('decision-card-seasons');
-    expect(await screen.findByRole('radiogroup', { name: 'Season' })).toBeInTheDocument();
-  });
-
   // Risk review (accessibility, #1358): the Season pick's own SegmentedControl
   // preventDefault()s ArrowLeft/ArrowRight to move the roving selection
   // (shared/ui/SegmentedControl.jsx) but never stops the keydown from
@@ -1193,26 +999,33 @@ describe('Season summary and Season pick (#1358)', () => {
       return Promise.resolve({ data: { line: null, weather: null, usage: null } });
     });
 
-    function NavigatingCard(props) {
-      const [current, setCurrent] = React.useState(props.entry);
+    function NavigatingCard({ entry: initialEntry, entries, leagueId, week, onSwap, onRequestDrop, canDropEntry, playerIds }) {
+      const [current, setCurrent] = React.useState(initialEntry);
       return (
         <PlayerDecisionCard
-          {...props}
+          open
+          onClose={jest.fn()}
           entry={current}
-          onNavigate={(id) => setCurrent(entry({ playerId: id }))}
+          leagueId={leagueId}
+          week={week}
+          context={myTeam({
+            managed: true,
+            onSwap,
+            onRequestDrop,
+            canDropEntry,
+            entries,
+            playerIds,
+            onNavigate: (id) => setCurrent(entry({ playerId: id })),
+          })}
         />
       );
     }
     renderWithProviders(
       <NavigatingCard
-        open
-        onClose={jest.fn()}
         entry={entry({ playerId: 1 })}
         entries={[entry({ playerId: 1 }), entry({ playerId: 2 })]}
         leagueId={1}
         week={4}
-        bestBall={false}
-        leagueUnsettled={false}
         onSwap={jest.fn()}
         onRequestDrop={jest.fn()}
         canDropEntry={() => true}
@@ -1234,55 +1047,29 @@ describe('Season summary and Season pick (#1358)', () => {
 // #1312, ADR 0040 follow-up (grill ruling Q6): the Watch/Watching toggle,
 // shown across every Availability context, driven by the #1306 card
 // payload's own `watching` field.
-describe('Watch (#1312)', () => {
-  test('the button label flips from "Watch" to "Watching" from the card payload, no fetch', async () => {
-    mockCardRoute({ watching: false });
-    renderCard({ context: 'free_agent', entry: availabilityEntry(), entries: undefined });
+test('Watch renders on the caller\'s own player (my_team) too, matching the design\'s four card states', async () => {
+  mockCardRoute({ watching: false });
+  const starter = entry();
+  renderCard({ entry: starter, entries: [starter] });
 
-    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+  expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
+});
 
-    apiClient.put.mockResolvedValue({});
-    await userEvent.click(screen.getByRole('button', { name: 'Watch' }));
-
-    expect(apiClient.put).toHaveBeenCalledWith('/api/players/7/watch', null, { params: { leagueId: 1 } });
-    // The optimistic local override, not a second GET /card fetch: `get` is
-    // called only for the initial line/weather/usage + card reads.
-    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+// Formal review f1 (risk-001-f1): PlayerManagement's own-player open had a
+// refresh-after-Watch before this ticket (the loose `onActionDone` prop
+// every context shared) - AC4 means the read-only myTeam context restores
+// it via its own `onActionDone` field, same as it always worked.
+test('Watch calls onActionDone from the built context on a read-only (managed: false) myTeam open', async () => {
+  mockCardRoute({ watching: false });
+  const onActionDone = jest.fn();
+  renderCard({
+    entry: availabilityEntry(),
+    context: myTeam({ managed: false, onActionDone }),
   });
 
-  test('a watched player opens already showing "Watching", and DELETEs on click', async () => {
-    mockCardRoute({ watching: true });
-    renderCard({ context: 'waivers', entry: availabilityEntry(), entries: undefined, availability: { waiverPriority: 3 } });
+  apiClient.put.mockResolvedValue({});
+  await userEvent.click(await screen.findByRole('button', { name: 'Watch' }));
 
-    expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
-
-    apiClient.delete.mockResolvedValue({});
-    await userEvent.click(screen.getByRole('button', { name: 'Watching' }));
-
-    expect(apiClient.delete).toHaveBeenCalledWith('/api/players/7/watch', { params: { leagueId: 1 } });
-    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
-  });
-
-  test('renders on the caller\'s own player (my_team) too, matching the design\'s four card states', async () => {
-    mockCardRoute({ watching: false });
-    const starter = entry();
-    renderCard({ entry: starter, entries: [starter] });
-
-    expect(await screen.findByRole('button', { name: 'Watch' })).toBeInTheDocument();
-  });
-
-  test('never renders in the draft context, which is not an Availability state', async () => {
-    mockCardRoute({ watching: false });
-    renderCard({
-      context: 'draft',
-      entry: availabilityEntry(),
-      entries: undefined,
-      canDraft: true,
-      onDraft: jest.fn(),
-      onQueue: jest.fn(),
-    });
-
-    await screen.findByTestId('decision-card-draft-action');
-    expect(screen.queryByTestId('watch-player-action')).not.toBeInTheDocument();
-  });
+  expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
+  expect(onActionDone).toHaveBeenCalledTimes(1);
 });

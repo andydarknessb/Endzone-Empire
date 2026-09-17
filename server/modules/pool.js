@@ -33,4 +33,16 @@ const pool = runtimeDatabaseUrl
       password: process.env.PGPASSWORD,
     });
 
+// An idle pooled client can take a socket error at any time (the pooler
+// closing a connection, a TLS read failing). pg-pool re-emits those on the
+// pool; with no listener here the error would be thrown as an uncaught
+// exception and take the whole process down. On 2026-09-16 exactly that
+// (`read ECONNABORTED` on a client the pool was closing) ended the worker
+// (#1535). The client is already discarded by the pool; nothing to do but
+// say so. The worker's fatal handler is the second line of defence for the
+// errors pg raises outside this path.
+pool.on('error', (error) => {
+  console.error('postgres pool: idle client error, connection discarded:', error && error.message);
+});
+
 module.exports = pool;

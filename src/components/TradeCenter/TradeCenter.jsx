@@ -31,7 +31,7 @@ import { applyTeamProfileUpdate, subscribeToTeamProfileUpdates } from '../../lib
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import { useLeague } from '../../hooks/useLeague';
 import { isLeagueCreator } from '../../shared/lib/teamIdentity';
-import PlayerDecisionCard from '../../widgets/player-decision-card';
+import PlayerDecisionCard, { myTeam, rostered } from '../../widgets/player-decision-card';
 import { toDecisionCardEntry, PlayerNameLink } from '../../entities/player';
 import TradeProposalCard from './TradeProposalCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -447,9 +447,10 @@ function TradeCenter() {
   // shape RosterColumn/SummaryChipRow already read), falling back to the
   // trade item itself (name/position/nfl_team, all a trade row carries) for
   // a player on neither roster the viewer has loaded (e.g. a third team's in
-  // a veto vote). `context` is 'my_team' only when the player sits on the
-  // viewer's own roster, else 'rostered' - TradeCenter never opens the card
-  // for a free agent or a waivers player.
+  // a veto vote). The built context is `myTeam({ managed: false })` only
+  // when the player sits on the viewer's own roster, else `rostered({ ... })`
+  // (#1513) - TradeCenter never opens the card for a free agent or a waivers
+  // player.
   const decisionCardPlayer = decisionCardPlayerId == null
     ? null
     : rosters.flatMap((r) => r.players || []).find((p) => p.id === decisionCardPlayerId)
@@ -460,7 +461,22 @@ function TradeCenter() {
           : null;
       })();
   const decisionCardEntry = toDecisionCardEntry(decisionCardPlayer);
-  const decisionCardContext = (myRoster?.players || []).some((p) => p.id === decisionCardPlayerId) ? 'my_team' : 'rostered';
+  const decisionCardIsMyPlayer = (myRoster?.players || []).some((p) => p.id === decisionCardPlayerId);
+  // #1513, ADR 0040 follow-up: the built context - myTeam({ managed: false })
+  // read-only (TradeCenter wires no lineup handlers), rostered otherwise,
+  // named off the owning roster already loaded here. #1515 (T19): the card
+  // now reads "Rostered by" off `context.availability` - `rostered(...)`
+  // already carries this same value, so the loose `availability` prop below
+  // was redundant and is gone.
+  const decisionCardOwnerRoster = decisionCardIsMyPlayer
+    ? null
+    : rosters.find((r) => (r.players || []).some((p) => p.id === decisionCardPlayerId));
+  const decisionCardAvailability = decisionCardOwnerRoster?.teamName
+    ? { teamName: decisionCardOwnerRoster.teamName }
+    : {};
+  const decisionCardBuiltContext = decisionCardIsMyPlayer
+    ? myTeam({ managed: false })
+    : rostered({ availability: decisionCardAvailability });
   // The creator's Team against the reader's own, both from league detail
   // (#113): the same question as before, with no account id in the client.
   const isCommissioner = !!(league && (league.is_commissioner || isLeagueCreator(league, viewerTeamId)));
@@ -694,12 +710,14 @@ function TradeCenter() {
         </DialogActions>
       </Dialog>
 
+      {/* #1515 (T19): `availability` rides inside the built context now (the
+          rostered() builder already carries it) - no loose prop beside it. */}
       <PlayerDecisionCard
         open={decisionCardPlayerId != null}
         onClose={() => setDecisionCardPlayerId(null)}
         entry={decisionCardEntry}
         leagueId={Number(leagueId)}
-        context={decisionCardContext}
+        context={decisionCardBuiltContext}
       />
     </Container>
   );

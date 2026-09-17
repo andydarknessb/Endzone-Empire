@@ -155,6 +155,10 @@ test('clicking a player name opens the Decision card, with context keyed off the
   expect(await screen.findByTestId('decision-card')).toBeInTheDocument();
   expect(screen.getByTestId('decision-card-open-lineup')).toBeInTheDocument();
   expect(screen.queryByTestId('decision-card-propose-trade')).not.toBeInTheDocument();
+  // #1513: myTeam({ managed: false }) carries no onSwap, so lineupManaged
+  // stays false and neither Bench/Start action nor Drop renders.
+  expect(screen.queryByTestId('decision-card-bench-action')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('decision-card-drop')).not.toBeInTheDocument();
 
   await userEvent.click(screen.getByTestId('decision-card-close'));
   await waitFor(() => expect(screen.queryByTestId('decision-card')).not.toBeInTheDocument());
@@ -163,6 +167,9 @@ test('clicking a player name opens the Decision card, with context keyed off the
   await userEvent.click(screen.getByRole('button', { name: 'Tyreek Hill' }));
   expect(await screen.findByTestId('decision-card-propose-trade')).toBeInTheDocument();
   expect(screen.queryByTestId('decision-card-open-lineup')).not.toBeInTheDocument();
+  // #1513: rostered({ availability: { teamName } }) - TradeCenter already
+  // has every roster loaded, so the card names the owning team.
+  expect(screen.getByText('Rostered by Bob Squad')).toBeInTheDocument();
 });
 
 // #1310: the Players list row's Trade action deep-links here as

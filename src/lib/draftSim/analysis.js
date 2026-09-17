@@ -14,9 +14,14 @@
  *     most-restrictive-slot-first greedy fill.
  * If any of those change on the server, change them here.
  */
-import {
-  templateFor, slotEligible, expandEligibility, POSITION_GROUPS,
-} from './templates';
+import { templateFor } from './templates';
+// `accepts`/`POSITION_GROUPS` read from the entity's concrete model file, not
+// its index (#1501): src/lib is not one of the ADR-0029 "page" consumers the
+// entity's index sanctions, the same reason templates.js's own
+// DEFAULT_ROSTER_SLOTS import bypasses the index (entities/roster/index.js
+// docblock). Replaces this module's own `slotEligible`/`expandEligibility`/
+// `POSITION_GROUPS` mirror, deleted from templates.js.
+import { accepts, expandEligibility, POSITION_GROUPS } from '../../entities/roster/model/rosterTemplateModel';
 import { rosterFor, roundOfPick } from './engine';
 import { positionGroupKey, slotCapacityFor, benchToleranceFor } from './cpuBrain';
 import { stealReachThreshold, stealReachLabel } from '../stealReach';
@@ -110,7 +115,7 @@ export function optimalLineup(players, rosterSlots, pointsFor = new Map()) {
   for (const { key: slot, count } of slots) {
     for (let i = 0; i < count; i++) {
       const pick = available.find(
-        (p) => !taken.has(p.playerId) && slotEligible(slot, p.position, rosterSlots)
+        (p) => !taken.has(p.playerId) && accepts(rosterSlots, slot, p.position)
       );
       if (!pick) continue; // roster can't fill this slot — leave it empty
       taken.add(pick.playerId);
@@ -225,7 +230,7 @@ export function dedicatedStartersFor(template, key) {
   const code = sampleCodeFor(key);
   return template.slots
     .filter((slot) => (slot.eligiblePositions || []).length === 1
-      && slotEligible(slot.key, code, template.slots))
+      && accepts(template.slots, slot.key, code))
     .reduce((sum, slot) => sum + slot.count, 0);
 }
 

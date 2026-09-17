@@ -78,6 +78,11 @@ const MODEL_VERSION_V3_1 = 'free_baseline_v3.1';
  * explicitly; nothing here may invent a stand-in under the v3.1 name.
  */
 const CONSTANTS_BY_MODEL_VERSION = Object.freeze({
+  // Every version the engine registers (#1442 ruling (4): successor constants
+  // live in projectionModel's version-keyed MODEL_CONSTANTS_BY_VERSION, so a
+  // v3.2 child becomes evaluable here the moment it lands, with HEAD still
+  // v3.1). `model.MODEL_VERSION`'s own constants are always in that map.
+  ...(model.MODEL_CONSTANTS_BY_VERSION || {}),
   [model.MODEL_VERSION]: model.MODEL_CONSTANTS,
   ...(model.MODEL_VERSION === MODEL_VERSION_V3_1 ? { [MODEL_VERSION_V3_1]: model.MODEL_CONSTANTS } : {}),
 });
@@ -189,6 +194,10 @@ async function reprojectWeek({
     hashValue: header.scoringHash,
     weatherService: false,
     modelConstants: constants,
+    // Stamped on every rebuilt row so a display read (`pointEstimateFor`)
+    // follows the constants that produced it, and so the draw seed is the
+    // version's own.
+    modelVersion,
     oddsObservedAtOrBefore: header.captureNotAfter,
     playerContextOverrideById,
     expertOverrideByPlayerId,

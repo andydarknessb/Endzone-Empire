@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * The exact-behaviour snapshot client: a `{ query }` object that answers the 8
- * production queries offline, from the frozen snapshot, so
+ * The exact-behaviour snapshot client: a `{ query }` object that answers the
+ * 10 production queries offline, from the frozen snapshot, so
  * `generateProjections` can be replayed through the REAL production path with
  * no database.
  *
@@ -133,6 +133,7 @@ const PG_TYPES = Object.freeze({
  */
 const COMPUTED_COLUMN_TYPES = Object.freeze({
   games: 23,
+  prior_games: 23,
   team: 25,
   defense: 25,
   team_key: 25,
@@ -272,6 +273,18 @@ function assertBinding({ entry, params, season, week, historySeasons }) {
       throw new Error(
         `${label}: history window starts at ${got}, expected ${expected} ` +
         `(season ${season} minus ${historySeasons} seasons)`
+      );
+    }
+  }
+  if (binding.priorSeason !== undefined) {
+    const got = Number(at(binding.priorSeason));
+    const expected = Number(season) - 1;
+    if (got !== expected) {
+      throw new Error(
+        `${label}: this snapshot client is bound to season ${season}, so its prior season is ` +
+        `${expected}, but the query asks for prior season ${got}. A client serves exactly one ` +
+        '{season, week, mode}; reusing one across seasons would answer from the wrong slice and ' +
+        'produce a plausible number instead of an error.'
       );
     }
   }
@@ -644,6 +657,90 @@ function createSnapshotClient({
       return [...byTeam.entries()].map(([team, games]) => ({ team, games }));
     },
 
+    /**
+     * The prior-season opponent seed (#1485). Unlike `leagueScan`, this reads
+     * `priorSeason` WHOLE - no week cutoff - because a completed prior season
+     * has nothing left to leak; that is also why it fires at week 1, the one
+     * case `leagueScan` cannot cover.
+     *
+     * `off` joins to `snapshot.players` for TODAY's position, exactly like
+     * `leagueScan`'s off-mode join. `reconstructed` replaces it with the
+     * roster file's per-week position for `priorSeason`, skipping a row with
+     * no view or not in cohort - the same rule `leagueScan` applies, and for
+     * the same reason: a stat row this study cannot place is dropped, not
+     * guessed at.
+     *
+     * `defense` comes from the row's OWN stored `gameOpponent`, never from a
+     * schedule join through anyone's team - a prior-season row is credited to
+     * whichever team it says it played, whatever team that player is on now
+     * or was on some OTHER week. `off` mode folds that spelling through the
+     * captured-normalization lookup (`snapshotNormalizeTeamKey`), fail-closed
+     * on a spelling no captured row spells; `reconstructed` mode folds it
+     * through the injected production `normalizeTeamKey`. Neither is
+     * consulted when `gameOpponent` is absent - `fn_normalize_nfl_team(NULL)`
+     * is NULL, so a row with nothing to fold gets `defense: null` outright.
+     */
+    priorSeasonScan(params) {
+      const priorSeason = targetSeason - 1;
+      const positions = new Set(params[1] || []);
+      const limit = Number(params[2]);
+      const playersById = new Map(snapshot.players.map((p) => [Number(p.id), p]));
+      const rows = [];
+
+      for (const stat of snapshot.playerStats) {
+        if (Number(stat.season) !== priorSeason) continue;
+        const player = playersById.get(Number(stat.player_id));
+        if (!player) continue; // the JOIN is inner on players
+
+        let position = player.position;
+
+        if (mode === MODES.RECONSTRUCTED) {
+          const gsisId = reconstruction.gsisByPlayerId.get(Number(stat.player_id));
+          const view = gsisId
+            ? reconstruction.viewFor({ season: priorSeason, week: Number(stat.week), gsisId })
+            : null;
+          if (!view || !view.inCohort) continue;
+          position = view.position;
+          if (view.contradiction && view.contradiction.contradicted) counters.contradictions++;
+        }
+
+        if (!positions.has(position)) continue;
+
+        const gameOpponent = stat.stats && stat.stats.gameOpponent;
+        const defense = gameOpponent == null
+          ? null
+          : (mode === MODES.OFF
+            ? snapshotNormalizeTeamKey(snapshot, gameOpponent)
+            : normalizeTeamKey(gameOpponent));
+
+        rows.push({
+          player_id: stat.player_id,
+          week: stat.week,
+          stats: stat.stats,
+          position,
+          defense,
+        });
+      }
+
+      rows.sort((a, b) => Number(a.player_id) - Number(b.player_id) || Number(a.week) - Number(b.week));
+      return Number.isFinite(limit) ? rows.slice(0, limit) : rows;
+    },
+
+    /**
+     * The prior season's per-team game count, ALL weeks - the normalizer for
+     * `priorSeasonScan`'s allowance, the same role `defenseGameCount` plays
+     * for the current-season scan. No week cutoff: the prior season is
+     * complete by definition, so nothing about it is still in the future.
+     */
+    priorSeasonDefenseGameCount() {
+      const priorSeason = targetSeason - 1;
+      const byTeam = new Map();
+      for (const row of schedule(priorSeason)) {
+        byTeam.set(row.team_key, (byTeam.get(row.team_key) || 0) + 1);
+      }
+      return [...byTeam.entries()].map(([team, priorGames]) => ({ team, prior_games: priorGames }));
+    },
+
     byeWeeks(params) {
       const teams = params[1] || [];
       const upper = Number(params[2]);
@@ -734,8 +831,8 @@ function createSnapshotClient({
       const entry = surfaceEntryFor(sql);
       if (!entry) {
         throw new Error(
-          'snapshot client: unknown SQL. This client answers exactly the 8 queries ' +
-          `generateProjections issues; it will not guess at a ninth. First 160 characters: ` +
+          'snapshot client: unknown SQL. This client answers exactly the 10 queries ' +
+          `generateProjections issues; it will not guess at an eleventh. First 160 characters: ` +
           `${normalizeSql(sql).slice(0, 160)}`
         );
       }

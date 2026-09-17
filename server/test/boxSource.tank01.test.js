@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
-const scoring = require('../services/scoring.service');
+const scoring = require('../services/boxScoreApply.service');
 const tank01BoxSource = require('../services/tank01BoxSource');
 const golden = require('./fixtures/tank01-box-golden.json');
 
