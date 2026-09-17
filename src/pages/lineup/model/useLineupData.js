@@ -20,16 +20,23 @@ import { parseRosterSlots } from '../../../shared/lib';
  * shape a snapshot-and-rollback needs; `lineup.entries` is rebuilt from `raw`
  * on every render via `lineupEntries`, so a feature's patch to `raw` is what
  * actually changes what the Ledger renders.
+ *
+ * `refetch` (`fetchLineup`) takes an optional `{ silent }` (#1546, shaped
+ * like `entities/matchup/model/useMatchup.js`'s own `loadMatchup`): the
+ * first load and any caller that wants the page skeleton omit it, while a
+ * background resync (a live game changing state, a socket reconnect) passes
+ * `{ silent: true }` so `loading` never flips and the Ledger already on
+ * screen stays up while the fresher body lands.
  */
 export function useLineupData({ leagueId, week }) {
   const [raw, setRaw] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchLineup = useCallback(async () => {
+  const fetchLineup = useCallback(async ({ silent = false } = {}) => {
     if (leagueId == null) return;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       let url = `/api/team/lineup?leagueId=${leagueId}`;
       if (week != null) url += `&week=${week}`;
@@ -38,7 +45,7 @@ export function useLineupData({ leagueId, week }) {
     } catch (err) {
       setError(readHttpFailure(err).message || err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [leagueId, week]);
 
