@@ -353,6 +353,79 @@ test('runDailyAdpSync propagates a thrown syncAdp so the next tick retries (a th
   );
 });
 
+// The two tests below exercise the REAL cadence gate (not stubbed) against a
+// fake data_sync_runs table, because the gate's own `latestOk`-only read is
+// exactly what #1509's risk review found wrong for this job: a thin-market/
+// thin-match refusal (adp.service.js's wipe guard) resolves rather than
+// throws and records ok=false, so on the gate's plain default reader it would
+// never close for the day, and every five-minute tick would re-hit FFC for
+// the rest of the UTC day while the market stays thin - the exact hazard the
+// pre-#1509 in-memory `lastAdpSyncDay` stamp existed to prevent. `adpLastRun`
+// (scheduler.js) fixes this by substituting a same-day refusal for `latestOk`
+// when it is the newest run.
+function adpRunsWorld(t) {
+  const runs = [];
+  createFakePool([
+    [/FROM "data_sync_runs"/, () => {
+      const sorted = [...runs].sort((a, b) => b.finished_at - a.finished_at);
+      const latest = sorted[0];
+      const latestOk = sorted.find((r) => r.ok);
+      return {
+        rows: [{
+          latest: latest ? { id: sorted.length, finished_at: latest.finished_at, ok: latest.ok, detail: latest.detail } : null,
+          latestOk: latestOk ? { id: sorted.length, finished_at: latestOk.finished_at, ok: true, detail: latestOk.detail } : null,
+        }],
+      };
+    }],
+  ]).install(t);
+  return runs;
+}
+
+test('runDailyAdpSync: a same-UTC-day refusal (thin market) also closes the gate, not just a success (#1509 risk review)', async (t) => {
+  const adp = require('../services/adp.service');
+  const cadenceModule = require('../modules/cadence');
+  const runs = adpRunsWorld(t);
+  let calls = 0;
+  t.mock.method(adp, 'syncAdp', async ({ now }) => {
+    calls += 1;
+    const day = cadenceModule.utcDateKey(now);
+    runs.push({ finished_at: now, ok: false, detail: { day, reason: 'refused', refusalReason: 'thin_market', adpPlayers: 40 } });
+    return { ok: false, skipped: true, reason: 'thin_market', format: 'half-ppr', teams: 12, adpPlayers: 40, playersMatched: 0, playersUpdated: 0 };
+  });
+
+  const firstDay = new Date('2026-08-20T12:00:00-05:00');
+  assert.ok(await scheduler.runDailyAdpSync({ now: firstDay }));
+  assert.equal(calls, 1);
+  // A second tick the same UTC day must NOT re-hit FFC, even though the only
+  // recorded run so far is a refusal (ok=false), not a success.
+  assert.equal(await scheduler.runDailyAdpSync({ now: new Date('2026-08-20T18:00:00-05:00') }), null);
+  assert.equal(calls, 1, 'a same-day refusal closes the gate the same way a success would');
+  // The next UTC day, the gate opens again.
+  assert.ok(await scheduler.runDailyAdpSync({ now: new Date('2026-08-21T12:00:00-05:00') }));
+  assert.equal(calls, 2);
+});
+
+test('runDailyAdpSync: a thrown syncAdp (fetch_failed/write_failed) never closes the gate, so the very next tick retries', async (t) => {
+  const adp = require('../services/adp.service');
+  const runs = adpRunsWorld(t);
+  let calls = 0;
+  t.mock.method(adp, 'syncAdp', async ({ now }) => {
+    calls += 1;
+    // fetch_failed carries no run-level detail (runSyncJob.js): the throw
+    // happens before any { units, detail } wrapper is returned, so there is
+    // no detail.day and no detail.reason === 'refused' to substitute for
+    // latestOk - this row must never close the gate.
+    runs.push({ finished_at: now, ok: false, detail: { reason: 'fetch_failed', message: 'FFC unavailable' } });
+    throw new Error('FFC unavailable');
+  });
+
+  const now = new Date('2026-08-20T12:00:00-05:00');
+  await assert.rejects(scheduler.runDailyAdpSync({ now }), /FFC unavailable/);
+  assert.equal(calls, 1);
+  await assert.rejects(scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:05:00-05:00') }), /FFC unavailable/);
+  assert.equal(calls, 2, 'a thrown run never closes the gate, so the very next tick retries');
+});
+
 test('tickUnlocked runs the daily ADP sync in its own containment, so a throw does not stop the duties after it', () => {
   // The duty is contained exactly like runDailyInjurySync: a thrown ADP sync is
   // caught and logged, and the rest of the tick still runs (a source-order pin

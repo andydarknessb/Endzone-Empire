@@ -327,19 +327,43 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
 }
 
 /**
+ * A `lastRun`-shaped reader for the ADP gate (pre-PR-ready risk review,
+ * #1509): the cadence gate's `'utc-day'` cadence only ever reads `latestOk`
+ * (cadence.js), but a thin-market/thin-match refusal (adp.service.js's wipe
+ * guard) RESOLVES rather than throws and records `ok: false` - so on its own
+ * the gate would never close for the day on a refusal, and every five-minute
+ * tick would re-hit FFC for the rest of the UTC day while the market stays
+ * thin (the pre-#1509 in-memory stamp closed on any non-throwing outcome,
+ * refusal included, for exactly this reason - see the deleted
+ * `lastAdpSyncDay` comment history). `latest` is always the same run as
+ * `latestOk` or a STRICTLY NEWER one (`lastRun`'s own two-subquery
+ * definition), so when the newest attempt is itself a same-UTC-day refusal,
+ * substituting it for `latestOk` closes the gate the same way a real success
+ * would; a genuinely thrown run (`fetch_failed`/`write_failed`) is excluded
+ * by the `reason === 'refused'` check and still leaves `latestOk` (and so the
+ * gate) untouched, so it keeps retrying every tick, same as before #1509.
+ */
+async function adpLastRun(job) {
+  const { latest, latestOk } = await lastRun(job);
+  const latestIsRefusal = Boolean(latest) && !latest.ok && latest.detail && latest.detail.reason === 'refused';
+  return { latest, latestOk: latestIsRefusal ? latest : latestOk };
+}
+
+/**
  * Daily ADP market refresh (#747). Runs at most once per UTC calendar day,
  * all year - FFC is free and keyless, so unlike the injury sync there is no
  * credential gate. The due/not-due decision is the cadence gate's own concern
  * (server/modules/cadence.js, spec #1492 step two, #1509), reading the job's
- * own `data_sync_runs` rows (job: 'adp') - `adp.syncAdp` already records one
- * through `runSyncJob`, so this adds no second, scheduler-level row, mirroring
- * `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory once-a-day
- * stamp remains: the gate's own read survives a worker restart, where the old
- * in-memory stamp reset on every one. The wipe guard still lives inside
- * `adp.syncAdp` and is unaffected by this gate.
+ * own `data_sync_runs` rows (job: 'adp') through `adpLastRun` above rather
+ * than the gate's plain default reader - `adp.syncAdp` already records one
+ * row through `runSyncJob`, so this adds no second, scheduler-level row,
+ * mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory
+ * once-a-day stamp remains: the gate's own read survives a worker restart,
+ * where the old in-memory stamp reset on every one. The wipe guard still
+ * lives inside `adp.syncAdp` and is unaffected by this gate.
  */
 async function runDailyAdpSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'adp', every: 'utc-day', now });
+  const gate = await cadence.due({ job: 'adp', every: 'utc-day', now }, { lastRun: adpLastRun });
   if (!gate.due) return null;
   const adp = require('../services/adp.service');
   return adp.syncAdp({ now });
