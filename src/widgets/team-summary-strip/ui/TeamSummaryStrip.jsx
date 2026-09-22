@@ -98,7 +98,7 @@ export default function TeamSummaryStrip({ leagueId, week, viewerTeamId, lineup,
   const questionableChips = starters.filter(isQuestionable).map((e) => ({
     key: `questionable-${e.playerId}`,
     testId: `attention-chip-questionable-${e.playerId}`,
-    label: `${lastNameOf(e.name)} ${e.injuryStatus}${e.injuryDetail ? ` · ${e.injuryDetail}` : ''}`,
+    label: `${lastNameOf(e.name)} ${e.injuryStatus}${e.injuryDetail ? ` · ${truncateDetail(e.injuryDetail)}` : ''}`,
   }));
 
   // Best ball leagues show the injury chips but never the on-bye chip - the
@@ -224,6 +224,21 @@ function lastNameOf(name) {
   if (!name) return '';
   const parts = String(name).trim().split(/\s+/);
   return parts[parts.length - 1];
+}
+
+// `injuryDetail` ranges from a short tag ("ankle") to a full news sentence
+// (a quoted coach update, complete with date). This chip is a scan-friendly
+// summary, not the place for the full quote - cut it to a word boundary
+// around 40 characters so the pill stays a pill instead of overflowing its
+// row on a narrow viewport (the full detail still lives wherever the app
+// otherwise surfaces injury news).
+const CHIP_DETAIL_MAX = 40;
+function truncateDetail(detail) {
+  const text = String(detail).trim();
+  if (text.length <= CHIP_DETAIL_MAX) return text;
+  const cut = text.slice(0, CHIP_DETAIL_MAX);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 // "112.3 / 108.5" when both are known, a single figure when only one is,

@@ -135,11 +135,18 @@ export default function Badge({
       style={{ ...(variant === 'you' ? YOU_TYPE : {}), ...style }}
       sx={{
         height: 'auto',
+        maxWidth: '100%',
         fontSize: '11.5px',
         fontWeight: 600,
         letterSpacing: '0.04em',
         borderRadius: 'var(--radius-pill)',
-        '& .MuiChip-label': { px: 1.25, py: 0.5 },
+        // Chip's own default is `white-space: nowrap`, built for a short
+        // pill label. A caller that hands this a long freeform string (an
+        // injury news sentence, say) would otherwise overflow its container
+        // horizontally instead of wrapping - wrap defensively here so every
+        // Badge is safe with long content, not just the callers that
+        // remember to truncate first.
+        '& .MuiChip-label': { px: 1.25, py: 0.5, whiteSpace: 'normal', wordBreak: 'break-word' },
         ...variantSx,
         ...sx,
       }}

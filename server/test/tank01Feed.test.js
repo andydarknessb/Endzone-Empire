@@ -9,6 +9,7 @@ const {
   normalizeTeamAbbr,
   normalizeTank01Game,
 } = require('../services/tank01Feed');
+const { calculateFantasyPoints } = require('../services/scoringRules');
 
 // The following moved from scoring.service.test.js (#1506, spec #1492): all
 // exercise tank01Feed.js, the Tank01 feed adapter.
@@ -163,11 +164,45 @@ test('normalizeTank01DstStats maps the box score DST side to scoring-rule stat n
   });
 });
 
-test('normalizeTank01DstStats treats a missing side as all-zero', () => {
+test('normalizeTank01DstStats treats a missing side as all-zero counting stats, with pointsAllowed and yardsAllowed omitted (#1549)', () => {
   assert.deepEqual(normalizeTank01DstStats(null), {
     sack: 0, interceptionReturn: 0, fumbleRecovery: 0, defensiveTD: 0,
-    safety: 0, blockedKick: 0, pointsAllowed: 0, yardsAllowed: 0,
+    safety: 0, blockedKick: 0,
   });
+});
+
+test('normalizeTank01DstStats omits yardsAllowed and pointsAllowed when their figures are absent, rather than scoring the best tier (#1549)', () => {
+  const result = normalizeTank01DstStats({ teamAbv: 'BAL', sacks: '1' }, null, 14);
+  assert.equal('yardsAllowed' in result, false);
+  assert.equal(
+    calculateFantasyPoints(result),
+    calculateFantasyPoints({ ...result, yardsAllowed: 375 }),
+    'an absent yardsAllowed must score the same as the explicit 0-point tier, not the best tier'
+  );
+});
+
+test('normalizeTank01DstStats keeps a real 0 figure for yardsAllowed and pointsAllowed (#1549)', () => {
+  const result = normalizeTank01DstStats({ teamAbv: 'BAL', ydsAllowed: '0' }, null, 0);
+  assert.equal(result.yardsAllowed, 0);
+  assert.equal(result.pointsAllowed, 0);
+});
+
+test('normalizeTank01DstStats omits yardsAllowed for a whitespace-only figure, and keeps a real 0 (#1555)', () => {
+  const result = normalizeTank01DstStats({ teamAbv: 'BAL', sacks: '1', ydsAllowed: ' ', ptsAllowed: '\t' }, null, 14);
+  assert.equal('yardsAllowed' in result, false);
+  // opponentScore (14) short-circuits past numOrAbsent(d.ptsAllowed) in the
+  // pointsAllowed ternary, so this case never exercises the blank ptsAllowed
+  // field — it documents that precedence rather than testing the fix.
+  assert.equal('pointsAllowed' in result, true, 'opponentScore param (14) wins over the blank ptsAllowed field');
+  assert.equal(result.pointsAllowed, 14);
+
+  const zeroResult = normalizeTank01DstStats({ teamAbv: 'BAL', ydsAllowed: '0' }, null, 0);
+  assert.equal(zeroResult.yardsAllowed, 0);
+});
+
+test('normalizeTank01DstStats omits pointsAllowed for a whitespace-only ptsAllowed when there is no opponentScore to fall back on (#1555)', () => {
+  const result = normalizeTank01DstStats({ teamAbv: 'BAL', sacks: '1', ptsAllowed: '\t' }, null, null);
+  assert.equal('pointsAllowed' in result, false);
 });
 
 test('normalizeTank01DstStats attributes a blocked kick to the OPPONENT\'s teamStats line', () => {

@@ -456,6 +456,7 @@ test('a socket score update changes the points cell and the summary strip (the e
   expect(await screen.findByTestId('strip-score')).toHaveTextContent('20.0 / 95.0');
 
   socket.fire('scores:updated', {
+    week: 4,
     scored: [{ matchupId: 55, homeScore: 26.5, awayScore: 10 }],
     plays: [{ playerId: 2, pointsDelta: 6.5, isTouchdown: true }],
   });
@@ -465,30 +466,82 @@ test('a socket score update changes the points cell and the summary strip (the e
   await waitFor(() => expect(screen.getByTestId('strip-score')).toHaveTextContent('26.5 / 95.0'));
 });
 
-test('the transition to final: a stale "pace" Edge line displays as "result" the instant the live row reads final', async () => {
+// #1546: extends the transition-to-final test with the silent refetch the
+// ticket adds - the stale "pace" sentence under the new "result" icon is
+// exactly the bug (#1546's defect 1). A second, different `LINEUP_URL`
+// response proves the refetch actually happened (not just the instant Edge
+// kind flip, which #1241 already covered) and that it landed silently: no
+// skeleton renders between the push and the new sentence appearing.
+test('the transition to final: a stale "pace" Edge line flips instantly to "result", and a silent refetch replaces its stale sentence', async () => {
   liveGameRows = [{ tank01_game_id: 'g3', game_status: 'in_progress' }];
-  renderPage({
-    [LINEUP_URL]: {
-      data: lineupBody({
-        extraEntries: [
-          entryRow({
-            id: 60, name: 'Pace Guy', position: 'RB', slot: 'BENCH', nfl_team: 'MIA',
-            game_key: 'g3', edge: { kind: 'pace', text: '62% of projection so far' },
-          }),
-        ],
+  const paceEntries = {
+    extraEntries: [
+      entryRow({
+        id: 60, name: 'Pace Guy', position: 'RB', slot: 'BENCH', nfl_team: 'MIA',
+        game_key: 'g3', edge: { kind: 'pace', text: '62% of projection so far' },
       }),
-    },
+    ],
+  };
+  const resultEntries = {
+    extraEntries: [
+      entryRow({
+        id: 60, name: 'Pace Guy', position: 'RB', slot: 'BENCH', nfl_team: 'MIA',
+        game_key: 'g3', edge: { kind: 'result', text: 'Final: won by 7' },
+      }),
+    ],
+  };
+  const lineupResponses = [{ data: lineupBody(paceEntries) }, { data: lineupBody(resultEntries) }];
+  const otherUrls = baseUrls();
+  delete otherUrls[LINEUP_URL];
+  apiClient.get.mockImplementation((url) => {
+    if (url === LINEUP_URL) {
+      return Promise.resolve(lineupResponses.length > 1 ? lineupResponses.shift() : lineupResponses[0]);
+    }
+    return Object.prototype.hasOwnProperty.call(otherUrls, url)
+      ? Promise.resolve(otherUrls[url])
+      : Promise.reject(new Error(`unexpected GET ${url}`));
   });
+  renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+
   const row = await screen.findByTestId('slot-row-BENCH-60');
   expect(within(row).getByTestId('ledger-edge-line')).toHaveAttribute('data-edge-kind', 'pace');
   await waitForLiveGameChannel();
+  const lineupCallsBefore = apiClient.get.mock.calls.filter((c) => c[0] === LINEUP_URL).length;
 
   pushLiveGameRow({
     tank01_game_id: 'g3', game_status: 'final', home_team: 'MIA', away_team: 'NYJ',
     current_score_home: 24, current_score_away: 17,
   });
 
+  // The kind flips instantly (#1241 AC3, unchanged by this ticket).
   await waitFor(() => expect(within(row).getByTestId('ledger-edge-line')).toHaveAttribute('data-edge-kind', 'result'));
+  // The silent refetch's second response replaces the stale sentence -
+  // and no skeleton ever rendered in between (the whole point of `silent`).
+  await waitFor(() => expect(within(row).getByText('Final: won by 7')).toBeInTheDocument());
+  await waitFor(() =>
+    expect(apiClient.get.mock.calls.filter((c) => c[0] === LINEUP_URL)).toHaveLength(lineupCallsBefore + 1)
+  );
+  expect(screen.queryByTestId('lineup-skeleton')).not.toBeInTheDocument();
+});
+
+// #1546: a Realtime row update that leaves the Game cell's own kind
+// unchanged (`pre`/`live`/`final`) must not trigger the finished-game
+// refetch - only a game whose kind actually transitions does.
+test('a Realtime row update that keeps the same Game cell kind triggers no extra lineup fetch', async () => {
+  liveGameRows = [{ tank01_game_id: 'g1', game_status: 'in_progress' }];
+  renderPage();
+  await screen.findByText('Josh Allen');
+  expect(firstGameCell()).toHaveAttribute('data-game-state', 'live');
+  await waitForLiveGameChannel();
+  const lineupCallsBefore = apiClient.get.mock.calls.filter((c) => c[0] === LINEUP_URL).length;
+
+  pushLiveGameRow({
+    tank01_game_id: 'g1', game_status: 'in_progress', home_team: 'KC', away_team: 'BUF',
+    current_score_home: 10, current_score_away: 7, quarter: 'Q2', time_remaining: '5:00',
+  });
+
+  await waitFor(() => expect(firstGameCell()).toHaveTextContent('Q2 5:00'));
+  expect(apiClient.get.mock.calls.filter((c) => c[0] === LINEUP_URL)).toHaveLength(lineupCallsBefore);
 });
 
 test('every Edge line kind from the fixture renders with its own kind attribute', async () => {

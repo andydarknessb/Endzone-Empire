@@ -177,19 +177,24 @@ router.get('/league/:leagueId/standings', async (req, res) => {
     const league = await pickem.loadLeague(pool, leagueId);
     const season = requestedSeason || league.current_season;
     // previousRank only makes sense against the league's OWN current week — a
-    // request for a past season is already fully played, so it gets no
-    // previousRank field rather than one measured against the wrong season's
-    // clock.
+    // request for a past season is already fully played, so it is computed
+    // against no week and comes back null on every row (below), rather than
+    // measured against the wrong season's clock.
     const currentWeek = season === league.current_season ? league.current_week : null;
     const { standings, ...meta } = await pickem.getStandings({ leagueId, season, currentWeek });
     // getStandings carries `userId` on each row as the scoring join key, read
     // by internal callers (e.g. season completion). It is account identity, so
     // a member-facing standings row names the manager by Team identity only:
     // strip userId here, at serialization (#343, #115). The viewer knows their
-    // own row from `viewerTeamId`.
+    // own row from `viewerTeamId`. previousRank is added here too, defaulted
+    // to null: loadStandings only computes it for a real currentWeek, so a
+    // past-season request (currentWeek null, above) reaches here with no such
+    // key on the row — every member-facing standings row still promises the
+    // field (see the route comment above).
     const sharedStandings = standings.map((row) => {
       const shared = { ...row };
       delete shared.userId;
+      if (shared.previousRank === undefined) shared.previousRank = null;
       return shared;
     });
     res.json({ ...meta, standings: sharedStandings, viewerTeamId: viewerTeam.id });

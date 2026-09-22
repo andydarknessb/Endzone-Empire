@@ -300,13 +300,18 @@ async function getPickemStandings(t) {
 
 const STANDINGS_ROW_CLEAN = [
   'avatarStaticUrl', 'avatarUrl', 'correct', 'incorrect', 'made', 'pending',
-  'points', 'pushes', 'rank', 'teamId', 'teamName', 'weekly',
+  'points', 'previousRank', 'pushes', 'rank', 'teamId', 'teamName', 'weekly',
 ];
 // The standings rows sort by `comparePickemStandingScore(a,b) ||
 // String(a.teamName||'').localeCompare(...)` (pickem.service.js): #343 removed
 // `username` from the standings, so the final tiebreak the docstring documents
 // is Team name now, not the author account. `userId` still rides internally as
-// the scoring join key and is stripped at the /standings route.
+// the scoring join key and is stripped at the /standings route. `previousRank`
+// is Team-level standings data derived from the same computation as `rank`,
+// not a manager-account field, so admitting it does not touch #343's contract;
+// #1547 criterion 3 requires it on every row (null past a season with no prior
+// week to rank against), so its earlier absence here was the defect, not part
+// of this list's contract.
 test("pick'em standings: a row is Team identity and score, not the manager account", async (t) => {
   for (const row of await getPickemStandings(t)) assertExactKeys(row, STANDINGS_ROW_CLEAN);
 });

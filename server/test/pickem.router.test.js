@@ -4,9 +4,11 @@ const express = require('express');
 const request = require('supertest');
 const { createFakePool } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
-const pickemRouter = require('../routes/pickem.router');
+const pickemRouterPath = require.resolve('../routes/pickem.router');
+const pickemServicePath = require.resolve('../services/pickem.service');
+const nwsWeatherPath = require.resolve('../services/nwsWeather.service');
+const pickemRouter = require(pickemRouterPath);
 const espnScoreboard = require('../modules/espnScoreboard');
-const nwsWeather = require('../services/nwsWeather.service');
 
 const previousSecret = process.env.JWT_SECRET;
 process.env.JWT_SECRET = 'pickem-route-test-secret';
@@ -367,7 +369,7 @@ test("pickedCount counts every saved pick, every phase, without widening the oth
   assert.equal(game.headline, null);
 });
 
-test('the week board is built entirely from tables — no ESPN or NWS call happens on request (AC3)', async (t) => {
+test('the week board is built entirely from tables — no ESPN or NWS call happens on request, even through a destructured import (AC3)', async (t) => {
   // The mechanism: spy on the actual outbound-fetch functions the schedule
   // and weather Sync jobs use, and make them throw if ever invoked. If a
   // future change read Line/Weather/Venue/Situation live instead of from
@@ -376,17 +378,45 @@ test('the week board is built entirely from tables — no ESPN or NWS call happe
   const scoreboardSpy = t.mock.method(espnScoreboard, 'fetchLiveRows', async () => {
     throw new Error('unexpected ESPN scoreboard call');
   });
-  const forecastSpy = t.mock.method(nwsWeather, 'getForecastsForGames', async () => {
+
+  // The NWS half needs a different seam than `t.mock.method` on the already-
+  // required module object: pickem.service.js imports by destructuring
+  // (`const { isIndoorGame } = require('./nwsWeather.service')`), which binds
+  // the original function at require time. A regression written in the
+  // file's own style — `const { getForecastsForGames } = require(...)` added
+  // to pickem.service.js — would capture the ORIGINAL function too, and a
+  // property-patch installed after that require has already run would never
+  // be seen by it: the spy would stay at zero while a live call went out.
+  //
+  // So the mock goes in BEFORE pickem.service.js (and the router that
+  // requires it) ever runs its own require of nwsWeather.service: drop every
+  // cached copy of the three modules in the chain, re-require nwsWeather
+  // fresh and patch its export, THEN re-require pickem.service and the
+  // router — whose `require('./nwsWeather.service')` now resolves to the
+  // already-patched module object, so any destructured reference it takes is
+  // the mock, not the original. A throwaway commit adding that destructured
+  // import and call to the week path turns this red; dropped before review
+  // (see PR body for the red output).
+  delete require.cache[pickemRouterPath];
+  delete require.cache[pickemServicePath];
+  delete require.cache[nwsWeatherPath];
+  const freshNwsWeather = require(nwsWeatherPath);
+  const forecastSpy = t.mock.method(freshNwsWeather, 'getForecastsForGames', async () => {
     throw new Error('unexpected NWS forecast call');
   });
+  const freshRouter = require(pickemRouterPath);
+  const freshApp = express();
+  freshApp.use(express.json());
+  freshApp.use('/api/pickem', freshRouter);
+
   mockPool(t);
 
-  const res = await request(app)
+  const res = await request(freshApp)
     .get('/api/pickem/league/3/week/1').set('Authorization', authed());
 
   assert.equal(res.status, 200);
   assert.equal(scoreboardSpy.mock.callCount(), 0, 'no ESPN call was made to build the week board');
-  assert.equal(forecastSpy.mock.callCount(), 0, 'no live NWS fetch was made either');
+  assert.equal(forecastSpy.mock.callCount(), 0, 'no live NWS fetch was made either, destructured or not');
 });
 
 test('the week board shapes line/weather/venue/broadcast/records/linescores/headline, and gates situation to locked games (AC2 populated path)', async (t) => {
@@ -464,6 +494,84 @@ test('situation stays null before lock even when the ONLY other game on the slat
   assert.equal(res.status, 200);
   assert.equal(res.body.games[0].locked, false);
   assert.equal(res.body.games[0].situation, null, 'Situation is locked-games-only, whatever the row holds');
+});
+
+test('a dome game with no roof value synced yet still reports no weather, once the live overlay knows it is indoor', async (t) => {
+  // nfl_games.roof is unsynced (null) — buildWeather's ONLY prior signal — but
+  // live_game_states.is_indoor (the same column buildVenue already reads)
+  // says the game is a dome. Weather must come back null despite a snapshot
+  // existing, and venue.indoor must read true from the same row.
+  mockPool(t, [
+    [/FROM "nfl_games"/, () => ({
+      rows: nflGameRows(1, [['DAL', 'WAS', THURSDAY]]).map((row) => ({
+        ...row, game_key: '2026_01_DAL_WAS', roof: null,
+      })),
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [{
+        week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'in_progress',
+        current_score_home: 10, current_score_away: 7,
+        venue_name: 'AT&T Stadium', venue_city: 'Arlington', is_indoor: true, is_neutral_site: false,
+      }],
+    })],
+    [/FROM "game_weather_snapshots"/, () => ({
+      rows: [{ game_key: '2026_01_DAL_WAS', short_forecast: 'Clear', temperature_f: 72, wind_speed_mph: 5, precipitation_probability: 0 }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  const [game] = res.body.games;
+  assert.equal(game.weather, null, 'is_indoor alone is enough to suppress weather, roof or not');
+  assert.equal(game.venue.indoor, true);
+});
+
+test('linescores normalizes through buildLinescores: a non-object raw value is null, and a non-array side is null while its sibling survives', async (t) => {
+  mockPool(t, [
+    [/FROM "nfl_games"/, () => ({
+      rows: nflGameRows(1, [['DAL', 'WAS', THURSDAY]]).map((row) => ({
+        ...row, game_key: '2026_01_DAL_WAS', roof: 'outdoors',
+      })),
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [{
+        week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'in_progress',
+        current_score_home: 10, current_score_away: 7,
+        linescores: 'not-an-object',
+      }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.games[0].linescores, null, 'a string raw value is never passed through');
+});
+
+test('linescores keeps a valid side and nulls out an invalid one', async (t) => {
+  mockPool(t, [
+    [/FROM "nfl_games"/, () => ({
+      rows: nflGameRows(1, [['DAL', 'WAS', THURSDAY]]).map((row) => ({
+        ...row, game_key: '2026_01_DAL_WAS', roof: 'outdoors',
+      })),
+    })],
+    [/FROM "live_game_states"/, () => ({
+      rows: [{
+        week: 1, home_team: 'DAL', away_team: 'WAS', game_status: 'in_progress',
+        current_score_home: 10, current_score_away: 7,
+        linescores: { home: [7, 3], away: 'x' },
+      }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/week/1').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.games[0].linescores, { home: [7, 3], away: null });
 });
 
 /* ------------------------------------------------------------------ *
@@ -714,6 +822,29 @@ test('previousRank is null in week 1 — there is no prior week to rank', async 
     .get('/api/pickem/league/3/standings').set('Authorization', authed());
 
   assert.equal(res.status, 200);
+  assert.equal(res.body.standings[0].previousRank, null);
+});
+
+test('a past-season request still carries previousRank: null on every row, not an absent key', async (t) => {
+  // The router docblock promises previousRank on every row. league.current_week
+  // is 3, but the request names a PAST season, so getStandings is called with
+  // currentWeek: null (previousRank only means anything against the league's
+  // own current week) and loadStandings never computes the key at all for
+  // that call. The route's own serialization is what fills it in as null.
+  mockPool(t, [
+    [/SELECT "id", "name", "current_season"/, () => ({
+      rows: [{ id: 3, name: 'Ballers', current_season: 2026, current_week: 3 }],
+    })],
+    [/"owner_id" AS "user_id"/, () => ({
+      rows: [{ user_id: MEMBER, team_id: 11, team_name: 'Mine', avatar_url: null, avatar_static_url: null }],
+    })],
+  ]);
+
+  const res = await request(app)
+    .get('/api/pickem/league/3/standings?season=2025').set('Authorization', authed());
+
+  assert.equal(res.status, 200);
+  assert.equal('previousRank' in res.body.standings[0], true, 'the key is present, not omitted');
   assert.equal(res.body.standings[0].previousRank, null);
 });
 

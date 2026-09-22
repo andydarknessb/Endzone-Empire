@@ -336,6 +336,22 @@ function calculateFantasyPoints(stats, rules = SCORING_RULES) {
  * it would tier-match the season total once instead of once per week.
  * Self-describing (keyed off the stats themselves), so callers don't need
  * the player's position on hand.
+ *
+ * `false` does not mean "not a DEF row": since #1549, normalizeTank01DstStats
+ * omits both keys when the feed carried no figure, so a real DEF row can
+ * answer false too. That is still safe to send through calculateFantasyPoints
+ * whole, for a season aggregate as much as a single week, because of a chain
+ * this function does not itself state:
+ *   - aggregateSeasonStats (seasonSummary.service.js) writes a key onto a
+ *     season total only when some weekly row carried a finite value for it,
+ *     so an aggregate missing both keys means every week that fed it was
+ *     also missing them — there is no per-game tier hit hiding in the total.
+ *   - calculateFantasyPoints only prices the keys present in `stats`, so
+ *     with no tier key present there is no tier table to double-match.
+ * Any future producer of a season row that does not go through
+ * aggregateSeasonStats must preserve this: it must carry a tier key
+ * whenever any of the weeks that feed it did, or this guard's safety
+ * argument no longer holds for that row.
  */
 function hasTeamDefenseTiers(stats) {
   return !!stats && typeof stats === 'object'

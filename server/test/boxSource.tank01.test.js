@@ -197,6 +197,14 @@ test('tank01BoxSource: a real lineScore shutout (0) for the opponent still wins 
   assert.equal(liveBox.teamDefense.WAS.pointsAllowed, 0);
 });
 
+test('tank01BoxSource: an absent ydsAllowed on the DST side omits yardsAllowed from that side\'s teamDefense line (#1549)', () => {
+  const box = JSON.parse(JSON.stringify(golden.box));
+  delete box.DST.home.ydsAllowed;
+  const liveBox = tank01BoxSource.fromBox(box);
+  // golden.box.home is 'WSH', folded to 'WAS' as team-defense keys always are.
+  assert.equal('yardsAllowed' in liveBox.teamDefense.WAS, false);
+});
+
 test('applyGameBoxScore: a raw Tank01 box is still accepted and routed through the adapter', async (t) => {
   // The existing scoring tests pass `box`; the seam accepts it and adapts it so
   // no assertion in them had to change (#1183 done-when).
