@@ -315,26 +315,25 @@ function PlayerManagement() {
   // #1575: the manager's own pending waiver claim count, read once per
   // league from the same `GET /api/waivers?leagueId=N` WaiverWire makes
   // (`myClaims`, filtered to pending client-side). null = unknown/hidden;
-  // best ball leagues have no waivers, so they never read it.
+  // best ball leagues have no waivers, so they never read it. Re-read in
+  // `refreshAfterAction` so every claim path (row one-tap, Decision card)
+  // moves it, without Add/Watch blindly bumping a counter.
   const [pendingClaimCount, setPendingClaimCount] = useState(null);
+  const fetchPendingClaimCount = useCallback(async () => {
+    if (!selectedLeague || bestBall) return;
+    try {
+      const response = await apiClient.get(`/api/waivers?leagueId=${Number(selectedLeague)}`);
+      const claims = response.data?.myClaims || [];
+      setPendingClaimCount(claims.filter((claim) => claim.status === "pending").length);
+    } catch (err) {
+      // Best-effort: without the count the link simply stays hidden (or
+      // keeps its last known value after an action-time re-read fails).
+    }
+  }, [selectedLeague, bestBall]);
   useEffect(() => {
     setPendingClaimCount(null);
-    if (!selectedLeague || bestBall) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await apiClient.get(`/api/waivers?leagueId=${Number(selectedLeague)}`);
-        if (cancelled) return;
-        const claims = response.data?.myClaims || [];
-        setPendingClaimCount(claims.filter((claim) => claim.status === "pending").length);
-      } catch (err) {
-        // Best-effort: without the count the link simply stays hidden.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedLeague, bestBall]);
+    fetchPendingClaimCount();
+  }, [fetchPendingClaimCount]);
 
   const fetchPlayers = useCallback(async () => {
     if (!leaguesLoaded) return;
@@ -421,8 +420,8 @@ function PlayerManagement() {
   // must be refreshed alongside the players list - WaiverWire's own
   // `fetchAll` already re-reads both for the identical reason.
   const refreshAfterAction = useCallback(
-    () => Promise.all([fetchPlayers(), fetchRoster()]),
-    [fetchPlayers, fetchRoster],
+    () => Promise.all([fetchPlayers(), fetchRoster(), fetchPendingClaimCount()]),
+    [fetchPlayers, fetchRoster, fetchPendingClaimCount],
   );
   // Formal review formal-1310-f3: `useAddPlayer`/`useClaimPlayer` each hold
   // ONE page-wide `pending` boolean, so applying it to every row's action
@@ -468,7 +467,6 @@ function PlayerManagement() {
       const { ok, message } = await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
       setPendingPlayerId(null);
       if (!ok) setError(message);
-      else setPendingClaimCount((count) => (count === null ? count : count + 1));
     },
     [submitClaim],
   );
