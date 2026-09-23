@@ -512,11 +512,18 @@ async function processWaivers({ leagueId }) {
     const results = [];
     const wonPlayers = new Set();
     const wonByTeam = new Map(); // team_id -> claims that team won this run, in order
-    // Each team's claims by Claim order: a claim's rank in a note is its
-    // position here, not the stored claim_order (which keeps gaps).
+    // Each team's PENDING claims by Claim order (due or not: due times are per
+    // player, and Claim order ranks all of a manager's pending claims): a
+    // claim's rank in a note is its position here, not the stored claim_order
+    // (which keeps gaps).
+    const pendingResult = await client.query(
+      `SELECT "waiver_claims".* FROM "waiver_claims"
+       WHERE "waiver_claims"."league_id" = $1 AND "waiver_claims"."status" = 'pending'`,
+      [leagueId]
+    );
     const rankOf = new Map();
     const byTeam = new Map();
-    for (const c of orderClaims(dueResult.rows, new Map(), 'priority')) {
+    for (const c of orderClaims(pendingResult.rows, new Map(), 'priority')) {
       byTeam.set(c.team_id, [...(byTeam.get(c.team_id) || []), c]);
     }
     for (const list of byTeam.values()) list.forEach((c, i) => rankOf.set(c.id, i + 1));
@@ -524,6 +531,10 @@ async function processWaivers({ leagueId }) {
     // move to the back of the Waiver priority order (below) is seen by the
     // claims still to come, as it always was.
     const remaining = [...dueResult.rows];
+    // claim id -> was roster capacity already what blocked it before this team's
+    // first win of the run? Read once, just before that first win, so a
+    // capacity note can be causal (see siblingReason).
+    const capacityBlockedBefore = new Map();
     while (remaining.length > 0) {
       const claim = orderClaims(remaining, priorities, league.waiver_type)[0];
       remaining.splice(remaining.indexOf(claim), 1);
@@ -542,7 +553,9 @@ async function processWaivers({ leagueId }) {
       }
       const failure = await claimFailureReason(client, { league, team, claim });
       if (failure) {
-        const note = await siblingReason(client, { failure, claim, won: wonByTeam.get(team.id) || [], rankOf });
+        const note = await siblingReason(client, {
+          failure, claim, won: wonByTeam.get(team.id) || [], rankOf, capacityBlockedBefore,
+        });
         await finish(claim, 'invalid', note);
         await notify(client, {
           userId: team.user_id,
@@ -553,6 +566,13 @@ async function processWaivers({ leagueId }) {
         });
         results.push({ claimId: claim.id, playerId, status: 'invalid', reason: note });
         continue;
+      }
+
+      if (!wonByTeam.has(team.id)) {
+        for (const other of remaining.filter((c) => c.team_id === team.id)) {
+          const before = await claimFailureReason(client, { league, team, claim: other });
+          capacityBlockedBefore.set(other.id, Boolean(before && before.startsWith('roster capacity')));
+        }
       }
 
       // The write-time roster gate (#944), once per claim immediately before
@@ -673,7 +693,7 @@ async function processWaivers({ leagueId }) {
  * claim", "budget spent by your #1 claim"); otherwise the plain reason stands.
  * `won` is the team's claims already won this run, in the order they won.
  */
-async function siblingReason(client, { failure, claim, won, rankOf }) {
+async function siblingReason(client, { failure, claim, won, rankOf, capacityBlockedBefore }) {
   if (won.length === 0) return failure;
   if (claim.drop_player_id && failure.startsWith('the player you offered to drop')) {
     const sibling = won.find((w) => w.drop_player_id === claim.drop_player_id);
@@ -687,7 +707,10 @@ async function siblingReason(client, { failure, claim, won, rankOf }) {
     const sibling = [...won].reverse().find((w) => w.bid > 0);
     if (sibling) return `budget spent by your #${rankOf.get(sibling.id)} claim`;
   }
-  if (failure.startsWith('roster capacity')) {
+  // Causal: only when the claim would have fit before this team's wins this
+  // run. A swap on an already-full roster frees exactly the slot it takes, so
+  // a claim blocked by capacity before and after keeps the plain reason.
+  if (failure.startsWith('roster capacity') && capacityBlockedBefore.get(claim.id) === false) {
     return `roster full after your #${rankOf.get(won[won.length - 1].id)} claim`;
   }
   return failure;

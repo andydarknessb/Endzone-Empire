@@ -50,7 +50,7 @@ test('orderClaims: Waiver priority outranks claim_order across teams', () => {
 
 // A small stateful world: rosters, budgets and claim outcomes move as the
 // processor writes, so a later claim sees what an earlier one did.
-function processWorld(t, { league, teams, rosters, claims, names = {} }) {
+function processWorld(t, { league, teams, rosters, claims, pending = claims, names = {} }) {
   const state = {
     rosters: new Map(Object.entries(rosters).map(([id, ids]) => [Number(id), new Set(ids)])),
     faab: new Map(teams.map((tm) => [tm.id, tm.faab_remaining])),
@@ -59,6 +59,8 @@ function processWorld(t, { league, teams, rosters, claims, names = {} }) {
   const fake = createFakePool([
     [select('leagues'), () => ({ rows: [league] })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    // The league's pending claims, due or not (ranks in notes); the due read has a LEFT JOIN.
+    [/^SELECT "waiver_claims".* FROM "waiver_claims" WHERE/, () => ({ rows: pending })],
     [select('waiver_claims'), () => ({ rows: claims })],
     [/^SELECT "faab_remaining" FROM "teams"/, (text, [id]) => ({ rows: [{ faab_remaining: state.faab.get(id) }] })],
     [select('teams'), () => ({ rows: teams })],
@@ -307,5 +309,41 @@ test('processWaivers: a sibling note names the claim by position, not by a store
   await processWaivers({ leagueId: 1 });
 
   assert.match(state.outcomes.get(3).note, /your #1 claim already dropped/);
+  fake.assertClean();
+});
+
+test('processWaivers: a sibling note ranks over all of the team pending claims, due or not', async (t) => {
+  const notDue = dueClaim(1, 31, 900, { claim_order: 1 });
+  const { fake, state } = processWorld(t, {
+    league: worldLeague('priority'),
+    teams: [{ id: 31, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 0 }],
+    rosters: { 31: fullRoster([77]) },
+    claims: [
+      dueClaim(2, 31, 500, { drop_player_id: 77, claim_order: 2 }),
+      dueClaim(3, 31, 501, { drop_player_id: 77, claim_order: 3 }),
+    ],
+    pending: [notDue, dueClaim(2, 31, 500, { drop_player_id: 77, claim_order: 2 }), dueClaim(3, 31, 501, { drop_player_id: 77, claim_order: 3 })],
+  });
+  await processWaivers({ leagueId: 1 });
+
+  assert.match(state.outcomes.get(3).note, /your #2 claim already dropped/);
+  fake.assertClean();
+});
+
+test('processWaivers: a swap on an already-full roster keeps the plain capacity reason', async (t) => {
+  const { fake, state } = processWorld(t, {
+    league: worldLeague('priority'),
+    teams: [{ id: 31, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 0 }],
+    rosters: { 31: fullRoster([77]) },
+    claims: [
+      dueClaim(1, 31, 500, { drop_player_id: 77 }),
+      dueClaim(2, 31, 501),
+    ],
+  });
+  await processWaivers({ leagueId: 1 });
+
+  assert.equal(state.outcomes.get(1).status, 'won');
+  assert.equal(state.outcomes.get(2).status, 'invalid');
+  assert.equal(state.outcomes.get(2).note, 'roster capacity of 14 reached');
   fake.assertClean();
 });
