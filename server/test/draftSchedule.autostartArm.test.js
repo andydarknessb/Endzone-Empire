@@ -268,6 +268,9 @@ function realStartPool(t, { league = manualBaseLeague, teams = manualTeams, keep
     [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    // completeDraft's lineup seed (#1569) on a keeper-complete start: no roster
+    // has landed on this fake pool's team_players, so it writes nothing.
+    [select('team_players'), () => ({ rows: [] })],
     [insert('draft_activity'), (() => { let seq = 100; return () => ({ rows: [{ id: seq, feed_seq: String(seq++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],
   ]);
   fake.broadcast = broadcast;

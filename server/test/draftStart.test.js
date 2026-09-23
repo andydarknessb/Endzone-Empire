@@ -87,6 +87,10 @@ function draftStartPool({
     [insert('matchups'), () => ({ rows: [], rowCount: 1 })],
     [insert('draft_picks'), () => ({ rows: [], rowCount: 1 })],
     [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    // completeDraft's lineup seed (#1569), also run inline on an all-keeper
+    // start. No roster has landed on this fake pool's team_players, so the
+    // seed reads an empty roster per team and writes nothing.
+    [select('team_players'), () => ({ rows: [] })],
     // The lifecycle Draft activity (#437). Stateful feed_seq so a draft_start
     // and (on an all-keeper start) a following complete take distinct positions.
     [insert('draft_activity'), (() => { let seq = 100; return () => ({ rows: [{ id: seq, feed_seq: String(seq++), created_at: '2026-09-01T00:00:00.000Z' }], rowCount: 1 }); })()],

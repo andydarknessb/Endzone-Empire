@@ -1675,6 +1675,62 @@ async function setLineup({ leagueId, userId, week, moves }) {
 }
 
 /**
+ * Draft completion's lineup seed (#1569). `materializeLineup`'s first-ever
+ * seed only ever sees the team's roster as it stood at that moment (#1569
+ * root cause: `benchAcquiredPlayer` runs it on the team's very FIRST pick,
+ * over a one-player roster, so it seats one starter and every later pick
+ * lands on BENCH). Draft-time rows are per-pick machinery output, not a
+ * manager's lineup, so this OVERWRITES every rostered player's current-week
+ * slot from a fresh `optimalLineup` run over the FULL post-draft roster:
+ * starters to their slots, everyone else BENCH, with no standing attestation.
+ * A manager's first deliberate lineup is whatever they save after the draft.
+ *
+ * Best-ball leagues score every rostered player server-side and never read a
+ * starting slot (the same `league.best_ball` guard `materializeLineup` uses
+ * at its own seed), so they get no lineup writes at all.
+ *
+ * Must run inside the caller's transaction, after the season schedule exists
+ * and before the completion activity is appended (#789 ordering).
+ * `completeDraft` is the one caller.
+ */
+async function seedDraftedLineups(client, { league }) {
+  if (!league || league.best_ball) return;
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  const { rosterSlots } = parseLineupSettings(league);
+
+  const teamsResult = await client.query(
+    `SELECT "id" FROM "teams" WHERE "league_id" = $1`,
+    [leagueId]
+  );
+
+  for (const { id: teamId } of teamsResult.rows) {
+    const rosterResult = await client.query(
+      `SELECT "team_players"."player_id", "players"."position"
+       FROM "team_players" JOIN "players" ON "players"."id" = "team_players"."player_id"
+       WHERE "team_players"."team_id" = $1`,
+      [teamId]
+    );
+    if (rosterResult.rows.length === 0) continue;
+
+    const { starters } = optimalLineup(
+      rosterResult.rows.map(({ player_id, position }) => ({ playerId: player_id, position })),
+      rosterSlots
+    );
+    const starterSlots = new Map(starters.map((s) => [s.playerId, s.slot]));
+
+    for (const { player_id: playerId } of rosterResult.rows) {
+      await client.query(
+        `INSERT INTO "lineup_entries" ("league_id", "team_id", "player_id", "season", "week", "slot", "ir_attested")
+         VALUES ($1, $2, $3, $4, $5, $6, false)
+         ON CONFLICT ("team_id", "season", "week", "player_id")
+         DO UPDATE SET "slot" = EXCLUDED."slot", "ir_attested" = false, "updated_at" = now()`,
+        [leagueId, teamId, playerId, season, week, starterSlots.get(playerId) || BENCH]
+      );
+    }
+  }
+}
+
+/**
  * Pure: the best legal starting lineup for a set of players given per-player
  * points (actual or projected). Slots are filled most-restrictive first
  * (fewest eligible positions), each taking its best remaining players — with
@@ -1722,6 +1778,7 @@ module.exports = {
   entriesForLineupValidation,
   materializeLineup,
   benchAcquiredPlayer,
+  seedDraftedLineups,
   removeLineupEntries,
   spentStartingSlots,
   currentWeekEntry,
