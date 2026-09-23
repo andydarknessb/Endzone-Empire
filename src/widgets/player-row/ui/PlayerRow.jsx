@@ -169,10 +169,20 @@ function PlayerIdentity({ player, onOpenPlayer, nameAsLink = true }) {
           <Typography variant="caption" color="text.secondary">
             {player.nfl_team || 'NFL team unavailable'}
           </Typography>
-          {player.bye_week != null && (
-            <Typography variant="caption" color="text.secondary">
-              {`Bye ${player.bye_week}`}
+          {/* #1574: the week's NFL opponent, "vs BUF" with no home/away marker
+              (the MyTeamSummary / Decision card convention), or the bye when
+              there is none. The row shows no other week number, so the bye
+              keeps its "Bye N". Nothing when both are unknown. */}
+          {player.nfl_opponent ? (
+            <Typography variant="caption" color="text.secondary" data-testid="player-row-opponent">
+              {`vs ${player.nfl_opponent}`}
             </Typography>
+          ) : (
+            player.bye_week != null && (
+              <Typography variant="caption" color="text.secondary" data-testid="player-row-opponent">
+                {`Bye ${player.bye_week}`}
+              </Typography>
+            )
           )}
         </Stack>
       </Box>

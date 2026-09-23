@@ -320,3 +320,44 @@ test('refusal precedence: availability beats view/sort beats byeWeeks, same as b
     },
   );
 });
+
+// #1574: every row carries `nfl_opponent` for the league's current week,
+// null on a bye (never absent, #1132), from ONE schedule read for the page.
+test('readPlayersPage attaches nfl_opponent to every row, null on a bye, in one schedule read (#1574)', async () => {
+  const league = { id: 1, name: 'L', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 3 };
+  const fake = createFakePool([
+    [select('teams'), () => ({ rows: [{ id: 17, league_id: 1, owner_id: 7 }] })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({
+      rows: [
+        { id: 1, name: 'Plays', position: 'RB', nfl_team: 'KC', total_count: '2', identity_ids: [1] },
+        { id: 2, name: 'On Bye', position: 'WR', nfl_team: 'MIA', total_count: '2', identity_ids: [2] },
+      ],
+    })],
+    [/"opponent" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'KC', opponent: 'BUF' }] })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
+    [/FROM "team_players"|FROM "waiver_players"/, () => ({ rows: [] })],
+  ]);
+
+  const result = await readPlayersPage(baseQuery({ leagueId: '1' }), { db: fake });
+
+  assert.deepEqual(
+    result.players.map((p) => [p.id, p.nfl_opponent]),
+    [[1, 'BUF'], [2, null]],
+  );
+  const scheduleReads = fake.calls.filter((c) => /"opponent" FROM "nfl_games"/.test(c.text));
+  assert.equal(scheduleReads.length, 1);
+  assert.deepEqual(scheduleReads[0].params, [2026, 3]);
+});
+
+test('readPlayersPage without a league carries nfl_opponent: null on every row (#1574)', async () => {
+  const fake = createFakePool([
+    [/FROM "players" AS "source"/, () => ({
+      rows: [{ id: 1, name: 'Plays', position: 'RB', nfl_team: 'KC', total_count: '1', identity_ids: [1] }],
+    })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+  ]);
+  const result = await readPlayersPage(baseQuery(), { db: fake });
+  assert.equal(result.players[0].nfl_opponent, null);
+});
