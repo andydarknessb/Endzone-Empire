@@ -203,6 +203,21 @@ async function fetchSyncPlayersUnit({ season, api }) {
  * only a teamless new id can match arm (b), and arm (a) requires the
  * `espnID` itself to collide - so the four legitimate same-name groups and
  * any future rookie namesake are untouched.
+ *
+ * Both arms also match against the REST OF THIS SAME BATCH, not only rows
+ * already in `players` (qa-reviewer #1562 f1): a pair minted in one feed
+ * body with neither id in the table yet - a fresh table, a new tenant, or
+ * simply the first run to see either id - is caught the same way a
+ * previously-seeded duplicate is, by building the anchor maps from the
+ * WHOLE batch before any filtering runs (order in the feed can't matter).
+ * This never weakens the "already known" branch above it: that branch reads
+ * only the SELECT's own rows, never this batch, so a `playerID` cannot ride
+ * its own presence in the batch to skip the guard. Every id comparison
+ * (`playerID` vs an existing row, `espnID` vs an existing `external_id`)
+ * goes through `Number(...)` (qa-reviewer #1562 f2), matching the batch
+ * dedup's own reasoning below: a zero-padded or whitespace-varied id for an
+ * ALREADY-KNOWN player must still land in the "known" branch, never read as
+ * new and get refused as a duplicate of itself.
  */
 async function applySyncPlayersUnit(client, { season, entries }) {
   let skipped = 0;
@@ -239,30 +254,64 @@ async function applySyncPlayersUnit(client, { season, entries }) {
     const existing = await client.query(
       `SELECT "external_id", "name", "position", "nfl_team" FROM "players" WHERE "external_id" IS NOT NULL`
     );
+    // Numeric keys throughout (qa-reviewer #1562 f2): players.external_id is
+    // an integer column, and the batch's own dedup above already keys on
+    // Number(...) so that '4432' and '04432' collide as the same id (line
+    // 209's comment). Keying this lookup on the raw string instead would let
+    // a zero-padded or whitespace-varied playerID for an EXISTING player
+    // read as "new", match its own real row under arm (a)/(b), and get
+    // silently refused as a duplicate of itself - dropping that run's
+    // update. Every comparison below goes through Number() for the same
+    // reason.
     const existingByExternalId = new Map();
-    const existingRosteredByNameKeyPosition = new Map();
+    const rosteredAnchorsByNameKeyPosition = new Map();
     for (const row of existing.rows) {
-      const externalId = String(row.external_id);
-      existingByExternalId.set(externalId, row);
+      existingByExternalId.set(Number(row.external_id), row);
       if (row.nfl_team) {
-        existingRosteredByNameKeyPosition.set(`${normalizeNameKey(row.name)}|${row.position}`, row);
+        rosteredAnchorsByNameKeyPosition.set(`${normalizeNameKey(row.name)}|${row.position}`, row);
+      }
+    }
+    // qa-reviewer #1562 f1: a duplicate pair can also arrive in ONE feed body
+    // with neither id in `players` yet (a fresh table, a new tenant, or -
+    // this run - the very first sync to see either id), so matching against
+    // only rows the SELECT above already found would insert both. Anchor
+    // maps are seeded from the whole batch too, in a pass BEFORE any
+    // filtering runs, so order within the feed can't matter: every teamed
+    // entry (a real rostered player, never itself refusable under arm (b))
+    // and every entry's own external_id becomes a same-run anchor a
+    // teamless/`espnID`-colliding batch-mate can be caught against, exactly
+    // as if it had already been in `players`. This never lets an entry
+    // short-circuit the "already known" branch below off ITSELF: that
+    // branch only ever consults `existingByExternalId`, built from the
+    // SELECT alone.
+    const identityAnchorsByExternalId = new Map(existingByExternalId);
+    for (const parsed of rows) {
+      const numericExternalId = Number(parsed.externalId);
+      if (!identityAnchorsByExternalId.has(numericExternalId)) {
+        identityAnchorsByExternalId.set(numericExternalId, {
+          external_id: parsed.externalId, name: parsed.name, position: parsed.position, nfl_team: parsed.nflTeam,
+        });
+      }
+      if (parsed.nflTeam) {
+        const key = `${normalizeNameKey(parsed.name)}|${parsed.position}`;
+        if (!rosteredAnchorsByNameKeyPosition.has(key)) rosteredAnchorsByNameKeyPosition.set(key, parsed);
       }
     }
 
     rows = rows.filter((parsed) => {
-      if (existingByExternalId.has(parsed.externalId)) return true; // playerID already known: upsert as before
+      if (existingByExternalId.has(Number(parsed.externalId))) return true; // playerID already known: upsert as before
       const espnId = espnIdByExternalId.get(Number(parsed.externalId));
-      if (espnId && espnId !== parsed.externalId) {
-        const matched = existingByExternalId.get(espnId);
+      if (espnId && Number(espnId) !== Number(parsed.externalId)) {
+        const matched = identityAnchorsByExternalId.get(Number(espnId));
         if (matched) {
           skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.external_id) });
           return false; // arm (a)
         }
       }
       if (!parsed.nflTeam) {
-        const matched = existingRosteredByNameKeyPosition.get(`${normalizeNameKey(parsed.name)}|${parsed.position}`);
+        const matched = rosteredAnchorsByNameKeyPosition.get(`${normalizeNameKey(parsed.name)}|${parsed.position}`);
         if (matched) {
-          skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.external_id) });
+          skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.externalId ?? matched.external_id) });
           return false; // arm (b)
         }
       }
