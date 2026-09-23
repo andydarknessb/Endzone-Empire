@@ -17,6 +17,7 @@ const { runSyncJob } = require('../modules/syncRun');
 const cadence = require('../modules/cadence');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { normalizeNflTeam } = require('./nflTeam');
+const { normalizeNameKey } = require('./nameMatch');
 const { fantasySideWhereSql } = require('./leagueType');
 const { calculateFantasyPoints } = require('./scoringRules');
 const {
@@ -118,11 +119,20 @@ function normalizePlayerEntry(entry) {
  * (#1204). The one unit (every parsed feed entry) upserts in a single
  * transaction: a mid-run upsert failure now rolls the whole unit back instead
  * of leaving the players upserted before it (the previous per-player
- * try/catch swallowed and continued past a failure). Resolved shape is
- * unchanged: `{ season, playersUpserted, skippedNonFantasy }` - but a feed
- * carrying a duplicate `external_id` now counts it once in `playersUpserted`
- * (#1251's JS-side dedup, applySyncPlayersUnit's own docblock), where the old
- * per-row loop counted it twice.
+ * try/catch swallowed and continued past a failure). Resolved shape:
+ * `{ season, playersUpserted, skippedNonFantasy, skippedDuplicateIdentity }`
+ * - a feed carrying a duplicate `external_id` counts it once in
+ * `playersUpserted` (#1251's JS-side dedup, applySyncPlayersUnit's own
+ * docblock), where the old per-row loop counted it twice.
+ *
+ * #1562: an entry whose `playerID` the table has never seen is refused
+ * rather than inserted when it is provably the same athlete as an existing
+ * row (applySyncPlayersUnit's identity guard) - the case that let a teamless
+ * second copy of a rostered player (a new source id under `isFreeAgent:
+ * "True"`) get drafted as an empty roster slot. Refused entries never
+ * silently vanish: they are counted and listed as `skippedDuplicateIdentity`
+ * in both this resolved body and the run's `data_sync_runs` detail (the
+ * refused `playerID` and the existing `external_id` it matched).
  */
 async function syncPlayers({ season, api = tank01Get }) {
   return runSyncJob({
@@ -163,8 +173,36 @@ async function fetchSyncPlayersUnit({ season, api }) {
  * 57014). `ON CONFLICT DO UPDATE` raises 21000 if the same `external_id`
  * appears twice in one statement, so a duplicate key within the batch is
  * deduped in JS first (last entry wins) and counted once in
- * `playersUpserted`. An empty batch (every entry skipped) issues no write
- * statement, mirroring `syncInjuries`/`syncAdp`'s own guard.
+ * `playersUpserted`. An empty batch (every entry skipped, or every surviving
+ * entry refused by the identity guard below) issues no write statement,
+ * mirroring `syncInjuries`/`syncAdp`'s own guard.
+ *
+ * #1562 identity guard: `players`' only identity is `external_id`, so an
+ * entry whose `playerID` this table has never seen is a new row by
+ * construction - which is how a teamless second copy of a rostered player
+ * (a new source id, `isFreeAgent: "True"`) got minted and drafted as an
+ * empty slot. Before upserting, one read of every existing `players` row
+ * that carries an `external_id` (mirroring `applyInjuryUnit`'s own
+ * existing-rows read, same table, same job family) builds two lookups: by
+ * `external_id` itself (is this `playerID` already known?), and by
+ * normalized name+position for rows that carry an `nfl_team` (a real
+ * rostered player to fold a teamless duplicate into). A `playerID` already
+ * known upserts exactly as before. A new `playerID` is refused - counted in
+ * `skippedDuplicateIdentity`, never inserted - when either:
+ *   (a) its feed-carried `espnID` is numeric, differs from its own
+ *       `playerID`, and equals an existing row's `external_id` (the feed
+ *       carries `espnID` beside `playerID`, tank01Feed.js's
+ *       `resolveHeadshotUrl`; ADR 0035/0041: `external_id` IS the ESPN id,
+ *       so a second `playerID` under the same `espnID` is the same athlete
+ *       under a new source id), or
+ *   (b) it resolves teamless through `feedTeamOf` and its normalized name +
+ *       position match an existing row that has an `nfl_team` (the worked
+ *       example: a teamless entry under a brand-new `playerID` with the same
+ *       name/position as an already-rostered player).
+ * A same-name player who IS on an NFL team still inserts under either arm -
+ * only a teamless new id can match arm (b), and arm (a) requires the
+ * `espnID` itself to collide - so the four legitimate same-name groups and
+ * any future rookie namesake are untouched.
  */
 async function applySyncPlayersUnit(client, { season, entries }) {
   let skipped = 0;
@@ -176,15 +214,62 @@ async function applySyncPlayersUnit(client, { season, entries }) {
   // its last entry - the per-row loop's last-write-wins tolerance, preserved
   // here in JS instead.
   const byExternalId = new Map();
+  // espnID travels alongside the parsed shape for the identity guard's arm
+  // (a) only - it is not part of normalizePlayerEntry's own returned shape
+  // (a cross-module/test seam other suites assert the exact fields of).
+  const espnIdByExternalId = new Map();
   for (const raw of entries) {
     const parsed = normalizePlayerEntry(raw);
     if (!parsed) {
       skipped += 1;
       continue;
     }
-    byExternalId.set(Number(parsed.externalId), parsed);
+    const numericExternalId = Number(parsed.externalId);
+    byExternalId.set(numericExternalId, parsed);
+    const rawEspnId = raw && raw.espnID;
+    espnIdByExternalId.set(
+      numericExternalId,
+      rawEspnId != null && /^\d+$/.test(String(rawEspnId)) ? String(rawEspnId) : null
+    );
   }
-  const rows = Array.from(byExternalId.values());
+
+  const skippedDuplicateIdentity = [];
+  let rows = Array.from(byExternalId.values());
+  if (rows.length > 0) {
+    const existing = await client.query(
+      `SELECT "external_id", "name", "position", "nfl_team" FROM "players" WHERE "external_id" IS NOT NULL`
+    );
+    const existingByExternalId = new Map();
+    const existingRosteredByNameKeyPosition = new Map();
+    for (const row of existing.rows) {
+      const externalId = String(row.external_id);
+      existingByExternalId.set(externalId, row);
+      if (row.nfl_team) {
+        existingRosteredByNameKeyPosition.set(`${normalizeNameKey(row.name)}|${row.position}`, row);
+      }
+    }
+
+    rows = rows.filter((parsed) => {
+      if (existingByExternalId.has(parsed.externalId)) return true; // playerID already known: upsert as before
+      const espnId = espnIdByExternalId.get(Number(parsed.externalId));
+      if (espnId && espnId !== parsed.externalId) {
+        const matched = existingByExternalId.get(espnId);
+        if (matched) {
+          skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.external_id) });
+          return false; // arm (a)
+        }
+      }
+      if (!parsed.nflTeam) {
+        const matched = existingRosteredByNameKeyPosition.get(`${normalizeNameKey(parsed.name)}|${parsed.position}`);
+        if (matched) {
+          skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.external_id) });
+          return false; // arm (b)
+        }
+      }
+      return true;
+    });
+  }
+
   if (rows.length > 0) {
     await client.query(
       `INSERT INTO "players" ("external_id", "name", "position", "nfl_team", "photo_url", "jersey_number")
@@ -207,7 +292,9 @@ async function applySyncPlayersUnit(client, { season, entries }) {
       ]
     );
   }
-  return { season, playersUpserted: rows.length, skippedNonFantasy: skipped };
+  return {
+    season, playersUpserted: rows.length, skippedNonFantasy: skipped, skippedDuplicateIdentity,
+  };
 }
 
 /**
