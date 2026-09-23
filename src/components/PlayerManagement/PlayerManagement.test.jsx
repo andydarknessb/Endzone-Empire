@@ -44,6 +44,7 @@ const league = {
   my_team_faab_remaining: 72,
   best_ball: false,
 };
+const priorityLeague = { ...league, waiver_type: "priority", my_team_waiver_priority: 3 };
 // Roster templates a league's `roster_slots` can carry (#1419), mirroring
 // the shapes CommissionerTools.jsx's own LINEUP_TEMPLATES stamp into a real
 // league and templates.js's own IDP_LINEUP/SUPERFLEX_LINEUP.
@@ -318,8 +319,9 @@ test("a rostered row's Trade action deep-links into TradeCenter with the owning 
   );
 });
 
-test("Claim submits a waiver claim directly, through the same claim-player feature WaiverWire's own dialog uses", async () => {
+test("priority league: Claim submits a waiver claim directly, through the same claim-player feature WaiverWire's own dialog uses", async () => {
   mockBrowser({
+    leagues: [priorityLeague],
     players: [
       player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
     ],
@@ -337,6 +339,23 @@ test("Claim submits a waiver claim directly, through the same claim-player featu
       bid: 0,
     }),
   );
+});
+
+// #1576: in a FAAB league a one-tap claim would silently post a $0 bid that
+// loses to any $1 bid, so the row's Claim opens the Decision card where the
+// bid and drop are collected.
+test("FAAB league: the row's Claim opens the Decision card claim action and does not post a claim (#1576)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  expect(await screen.findByTestId("claim-player-action")).toBeInTheDocument();
+  expect(apiClient.post).not.toHaveBeenCalled();
 });
 
 test("Pending claims link shows the manager's pending count and routes to the Waiver wire (#1575)", async () => {
@@ -360,6 +379,7 @@ test("Pending claims link is hidden in a best ball league (#1575)", async () => 
 
 test("Pending claims count increments after a successful row claim without a reload (#1575)", async () => {
   mockBrowser({
+    leagues: [priorityLeague],
     players: [
       player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
     ],
@@ -438,6 +458,7 @@ test("formal-1310-f3: only the tapped row's Claim goes busy, not every waivers r
   let resolvePost;
   apiClient.post.mockImplementation(() => new Promise((resolve) => { resolvePost = resolve; }));
   mockBrowser({
+    leagues: [priorityLeague],
     players: [
       player({ id: 2, name: "First Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
       player({ id: 3, name: "Second Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),

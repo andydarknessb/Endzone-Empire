@@ -498,6 +498,8 @@ function PlayerManagement() {
       // Formal review formal-1310-f3: busy state is scoped to THIS row's own
       // player id, never the page-wide pending booleans the hooks return.
       const rowPending = pendingPlayerId === player.id;
+      const faabLeague = activeLeague?.waiver_type === "faab";
+      const opensClaimCard = rosterAtCapacity || faabLeague;
       if (!selectedLeague)
         return {
           kind: "button",
@@ -513,13 +515,17 @@ function PlayerManagement() {
           // first request's snackbar ever appeared - disabling for the
           // request's own duration is the same guard Add already gets below
           // from `rosterAction.disabled`. At capacity the tap opens the
-          // Decision card's claim bar instead (see `rosterAtCapacity`).
+          // Decision card's claim bar instead (see `rosterAtCapacity`). In a
+          // FAAB league (#1576) a one-tap claim would post a silent $0 bid that
+          // loses to any $1 bid, so the tap opens the card, which collects the bid.
           label: rowPending ? "Claiming…" : "Claim",
-          onClick: rosterAtCapacity ? () => setQuickViewId(player.id) : () => claimFromRow(player),
+          onClick: opensClaimCard ? () => setQuickViewId(player.id) : () => claimFromRow(player),
           disabled: rowPending,
           helper: rosterAtCapacity
             ? "Your roster is full. Choose a player to drop in the claim card."
-            : "Submit a waiver claim for this player.",
+            : faabLeague
+              ? "Place a FAAB bid for this player in the claim card."
+              : "Submit a waiver claim for this player.",
         };
       if (state === "my_team")
         return {
@@ -552,7 +558,7 @@ function PlayerManagement() {
         helper: rosterAction.helper,
       };
     },
-    [addToRoster, claimFromRow, pendingPlayerId, rosterAction, rosterAtCapacity, selectedLeague],
+    [activeLeague, addToRoster, claimFromRow, pendingPlayerId, rosterAction, rosterAtCapacity, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
