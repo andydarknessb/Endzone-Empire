@@ -199,6 +199,17 @@ test('completeDraft seeds every team a legal lineup over its full roster, after 
       assert.equal(call.params[3], COMPLETE_LEAGUE.current_season, 'season');
       assert.equal(call.params[4], COMPLETE_LEAGUE.current_week, 'week');
       assert.ok(/"ir_attested"\)\s+VALUES \([^)]*, false\)/.test(call.text), 'ir_attested is false');
+      // The ruling's whole point: this OVERWRITES a rostered player's
+      // draft-time row on conflict. Red-tell: swap this to the DO NOTHING
+      // `materializeLineup`'s own first-ever seed uses beside it, and every
+      // drafted team keeps its one-starter/13-BENCH per-pick rows exactly as
+      // the #1569 defect left them - the seed INSERT hits the existing
+      // (team_id, season, week, player_id) row and is silently discarded.
+      assert.match(
+        call.text,
+        /ON CONFLICT \("team_id", "season", "week", "player_id"\) DO UPDATE SET "slot" = EXCLUDED\."slot", "ir_attested" = false/,
+        'the upsert overwrites slot and ir_attested on conflict, not DO NOTHING'
+      );
     }
   }
 
