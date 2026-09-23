@@ -452,6 +452,7 @@ test('processWaivers: a frozen league finishes nothing invalid either (#990)', a
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
     // Seeded so the pre-fix control and the red-tell resolve cleanly instead of
     // dying on an unmatched statement.
+    [insert('notifications'), () => ({ rows: [] })], // an invalid claim now tells its manager
     [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
     [remove('waiver_players'), () => ({ rows: [], rowCount: 0 })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
@@ -505,6 +506,7 @@ test('processWaivers: an unfrozen league still finishes an unawardable batch inv
     [select('teams'), () => ({ rows: frozenAllInvalidTeams })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
     [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('notifications'), () => ({ rows: [] })], // an invalid claim now tells its manager
     [remove('waiver_players'), () => ({ rows: [], rowCount: 0 })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
   ]).install(t);
@@ -903,6 +905,7 @@ test('kickoff hold, then claim-target, submit-claim and processing, all through 
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })], // never rostered before the award
     [/^SELECT 1 FROM "waiver_players"/, table.isOnWaiversHandler(nowRef)],
     [/^SELECT 1 FROM "waiver_claims" WHERE "team_id"/, () => ({ rows: [] })], // no pending duplicate
+    [/MAX\("claim_order"\)/,() => ({ rows: [{ next: 1 }] })], // the new claim joins the Claim order last
     [insert('waiver_claims'), () => ({ rows: [claimRow] })],
     [/^SELECT "waiver_claims"\.\* FROM "waiver_claims"/, () => ({ rows: [claimRow] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 5 }] })],
