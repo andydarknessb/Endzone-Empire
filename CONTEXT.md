@@ -1001,6 +1001,16 @@ draft completes, then reset to reverse standings each time a week is
 finalized: last place after that week's results claims first. Winning a claim
 sends a team to the back of the order until the next reset.
 
+**Claim order**:
+A manager's ranking of their own pending Waiver claims, 1 first. It decides
+which of their claims is tried first when claims process, and so which one
+survives when two of them conflict over the same drop player, the roster's
+capacity or the FAAB budget. It never decides who wins a player against
+another team; that is Waiver priority and the bid (ADR 0048).
+_Avoid_: claim priority (that is Waiver priority), queue position, submission
+order (a new claim joins the order last, but the order is the manager's to
+change)
+
 **Trade**:
 A swap of players between two teams, optionally subject to a review window in
 which uninvolved managers can vote to veto.
@@ -1063,6 +1073,16 @@ final its lineups are a record of the week as played, never a working lineup:
 nothing is added to them after the fact, so re-scoring a final week counts
 only the players who were there when the games were played.
 _Avoid_: game (a game is an NFL game), fixture
+
+**NFL opponent**:
+The NFL team a player's own NFL team faces in one NFL week. Null on a bye,
+never absent (#1132), and the same value on every surface that names the
+player for that week: lineup, Decision card, Players page, Waiver wire, Trade
+Center. Distinct from a Matchup's opponent, which is a Team in the league,
+and from the projection engine's opponent Factor, which is what that team's
+defense does to a projection.
+_Avoid_: opponent (bare, when a Team could be meant), opp, matchup (the
+player's NFL game is not a Matchup)
 
 **Scoring play**:
 One scoring event for one player in one NFL game as the live sync detected
