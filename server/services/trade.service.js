@@ -15,6 +15,8 @@ const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./ros
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 // Module object, not destructured: the seam tests mock benchAcquiredPlayer.
 const lineupService = require('./lineup.service');
+const { getWeekOpponents } = require('./nflWeekOpponents');
+const { normalizeNflTeam } = require('./nflTeam');
 
 /**
  * Who may act on a trade (#188, recorded here rather than beside each check).
@@ -672,6 +674,36 @@ async function processDueTrades() {
   return outcomes;
 }
 
+/**
+ * The items of the given trades for GET /api/trades, each carrying the week's
+ * NFL opponent (CONTEXT.md, NFL opponent; #1585): a Team code, or null on a
+ * bye or when the league has no current_week - present-and-null, never absent
+ * (#1132). The week is the league's current week, the same one the Players
+ * page reads; ONE schedule read per call, not one per item (#1405).
+ * `client` is injectable; it defaults to the shared pool.
+ */
+async function readTradeItems({ leagueId, tradeIds }, { client = pool } = {}) {
+  if (!tradeIds || tradeIds.length === 0) return [];
+  const itemsResult = await client.query(
+    `SELECT "trade_items".*, "players"."name", "players"."position", "players"."nfl_team"
+     FROM "trade_items" JOIN "players" ON "players"."id" = "trade_items"."player_id"
+     WHERE "trade_items"."trade_id" = ANY($1::int[])`,
+    [tradeIds]
+  );
+  const leagueRow = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+  const league = leagueRow.rows[0] || null;
+  const opponentByTeam = league && league.current_week != null
+    ? await getWeekOpponents(
+      { season: league.current_season != null ? Number(league.current_season) : 2026, week: Number(league.current_week) },
+      { client }
+    )
+    : new Map();
+  return itemsResult.rows.map((item) => ({
+    ...item,
+    nfl_opponent: opponentByTeam.get(normalizeNflTeam(item.nfl_team)) ?? null,
+  }));
+}
+
 module.exports = {
   TradeError,
   proposeTrade,
@@ -682,4 +714,5 @@ module.exports = {
   commissionerDecide,
   executeTrade,
   processDueTrades,
+  readTradeItems,
 };
