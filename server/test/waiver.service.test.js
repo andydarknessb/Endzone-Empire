@@ -903,6 +903,7 @@ test('kickoff hold, then claim-target, submit-claim and processing, all through 
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })], // never rostered before the award
     [/^SELECT 1 FROM "waiver_players"/, table.isOnWaiversHandler(nowRef)],
     [/^SELECT 1 FROM "waiver_claims" WHERE "team_id"/, () => ({ rows: [] })], // no pending duplicate
+    [/MAX\("claim_order"\)/,() => ({ rows: [{ next: 1 }] })], // the new claim joins the Claim order last
     [insert('waiver_claims'), () => ({ rows: [claimRow] })],
     [/^SELECT "waiver_claims"\.\* FROM "waiver_claims"/, () => ({ rows: [claimRow] })],
     [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 5 }] })],

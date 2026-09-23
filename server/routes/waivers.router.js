@@ -126,6 +126,26 @@ router.post('/claim', async (req, res) => {
   }
 });
 
+// PUT /api/waivers/claims/order — set the caller's Claim order (ADR 0048)
+// { leagueId, claimIds: [...] }: exactly the caller's pending claim ids for the
+// league, each once; a mismatch is a coded 409 (CLAIM_ORDER_MISMATCH).
+router.put('/claims/order', async (req, res) => {
+  const { leagueId, claimIds } = req.body || {};
+  if (!Number.isInteger(leagueId) || !Array.isArray(claimIds) || !claimIds.every(Number.isInteger)) {
+    return res.status(400).json({ error: 'leagueId (integer) and claimIds (array of integers) are required' });
+  }
+  try {
+    const result = await waivers.reorderClaims({ leagueId, userId: req.user.id, claimIds });
+    res.json(result);
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    }
+    console.error('Error reordering waiver claims', error);
+    res.status(500).json({ error: 'failed to reorder claims' });
+  }
+});
+
 // DELETE /api/waivers/claim/:id?leagueId=N — cancel a pending claim
 router.delete('/claim/:id', async (req, res) => {
   const claimId = intOrNull(req.params.id);
