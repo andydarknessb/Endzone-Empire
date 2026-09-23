@@ -3,6 +3,8 @@ const { rulesForLeague } = require('./scoringRules');
 const { IDP_POSITIONS } = require('./feedSyncRuns.service');
 const { projectSeasonPoints } = require('./seasonSummary.service');
 const { computeByeWeeks, REG_SEASON_WEEKS } = require('./bye.service');
+const { getWeekOpponents } = require('./nflWeekOpponents');
+const { normalizeNflTeam } = require('./nflTeam');
 const { requireMember, MembershipError } = require('./leagueMembership.service');
 const { rosterablePositions } = require('./lineup.service');
 const irPolicy = require('./irPolicy.service');
@@ -491,6 +493,21 @@ async function readPlayersPage(query, { db = pool } = {}) {
   const byeByTeam = await computeByeWeeks(nflTeams, currentSeasonYear, { client: db });
   for (const p of players) {
     p.bye_week = byeByTeam.get(p.nfl_team) ?? null;
+  }
+
+  // #1574: the week's NFL opponent (CONTEXT.md), on every row, null on a bye -
+  // present-and-null, never absent (#1132). The week is the league's current
+  // week, the same one Proj Wk reads; with no league there is no week, so
+  // every row is null. ONE schedule read for the page, not one per row
+  // (#1405), shared with start/sit advice (nflWeekOpponents.js, #1136).
+  const opponentByTeam = league && league.current_week != null
+    ? await getWeekOpponents(
+      { season: currentSeasonYear, week: Number(league.current_week) },
+      { client: db },
+    )
+    : new Map();
+  for (const p of players) {
+    p.nfl_opponent = opponentByTeam.get(normalizeNflTeam(p.nfl_team)) ?? null;
   }
 
   // Bye filter: a player with an unknown bye week can't match an explicit

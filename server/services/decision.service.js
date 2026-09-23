@@ -23,6 +23,9 @@ const {
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { normalizeNflTeam } = require('./nflTeam');
+// The schedule read start/sit advice pairs with getPositionDefense below;
+// shared with the Players page rather than copied (#1574, #1136).
+const { getWeekOpponents } = require('./nflWeekOpponents');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
 // live what-if price a player-week the identical way the score of record does
 // - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
@@ -61,39 +64,6 @@ function pointsOf(projections, playerId) {
   if (value == null) return 0;
   const raw = typeof value === 'object' ? value.points : value;
   return Number(raw) || 0;
-}
-
-/**
- * Map nflTeam -> opponent for a given (season, week), from the synced
- * schedule. Keyed by normalizeNflTeam(row.nfl_team), NOT the raw column: the
- * caller (startSitAdvice) has already read a `players` row into memory and
- * looks this map up with normalizeNflTeam(entry.nfl_team) too, so both sides
- * of the JS-side comparison agree even when one side is a DEF unit's full
- * team name (#423). A row whose team folds to no team (a blank `nfl_team`)
- * contributes no entry, the same absence-stays-absence rule every other
- * schedule lookup in this app follows.
- *
- * The map's VALUE is now folded too (#1136): every opponent that leaves the
- * server is a Team code (CONTEXT.md, Team code), this map included. That
- * used to break the raw-on-raw pairing `getPositionDefense`'s `defense` map
- * had with a raw opponent read from this same table (#320/#422), so
- * `startSitAdvice` below folded a local copy of `defense`'s keys before
- * looking anything up. `getPositionDefense` itself now folds its key through
- * `fn_normalize_nfl_team` (#1154, projection.service.js), so `defense` is
- * already Team-code-keyed and `startSitAdvice` reads it directly - the local
- * remap is gone, not doubled.
- */
-async function getWeekOpponents({ season, week }) {
-  const result = await pool.query(
-    `SELECT "nfl_team", "opponent" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
-    [season, week]
-  );
-  const byTeam = new Map();
-  for (const row of result.rows) {
-    const team = normalizeNflTeam(row.nfl_team);
-    if (team !== null) byTeam.set(team, normalizeNflTeam(row.opponent));
-  }
-  return byTeam;
 }
 
 // ---------------------------------------------------------------------------

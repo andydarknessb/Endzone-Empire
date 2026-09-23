@@ -200,3 +200,34 @@ test('the table row renders the dense weekly strip', () => {
   renderRow({ player: player(), action: { kind: 'button', label: 'Add', onClick: () => {} } });
   expect(screen.getByTestId('weekly-points-bars')).toHaveAttribute('data-dense', 'true');
 });
+
+// #1574: the identity line names the week's NFL opponent after the NFL team,
+// "vs BUF" with no home/away marker (MyTeamSummary / Decision card
+// convention), or the bye when there is none. Both variants.
+describe.each([
+  ['row', {}],
+  ['card', { variant: 'card' }],
+])('NFL opponent on the identity line (%s)', (_name, extra) => {
+  const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const render = (p) => (extra.variant === 'card'
+    ? renderWithProviders(<PlayerRow player={p} action={action} {...extra} />)
+    : renderRow({ player: p, action }));
+
+  test('renders "vs OPP" after the team and no bye label', () => {
+    render(player({ nfl_team: 'KC', nfl_opponent: 'BUF', bye_week: 6 }));
+    expect(screen.getByText('vs BUF')).toBeInTheDocument();
+    expect(screen.queryByText(/Bye/)).not.toBeInTheDocument();
+  });
+
+  test('renders the bye (with its week) when nfl_opponent is null', () => {
+    render(player({ nfl_team: 'KC', nfl_opponent: null, bye_week: 6 }));
+    expect(screen.getByText('Bye 6')).toBeInTheDocument();
+    expect(screen.queryByText(/^vs /)).not.toBeInTheDocument();
+  });
+
+  test('renders neither when the opponent and bye are both unknown', () => {
+    render(player({ nfl_team: 'KC', nfl_opponent: null, bye_week: null }));
+    expect(screen.queryByText(/^vs /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bye/)).not.toBeInTheDocument();
+  });
+});
