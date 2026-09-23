@@ -139,6 +139,7 @@ function completingPickWorld(t) {
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+  t.mock.method(lineupService, 'seedDraftedLineups', async () => {});
   t.mock.method(seasonService, 'generateRegularSeason', async () => ({}));
   return fake;
 }

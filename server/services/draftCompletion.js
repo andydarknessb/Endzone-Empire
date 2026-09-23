@@ -5,6 +5,7 @@
 // DraftError (ADR 0008) and never requires this module back.
 const seasonService = require('./season.service');
 const waiverService = require('./waiver.service');
+const lineupService = require('./lineup.service');
 const { appendLifecycleActivity, COMPLETE } = require('./draftActivity');
 const { DraftError } = require('./draft.service');
 
@@ -23,15 +24,21 @@ const { DraftError } = require('./draft.service');
  * module), seeds every team's waiver priority from reverse draft order (the
  * order the blanket window's claims resolve in; without it the season starts
  * with NULL priorities), generates the regular-season schedule (the #194 phase
- * gate passes because the flip is already visible on this client), and appends
- * the COMPLETE lifecycle entry.
+ * gate passes because the flip is already visible on this client), seeds every
+ * team's current-week lineup from its full post-draft roster (#1569 -
+ * `benchAcquiredPlayer`'s first-ever seed upstream only ever saw the team's
+ * roster as it stood on their FIRST pick, over-and-over leaving every later
+ * pick benched all season; this seed overwrites those per-pick rows with a
+ * legal lineup over the finished roster, `lineupService.seedDraftedLineups`,
+ * a no-op for a best-ball league), and appends the COMPLETE lifecycle entry.
  *
  * Returns the completion entry so both callers can broadcast it after COMMIT, as
  * they do today.
  */
 async function completeDraft(client, { leagueId }) {
   const statusResult = await client.query(
-    `SELECT "draft_status" FROM "leagues" WHERE "id" = $1`,
+    `SELECT "id", "draft_status", "current_season", "current_week", "best_ball", "roster_slots"
+     FROM "leagues" WHERE "id" = $1`,
     [leagueId]
   );
   const league = statusResult.rows[0];
@@ -46,6 +53,7 @@ async function completeDraft(client, { leagueId }) {
   await waiverService.openPostDraftWaiverWindow(client, { leagueId });
   await waiverService.seedWaiverPriorityFromDraftOrder(client, { leagueId });
   await seasonService.generateRegularSeason({ leagueId }, client);
+  await lineupService.seedDraftedLineups(client, { league });
   return appendLifecycleActivity(client, { leagueId, kind: COMPLETE, team: null });
 }
 
