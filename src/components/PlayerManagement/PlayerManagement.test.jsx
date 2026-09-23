@@ -81,10 +81,12 @@ function mockBrowser({
   // "no league selected".
   templateLeague = leagues[0] ?? null,
   templateLeagueLoading = false,
+  myClaims = [],
 } = {}) {
   apiClient.get.mockImplementation((url) => {
     if (url === "/api/league") return Promise.resolve({ data: leagues });
     if (url.startsWith("/api/team/roster")) return Promise.resolve({ data: roster });
+    if (url.startsWith("/api/waivers?")) return Promise.resolve({ data: { myClaims } });
     if (url === "/api/players")
       return Promise.resolve({
         data: {
@@ -332,6 +334,41 @@ test("Claim submits a waiver claim directly, through the same claim-player featu
       bid: 0,
     }),
   );
+});
+
+test("Pending claims link shows the manager's pending count and routes to the Waiver wire (#1575)", async () => {
+  mockBrowser({
+    myClaims: [{ id: 1, status: "pending" }, { id: 2, status: "pending" }, { id: 3, status: "processed" }],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const link = await screen.findByRole("link", { name: "Pending claims (2)" });
+  expect(link).toHaveAttribute("href", "/league/1/waivers");
+});
+
+test("Pending claims link is hidden in a best ball league (#1575)", async () => {
+  const bb = { ...league, best_ball: true };
+  mockBrowser({ leagues: [bb], myClaims: [{ id: 1, status: "pending" }] });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText("Patrick Mahomes");
+  expect(screen.queryByRole("link", { name: /Pending claims/ })).not.toBeInTheDocument();
+});
+
+test("Pending claims count increments after a successful row claim without a reload (#1575)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    myClaims: [{ id: 1, status: "pending" }],
+  });
+  apiClient.post.mockResolvedValue({});
+  renderWithProviders(<PlayerManagement />);
+  expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  expect(await screen.findByRole("link", { name: "Pending claims (2)" })).toBeInTheDocument();
 });
 
 // A full roster makes the one-tap claim impossible: the server 409s with

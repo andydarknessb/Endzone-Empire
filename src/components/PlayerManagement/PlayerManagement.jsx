@@ -312,6 +312,30 @@ function PlayerManagement() {
     fetchRoster();
   }, [fetchRoster]);
 
+  // #1575: the manager's own pending waiver claim count, read once per
+  // league from the same `GET /api/waivers?leagueId=N` WaiverWire makes
+  // (`myClaims`, filtered to pending client-side). null = unknown/hidden;
+  // best ball leagues have no waivers, so they never read it.
+  const [pendingClaimCount, setPendingClaimCount] = useState(null);
+  useEffect(() => {
+    setPendingClaimCount(null);
+    if (!selectedLeague || bestBall) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiClient.get(`/api/waivers?leagueId=${Number(selectedLeague)}`);
+        if (cancelled) return;
+        const claims = response.data?.myClaims || [];
+        setPendingClaimCount(claims.filter((claim) => claim.status === "pending").length);
+      } catch (err) {
+        // Best-effort: without the count the link simply stays hidden.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLeague, bestBall]);
+
   const fetchPlayers = useCallback(async () => {
     if (!leaguesLoaded) return;
     // Holds the request while the SELECTED league's own roster template has
@@ -444,6 +468,7 @@ function PlayerManagement() {
       const { ok, message } = await submitClaim({ playerId: player.id, dropPlayerId: null, bid: 0 });
       setPendingPlayerId(null);
       if (!ok) setError(message);
+      else setPendingClaimCount((count) => (count === null ? count : count + 1));
     },
     [submitClaim],
   );
@@ -664,6 +689,17 @@ function PlayerManagement() {
         // 44px minimum every other action on this page carries.
         sx={row ? undefined : { "& [role='radio']": { minHeight: 44 } }}
       />
+      {pendingClaimCount !== null && !bestBall && (
+        <Button
+          component={RouterLink}
+          to={`/league/${Number(selectedLeague)}/waivers`}
+          variant="text"
+          size="small"
+          sx={{ minHeight: 44, whiteSpace: "nowrap" }}
+        >
+          {`Pending claims (${pendingClaimCount})`}
+        </Button>
+      )}
       {/* #1312 Ruling: the Watching toggle - client-side only, never a
           fifth Availability segment (ADR 0040's ownership axis stays
           exactly those four states). */}
