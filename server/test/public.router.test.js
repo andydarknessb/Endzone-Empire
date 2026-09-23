@@ -753,6 +753,8 @@ test('GET /sitemap.xml serves static, player, and recap public URLs', async (t) 
     'preseason-week-2-recap',
     'preseason-week-3-recap',
     'rookie-draft-round-guide',
+    'week2-waiver-wire-priority-board',
+    'week3-waiver-wire-darkness-report',
   ]) {
     assert.ok(
       res.text.includes(`<loc>https://endzoneempire.gg/strategy/${slug}</loc>`),
