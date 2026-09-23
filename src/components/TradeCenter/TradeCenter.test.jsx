@@ -582,3 +582,27 @@ test('a load failure in the code/message/requestId envelope renders its message'
   expect(screen.queryByText('Request failed with status code 429')).not.toBeInTheDocument();
   expect(screen.queryByText('RATE_LIMITED')).not.toBeInTheDocument();
 });
+
+// #1585: the card's PlayerRow shows the week's NFL opponent - `vs BUF`, or a
+// bare `Bye` when the item has an nfl_team but no opponent this week.
+test('a trade item with an nfl_opponent renders "vs BUF"', async () => {
+  const trade = pendingTrade();
+  trade.items[0] = { ...trade.items[0], nfl_opponent: 'BUF' };
+  mockGetSequence({ trades: [trade] });
+  renderScreen();
+
+  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  expect(within(screen.getByTestId('trade-5')).getByText('vs BUF')).toBeInTheDocument();
+});
+
+test('a trade item with a null nfl_opponent renders "Bye" and no "vs"', async () => {
+  const trade = pendingTrade();
+  trade.items = [{ ...trade.items[0], nfl_opponent: null }];
+  mockGetSequence({ trades: [trade] });
+  renderScreen();
+
+  await screen.findByText('Alice Squad ⇄ Bob Squad');
+  const card = within(screen.getByTestId('trade-5'));
+  expect(card.getByText('Bye')).toBeInTheDocument();
+  expect(card.queryByText(/^vs /)).not.toBeInTheDocument();
+});
