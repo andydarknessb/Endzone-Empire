@@ -70,13 +70,16 @@ test('syncPlayers upserts every fetched entry inside one transaction under PLAYE
   };
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({ rows: [] }), 'client'],
     [insert('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
   const result = await syncPlayers({ season: 2026, api });
 
-  assert.deepEqual(result, { season: 2026, playersUpserted: 1, skippedNonFantasy: 0 });
+  assert.deepEqual(result, {
+    season: 2026, playersUpserted: 1, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+  });
 
   // Red-tell: remove the lock and this ordering assertion goes red.
   const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
@@ -116,26 +119,32 @@ test('syncPlayerSeasonStats upserts every rollup inside one transaction under PL
 // upsert each, so the number of write statements per unit is a fixed
 // constant, not one per row. Each test drives a unit of hundreds of rows -
 // this goes red against the old per-row loop, which issued one INSERT per
-// row between the lock and COMMIT.
-test('syncPlayers issues a fixed number of write statements between the lock and COMMIT regardless of row count', async (t) => {
+// row between the lock and COMMIT. #1562 adds one fixed existing-rows SELECT
+// (the identity guard's own read) ahead of that INSERT - still one query
+// each, independent of row count.
+test('syncPlayers issues a fixed number of statements between the lock and COMMIT regardless of row count', async (t) => {
   const entries = Array.from({ length: 250 }, (_, i) => (
     { playerID: String(2000 + i), longName: `Bulk Player ${i}`, pos: 'WR', team: 'BUF' }
   ));
   const api = async () => ({ data: { body: entries } });
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({ rows: [] }), 'client'],
     [insert('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
   const result = await syncPlayers({ season: 2026, api });
 
-  assert.deepEqual(result, { season: 2026, playersUpserted: 250, skippedNonFantasy: 0 });
+  assert.deepEqual(result, {
+    season: 2026, playersUpserted: 250, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+  });
   const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
   const between = fake.calls.slice(lockIdx + 1, commitIdx);
-  assert.equal(between.length, 1, 'one write statement independent of row count');
-  assert.ok(between[0].text.startsWith('INSERT INTO "players"'));
+  assert.equal(between.length, 2, 'one existing-rows read plus one write, independent of row count');
+  assert.ok(between[0].text.startsWith('SELECT "external_id", "name", "position", "nfl_team" FROM "players"'));
+  assert.ok(between[1].text.startsWith('INSERT INTO "players"'));
   fake.assertClean();
 });
 
@@ -173,19 +182,245 @@ test('syncPlayers dedupes a duplicate external_id within one batch, last entry w
   let insertParams = null;
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({ rows: [] }), 'client'],
     [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
   const result = await syncPlayers({ season: 2026, api });
 
-  assert.deepEqual(result, { season: 2026, playersUpserted: 1, skippedNonFantasy: 0 });
+  assert.deepEqual(result, {
+    season: 2026, playersUpserted: 1, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+  });
   assert.equal(insertParams[0].length, 1, 'one parallel-array row for the deduped external_id');
   assert.deepEqual(insertParams[0], ['77']);
   assert.deepEqual(insertParams[1], ['New Name'], 'the later entry wins');
   assert.deepEqual(insertParams[3], ['MIA'], 'the later entry wins');
   assert.deepEqual(insertParams[5], ['22'], 'the later entry wins');
   fake.assertClean();
+});
+
+// #1562: applySyncPlayersUnit's identity guard. Root cause: `players`' only
+// identity is `external_id`, so a known athlete arriving under a
+// never-seen `playerID` (a new source id) was inserted as a second row -
+// the worked example being a teamless Davante Adams copy under a new id,
+// rostered in two leagues and scoring 0. These four cases are the issue's
+// own red-tell plus its stated companions.
+
+test('#1562 arm (b): a teamless entry under a new playerID matching an existing rostered player by name+position is refused, not inserted', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
+        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
+      ],
+    },
+  });
+  let insertParams = null;
+  let recordedDetail = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), (text, params) => { recordedDetail = JSON.parse(params[3]); return { rows: [] }; }],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(insertParams[0], ['16800'], 'only the already-known external id reaches the insert');
+  assert.equal(result.playersUpserted, 1);
+  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }]);
+  assert.deepEqual(recordedDetail.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }],
+    'the refusal is also visible on the recorded data_sync_runs row');
+  fake.assertClean();
+});
+
+test('#1562 arm (a): a new playerID whose numeric espnID matches an existing external_id is refused, even under a misspelled name', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '999', longName: 'Davante Adamms', pos: 'WR', team: 'LAR', espnID: '16800' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.equal(insertParams, null, 'no INSERT ran at all: the sole entry in the batch was refused');
+  assert.deepEqual(result, {
+    season: 2026,
+    playersUpserted: 0,
+    skippedNonFantasy: 0,
+    skippedDuplicateIdentity: [{ playerId: '999', matchedExternalId: '16800' }],
+  });
+  fake.assertClean();
+});
+
+test('#1562: a teamed same-name player under a new playerID still inserts (a real second athlete, not a duplicate)', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(insertParams[0], ['2589699'], 'a teamed same-name player is a distinct athlete, never folded away');
+  assert.equal(result.playersUpserted, 1);
+  assert.deepEqual(result.skippedDuplicateIdentity, []);
+  fake.assertClean();
+});
+
+test('#1562: a playerID already known as an existing external_id upserts as before, even if it would otherwise look like a duplicate', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(insertParams[0], ['16800'], 'the known id upserts, untouched by the identity guard');
+  assert.equal(result.playersUpserted, 1);
+  assert.deepEqual(result.skippedDuplicateIdentity, []);
+  fake.assertClean();
+});
+
+// qa-reviewer #1562 f2: players.external_id is an integer column, and the
+// batch's own within-feed dedup already keys on Number(...) so a zero-padded
+// or otherwise text-different id still collides with the same integer row.
+// The identity guard's own comparisons must agree, or an ALREADY-KNOWN
+// player whose feed-carried id happens to be spelled differently this run
+// would read as new, match its own real row, and get refused as a duplicate
+// of itself - silently dropping that run's update.
+test('#1562: an already-known playerID spelled with a leading zero still upserts as the known row, not refused as its own duplicate', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '016800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(insertParams[0], ['016800'], 'upserted, not refused, despite the different-looking id text');
+  assert.equal(result.playersUpserted, 1);
+  assert.deepEqual(result.skippedDuplicateIdentity, []);
+  fake.assertClean();
+});
+
+// qa-reviewer #1562 f1: a duplicate pair can arrive in ONE feed body with
+// neither id in `players` yet (a fresh table, a new tenant, or simply the
+// first run to see either id) - matching only against the SELECT's rows
+// would insert both. The guard's anchor maps are built from the whole batch
+// too, so this is caught the same way a previously-seeded duplicate is.
+test('#1562 arm (b), batch-internal: two brand-new ids for the same athlete in ONE feed body still refuse the teamless copy, with nothing pre-existing in players', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
+        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({ rows: [] }), 'client'], // nothing in players yet
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(insertParams[0], ['16800'], 'only the teamed entry is inserted');
+  assert.equal(result.playersUpserted, 1);
+  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }]);
+  fake.assertClean();
+});
+
+// qa-reviewer #1562 f3: companion cases that must stay insertable, so a
+// widened (and wrong) arm (b) - dropping the nfl_team requirement, or
+// matching on name or position alone - would go red here without going red
+// anywhere else.
+test('#1562 arm (b) companions: a teamless entry inserts unless it matches an EXISTING ROSTERED (nfl_team-carrying) row by name AND position', async (t) => {
+  const cases = [
+    {
+      label: 'no name match at all',
+      entry: { playerID: '501', longName: 'Nobody Special', pos: 'WR', isFreeAgent: 'True' },
+      existingRows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    },
+    {
+      label: 'name matches, but the existing row is itself teamless (nfl_team NULL)',
+      entry: { playerID: '502', longName: 'Davante Adams', pos: 'WR', isFreeAgent: 'True' },
+      existingRows: [{ external_id: 1884, name: 'Davante Adams', position: 'WR', nfl_team: null }],
+    },
+    {
+      label: 'name matches, position does not',
+      entry: { playerID: '503', longName: 'Davante Adams', pos: 'TE', isFreeAgent: 'True' },
+      existingRows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    },
+  ];
+  for (const { label, entry, existingRows } of cases) {
+    const api = async () => ({ data: { body: [entry] } });
+    let insertParams = null;
+    const fake = createFakePool([
+      [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+      [select('players'), () => ({ rows: existingRows }), 'client'],
+      [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+      [insert('data_sync_runs'), () => ({ rows: [] })],
+    ]).install(t);
+
+    const result = await syncPlayers({ season: 2026, api });
+
+    assert.deepEqual(insertParams[0], [entry.playerID], `${label}: the entry inserts, not refused`);
+    assert.equal(result.playersUpserted, 1, label);
+    assert.deepEqual(result.skippedDuplicateIdentity, [], label);
+    fake.assertClean();
+  }
 });
 
 // team-defenses' INSERT sets no column any real constraint protects
