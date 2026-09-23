@@ -271,3 +271,41 @@ test('submitClaim locks the league row and takes max(claim_order)+1 for the team
   assert.equal(insertParams[insertParams.length - 1], 4);
   fake.assertClean();
 });
+
+test('processWaivers: a winner goes to the back of the priority order for the rest of the run', async (t) => {
+  const { fake, state } = processWorld(t, {
+    league: worldLeague('priority'),
+    teams: [
+      { id: 31, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 0 },
+      { id: 32, owner_id: 9, user_id: 9, waiver_priority: 2, faab_remaining: 0 },
+    ],
+    rosters: { 31: [1, 2], 32: [3, 4] },
+    claims: [
+      dueClaim(1, 31, 500, { claim_order: 1 }),
+      dueClaim(2, 31, 501, { claim_order: 2 }),
+      dueClaim(3, 32, 501, { claim_order: 1 }),
+    ],
+  });
+  await processWaivers({ leagueId: 1 });
+
+  assert.equal(state.outcomes.get(1).status, 'won');
+  assert.equal(state.outcomes.get(3).status, 'won');
+  assert.deepEqual(state.outcomes.get(2), { status: 'lost', note: 'a higher claim won this player' });
+  fake.assertClean();
+});
+
+test('processWaivers: a sibling note names the claim by position, not by a stored claim_order with gaps', async (t) => {
+  const { fake, state } = processWorld(t, {
+    league: worldLeague('priority'),
+    teams: [{ id: 31, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 0 }],
+    rosters: { 31: fullRoster([77]) },
+    claims: [
+      dueClaim(2, 31, 500, { drop_player_id: 77, claim_order: 2 }),
+      dueClaim(3, 31, 501, { drop_player_id: 77, claim_order: 3 }),
+    ],
+  });
+  await processWaivers({ leagueId: 1 });
+
+  assert.match(state.outcomes.get(3).note, /your #1 claim already dropped/);
+  fake.assertClean();
+});

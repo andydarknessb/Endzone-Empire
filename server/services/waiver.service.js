@@ -512,8 +512,21 @@ async function processWaivers({ leagueId }) {
     const results = [];
     const wonPlayers = new Set();
     const wonByTeam = new Map(); // team_id -> claims that team won this run, in order
-    const ordered = orderClaims(dueResult.rows, priorities, league.waiver_type);
-    for (const claim of ordered) {
+    // Each team's claims by Claim order: a claim's rank in a note is its
+    // position here, not the stored claim_order (which keeps gaps).
+    const rankOf = new Map();
+    const byTeam = new Map();
+    for (const c of orderClaims(dueResult.rows, new Map(), 'priority')) {
+      byTeam.set(c.team_id, [...(byTeam.get(c.team_id) || []), c]);
+    }
+    for (const list of byTeam.values()) list.forEach((c, i) => rankOf.set(c.id, i + 1));
+    // The same comparator picks the next claim after every win, so a winner's
+    // move to the back of the Waiver priority order (below) is seen by the
+    // claims still to come, as it always was.
+    const remaining = [...dueResult.rows];
+    while (remaining.length > 0) {
+      const claim = orderClaims(remaining, priorities, league.waiver_type)[0];
+      remaining.splice(remaining.indexOf(claim), 1);
       const playerId = claim.player_id;
       const team = teams.get(claim.team_id);
       if (wonPlayers.has(playerId)) {
@@ -529,8 +542,15 @@ async function processWaivers({ leagueId }) {
       }
       const failure = await claimFailureReason(client, { league, team, claim });
       if (failure) {
-        const note = await siblingReason(client, { failure, claim, won: wonByTeam.get(team.id) || [] });
+        const note = await siblingReason(client, { failure, claim, won: wonByTeam.get(team.id) || [], rankOf });
         await finish(claim, 'invalid', note);
+        await notify(client, {
+          userId: team.user_id,
+          leagueId,
+          type: 'waiver_result',
+          message: 'Your waiver claim did not go through.',
+          data: { claimId: claim.id, playerId },
+        });
         results.push({ claimId: claim.id, playerId, status: 'invalid', reason: note });
         continue;
       }
@@ -592,10 +612,11 @@ async function processWaivers({ leagueId }) {
         );
       }
       // Winner goes to the back of the waiver order
+      const oldPriority = priorities.get(team.id);
       await client.query(
         `UPDATE "teams" SET "waiver_priority" = "waiver_priority" - 1, "updated_at" = now()
          WHERE "league_id" = $1 AND "waiver_priority" > $2`,
-        [leagueId, priorities.get(team.id)]
+        [leagueId, oldPriority]
       );
       await client.query(
         `UPDATE "teams" SET "waiver_priority" = $1, "updated_at" = now() WHERE "id" = $2`,
@@ -604,7 +625,7 @@ async function processWaivers({ leagueId }) {
       // Keep the in-memory order consistent for later players in this run
       for (const [tid, p] of priorities) {
         if (tid === team.id) priorities.set(tid, teamCount);
-        else if (p > priorities.get(team.id)) priorities.set(tid, p - 1);
+        else if (p > oldPriority) priorities.set(tid, p - 1);
       }
 
       await finish(claim, 'won', null);
@@ -652,22 +673,22 @@ async function processWaivers({ leagueId }) {
  * claim", "budget spent by your #1 claim"); otherwise the plain reason stands.
  * `won` is the team's claims already won this run, in the order they won.
  */
-async function siblingReason(client, { failure, claim, won }) {
+async function siblingReason(client, { failure, claim, won, rankOf }) {
   if (won.length === 0) return failure;
   if (claim.drop_player_id && failure.startsWith('the player you offered to drop')) {
     const sibling = won.find((w) => w.drop_player_id === claim.drop_player_id);
     if (sibling) {
       const named = await client.query(`SELECT "name" FROM "players" WHERE "id" = $1`, [claim.drop_player_id]);
       const name = named.rows[0] ? named.rows[0].name : 'that player';
-      return `your #${sibling.claim_order} claim already dropped ${name}`;
+      return `your #${rankOf.get(sibling.id)} claim already dropped ${name}`;
     }
   }
   if (failure.startsWith('bid exceeds remaining FAAB budget')) {
     const sibling = [...won].reverse().find((w) => w.bid > 0);
-    if (sibling) return `budget spent by your #${sibling.claim_order} claim`;
+    if (sibling) return `budget spent by your #${rankOf.get(sibling.id)} claim`;
   }
   if (failure.startsWith('roster capacity')) {
-    return `roster full after your #${won[won.length - 1].claim_order} claim`;
+    return `roster full after your #${rankOf.get(won[won.length - 1].id)} claim`;
   }
   return failure;
 }

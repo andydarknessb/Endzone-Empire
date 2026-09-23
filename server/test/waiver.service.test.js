@@ -452,6 +452,7 @@ test('processWaivers: a frozen league finishes nothing invalid either (#990)', a
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
     // Seeded so the pre-fix control and the red-tell resolve cleanly instead of
     // dying on an unmatched statement.
+    [insert('notifications'), () => ({ rows: [] })], // an invalid claim now tells its manager
     [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
     [remove('waiver_players'), () => ({ rows: [], rowCount: 0 })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],

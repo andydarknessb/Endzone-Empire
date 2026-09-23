@@ -1,7 +1,7 @@
 /**
  * `waiver_claims.claim_order` (#1578, ADR 0048): a team's own ranking of its
- * pending claims, dense 1..N over that team's `pending` claims when written by
- * the reorder endpoint or the insert (max+1). Gaps left by a cancelled or
+ * pending claims, 1..N when written by the reorder endpoint, and max+1 over the team's pending
+ * claims on insert (so a cancel leaves a gap until the next reorder). Gaps left by a cancelled or
  * resolved claim are fine; processing sorts on it, never reads it as a count.
  *
  * Backfill: each team's existing pending claims are numbered by submission
