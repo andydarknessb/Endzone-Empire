@@ -355,10 +355,21 @@ class FakeDraftDatabase {
       await this.acquireLeagueLock(client);
       return { rows: values[0] === state.league.id ? [{ ...state.league }] : [] };
     }
-    // draftCompletion.completeDraft's flip-first precondition read (#789): the
-    // completing pick's UPDATE has already set draft_status on this client.
-    if (sql.includes('SELECT "draft_status" FROM "leagues"')) {
-      return { rows: values[0] === state.league.id ? [{ draft_status: state.league.draft_status }] : [] };
+    // draftCompletion.completeDraft's flip-first precondition read (#789), now
+    // also carrying the #1569 lineup seed's own league fields: the completing
+    // pick's UPDATE has already set draft_status on this client.
+    if (sql.includes('"draft_status"') && sql.includes('"best_ball"') && sql.includes('FROM "leagues"')) {
+      const l = state.league;
+      return {
+        rows: values[0] === l.id ? [{
+          id: l.id,
+          draft_status: l.draft_status,
+          current_season: l.current_season ?? 2026,
+          current_week: l.current_week ?? 1,
+          best_ball: l.best_ball ?? false,
+          roster_slots: l.roster_slots,
+        }] : [],
+      };
     }
     // onResumed's league read (#599): resolves the on-clock team and clock policy
     // for a resume. Used by the #602 escalate->resume case.
@@ -456,6 +467,21 @@ class FakeDraftDatabase {
         throw Object.assign(new Error('unique violation'), { code: '23505' });
       }
       state.teamPlayers.push({ leagueId, teamId, playerId });
+      return { rows: [], rowCount: 1 };
+    }
+    // #1569's lineup seed: every team in the league, then each one's full
+    // post-draft roster, then an upsert per rostered player.
+    if (sql.includes('SELECT "id" FROM "teams"') && sql.includes('"league_id" = $1')) {
+      return { rows: values[0] === state.league.id ? state.teams.map((team) => ({ id: team.id })) : [] };
+    }
+    if (sql.includes('FROM "team_players"') && sql.includes('JOIN "players"') && sql.includes('"team_players"."player_id"')) {
+      const teamId = values[0];
+      const rows = state.teamPlayers
+        .filter((entry) => entry.teamId === teamId)
+        .map((entry) => ({ player_id: entry.playerId, position: state.players.get(entry.playerId)?.position }));
+      return { rows };
+    }
+    if (sql.includes('INSERT INTO "lineup_entries"')) {
       return { rows: [], rowCount: 1 };
     }
     throw new Error(`Unexpected transaction query: ${sql}`);

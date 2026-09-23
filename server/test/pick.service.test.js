@@ -110,9 +110,11 @@ function pickPool({
   return createFakePool(handlers);
 }
 
-/** Mock the bench step so no live lineup query runs; return the recorder. */
+/** Mock the bench step and completeDraft's lineup seed (#1569) so no live
+ *  lineup query runs; return the recorder. */
 function withRecorder(t) {
   t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+  t.mock.method(lineupService, 'seedDraftedLineups', async () => {});
   return installRecordingBroadcast(t);
 }
 

@@ -17,7 +17,7 @@ import { getArticle } from '../../../content/articles';
 import publicApiClient from '../../../api/publicApiClient';
 
 const CARDS = [
-  { slug: 'week2-waiver-wire-priority-board', Icon: LeaderboardIcon },
+  { slug: 'week3-waiver-wire-darkness-report', Icon: LeaderboardIcon },
   { slug: 'waiver-priority-vs-faab', Icon: PriorityHighIcon },
   { slug: 'streaming-defense-and-kicker', Icon: ShieldIcon },
   { slug: 'playoff-prep', Icon: EventBusyIcon },
