@@ -506,6 +506,7 @@ test('processWaivers: an unfrozen league still finishes an unawardable batch inv
     [select('teams'), () => ({ rows: frozenAllInvalidTeams })],
     [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [{ '?column?': 1 }] })],
     [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('notifications'), () => ({ rows: [] })], // an invalid claim now tells its manager
     [remove('waiver_players'), () => ({ rows: [], rowCount: 0 })],
     [update('leagues'), () => ({ rows: [], rowCount: 0 })],
   ]).install(t);
