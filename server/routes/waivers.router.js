@@ -138,9 +138,9 @@ router.put('/claims/order', async (req, res) => {
     const result = await waivers.reorderClaims({ leagueId, userId: req.user.id, claimIds });
     res.json(result);
   } catch (error) {
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
-    }
+    // A coded refusal is { code, message } (ADR 0032); a codeless one keeps { error }.
+    if (error.statusCode && error.code) return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error reordering waiver claims', error);
     res.status(500).json({ error: 'failed to reorder claims' });
   }
