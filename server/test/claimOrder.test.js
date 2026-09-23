@@ -347,3 +347,24 @@ test('processWaivers: a swap on an already-full roster keeps the plain capacity 
   assert.equal(state.outcomes.get(2).note, 'roster capacity of 14 reached');
   fake.assertClean();
 });
+
+test('processWaivers: the capacity note names the win that took the slot, not the last win', async (t) => {
+  const { fake, state } = processWorld(t, {
+    league: worldLeague('priority'),
+    teams: [{ id: 31, owner_id: 8, user_id: 8, waiver_priority: 1, faab_remaining: 0 }],
+    // 13 of 14: #1 (a plain add) takes the last slot; #2 is a swap that changes nothing.
+    rosters: { 31: [...Array.from({ length: 12 }, (_, i) => 1000 + i), 77] },
+    claims: [
+      dueClaim(1, 31, 500),
+      dueClaim(2, 31, 501, { drop_player_id: 77 }),
+      dueClaim(3, 31, 502),
+    ],
+  });
+  await processWaivers({ leagueId: 1 });
+
+  assert.equal(state.outcomes.get(1).status, 'won');
+  assert.equal(state.outcomes.get(2).status, 'won');
+  assert.equal(state.outcomes.get(3).status, 'invalid');
+  assert.match(state.outcomes.get(3).note, /roster full after your #1 claim/);
+  fake.assertClean();
+});

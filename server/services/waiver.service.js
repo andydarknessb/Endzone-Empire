@@ -535,6 +535,9 @@ async function processWaivers({ leagueId }) {
     // first win of the run? Read once, just before that first win, so a
     // capacity note can be causal (see siblingReason).
     const capacityBlockedBefore = new Map();
+    // claim id -> the team's win after which it stopped fitting (the win that
+    // took the slot, not merely the team's latest win).
+    const capacityTakenBy = new Map();
     while (remaining.length > 0) {
       const claim = orderClaims(remaining, priorities, league.waiver_type)[0];
       remaining.splice(remaining.indexOf(claim), 1);
@@ -554,7 +557,7 @@ async function processWaivers({ leagueId }) {
       const failure = await claimFailureReason(client, { league, team, claim });
       if (failure) {
         const note = await siblingReason(client, {
-          failure, claim, won: wonByTeam.get(team.id) || [], rankOf, capacityBlockedBefore,
+          failure, claim, won: wonByTeam.get(team.id) || [], rankOf, capacityBlockedBefore, capacityTakenBy,
         });
         await finish(claim, 'invalid', note);
         await notify(client, {
@@ -668,6 +671,11 @@ async function processWaivers({ leagueId }) {
       });
       wonPlayers.add(playerId);
       wonByTeam.set(team.id, [...(wonByTeam.get(team.id) || []), claim]);
+      for (const other of remaining.filter((c) => c.team_id === team.id)) {
+        if (capacityBlockedBefore.get(other.id) !== false || capacityTakenBy.has(other.id)) continue;
+        const after = await claimFailureReason(client, { league, team, claim: other });
+        if (after && after.startsWith('roster capacity')) capacityTakenBy.set(other.id, claim);
+      }
       results.push({ claimId: claim.id, playerId, status: 'won', teamId: team.id });
     }
 
@@ -693,7 +701,7 @@ async function processWaivers({ leagueId }) {
  * claim", "budget spent by your #1 claim"); otherwise the plain reason stands.
  * `won` is the team's claims already won this run, in the order they won.
  */
-async function siblingReason(client, { failure, claim, won, rankOf, capacityBlockedBefore }) {
+async function siblingReason(client, { failure, claim, won, rankOf, capacityBlockedBefore, capacityTakenBy }) {
   if (won.length === 0) return failure;
   if (claim.drop_player_id && failure.startsWith('the player you offered to drop')) {
     const sibling = won.find((w) => w.drop_player_id === claim.drop_player_id);
@@ -711,7 +719,8 @@ async function siblingReason(client, { failure, claim, won, rankOf, capacityBloc
   // run. A swap on an already-full roster frees exactly the slot it takes, so
   // a claim blocked by capacity before and after keeps the plain reason.
   if (failure.startsWith('roster capacity') && capacityBlockedBefore.get(claim.id) === false) {
-    return `roster full after your #${rankOf.get(won[won.length - 1].id)} claim`;
+    const taker = capacityTakenBy.get(claim.id) || won[won.length - 1];
+    return `roster full after your #${rankOf.get(taker.id)} claim`;
   }
   return failure;
 }
