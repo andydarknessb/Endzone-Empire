@@ -30,7 +30,7 @@ const POOL = [STEAL_STAR, QUEUED_GUY, BROWSED_GUY];
 
 const pickPayload = (over) => ({
   pickNumber: 20, teamId: 1, teamName: 'Team A', auto: false,
-  player: { id: STEAL_STAR.id, name: STEAL_STAR.name, position: STEAL_STAR.position, nfl_team: STEAL_STAR.nfl_team },
+  player: { id: STEAL_STAR.id, name: STEAL_STAR.name, position: STEAL_STAR.position, nfl_team: STEAL_STAR.nfl_team, adp: STEAL_STAR.adp },
   ...over,
 });
 

@@ -8,12 +8,15 @@
  * WHY THIS IS NOT simAssistantFacts.js. The Sim consumes its whole draft state
  * through src/lib/draftSim (userTeam, pickValues), which the room does not
  * have: the room's live state arrives over the socket as the draft:picked
- * payload and the reducer-maintained picks array (useDraftSocket.js), neither
- * of which carries a market ADP or an injury status. So this module takes those
- * two facts from the PLAYER POOL ROW instead (ruling item 3: "injury status
- * from the pool row"), looked up by player id, and labels each pick with the
- * shared steal/reach rule (src/lib/stealReach.js) rather than reading a
- * pre-labelled pick off draft state the room never receives.
+ * payload and the reducer-maintained picks array (useDraftSocket.js). Since
+ * #833 the pick carries its own market ADP (`pick.player.adp` on the raw
+ * payload, `pick.adp` on the reduced pick), and that is the ONE ADP source
+ * here, with no pool-row fallback, so the steal/reach label and Net vs ADP can
+ * never disagree about one pick (#1601). The payload still carries no injury
+ * status, so that one fact comes from the PLAYER POOL ROW (ruling item 3:
+ * "injury status from the pool row"), looked up by player id. Each pick is
+ * labelled with the shared steal/reach rule (src/lib/stealReach.js) rather than
+ * reading a pre-labelled pick off draft state the room never receives.
  *
  * STEAL/REACH LABELLING is the shared rule in src/lib/stealReach.js
  * (stealReachLabel, promoted in issue #817): draftValueScore is
@@ -31,9 +34,8 @@
  * the running sum of draftValueScore, un-negated, so accumulated steals read
  * negative (the best Misery band) and accumulated reaches read positive (the
  * worst). Picks whose ADP the room never loaded contribute nothing rather than
- * a guess: the pool is windowed (usePlayerPool.js), so a player drafted before
- * the viewer ever scrolled to their row has no client-side ADP, and counting
- * them as 0 is the honest reading, not a fabricated one.
+ * a guess: a pick with no market ADP counts as 0, the honest reading, not a
+ * fabricated one.
  */
 import { TRIGGERS, earlyKickerOrDefense } from '../../lib/draftAssistant';
 import { stealReachLabel } from '../../lib/stealReach';
@@ -72,6 +74,12 @@ function playerFactsFromRow(row) {
     nfl_team: row.nfl_team || null,
     injury_status: row.injury_status || null,
   };
+}
+
+/** Market ADP off a draft:picked payload (`players.adp`, #833), or null. The
+ * one ADP source for the own-pick and snipe builders; never the pool row. */
+function adpFromPick(pick) {
+  return pick.player?.adp ?? null;
 }
 
 /** Player facts for a landed pick: identity from the draft:picked payload,
@@ -134,7 +142,7 @@ export function factsForOwnPick({
 }) {
   const pickNumber = pick.pickNumber;
   const round = roundForPick(pickNumber, teamCount);
-  const adp = poolRow?.adp ?? null;
+  const adp = adpFromPick(pick);
   const player = playerFactsFromPick(pick, poolRow);
   const { label } = stealReachLabelFor({ adp, pickNumber, round });
 
@@ -183,7 +191,7 @@ export function factsForQueueSnipe({
     pickNumber,
     round: roundForPick(pickNumber, teamCount),
     draftRounds,
-    adp: poolRow?.adp ?? null,
+    adp: adpFromPick(pick),
     label: null,
     earlyKickerOrDefense: false,
     auto: !!pick.auto,
