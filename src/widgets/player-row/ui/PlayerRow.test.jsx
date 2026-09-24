@@ -231,3 +231,13 @@ describe.each([
     expect(screen.queryByText(/Bye/)).not.toBeInTheDocument();
   });
 });
+
+test('hideOwnership renders one cell fewer than the default row', () => {
+  const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const { unmount } = renderRow({ player: player({ ownership: 41 }), action });
+  const full = screen.getByTestId('player-row').querySelectorAll('th, td').length;
+  expect(screen.getByText('41%')).toBeInTheDocument();
+  unmount();
+  renderRow({ player: player({ ownership: null }), action, hideOwnership: true });
+  expect(screen.getByTestId('player-row').querySelectorAll('th, td').length).toBe(full - 1);
+});
