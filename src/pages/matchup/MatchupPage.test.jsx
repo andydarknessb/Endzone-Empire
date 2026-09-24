@@ -36,7 +36,7 @@ function installSupabase() {
     error: null,
   }));
   supabase.from.mockReturnValue({ select: jest.fn().mockReturnValue({ in: inFn }) });
-  const channelObj = { on: jest.fn(() => channelObj), subscribe: jest.fn(() => channelObj) };
+  const channelObj = { on: jest.fn(() => channelObj), subscribe: jest.fn((cb) => { cb?.('SUBSCRIBED'); return channelObj; }) };
   supabase.channel.mockReturnValue(channelObj);
 }
 

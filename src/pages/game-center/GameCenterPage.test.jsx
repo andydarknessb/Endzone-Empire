@@ -142,7 +142,7 @@ function installLiveGames(rows) {
       liveGamePush = (payload) => act(() => handler(payload));
       return channelObj;
     }),
-    subscribe: jest.fn(() => channelObj),
+    subscribe: jest.fn((cb) => { cb?.('SUBSCRIBED'); return channelObj; }),
   };
   supabase.channel.mockReturnValue(channelObj);
 }
