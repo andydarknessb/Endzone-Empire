@@ -18,8 +18,8 @@ const ONE_K_ONE_DEF_SLOTS = [
 ];
 
 const ownPick = ({
-  pickNumber, id = 500, name = 'A Player', position = 'WR', nfl_team = 'KC', auto = false,
-}) => ({ pickNumber, teamId: 1, player: { id, name, position, nfl_team }, auto });
+  pickNumber, id = 500, name = 'A Player', position = 'WR', nfl_team = 'KC', auto = false, adp,
+}) => ({ pickNumber, teamId: 1, player: { id, name, position, nfl_team, adp }, auto });
 
 describe('roundForPick', () => {
   it('is 1-based and rolls over every teamCount picks', () => {
@@ -76,7 +76,7 @@ describe('factsForOwnPick trigger priority', () => {
   it('PICK_AUTO wins outright over any other trigger', () => {
     // A steal payload (adp 1 at pick 20) that also carries the auto flag.
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 20, position: 'RB', auto: true }), poolRow: { adp: 1 },
+      ...base, pick: ownPick({ pickNumber: 20, position: 'RB', auto: true, adp: 1 }), poolRow: undefined,
     });
     expect(facts.trigger).toBe(TRIGGERS.PICK_AUTO);
     expect(facts.auto).toBe(true);
@@ -84,14 +84,14 @@ describe('factsForOwnPick trigger priority', () => {
 
   it('PICK_STEAL over the position triggers', () => {
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 20, position: 'RB' }), poolRow: { adp: 1 },
+      ...base, pick: ownPick({ pickNumber: 20, position: 'RB', adp: 1 }), poolRow: undefined,
     });
     expect(facts.trigger).toBe(TRIGGERS.PICK_STEAL);
   });
 
   it('PICK_REACH over the position triggers', () => {
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 1, position: 'RB' }), poolRow: { adp: 20 },
+      ...base, pick: ownPick({ pickNumber: 1, position: 'RB', adp: 20 }), poolRow: undefined,
     });
     expect(facts.trigger).toBe(TRIGGERS.PICK_REACH);
   });
@@ -99,7 +99,7 @@ describe('factsForOwnPick trigger priority', () => {
   it('PICK_EARLY_KDEF for a value-priced kicker with rounds still to spare', () => {
     // pick 13 -> round 2 of 12; K at ADP 13 is neither steal nor reach.
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 13, position: 'K' }), poolRow: { adp: 13 },
+      ...base, pick: ownPick({ pickNumber: 13, position: 'K', adp: 13 }), poolRow: undefined,
     });
     expect(facts.trigger).toBe(TRIGGERS.PICK_EARLY_KDEF);
     expect(facts.earlyKickerOrDefense).toBe(true);
@@ -107,21 +107,46 @@ describe('factsForOwnPick trigger priority', () => {
 
   it('PICK_RB for a value-priced running back', () => {
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 5, position: 'RB' }), poolRow: { adp: 5 },
+      ...base, pick: ownPick({ pickNumber: 5, position: 'RB', adp: 5 }), poolRow: undefined,
     });
     expect(facts.trigger).toBe(TRIGGERS.PICK_RB);
   });
 
   it('PICK_GENERIC for everything else', () => {
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 5, position: 'WR' }), poolRow: { adp: 5 },
+      ...base, pick: ownPick({ pickNumber: 5, position: 'WR', adp: 5 }), poolRow: undefined,
     });
     expect(facts.trigger).toBe(TRIGGERS.PICK_GENERIC);
   });
 
+  it('labels a steal from the pick payload ADP when the pool never loaded the row (#1601)', () => {
+    const facts = factsForOwnPick({
+      ...base, pick: ownPick({ pickNumber: 20, position: 'RB', adp: 1 }), poolRow: undefined,
+    });
+    expect(facts.trigger).toBe(TRIGGERS.PICK_STEAL);
+    expect(facts.adp).toBe(1);
+    expect(facts.label).toBe('steal');
+  });
+
+  it('never falls back to the pool row ADP: the pick payload is the one source (#1601)', () => {
+    const facts = factsForOwnPick({
+      ...base, pick: ownPick({ pickNumber: 20, position: 'RB', adp: 1 }), poolRow: { adp: 20 },
+    });
+    expect(facts.trigger).toBe(TRIGGERS.PICK_STEAL);
+    expect(facts.adp).toBe(1);
+  });
+
+  it('a pick without an ADP is no-market even when the pool row has one (#1601)', () => {
+    const facts = factsForOwnPick({
+      ...base, pick: ownPick({ pickNumber: 20, position: 'RB' }), poolRow: { adp: 1 },
+    });
+    expect(facts.label).toBe('no-market');
+    expect(facts.adp).toBeNull();
+  });
+
   it('carries injury status from the pool row, since the pick payload has none', () => {
     const facts = factsForOwnPick({
-      ...base, pick: ownPick({ pickNumber: 5, position: 'WR', name: 'Hurt Guy' }), poolRow: { adp: 5, injury_status: 'Questionable' },
+      ...base, pick: ownPick({ pickNumber: 5, position: 'WR', name: 'Hurt Guy', adp: 5 }), poolRow: { injury_status: 'Questionable' },
     });
     expect(facts.player).toEqual(expect.objectContaining({ name: 'Hurt Guy', injury_status: 'Questionable' }));
   });
@@ -130,8 +155,8 @@ describe('factsForOwnPick trigger priority', () => {
     const facts = factsForOwnPick({
       ...base,
       priorMyPicks: [{ pickNumber: 1, position: 'K' }, { pickNumber: 2, position: 'DEF' }],
-      pick: ownPick({ pickNumber: 13, position: 'K' }),
-      poolRow: { adp: 13 },
+      pick: ownPick({ pickNumber: 13, position: 'K', adp: 13 }),
+      poolRow: undefined,
     });
     expect(facts.earlyKickerOrDefense).toBe(false);
     expect(facts.trigger).toBe(TRIGGERS.PICK_GENERIC);
