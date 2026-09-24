@@ -21,6 +21,7 @@ import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
 import { PlayerPool } from "../../widgets/player-pool";
+import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import { useAddPlayer } from "../../features/add-player";
 import { useClaimPlayer } from "../../features/claim-player";
 import { useWatchPlayer } from "../../features/watch-player";
@@ -467,9 +468,18 @@ function PlayerManagement() {
         leagueId={selectedLeague}
         bestBall={bestBall}
         ready={leaguesLoaded}
-        actionForPlayer={actionForPlayer}
-        watchActionForPlayer={watchActionForPlayer}
-        onOpenPlayer={setQuickViewId}
+        columnCount={playerRowColumnCount(bestBall)}
+        renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}
+        renderRow={(player, variant) => (
+          <PlayerRow
+            player={player}
+            action={actionForPlayer(player)}
+            watchAction={watchActionForPlayer(player)}
+            bestBall={bestBall}
+            variant={variant === "card" ? "card" : undefined}
+            onOpenPlayer={setQuickViewId}
+          />
+        )}
         onLoaded={({ players: nextPlayers, context: nextContext }) => {
           setPlayers(nextPlayers);
           setContext(nextContext);

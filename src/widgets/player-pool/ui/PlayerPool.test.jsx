@@ -1,5 +1,6 @@
 import React from "react";
 import { screen, waitFor } from "@testing-library/react";
+import { TableCell, TableRow } from "@mui/material";
 import renderWithProviders from "../../../test-utils/renderWithProviders";
 import apiClient from "../../../api/apiClient";
 import { useLeague } from "../../../hooks/useLeague";
@@ -24,15 +25,22 @@ const player = {
   upgrade: null,
   watching: false,
 };
-const noAction = () => ({ kind: "button", label: "Claim", onClick: () => {} });
 
 function renderPool(props = {}, route = "/") {
   return renderWithProviders(
     <PlayerPool
       leagueId="1"
-      actionForPlayer={noAction}
-      watchActionForPlayer={() => null}
-      onOpenPlayer={() => {}}
+      columnCount={1}
+      renderTableHead={() => (
+        <TableRow>
+          <TableCell>Player</TableCell>
+        </TableRow>
+      )}
+      renderRow={(row) => (
+        <TableRow>
+          <TableCell>{row.name}</TableCell>
+        </TableRow>
+      )}
       {...props}
     />,
     { route },

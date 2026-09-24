@@ -40,7 +40,6 @@ import apiClient from "../../../api/apiClient";
 import { readHttpFailure } from "../../../lib/httpFailure";
 import { useLeague } from "../../../hooks/useLeague";
 import { wireSortName } from "../../../components/DraftBoard/sortFields";
-import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../player-row";
 import SegmentedControl from "../../../shared/ui/SegmentedControl";
 import { parseRosterSlots, chipsForRosterSlots } from "../../../shared/lib";
 import { SORT_OPTIONS, DEFAULT_SORT_KEY, sortKeyFromParam } from "../model/sortKeys";
@@ -73,10 +72,12 @@ const actionSx = {
  * (`view=cards`) and the URL params those controls read and write (`page`,
  * `pos`, `q`, `sort`, `dir`, `availability`, `watching`).
  *
- * The caller owns everything that varies per surface: the row action and the
- * Watch action (same "page builds the action, widget renders it" shape
- * `player-row` takes), what opening a row does, and the filter-row controls
- * that are not the list's own (`leadingControl`, `afterAvailabilityControl`).
+ * The caller owns everything that varies per surface. ADR 0020: widgets do not
+ * import each other, so the page passes `player-row` in: `renderRow(player,
+ * variant)` returns a row ("row" or "card") built with the page's own action,
+ * Watch action and open handler, and `renderTableHead({ bestBall, currentWeek,
+ * sx })` returns the desktop header, `columnCount` is its width. The caller also passes the filter-row
+ * controls that are not the list's own (`leadingControl`, `afterAvailabilityControl`).
  * `onLoaded({ players, context })` reports every successful read so the caller
  * can build the Decision card context over the same page of players; `onError`
  * receives the refusal message, or null when a read starts. `ref.refresh()`
@@ -91,9 +92,9 @@ const PlayerPool = forwardRef(function PlayerPool(
     bestBall = false,
     ready = true,
     availabilityLock,
-    actionForPlayer,
-    watchActionForPlayer,
-    onOpenPlayer,
+    renderRow,
+    renderTableHead,
+    columnCount,
     onLoaded,
     onError,
     leadingControl,
@@ -248,8 +249,7 @@ const PlayerPool = forwardRef(function PlayerPool(
   }, [search]);
 
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
-  const columnCount = playerRowColumnCount(bestBall);
-  const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
+    const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
   const emptyCopy = watchingOnly
     ? "No watched players on this page"
     : search
@@ -420,7 +420,7 @@ const PlayerPool = forwardRef(function PlayerPool(
               column behind a scrollbar (2026-09-15 report). */}
           <Table aria-label="Players" sx={{ minWidth: 960, "& th, & td": { px: 1.25 } }}>
             <TableHead>
-              <PlayerRowTableHead bestBall={bestBall} currentWeek={currentWeek} sx={headCellSx} />
+              {renderTableHead({ bestBall, currentWeek, sx: headCellSx })}
             </TableHead>
             <TableBody>
               {visiblePlayers.length === 0 && (
@@ -435,14 +435,7 @@ const PlayerPool = forwardRef(function PlayerPool(
                 </TableRow>
               )}
               {visiblePlayers.map((player) => (
-                <PlayerRow
-                  key={player.id}
-                  player={player}
-                  action={actionForPlayer(player)}
-                  watchAction={watchActionForPlayer(player)}
-                  bestBall={bestBall}
-                  onOpenPlayer={onOpenPlayer}
-                />
+                <React.Fragment key={player.id}>{renderRow(player, "row")}</React.Fragment>
               ))}
             </TableBody>
           </Table>
@@ -456,15 +449,7 @@ const PlayerPool = forwardRef(function PlayerPool(
             </Paper>
           )}
           {visiblePlayers.map((player) => (
-            <PlayerRow
-              key={player.id}
-              player={player}
-              action={actionForPlayer(player)}
-              watchAction={watchActionForPlayer(player)}
-              bestBall={bestBall}
-              variant="card"
-              onOpenPlayer={onOpenPlayer}
-            />
+            <React.Fragment key={player.id}>{renderRow(player, "card")}</React.Fragment>
           ))}
         </Stack>
       )}
