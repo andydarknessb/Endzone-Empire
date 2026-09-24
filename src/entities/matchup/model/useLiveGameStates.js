@@ -2,15 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import supabase from '../../../api/supabaseClient';
 
 const LIVE_GAMES_TABLE = 'live_game_states';
+const READ_STATUSES = new Set(['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED']);
 
 function gamesInOrder(ids, byId) {
   return ids.map((id) => byId.get(String(id))).filter(Boolean);
 }
 
 /**
- * Reads and subscribes to the live NFL games represented by a page's matchup
- * list. One channel covers every listed game, including scheduled games, so a
- * page opened before kickoff receives the first live transition.
+ * Subscribes to, then reads, the live NFL games represented by a page's
+ * matchup list. The channel is joined first (filtered on every listed id, for
+ * INSERT and UPDATE) and the snapshot is read once it is SUBSCRIBED, then merged
+ * by game id with channel-delivered entries winning. No change between the read
+ * and the join is lost, and a scheduled game's first row is received.
  */
 export function useLiveGameStates(scopeId, gameIds) {
   const [byId, setById] = useState(() => new Map());
@@ -25,6 +28,7 @@ export function useLiveGameStates(scopeId, gameIds) {
     if (!supabase || ids.length === 0) return undefined;
 
     let cancelled = false;
+    let readStarted = false;
     let channel = null;
     const close = () => {
       if (channel) {
@@ -32,37 +36,12 @@ export function useLiveGameStates(scopeId, gameIds) {
         channel = null;
       }
     };
-
-    const subscribe = (rows) => {
-      const open = rows
-        .filter((row) => row.game_status !== 'final')
-        .map((row) => String(row.tank01_game_id));
-      if (open.length === 0 || channel) return;
-      channel = supabase
-        .channel(`live-games-${scopeId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: LIVE_GAMES_TABLE,
-            filter: `tank01_game_id=in.(${open.join(',')})`,
-          },
-          (payload) => {
-            if (cancelled || !payload || !payload.new) return;
-            setById((prev) => {
-              const next = new Map(prev);
-              next.set(String(payload.new.tank01_game_id), payload.new);
-              const listed = gamesInOrder(ids, next);
-              if (listed.length === ids.length && listed.every((row) => row.game_status === 'final')) close();
-              return next;
-            });
-          }
-        )
-        .subscribe();
+    const closeIfAllFinal = (next) => {
+      const listed = gamesInOrder(ids, next);
+      if (listed.length === ids.length && listed.every((row) => row.game_status === 'final')) close();
     };
 
-    (async () => {
+    const read = async () => {
       const { data, error } = await supabase
         .from(LIVE_GAMES_TABLE)
         .select('*')
@@ -72,9 +51,43 @@ export function useLiveGameStates(scopeId, gameIds) {
         console.warn('useLiveGameStates: live game states unavailable', error);
         return;
       }
-      setById(new Map(data.map((row) => [String(row.tank01_game_id), row])));
-      subscribe(data);
-    })();
+      setById((prev) => {
+        const next = new Map(prev);
+        data.forEach((row) => {
+          const key = String(row.tank01_game_id);
+          if (!next.has(key)) next.set(key, row);
+        });
+        closeIfAllFinal(next);
+        return next;
+      });
+    };
+
+    channel = supabase
+      .channel(`live-games-${scopeId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: LIVE_GAMES_TABLE,
+          filter: `tank01_game_id=in.(${ids.join(',')})`,
+        },
+        (payload) => {
+          if (cancelled || !payload || !payload.new) return;
+          setById((prev) => {
+            const next = new Map(prev);
+            next.set(String(payload.new.tank01_game_id), payload.new);
+            closeIfAllFinal(next);
+            return next;
+          });
+        }
+      )
+      .subscribe((status) => {
+        // Read only once joined; any other terminal status degrades to the snapshot.
+        if (cancelled || readStarted || !READ_STATUSES.has(status)) return;
+        readStarted = true;
+        read();
+      });
 
     return () => {
       cancelled = true;
