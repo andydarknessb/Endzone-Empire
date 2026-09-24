@@ -53,6 +53,7 @@ const AVAILABILITY_FILTERS = [
   { value: "rostered", label: "Rostered" },
   { value: "my_team", label: "My team" },
 ];
+const BYE_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 const headCellSx = {
   fontWeight: 800,
   color: "primary.contrastText",
@@ -83,6 +84,12 @@ const actionSx = {
  * receives the refusal message, or null when a read starts. `ref.refresh()`
  * re-reads the list after a caller's action.
  *
+ * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
+ * `byeWeeks`, the read's include-only filter; off by default, so the Players
+ * page is unchanged. `cardsBelow` is the breakpoint under which rows render as
+ * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
+ * passes `sm`). `emptyCopy` replaces the default empty message.
+ *
  * `availabilityLock`: when set, every read sends that Availability and no
  * Availability control renders; the `availability` URL param is ignored.
  */
@@ -99,6 +106,9 @@ const PlayerPool = forwardRef(function PlayerPool(
     onError,
     leadingControl,
     afterAvailabilityControl,
+    byeWeekFilter = false,
+    cardsBelow = "md",
+    emptyCopy: emptyCopyOverride,
   },
   ref,
 ) {
@@ -108,6 +118,7 @@ const PlayerPool = forwardRef(function PlayerPool(
   const [filtersOpen, setFiltersOpen] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const cardLayout = useMediaQuery(theme.breakpoints.down(cardsBelow));
   const [searchParams, setSearchParams] = useSearchParams();
   const pageNumber = Math.max(1, Number(searchParams.get("page")) || 1);
   const selectedLeague = leagueId ? String(leagueId) : "";
@@ -117,6 +128,8 @@ const PlayerPool = forwardRef(function PlayerPool(
   // fetched - never sent to the server, never a fifth Availability segment.
   const watchingOnly = searchParams.get("watching") === "true";
   const search = searchParams.get("q") || "";
+  const byeParam = Number(searchParams.get("bye"));
+  const byeWeek = byeWeekFilter && Number.isInteger(byeParam) && byeParam >= 1 && byeParam <= 18 ? byeParam : null;
   const dir = searchParams.get("dir") || "asc";
 
   // Callbacks held in refs so a caller passing fresh closures each render
@@ -209,6 +222,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       if (availabilityFilter !== "all") params.availability = availabilityFilter;
       if (dir === "desc") params.dir = "desc";
       if (search) params.search = search;
+      if (byeWeek) params.byeWeeks = String(byeWeek);
       const response = await apiClient.get("/api/players", { params });
       const nextPlayers = response.data.players || [];
       setPlayers(nextPlayers);
@@ -223,6 +237,7 @@ const PlayerPool = forwardRef(function PlayerPool(
     }
   }, [
     availabilityFilter,
+    byeWeek,
     dir,
     pageNumber,
     positionParam,
@@ -250,7 +265,9 @@ const PlayerPool = forwardRef(function PlayerPool(
 
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
     const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
-  const emptyCopy = watchingOnly
+  const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
+    ? emptyCopyOverride
+    : watchingOnly
     ? "No watched players on this page"
     : search
     ? `No players matching “${search}”`
@@ -304,6 +321,24 @@ const PlayerPool = forwardRef(function PlayerPool(
           />
         )}
         {afterAvailabilityControl?.(layout)}
+        {byeWeekFilter && (
+          <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 130 } : undefined}>
+            <InputLabel id="pm-bye-label">Bye week</InputLabel>
+            <Select
+              labelId="pm-bye-label"
+              label="Bye week"
+              value={byeWeek ? String(byeWeek) : ""}
+              onChange={(event) => updateParams({ bye: event.target.value, page: 1 })}
+            >
+              <MenuItem value="">Any</MenuItem>
+              {BYE_WEEKS.map((week) => (
+                <MenuItem key={week} value={String(week)}>
+                  {`Wk ${week}`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
         <FormControlLabel
           control={
             <Checkbox
@@ -413,7 +448,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           {renderControls("column")}
         </Stack>
       </Drawer>
-      {!isMobile && (
+      {!cardLayout && (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
           {/* Cell padding at 10px a side rather than MUI's 16px: it is what lets
               the table fit a 1024px viewport instead of hiding the Action
@@ -441,7 +476,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           </Table>
         </TableContainer>
       )}
-      {isMobile && (
+      {cardLayout && (
         <Stack spacing={1.25}>
           {visiblePlayers.length === 0 && (
             <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 3 }}>
