@@ -324,7 +324,10 @@ function WaiverWire() {
       handleCloseClaim();
       await fetchAll();
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      // The modal hides the page Alert from assistive tech; the toast is announced.
+      notify(message, { severity: 'error' });
     }
   };
 

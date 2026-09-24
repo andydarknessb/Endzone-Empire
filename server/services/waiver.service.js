@@ -294,7 +294,16 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
   return withTransaction(
     pool,
     async (client) => {
-      const found = await client.query(`SELECT "league_id" FROM "waiver_claims" WHERE "id" = $1`, [claimId]);
+      // Ownership rides the first read, so every refusal for a claim that is not
+      // the caller's own pending one is the same 404 (as cancelClaim); nothing
+      // about another user's claim or league leaks through a different code.
+      const found = await client.query(
+        `SELECT "waiver_claims"."league_id" FROM "waiver_claims"
+         JOIN "teams" ON "teams"."id" = "waiver_claims"."team_id"
+         WHERE "waiver_claims"."id" = $1 AND "waiver_claims"."status" = 'pending'
+           AND "teams"."owner_id" = $2`,
+        [claimId, userId]
+      );
       if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
       const leagueId = found.rows[0].league_id;
 
@@ -343,12 +352,10 @@ async function editClaim({ userId, claimId, bid, dropPlayerId }) {
             throw new WaiverError(409, 'drop player is not on your roster', 'DROP_NOT_ON_ROSTER');
           }
         }
-        // Swapping one drop for another keeps the roster math; clearing the
-        // drop can leave a full roster with no room.
-        if (!nextDrop && current.drop_player_id) {
-          const overflow = await capacityFailureReason(client, { league, team, dropPlayerId: null });
-          if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
-        }
+        // A different drop (an IR stash grants no credit) or a cleared one can
+        // leave no room, and the roster may have grown since submit.
+        const overflow = await capacityFailureReason(client, { league, team, dropPlayerId: nextDrop });
+        if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
       }
 
       const updated = await client.query(
