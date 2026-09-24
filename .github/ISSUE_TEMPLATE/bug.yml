@@ -1,0 +1,36 @@
+name: Bug report
+description: Something that used to work, or should work, does not.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, with the page, league or player it happened on.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should have happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: The steps that reproduce it, one per line.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+    validations:
+      required: false
+  - type: input
+    id: escaped-from-pr
+    attributes:
+      label: "Escaped from PR #"
+      description: The number of the pull request that introduced this bug, digits only (for example 1545). Leave it blank when you do not know.
+      placeholder: "1545"
+    validations:
+      required: false

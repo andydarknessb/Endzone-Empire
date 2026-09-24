@@ -1,0 +1,97 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Main.dc.html": {
+      "h": 1480,
+      "is_interactive": true,
+      "title": "Desktop · Waivers",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "MobileClaim.dc.html": {
+      "h": 900,
+      "title": "Phone · Claim sheet",
+      "w": 390,
+      "x": 470,
+      "y": 1880
+    },
+    "MobileClaims.dc.html": {
+      "h": 1080,
+      "title": "Phone · My claims",
+      "w": 390,
+      "x": 940,
+      "y": 1880
+    },
+    "MobileList.dc.html": {
+      "h": 1880,
+      "title": "Phone · On waivers",
+      "w": 390,
+      "x": 0,
+      "y": 1880
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-24T19:19:55Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "n_data": {
+      "fill": "gray",
+      "text": "Sample data for layout only. Dark theme uses the app's dash-* tokens (Barlow Condensed over Archivo). Click a position chip or a player name to try the filter and the expand panel.",
+      "w": 380,
+      "x": 1520,
+      "y": 0
+    },
+    "n_header": {
+      "fill": "blue",
+      "text": "Summary strip: when your next claim resolves (earliest clear among your pending claims), FAAB left after pending bids, Waiver priority, and whether a drop is required.",
+      "w": 380,
+      "x": 1520,
+      "y": 560
+    },
+    "n_phone": {
+      "fill": "orange",
+      "text": "Phone: cards instead of a 7-column table, On waivers / My claims tabs, a full-height claim sheet with a swap preview, radio drops and $1 / Max bid shortcuts, and a neutral warning on both claims that share a drop.",
+      "w": 380,
+      "x": 1410,
+      "y": 1880
+    },
+    "n_rows": {
+      "fill": "green",
+      "text": "The list is the Players page list locked to On waivers: search, position, bye week and Upgrade sort all run on the server. Expand shows the swap, rest of season, clear time and News; the Decision card holds the rest. Ownership shows once #1308 lands.",
+      "w": 380,
+      "x": 1520,
+      "y": 1060
+    },
+    "t_desktop": {
+      "kind": "title1",
+      "maxW": 1440,
+      "text": "Waivers redesign · desktop",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "t_phone": {
+      "kind": "title1",
+      "maxW": 1330,
+      "text": "Phone flow",
+      "w": 240,
+      "x": 0,
+      "y": 1580
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "MobileList.dc.html",
+    "MobileClaim.dc.html",
+    "MobileClaims.dc.html"
+  ],
+  "pages": [],
+  "title": "Waivers Page Redesign"
+}

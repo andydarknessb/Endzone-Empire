@@ -579,7 +579,11 @@ async function processWaivers({ leagueId }) {
     // freeze alone. The gate's DraftError propagates out unwrapped (409 and
     // its code intact); it is never caught per claim and converted into a
     // finish(claim, 'invalid'), which is the defect itself.
-    const finish = async (claim, status, note) => {
+    // `winner` ({ teamId, bid }) is the claim that took the player, written on
+    // the won claim itself and on every claim on that player that resolves
+    // `lost` (#1611, ADR 0049). An `invalid` claim passes none: it lost to
+    // nobody. `bid` is null in a non-FAAB league.
+    const finish = async (claim, status, note, winner = null) => {
       await assertRosterWriteAllowed(client, {
         leagueId,
         teamId: claim.team_id,
@@ -588,9 +592,11 @@ async function processWaivers({ leagueId }) {
         bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
       });
       return client.query(
-        `UPDATE "waiver_claims" SET "status" = $1, "note" = $2, "processed_at" = now(), "updated_at" = now()
-         WHERE "id" = $3`,
-        [status, note || null, claim.id]
+        `UPDATE "waiver_claims" SET "status" = $1, "note" = $2,
+           "winning_team_id" = $3, "winning_bid" = $4,
+           "processed_at" = now(), "updated_at" = now()
+         WHERE "id" = $5`,
+        [status, note || null, winner ? winner.teamId : null, winner ? winner.bid : null, claim.id]
       );
     };
 
@@ -599,6 +605,7 @@ async function processWaivers({ leagueId }) {
     // re-validated at its own turn against the roster the earlier wins left.
     const results = [];
     const wonPlayers = new Set();
+    const winnerByPlayer = new Map(); // player_id -> { teamId, bid } of the claim that won him
     const wonByTeam = new Map(); // team_id -> claims that team won this run, in order
     // Each team's PENDING claims by Claim order (due or not: due times are per
     // player, and Claim order ranks all of a manager's pending claims): a
@@ -632,7 +639,7 @@ async function processWaivers({ leagueId }) {
       const playerId = claim.player_id;
       const team = teams.get(claim.team_id);
       if (wonPlayers.has(playerId)) {
-        await finish(claim, 'lost', 'a higher claim won this player');
+        await finish(claim, 'lost', 'a higher claim won this player', winnerByPlayer.get(playerId));
         await notify(client, {
           userId: team.user_id,
           leagueId,
@@ -739,7 +746,9 @@ async function processWaivers({ leagueId }) {
         else if (p > oldPriority) priorities.set(tid, p - 1);
       }
 
-      await finish(claim, 'won', null);
+      const winner = { teamId: team.id, bid: league.waiver_type === 'faab' ? claim.bid : null };
+      winnerByPlayer.set(playerId, winner);
+      await finish(claim, 'won', null, winner);
       await logTransaction(client, {
         leagueId,
         teamId: team.id,

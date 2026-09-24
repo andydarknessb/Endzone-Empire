@@ -33,7 +33,7 @@
  * renders `teamLabel` verbatim and makes no type decision of its own.
  *
  * `sentence` NEVER repeats the Team name: it is the action alone ("added
- * Justin Jefferson", "claimed Breece Hall ($12), dropped Zach Wilson"), so a
+ * Justin Jefferson", "claimed Breece Hall · $12 FAAB, dropped Zach Wilson"), so a
  * caller renders `teamName` and `sentence` together exactly as the Activity
  * page's timeline row always has, and `teamName` stays independently usable
  * (the Team filter reads it alone, with no sentence to parse).
@@ -110,7 +110,7 @@ function sentenceFor(row) {
     case 'drop':
       return `dropped ${row.player_name}`;
     case 'waiver': {
-      const bidSuffix = typeof detail.bid === 'number' ? ` ($${detail.bid})` : '';
+      const bidSuffix = typeof detail.bid === 'number' ? ` · $${detail.bid} FAAB` : '';
       const droppedSuffix =
         detail.droppedPlayerId && row.dropped_player_name
           ? `, dropped ${row.dropped_player_name}`
@@ -220,7 +220,7 @@ function segmentsFor(row) {
     case 'drop':
       return [text('dropped '), player(row.player_name, detail.playerId)];
     case 'waiver': {
-      const bidSuffix = typeof detail.bid === 'number' ? ` ($${detail.bid})` : '';
+      const bidSuffix = typeof detail.bid === 'number' ? ` · $${detail.bid} FAAB` : '';
       const segs = [text('claimed '), player(row.player_name, detail.playerId)];
       if (bidSuffix) segs.push(text(bidSuffix));
       if (detail.droppedPlayerId && row.dropped_player_name) {

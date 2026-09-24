@@ -30,7 +30,7 @@ function installLiveGames(rows) {
   let handler = null;
   const channelObj = {
     on: jest.fn((_event, _filter, cb) => { handler = cb; return channelObj; }),
-    subscribe: jest.fn(() => channelObj),
+    subscribe: jest.fn((cb) => { cb?.('SUBSCRIBED'); return channelObj; }),
   };
   supabase.channel.mockReturnValue(channelObj);
   return { inFn, channelObj, push: (payload) => act(() => { handler?.(payload); }) };
@@ -281,7 +281,7 @@ test('a pushed update moves the game row, and the channel closes after the last 
   expect(supabase.removeChannel).toHaveBeenCalledTimes(1);
 });
 
-test('a game already final at the initial read is never subscribed to', async () => {
+test('the channel filters on every listed id, including a game already final at the read', async () => {
   apiClient.get.mockResolvedValue(detailWithGames(['done', 'live']));
   const { channelObj } = installLiveGames([game('done', 'final'), game('live', 'in_progress')]);
 
@@ -291,17 +291,17 @@ test('a game already final at the initial read is never subscribed to', async ()
   expect(supabase.channel).toHaveBeenCalledTimes(1);
   expect(channelObj.on).toHaveBeenCalledWith(
     'postgres_changes',
-    expect.objectContaining({ filter: 'tank01_game_id=in.(live)' }),
+    expect.objectContaining({ filter: 'tank01_game_id=in.(done,live)' }),
     expect.any(Function)
   );
 });
 
-test('no channel opens when every listed game is final', async () => {
+test('the channel closes once the read shows every listed game final', async () => {
   apiClient.get.mockResolvedValue(detailWithGames(['a', 'b']));
   installLiveGames([game('a', 'final'), game('b', 'final')]);
   const { result } = renderHook(() => useMatchup(1, 9));
   await waitFor(() => expect(result.current.matchup?.games).toHaveLength(2));
-  expect(supabase.channel).not.toHaveBeenCalled();
+  expect(supabase.removeChannel).toHaveBeenCalledTimes(1);
 });
 
 // A page opened before kickoff: every listed game is still scheduled, and the
@@ -325,6 +325,7 @@ test('a scheduled-only set opens the one channel over every listed game, and an 
 
 test('a failed initial read leaves the games empty and logs a warning, never throws', async () => {
   apiClient.get.mockResolvedValue(detailWithGames(['x']));
+  installLiveGames([]);
   const inFn = jest.fn().mockResolvedValue({ data: null, error: { message: 'permission denied' } });
   supabase.from.mockReturnValue({ select: jest.fn().mockReturnValue({ in: inFn }) });
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -332,7 +333,6 @@ test('a failed initial read leaves the games empty and logs a warning, never thr
   await waitFor(() => expect(result.current.matchup).not.toBeNull());
   await waitFor(() => expect(warn).toHaveBeenCalled());
   expect(result.current.matchup.games).toEqual([]);
-  expect(supabase.channel).not.toHaveBeenCalled();
   warn.mockRestore();
 });
 
