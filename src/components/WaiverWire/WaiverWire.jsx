@@ -307,6 +307,42 @@ function WaiverWire() {
     }
   };
 
+  // #1579, Claim order: pending claims list in `claim_order` (the server's
+  // created_at DESC order is not the manager's ranking); resolved claims keep
+  // the server order below them.
+  const pendingClaims = (data?.myClaims || [])
+    .filter((c) => c.status === 'pending')
+    .sort((a, b) => a.claim_order - b.claim_order);
+  const resolvedClaims = (data?.myClaims || []).filter((c) => c.status !== 'pending');
+
+  // Optimistic: reorder locally, PUT the full id list, revert on refusal.
+  const handleMoveClaim = async (claim, delta) => {
+    const from = pendingClaims.findIndex((c) => c.id === claim.id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= pendingClaims.length) return;
+    const ids = pendingClaims.map((c) => c.id);
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    const previous = data;
+    setError(null);
+    setData((current) => ({
+      ...current,
+      myClaims: current.myClaims.map((c) =>
+        c.status === 'pending' ? { ...c, claim_order: ids.indexOf(c.id) + 1 } : c
+      ),
+    }));
+    try {
+      await apiClient.put('/api/waivers/claims/order', {
+        leagueId: Number(leagueId),
+        claimIds: ids,
+      });
+    } catch (err) {
+      setData(previous);
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      notify(message, { severity: 'error' });
+    }
+  };
+
   if (loading && !data) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }} data-testid="page-skeleton">
@@ -449,7 +485,24 @@ function WaiverWire() {
               </Box>
             ) : (
               <Stack spacing={1.5}>
-                {data.myClaims.map((claim) => (
+                {pendingClaims.length > 0 && (
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Your #1 claim is tried first when claims process.
+                  </Typography>
+                )}
+                {pendingClaims.map((claim, index) => (
+                  <WaiverClaimItem
+                    key={claim.id}
+                    claim={claim}
+                    isFaab={isFaab}
+                    onCancel={handleCancelClaim}
+                    rank={index + 1}
+                    isFirst={index === 0}
+                    isLast={index === pendingClaims.length - 1}
+                    onMove={handleMoveClaim}
+                  />
+                ))}
+                {resolvedClaims.map((claim) => (
                   <WaiverClaimItem
                     key={claim.id}
                     claim={claim}
