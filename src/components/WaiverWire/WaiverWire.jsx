@@ -82,6 +82,10 @@ function WaiverWire() {
   // on every refetch.
   const manualSortRef = useRef(false);
   const claimTargetRequestRef = useRef(null);
+  // #1579: after a reorder, focus returns to the moved claim's button (a keyed
+  // swap or a button turning disabled would otherwise drop focus to <body>).
+  const moveFocusRef = useRef(null);
+  const [orderAnnouncement, setOrderAnnouncement] = useState('');
   const pageNumber = Math.max(1, Number(searchParams.get('page')) || 1);
   const claimTargetParam = searchParams.get('playerId');
   const claimTargetId = /^\d+$/.test(claimTargetParam || '') ? Number(claimTargetParam) : null;
@@ -243,6 +247,17 @@ function WaiverWire() {
     return sortDir === 'desc' ? bv - av : av - bv;
   });
 
+  useEffect(() => {
+    const target = moveFocusRef.current;
+    if (!target) return;
+    moveFocusRef.current = null;
+    const other = target.dir === 'up' ? 'down' : 'up';
+    const el =
+      document.querySelector(`[data-claim-move="${target.id}-${target.dir}"]:not(:disabled)`) ||
+      document.querySelector(`[data-claim-move="${target.id}-${other}"]:not(:disabled)`);
+    if (el) el.focus();
+  }, [data]);
+
   const faabRemaining = data?.myTeam?.faab_remaining ?? 0;
   const sortedRosterForDrop = sortRosterForDrop(roster);
 
@@ -323,6 +338,8 @@ function WaiverWire() {
     const ids = pendingClaims.map((c) => c.id);
     [ids[from], ids[to]] = [ids[to], ids[from]];
     const previous = data;
+    const focusTarget = { id: claim.id, dir: delta < 0 ? 'up' : 'down' };
+    moveFocusRef.current = focusTarget;
     setError(null);
     setData((current) => ({
       ...current,
@@ -335,7 +352,10 @@ function WaiverWire() {
         leagueId: Number(leagueId),
         claimIds: ids,
       });
+      setOrderAnnouncement(`${claim.player_name} moved to Claim order #${to + 1}`);
     } catch (err) {
+      moveFocusRef.current = focusTarget;
+      setOrderAnnouncement('');
       setData(previous);
       const message = readHttpFailure(err).message || err.message;
       setError(message);
@@ -490,6 +510,19 @@ function WaiverWire() {
                     Your #1 claim is tried first when claims process.
                   </Typography>
                 )}
+                <Typography
+                  role="status"
+                  sx={{
+                    position: 'absolute',
+                    width: 1,
+                    height: 1,
+                    overflow: 'hidden',
+                    clip: 'rect(0 0 0 0)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {orderAnnouncement}
+                </Typography>
                 {pendingClaims.map((claim, index) => (
                   <WaiverClaimItem
                     key={claim.id}

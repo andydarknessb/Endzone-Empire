@@ -478,8 +478,8 @@ test('disables up on the first claim and down on the last', async () => {
   renderScreen();
 
   await screen.findByText('Claim A');
-  const ups = screen.getAllByRole('button', { name: 'Move claim up' });
-  const downs = screen.getAllByRole('button', { name: 'Move claim down' });
+  const ups = screen.getAllByRole('button', { name: /^Move .* up$/ });
+  const downs = screen.getAllByRole('button', { name: /^Move .* down$/ });
   expect(ups).toHaveLength(3);
   expect(ups[0]).toBeDisabled();
   expect(ups[1]).toBeEnabled();
@@ -493,7 +493,7 @@ test('moving #2 up sends the full new id list and reorders optimistically', asyn
   renderScreen();
 
   await screen.findByText('Claim A');
-  await userEvent.click(screen.getAllByRole('button', { name: 'Move claim up' })[1]);
+  await userEvent.click(screen.getAllByRole('button', { name: /^Move .* up$/ })[1]);
 
   await waitFor(() =>
     expect(apiClient.put).toHaveBeenCalledWith('/api/waivers/claims/order', {
@@ -502,6 +502,20 @@ test('moving #2 up sends the full new id list and reorders optimistically', asyn
     })
   );
   expect(claimNames()).toEqual(['Claim A', 'Claim B', 'Claim C']);
+  expect(await screen.findByText('Claim A moved to Claim order #1')).toBeInTheDocument();
+  // #1 now, so its up button is disabled: focus lands on its down button.
+  expect(screen.getByRole('button', { name: 'Move Claim A down' })).toHaveFocus();
+});
+
+test('moving a claim down keeps focus on that claim\'s down button', async () => {
+  setupGet({ waivers: orderedClaimsResponse(), roster: rosterResponse() });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  await userEvent.click(screen.getByRole('button', { name: 'Move Claim B down' }));
+
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Move Claim B down' })).toHaveFocus());
 });
 
 test('a refused reorder reverts the list and shows the refusal message', async () => {
@@ -515,7 +529,7 @@ test('a refused reorder reverts the list and shows the refusal message', async (
   renderScreen();
 
   await screen.findByText('Claim A');
-  await userEvent.click(screen.getAllByRole('button', { name: 'Move claim down' })[0]);
+  await userEvent.click(screen.getAllByRole('button', { name: /^Move .* down$/ })[0]);
 
   expect(await screen.findByText('Your pending claims changed; refresh and retry.')).toBeInTheDocument();
   expect(claimNames()).toEqual(['Claim B', 'Claim A', 'Claim C']);

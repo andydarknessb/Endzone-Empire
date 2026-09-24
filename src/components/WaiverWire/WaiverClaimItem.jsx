@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Box, Typography, Chip, IconButton, Tooltip } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
 import EditIcon from '@mui/icons-material/Edit';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
@@ -55,18 +56,20 @@ function WaiverClaimItem({ claim, isFaab, onCancel, rank, isFirst, isLast, onMov
           {showOrder && (
             <>
               <IconButton
-                aria-label="Move claim up"
+                aria-label={`Move ${claim.player_name} up`}
+                data-claim-move={`${claim.id}-up`}
                 disabled={isFirst}
                 onClick={() => onMove(claim, -1)}
-                sx={{ width: 44, height: 44 }}
+                sx={MIN_TOUCH_TARGET_SX}
               >
                 <KeyboardArrowUpIcon />
               </IconButton>
               <IconButton
-                aria-label="Move claim down"
+                aria-label={`Move ${claim.player_name} down`}
+                data-claim-move={`${claim.id}-down`}
                 disabled={isLast}
                 onClick={() => onMove(claim, 1)}
-                sx={{ width: 44, height: 44 }}
+                sx={MIN_TOUCH_TARGET_SX}
               >
                 <KeyboardArrowDownIcon />
               </IconButton>
