@@ -386,6 +386,26 @@ test('an existing capture is skipped ONLY as an exact, complete match of EVERY a
     'no header insert attempted');
 });
 
+test('a complete, otherwise identical capture from an OLDER release is a read-only skip that names the release', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  const triple = seededTriple({ scheduleHash: scheduleHashOf(WEEK1) });
+  const snapshots = triple.snapshots.map((s) => ({ ...s, release_sha: 'oldsha000000' }));
+  const db = fakeDb(dbArgs({
+    existingSnapshots: snapshots,
+    existingPlayers: triple.players,
+  }));
+
+  const out = await holdout.snapshotWeek(captureArgs(db));
+  assert.match(out.skipped, /already complete \(captured at release oldsha/);
+  assert.match(out.skipped, /current testsha0000\)/);
+  assert.equal(out.snapshotId, 50);
+  assert.equal(seen.length, 0, 'no projection run for a skip');
+  assert.equal(db.committed.players.length, 9, 'nothing appended');
+  assert.ok(!db.statements.some((s) => s.text.includes('INSERT INTO "projection_snapshots"')),
+    'no header insert attempted');
+});
+
 test('a scheduled-only capture AT THE CURRENT PROTOCOL is a loud partial-arm conflict, never appended to', async (t) => {
   withReleaseSha(t);
   const seen = mockGenerate(t);
@@ -924,6 +944,21 @@ test('one profile failing is recorded durably and does not block the others; ret
   assert.equal(failedRow.attempts, 2, 'and counts its attempts');
   const skips = db.committed.status.filter((r) => r.scoring_profile !== 'half_ppr');
   assert.ok(skips.every((r) => r.status === 'skipped' && r.attempts === 2), 'complete profiles record skips');
+});
+
+test('a deploy between passes does not turn a complete week into failed status rows', async (t) => {
+  withReleaseSha(t);
+  mockGenerate(t);
+  const db = fakeDb(dbArgs({ due: [{ season: FIXTURE_SEASON, week: 1, first_kickoff: KICKOFF }] }));
+
+  const first = await holdout.captureDueSnapshots({ now: new Date('2077-09-09T12:00:00Z'), client: db });
+  assert.equal(first.failures.length, 0);
+
+  withReleaseSha(t, 'newsha000000');
+  const second = await holdout.captureDueSnapshots({ now: new Date('2077-09-09T13:00:00Z'), client: db });
+  assert.equal(second.failures.length, 0);
+  assert.equal(db.committed.status.length, 3);
+  assert.ok(db.committed.status.every((r) => r.status === 'skipped' && r.attempts === 2));
 });
 
 test('outside the capture window there is nothing to do and nothing is computed', async (t) => {
