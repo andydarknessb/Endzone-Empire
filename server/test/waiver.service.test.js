@@ -1083,3 +1083,104 @@ test('editClaim updates bid and drop without touching claim_order or created_at'
   assert.doesNotMatch(write.text, /claim_order|created_at/);
   fake.assertClean();
 });
+
+// --- the Winning bid on every resolved claim of a player (#1611, ADR 0049) ---
+// The UPDATE that finishes a claim is read back as { id, status, winner, bid }
+// so each test states the stored outcome, not the SQL spelling.
+const resolvedClaims = (fake) => fake.matching(update('waiver_claims')).map(({ text, params }) => {
+  const set = (column) => {
+    const at = new RegExp(`"${column}" = \\$(\\d+)`).exec(text);
+    return at ? params[Number(at[1]) - 1] : undefined; // undefined: the UPDATE never sets it
+  };
+  return {
+    id: set('id'),
+    status: set('status'),
+    winner: set('winning_team_id'),
+    bid: set('winning_bid'),
+  };
+});
+
+const contestedWorld = (t, { waiverType, claims, faabRemaining = 100 }) => {
+  const league = {
+    id: 1, transactions_locked: false, waiver_type: waiverType, roster_limit: 16, ir_slots: 2,
+    current_season: 2026, current_week: 6, waiver_period_hours: 24,
+  };
+  const rows = claims.map((c, i) => ({
+    league_id: 1, player_id: 500, drop_player_id: null, status: 'pending',
+    created_at: `2026-07-11T00:0${i}:00Z`, ...c,
+  }));
+  const fake = createFakePool([
+    [select('leagues'), () => ({ rows: [league] })],
+    [update('leagues'), () => ({ rows: [], rowCount: 0 })],
+    [select('waiver_claims'), () => ({ rows })],
+    [select('teams'), () => ({ rows: [31, 32, 33].map((id, i) => ({
+      id, league_id: 1, owner_id: id, user_id: id, waiver_priority: i + 1, faab_remaining: faabRemaining,
+    })) })],
+    [/^SELECT 1 FROM "team_players" WHERE "league_id"/, () => ({ rows: [] })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: 10 }] })],
+    [select('lineup_entries'), () => ({ rows: [{ n: 0 }] })],
+    [insert('team_players'), () => ({ rows: [], rowCount: 1 })],
+    [update('teams'), () => ({ rows: [], rowCount: 1 })],
+    [update('waiver_claims'), () => ({ rows: [], rowCount: 1 })],
+    [insert('transactions'), () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+    [remove('waiver_players'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(lineupService, 'benchAcquiredPlayer', async () => {});
+  return fake;
+};
+
+test('processWaivers (FAAB): the winner and Winning bid land on the won claim and every lost one (#1611)', async (t) => {
+  const fake = contestedWorld(t, {
+    waiverType: 'faab',
+    claims: [
+      { id: 1, team_id: 31, bid: 10 },
+      { id: 2, team_id: 32, bid: 23 },
+      { id: 3, team_id: 33, bid: 5 },
+    ],
+  });
+
+  await processWaivers({ leagueId: 1 });
+
+  const byId = new Map(resolvedClaims(fake).map((r) => [r.id, r]));
+  assert.deepEqual(byId.get(2), { id: 2, status: 'won', winner: 32, bid: 23 });
+  assert.deepEqual(byId.get(1), { id: 1, status: 'lost', winner: 32, bid: 23 });
+  assert.deepEqual(byId.get(3), { id: 3, status: 'lost', winner: 32, bid: 23 });
+});
+
+test('processWaivers (priority league): the winner is recorded, the Winning bid stays null (#1611)', async (t) => {
+  const fake = contestedWorld(t, {
+    waiverType: 'priority',
+    claims: [
+      { id: 1, team_id: 32, bid: 0 },
+      { id: 2, team_id: 31, bid: 0 },
+    ],
+  });
+
+  await processWaivers({ leagueId: 1 });
+
+  const byId = new Map(resolvedClaims(fake).map((r) => [r.id, r]));
+  assert.deepEqual(byId.get(2), { id: 2, status: 'won', winner: 31, bid: null });
+  assert.deepEqual(byId.get(1), { id: 1, status: 'lost', winner: 31, bid: null });
+});
+
+test('processWaivers: an invalid claim keeps its reason and names no winner (#1611)', async (t) => {
+  // Team 31 bids higher than it can pay, so its claim goes invalid; team 32
+  // then wins. The invalid claim is not a loss to anyone.
+  const fake = contestedWorld(t, {
+    waiverType: 'faab',
+    faabRemaining: 15,
+    claims: [
+      { id: 1, team_id: 31, bid: 40 },
+      { id: 2, team_id: 32, bid: 12 },
+    ],
+  });
+
+  await processWaivers({ leagueId: 1 });
+
+  const byId = new Map(resolvedClaims(fake).map((r) => [r.id, r]));
+  assert.deepEqual(byId.get(1), { id: 1, status: 'invalid', winner: null, bid: null });
+  assert.deepEqual(byId.get(2), { id: 2, status: 'won', winner: 32, bid: 12 });
+  const invalidUpdate = fake.matching(update('waiver_claims')).find((c) => c.params.includes(1) && c.params.includes('invalid'));
+  assert.match(invalidUpdate.params[1], /bid exceeds remaining FAAB budget/);
+});
