@@ -7,7 +7,7 @@ const { registerRecordingBroadcast } = require('./helpers/recordingBroadcast');
 const recordingBroadcast = registerRecordingBroadcast();
 const {
   claimFailureReason, claimTarget, orderClaims, processWaivers, submitClaim,
-  placeOnWaivers, holdKickedOffPlayers,
+  placeOnWaivers, holdKickedOffPlayers, editClaim,
 } = require('../services/waiver.service');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
 const lineupService = require('../services/lineup.service');
@@ -984,5 +984,102 @@ test('submitClaim refuses a no-drop claim when the roster is already at capacity
     { statusCode: 409, message: 'roster capacity of 14 reached; choose a player to drop' }
   );
   assert.equal(fake.matching(insert('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+// #1580: edit a pending claim's bid and drop player in place.
+const editWorld = ({ waiverType = 'faab', faab = 50, claimRow, dropOnRoster = true, rosterCount = 10 } = {}) => {
+  const row = claimRow || {
+    id: 900, league_id: 1, team_id: 31, player_id: 500, drop_player_id: null, bid: 10,
+    claim_order: 2, status: 'pending', created_at: '2026-07-11T00:00:00Z',
+  };
+  return createFakePool([
+    [/^SELECT "waiver_claims"."league_id" FROM "waiver_claims"/, () => ({ rows: [{ league_id: 1 }] })],
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: 1, pickem_only: false, waiver_type: waiverType, transactions_locked: false,
+        waivers_clear_at: null, roster_limit: 16, ir_slots: 0,
+      }],
+    })],
+    [/^SELECT COUNT\(\*\)::int AS n FROM "team_players"/, () => ({ rows: [{ n: rosterCount }] })],
+    [/^SELECT \* FROM "teams"/, () => ({
+      rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false, faab_remaining: faab }],
+    })],
+    [/^SELECT \* FROM "waiver_claims"/, () => ({ rows: [row] })],
+    [/^SELECT 1 FROM "team_players" WHERE "team_id"/, () => ({ rows: dropOnRoster ? [{}] : [] })],
+    [/^UPDATE "waiver_claims"/, (text, params) => ({
+      rows: [{ ...row, bid: params[0], drop_player_id: params[1] }],
+    })],
+  ]);
+};
+
+test('editClaim refuses a bid over the FAAB budget with a coded refusal', async (t) => {
+  const fake = editWorld({ faab: 50 }).install(t);
+  await assert.rejects(
+    () => editClaim({ userId: 8, claimId: 900, bid: 51 }),
+    { statusCode: 409, code: 'BID_OVER_BUDGET' }
+  );
+  assert.equal(fake.matching(update('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('editClaim refuses a drop player who is not on the caller roster', async (t) => {
+  const fake = editWorld({ dropOnRoster: false }).install(t);
+  await assert.rejects(
+    () => editClaim({ userId: 8, claimId: 900, dropPlayerId: 77 }),
+    { code: 'DROP_NOT_ON_ROSTER' }
+  );
+  assert.equal(fake.matching(update('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('editClaim refuses a bid in a priority league', async (t) => {
+  editWorld({ waiverType: 'priority' }).install(t);
+  await assert.rejects(
+    () => editClaim({ userId: 8, claimId: 900, bid: 5 }),
+    { statusCode: 409, code: 'BID_NOT_ALLOWED' }
+  );
+});
+
+test('editClaim: a non-owner claim id is a 404 from the owner-joined first read, before any league lock', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT "waiver_claims"."league_id" FROM "waiver_claims"/, () => ({ rows: [] })],
+  ]).install(t);
+  await assert.rejects(
+    () => editClaim({ userId: 99, claimId: 900, bid: 5 }),
+    { statusCode: 404, message: 'pending claim not found' }
+  );
+  const [first] = fake.matching(/waiver_claims/);
+  assert.match(first.text, /JOIN "teams".*"owner_id" = \$2/);
+  assert.deepEqual(first.params, [900, 99]);
+  assert.equal(fake.matching(/FROM "leagues"/).length, 0);
+  assert.equal(fake.matching(update('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('editClaim refuses a drop change that leaves a full roster over capacity', async (t) => {
+  const fake = editWorld({
+    rosterCount: 16,
+    claimRow: {
+      id: 900, league_id: 1, team_id: 31, player_id: 500, drop_player_id: 77, bid: 10,
+      claim_order: 2, status: 'pending', created_at: '2026-07-11T00:00:00Z',
+    },
+  }).install(t);
+  await assert.rejects(
+    () => editClaim({ userId: 8, claimId: 900, dropPlayerId: null }),
+    { statusCode: 409, message: /roster capacity of 16 reached/ }
+  );
+  assert.equal(fake.matching(update('waiver_claims')).length, 0);
+  fake.assertClean();
+});
+
+test('editClaim updates bid and drop without touching claim_order or created_at', async (t) => {
+  const fake = editWorld({ faab: 50 }).install(t);
+  const result = await editClaim({ userId: 8, claimId: 900, bid: 25, dropPlayerId: 77 });
+  assert.equal(result.bid, 25);
+  assert.equal(result.drop_player_id, 77);
+  assert.equal(result.claim_order, 2);
+  const [write] = fake.matching(update('waiver_claims'));
+  assert.doesNotMatch(write.text, /claim_order|created_at/);
   fake.assertClean();
 });

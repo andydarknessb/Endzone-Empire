@@ -73,6 +73,8 @@ function WaiverWire() {
   const [error, setError] = useState(null);
 
   const [claimPlayer, setClaimPlayer] = useState(null);
+  // #1580: the pending claim being edited, when the claim dialog is in edit mode.
+  const [editingClaim, setEditingClaim] = useState(null);
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState('');
 
@@ -118,6 +120,7 @@ function WaiverWire() {
       .then((response) => {
         if (cancelled) return;
         setError(null);
+        setEditingClaim(null);
         setClaimPlayer(response.data.player);
         setDropPlayerId('');
         setBid('');
@@ -287,6 +290,7 @@ function WaiverWire() {
   // exactly as it did when no suggestion matched before.
   const handleOpenClaim = (player) => {
     setError(null);
+    setEditingClaim(null);
     setClaimPlayer(player);
     const suggestedDropId = player.upgrade?.overPlayer?.id ?? null;
     const suggestedDropOnRoster =
@@ -297,9 +301,41 @@ function WaiverWire() {
 
   const handleCloseClaim = () => {
     setClaimPlayer(null);
+    setEditingClaim(null);
+  };
+
+  // #1580: the page's own claim dialog, pre-filled from the pending claim.
+  const handleEditClaim = (claim) => {
+    setError(null);
+    setEditingClaim(claim);
+    setClaimPlayer({ id: claim.player_id, name: claim.player_name });
+    setDropPlayerId(claim.drop_player_id ?? '');
+    setBid(String(claim.bid ?? 0));
+  };
+
+  const handleSaveClaimEdit = async () => {
+    setError(null);
+    try {
+      await apiClient.patch(`/api/waivers/claim/${editingClaim.id}`, {
+        dropPlayerId: dropPlayerId === '' ? null : dropPlayerId,
+        ...(isFaab ? { bid: Number(bid) } : {}),
+      });
+      notify('Waiver claim updated', { severity: 'success' });
+      handleCloseClaim();
+      await fetchAll();
+    } catch (err) {
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      // The modal hides the page Alert from assistive tech; the toast is announced.
+      notify(message, { severity: 'error' });
+    }
   };
 
   const handleSubmitClaim = async () => {
+    if (editingClaim) {
+      await handleSaveClaimEdit();
+      return;
+    }
     setError(null);
     const { ok, message } = await submitClaim({
       playerId: claimPlayer.id,
@@ -520,6 +556,7 @@ function WaiverWire() {
                     claim={claim}
                     isFaab={isFaab}
                     onCancel={handleCancelClaim}
+                    onEdit={handleEditClaim}
                     rank={index + 1}
                     isFirst={index === 0}
                     isLast={index === pendingClaims.length - 1}
@@ -542,7 +579,7 @@ function WaiverWire() {
 
       <Dialog open={!!claimPlayer} onClose={handleCloseClaim}>
         <DialogTitle>
-          Claim{' '}
+          {editingClaim ? 'Edit claim on' : 'Claim'}{' '}
           {claimPlayer && (
             <PlayerNameLink name={claimPlayer.name} playerId={claimPlayer.id} onOpen={setQuickViewId} />
           )}
@@ -596,7 +633,7 @@ function WaiverWire() {
         <DialogActions>
           <Button onClick={handleCloseClaim}>Cancel</Button>
           <Button variant="contained" onClick={handleSubmitClaim} disabled={bidInvalid || dropMissing}>
-            Submit Claim
+            {editingClaim ? 'Save Changes' : 'Submit Claim'}
           </Button>
         </DialogActions>
       </Dialog>
