@@ -1012,6 +1012,22 @@ _Avoid_: claim priority (that is Waiver priority), queue position, submission
 order (a new claim joins the order last, but the order is the manager's to
 change)
 
+**Clear time**:
+The moment a player's waiver hold ends and the pending claims on him resolve:
+his own clear time after a drop or a kickoff, or the league's blanket clear
+time while every unrostered player is held after the draft. Claims resolve
+player by player as each clear time passes, not in one league-wide batch, so a
+manager's two claims can resolve in different runs.
+_Avoid_: processing time, waiver run, claims deadline
+
+**Winning bid**:
+The bid on the claim that won a player when his claims resolved in a FAAB
+league. Every manager in the league can see it, with the team that won, on the
+claim results and in the transaction log; the bids that lost are never shown
+to anyone but the manager who made them. Claims resolved before it was
+recorded have none.
+_Avoid_: price, cost, market value, sale price
+
 **Trade**:
 A swap of players between two teams, optionally subject to a review window in
 which uninvolved managers can vote to veto.
@@ -1022,6 +1038,14 @@ Rosterable positions, each player with his Availability, Unavailable reason
 and Weekly projection, filtered by slot chip, sorted and paged. Opening a
 player from it opens the Decision card. One read answers the whole page.
 _Avoid_: Player Browser, player list, player pool page, players route
+
+**Waivers page**:
+The surface where a manager claims players and manages their own claims: the
+Players page's list held to players on waivers, beside the manager's pending
+claims in Claim order and the results of their resolved ones. It adds no
+player detail of its own; opening a player opens the Decision card.
+_Avoid_: Waiver wire (the old page title), waiver list, claims page
+
 **Availability**:
 Which of four states a player is in for one team's manager: Free agent, on
 waivers (dropped, or kicked off this week, until the week clears), Rostered by

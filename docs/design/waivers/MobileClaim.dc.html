@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Waivers, claim sheet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Barlow+Condensed:wght@600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b1015;font-family:"Archivo","Helvetica Neue",Arial,sans-serif;color:#e8eef4}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 900px; box-sizing: border-box; position: relative; overflow: hidden; background: #0b1015; color: #e8eef4; font-family: Archivo, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums">
+<div aria-hidden="true" style="position: absolute; left: 0; top: 0; right: 0; height: 120px; padding: 16px; box-sizing: border-box; background: #141b23">
+<div style="font-family: 'Barlow Condensed', Impact, sans-serif; font-weight: 800; font-size: 30px; text-transform: uppercase; color: #56626e">Waivers</div>
+</div>
+<div aria-hidden="true" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(5, 8, 11, 0.72)"></div>
+
+<section role="dialog" aria-modal="true" aria-labelledby="sheet-title" style="position: absolute; left: 0; right: 0; bottom: 0; top: 64px; background: #141b23; border-radius: 20px 20px 0 0; display: flex; flex-direction: column">
+<div aria-hidden="true" style="align-self: center; width: 40px; height: 4px; border-radius: 999px; background: #3a4757; margin-top: 8px"></div>
+<div style="padding: 12px 16px 0; display: flex; flex-direction: column; gap: 16px; flex-grow: 1">
+
+<div style="display: flex; gap: 12px; align-items: center">
+<div aria-hidden="true" style="width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(47, 217, 123, 0.16); color: #4be08f; font-weight: 700; font-size: 17px">TS</div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px">
+<h2 id="sheet-title" style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-weight: 700; font-size: 26px; line-height: 1; text-transform: uppercase">Claim Tyjae Spears</h2>
+<span style="font-size: 12px; color: #93a4b5">RB · TEN vs HOU · Clears Wed 3 AM</span>
+</div>
+<button type="button" aria-label="Close" style="width: 44px; height: 44px; border-radius: 10px; border: 0; background: #1b242f; color: #e8eef4; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+
+<div style="padding: 14px; border-radius: 14px; background: #0b1015; border: 1px solid rgba(154, 183, 211, 0.12); display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #93a4b5">Swap preview</span><span style="font-weight: 800; color: #4be08f">+4.6 Wk 4 · +31 ROS</span></div>
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr) 44px; gap: 8px; align-items: center; font-size: 13px">
+<span style="font-weight: 700">T. Spears</span><div aria-hidden="true" style="height: 10px; border-radius: 3px; background: #222e3b"><div style="width: 84%; height: 10px; border-radius: 3px; background: {{accent}}"></div></div><span style="text-align: right; font-weight: 700">11.8</span>
+<span style="color: #c3d0dc">J. Warren</span><div aria-hidden="true" style="height: 10px; border-radius: 3px; background: #222e3b"><div style="width: 51%; height: 10px; border-radius: 3px; background: #46637f"></div></div><span style="text-align: right; color: #c3d0dc">7.2</span>
+</div>
+<div style="font-size: 12px; color: #93a4b5">Projected Week 4 points at your FLEX</div>
+</div>
+
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 700">Drop a player <span style="font-weight: 400; color: #f0b34e">· required, roster is full</span></legend>
+<label style="display: flex; gap: 12px; align-items: center; min-height: 52px; padding: 0 14px; border-radius: 12px; border: 2px solid {{accent}}; background: rgba(47, 217, 123, 0.08)">
+<input type="radio" name="drop" checked style="width: 20px; height: 20px; accent-color: {{accent}}; margin: 0">
+<span style="flex-grow: 1; display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 14px">Jaylen Warren <span style="font-weight: 400; color: #93a4b5">RB · PIT</span></span><span style="font-size: 12px; color: #93a4b5">Suggested: the starter this claim replaces</span></span>
+<span style="font-size: 13px; font-weight: 700">7.2</span>
+</label>
+<label style="display: flex; gap: 12px; align-items: center; min-height: 52px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(154, 183, 211, 0.22)">
+<input type="radio" name="drop" style="width: 20px; height: 20px; accent-color: {{accent}}; margin: 0">
+<span style="flex-grow: 1; display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 14px">Cairo Santos <span style="font-weight: 400; color: #93a4b5">K · CHI</span></span><span style="font-size: 12px; color: #93a4b5">Bench · lowest projection</span></span>
+<span style="font-size: 13px; font-weight: 700">6.8</span>
+</label>
+<label style="display: flex; gap: 12px; align-items: center; min-height: 52px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(154, 183, 211, 0.22)">
+<input type="radio" name="drop" style="width: 20px; height: 20px; accent-color: {{accent}}; margin: 0">
+<span style="flex-grow: 1; display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 14px">Romeo Doubs <span style="font-weight: 400; color: #93a4b5">WR · GB</span></span><span style="font-size: 12px; color: #93a4b5">Bench · on bye Wk 5</span></span>
+<span style="font-size: 13px; font-weight: 700">7.8</span>
+</label>
+<button type="button" style="align-self: flex-start; height: 44px; padding: 0; border: 0; background: none; color: #7eaaff; font-size: 13px; font-weight: 600">Show all 20 players</button>
+</fieldset>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<label for="bid" style="font-size: 13px; font-weight: 700">Your bid <span style="font-weight: 400; color: #93a4b5">· $62 available</span></label>
+<div style="display: flex; gap: 8px; align-items: center">
+<button type="button" aria-label="Lower bid by $1" style="width: 52px; height: 52px; border-radius: 12px; border: 1px solid rgba(154, 183, 211, 0.22); background: #1b242f; color: #e8eef4; font-size: 22px">−</button>
+<div style="flex-grow: 1; position: relative; display: flex; align-items: center">
+<span aria-hidden="true" style="position: absolute; left: 16px; font-family: 'Barlow Condensed', Impact, sans-serif; font-weight: 700; font-size: 28px; color: #93a4b5">$</span>
+<input id="bid" type="number" inputmode="numeric" value="14" min="0" max="62" style="width: 100%; height: 52px; box-sizing: border-box; padding: 0 16px 0 36px; border-radius: 12px; border: 1px solid rgba(154, 183, 211, 0.22); background: #0b1015; color: #e8eef4; font-family: 'Barlow Condensed', Impact, sans-serif; font-weight: 700; font-size: 28px; text-align: center">
+</div>
+<button type="button" aria-label="Raise bid by $1" style="width: 52px; height: 52px; border-radius: 12px; border: 1px solid rgba(154, 183, 211, 0.22); background: #1b242f; color: #e8eef4; font-size: 22px">+</button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<button type="button" style="height: 44px; border-radius: 10px; border: 1px solid rgba(154, 183, 211, 0.22); background: transparent; color: #c3d0dc; font-weight: 600; font-size: 13px">$1</button>
+<button type="button" style="height: 44px; border-radius: 10px; border: 1px solid rgba(154, 183, 211, 0.22); background: transparent; color: #c3d0dc; font-weight: 600; font-size: 13px">Max $62</button>
+</div>
+<div style="font-size: 12px; line-height: 1.4; color: #93a4b5">Highest bid wins. Equal bids go to Waiver priority; you are #7.</div>
+</div>
+</div>
+
+<div style="padding: 12px 16px 24px; border-top: 1px solid rgba(154, 183, 211, 0.12); display: grid; grid-template-columns: 1fr 2fr; gap: 10px; background: #141b23">
+<button type="button" style="height: 52px; border-radius: 12px; border: 1px solid rgba(154, 183, 211, 0.22); background: transparent; color: #e8eef4; font-weight: 700; font-size: 15px">Cancel</button>
+<button type="button" style="height: 52px; border-radius: 12px; border: 0; background: {{accent}}; color: #0b1015; font-weight: 800; font-size: 16px">Submit claim · $14</button>
+</div>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#2fd97b","options":["#2fd97b","#7eaaff","#f0b34e"]},"$preview":{"width":390,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#2fd97b' };
+  }
+}
+</script>
+</body>
+</html>
