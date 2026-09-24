@@ -16,26 +16,32 @@ const { isOnWaivers } = require('./waiverStatus');
 const { assertRosterWriteAllowed, isLeagueFrozen, ROSTER_GATE } = require('./rosterGate.service');
 
 class WaiverError extends Error {
-  constructor(statusCode, message) {
+  constructor(statusCode, message, code) {
     super(message);
     this.statusCode = statusCode;
+    if (code) this.code = code;
   }
 }
 
 /**
- * Pure: order the pending claims for ONE player, best first.
- * - 'faab': highest bid wins; ties break by waiver priority (lower = better),
- *   then earliest claim.
- * - 'priority': reverse-standings waiver priority (lower = better), then
- *   earliest claim. The order itself is reset to reverse standings on every
- *   week finalize (season.service resetWaiverPriorities); a winner's move to
- *   the back below lasts only until that reset.
- * claims: [{ id, team_id, bid, created_at }]
+ * Pure: the ONE ordering of due pending claims for a whole league, best first
+ * (ADR 0048). Processing walks this list front to back; there is no second
+ * ordering.
+ * - 'faab': highest bid first, then the keys below.
+ * - Waiver priority (lower = better). The order itself is reset to reverse
+ *   standings on every week finalize (season.service resetWaiverPriorities); a
+ *   winner's move to the back lasts only until that reset.
+ * - the claiming team's Claim order (lower = earlier), which ranks a manager's
+ *   claims against each other only: it sits below Waiver priority, so it never
+ *   lifts a claim over another team's.
+ * - created_at, then id.
+ * claims: [{ id, team_id, bid, claim_order, created_at }]
  * priorities: Map(team_id -> waiver_priority)
  */
 function orderClaims(claims, priorities, waiverType) {
   const byPriority = (a, b) =>
     (priorities.get(a.team_id) || 999) - (priorities.get(b.team_id) || 999) ||
+    (a.claim_order || 0) - (b.claim_order || 0) ||
     new Date(a.created_at) - new Date(b.created_at) ||
     a.id - b.id;
   const sorted = [...claims];
@@ -205,7 +211,12 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
   return withTransaction(
     pool,
     async (client) => {
-    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+    // The league row lock serialises max(claim_order)+1 per league and matches
+    // processWaivers' lock order (league row first, team rows after). Not the
+    // team row alone: processWaivers holds the league row then updates team
+    // rows, and this insert's foreign key check share-locks the league row, so
+    // a team-first lock would invert the order. No advisory lock (#839).
+    const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
     const league = leagueResult.rows[0];
     if (!league) throw new WaiverError(404, 'league not found');
     assertFantasyLeagueRow(league); // no waivers in a pick'em-only league
@@ -253,14 +264,108 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
     );
     if (dupe.rows[0]) throw new WaiverError(409, 'you already have a pending claim on this player');
 
+    // A new claim joins the team's Claim order last, from any surface.
+    const nextOrder = await client.query(
+      `SELECT COALESCE(MAX("claim_order"), 0) + 1 AS "next" FROM "waiver_claims"
+       WHERE "team_id" = $1 AND "status" = 'pending'`,
+      [team.id]
+    );
     const claimResult = await client.query(
-      `INSERT INTO "waiver_claims" ("league_id", "team_id", "player_id", "drop_player_id", "bid")
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [leagueId, team.id, playerId, dropPlayerId || null, league.waiver_type === 'faab' ? bid : 0]
+      `INSERT INTO "waiver_claims" ("league_id", "team_id", "player_id", "drop_player_id", "bid", "claim_order")
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [leagueId, team.id, playerId, dropPlayerId || null, league.waiver_type === 'faab' ? bid : 0, nextOrder.rows[0].next]
     );
     return claimResult.rows[0];
     },
     { label: 'waiver-claim' }
+  );
+}
+
+/**
+ * Edit the caller's own pending claim in place (#1580): `bid` (FAAB leagues
+ * only) and/or `dropPlayerId` (null clears it; undefined leaves it). The claim
+ * keeps its id, `claim_order` and `created_at`: an edit is never a re-queue.
+ * FAAB is deducted only when a claim wins, so `faab_remaining` already
+ * excludes nothing this claim's own current bid holds: the bid is checked
+ * against it directly. The league is read from the claim (the route carries
+ * only the claim id), and its row lock is taken like every other claim write.
+ */
+async function editClaim({ userId, claimId, bid, dropPlayerId }) {
+  return withTransaction(
+    pool,
+    async (client) => {
+      // Ownership rides the first read, so every refusal for a claim that is not
+      // the caller's own pending one is the same 404 (as cancelClaim); nothing
+      // about another user's claim or league leaks through a different code.
+      const found = await client.query(
+        `SELECT "waiver_claims"."league_id" FROM "waiver_claims"
+         JOIN "teams" ON "teams"."id" = "waiver_claims"."team_id"
+         WHERE "waiver_claims"."id" = $1 AND "waiver_claims"."status" = 'pending'
+           AND "teams"."owner_id" = $2`,
+        [claimId, userId]
+      );
+      if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
+      const leagueId = found.rows[0].league_id;
+
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const league = leagueResult.rows[0];
+      if (!league) throw new WaiverError(404, 'league not found');
+      assertFantasyLeagueRow(league);
+      if (isLeagueFrozen(league)) throw new WaiverError(409, 'transactions are locked by the commissioner');
+
+      const team = await requireMember(client, { leagueId, userId });
+      if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
+
+      const claimResult = await client.query(
+        `SELECT * FROM "waiver_claims"
+         WHERE "id" = $1 AND "team_id" = $2 AND "status" = 'pending' FOR UPDATE`,
+        [claimId, team.id]
+      );
+      const current = claimResult.rows[0];
+      if (!current) throw new WaiverError(404, 'pending claim not found');
+
+      let nextBid = current.bid;
+      if (bid !== undefined && bid !== null) {
+        if (league.waiver_type !== 'faab') {
+          throw new WaiverError(409, 'this league has no FAAB bids', 'BID_NOT_ALLOWED');
+        }
+        if (!Number.isInteger(bid) || bid < 0) throw new WaiverError(400, 'bid must be a non-negative integer');
+        if (bid > team.faab_remaining) {
+          throw new WaiverError(
+            409,
+            `bid exceeds your remaining FAAB budget (${team.faab_remaining})`,
+            'BID_OVER_BUDGET'
+          );
+        }
+        nextBid = bid;
+      }
+
+      let nextDrop = current.drop_player_id;
+      if (dropPlayerId !== undefined) {
+        nextDrop = dropPlayerId || null;
+        if (nextDrop) {
+          const onMyTeam = await client.query(
+            `SELECT 1 FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+            [team.id, nextDrop]
+          );
+          if (!onMyTeam.rows[0]) {
+            throw new WaiverError(409, 'drop player is not on your roster', 'DROP_NOT_ON_ROSTER');
+          }
+        }
+        // A different drop (an IR stash grants no credit) or a cleared one can
+        // leave no room, and the roster may have grown since submit.
+        const overflow = await capacityFailureReason(client, { league, team, dropPlayerId: nextDrop });
+        if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
+      }
+
+      const updated = await client.query(
+        `UPDATE "waiver_claims" SET "bid" = $1, "drop_player_id" = $2, "updated_at" = now()
+         WHERE "id" = $3 RETURNING *`,
+        [nextBid, nextDrop, claimId]
+      );
+      return updated.rows[0];
+    },
+    { label: 'waiver-claim-edit' }
   );
 }
 
@@ -280,12 +385,61 @@ async function cancelClaim({ leagueId, userId, claimId }) {
 }
 
 /**
+ * Set the caller's Claim order (ADR 0048): `claimIds` must be exactly the
+ * caller's team's pending claim ids in this league, no more, no fewer, each
+ * once; the write is claim_order 1..N in that sequence. Manager-only for their
+ * own team (the team is the caller's membership row, never a passed id). Takes
+ * the league row lock the claim insert and processWaivers also take, so a
+ * reorder cannot interleave with either.
+ */
+async function reorderClaims({ leagueId, userId, claimIds }) {
+  return withTransaction(
+    pool,
+    async (client) => {
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const league = leagueResult.rows[0];
+      if (!league) throw new WaiverError(404, 'league not found');
+      assertFantasyLeagueRow(league);
+      const team = await requireMember(client, { leagueId, userId });
+
+      const pendingResult = await client.query(
+        `SELECT "id" FROM "waiver_claims" WHERE "team_id" = $1 AND "status" = 'pending'`,
+        [team.id]
+      );
+      const pending = new Set(pendingResult.rows.map((r) => r.id));
+      const given = new Set(claimIds);
+      const exact = given.size === claimIds.length && given.size === pending.size
+        && claimIds.every((id) => pending.has(id));
+      if (!exact) {
+        throw new WaiverError(
+          409,
+          'claimIds must be exactly your pending claims in this league, each once',
+          'CLAIM_ORDER_MISMATCH'
+        );
+      }
+      if (claimIds.length > 0) {
+        await client.query(
+          `UPDATE "waiver_claims" SET "claim_order" = "o"."ord", "updated_at" = now()
+           FROM unnest($1::int[], $2::int[]) AS "o"("id", "ord")
+           WHERE "waiver_claims"."id" = "o"."id"`,
+          [claimIds, claimIds.map((_, i) => i + 1)]
+        );
+      }
+      return { claimIds };
+    },
+    { label: 'waiver-claim-order' }
+  );
+}
+
+/**
  * Resolve every DUE pending claim in a league (a claim is due once its
- * player's waiver window has expired). Winners are picked per player by
- * orderClaims; a winning claim executes the add (and optional drop)
- * atomically, deducts FAAB, and sends the winner to the back of the
- * priority order. Everything happens inside one transaction with the league
- * row locked, so the scheduler and a manual trigger can't double-process.
+ * player's waiver window has expired). Claims are walked in ONE global order
+ * (orderClaims: bid, Waiver priority, Claim order, ...) and each is
+ * re-validated at its own turn; a winning claim executes the add (and
+ * optional drop) atomically, deducts FAAB, and sends the winner to the back of
+ * the priority order. Everything happens inside one transaction with the
+ * league row locked, so the scheduler and a manual trigger can't
+ * double-process.
  */
 /**
  * The post-draft blanket window (leagues.waivers_clear_at) is spent once it
@@ -408,12 +562,6 @@ async function processWaivers({ leagueId }) {
     const priorities = new Map(teamsResult.rows.map((t) => [t.id, t.waiver_priority]));
     const teamCount = teamsResult.rows.length;
 
-    const byPlayer = new Map();
-    for (const claim of dueResult.rows) {
-      if (!byPlayer.has(claim.player_id)) byPlayer.set(claim.player_id, []);
-      byPlayer.get(claim.player_id).push(claim);
-    }
-
     // Every terminal claim status goes through the write-time roster gate
     // (#990). A freeze must stop a claim being permanently invalidated, not
     // only stop it being awarded: `invalid` is terminal and nothing revives
@@ -446,129 +594,177 @@ async function processWaivers({ leagueId }) {
       );
     };
 
+    // ONE global walk over every due claim in the league (ADR 0048): bid (FAAB),
+    // Waiver priority, the team's Claim order, then submission. Each claim is
+    // re-validated at its own turn against the roster the earlier wins left.
     const results = [];
-    for (const [playerId, claims] of byPlayer) {
-      const ordered = orderClaims(claims, priorities, league.waiver_type);
-      let winner = null;
-      for (const claim of ordered) {
-        if (winner) {
-          await finish(claim, 'lost', 'a higher claim won this player');
-          continue;
-        }
-        const team = teams.get(claim.team_id);
-        const failure = await claimFailureReason(client, { league, team, claim });
-        if (failure) {
-          await finish(claim, 'invalid', failure);
-          results.push({ claimId: claim.id, playerId, status: 'invalid', reason: failure });
-          continue;
-        }
-
-        // The write-time roster gate (#944), once per player immediately before
-        // this player's write: a claim submitted before a freeze must not land
-        // during it (#940 story 4). The gate reads the freeze off the League row
-        // it re-locks FOR UPDATE (the League is already held from the top of
-        // processWaivers, League-first order); a frozen League throws, the
-        // transaction rolls back, and every due claim stays pending for the next
-        // tick rather than being awarded or permanently invalidated. The team
-        // lock and the acquire bundle are bypassed: this batch path enforces its
-        // net capacity through claimFailureReason above and does not enforce the
-        // position cap or the on-waivers gate (a waiver award IS a waiver), and
-        // per-team-lock handling on the batch path is a later ticket - so this
-        // slice changes only the freeze here (#944 criterion 5).
-        await assertRosterWriteAllowed(client, {
-          leagueId,
-          teamId: team.id,
-          direction: 'acquire',
-          playerId,
-          bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
-        });
-
-        // Execute: optional drop (dropped player goes on waivers), then add
-        if (claim.drop_player_id) {
-          await client.query(
-            `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
-            [team.id, claim.drop_player_id]
-          );
-          // The lineup follows the roster (#197). No interrupted-stash
-          // record here: a waiver-claim drop is not undoable, so there is
-          // nothing for an undo to replay.
-          //
-          // This is the third drop-to-waivers sequence and the one that
-          // deliberately stays open-coded: `placeOnWaiversUndoable` above
-          // exists for the two that ARE undoable, and routing this one
-          // through it would write a hold advertising an undo no route
-          // offers (#222). The omission is the behaviour, not a shortcut.
-          await lineupService.removeLineupEntries(client, {
-            league, teamId: team.id, playerId: claim.drop_player_id,
-          });
-          await placeOnWaivers(client, {
-            leagueId,
-            playerId: claim.drop_player_id,
-            waiverPeriodHours: league.waiver_period_hours,
-          });
-        }
-        await client.query(
-          `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
-          [leagueId, team.id, playerId]
-        );
-        // A won claim lands on the bench, never back in an old stash (#94).
-        await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
-        if (league.waiver_type === 'faab' && claim.bid > 0) {
-          await client.query(
-            `UPDATE "teams" SET "faab_remaining" = "faab_remaining" - $1, "updated_at" = now() WHERE "id" = $2`,
-            [claim.bid, team.id]
-          );
-        }
-        // Winner goes to the back of the waiver order
-        await client.query(
-          `UPDATE "teams" SET "waiver_priority" = "waiver_priority" - 1, "updated_at" = now()
-           WHERE "league_id" = $1 AND "waiver_priority" > $2`,
-          [leagueId, priorities.get(team.id)]
-        );
-        await client.query(
-          `UPDATE "teams" SET "waiver_priority" = $1, "updated_at" = now() WHERE "id" = $2`,
-          [teamCount, team.id]
-        );
-        // Keep the in-memory order consistent for later players in this run
-        for (const [tid, p] of priorities) {
-          if (tid === team.id) priorities.set(tid, teamCount);
-          else if (p > priorities.get(team.id)) priorities.set(tid, p - 1);
-        }
-
-        await finish(claim, 'won', null);
-        await logTransaction(client, {
-          leagueId,
-          teamId: team.id,
-          type: 'waiver',
-          detail: {
-            playerId,
-            droppedPlayerId: claim.drop_player_id || null,
-            bid: league.waiver_type === 'faab' ? claim.bid : undefined,
-          },
-        });
+    const wonPlayers = new Set();
+    const wonByTeam = new Map(); // team_id -> claims that team won this run, in order
+    // Each team's PENDING claims by Claim order (due or not: due times are per
+    // player, and Claim order ranks all of a manager's pending claims): a
+    // claim's rank in a note is its position here, not the stored claim_order
+    // (which keeps gaps).
+    const pendingResult = await client.query(
+      `SELECT "waiver_claims".* FROM "waiver_claims"
+       WHERE "waiver_claims"."league_id" = $1 AND "waiver_claims"."status" = 'pending'`,
+      [leagueId]
+    );
+    const rankOf = new Map();
+    const byTeam = new Map();
+    for (const c of orderClaims(pendingResult.rows, new Map(), 'priority')) {
+      byTeam.set(c.team_id, [...(byTeam.get(c.team_id) || []), c]);
+    }
+    for (const list of byTeam.values()) list.forEach((c, i) => rankOf.set(c.id, i + 1));
+    // The same comparator picks the next claim after every win, so a winner's
+    // move to the back of the Waiver priority order (below) is seen by the
+    // claims still to come, as it always was.
+    const remaining = [...dueResult.rows];
+    // claim id -> was roster capacity already what blocked it before this team's
+    // first win of the run? Read once, just before that first win, so a
+    // capacity note can be causal (see siblingReason).
+    const capacityBlockedBefore = new Map();
+    // claim id -> the team's win after which it stopped fitting (the win that
+    // took the slot, not merely the team's latest win).
+    const capacityTakenBy = new Map();
+    while (remaining.length > 0) {
+      const claim = orderClaims(remaining, priorities, league.waiver_type)[0];
+      remaining.splice(remaining.indexOf(claim), 1);
+      const playerId = claim.player_id;
+      const team = teams.get(claim.team_id);
+      if (wonPlayers.has(playerId)) {
+        await finish(claim, 'lost', 'a higher claim won this player');
         await notify(client, {
           userId: team.user_id,
           leagueId,
           type: 'waiver_result',
-          message: 'Your waiver claim was successful!',
+          message: 'Your waiver claim did not go through.',
           data: { claimId: claim.id, playerId },
         });
-        winner = claim;
-        results.push({ claimId: claim.id, playerId, status: 'won', teamId: team.id });
+        continue;
       }
-      // Losers get notified too
-      for (const claim of ordered) {
-        if (winner && claim.id !== winner.id) {
-          const team = teams.get(claim.team_id);
-          await notify(client, {
-            userId: team.user_id,
-            leagueId,
-            type: 'waiver_result',
-            message: 'Your waiver claim did not go through.',
-            data: { claimId: claim.id, playerId },
-          });
+      const failure = await claimFailureReason(client, { league, team, claim });
+      if (failure) {
+        const note = await siblingReason(client, {
+          failure, claim, won: wonByTeam.get(team.id) || [], rankOf, capacityBlockedBefore, capacityTakenBy,
+        });
+        await finish(claim, 'invalid', note);
+        await notify(client, {
+          userId: team.user_id,
+          leagueId,
+          type: 'waiver_result',
+          message: 'Your waiver claim did not go through.',
+          data: { claimId: claim.id, playerId },
+        });
+        results.push({ claimId: claim.id, playerId, status: 'invalid', reason: note });
+        continue;
+      }
+
+      if (!wonByTeam.has(team.id)) {
+        for (const other of remaining.filter((c) => c.team_id === team.id)) {
+          const before = await claimFailureReason(client, { league, team, claim: other });
+          capacityBlockedBefore.set(other.id, Boolean(before && before.startsWith('roster capacity')));
         }
       }
+
+      // The write-time roster gate (#944), once per claim immediately before
+      // this claim's write: a claim submitted before a freeze must not land
+      // during it (#940 story 4). The gate reads the freeze off the League row
+      // it re-locks FOR UPDATE (the League is already held from the top of
+      // processWaivers, League-first order); a frozen League throws, the
+      // transaction rolls back, and every due claim stays pending for the next
+      // tick rather than being awarded or permanently invalidated. The team
+      // lock and the acquire bundle are bypassed: this batch path enforces its
+      // net capacity through claimFailureReason above and does not enforce the
+      // position cap or the on-waivers gate (a waiver award IS a waiver), and
+      // per-team-lock handling on the batch path is a later ticket - so this
+      // slice changes only the freeze here (#944 criterion 5).
+      await assertRosterWriteAllowed(client, {
+        leagueId,
+        teamId: team.id,
+        direction: 'acquire',
+        playerId,
+        bypass: [ROSTER_GATE.TEAM_LOCK, ROSTER_GATE.CAPACITY, ROSTER_GATE.POSITION_CAP, ROSTER_GATE.WAIVER_HOLD],
+      });
+
+      // Execute: optional drop (dropped player goes on waivers), then add
+      if (claim.drop_player_id) {
+        await client.query(
+          `DELETE FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+          [team.id, claim.drop_player_id]
+        );
+        // The lineup follows the roster (#197). No interrupted-stash
+        // record here: a waiver-claim drop is not undoable, so there is
+        // nothing for an undo to replay.
+        //
+        // This is the third drop-to-waivers sequence and the one that
+        // deliberately stays open-coded: `placeOnWaiversUndoable` above
+        // exists for the two that ARE undoable, and routing this one
+        // through it would write a hold advertising an undo no route
+        // offers (#222). The omission is the behaviour, not a shortcut.
+        await lineupService.removeLineupEntries(client, {
+          league, teamId: team.id, playerId: claim.drop_player_id,
+        });
+        await placeOnWaivers(client, {
+          leagueId,
+          playerId: claim.drop_player_id,
+          waiverPeriodHours: league.waiver_period_hours,
+        });
+      }
+      await client.query(
+        `INSERT INTO "team_players" ("league_id", "team_id", "player_id") VALUES ($1, $2, $3)`,
+        [leagueId, team.id, playerId]
+      );
+      // A won claim lands on the bench, never back in an old stash (#94).
+      await lineupService.benchAcquiredPlayer(client, { league, teamId: team.id, playerId });
+      if (league.waiver_type === 'faab' && claim.bid > 0) {
+        await client.query(
+          `UPDATE "teams" SET "faab_remaining" = "faab_remaining" - $1, "updated_at" = now() WHERE "id" = $2`,
+          [claim.bid, team.id]
+        );
+      }
+      // Winner goes to the back of the waiver order
+      const oldPriority = priorities.get(team.id);
+      await client.query(
+        `UPDATE "teams" SET "waiver_priority" = "waiver_priority" - 1, "updated_at" = now()
+         WHERE "league_id" = $1 AND "waiver_priority" > $2`,
+        [leagueId, oldPriority]
+      );
+      await client.query(
+        `UPDATE "teams" SET "waiver_priority" = $1, "updated_at" = now() WHERE "id" = $2`,
+        [teamCount, team.id]
+      );
+      // Keep the in-memory order consistent for later players in this run
+      for (const [tid, p] of priorities) {
+        if (tid === team.id) priorities.set(tid, teamCount);
+        else if (p > oldPriority) priorities.set(tid, p - 1);
+      }
+
+      await finish(claim, 'won', null);
+      await logTransaction(client, {
+        leagueId,
+        teamId: team.id,
+        type: 'waiver',
+        detail: {
+          playerId,
+          droppedPlayerId: claim.drop_player_id || null,
+          bid: league.waiver_type === 'faab' ? claim.bid : undefined,
+        },
+      });
+      await notify(client, {
+        userId: team.user_id,
+        leagueId,
+        type: 'waiver_result',
+        message: 'Your waiver claim was successful!',
+        data: { claimId: claim.id, playerId },
+      });
+      wonPlayers.add(playerId);
+      wonByTeam.set(team.id, [...(wonByTeam.get(team.id) || []), claim]);
+      for (const other of remaining.filter((c) => c.team_id === team.id)) {
+        if (capacityBlockedBefore.get(other.id) !== false || capacityTakenBy.has(other.id)) continue;
+        const after = await claimFailureReason(client, { league, team, claim: other });
+        if (after && after.startsWith('roster capacity')) capacityTakenBy.set(other.id, claim);
+      }
+      results.push({ claimId: claim.id, playerId, status: 'won', teamId: team.id });
     }
 
     // Expired waiver windows are spent — clear them so players become free agents
@@ -584,6 +780,37 @@ async function processWaivers({ leagueId }) {
   );
   await getDraftRoomBroadcast().rosterChanged(leagueId);
   return result;
+}
+
+/**
+ * The note for a claim that failed its turn. When an earlier claim of the SAME
+ * team, won this run, is what made it fail, the note names that claim by its
+ * Claim order ("your #1 claim already dropped X", "roster full after your #2
+ * claim", "budget spent by your #1 claim"); otherwise the plain reason stands.
+ * `won` is the team's claims already won this run, in the order they won.
+ */
+async function siblingReason(client, { failure, claim, won, rankOf, capacityBlockedBefore, capacityTakenBy }) {
+  if (won.length === 0) return failure;
+  if (claim.drop_player_id && failure.startsWith('the player you offered to drop')) {
+    const sibling = won.find((w) => w.drop_player_id === claim.drop_player_id);
+    if (sibling) {
+      const named = await client.query(`SELECT "name" FROM "players" WHERE "id" = $1`, [claim.drop_player_id]);
+      const name = named.rows[0] ? named.rows[0].name : 'that player';
+      return `your #${rankOf.get(sibling.id)} claim already dropped ${name}`;
+    }
+  }
+  if (failure.startsWith('bid exceeds remaining FAAB budget')) {
+    const sibling = [...won].reverse().find((w) => w.bid > 0);
+    if (sibling) return `budget spent by your #${rankOf.get(sibling.id)} claim`;
+  }
+  // Causal: only when the claim would have fit before this team's wins this
+  // run. A swap on an already-full roster frees exactly the slot it takes, so
+  // a claim blocked by capacity before and after keeps the plain reason.
+  if (failure.startsWith('roster capacity') && capacityBlockedBefore.get(claim.id) === false) {
+    const taker = capacityTakenBy.get(claim.id) || won[won.length - 1];
+    return `roster full after your #${rankOf.get(taker.id)} claim`;
+  }
+  return failure;
 }
 
 /** Why can't this claim execute right now? null = it can. */
@@ -775,6 +1002,8 @@ module.exports = {
   isOnWaivers,
   submitClaim,
   cancelClaim,
+  editClaim,
+  reorderClaims,
   processWaivers,
   processAllDueWaivers,
   holdKickedOffPlayers,

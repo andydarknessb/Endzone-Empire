@@ -26,7 +26,16 @@ function initialsFor(name) {
   return (first + last).toUpperCase();
 }
 
+// #1585: the week's NFL opponent (CONTEXT.md). `vs BUF`, or a bare `Bye` when
+// the server sent null for a player with an nfl_team; nothing when both are
+// unknown. No home/away marker (MyTeamSummary / Decision card convention).
+function opponentLabel(item) {
+  if (item.nfl_opponent) return `vs ${item.nfl_opponent}`;
+  return item.nfl_team ? 'Bye' : null;
+}
+
 function PlayerRow({ item, onOpenPlayer }) {
+  const opponent = opponentLabel(item);
   return (
     <Stack direction="row" spacing={1.5} alignItems="center">
       <Avatar sx={{ width: 32, height: 32, fontSize: 13, bgcolor: 'action.selected', color: 'text.secondary' }}>
@@ -35,6 +44,11 @@ function PlayerRow({ item, onOpenPlayer }) {
       <Typography variant="body2">
         <PlayerNameLink name={item.name} playerId={item.player_id} onOpen={onOpenPlayer} /> ({item.position})
       </Typography>
+      {opponent && (
+        <Typography variant="caption" color="text.secondary">
+          {opponent}
+        </Typography>
+      )}
     </Stack>
   );
 }

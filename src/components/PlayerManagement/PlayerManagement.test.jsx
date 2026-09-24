@@ -44,6 +44,7 @@ const league = {
   my_team_faab_remaining: 72,
   best_ball: false,
 };
+const priorityLeague = { ...league, waiver_type: "priority", my_team_waiver_priority: 3 };
 // Roster templates a league's `roster_slots` can carry (#1419), mirroring
 // the shapes CommissionerTools.jsx's own LINEUP_TEMPLATES stamp into a real
 // league and templates.js's own IDP_LINEUP/SUPERFLEX_LINEUP.
@@ -81,10 +82,15 @@ function mockBrowser({
   // "no league selected".
   templateLeague = leagues[0] ?? null,
   templateLeagueLoading = false,
+  myClaims = [],
+  claimsAfterAction = null,
 } = {}) {
+  let actionDone = false;
+  if (claimsAfterAction) apiClient.post.mockImplementation(async () => { actionDone = true; return {}; });
   apiClient.get.mockImplementation((url) => {
     if (url === "/api/league") return Promise.resolve({ data: leagues });
     if (url.startsWith("/api/team/roster")) return Promise.resolve({ data: roster });
+    if (url.startsWith("/api/waivers?")) return Promise.resolve({ data: { myClaims: actionDone && claimsAfterAction ? claimsAfterAction : myClaims } });
     if (url === "/api/players")
       return Promise.resolve({
         data: {
@@ -313,8 +319,9 @@ test("a rostered row's Trade action deep-links into TradeCenter with the owning 
   );
 });
 
-test("Claim submits a waiver claim directly, through the same claim-player feature WaiverWire's own dialog uses", async () => {
+test("priority league: Claim submits a waiver claim directly, through the same claim-player feature WaiverWire's own dialog uses", async () => {
   mockBrowser({
+    leagues: [priorityLeague],
     players: [
       player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
     ],
@@ -332,6 +339,82 @@ test("Claim submits a waiver claim directly, through the same claim-player featu
       bid: 0,
     }),
   );
+});
+
+// #1576: in a FAAB league a one-tap claim would silently post a $0 bid that
+// loses to any $1 bid, so the row's Claim opens the Decision card where the
+// bid and drop are collected.
+test("FAAB league: the row's Claim opens the Decision card claim action and does not post a claim (#1576)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  expect(await screen.findByTestId("claim-player-action")).toBeInTheDocument();
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
+test("Pending claims link shows the manager's pending count and routes to the Waiver wire (#1575)", async () => {
+  mockBrowser({
+    myClaims: [{ id: 1, status: "pending" }, { id: 2, status: "pending" }, { id: 3, status: "processed" }],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const link = await screen.findByRole("link", { name: "Pending claims (2)" });
+  expect(link).toHaveAttribute("href", "/league/1/waivers");
+});
+
+test("Pending claims link is hidden in a best ball league (#1575)", async () => {
+  const bb = { ...league, best_ball: true };
+  mockBrowser({ leagues: [bb], myClaims: [{ id: 1, status: "pending" }] });
+  renderWithProviders(<PlayerManagement />);
+
+  await screen.findByText("Patrick Mahomes");
+  expect(screen.queryByRole("link", { name: /Pending claims/ })).not.toBeInTheDocument();
+});
+
+test("Pending claims count increments after a successful row claim without a reload (#1575)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    myClaims: [{ id: 1, status: "pending" }],
+    claimsAfterAction: [{ id: 1, status: "pending" }, { id: 2, status: "pending" }],
+  });
+  renderWithProviders(<PlayerManagement />);
+  expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  expect(await screen.findByRole("link", { name: "Pending claims (2)" })).toBeInTheDocument();
+});
+
+test("Pending claims count moves after a claim submitted from the at-capacity Decision card (#1575)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    context: { leagueName: "Sunday Ballers", rosterCount: 16, rosterCapacity: 16, waiverType: "priority", waiverPriority: 3 },
+    roster: [{ id: 30, name: "Bench Guy", position: "WR", projected_weekly_points: 3.2 }],
+    myClaims: [{ id: 1, status: "pending" }],
+    claimsAfterAction: [{ id: 1, status: "pending" }, { id: 2, status: "pending" }],
+  });
+  renderWithProviders(<PlayerManagement />);
+  expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+  const action = await screen.findByTestId("claim-player-action");
+  await userEvent.click(within(action).getByLabelText("Drop a player"));
+  await userEvent.click((await screen.findAllByRole("option"))[1]);
+  await userEvent.click(within(action).getByTestId("claim-player-submit"));
+
+  // The Decision card is a modal, so the page behind it is aria-hidden.
+  expect(await screen.findByRole("link", { name: "Pending claims (2)", hidden: true })).toBeInTheDocument();
 });
 
 // A full roster makes the one-tap claim impossible: the server 409s with
@@ -375,6 +458,7 @@ test("formal-1310-f3: only the tapped row's Claim goes busy, not every waivers r
   let resolvePost;
   apiClient.post.mockImplementation(() => new Promise((resolve) => { resolvePost = resolve; }));
   mockBrowser({
+    leagues: [priorityLeague],
     players: [
       player({ id: 2, name: "First Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
       player({ id: 3, name: "Second Waiver", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),

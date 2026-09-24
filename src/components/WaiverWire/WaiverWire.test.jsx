@@ -9,7 +9,7 @@ import WaiverWire from './WaiverWire';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
-  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn(), delete: jest.fn(), put: jest.fn(), patch: jest.fn() },
 }));
 
 const renderScreen = (leagueId = 1, route = `/league/${leagueId}/waivers`) =>
@@ -433,6 +433,150 @@ test('shows a Cancel button only for pending claims and cancels correctly', asyn
     expect(apiClient.delete).toHaveBeenCalledWith('/api/waivers/claim/1?leagueId=1')
   );
   expect(await screen.findByText('Waiver claim cancelled')).toBeInTheDocument();
+});
+
+// #1579: Claim order. Pending claims list in claim_order (not created_at),
+// each leading with its rank and carrying up/down buttons.
+const pendingClaim = (id, name, claimOrder, createdAt) => ({
+  id,
+  player_id: 100 + id,
+  player_name: name,
+  player_position: 'RB',
+  drop_player_name: null,
+  bid: 0,
+  status: 'pending',
+  note: null,
+  claim_order: claimOrder,
+  created_at: createdAt,
+});
+
+// created_at DESC (as the server returns), but claim_order says B, A, C.
+const orderedClaimsResponse = () =>
+  waiversResponse({
+    myClaims: [
+      pendingClaim(3, 'Claim C', 3, '2026-07-12T12:00:00.000Z'),
+      pendingClaim(2, 'Claim A', 2, '2026-07-11T12:00:00.000Z'),
+      pendingClaim(1, 'Claim B', 1, '2026-07-10T12:00:00.000Z'),
+    ],
+  });
+
+const claimNames = () => screen.getAllByText(/^Claim [ABC]$/).map((el) => el.textContent);
+
+test('lists pending claims in claim_order with a rank and helper copy', async () => {
+  setupGet({ waivers: orderedClaimsResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  expect(claimNames()).toEqual(['Claim B', 'Claim A', 'Claim C']);
+  expect(screen.getByText('#1')).toBeInTheDocument();
+  expect(screen.getByText('#3')).toBeInTheDocument();
+  expect(screen.getByText('Your #1 claim is tried first when claims process.')).toBeInTheDocument();
+});
+
+test('disables up on the first claim and down on the last', async () => {
+  setupGet({ waivers: orderedClaimsResponse(), roster: rosterResponse() });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  const ups = screen.getAllByRole('button', { name: /^Move .* up$/ });
+  const downs = screen.getAllByRole('button', { name: /^Move .* down$/ });
+  expect(ups).toHaveLength(3);
+  expect(ups[0]).toBeDisabled();
+  expect(ups[1]).toBeEnabled();
+  expect(downs[2]).toBeDisabled();
+  expect(downs[0]).toBeEnabled();
+});
+
+test('moving #2 up sends the full new id list and reorders optimistically', async () => {
+  setupGet({ waivers: orderedClaimsResponse(), roster: rosterResponse() });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  await userEvent.click(screen.getAllByRole('button', { name: /^Move .* up$/ })[1]);
+
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/waivers/claims/order', {
+      leagueId: 1,
+      claimIds: [2, 1, 3],
+    })
+  );
+  expect(claimNames()).toEqual(['Claim A', 'Claim B', 'Claim C']);
+  expect(await screen.findByText('Claim A moved to Claim order #1')).toBeInTheDocument();
+  // #1 now, so its up button is disabled: focus lands on its down button.
+  expect(screen.getByRole('button', { name: 'Move Claim A down' })).toHaveFocus();
+});
+
+test('moving a claim down keeps focus on that claim\'s down button', async () => {
+  setupGet({ waivers: orderedClaimsResponse(), roster: rosterResponse() });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  await userEvent.click(screen.getByRole('button', { name: 'Move Claim B down' }));
+
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Move Claim B down' })).toHaveFocus());
+});
+
+test('a refused reorder reverts the list and shows the refusal message', async () => {
+  setupGet({ waivers: orderedClaimsResponse(), roster: rosterResponse() });
+  apiClient.put.mockRejectedValue({
+    response: {
+      status: 409,
+      data: { code: 'CLAIM_ORDER_MISMATCH', message: 'Your pending claims changed; refresh and retry.' },
+    },
+  });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  await userEvent.click(screen.getAllByRole('button', { name: /^Move .* down$/ })[0]);
+
+  expect(await screen.findByText('Your pending claims changed; refresh and retry.')).toBeInTheDocument();
+  expect(claimNames()).toEqual(['Claim B', 'Claim A', 'Claim C']);
+});
+
+test('editing a pending FAAB claim pre-fills the dialog and PATCHes bid and drop', async () => {
+  setupGet({
+    waivers: waiversResponse({
+      league: { waiver_type: 'faab', waiver_period_hours: 24, faab_budget: 100, waivers_clear_at: null },
+      myClaims: [{ ...pendingClaim(1, 'Claim A', 1, '2026-07-10T12:00:00.000Z'), bid: 12, drop_player_id: 21 }],
+    }),
+    roster: rosterResponse(),
+  });
+  apiClient.patch.mockResolvedValue({ data: {} });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  await userEvent.click(screen.getByRole('button', { name: 'Edit Claim A claim' }));
+
+  const dialog = await screen.findByRole('dialog', { name: /edit claim on claim a/i });
+  const bidInput = within(dialog).getByLabelText('Bid');
+  expect(bidInput).toHaveValue(12);
+  await userEvent.clear(bidInput);
+  await userEvent.type(bidInput, '30');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+
+  await waitFor(() =>
+    expect(apiClient.patch).toHaveBeenCalledWith('/api/waivers/claim/1', { dropPlayerId: 21, bid: 30 })
+  );
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
+test('a refused claim edit shows the refusal message', async () => {
+  setupGet({
+    waivers: waiversResponse({ myClaims: [pendingClaim(1, 'Claim A', 1, '2026-07-10T12:00:00.000Z')] }),
+    roster: rosterResponse(),
+  });
+  apiClient.patch.mockRejectedValue({
+    response: { status: 409, data: { code: 'DROP_NOT_ON_ROSTER', message: 'drop player is not on your roster' } },
+  });
+  renderScreen();
+
+  await screen.findByText('Claim A');
+  await userEvent.click(screen.getByRole('button', { name: 'Edit Claim A claim' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Save Changes' }));
+
+  expect(await screen.findByText('drop player is not on your roster')).toBeInTheDocument();
 });
 
 test('a server error when submitting a claim is surfaced', async () => {

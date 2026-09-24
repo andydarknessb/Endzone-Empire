@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, select, insert, update, remove } = require('./helpers/fakePool');
-const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, processDueTrades } = require('../services/trade.service');
+const { TradeError, executeTrade, cancelTrade, proposeTrade, counterTrade, processDueTrades, readTradeItems } = require('../services/trade.service');
 const lineupService = require('../services/lineup.service');
 const { setDraftRoomBroadcast, peekDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 
@@ -684,4 +684,45 @@ test('processDueTrades: a throwing rosterChanged broadcast is contained, the tra
   assert.ok(world.matching(/^UPDATE "trades" SET "status" = 'executed'/).length === 1,
     'the trade was executed inside the committed transaction');
   world.assertClean();
+});
+
+// --- the week's NFL opponent on every trade item (#1585) --------------------
+
+test('readTradeItems attaches nfl_opponent to every item: Team code, or present-and-null on a bye', async () => {
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: 6 }] })],
+    [/FROM "trade_items"/, () => ({
+      rows: [
+        { id: 1, trade_id: 9, player_id: 21, name: 'Kicker One', position: 'K', nfl_team: 'KC' },
+        { id: 2, trade_id: 9, player_id: 22, name: 'Back Two', position: 'RB', nfl_team: 'MIA' },
+      ],
+    })],
+    [/FROM "nfl_games"/, (text, params) => {
+      assert.deepEqual(params, [2026, 6]);
+      return { rows: [{ nfl_team: 'KC', opponent: 'BUF' }, { nfl_team: 'BUF', opponent: 'KC' }] };
+    }],
+  ]);
+  const items = await readTradeItems({ leagueId: 1, tradeIds: [9] }, { client: fake });
+  const kc = items.find((i) => i.player_id === 21);
+  const mia = items.find((i) => i.player_id === 22);
+  assert.equal(kc.nfl_opponent, 'BUF');
+  assert.ok(Object.hasOwn(mia, 'nfl_opponent'), 'present, never absent (#1132)');
+  assert.equal(mia.nfl_opponent, null);
+  assert.equal(fake.calls.filter((c) => /FROM "nfl_games"/.test(c.text)).length, 1, 'one schedule read');
+});
+
+test('readTradeItems with no current_week gives every item a null nfl_opponent and skips the schedule read', async () => {
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ id: 1, current_season: 2026, current_week: null }] })],
+    [/FROM "trade_items"/, () => ({ rows: [{ id: 1, trade_id: 9, player_id: 21, nfl_team: 'KC' }] })],
+  ]);
+  const items = await readTradeItems({ leagueId: 1, tradeIds: [9] }, { client: fake });
+  assert.ok(Object.hasOwn(items[0], 'nfl_opponent'));
+  assert.equal(items[0].nfl_opponent, null);
+});
+
+test('readTradeItems with no trades reads nothing', async () => {
+  const fake = createFakePool([]);
+  assert.deepEqual(await readTradeItems({ leagueId: 1, tradeIds: [] }, { client: fake }), []);
+  assert.equal(fake.calls.length, 0);
 });

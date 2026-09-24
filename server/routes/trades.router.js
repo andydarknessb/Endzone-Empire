@@ -38,16 +38,7 @@ router.get('/', async (req, res) => {
       [leagueId, myTeamId]
     );
     const ids = tradesResult.rows.map((t) => t.id);
-    let items = [];
-    if (ids.length > 0) {
-      const itemsResult = await pool.query(
-        `SELECT "trade_items".*, "players"."name", "players"."position", "players"."nfl_team"
-         FROM "trade_items" JOIN "players" ON "players"."id" = "trade_items"."player_id"
-         WHERE "trade_items"."trade_id" = ANY($1::int[])`,
-        [ids]
-      );
-      items = itemsResult.rows;
-    }
+    const items = await trades.readTradeItems({ leagueId, tradeIds: ids });
     res.json({
       myTeamId,
       trades: tradesResult.rows.map((t) => ({

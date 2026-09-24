@@ -25,6 +25,7 @@ import {
   Stack,
   Pagination,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import SearchIcon from '@mui/icons-material/Search';
 import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
@@ -72,6 +73,8 @@ function WaiverWire() {
   const [error, setError] = useState(null);
 
   const [claimPlayer, setClaimPlayer] = useState(null);
+  // #1580: the pending claim being edited, when the claim dialog is in edit mode.
+  const [editingClaim, setEditingClaim] = useState(null);
   const [dropPlayerId, setDropPlayerId] = useState('');
   const [bid, setBid] = useState('');
 
@@ -82,6 +85,10 @@ function WaiverWire() {
   // on every refetch.
   const manualSortRef = useRef(false);
   const claimTargetRequestRef = useRef(null);
+  // #1579: after a reorder, focus returns to the moved claim's button (a keyed
+  // swap or a button turning disabled would otherwise drop focus to <body>).
+  const moveFocusRef = useRef(null);
+  const [orderAnnouncement, setOrderAnnouncement] = useState('');
   const pageNumber = Math.max(1, Number(searchParams.get('page')) || 1);
   const claimTargetParam = searchParams.get('playerId');
   const claimTargetId = /^\d+$/.test(claimTargetParam || '') ? Number(claimTargetParam) : null;
@@ -113,6 +120,7 @@ function WaiverWire() {
       .then((response) => {
         if (cancelled) return;
         setError(null);
+        setEditingClaim(null);
         setClaimPlayer(response.data.player);
         setDropPlayerId('');
         setBid('');
@@ -243,6 +251,17 @@ function WaiverWire() {
     return sortDir === 'desc' ? bv - av : av - bv;
   });
 
+  useEffect(() => {
+    const target = moveFocusRef.current;
+    if (!target) return;
+    moveFocusRef.current = null;
+    const other = target.dir === 'up' ? 'down' : 'up';
+    const el =
+      document.querySelector(`[data-claim-move="${target.id}-${target.dir}"]:not(:disabled)`) ||
+      document.querySelector(`[data-claim-move="${target.id}-${other}"]:not(:disabled)`);
+    if (el) el.focus();
+  }, [data]);
+
   const faabRemaining = data?.myTeam?.faab_remaining ?? 0;
   const sortedRosterForDrop = sortRosterForDrop(roster);
 
@@ -271,6 +290,7 @@ function WaiverWire() {
   // exactly as it did when no suggestion matched before.
   const handleOpenClaim = (player) => {
     setError(null);
+    setEditingClaim(null);
     setClaimPlayer(player);
     const suggestedDropId = player.upgrade?.overPlayer?.id ?? null;
     const suggestedDropOnRoster =
@@ -281,9 +301,41 @@ function WaiverWire() {
 
   const handleCloseClaim = () => {
     setClaimPlayer(null);
+    setEditingClaim(null);
+  };
+
+  // #1580: the page's own claim dialog, pre-filled from the pending claim.
+  const handleEditClaim = (claim) => {
+    setError(null);
+    setEditingClaim(claim);
+    setClaimPlayer({ id: claim.player_id, name: claim.player_name });
+    setDropPlayerId(claim.drop_player_id ?? '');
+    setBid(String(claim.bid ?? 0));
+  };
+
+  const handleSaveClaimEdit = async () => {
+    setError(null);
+    try {
+      await apiClient.patch(`/api/waivers/claim/${editingClaim.id}`, {
+        dropPlayerId: dropPlayerId === '' ? null : dropPlayerId,
+        ...(isFaab ? { bid: Number(bid) } : {}),
+      });
+      notify('Waiver claim updated', { severity: 'success' });
+      handleCloseClaim();
+      await fetchAll();
+    } catch (err) {
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      // The modal hides the page Alert from assistive tech; the toast is announced.
+      notify(message, { severity: 'error' });
+    }
   };
 
   const handleSubmitClaim = async () => {
+    if (editingClaim) {
+      await handleSaveClaimEdit();
+      return;
+    }
     setError(null);
     const { ok, message } = await submitClaim({
       playerId: claimPlayer.id,
@@ -301,6 +353,47 @@ function WaiverWire() {
       notify('Waiver claim cancelled', { severity: 'info' });
       await fetchAll();
     } catch (err) {
+      const message = readHttpFailure(err).message || err.message;
+      setError(message);
+      notify(message, { severity: 'error' });
+    }
+  };
+
+  // #1579, Claim order: pending claims list in `claim_order` (the server's
+  // created_at DESC order is not the manager's ranking); resolved claims keep
+  // the server order below them.
+  const pendingClaims = (data?.myClaims || [])
+    .filter((c) => c.status === 'pending')
+    .sort((a, b) => a.claim_order - b.claim_order);
+  const resolvedClaims = (data?.myClaims || []).filter((c) => c.status !== 'pending');
+
+  // Optimistic: reorder locally, PUT the full id list, revert on refusal.
+  const handleMoveClaim = async (claim, delta) => {
+    const from = pendingClaims.findIndex((c) => c.id === claim.id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= pendingClaims.length) return;
+    const ids = pendingClaims.map((c) => c.id);
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    const previous = data;
+    const focusTarget = { id: claim.id, dir: delta < 0 ? 'up' : 'down' };
+    moveFocusRef.current = focusTarget;
+    setError(null);
+    setData((current) => ({
+      ...current,
+      myClaims: current.myClaims.map((c) =>
+        c.status === 'pending' ? { ...c, claim_order: ids.indexOf(c.id) + 1 } : c
+      ),
+    }));
+    try {
+      await apiClient.put('/api/waivers/claims/order', {
+        leagueId: Number(leagueId),
+        claimIds: ids,
+      });
+      setOrderAnnouncement(`${claim.player_name} moved to Claim order #${to + 1}`);
+    } catch (err) {
+      moveFocusRef.current = focusTarget;
+      setOrderAnnouncement('');
+      setData(previous);
       const message = readHttpFailure(err).message || err.message;
       setError(message);
       notify(message, { severity: 'error' });
@@ -449,7 +542,28 @@ function WaiverWire() {
               </Box>
             ) : (
               <Stack spacing={1.5}>
-                {data.myClaims.map((claim) => (
+                {pendingClaims.length > 0 && (
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Your #1 claim is tried first when claims process.
+                  </Typography>
+                )}
+                <Typography role="status" aria-live="polite" sx={visuallyHidden}>
+                  {orderAnnouncement}
+                </Typography>
+                {pendingClaims.map((claim, index) => (
+                  <WaiverClaimItem
+                    key={claim.id}
+                    claim={claim}
+                    isFaab={isFaab}
+                    onCancel={handleCancelClaim}
+                    onEdit={handleEditClaim}
+                    rank={index + 1}
+                    isFirst={index === 0}
+                    isLast={index === pendingClaims.length - 1}
+                    onMove={handleMoveClaim}
+                  />
+                ))}
+                {resolvedClaims.map((claim) => (
                   <WaiverClaimItem
                     key={claim.id}
                     claim={claim}
@@ -465,7 +579,7 @@ function WaiverWire() {
 
       <Dialog open={!!claimPlayer} onClose={handleCloseClaim}>
         <DialogTitle>
-          Claim{' '}
+          {editingClaim ? 'Edit claim on' : 'Claim'}{' '}
           {claimPlayer && (
             <PlayerNameLink name={claimPlayer.name} playerId={claimPlayer.id} onOpen={setQuickViewId} />
           )}
@@ -519,7 +633,7 @@ function WaiverWire() {
         <DialogActions>
           <Button onClick={handleCloseClaim}>Cancel</Button>
           <Button variant="contained" onClick={handleSubmitClaim} disabled={bidInvalid || dropMissing}>
-            Submit Claim
+            {editingClaim ? 'Save Changes' : 'Submit Claim'}
           </Button>
         </DialogActions>
       </Dialog>

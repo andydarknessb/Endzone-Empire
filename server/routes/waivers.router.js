@@ -126,6 +126,50 @@ router.post('/claim', async (req, res) => {
   }
 });
 
+// PUT /api/waivers/claims/order — set the caller's Claim order (ADR 0048)
+// { leagueId, claimIds: [...] }: exactly the caller's pending claim ids for the
+// league, each once; a mismatch is a coded 409 (CLAIM_ORDER_MISMATCH).
+router.put('/claims/order', async (req, res) => {
+  const { leagueId, claimIds } = req.body || {};
+  if (!Number.isInteger(leagueId) || !Array.isArray(claimIds) || !claimIds.every(Number.isInteger)) {
+    return res.status(400).json({ error: 'leagueId (integer) and claimIds (array of integers) are required' });
+  }
+  try {
+    const result = await waivers.reorderClaims({ leagueId, userId: req.user.id, claimIds });
+    res.json(result);
+  } catch (error) {
+    // A coded refusal is { code, message } (ADR 0032); a codeless one keeps { error }.
+    if (error.statusCode && error.code) return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error reordering waiver claims', error);
+    res.status(500).json({ error: 'failed to reorder claims' });
+  }
+});
+
+// PATCH /api/waivers/claim/:id — edit the caller's own pending claim
+// { bid?, dropPlayerId? } (#1580). claim_order and created_at never change.
+// A coded refusal is { code, message } (ADR 0032).
+router.patch('/claim/:id', async (req, res) => {
+  const claimId = intOrNull(req.params.id);
+  if (!claimId) return res.status(400).json({ error: 'claim id (integer) is required' });
+  const { bid, dropPlayerId } = req.body || {};
+  if (bid !== undefined && !Number.isInteger(bid)) {
+    return res.status(400).json({ error: 'bid must be an integer' });
+  }
+  if (dropPlayerId !== undefined && dropPlayerId !== null && !Number.isInteger(dropPlayerId)) {
+    return res.status(400).json({ error: 'dropPlayerId must be an integer or null' });
+  }
+  try {
+    const claim = await waivers.editClaim({ userId: req.user.id, claimId, bid, dropPlayerId });
+    res.json(claim);
+  } catch (error) {
+    if (error.statusCode && error.code) return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error editing waiver claim', error);
+    res.status(500).json({ error: 'failed to edit claim' });
+  }
+});
+
 // DELETE /api/waivers/claim/:id?leagueId=N — cancel a pending claim
 router.delete('/claim/:id', async (req, res) => {
   const claimId = intOrNull(req.params.id);

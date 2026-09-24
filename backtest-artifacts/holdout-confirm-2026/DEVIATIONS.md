@@ -35,3 +35,30 @@ stored stats for every application write, and a nightly scan records any row
 whose stored points disagree with its stats (`player_stats_anomalies`,
 surfaced at `/api/health/stats-integrity` and asserted by the hourly uptime
 watchdog), so a row of this class can no longer sit unnoticed.
+
+## 2. 2026-09-24: availability correction, players with no NFL team project hard-unavailable (#1589, PR #1591, commit 1946f719726fb50cc5735f416fdf92a79afabae8)
+
+**What changed.** `availabilityFor` gains the `no_team` branch: a player with
+a null `nfl_team` now projects `available: false, activeProbability: 0`.
+`MODEL_VERSION`, `MODEL_CONSTANTS` and the pinned hash are byte-identical, and
+no projected number moves.
+
+**Why.** The week 2 audit (#1589) found teamless QBs at the position-baseline
+fallback with `activeProbability` 1 ranking as starters on Start/Sit and
+Waivers.
+
+**Which claims it touches.** No section 9 void condition fires: `model_version`
+and `constants_hash` stay their season majority. Captures from the merge week
+onward write `activeProbability` 0 for null-`nfl_team` rows. Section 5 and
+section 7 exclude such a row from Candidate B's coverage denominators
+(`scripts/holdout/lib/coverage.js:41`, imported by `successorEval.js:26`), and
+section 6 ranks it 0 in both arms' lineups (`scripts/holdout/lib/regret.js:32`,
+reached through `evaluate.js:306-332`); that is the treatment the sealed rules
+already give a bye / Out / IR designation at capture, applied identically in
+every arm. (`evaluate.js` itself never reads `active_probability`; the effect
+arrives through `regret.weekRegret` and the coverage module.) Recorded as an
+input correction touching no gate (ADR 0044; #1589 ruling (3)): the
+eligibility shift is the same class as an Out designation at capture, which
+the sealed rules already exclude, and it voids nothing. Captures made before
+that merge retain activeProbability 1 on the affected rows; no ledger row,
+snapshot or release_sha is rewritten.
