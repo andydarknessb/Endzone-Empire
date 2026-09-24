@@ -5,6 +5,7 @@ const waivers = require('../services/waiver.service');
 const { waiverSuggestions } = require('../services/decision.service');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
+const { deriveNflWeek, getSeasonWeekBounds } = require('../services/pickemSeason.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -21,7 +22,7 @@ router.get('/', async (req, res) => {
     const team = await requireMember(pool, { leagueId, userId: req.user.id });
 
     const leagueResult = await pool.query(
-      `SELECT "waiver_type", "waiver_period_hours", "faab_budget", "waivers_clear_at"
+      `SELECT "waiver_type", "waiver_period_hours", "faab_budget", "waivers_clear_at", "current_season"
        FROM "leagues" WHERE "id" = $1`,
       [leagueId]
     );
@@ -36,21 +37,39 @@ router.get('/', async (req, res) => {
       `SELECT "waiver_claims".*,
               "add"."name" AS "player_name", "add"."position" AS "player_position",
               "drop"."name" AS "drop_player_name",
-              "winner"."name" AS "winning_team_name"
+              "winner"."name" AS "winning_team_name",
+              "waiver_players"."available_at" AS "clear_at"
        FROM "waiver_claims"
        JOIN "players" "add" ON "add"."id" = "waiver_claims"."player_id"
        LEFT JOIN "players" "drop" ON "drop"."id" = "waiver_claims"."drop_player_id"
        LEFT JOIN "teams" "winner" ON "winner"."id" = "waiver_claims"."winning_team_id"
+       LEFT JOIN "waiver_players" ON "waiver_players"."league_id" = $2
+         AND "waiver_players"."player_id" = "waiver_claims"."player_id"
        WHERE "waiver_claims"."team_id" = $1
        ORDER BY "waiver_claims"."created_at" DESC
        LIMIT 50`,
-      [team.id]
+      [team.id, leagueId]
     );
+    // Each claim's own Clear time rides only on pending claims, and the week a
+    // claim resolved in only on resolved ones (won/lost/invalid): the same
+    // Pick'em rollover deriveNflWeek applies, bounds loaded once per request
+    // (ADR 0049; #1612 Ruling).
+    const resolved = claimsResult.rows.filter(
+      (c) => c.processed_at && ['won', 'lost', 'invalid'].includes(c.status)
+    );
+    const weekBounds = resolved.length
+      ? await getSeasonWeekBounds({ season: leagueResult.rows[0]?.current_season })
+      : [];
+    const myClaims = claimsResult.rows.map((c) => ({
+      ...c,
+      clear_at: c.status === 'pending' ? c.clear_at ?? null : null,
+      week: resolved.includes(c) ? deriveNflWeek(weekBounds, new Date(c.processed_at)) : null,
+    }));
     res.json({
       league: leagueResult.rows[0],
       myTeam: team,
       onWaivers: onWaiversResult.rows,
-      myClaims: claimsResult.rows,
+      myClaims,
     });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
