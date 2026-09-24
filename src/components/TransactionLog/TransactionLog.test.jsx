@@ -139,7 +139,7 @@ test('renders a waiver claim with the bid and a dropped-player suffix', async ()
 
   const row = await screen.findByTestId('txn-3');
   expect(within(row).getByTestId('txn-desc')).toHaveTextContent(
-    "Alice's Team claimed Breece Hall ($12), dropped Zach Wilson"
+    "Alice's Team claimed Breece Hall · $12 FAAB, dropped Zach Wilson"
   );
 });
 

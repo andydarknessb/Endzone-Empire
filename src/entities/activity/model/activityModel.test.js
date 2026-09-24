@@ -85,8 +85,31 @@ describe('activityFromRow: the one sentence per transaction type', () => {
 
   test('waiver names the claimed player, the bid, and the dropped player', () => {
     const model = activityFromRow(byType('waiver'));
-    expect(model.sentence).toBe("claimed Breece Hall ($12), dropped Zach Wilson");
+    expect(model.sentence).toBe("claimed Breece Hall · $12 FAAB, dropped Zach Wilson");
     expect(model.teamName).toBe("Carol's Team");
+  });
+
+  // #1611: the Winning bid reads with its FAAB unit; a row with no bid (a
+  // non-FAAB league, or one logged before bids were recorded) is unchanged.
+  test('waiver: no bid in the payload leaves the sentence unchanged (#1611)', () => {
+    const model = activityFromRow({
+      ...byType('waiver'),
+      dropped_player_name: null,
+      detail: { playerId: 7 },
+    });
+    expect(model.sentence).toBe('claimed Breece Hall');
+    expect(renderSegments(model.segments)).toBe('claimed Breece Hall');
+  });
+
+  test('waiver: a FAAB win names the Winning bid, in the sentence and the segments (#1611)', () => {
+    const model = activityFromRow({
+      ...byType('waiver'),
+      dropped_player_name: null,
+      player_name: 'T. Spears',
+      detail: { playerId: 7, bid: 23 },
+    });
+    expect(model.sentence).toBe('claimed T. Spears · $23 FAAB');
+    expect(renderSegments(model.segments)).toBe(model.sentence);
   });
 
   // Red-tell: player_name and dropped_player_name are read by field name, not
@@ -98,7 +121,7 @@ describe('activityFromRow: the one sentence per transaction type', () => {
       player_name: 'Zach Wilson',
       dropped_player_name: 'Breece Hall',
     });
-    expect(swapped.sentence).toBe('claimed Zach Wilson ($12), dropped Breece Hall');
+    expect(swapped.sentence).toBe('claimed Zach Wilson · $12 FAAB, dropped Breece Hall');
     expect(swapped.sentence).not.toBe(activityFromRow(byType('waiver')).sentence);
   });
 
@@ -265,7 +288,7 @@ describe('activityFromRow: segments, sentence pre-split for clickable names', ()
       dropped_player_name: 'Josh Allen Jr.',
       detail: { playerId: 1, droppedPlayerId: 2, bid: 5 },
     });
-    expect(model.sentence).toBe('claimed Josh Allen ($5), dropped Josh Allen Jr.');
+    expect(model.sentence).toBe('claimed Josh Allen · $5 FAAB, dropped Josh Allen Jr.');
     const playerParts = model.segments.filter((s) => s.type === 'player');
     expect(playerParts).toEqual([
       { type: 'player', name: 'Josh Allen', playerId: 1 },

@@ -35,10 +35,12 @@ router.get('/', async (req, res) => {
     const claimsResult = await pool.query(
       `SELECT "waiver_claims".*,
               "add"."name" AS "player_name", "add"."position" AS "player_position",
-              "drop"."name" AS "drop_player_name"
+              "drop"."name" AS "drop_player_name",
+              "winner"."name" AS "winning_team_name"
        FROM "waiver_claims"
        JOIN "players" "add" ON "add"."id" = "waiver_claims"."player_id"
        LEFT JOIN "players" "drop" ON "drop"."id" = "waiver_claims"."drop_player_id"
+       LEFT JOIN "teams" "winner" ON "winner"."id" = "waiver_claims"."winning_team_id"
        WHERE "waiver_claims"."team_id" = $1
        ORDER BY "waiver_claims"."created_at" DESC
        LIMIT 50`,

@@ -81,7 +81,7 @@ function processWorld(t, { league, teams, rosters, claims, pending = claims, nam
       return { rows: [], rowCount: 1 };
     }],
     [update('teams'), () => ({ rows: [], rowCount: 1 })],
-    [update('waiver_claims'), (text, [status, note, id]) => {
+    [update('waiver_claims'), (text, [status, note, , , id]) => {
       state.outcomes.set(id, { status, note });
       return { rows: [], rowCount: 1 };
     }],
