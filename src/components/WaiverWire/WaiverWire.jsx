@@ -25,6 +25,7 @@ import {
   Stack,
   Pagination,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import SearchIcon from '@mui/icons-material/Search';
 import PersonAddDisabledIcon from '@mui/icons-material/PersonAddDisabled';
 import apiClient from '../../api/apiClient';
@@ -510,17 +511,7 @@ function WaiverWire() {
                     Your #1 claim is tried first when claims process.
                   </Typography>
                 )}
-                <Typography
-                  role="status"
-                  sx={{
-                    position: 'absolute',
-                    width: 1,
-                    height: 1,
-                    overflow: 'hidden',
-                    clip: 'rect(0 0 0 0)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                <Typography role="status" aria-live="polite" sx={visuallyHidden}>
                   {orderAnnouncement}
                 </Typography>
                 {pendingClaims.map((claim, index) => (

@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, Box, Typography, Chip, IconButton, Tooltip } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
 import EditIcon from '@mui/icons-material/Edit';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
