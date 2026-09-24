@@ -830,6 +830,17 @@ test('Doubtful is startable but never auto-recommended', () => {
   assert.equal(availability.activeProbability, null);
 });
 
+test('a No NFL team player is hard-unavailable like a bye, with reason no_team', () => {
+  const availability = model.availabilityFor({ noTeam: true });
+  assert.equal(availability.available, false);
+  assert.equal(availability.activeProbability, 0);
+  assert.equal(availability.reason, 'no_team');
+});
+
+test('a bye keeps its own reason when the player is also flagged noTeam', () => {
+  assert.equal(model.availabilityFor({ onBye: true, noTeam: true }).reason, 'bye');
+});
+
 test('a healthy player has an active probability of 1', () => {
   assert.equal(model.availabilityFor({}).activeProbability, 1);
 });

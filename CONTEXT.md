@@ -377,7 +377,8 @@ purely a display fact: the lineup card shows `FA` in place of the team badge,
 and nothing about it locks a slot or refuses a start. The one number it does
 withhold is the Upgrade, which is undefined for such a player (he has no
 game to score in), even though his Weekly projection still reads his old
-per-game pace until the next engine version (ADR 0044). Distinct from Free
+per-game pace until the next engine version (ADR 0044); his Game status is
+hard-unavailable (`no_team`) like a bye, so the Optimizer never starts him. Distinct from Free
 agent, below, which is about league Availability — a player can have no NFL
 team while rostered on a fantasy team, and a true Free agent (waivers clear,
 game not kicked off) almost always still carries an NFL team.

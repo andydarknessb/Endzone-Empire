@@ -471,6 +471,7 @@ function projectFromBundle({
   const availability = model.availabilityFor({
     injuryStatus: player.injury_status,
     onBye,
+    noTeam: player.nfl_team == null,
   });
 
   return model.projectPlayer({

@@ -1186,10 +1186,17 @@ function expertConsensusBlend({
  * is no snapshot history to calibrate "Questionable" into a real probability
  * from. Inventing 0.6 would look like a measurement.
  */
-function availabilityFor({ injuryStatus = null, onBye = false, locked = false, lockedSlot = null } = {}) {
+function availabilityFor({
+  injuryStatus = null, onBye = false, noTeam = false, locked = false, lockedSlot = null,
+} = {}) {
   const status = injuryStatus ? String(injuryStatus).toUpperCase() : null;
   if (onBye) {
     return { available: false, activeProbability: 0, reason: 'bye', status, locked, lockedSlot };
+  }
+  // No NFL team (players.nfl_team IS NULL): no game to play in, so hard
+  // unavailable like a bye. The projected number itself is unchanged (#1589).
+  if (noTeam) {
+    return { available: false, activeProbability: 0, reason: 'no_team', status, locked, lockedSlot };
   }
   if (status === 'O') {
     return { available: false, activeProbability: 0, reason: 'out', status, locked, lockedSlot };

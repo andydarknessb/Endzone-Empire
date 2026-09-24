@@ -110,6 +110,20 @@ const run = (options) =>
 // Baseline, fallbacks, and the "missing is not zero" rule
 // ---------------------------------------------------------------------------
 
+test('a No NFL team player projects a number but reads hard-unavailable (no_team)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'QB', { nfl_team: null, team_key: null })],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { passingYards: 250, passingTDs: 2 })),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.reason, 'no_team');
+  assert.equal(projected.factors.availability.available, false);
+  assert.equal(projected.factors.availability.activeProbability, 0);
+  assert.ok(projected.median > 0, 'the pace still reads');
+});
+
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
   mockPool(t, {
     players: [player(1, 'RB')],
