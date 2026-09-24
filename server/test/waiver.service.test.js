@@ -1041,16 +1041,19 @@ test('editClaim refuses a bid in a priority league', async (t) => {
   );
 });
 
-test('editClaim refuses a claim that is not the caller\'s pending claim', async (t) => {
+test('editClaim: a non-owner claim id is a 404 from the owner-joined first read, before any league lock', async (t) => {
   const fake = createFakePool([
-    [/^SELECT "waiver_claims"."league_id" FROM "waiver_claims"/, () => ({ rows: [{ league_id: 1 }] })],
-    [/^SELECT \* FROM "leagues"/, () => ({
-      rows: [{ id: 1, pickem_only: false, waiver_type: 'faab', transactions_locked: false }],
-    })],
-    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 31, league_id: 1, owner_id: 8, locked: false, faab_remaining: 50 }] })],
-    [/^SELECT \* FROM "waiver_claims"/, () => ({ rows: [] })],
+    [/^SELECT "waiver_claims"."league_id" FROM "waiver_claims"/, () => ({ rows: [] })],
   ]).install(t);
-  await assert.rejects(() => editClaim({ userId: 8, claimId: 901, bid: 5 }), { statusCode: 404 });
+  await assert.rejects(
+    () => editClaim({ userId: 99, claimId: 900, bid: 5 }),
+    { statusCode: 404, message: 'pending claim not found' }
+  );
+  const [first] = fake.matching(/waiver_claims/);
+  assert.match(first.text, /JOIN "teams".*"owner_id" = \$2/);
+  assert.deepEqual(first.params, [900, 99]);
+  assert.equal(fake.matching(/FROM "leagues"/).length, 0);
+  assert.equal(fake.matching(update('waiver_claims')).length, 0);
   fake.assertClean();
 });
 
