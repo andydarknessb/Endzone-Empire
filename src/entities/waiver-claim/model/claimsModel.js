@@ -4,12 +4,13 @@
  * claims in Claim order, shared-drop pairs, a result per resolved claim, the
  * next Clear time and the FAAB committed.
  *
- * WIRE NAMES the server ticket (#1607) had not fixed when this was written,
- * so they are read defensively and default to null: `winning_team_name`,
- * `winning_bid` (the Winning bid and its team, on resolved claims), `week`
- * (the week a claim resolved in) and `clear_at` (a pending claim's own Clear
- * time). Claims resolved before those columns exist carry none and read as
- * plain lost.
+ * WIRE NAMES (all emitted by `GET /api/waivers`, pinned by
+ * server/test/waiver.claim-target.route.test.js): `winning_team_name` and
+ * `winning_bid` on resolved claims (#1611), `week` on resolved claims (the
+ * server derives it from `processed_at` with Pick'em's rollover, null on
+ * pending and cancelled) and `clear_at` on pending claims (their player's
+ * `waiver_players.available_at`). Claims resolved before the winner columns
+ * existed carry null there and read as plain lost.
  *
  * No claim is ever predicted to win (ADR 0048: bid first, each claim resolves
  * at its own player's Clear time), so a shared drop is only reported, never

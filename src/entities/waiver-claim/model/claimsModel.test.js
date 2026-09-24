@@ -160,7 +160,7 @@ describe('next Clear time', () => {
         claim({ id: 1, clear_at: hours(30) }),
         claim({ id: 2, clear_at: hours(5) }),
         claim({ id: 3, clear_at: null }),
-        claim({ id: 4, status: 'won', clear_at: hours(1) }),
+        claim({ id: 4, status: 'won', clear_at: null }),
       ]),
       { now: NOW }
     );
