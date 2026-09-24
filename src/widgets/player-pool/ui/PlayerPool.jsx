@@ -79,7 +79,7 @@ const actionSx = {
  * Watch action and open handler, and `renderTableHead({ bestBall, currentWeek,
  * sx })` returns the desktop header, `columnCount` is its width. The caller also passes the filter-row
  * controls that are not the list's own (`leadingControl`, `afterAvailabilityControl`).
- * `onLoaded({ players, context })` reports every successful read so the caller
+ * `onLoaded({ players, context, total })` reports every successful read so the caller
  * can build the Decision card context over the same page of players; `onError`
  * receives the refusal message, or null when a read starts. `ref.refresh()`
  * re-reads the list after a caller's action.
@@ -231,6 +231,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       onLoadedRef.current?.({
         players: nextPlayers,
         context: response.data.context || null,
+        total: response.data.total ?? 0,
       });
     } catch (err) {
       onErrorRef.current?.(readHttpFailure(err).message || err.message);
