@@ -281,6 +281,87 @@ async function submitClaim({ leagueId, userId, playerId, dropPlayerId, bid = 0 }
   );
 }
 
+/**
+ * Edit the caller's own pending claim in place (#1580): `bid` (FAAB leagues
+ * only) and/or `dropPlayerId` (null clears it; undefined leaves it). The claim
+ * keeps its id, `claim_order` and `created_at`: an edit is never a re-queue.
+ * FAAB is deducted only when a claim wins, so `faab_remaining` already
+ * excludes nothing this claim's own current bid holds: the bid is checked
+ * against it directly. The league is read from the claim (the route carries
+ * only the claim id), and its row lock is taken like every other claim write.
+ */
+async function editClaim({ userId, claimId, bid, dropPlayerId }) {
+  return withTransaction(
+    pool,
+    async (client) => {
+      const found = await client.query(`SELECT "league_id" FROM "waiver_claims" WHERE "id" = $1`, [claimId]);
+      if (!found.rows[0]) throw new WaiverError(404, 'pending claim not found');
+      const leagueId = found.rows[0].league_id;
+
+      const leagueResult = await client.query(`SELECT * FROM "leagues" WHERE "id" = $1 FOR UPDATE`, [leagueId]);
+      const league = leagueResult.rows[0];
+      if (!league) throw new WaiverError(404, 'league not found');
+      assertFantasyLeagueRow(league);
+      if (isLeagueFrozen(league)) throw new WaiverError(409, 'transactions are locked by the commissioner');
+
+      const team = await requireMember(client, { leagueId, userId });
+      if (team.locked) throw new WaiverError(409, 'your team is locked by the commissioner');
+
+      const claimResult = await client.query(
+        `SELECT * FROM "waiver_claims"
+         WHERE "id" = $1 AND "team_id" = $2 AND "status" = 'pending' FOR UPDATE`,
+        [claimId, team.id]
+      );
+      const current = claimResult.rows[0];
+      if (!current) throw new WaiverError(404, 'pending claim not found');
+
+      let nextBid = current.bid;
+      if (bid !== undefined && bid !== null) {
+        if (league.waiver_type !== 'faab') {
+          throw new WaiverError(409, 'this league has no FAAB bids', 'BID_NOT_ALLOWED');
+        }
+        if (!Number.isInteger(bid) || bid < 0) throw new WaiverError(400, 'bid must be a non-negative integer');
+        if (bid > team.faab_remaining) {
+          throw new WaiverError(
+            409,
+            `bid exceeds your remaining FAAB budget (${team.faab_remaining})`,
+            'BID_OVER_BUDGET'
+          );
+        }
+        nextBid = bid;
+      }
+
+      let nextDrop = current.drop_player_id;
+      if (dropPlayerId !== undefined) {
+        nextDrop = dropPlayerId || null;
+        if (nextDrop) {
+          const onMyTeam = await client.query(
+            `SELECT 1 FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2`,
+            [team.id, nextDrop]
+          );
+          if (!onMyTeam.rows[0]) {
+            throw new WaiverError(409, 'drop player is not on your roster', 'DROP_NOT_ON_ROSTER');
+          }
+        }
+        // Swapping one drop for another keeps the roster math; clearing the
+        // drop can leave a full roster with no room.
+        if (!nextDrop && current.drop_player_id) {
+          const overflow = await capacityFailureReason(client, { league, team, dropPlayerId: null });
+          if (overflow) throw new WaiverError(409, `${overflow}; choose a player to drop`);
+        }
+      }
+
+      const updated = await client.query(
+        `UPDATE "waiver_claims" SET "bid" = $1, "drop_player_id" = $2, "updated_at" = now()
+         WHERE "id" = $3 RETURNING *`,
+        [nextBid, nextDrop, claimId]
+      );
+      return updated.rows[0];
+    },
+    { label: 'waiver-claim-edit' }
+  );
+}
+
 /** Cancel one of the caller's pending claims. */
 async function cancelClaim({ leagueId, userId, claimId }) {
   const result = await pool.query(
@@ -914,6 +995,7 @@ module.exports = {
   isOnWaivers,
   submitClaim,
   cancelClaim,
+  editClaim,
   reorderClaims,
   processWaivers,
   processAllDueWaivers,

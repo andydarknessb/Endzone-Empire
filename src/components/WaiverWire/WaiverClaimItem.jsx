@@ -16,7 +16,7 @@ function statusColor(status) {
 // Card defaults to theme.palette.background.paper, matching the rest of the app.
 // A pending claim leads with its Claim order rank (`rank`, 1 first) and carries
 // up/down buttons (`onMove(claim, -1 | +1)`); `isFirst`/`isLast` disable the ends.
-function WaiverClaimItem({ claim, isFaab, onCancel, rank, isFirst, isLast, onMove }) {
+function WaiverClaimItem({ claim, isFaab, onCancel, onEdit, rank, isFirst, isLast, onMove }) {
   const isPending = claim.status === 'pending';
   const showOrder = isPending && rank != null;
 
@@ -75,14 +75,11 @@ function WaiverClaimItem({ claim, isFaab, onCancel, rank, isFirst, isLast, onMov
               </IconButton>
             </>
           )}
-          {isFaab && isPending && (
-            // Reserved for a future edit-bid flow; no backend support yet.
-            <Tooltip title="Edit bid (coming soon)">
-              <span>
-                <IconButton size="small" aria-label="Edit Bid" disabled>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </span>
+          {isPending && onEdit && (
+            <Tooltip title={isFaab ? 'Edit bid and drop' : 'Edit drop'}>
+              <IconButton size="small" aria-label={`Edit ${claim.player_name} claim`} onClick={() => onEdit(claim)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
             </Tooltip>
           )}
           {isPending && (
