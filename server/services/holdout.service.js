@@ -541,6 +541,7 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     );
     if (existing.rows.length > 0) {
       const foundByKind = new Map(existing.rows.map((r) => [r.capture_kind, r]));
+      let releaseDiffers = null;
       // Validate every arm that exists BEFORE judging completeness of the
       // set, so a corrupted arm reports its own defect rather than hiding
       // behind "some arms are missing".
@@ -566,8 +567,11 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
         }
         const matches = found.cohort_hash === cohortHash
           && found.constants_hash === arm.hash
-          && found.schedule_hash === schedule.scheduleHash
-          && found.release_sha === releaseSha;
+          && found.schedule_hash === schedule.scheduleHash;
+        // A later release is not drift: this path only skips and writes
+        // nothing, so no mixed provenance can enter the ledger (#1590).
+        // The header's release_sha keeps recording which code wrote it.
+        if (found.release_sha !== releaseSha && releaseDiffers === null) releaseDiffers = found.release_sha;
         if (!complete || !matches) {
           throw new Error(
             `holdout snapshot conflict for ${season} week ${week} ${profileName} (${arm.kind}): ` +
@@ -611,7 +615,10 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
         season, week, profileName,
         snapshotId: foundByKind.get('scheduled').id,
         armSnapshotIds: Object.fromEntries(arms.map((a) => [a.kind, foundByKind.get(a.kind).id])),
-        skipped: 'already complete',
+        skipped: releaseDiffers === null
+          ? 'already complete'
+          : `already complete (captured at release ${String(releaseDiffers).slice(0, 12)}, ` +
+            `current ${String(releaseSha).slice(0, 12)})`,
       };
     }
 
