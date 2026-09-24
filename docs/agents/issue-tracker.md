@@ -13,6 +13,23 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## Bug reports
+
+The web UI offers a bug form (`.github/ISSUE_TEMPLATE/bug.yml`) that applies the `bug` label and asks for What happened, Expected, Steps and **Escaped from PR #**, the number of the pull request that introduced the bug. Blank issues stay available. A bug filed with `gh issue create` bypasses the form, so write the same headings yourself and add `--label bug`:
+
+```markdown
+### What happened
+...
+### Expected
+...
+### Steps
+...
+### Escaped from PR #
+1545
+```
+
+Write `_No response_` under the last heading, as the form does, when you do not know the PR. The fleet's weekly scorecard reads that heading to count escaped defects, and counts a week's bugs without a number there as unclassified.
+
 ## Triage proposals and approval
 
 The fleet's Principal (fleet ADR 0011) reads every open issue that is unrouted or carries `needs-triage` or `question` and posts one `## Triage proposal (advisory)` comment on it, applying the `triage-proposed` label. The proposal is not a ruling and no agent acts on it. It becomes one only when the repository owner replies on the issue with a comment that begins `Approved` (adopt as written) or `Approved with: <edits>` (adopt with the edits folded in). On that comment the Principal posts `## Ruling`, applies `ready-for-agent`, `ready-for-human` or `needs-info` as ruled, and removes `triage-proposed`. Closing an issue and the `wontfix` and `duplicate` labels remain the owner's hands in every case.
