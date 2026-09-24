@@ -60,6 +60,13 @@ const headCellSx = {
   bgcolor: "primary.main",
   borderColor: "var(--border-subtle)",
 };
+// The 44px floor for the small-size inputs, selects and pager items this
+// widget renders (the Waivers page's layout guard measures every control).
+const fieldSx = {
+  "& .MuiInputBase-root": { minHeight: 44 },
+  "& .MuiInputBase-input": { boxSizing: "border-box", minHeight: 44 },
+  "& .MuiSelect-select.MuiSelect-select": { boxSizing: "border-box", minHeight: 44, display: "flex", alignItems: "center" },
+};
 const actionSx = {
   minHeight: 44,
   minWidth: 104,
@@ -289,7 +296,7 @@ const PlayerPool = forwardRef(function PlayerPool(
         alignItems={row ? "center" : undefined}
       >
         {leadingControl?.(layout)}
-        <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 130 } : undefined}>
+        <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
           <InputLabel id="pm-pos-label">Position</InputLabel>
           <Select
             labelId="pm-pos-label"
@@ -323,7 +330,7 @@ const PlayerPool = forwardRef(function PlayerPool(
         )}
         {afterAvailabilityControl?.(layout)}
         {byeWeekFilter && (
-          <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 130 } : undefined}>
+          <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
             <InputLabel id="pm-bye-label">Bye week</InputLabel>
             <Select
               labelId="pm-bye-label"
@@ -351,7 +358,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           label="Watching"
         />
         <Stack direction="row" spacing={1} sx={row ? { ml: "auto" } : undefined}>
-          <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 170 } : undefined}>
+          <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 170 } : fieldSx}>
             <InputLabel id="pm-sort-label">Sort</InputLabel>
             <Select
               labelId="pm-sort-label"
@@ -391,7 +398,7 @@ const PlayerPool = forwardRef(function PlayerPool(
             size="small"
             fullWidth
             // The search sits on its own line above the filter row on desktop.
-            sx={isMobile ? undefined : { maxWidth: 360 }}
+            sx={isMobile ? fieldSx : { ...fieldSx, maxWidth: 360 }}
             label="Search players"
             placeholder="Search by name"
             value={searchInput}
@@ -495,6 +502,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           page={pageNumber}
           onChange={(event, value) => updateParams({ page: value })}
           shape="rounded"
+          sx={{ "& .MuiPaginationItem-root": { minWidth: 44, height: 44 } }}
         />
         <Typography variant="caption" color="text.secondary">
           {totalPlayers} player{totalPlayers === 1 ? "" : "s"}

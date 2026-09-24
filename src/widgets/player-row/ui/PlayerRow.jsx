@@ -154,7 +154,7 @@ function PlayerIdentity({ player, onOpenPlayer, nameAsLink = true }) {
       <Box sx={{ minWidth: 0 }}>
         <Stack direction="row" spacing={0.75} alignItems="center">
           {nameAsLink ? (
-            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} />
+            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} sx={MIN_TOUCH_TARGET_SX} />
           ) : (
             <Typography sx={{ fontWeight: 600 }} noWrap>
               {player.name}

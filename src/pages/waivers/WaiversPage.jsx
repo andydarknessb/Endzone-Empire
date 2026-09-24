@@ -240,7 +240,14 @@ export default function WaiversPage() {
       )}
 
       <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
-        <SegmentedControl aria-label="Waivers view" options={TABS} value={tab} onChange={setTab} fill />
+        <SegmentedControl
+          aria-label="Waivers view"
+          options={TABS}
+          value={tab}
+          onChange={setTab}
+          fill
+          sx={{ "& [role='radio']": { minHeight: 44 } }}
+        />
       </Box>
 
       <Box

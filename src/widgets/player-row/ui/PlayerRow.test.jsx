@@ -234,10 +234,14 @@ describe.each([
 
 test('hideOwnership renders one cell fewer than the default row', () => {
   const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const cellCount = () => {
+    const row = screen.getByTestId('player-row');
+    return within(row).getAllByRole('cell').length + within(row).getAllByRole('rowheader').length;
+  };
   const { unmount } = renderRow({ player: player({ ownership: 41 }), action });
-  const full = screen.getByTestId('player-row').querySelectorAll('th, td').length;
+  const full = cellCount();
   expect(screen.getByText('41%')).toBeInTheDocument();
   unmount();
   renderRow({ player: player({ ownership: null }), action, hideOwnership: true });
-  expect(screen.getByTestId('player-row').querySelectorAll('th, td').length).toBe(full - 1);
+  expect(cellCount()).toBe(full - 1);
 });
