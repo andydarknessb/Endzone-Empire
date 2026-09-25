@@ -96,13 +96,13 @@ const availabilityEntry = (over = {}) => ({
   ...over,
 });
 
-// Routes `apiClient.get` by URL so the same suite can stub the lineup-
-// context endpoint (`line`/`weather`/`usage`) and the card route
-// (`/api/players/:id/card`, #1306/#1331) with different bodies.
+// Stubs the one card route (`/api/players/:id/card`, #1306/#1331, which also
+// carries `line`/`weather`/`opponents`/`decision.usage`, #1667) and rejects any
+// other URL.
 function mockCardRoute(card) {
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
-    return Promise.resolve({ data: { line: null, weather: null, usage: null } });
+    return Promise.reject(new Error(`unexpected request: ${url}`));
   });
 }
 
@@ -416,12 +416,14 @@ test('usage renders the weekly rows and the season average', async () => {
     data: {
       line: null,
       weather: null,
-      usage: {
-        weeks: [
-          { season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, snaps: 58, snapShare: 0.87, targetShare: 0.23, fantasyPoints: 12.4 },
-          { season: 2026, week: 2, targets: 5, carries: 1, airYards: 40, snaps: null, snapShare: null, targetShare: 0.15, fantasyPoints: 7.1 },
-        ],
-        seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, snaps: 58, snapShare: 0.87, targetShare: 0.21, fantasyPoints: 10.2 },
+      decision: {
+        usage: {
+          weeks: [
+            { season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, snaps: 58, snapShare: 0.87, targetShare: 0.23, fantasyPoints: 12.4 },
+            { season: 2026, week: 2, targets: 5, carries: 1, airYards: 40, snaps: null, snapShare: null, targetShare: 0.15, fantasyPoints: 7.1 },
+          ],
+          seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, snaps: 58, snapShare: 0.87, targetShare: 0.21, fantasyPoints: 10.2 },
+        },
       },
     },
   });
@@ -739,6 +741,23 @@ test('Compare shows two cards side by side, each named by its own heading, with 
   expect(screen.queryByTestId('decision-card-compare')).not.toBeInTheDocument();
   // Focus returns to the Compare button rather than being dropped (review finding).
   expect(screen.getByTestId('decision-card-compare-action')).toHaveFocus();
+});
+
+// #1667: one card read per side, and no other read at all.
+test('Compare issues exactly one card read per side and no other request', async () => {
+  const starter = entry();
+  const other = entry({ playerId: 2, name: 'Compare Target' });
+  renderCard({ entry: starter, entries: [starter, other] });
+
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId('decision-card-compare-action'));
+  await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+  await screen.findByTestId('decision-card-compare');
+
+  expect(apiClient.get.mock.calls.map(([url]) => url).sort()).toEqual([
+    '/api/players/1/card?leagueId=1&week=4',
+    '/api/players/2/card?leagueId=1&week=4',
+  ]);
 });
 
 test('the Start and Compare menu triggers expose popup state, and the menus carry an accessible name', async () => {
@@ -1087,14 +1106,9 @@ describe('Opp rank vs position (#1609)', () => {
     { week: 4, opponent: 'DAL', rankVsPosition: 1, allowedPerGame: 30, games: 3 },
     { week: 5, opponent: 'NYG', rankVsPosition: 32, allowedPerGame: 8, games: 3 },
   ];
-  const contextRoute = () => {
-    apiClient.get.mockImplementation((url) => {
-      if (url.includes('/card?')) return Promise.resolve({ data: {} });
-      return Promise.resolve({ data: { line: null, weather: null, usage: null, opponents } });
-    });
-  };
+  const contextRoute = () => mockCardRoute({ opponents });
 
-  test('the managed my_team card renders the Opp rank line from the context opponents', async () => {
+  test('the managed my_team card renders the Opp rank line from the card opponents', async () => {
     contextRoute();
     renderCard();
 

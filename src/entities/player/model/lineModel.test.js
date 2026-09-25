@@ -11,7 +11,7 @@ test('reads line and weather off the wire body', () => {
 });
 
 test('a null line or weather field on the body stays null', () => {
-  const { line, weather } = lineContextFromResponse({ line: null, weather: null, usage: {} });
+  const { line, weather } = lineContextFromResponse({ line: null, weather: null, decision: {} });
   expect(line).toBeNull();
   expect(weather).toBeNull();
 });
