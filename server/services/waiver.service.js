@@ -46,7 +46,7 @@ function orderClaims(claims, priorities, waiverType) {
     a.id - b.id;
   const sorted = [...claims];
   if (waiverType === 'faab') {
-    sorted.sort((a, b) => (b.bid || 0) - (a.bid || 0) || byPriority(a, b));
+    sorted.sort((a, b) => (a.bid || 0) - (b.bid || 0) || byPriority(a, b));
   } else {
     sorted.sort(byPriority);
   }
