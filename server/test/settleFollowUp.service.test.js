@@ -62,7 +62,7 @@ for (const [mode, labels] of [
       await settleFollowUp({ ...ARGS, mode });
       assert.deepEqual(order.map((o) => o.label), labels, 'every step still ran');
       assert.equal(logs.length, 1, 'the failure is logged once');
-      assert.match(util.format(...logs[0]), /settle follow-up (w+): .* failed for league 7 week 5: .*boom/);
+      assert.match(util.format(...logs[0]), /settle follow-up \((advance|correction)\): .* failed for league 7 week 5: .*boom/);
     });
   }
 }
