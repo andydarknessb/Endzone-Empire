@@ -144,6 +144,7 @@ const nflverse = require('../services/nflverseSync.service');
 const recapSvc = require('../services/recap.service');
 const montecarlo = require('../services/montecarlo.service');
 const trophySvc = require('../services/trophy.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { createFakePool } = require('./helpers/fakePool');
 
 function stubOneInSeasonLeague(t) {
@@ -720,96 +721,24 @@ test('#1410: a correction recomputes power rankings and the rebuilt recap reads 
   );
 });
 
-test('#1410: power rankings recompute runs after the log/notify and before the recap rebuild reads them', async (t) => {
+// The follow-up's step order and variants are the Settle follow-up module's
+// own coverage (settleFollowUp.service.test.js); here only the hand-off.
+test('#1410: a final-score correction hands the week to the Settle follow-up in correction mode, after the log/notify', async (t) => {
   const fake = correctionRecapWorld({ beforeHome: 90, beforeAway: 80, afterHome: 115, afterAway: 80 });
   fake.install(t);
   t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
-  t.mock.method(montecarlo, 'computeLeagueOdds', async ({ leagueId }) => {
-    await poolModule.query(
-      `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
-       VALUES ($1, $2, $3, 'power_rankings', $4)`,
-      [leagueId, 2026, 5, JSON.stringify({ computedAt: new Date().toISOString(), rankings: [] })]
+  const followUp = t.mock.method(settleFollowUpSvc, 'settleFollowUp', async () => {
+    assert.ok(
+      fake.calls.some((c) => /INSERT INTO "transactions"/.test(c.text) && c.params[2] === 'stat_correction'),
+      'the correction is logged before the follow-up runs'
     );
   });
 
   await correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 });
 
-  const statCorrectionIdx = fake.calls.findIndex(
-    (c) => /INSERT INTO "transactions"/.test(c.text) && c.params[2] === 'stat_correction'
-  );
-  const powerRankingsIdx = fake.calls.findIndex(
-    (c) => /INSERT INTO "league_analytics"/.test(c.text) && c.text.includes(`'power_rankings'`)
-  );
-  const recapStoreIdx = fake.calls.findIndex(
-    (c) => /INSERT INTO "league_analytics"/.test(c.text) && c.text.includes(`'weekly_recap'`)
-  );
-  assert.ok(statCorrectionIdx >= 0, 'the stat_correction feed entry was written');
-  assert.ok(powerRankingsIdx >= 0, 'power rankings were recomputed and stored');
-  assert.ok(recapStoreIdx >= 0, 'the recap was rebuilt');
-  assert.ok(statCorrectionIdx < powerRankingsIdx, 'power rankings run after the log/notify transaction');
-  assert.ok(powerRankingsIdx < recapStoreIdx, 'power rankings are stored before the recap rebuild reads them');
-});
-
-test('#1410: power rankings still recompute before the recap rebuild when the log/notify transaction itself throws', async (t) => {
-  // Mirrors the #1409 catch-path test: the scores are committed either way,
-  // so the catch-before-rethrow path must still order power rankings ahead
-  // of the recap rebuild, exactly like the success path.
-  const beforeHome = 90; const beforeAway = 80; const afterHome = 115; const afterAway = 80;
-  const fake = createFakePool([
-    [/^SELECT "id", "week", "final", "is_playoff", "home_score", "away_score"/, () => ({
-      rows: [{ id: 1, week: 5, final: true, is_playoff: false, home_score: beforeHome, away_score: beforeAway }],
-    })],
-    [/^SELECT "id", "home_score", "away_score" FROM "matchups"/, () => ({
-      rows: [{ id: 1, home_score: afterHome, away_score: afterAway }],
-    })],
-    [/^SELECT "matchups"\.\*/, () => ({
-      rows: [{
-        id: 1, final: true, home_team_id: 1, away_team_id: 2,
-        home_team_name: 'Team A', away_team_name: 'Team B',
-        home_score: afterHome, away_score: afterAway,
-      }],
-    })],
-    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({ rows: [{ id: 7, scoring_rules: null }] })],
-    [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
-    [/^INSERT INTO "transactions"/, () => ({ rows: [] })],
-    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => { throw new Error('owner lookup exploded'); }],
+  assert.deepEqual(followUp.mock.calls.map((c) => c.arguments[0]), [
+    { leagueId: 7, season: 2026, week: 5, mode: 'correction' },
   ]);
-  fake.install(t);
-  t.mock.method(matchupScoring, 'scoreMatchups', async () => ({}));
-  // Same stub shape as the success-path ordering test: it inserts its own
-  // power_rankings row rather than just resolving, so the call log can prove
-  // WHERE that insert lands relative to the recap rebuild's weekly_recap
-  // insert - not just that both happened once.
-  const mc = t.mock.method(montecarlo, 'computeLeagueOdds', async ({ leagueId }) => {
-    await poolModule.query(
-      `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
-       VALUES ($1, $2, $3, 'power_rankings', $4)`,
-      [leagueId, 2026, 5, JSON.stringify({ computedAt: new Date().toISOString(), rankings: [] })]
-    );
-  });
-  t.mock.method(console, 'error', () => {});
-
-  await assert.rejects(
-    correctionSvc.correctLeagueWeek({ leagueId: 7, season: 2026, week: 5 }),
-    /owner lookup exploded/
-  );
-
-  assert.equal(mc.mock.calls.length, 1, 'power rankings still recompute on the catch-before-rethrow path');
-  const stored = fake.matching(/INSERT INTO "league_analytics"/);
-  assert.equal(stored.length, 2, 'the power rankings row, then the recap rebuild - the recap is still rebuilt even though the log/notify transaction failed');
-  const powerRankingsIdx = fake.calls.findIndex(
-    (c) => /INSERT INTO "league_analytics"/.test(c.text) && c.text.includes(`'power_rankings'`)
-  );
-  const recapStoreIdx = fake.calls.findIndex(
-    (c) => /INSERT INTO "league_analytics"/.test(c.text) && c.text.includes(`'weekly_recap'`)
-  );
-  assert.ok(powerRankingsIdx >= 0, 'power rankings were recomputed and stored');
-  assert.ok(recapStoreIdx >= 0, 'the recap was rebuilt');
-  assert.ok(
-    powerRankingsIdx < recapStoreIdx,
-    'on the catch-before-rethrow path too, power rankings are stored before the recap rebuild reads them'
-  );
-  fake.assertClean();
 });
 
 test('#1410: a power-rankings recompute failure is logged and never blocks the recap rebuild or the correction pass', async (t) => {

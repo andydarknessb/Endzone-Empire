@@ -16,6 +16,7 @@ const { createFakePool, insert, update } = require('./helpers/fakePool');
 const { signToken } = require('../modules/auth');
 const scoring = require('../services/matchupScoring.service');
 const season = require('../services/season.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const { SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 const { PICKEM_ONLY_CODE } = require('../services/leagueType');
 
@@ -98,11 +99,9 @@ test('advance-week: a league whose draft is complete scores and advances as befo
     advancedTo: 2,
     seasonStatus: 'regular',
   }));
-  // The post-week analytics chain is fire-and-forget; keep it out of the test.
-  const montecarlo = require('../services/montecarlo.service');
-  t.mock.method(montecarlo, 'computeLeagueOdds', async () => {
-    throw new Error('background chain stopped by the test');
-  });
+  // The Settle follow-up is fire-and-forget: a promise that never settles
+  // proves the route does not await it (the response below still arrives).
+  const followUp = spy(t, settleFollowUpSvc, 'settleFollowUp', () => new Promise(() => {}));
 
   const res = await request(app).post('/api/scoring/league/1/advance-week').set('Authorization', authed);
 
@@ -111,6 +110,7 @@ test('advance-week: a league whose draft is complete scores and advances as befo
   assert.equal(finalized.length, 1);
   assert.equal(scored[0][0].season, 2026);
   assert.equal(scored[0][0].week, 1);
+  assert.deepEqual(followUp, [[{ leagueId: 1, season: 2026, week: 1, mode: 'advance' }]]);
   fake.assertClean();
 });
 
