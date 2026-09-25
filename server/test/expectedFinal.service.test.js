@@ -524,3 +524,26 @@ test('with no live rows syncedAt is null and a team of byes has no first kickoff
   assert.equal(byTeam.get(20).syncedAt, null);
   assert.equal(byTeam.get(20).firstKickoffAt, null);
 });
+
+// #1668: a released starter (nfl_team null) is Unavailable like a bye: zero,
+// not remaining, and no evidence a game kicked off.
+test('a released starter counts 0, is not remaining, and the status reads played once the rest are final', async (t) => {
+  const starters = [
+    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } },
+    { team_id: 10, player_id: 6, position: 'WR', nfl_team: null, injury_status: null, stats: null },
+  ];
+  const projections = new Map([[1, { points: 19.0 }], [6, { points: 12.0 }]]);
+  const fake = weekPool(t, { starters, projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  assert.equal(home.expectedFinal, 22.5);
+  assert.equal(home.playersRemaining, 0);
+  assert.deepEqual(home.starters.map((s) => [s.playerId, s.gameState, s.expectedFinal]), [
+    [1, 'final', 22.5],
+    [6, 'final', 0],
+  ]);
+  assert.deepEqual(home.starters[1].availability, { available: false, reason: 'no_team' });
+  assert.equal(statusForMatchup({ settled: false, home, away: null }), 'played');
+});

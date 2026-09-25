@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
 const model = require('./projectionModel');
+const { unavailableFor } = require('./unavailable');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
 const { lastPlayoffWeek } = require('./season.service');
@@ -468,7 +469,7 @@ function projectFromBundle({
     constants: constants.gameEnvironment,
   });
 
-  const availability = model.availabilityFor({
+  const availability = unavailableFor({
     injuryStatus: player.injury_status,
     onBye,
     noTeam: player.nfl_team == null,

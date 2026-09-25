@@ -10,6 +10,7 @@ const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
+const { unavailableFor } = require('./unavailable');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame } = require('./nwsWeather.service');
 
@@ -1118,17 +1119,15 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  *
  * `unavailable` (CONTEXT.md, Unavailable; #1235) is derived here, once, from
  * the same `onBye` this function already computes plus the row's own
- * `injury_status`: 'bye' | 'out' | 'ir' | null. It is a server-side mirror of
+ * `injury_status`: 'bye' | 'no_team' | 'out' | 'ir' | null. It is a server-side mirror of
  * the client entity's own `availabilityFor` (src/entities/roster/model/
  * lineupModel.js) - both read the identical two facts, so they can never
  * disagree, but the wire carries the answer directly rather than asking every
  * consumer to re-derive it.
  */
 function unavailableReason(row, onBye) {
-  if (onBye) return 'bye';
-  if (row.injury_status === 'O') return 'out';
-  if (row.injury_status === 'IR') return 'ir';
-  return null;
+  const verdict = unavailableFor({ injuryStatus: row.injury_status, onBye, noTeam: row.nfl_team == null });
+  return verdict.available ? null : verdict.reason;
 }
 
 function annotateLineupEntries(entries, {

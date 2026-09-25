@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const projectionService = require('./projection.service');
-const { availabilityFor } = require('./projectionModel');
+const { unavailableFor } = require('./unavailable');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
@@ -191,7 +191,8 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   for (const row of candidateRows.rows) {
     const team = normalizeNflTeam(row.nfl_team);
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
-    const availability = availabilityFor({ injuryStatus: row.injury_status, onBye });
+    const noTeam = row.nfl_team == null;
+    const availability = unavailableFor({ injuryStatus: row.injury_status, onBye, noTeam });
     const raw = projections.map.get(row.player_id);
     const projection = priced && availability.available && raw && Number.isFinite(Number(raw.points))
       ? round2(Number(raw.points))
@@ -203,7 +204,8 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const gameState = gameStateFor({
       liveStatus: liveByTeam.get(team) || null,
       kickoffAt: kickoffByTeam.get(team) || null,
-      onBye,
+      // A released player has no game either: final at his points, like a bye.
+      onBye: onBye || noTeam,
       points,
       now,
     });
@@ -321,7 +323,7 @@ function statusForMatchup({ settled, home, away, computed = true, unreliable = f
   // Counting him read every future week in which either manager had started a
   // player on a bye as `live`, weeks before a single game had kicked off.
   const states = [...startersOf(home), ...startersOf(away)]
-    .filter((s) => s.availability?.reason !== 'bye')
+    .filter((s) => s.availability?.reason !== 'bye' && s.availability?.reason !== 'no_team')
     .map((s) => s.gameState);
   if (states.some((s) => s === 'in_progress')) return 'live';
   if (states.length > 0 && states.every((s) => s === 'final')) return 'played';

@@ -22,6 +22,7 @@ const {
 } = require('./lineup.service');
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
+const { unavailableFor } = require('./unavailable');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
@@ -102,7 +103,7 @@ function detailOf(projections, playerId) {
  * starter is pinned to his slot; a locked bench player can never be started;
  * and a Doubtful bench player is never auto-promoted over a healthy starter,
  * because there is no reliable active-probability data to make that trade
- * against (see projectionModel.availabilityFor).
+ * against (see unavailableFor).
  *
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
@@ -128,9 +129,11 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const pinned = new Map();
   const candidates = [];
   for (const entry of entries) {
-    const availability = projectionModel.availabilityFor({
+    const availability = unavailableFor({
       injuryStatus: entry.injuryStatus ?? entry.injury_status ?? null,
       onBye: Boolean(entry.onBye),
+      // null is a released player; undefined is a caller that did not say.
+      noTeam: entry.nflTeam === null,
       locked: entry.locked,
       lockedSlot: entry.slot,
     });
@@ -390,6 +393,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
     locked: Boolean(e.locked),
     injuryStatus: e.injury_status || null,
     onBye: Boolean(e.onBye),
+    nflTeam: e.nfl_team ?? null,
   }));
 
   // The ranking statistic comes from the RUN's constants (#1483), read back
