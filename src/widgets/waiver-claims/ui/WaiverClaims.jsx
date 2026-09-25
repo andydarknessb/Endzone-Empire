@@ -3,6 +3,8 @@ import { Alert, Box, IconButton, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import EditIcon from '@mui/icons-material/Edit';
+import CloseIcon from '@mui/icons-material/Close';
 import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 const dollars = (n) => `$${n}`;
@@ -23,12 +25,41 @@ export function resultLine(result, showBid) {
 
 const headingSx = { fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' };
 
-function PendingClaim({ claim, rank, isFirst, isLast, onMove }) {
+/** "#1 and #3", "#1, #2 and #3": the ranks of a shared-drop set, in Claim order. */
+function rankList(ranks) {
+  const labels = ranks.map((r) => `#${r}`);
+  if (labels.length < 2) return labels.join('');
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
+/** Neutral: it reports the clash and how claims resolve, never which one goes through. */
+function SharedDropWarning({ claim, rankById }) {
+  const ranks = [claim.id, ...claim.sharesDropWith]
+    .map((id) => rankById.get(id))
+    .filter((r) => r != null)
+    .sort((a, b) => a - b);
+  return (
+    <Box
+      role="note"
+      sx={{ mt: 0.5, p: 1, border: '1px solid var(--dash-line)', borderRadius: 1, fontSize: 12, minWidth: 0 }}
+    >
+      <Typography component="span" sx={{ display: 'block', fontSize: 12, fontWeight: 600, overflowWrap: 'anywhere' }}>
+        {`Only one of these can go through: ${rankList(ranks)} both drop ${claim.dropPlayerName || 'the same player'}`}
+      </Typography>
+      <Typography component="span" sx={{ display: 'block', fontSize: 12, color: 'var(--dash-dim)' }}>
+        Higher bid first, then Waiver priority, then your Claim order, each at its player&apos;s Clear time.
+      </Typography>
+    </Box>
+  );
+}
+
+function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, onCancel }) {
   return (
     <Box
       component="li"
-      sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1, borderTop: '1px solid var(--dash-line)', listStyle: 'none' }}
+      sx={{ display: 'flex', flexDirection: 'column', py: 1, borderTop: '1px solid var(--dash-line)', listStyle: 'none', minWidth: 0 }}
     >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
       <Typography component="span" sx={{ fontWeight: 700, minWidth: 32 }}>{`#${rank}`}</Typography>
       <Box sx={{ minWidth: 0, flexGrow: 1 }}>
         <Typography component="span" sx={{ fontWeight: 600, display: 'block', overflowWrap: 'anywhere' }}>
@@ -38,7 +69,8 @@ function PendingClaim({ claim, rank, isFirst, isLast, onMove }) {
           {`Drop: ${claim.dropPlayerName || 'None'}`}
         </Typography>
       </Box>
-      <Box sx={{ display: 'flex', flexShrink: 0 }}>
+      </Box>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', ml: 5 }}>
         <IconButton
           aria-label={`Move ${claim.playerName} up`}
           data-claim-move={`${claim.id}-up`}
@@ -57,16 +89,33 @@ function PendingClaim({ claim, rank, isFirst, isLast, onMove }) {
         >
           <KeyboardArrowDownIcon />
         </IconButton>
+        <IconButton aria-label={`Edit claim on ${claim.playerName}`} onClick={() => onEdit(claim)} sx={MIN_TOUCH_TARGET_SX}>
+          <EditIcon />
+        </IconButton>
+        <IconButton
+          aria-label={`Cancel claim on ${claim.playerName}`}
+          onClick={() => onCancel(claim, rank - 1)}
+          sx={MIN_TOUCH_TARGET_SX}
+        >
+          <CloseIcon />
+        </IconButton>
       </Box>
+      {claim.sharesDropWith.length > 0 && (
+        <Box sx={{ ml: 5 }}>
+          <SharedDropWarning claim={claim} rankById={rankById} />
+        </Box>
+      )}
     </Box>
   );
 }
 
 /**
  * Pending claims in Claim order, then Results grouped by week. `claims` is the
- * `waiver-claim` read model; `onMove(claimId, -1 | +1)` is its `moveClaim`.
+ * `waiver-claim` read model; `onMove(claimId, -1 | +1)` is its `moveClaim`;
+ * `onEdit(claim)` and `onCancel(claim, position)` are the page's `manage-claim`
+ * wiring (#1616). Claims that name the same drop each carry a neutral warning.
  */
-export default function WaiverClaims({ claims, onMove, orderError, orderAnnouncement, orderSettled, showBid }) {
+export default function WaiverClaims({ claims, onMove, onEdit, onCancel, orderError, orderAnnouncement, orderSettled, showBid }) {
   const { pending, resultsByWeek } = claims;
   const rootRef = useRef(null);
   const focusRef = useRef(null);
@@ -94,6 +143,7 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
     }
   });
 
+  const rankById = new Map(pending.map((claim, index) => [claim.id, index + 1]));
   const results = resultsByWeek.filter((group) => group.results.length > 0);
 
   if (pending.length === 0 && results.length === 0) {
@@ -125,6 +175,9 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
                 key={claim.id}
                 claim={claim}
                 rank={index + 1}
+                rankById={rankById}
+                onEdit={onEdit}
+                onCancel={onCancel}
                 isFirst={index === 0}
                 isLast={index === pending.length - 1}
                 onMove={handleMove}

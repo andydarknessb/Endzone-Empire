@@ -98,6 +98,10 @@ for (const width of [320, 390]) {
     const side = page.getByRole('complementary', { name: 'Waivers side panel' });
     await expect(side).toBeVisible();
     await expect(page.getByRole('button', { name: `Move ${CLAIMED_PLAYER_NAME} down` })).toBeVisible();
+    await expect(page.getByRole('button', { name: `Edit claim on ${CLAIMED_PLAYER_NAME}` })).toBeVisible();
+    await expect(page.getByRole('button', { name: `Cancel claim on ${CLAIMED_PLAYER_NAME}` })).toBeVisible();
+    // #1616: the two pending claims name the same drop, so each carries the warning.
+    await expect(page.getByText(/Only one of these can go through: #1 and #2 both drop/)).toHaveCount(2);
     await expect(page.getByRole('heading', { name: 'Week 2' })).toBeVisible();
     await expect(page.getByText(/Lost to The Extraordinarily Long Team Name FC · won at \$17/)).toBeVisible();
     await page.evaluate(() => document.fonts.ready.then(() => true));
@@ -117,6 +121,8 @@ for (const width of [320, 390]) {
 
     const targets = await page.evaluate(probeTapTargets);
     expect(targets.some((t) => t.name.startsWith('Move '))).toBe(true);
+    expect(targets.some((t) => t.name.startsWith('Edit claim on '))).toBe(true);
+    expect(targets.some((t) => t.name.startsWith('Cancel claim on '))).toBe(true);
     const small = targets.filter((t) => Math.min(t.width, t.height) < MIN_TARGET - 1);
     expect(small, `controls under ${MIN_TARGET}px @ ${width}: ${JSON.stringify(small)}`).toEqual([]);
   });

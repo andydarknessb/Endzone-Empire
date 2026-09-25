@@ -45,16 +45,20 @@ function SwapPreview({ player, roster }) {
   );
 }
 
-function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onClaimed }) {
+function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, onClose, onClaimed }) {
   const sortedRoster = sortRosterForDrop(roster);
   const overId = player.upgrade?.overPlayer?.id;
   const preselect = overId != null && sortedRoster.some((p) => p.id === overId) ? String(overId) : '';
-  const [dropId, setDropId] = useState(preselect);
-  const [bid, setBid] = useState('0');
-  const { submitClaim, pending } = useClaimPlayer({ leagueId, onDone: onClaimed });
+  const editing = claim != null;
+  const [dropId, setDropId] = useState(editing ? String(claim.dropPlayerId ?? '') : preselect);
+  const [bid, setBid] = useState(editing ? String(claim.bid ?? 0) : '0');
+  const { submitClaim, pending: filing } = useClaimPlayer({ leagueId, onDone: onClaimed });
+  const [saving, setSaving] = useState(false);
+  const pending = filing || saving;
 
   const isFaab = availability?.faabRemaining != null;
-  const faabRemaining = availability?.faabRemaining ?? 0;
+  // An edited claim's own bid is already committed in the FAAB left.
+  const faabRemaining = (availability?.faabRemaining ?? 0) + (editing ? Number(claim.bid) || 0 : 0);
   const atCapacity = isRosterAtCapacity(availability);
   const dropMissing = atCapacity && dropId === '';
   const bidNumber = bid === '' ? NaN : Number(bid);
@@ -65,6 +69,13 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
   };
 
   const submit = async () => {
+    if (editing) {
+      setSaving(true);
+      const saved = await onSave({ bid: isFaab ? bidNumber : 0, dropPlayerId: dropId === '' ? null : Number(dropId) });
+      setSaving(false);
+      if (saved?.ok) onClose();
+      return;
+    }
     const result = await submitClaim({
       playerId: player.id,
       dropPlayerId: dropId === '' ? null : Number(dropId),
@@ -75,7 +86,7 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
 
   return (
     <>
-      <DialogTitle id="claim-sheet-title">{`Claim ${player.name}`}</DialogTitle>
+      <DialogTitle id="claim-sheet-title">{editing ? `Edit claim: ${player.name}` : `Claim ${player.name}`}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <SwapPreview player={player} roster={sortedRoster} />
         <Box>
@@ -143,7 +154,7 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
           Cancel
         </Button>
         <Button variant="contained" disabled={pending || bidInvalid || dropMissing} onClick={submit} sx={MIN_TOUCH_TARGET_SX}>
-          Submit claim
+          {editing ? 'Save claim' : 'Submit claim'}
         </Button>
       </DialogActions>
     </>
@@ -156,14 +167,21 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
  * through `useClaimPlayer`, the one submission the Decision card's claim bar
  * also uses. `player` is a players-read row (`upgrade`, `projWeek`) or the
  * claim-target read (neither, so no swap preview and no preselection).
+ *
+ * Edit mode (#1616): pass the pending `claim` (the `waiver-claim` read model's
+ * row) and `onSave({ bid, dropPlayerId })`, which resolves `{ ok }`. The sheet
+ * opens prefilled and saves through `onSave`, never a new submission; the
+ * Claim order is the server's to keep.
  */
-export default function ClaimSheet({ open, player, leagueId, availability, roster, onClose, onClaimed }) {
+export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, onClose, onClaimed }) {
   const phone = useMediaQuery('(max-width:599.95px)'); // below MUI's sm
   if (!player) return null;
   return (
     <Dialog open={open} onClose={onClose} fullScreen={phone} fullWidth maxWidth="sm" aria-labelledby="claim-sheet-title">
       <ClaimSheetBody
-        key={player.id}
+        key={`${player.id}-${claim?.id ?? 'new'}`}
+        claim={claim}
+        onSave={onSave}
         player={player}
         leagueId={leagueId}
         availability={availability}
