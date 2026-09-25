@@ -897,6 +897,73 @@ async function finalizePriorWeeks() {
   return { finalized };
 }
 
+/**
+ * Scheduler entry point for the DAILY current-week pass: for every in-season
+ * league, patch the same nflverse-only keys `finalizePriorWeeks` does onto
+ * the week the league is sitting on now, so a Thursday night game's IDP
+ * yardage lands Friday morning instead of the Monday after the week ends.
+ * Groups leagues by (season, current week) so each week's file is fetched
+ * once.
+ *
+ * The write is `applyNflverseWeekUnit`'s read-merge-upsert, so everything
+ * Tank01 wrote on the row stays, and the live box apply carries these keys
+ * forward on its next rewrite (boxScoreApply's NFLVERSE_ONLY_STAT_KEYS): the
+ * two feeds never fight over a key.
+ *
+ * Its own Sync run job, 'nflverse-current-week', not 'nflverse-week': the
+ * cadence gate reads the job's last ok row, so sharing the name would let
+ * whichever daily pass ran first satisfy the other's gate for the day.
+ *
+ * Writes stats only, and deliberately re-scores nothing. The week is still
+ * open, and the only re-score that fits an open week is the live one, which
+ * prices lineups off the CURRENT roster: run outside a game window it would
+ * move displayed scores for every drop or claim since the games were played,
+ * and a pass landing just after advance-week would silently re-score the
+ * final week. The patched keys reach matchups the way every other stat does
+ * instead: the next live-scoring window, or advance-week's settle, which
+ * recomputes the week as played. A patch that lands after the week went
+ * final is the Tue/Wed correction pass's to announce.
+ *
+ * Only weeks with a kickoff in the last 7 days are fetched: before the
+ * season's first game nflverse has no file for it (a 404 the cadence gate
+ * would retry every tick), and a league whose commissioner never advanced
+ * past a long-finished week has nothing left to gain from a daily re-pull.
+ */
+async function patchCurrentWeeks() {
+  const leaguesResult = await pool.query(
+    `SELECT "id", "current_season", "current_week" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  const weeks = new Map(); // 'season:week' -> { season, week }
+  for (const league of leaguesResult.rows) {
+    const key = `${league.current_season}:${league.current_week}`;
+    if (!weeks.has(key)) weeks.set(key, { season: league.current_season, week: league.current_week });
+  }
+
+  const patched = [];
+  for (const { season, week } of weeks.values()) {
+    try {
+      const played = await pool.query(
+        `SELECT 1 FROM "nfl_games"
+         WHERE "season" = $1 AND "week" = $2
+           AND "kickoff_at" BETWEEN now() - interval '7 days' AND now()
+         LIMIT 1`,
+        [season, week]
+      );
+      if (!played.rows[0]) continue;
+      patched.push(await runSyncJob({
+        job: 'nflverse-current-week',
+        lock: null,
+        fetch: () => fetchNflverseWeekUnit({ season, week }),
+        apply: (client, unit) => applyNflverseWeekUnit(client, unit),
+      }));
+    } catch (err) {
+      console.error('nflverse current-week patch failed for %s week %s:', season, week, err.message);
+    }
+  }
+  return { patched };
+}
+
 module.exports = {
   parseCsv,
   fetchPlayerWeekStatsForSeason,
@@ -924,4 +991,5 @@ module.exports = {
   syncNflverseWeek,
   isNflverseFinalizationDay,
   finalizePriorWeeks,
+  patchCurrentWeeks,
 };

@@ -93,6 +93,11 @@ async function tickUnlocked() {
       console.error('nflverse finalization failed (will retry next tick):', err.message);
     }
     try {
+      await runDailyNflverseCurrentWeek();
+    } catch (err) {
+      console.error('nflverse current-week pass failed (will retry next tick):', err.message);
+    }
+    try {
       await runDailyInjurySync();
     } catch (err) {
       console.error('daily injury sync failed (will retry next tick):', err.message);
@@ -936,6 +941,42 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
   return result;
 }
 
+// nflverse republishes stats_player_week a few hours after each game day's
+// last game (the 2026 week 3 Thursday game was in the file by 04:35 UTC
+// Friday); Sunday and Monday night slates end around 04:00 UTC. 10:00 UTC
+// leaves margin for all three and sits hours before the earliest kickoff
+// (Sunday London games, 13:30 UTC).
+const NFLVERSE_CURRENT_WEEK_UTC_HOUR = 10;
+
+/**
+ * Daily nflverse current-week pass: every day of the week, from
+ * `NFLVERSE_CURRENT_WEEK_UTC_HOUR` on, patch nflverse-only stats onto the week
+ * each in-season league is sitting on now (`nflverseSync.patchCurrentWeeks`).
+ * It sits beside `runNflverseFinalization` above, which keeps its Mon-Thu
+ * prior-week window unchanged.
+ *
+ * Once per UTC day via the cadence gate on its own job's rows
+ * ('nflverse-current-week'), no `after`. The hour floor is a plain check
+ * beside the gate, the same split `runNightlyProjectionFill` uses for its
+ * off-peak hour: it is a floor rather than a one-hour window so a worker that
+ * was down at 10:00 still runs later that day. An open game window defers the
+ * pass to the first tick after the slate goes final: nothing to gain from
+ * nflverse mid-game, and the live path owns those ticks.
+ */
+async function runDailyNflverseCurrentWeek({ now = new Date() } = {}) {
+  if (now.getUTCHours() < NFLVERSE_CURRENT_WEEK_UTC_HOUR) return null;
+  const gate = await cadence.due({ job: 'nflverse-current-week', every: 'utc-day', now });
+  if (!gate.due) return null;
+  if (await inGameWindow()) return null;
+  const nflverseSync = require('../services/nflverseSync.service');
+  const result = await nflverseSync.patchCurrentWeeks();
+  const updated = (result.patched || []).filter((p) => p.playersUpdated > 0);
+  if (updated.length > 0) {
+    console.log(`scheduler: nflverse current-week pass updated stats for ${updated.length} week(s)`);
+  }
+  return result;
+}
+
 /**
  * Pick'em-only leagues follow the NFL calendar (they have no matchups, so the
  * commissioner advance-week action can never run for them). Point each one at
@@ -1077,7 +1118,7 @@ function stopScheduler() {
  */
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'game-context',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'odds', 'game-context',
   'espn-depth-chart', 'espn-ownership',
 ];
 
@@ -1224,6 +1265,7 @@ module.exports = {
   runDailyStatCorrections,
   runNightlyProjectionFill,
   runNflverseFinalization,
+  runDailyNflverseCurrentWeek,
   runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,
