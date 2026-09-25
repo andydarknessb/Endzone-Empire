@@ -656,6 +656,8 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   const [
     { projections, upgrades },
     usage,
+    { line, weather },
+    opponents,
     rosMap,
     availability,
     weeks,
@@ -665,7 +667,16 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   ] = await Promise.all([
     loadUpgradeContext({ league, team, season, week: effectiveWeek, playerIds: [player.id] }),
     decisionCardContextService.loadUsage({
-      playerId: player.id, playerTeam: player.nfl_team, season, week: effectiveWeek, rules,
+      playerId: player.id,
+      playerTeam: player.nfl_team,
+      season,
+      week: effectiveWeek,
+      rules,
+      side: decisionCardContextService.sideForPosition(player.position),
+    }),
+    decisionCardContextService.loadGameContext({ season, week: effectiveWeek, nflTeam: player.nfl_team }),
+    decisionCardContextService.loadOpponents({
+      leagueId, player, season, week: Number(effectiveWeek), rules,
     }),
     projectionService.getRestOfSeason([player.id], leagueId),
     availabilityFor({ league, team, player }),
@@ -839,6 +850,11 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       },
     },
     availability,
+    // #1667: the Decision card's game context rides the one read, for any
+    // player (rostered or not). `line`/`weather` are null on a bye.
+    line,
+    weather,
+    opponents,
     decision: {
       projWeek: {
         week: effectiveWeek,

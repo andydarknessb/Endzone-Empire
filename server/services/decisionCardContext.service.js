@@ -1,66 +1,38 @@
 const pool = require('../modules/pool');
-const { requireMember } = require('./leagueMembership.service');
 const { impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame } = require('./nwsWeather.service');
-const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
+const { calculateFantasyPoints } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 const { isPresentNumber: isNum } = require('./numericPresence');
 const { positionGroup } = require('./projectionModel');
 const { loadLeagueContext } = require('./projectionFeatures');
 
 /**
- * The Decision card's per-player context (#1236, ADR 0037, ADR 0032):
- * `GET /api/team/lineup/:playerId/context` returns `{ line, weather, usage, opponents }`
- * for one rostered player in one league/week, everything the card shows
- * beyond the Ledger row it opened from.
- *
- * Deliberately its own module (pre-launch ruling 4): it reads `nfl_games`,
- * `game_odds_snapshots`, `game_weather_snapshots` and `player_stats` itself
- * and checks roster membership with its own query, so it never touches
- * lineup.service.js or the client roster entity (#1235's files).
+ * The Decision card's per-player context loaders (#1236, ADR 0037, ADR 0032;
+ * one read since #1667). `playerCard.service.js` `getPlayerCard` is the one
+ * caller: it carries `line`, `weather`, `decision.usage` and `opponents` for
+ * any player, rostered or not. The former context route and its roster-only
+ * orchestrator are gone.
  *
  * `line` and `weather` are read off the player's OWN game this week
  * (resolved from his CURRENT `players.nfl_team`, folded through the same
  * `fn_normalize_nfl_team`/`normalizeNflTeam` vocabulary `nfl_games` is keyed
- * by everywhere else in this app). Both are `null` when he has no game this
- * week at all (a bye, or an unsynced slate); `weather` is a fields-null
- * object (never bare `null`) once a game exists, per the ADR.
+ * by everywhere else). Both are `null` when he has no game this week at all
+ * (a bye, or an unsynced slate); `weather` is a fields-null object (never
+ * bare `null`) once a game exists, per the ADR.
  *
  * `usage`'s three "last played weeks" are the three most recent (season,
- * week) pairs before the requested week in which his CURRENT team's
- * schedule shows a game — a bye contributes no `nfl_games` row, so it is
- * skipped the same way `bye.service` already treats an absent row as a bye.
- * This is why the target-share denominator (ruling 1) explicitly does NOT
- * use `players.nfl_team`, while this window does: ruling 1 aggregates
- * ACROSS players for a team-week and a traded player's past weeks belong to
- * his old team, but "did HIS team play this week" is a property of the
- * team he is on now that a schedule lookup can answer directly.
- *
- * Target share's denominator (ruling 1) is the sum of every `player_stats`
- * row's `stats.usagePassAttempts` for that season/week whose `stats.gameTeam`
- * (folded) matches the player's own `stats.gameTeam` (folded) that week —
- * never `players.nfl_team`. KNOWN UNDERCOUNT: a passer who has never been
- * synced into the `players` table cannot have a `player_stats` row (the FK
- * requires one), so his attempts are silently absent from the sum; this is
- * inherent to the schema, not a filter this module applies.
+ * week) pairs before the requested week in which his CURRENT team's schedule
+ * shows a game. Target share's denominator sums every `player_stats` row's
+ * `stats.usagePassAttempts` for that season/week whose `stats.gameTeam`
+ * (folded) matches the player's own, never `players.nfl_team`.
+ * KNOWN UNDERCOUNT: a passer never synced into `players` has no
+ * `player_stats` row, so his attempts are absent from the sum.
  *
  * Fantasy points price every stats row through `calculateFantasyPoints`
- * under `rulesForLeague(league)` — the same pricer `decision.service.js`
- * uses for hindsight and live what-if (#739, ADR 0024) — never the stored
+ * under `rulesForLeague(league)` (#739, ADR 0024), never the stored
  * default-rules `fantasy_points` column.
  */
-
-class DecisionCardError extends Error {
-  constructor(statusCode, message, code = null) {
-    super(message);
-    this.statusCode = statusCode;
-    this.code = code;
-  }
-}
-
-// No existing route emitted a coded refusal for "not your roster" (searched
-// at 8b56887e); named here per pre-launch ruling 5.
-const PLAYER_NOT_ON_ROSTER = 'PLAYER_NOT_ON_ROSTER';
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
@@ -274,12 +246,38 @@ function opponentEntries(games, allowedByDefense) {
   return entries;
 }
 
+// The per-position season scan behind Opponent rank is the heaviest query on
+// the card read, and a Waivers row expand opens many cards at one position in
+// one league/week (#1667). Memoised here, keyed league + season + week +
+// position (the rules are the league's own), for ten minutes. The in-flight
+// promise is cached so concurrent reads share one scan; a failed scan is
+// dropped so the next read retries.
+const LEAGUE_CONTEXT_TTL_MS = 10 * 60 * 1000;
+const leagueContextMemo = new Map();
+
+function clearLeagueContextMemo() {
+  leagueContextMemo.clear();
+}
+
+function memoLeagueContext({ leagueId, season, week, rules, position }) {
+  const key = `${leagueId}:${season}:${week}:${position}`;
+  const now = Date.now();
+  const hit = leagueContextMemo.get(key);
+  if (hit && now - hit.at < LEAGUE_CONTEXT_TTL_MS) return hit.promise;
+  const promise = loadLeagueContext({ season, week, rules, positions: [position] });
+  leagueContextMemo.set(key, { at: now, promise });
+  promise.catch(() => {
+    if (leagueContextMemo.get(key)?.promise === promise) leagueContextMemo.delete(key);
+  });
+  return promise;
+}
+
 /**
  * The next three weeks' opponents' rank vs the player's position. The league
  * scan is `loadFeatureBundle`'s own, via `loadLeagueContext` (one producer, no second aggregation of
  * points allowed), read under the league's rules.
  */
-async function loadOpponents({ player, season, week, rules }) {
+async function loadOpponents({ leagueId, player, season, week, rules }) {
   const group = positionGroup(player.position);
   if (!group) return [];
   const gamesResult = await pool.query(
@@ -290,68 +288,21 @@ async function loadOpponents({ player, season, week, rules }) {
     [season, week, week + 2, player.nfl_team]
   );
   if (gamesResult.rows.length === 0) return [];
-  const leagueContext = await loadLeagueContext({
-    season, week, rules, positions: [player.position],
+  const leagueContext = await memoLeagueContext({
+    leagueId, season, week, rules, position: player.position,
   });
   const context = leagueContext.get(group);
   return opponentEntries(gamesResult.rows, context ? context.allowedByDefense : null);
 }
 
-/**
- * The full Decision card context for one player on the caller's roster.
- * Throws DecisionCardError(404, ..., 'league not found'-shaped) when the
- * league does not exist, MembershipError(403) when the caller holds no team
- * in it, and DecisionCardError(404, ..., PLAYER_NOT_ON_ROSTER) when the
- * player is not on the caller's own roster there.
- */
-async function getDecisionCardContext({ leagueId, userId, playerId, week }) {
-  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-  const league = leagueResult.rows[0];
-  if (!league) throw new DecisionCardError(404, 'league not found');
-
-  const team = await requireMember(pool, { leagueId, userId });
-
-  const playerResult = await pool.query(
-    `SELECT "players".* FROM "team_players"
-     JOIN "players" ON "players"."id" = "team_players"."player_id"
-     WHERE "team_players"."team_id" = $1 AND "team_players"."player_id" = $2`,
-    [team.id, playerId]
-  );
-  const player = playerResult.rows[0];
-  if (!player) throw new DecisionCardError(404, 'player is not on your roster', PLAYER_NOT_ON_ROSTER);
-
-  const season = league.current_season;
-  const effectiveWeek = week === undefined || week === null ? league.current_week : week;
-
-  const gameResult = await pool.query(
-    `SELECT "game_key", "roof", "home_away" FROM "nfl_games"
-     WHERE "season" = $1 AND "week" = $2 AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($3)`,
-    [season, effectiveWeek, player.nfl_team]
-  );
-  const game = gameResult.rows[0] || null;
-
-  const rules = rulesForLeague(league);
-  const [line, weather, usage, opponents] = await Promise.all([
-    game && game.game_key ? loadLine(game.game_key, game.home_away) : Promise.resolve(null),
-    game && game.game_key ? loadWeather(game.game_key, game.roof) : Promise.resolve(null),
-    loadUsage({
-      playerId: player.id,
-      playerTeam: player.nfl_team,
-      season,
-      week: effectiveWeek,
-      rules,
-      side: String(positionGroup(player.position) || '').startsWith('IDP_') ? 'defense' : 'offense',
-    }),
-    loadOpponents({ player, season, week: Number(effectiveWeek), rules }),
-  ]);
-
-  return { line, weather, usage, opponents };
-}
-
 module.exports = {
-  DecisionCardError,
-  PLAYER_NOT_ON_ROSTER,
-  getDecisionCardContext,
+  LEAGUE_CONTEXT_TTL_MS,
+  clearLeagueContextMemo,
+  loadLine,
+  loadWeather,
+  loadOpponents,
+  sideForPosition,
+  loadGameContext,
   averageOf,
   impliedTotalForTeam,
   usageEntryFromStats,
@@ -362,3 +313,24 @@ module.exports = {
   // 0037) stays the one producer.
   loadUsage,
 };
+
+/** 'defense' for an IDP position group (its snaps live under the defense keys), else 'offense'. */
+function sideForPosition(position) {
+  return String(positionGroup(position) || '').startsWith('IDP_') ? 'defense' : 'offense';
+}
+
+/** `{ line, weather }` for the player's game this week; both null when he has none. */
+async function loadGameContext({ season, week, nflTeam }) {
+  const gameResult = await pool.query(
+    `SELECT "game_key", "roof", "home_away" FROM "nfl_games"
+     WHERE "season" = $1 AND "week" = $2 AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($3)`,
+    [season, week, nflTeam]
+  );
+  const game = gameResult.rows[0];
+  if (!game || !game.game_key) return { line: null, weather: null };
+  const [line, weather] = await Promise.all([
+    loadLine(game.game_key, game.home_away),
+    loadWeather(game.game_key, game.roof),
+  ]);
+  return { line, weather };
+}

@@ -1,7 +1,7 @@
 /**
  * The Line/Weather read model, pure (ADR 0029: the entities layer). It is the
- * defensive shape over `GET /api/team/lineup/:playerId/context`'s `line` and
- * `weather` fields (server/services/decisionCardContext.service.js, #1236,
+ * defensive shape over the card read's `line` and
+ * `weather` fields (server/services/playerCard.service.js, #1667; was #1236,
  * ADR 0037), so a malformed or half-loaded body never reaches a caller as a
  * thrown property access.
  *
