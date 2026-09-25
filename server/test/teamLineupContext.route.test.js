@@ -45,6 +45,8 @@ function baseHandlers({ leagueOverride, rostered = true } = {}) {
     [select('leagues'), () => ({ rows: [leagueRow(leagueOverride)] })],
     [select('teams'), () => ({ rows: [teamRow()] })],
     [select('team_players'), () => ({ rows: rostered ? [PLAYER] : [] })],
+    // #1609: the next-opponents read; no upcoming games means `opponents: []`.
+    [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
   ];
 }
 

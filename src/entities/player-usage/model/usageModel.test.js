@@ -1,4 +1,4 @@
-import { usageFromResponse } from './usageModel';
+import { usageFromResponse, opponentsFromResponse } from './usageModel';
 
 test('reads usage off the wire body', () => {
   const usage = {
@@ -17,4 +17,15 @@ test('a malformed or absent body defaults to null, never throws', () => {
   expect(usageFromResponse(undefined)).toBeNull();
   expect(usageFromResponse('nonsense')).toBeNull();
   expect(usageFromResponse({})).toBeNull();
+});
+
+test('opponents are lifted unchanged off the wire body', () => {
+  const opponents = [{ week: 5, opponent: 'DAL', rankVsPosition: 1, allowedPerGame: 30, games: 4 }];
+  expect(opponentsFromResponse({ opponents })).toEqual(opponents);
+});
+
+test('absent or malformed opponents default to an empty list', () => {
+  expect(opponentsFromResponse(null)).toEqual([]);
+  expect(opponentsFromResponse({})).toEqual([]);
+  expect(opponentsFromResponse({ opponents: 'x' })).toEqual([]);
 });
