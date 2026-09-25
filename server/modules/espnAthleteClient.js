@@ -110,20 +110,79 @@ function normalizeBio(payload) {
   };
 }
 
-/**
- * Pure: an athlete overview payload's `news[]` -> our News shape
- * (CONTEXT.md) `{ headline, source, publishedAt, url }`, newest first as
- * ESPN already orders it. Empty array, never
- * null, when ESPN reports none - `getPlayerCard` supplies the feed-note
- * fallback itself (ADR 0041/CONTEXT.md "News").
- */
+/** Pure: an http(s) story link, or null (non-http schemes never reach an <a href>). */
 function storyUrl(href) {
   if (typeof href !== 'string') return null;
   const lower = href.toLowerCase();
   return lower.startsWith('https://') || lower.startsWith('http://') ? href : null;
 }
 
+const FANTASY_NEWS_URL = 'https://site.api.espn.com/apis/fantasy/v2/games/ffl/news/players';
+const FANTASY_NEWS_LIMIT = 20;
+
+const HTML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/** Pure: an ESPN HTML `story` -> a plain-text blurb, or null when empty. */
+function htmlToText(html) {
+  if (typeof html !== 'string') return null;
+  const text = html
+    .replace(/<\/(p|div|li|h\d)>|<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|(amp|lt|gt|quot|apos|nbsp));/g, (m, dec, hex, named) => {
+      if (named) return HTML_ENTITIES[named];
+      const code = dec ? parseInt(dec, 10) : parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text || null;
+}
+
+// UTC offsets (hours) for the US zone abbreviations ESPN's rotowire stamp uses.
+const TZ_OFFSET_HOURS = { UTC: 0, GMT: 0, EST: -5, EDT: -4, CST: -6, CDT: -5, MST: -7, MDT: -6, PST: -8, PDT: -7 };
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * Pure: the overview `rotowire.published` stamp -> ISO string, or null. ESPN
+ * sends it NOT as ISO but as `"Sun Sep 20 13:57:33 PDT 2026"` (#1641); an ISO
+ * string is accepted too. An unknown zone abbreviation or any unparseable
+ * value is null, never a guess.
+ */
+function parseRotowirePublished(value) {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(/^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+([A-Za-z]{2,4})\s+(\d{4})$/);
+  if (match) {
+    const month = MONTHS.indexOf(match[1].toLowerCase());
+    const offset = TZ_OFFSET_HOURS[match[6].toUpperCase()];
+    if (month < 0 || offset === undefined) return null;
+    const ms = Date.UTC(Number(match[7]), month, Number(match[2]), Number(match[3]) - offset, Number(match[4]), Number(match[5]));
+    return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+  }
+  if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+/**
+ * Pure: an athlete overview payload -> News (CONTEXT.md), one step of the
+ * fallback order of #1641: the top-level `rotowire` object (the latest
+ * dedicated RotoWire blurb) alone when present, else `news[]` - a fallback,
+ * never a concatenation, so generic articles do not sit under the blurb. Each item is `{ headline, source,
+ * publishedAt, url, blurb? }`. Empty array, never null, when ESPN reports
+ * none - `getPlayerCard` supplies the feed-note fallback itself.
+ */
 function normalizeEspnNews(payload) {
+  const rotowire = payload && payload.rotowire;
+  if (rotowire && typeof rotowire === 'object' && rotowire.headline) {
+    return [{
+      headline: String(rotowire.headline),
+      source: 'rotowire',
+      publishedAt: parseRotowirePublished(rotowire.published),
+      url: null,
+      // story first, description second: the same precedence as normalizeFantasyNews.
+      blurb: htmlToText(rotowire.story) || htmlToText(rotowire.description),
+    }];
+  }
   const news = payload && Array.isArray(payload.news) ? payload.news : [];
   return news
     .filter((item) => item && item.headline)
@@ -138,6 +197,26 @@ function normalizeEspnNews(payload) {
       // lands verbatim in an <a href>.
       url: storyUrl(item.links && item.links.web && item.links.web.href),
     }));
+}
+
+/**
+ * Pure: the fantasy player-news feed (`{ feed: [...] }`, #1641) -> News. Only
+ * `type === 'Rotowire'` items (the others are shared roundups), newest first,
+ * blurb = the `story` HTML stripped to text, else `description`. A missing
+ * or reshaped feed is an empty array - undocumented endpoint, never an error.
+ */
+function normalizeFantasyNews(payload) {
+  const feed = payload && Array.isArray(payload.feed) ? payload.feed : [];
+  return feed
+    .filter((item) => item && item.type === 'Rotowire' && item.headline)
+    .map((item) => ({
+      headline: String(item.headline),
+      source: 'rotowire',
+      publishedAt: item.published || item.lastModified || null,
+      url: storyUrl(item.links && item.links.web && item.links.web.href),
+      blurb: htmlToText(item.story) || htmlToText(item.description),
+    }))
+    .sort((x, y) => (Date.parse(y.publishedAt) || 0) - (Date.parse(x.publishedAt) || 0));
 }
 
 /**
@@ -240,7 +319,7 @@ async function getJson(transport, url, { params, headers } = {}) {
 // left to race: the single result is the only thing `cacheSet` ever writes.
 const inFlight = new Map();
 
-async function cachedFetch(kind, id, transport, fetchFn) {
+async function cachedFetch(kind, id, transport, fetchFn, isPartial = () => false) {
   const key = `${kind}:${id}`;
   const cached = cacheGet(key);
   if (cached !== undefined) return cached;
@@ -249,7 +328,7 @@ async function cachedFetch(kind, id, transport, fetchFn) {
   const promise = (async () => {
     try {
       const value = await fetchFn();
-      cacheSet(key, value, value === null ? FAILURE_TTL_MS : SUCCESS_TTL_MS);
+      cacheSet(key, value, value === null || isPartial(value) ? FAILURE_TTL_MS : SUCCESS_TTL_MS);
       return value;
     } finally {
       inFlight.delete(key);
@@ -269,15 +348,35 @@ async function profile(athleteId, { transport } = {}) {
   });
 }
 
+// Overview results built while one of its two ESPN calls failed (see overview()).
+const partialResults = new WeakSet();
+
 /** `{ news: [...], injuryFacts: {...}|null } | null`, same cache rule as
  * `profile`. `null` for a missing id. */
 async function overview(athleteId, { transport } = {}) {
   if (athleteId == null || athleteId === '') return null;
   return cachedFetch('overview', athleteId, transport, async () => {
-    const payload = await getJson(transport, `${ATHLETE_BASE}/${athleteId}/overview`);
-    if (!payload) return null;
-    return { news: normalizeEspnNews(payload), injuryFacts: normalizeInjuryFacts(payload) };
-  });
+    // The fantasy player-news feed rides the same cache entry (#1641): one
+    // extra call per athlete, never a separate cache key. It leads the card's
+    // news when it has Rotowire items; an empty/failed feed leaves the
+    // overview's own rotowire/news[] (then the caller's feed note). Either
+    // call failing (getJson null) makes the entry partial, so it takes the
+    // five-minute failure TTL like any failure, not six hours (#1641 review).
+    // An empty feed (200 with no items) is a real answer and stays six hours.
+    const [payload, feedPayload] = await Promise.all([
+      getJson(transport, `${ATHLETE_BASE}/${athleteId}/overview`),
+      getJson(transport, FANTASY_NEWS_URL, { params: { playerId: String(athleteId), limit: FANTASY_NEWS_LIMIT } }),
+    ]);
+    const feedNews = normalizeFantasyNews(feedPayload);
+    if (!payload && feedNews.length === 0) return null;
+    const overviewNews = normalizeEspnNews(payload);
+    const result = {
+      news: feedNews.length > 0 ? feedNews : overviewNews,
+      injuryFacts: normalizeInjuryFacts(payload),
+    };
+    if (!payload || !feedPayload) partialResults.add(result);
+    return result;
+  }, (value) => partialResults.has(value));
 }
 
 /** This team's depth chart -> `{ athleteId, teamCode, positionGroup, rank
@@ -323,6 +422,8 @@ module.exports = {
   // pure - unit tested
   normalizeBio,
   normalizeEspnNews,
+  normalizeFantasyNews,
+  parseRotowirePublished,
   normalizeInjuryFacts,
   normalizeDepthChart,
   normalizeOwnership,
