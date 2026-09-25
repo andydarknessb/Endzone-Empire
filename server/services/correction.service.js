@@ -278,6 +278,9 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
   // see that a refill is now owed (it reads the same fact durably from the
   // pass's own Sync run row after a restart; this is the in-process view).
   const invalidated = [];
+  // Weeks whose sync threw: reported to the scheduler, which records the run
+  // not ok and leaves the day unstamped so the pass retries.
+  const failed = [];
   for (const { season, week, leagueIds } of weeks.values()) {
     try {
       if (source === 'nflverse') {
@@ -291,6 +294,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
       }
     } catch (err) {
       console.error('stat correction: sync failed for %s week %s:', season, week, err.message);
+      failed.push({ season, week, error: err && err.message ? err.message : String(err) });
       continue; // don't re-score leagues from stale stats
     }
     // Corrected stats shift season averages, so every LATER week's cached
@@ -368,9 +372,10 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
     err.cacheFailures = cacheFailures;
     err.corrected = results;
     err.invalidated = invalidated;
+    err.failed = failed;
     throw err;
   }
-  return { corrected: results, invalidated };
+  return { corrected: results, invalidated, failed };
 }
 
 module.exports = {
