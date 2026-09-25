@@ -14,7 +14,7 @@ afterEach(() => {
 test('a null leagueId or playerId binds no URL and reports the idle shape', () => {
   const { result } = renderHook(() => useDecisionCardUsage({ leagueId: null, playerId: 7 }));
   expect(apiClient.get).not.toHaveBeenCalled();
-  expect(result.current).toEqual({ status: 'loading', usage: null });
+  expect(result.current).toEqual({ status: 'loading', usage: null, opponents: [] });
 });
 
 test('reads the decision card context endpoint and returns usage', async () => {

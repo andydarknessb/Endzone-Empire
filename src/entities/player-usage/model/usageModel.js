@@ -14,8 +14,18 @@
  * a stats row, or `null` when he has none. Snap counts are not usage
  * (CONTEXT.md's Usage entry) and are never read here.
  *
+ * `opponents` (#1609) is the same body's next-opponents list, each `{ week,
+ * opponent, rankVsPosition, allowedPerGame, games }`; rank 1 allows the most
+ * points to the player's position (CONTEXT.md: Opponent rank vs position).
+ *
  * This module is pure: it imports nothing at all.
  */
+
+/** The `opponents` list off the wire body, lifted unchanged; anything but an array is []. */
+export function opponentsFromResponse(data) {
+  const body = data && typeof data === 'object' ? data : {};
+  return Array.isArray(body.opponents) ? body.opponents : [];
+}
 
 /** The `usage` field off the wire body, defaulting a malformed or absent body to null. */
 export function usageFromResponse(data) {

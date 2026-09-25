@@ -4,6 +4,7 @@ const {
   averageOf,
   impliedTotalForTeam,
   usageEntryFromStats,
+  opponentEntries,
 } = require('../services/decisionCardContext.service');
 
 // ---------------------------------------------------------------------------
@@ -93,4 +94,28 @@ test('averageOf: an empty or all-null list is null, never zero or NaN', () => {
   assert.equal(averageOf([]), null);
   assert.equal(averageOf([null, null]), null);
   assert.equal(averageOf(undefined), null);
+});
+
+// ---------------------------------------------------------------------------
+// opponentEntries (#1609)
+// ---------------------------------------------------------------------------
+
+test('opponentEntries: rank 1 allows the most points; a game with no row (bye) adds no entry', () => {
+  const defenses = new Map([['DAL', { allowedPerGame: 30, games: 4 }], ['NYG', { allowedPerGame: 10, games: 4 }], ['PHI', { allowedPerGame: 20, games: 4 }]]);
+  const out = opponentEntries([{ week: 5, opponent: 'DAL' }, { week: 6, opponent: 'NYG' }], defenses);
+  assert.deepEqual(out, [
+    { week: 5, opponent: 'DAL', rankVsPosition: 1, allowedPerGame: 30, games: 4 },
+    { week: 6, opponent: 'NYG', rankVsPosition: 3, allowedPerGame: 10, games: 4 },
+  ]);
+});
+
+test('opponentEntries: ties share the lower rank number', () => {
+  const defenses = new Map([['A', { allowedPerGame: 9, games: 1 }], ['B', { allowedPerGame: 9, games: 1 }], ['C', { allowedPerGame: 5, games: 1 }]]);
+  const out = opponentEntries([{ week: 1, opponent: 'B' }, { week: 2, opponent: 'C' }], defenses);
+  assert.deepEqual(out.map((e) => e.rankVsPosition), [1, 3]);
+});
+
+test('opponentEntries: no allowance data is []', () => {
+  assert.deepEqual(opponentEntries([{ week: 1, opponent: 'DAL' }], new Map()), []);
+  assert.deepEqual(opponentEntries([{ week: 1, opponent: 'DAL' }], null), []);
 });
