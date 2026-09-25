@@ -116,7 +116,7 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
                 value={bid}
                 onChange={(e) => setBid(e.target.value)}
                 error={bidInvalid}
-                helperText={bidInvalid ? `Enter a bid between $0 and ${faabRemaining}` : undefined}
+                helperText={bidInvalid ? `Enter a bid between $0 and $${faabRemaining}` : undefined}
                 inputProps={{ min: 0, max: faabRemaining, step: 1 }}
                 sx={{ width: 110 }}
               />
@@ -130,7 +130,7 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
                 Max
               </Button>
             </Box>
-            <Typography sx={{ fontSize: 12, mt: 0.5, color: 'var(--dash-dim)' }}>{`${faabRemaining} remaining`}</Typography>
+            <Typography sx={{ fontSize: 12, mt: 0.5, color: 'var(--dash-dim)' }}>{`$${faabRemaining} remaining`}</Typography>
           </Box>
         ) : (
           availability?.waiverPriority != null && (
