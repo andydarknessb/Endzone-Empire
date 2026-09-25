@@ -43,7 +43,7 @@ const TABS = [
  *
  * BELOW-ISLAND EDGES (ADR 0031 amendment), each named with its reason:
  *   - `hooks/useLeague`: the league row, whose `best_ball` decides the sort
- *     before the first read (`GET /api/waivers` does not carry it).
+ *     before the first read (the waivers read does not carry it).
  *   - `components/LeagueBreadcrumb`: the back-link every league subpage shows.
  *   - `api/apiClient` and `lib/httpFailure`: the one `claim-target` read behind
  *     the Player Browser's `?playerId=` deep link (and, through `useCardReads`,

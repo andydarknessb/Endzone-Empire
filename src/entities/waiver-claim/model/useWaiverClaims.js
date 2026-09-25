@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEndpoint } from '../../../shared/lib';
-import apiClient from '../../../api/apiClient';
+import { moveClaim as putClaimOrder } from './claimWrites';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { claimsFromResponse } from './claimsModel';
 
@@ -18,8 +18,8 @@ import { claimsFromResponse } from './claimsModel';
  * with the refusal in `orderError`; `orderSettled` ticks when each PUT ends. `orderAnnouncement` is the live-region
  * text for a successful move. A fresh read supersedes the optimistic order.
  *
- * BELOW-ISLAND EDGES (ADR 0029, #874): `api/apiClient` and
- * `lib/httpFailure`, for the one reorder write and its refusal text.
+ * BELOW-ISLAND EDGES (ADR 0029, #874): `lib/httpFailure`, for the
+ * reorder's refusal text (the write itself is `claimWrites`).
  *
  * @param {{ leagueId?: number|string|null, refreshKey?: number }} [params]
  */
@@ -72,7 +72,7 @@ export function useWaiverClaims({ leagueId, refreshKey = 0 } = {}) {
       setOrderError(null);
       setOrder(ids);
       try {
-        await apiClient.put('/api/waivers/claims/order', { leagueId: Number(leagueId), claimIds: ids });
+        await putClaimOrder({ leagueId, claimIds: ids });
         setOrderAnnouncement(`${pending[from].playerName} moved to Claim order #${to + 1}`);
       } catch (err) {
         setOrderAnnouncement('');
