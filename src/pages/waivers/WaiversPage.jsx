@@ -140,7 +140,7 @@ export default function WaiversPage() {
 
   const [editClaimId, setEditClaimId] = useState(null);
   const editingClaim = claims.pending.find((claim) => claim.id === editClaimId) || null;
-  const { editClaim, cancelClaim } = useManageClaim({
+  const { editClaim, cancelClaim, pending: manageBusy } = useManageClaim({
     leagueId,
     pendingIds: claims.pending.map((claim) => claim.id),
     onDone: refreshAfterAction,
@@ -332,6 +332,7 @@ export default function WaiversPage() {
                 onMove={moveClaim}
                 onEdit={(claim) => setEditClaimId(claim.id)}
                 onCancel={cancelClaim}
+                busy={manageBusy}
                 orderError={orderError}
                 orderAnnouncement={orderAnnouncement}
                 orderSettled={orderSettled}

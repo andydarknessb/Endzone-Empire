@@ -53,7 +53,7 @@ function SharedDropWarning({ claim, rankById }) {
   );
 }
 
-function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, onCancel }) {
+function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, onCancel, busy }) {
   return (
     <Box
       component="li"
@@ -94,6 +94,8 @@ function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, 
         </IconButton>
         <IconButton
           aria-label={`Cancel claim on ${claim.playerName}`}
+          data-claim-cancel={rank}
+          disabled={busy}
           onClick={() => onCancel(claim, rank - 1)}
           sx={MIN_TOUCH_TARGET_SX}
         >
@@ -115,7 +117,7 @@ function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, 
  * `onEdit(claim)` and `onCancel(claim, position)` are the page's `manage-claim`
  * wiring (#1616). Claims that name the same drop each carry a neutral warning.
  */
-export default function WaiverClaims({ claims, onMove, onEdit, onCancel, orderError, orderAnnouncement, orderSettled, showBid }) {
+export default function WaiverClaims({ claims, onMove, onEdit, onCancel, busy = false, orderError, orderAnnouncement, orderSettled, showBid }) {
   const { pending, resultsByWeek } = claims;
   const rootRef = useRef(null);
   const focusRef = useRef(null);
@@ -143,6 +145,22 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, orderEr
     }
   });
 
+  // After a Cancel the row is gone: focus lands on the Cancel control now in
+  // its place (or the last one), else on the card, never on <body>.
+  const cancelledRef = useRef(null);
+  const handleCancel = (claim, position) => {
+    cancelledRef.current = { id: claim.id, position };
+    return onCancel(claim, position);
+  };
+  useEffect(() => {
+    const target = cancelledRef.current;
+    if (!target || !rootRef.current || pending.some((c) => c.id === target.id)) return;
+    cancelledRef.current = null;
+    const rank = Math.min(target.position, pending.length - 1) + 1;
+    const el = pending.length ? rootRef.current.querySelector(`[data-claim-cancel="${rank}"]`) : rootRef.current;
+    el?.focus();
+  }, [pending]);
+
   const rankById = new Map(pending.map((claim, index) => [claim.id, index + 1]));
   const results = resultsByWeek.filter((group) => group.results.length > 0);
 
@@ -151,7 +169,7 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, orderEr
   }
 
   return (
-    <Box ref={rootRef} sx={{ p: 2, minWidth: 0 }}>
+    <Box ref={rootRef} tabIndex={-1} sx={{ p: 2, minWidth: 0, outline: 'none' }}>
       {orderError && (
         <Alert severity="error" sx={{ mb: 1.5 }}>
           {orderError}
@@ -177,7 +195,8 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, orderEr
                 rank={index + 1}
                 rankById={rankById}
                 onEdit={onEdit}
-                onCancel={onCancel}
+                onCancel={handleCancel}
+                busy={busy}
                 isFirst={index === 0}
                 isLast={index === pending.length - 1}
                 onMove={handleMove}

@@ -665,6 +665,34 @@ test('Cancel removes the claim and Undo re-files it, then restores its Claim ord
   );
 });
 
+test('after Cancel, focus lands on the next claim\'s Cancel control and the list never flashes empty', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  renderWithToast();
+  const card = await claimsCard();
+  const cancel = await within(card).findByRole('button', { name: 'Cancel claim on Claim A' });
+  cancel.focus();
+  await userEvent.click(cancel);
+  await waitFor(() => expect(within(card).queryByText('Claim A')).not.toBeInTheDocument());
+  expect(within(card).queryByText('No claims yet')).not.toBeInTheDocument();
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Cancel claim on Claim C' })).toHaveFocus());
+});
+
+test('after saving an edit, focus returns to that claim\'s Edit control', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  freshClaimReads(waivers);
+  apiClient.patch.mockResolvedValue({ data: {} });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Edit claim on Claim A' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim A/ });
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Save claim' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Edit claim on Claim A' })).toHaveFocus());
+});
+
 test('a failed Undo says so in the toast', async () => {
   const waivers = waiversBody({ myClaims: manageClaims() });
   setup({ waivers, roster: SHEET_ROSTER });
