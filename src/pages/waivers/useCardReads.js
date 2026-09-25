@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import apiClient from '../../api/apiClient';
+import { playerCardFromResponse, playerCardUrl } from '../../entities/player';
 
 /**
  * The page's record of Decision-card reads (#1617), one attempt per player per
@@ -25,8 +26,10 @@ export function useCardReads(leagueId) {
       if (attempts.current.has(playerId)) return;
       attempts.current.set(playerId, { status: 'loading', card: null });
       apiClient
-        .get(`/api/players/${playerId}/card?leagueId=${leagueId}`)
-        .then((res) => attempts.current.set(playerId, { status: 'ready', card: res?.data ?? null }))
+        .get(playerCardUrl({ leagueId, playerId }))
+        .then((res) =>
+          attempts.current.set(playerId, { status: 'ready', card: playerCardFromResponse(res?.data) }),
+        )
         .catch(() => attempts.current.set(playerId, { status: 'error', card: null }))
         .then(() => bump((n) => n + 1));
     },

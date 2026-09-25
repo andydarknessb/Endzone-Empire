@@ -1,5 +1,5 @@
 import { useEndpoint } from '../../../shared/lib';
-import { playerCardFromResponse } from './playerCardModel';
+import { playerCardFromResponse, playerCardUrl } from './playerCardModel';
 
 /**
  * The Decision-card payload for one player in one league/week, as a read
@@ -22,9 +22,7 @@ import { playerCardFromResponse } from './playerCardModel';
  */
 export function usePlayerCard({ leagueId, playerId, week } = {}) {
   const ready = leagueId != null && playerId != null;
-  const url = ready
-    ? `/api/players/${playerId}/card?leagueId=${leagueId}${week != null ? `&week=${week}` : ''}`
-    : null;
+  const url = ready ? playerCardUrl({ leagueId, playerId, week }) : null;
   const { status, data } = useEndpoint(url);
   return { status, card: playerCardFromResponse(data) };
 }
