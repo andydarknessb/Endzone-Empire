@@ -1866,3 +1866,82 @@ test('tickUnlocked runs the kickoff waiver hold before claim processing (#1375, 
   assert.ok(holdAt !== -1 && waiversAt !== -1, 'both calls are present');
   assert.ok(holdAt < waiversAt, "the hold job writes this tick's kickoff rows before claims are processed");
 });
+
+// ---- stat-corrections: failed weeks (#1674) -----------------------------------
+// The pass reports weeks whose sync threw; a run with any is not ok, leaves the
+// day unstamped and retries no sooner than an hour later. Driven through the
+// real cadence gate over a fake data_sync_runs table.
+
+function statCorrectionsWorld(t, { latest = null, latestOk = null } = {}) {
+  const inserts = [];
+  const world = { latest, latestOk, inserts };
+  createFakePool([
+    [/INSERT INTO "data_sync_runs"/, (text, params) => {
+      inserts.push({ job: params[0], ok: params[2], detail: JSON.parse(params[3]) });
+      return { rows: [] };
+    }],
+    [/FROM "data_sync_runs"/, () => ({ rows: [{ latest: world.latest, latestOk: world.latestOk }] })],
+  ]).install(t);
+  return world;
+}
+
+const runRow = (finishedAt, ok, day) => ({ id: 1, finished_at: finishedAt, ok, detail: { day } });
+
+test('a stat-corrections pass with a failed week records ok false with the failed weeks and does not stamp the day', async (t) => {
+  const correction = require('../services/correction.service');
+  const world = statCorrectionsWorld(t);
+  const failed = [{ season: 2026, week: 3, error: 'nflverse 503' }];
+  let passes = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => {
+    passes += 1;
+    return { corrected: [], invalidated: [], failed };
+  });
+
+  const result = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-22T12:00:00Z') });
+
+  assert.equal(result.failed.length, 1);
+  assert.equal(world.inserts.length, 1);
+  assert.equal(world.inserts[0].job, 'stat-corrections');
+  assert.equal(world.inserts[0].ok, false);
+  assert.deepEqual(world.inserts[0].detail.failedWeeks, failed);
+  assert.equal(world.inserts[0].detail.day, '2026-09-22');
+  // Unstamped: with no ok row on file the same day's next pass is due again.
+  await scheduler.runDailyStatCorrections({ now: new Date('2026-09-22T13:30:00Z') });
+  assert.equal(passes, 2, 'the day was not stamped, so the pass ran again');
+});
+
+test('after a not-ok stat-corrections run a tick ten minutes later runs no pass and one sixty-one minutes later does', async (t) => {
+  const correction = require('../services/correction.service');
+  const failedAt = '2026-09-23T12:00:00Z';
+  const world = statCorrectionsWorld(t, { latest: runRow(failedAt, false, '2026-09-23') });
+  let passes = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => {
+    passes += 1;
+    return { corrected: [], invalidated: [], failed: [] };
+  });
+
+  const early = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-23T12:10:00Z') });
+  assert.equal(early, null);
+  assert.equal(passes, 0, 'ten minutes after a not-ok run: no pass');
+  assert.equal(world.inserts.length, 0);
+
+  await scheduler.runDailyStatCorrections({ now: new Date('2026-09-23T13:01:00Z') });
+  assert.equal(passes, 1, 'sixty-one minutes after a not-ok run: the pass runs');
+});
+
+test('a stat-corrections pass with no failed week still records ok true and stamps the day', async (t) => {
+  const correction = require('../services/correction.service');
+  const world = statCorrectionsWorld(t);
+  let passes = 0;
+  t.mock.method(correction, 'resyncPriorWeeks', async () => {
+    passes += 1;
+    return { corrected: [], invalidated: [], failed: [] };
+  });
+
+  await scheduler.runDailyStatCorrections({ now: new Date('2026-09-29T12:00:00Z') });
+  assert.equal(world.inserts.length, 1);
+  assert.equal(world.inserts[0].ok, true);
+  assert.equal('failed' in world.inserts[0].detail, false);
+  await scheduler.runDailyStatCorrections({ now: new Date('2026-09-29T15:00:00Z') });
+  assert.equal(passes, 1, 'stamped: no second pass the same day');
+});

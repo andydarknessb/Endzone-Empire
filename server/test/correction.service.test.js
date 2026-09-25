@@ -1155,3 +1155,28 @@ test('#1411: a weekly high score trophy reconcile failure is logged and never bl
   const logged = logs.find((l) => util.format(...l).includes('weekly high score trophy reconcile failed'));
   assert.ok(logged, 'the trophy reconcile failure is logged');
 });
+
+test('resyncPriorWeeks returns the weeks whose sync threw as failed and still corrects the others (#1674)', async (t) => {
+  stubLeagues(t, [
+    { id: 1, current_season: 2026, current_week: 4 },
+    { id: 2, current_season: 2026, current_week: 5 },
+  ]);
+  stubCaches(t);
+  t.mock.method(nflverse, 'correctWeekFromNflverse', async ({ week }) => {
+    if (week === 3) throw new Error('nflverse 503');
+    return { playersUpdated: 1 };
+  });
+  t.mock.method(console, 'error', () => {});
+
+  const out = await correctionSvc.resyncPriorWeeks();
+
+  assert.deepEqual(out.failed, [{ season: 2026, week: 3, error: 'nflverse 503' }]);
+  assert.deepEqual(out.invalidated, [{ season: 2026, fromWeek: 5, deletedRuns: 2 }], 'the healthy week still ran');
+});
+
+test('resyncPriorWeeks reports no failed weeks on a clean pass (#1674)', async (t) => {
+  stubLeagues(t, [{ id: 1, current_season: 2026, current_week: 4 }]);
+  stubCaches(t);
+  const out = await correctionSvc.resyncPriorWeeks();
+  assert.deepEqual(out.failed, []);
+});

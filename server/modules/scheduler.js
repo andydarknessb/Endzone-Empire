@@ -53,6 +53,8 @@ let lastSyncAt = null;
 // cache from week+1 onward, and repeating THAT on every release of a
 // correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
+// After a not-ok stat-corrections run the pass waits this long before retrying.
+const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
 let lastRetentionDay = null;
 // The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
@@ -98,9 +100,9 @@ async function tickUnlocked() {
       await runDailyStatCorrections();
     } catch (err) {
       // The throw already did its real job: it fired before the correction day
-      // was stamped, so the next 5-minute tick retries the pass. Containing it
+      // was stamped, so the pass retries (an hour after a not-ok run). Containing it
       // here keeps one bad correction day from also skipping every other duty.
-      console.error('daily stat corrections failed (will retry next tick):', err.message);
+      console.error('daily stat corrections failed (will retry):', err.message);
     }
     try {
       await runNflverseFinalization();
@@ -667,20 +669,41 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * UTC `day` the pass ran for (see `statCorrectionsLastRun` above). A thrown
  * pass (including the aggregate cache-maintenance error resyncPriorWeeks
  * raises after finishing) records ok=false, does not move the gate, and
- * bubbles to tickUnlocked's catch, so the next 5-minute tick retries instead
- * of silently skipping the rest of a correction day.
+ * bubbles to tickUnlocked's catch. A pass that finishes with failed week
+ * syncs records ok=false with them in its detail and stamps nothing. Either
+ * way the day stays due and the pass retries once the not-ok row is an hour
+ * old, instead of silently skipping the rest of a correction day.
  */
 async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
   if (!correction.isCorrectionDay(now)) return null;
   const today = cadence.utcDateKey(now);
   if (lastCorrectionDay === today) return null;
+  let latestRun = null;
   const gate = await cadence.due(
     { job: 'stat-corrections', every: 'utc-day', now },
-    { lastRun: statCorrectionsLastRun }
+    {
+      lastRun: async (job) => {
+        const runs = await statCorrectionsLastRun(job);
+        latestRun = runs.latest;
+        return runs;
+      },
+    }
   );
   if (!gate.due) {
     lastCorrectionDay = today;
+    return null;
+  }
+  // A not-ok latest run (a failed week or a thrown pass) leaves the day due
+  // but is retried no sooner than STAT_CORRECTIONS_RETRY_MS later, so a
+  // nflverse file broken all day costs one season-CSV fetch an hour, not one
+  // per tick. Not stamped in memory: the window reopens on its own.
+  if (
+    latestRun &&
+    latestRun.ok === false &&
+    latestRun.finishedAt &&
+    now.getTime() - latestRun.finishedAt.getTime() < STAT_CORRECTIONS_RETRY_MS
+  ) {
     return null;
   }
   const startedAt = new Date();
@@ -697,21 +720,32 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
         reason: 'write_failed',
         message: err && err.message ? err.message : String(err),
         invalidated: (err && err.invalidated) || [],
+        ...(err && err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
       },
     });
     throw err;
   }
+  const failedWeeks = result.failed || [];
   await recordDataSyncRun({
     job: 'stat-corrections',
     startedAt,
-    ok: true,
+    ok: failedWeeks.length === 0,
     detail: {
       day: today,
       corrected: (result.corrected || []).length,
       invalidated: result.invalidated || [],
+      ...(failedWeeks.length > 0 ? { reason: 'write_failed', failedWeeks } : {}),
     },
   });
-  lastCorrectionDay = today;
+  if (failedWeeks.length === 0) {
+    lastCorrectionDay = today;
+  } else {
+    console.warn(
+      `scheduler: stat corrections failed for ${failedWeeks
+        .map((w) => `${w.season} week ${w.week}`)
+        .join(', ')}; retrying after ${STAT_CORRECTIONS_RETRY_MS / 60000} minutes`
+    );
+  }
   if (result.corrected && result.corrected.length > 0) {
     console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
   }
