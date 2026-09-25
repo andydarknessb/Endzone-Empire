@@ -739,6 +739,160 @@ test('syncNflverseWeek: a re-score failure for one league logs and does not fail
   assert.equal(out.leaguesRescored, 0);
 });
 
+// --- patchCurrentWeeks: the current-week pass --------------------------------
+
+const util = require('node:util');
+
+const DEF_HEADER = 'season,week,season_type,player_id,def_sack_yards,def_tackles_for_loss_yards,fumble_recovery_yards_opp,def_interception_yards,def_safeties';
+
+/** Stubs nflverse: HEAD answers `version` (an ETag) per season, or throws
+ * for a season in `headFails`; GET serves one 2025 week 3 defender row, or
+ * throws for a season in `getFails`. Returns the URL log. */
+function stubCurrentWeekFeed(t, { version = '"0xABC"', headFails = [], getFails = [] } = {}) {
+  const log = { head: [], get: [] };
+  t.mock.method(axios, 'head', async (url) => {
+    log.head.push(url);
+    if (headFails.some((s) => url.includes(`_${s}.csv`))) throw new Error('HEAD 503');
+    return { headers: { etag: version, 'last-modified': 'Fri, 25 Sep 2026 04:34:54 GMT' } };
+  });
+  t.mock.method(axios, 'get', async (url) => {
+    log.get.push(url);
+    if (getFails.some((s) => url.includes(`_${s}.csv`))) throw new Error('503 from GitHub');
+    if (url.includes('stats_player_week')) return { data: `${DEF_HEADER}\n2025,3,REG,00-0039924,9,2,15,27,1` };
+    if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
+    return { data: '' };
+  });
+  return log;
+}
+
+/** Leagues on the given (season, week)s; `recent` lists the 'season:week'
+ * keys with a kickoff in the last 7 days; `seen` lists 'season:week:version'
+ * keys this job already patched ok. */
+function fakeCurrentWeekPool(t, { leagues, recent, seen = [], runRows = [] }) {
+  return createFakePool([
+    [/FROM "nfl_games"/, (text, [season, week]) => ({ rows: recent.includes(`${season}:${week}`) ? [{ '?column?': 1 }] : [] })],
+    [/^SELECT 1 FROM "data_sync_runs"/, (text, [version, season, week]) => ({ rows: seen.includes(`${season}:${week}:${version}`) ? [{ '?column?': 1 }] : [] })],
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [{ stats: { soloTackle: 6 } }] }), 'client'],
+    [insert('player_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), (text, params) => { runRows.push(params); return { rows: [] }; }],
+    [select('leagues'), () => ({ rows: leagues })],
+  ]).install(t);
+}
+
+const VERSION = '"0xABC"|Fri, 25 Sep 2026 04:34:54 GMT';
+
+test('patchCurrentWeeks patches each league\'s CURRENT week once, records the nflverse version, and re-scores nothing', async (t) => {
+  stubCurrentWeekFeed(t);
+  const runRows = [];
+  const fake = fakeCurrentWeekPool(t, {
+    leagues: [
+      { id: 7, current_season: 2025, current_week: 3 },
+      { id: 8, current_season: 2025, current_week: 3 },
+    ],
+    recent: ['2025:3'],
+    runRows,
+  });
+  const matchupScoring = require('../services/matchupScoring.service');
+  let rescores = 0;
+  t.mock.method(matchupScoring, 'scoreMatchups', async () => { rescores += 1; return { scored: [] }; });
+  t.mock.method(correction, 'correctLeagueWeek', async () => { rescores += 1; return { changes: [] }; });
+
+  const out = await nflverseSync.patchCurrentWeeks();
+
+  assert.deepEqual(out.patched, [{ season: 2025, week: 3, playersUpdated: 1 }], 'two leagues on one week share one fetch and one write');
+  assert.equal(runRows.length, 1);
+  assert.equal(runRows[0][0], 'nflverse-current-week', 'its own job, so it never satisfies the Mon-Thu nflverse-week gate');
+  assert.deepEqual(JSON.parse(runRows[0][3]), { version: VERSION, season: 2025, week: 3, playersUpdated: 1 },
+    'the run row carries the version it patched at, for the next check to compare');
+  const upsert = fake.calls.find((c) => /INSERT INTO "player_stats"/.test(c.text));
+  assert.equal(upsert.params[2], 3, 'the current week, not current_week - 1');
+  const written = JSON.parse(upsert.params[3]);
+  assert.equal(written.soloTackle, 6, 'merges onto the live row, keeping what Tank01 wrote');
+  assert.equal(written.idpSackYards, 9);
+  assert.equal(rescores, 0, 'an open week is never re-scored off the current roster, nor announced as a correction');
+  fake.assertClean();
+});
+
+test('patchCurrentWeeks downloads nothing when the week is already patched at nflverse\'s current version', async (t) => {
+  const log = stubCurrentWeekFeed(t);
+  const runRows = [];
+  const fake = fakeCurrentWeekPool(t, {
+    leagues: [{ id: 7, current_season: 2025, current_week: 3 }],
+    recent: ['2025:3'],
+    seen: [`2025:3:${VERSION}`],
+    runRows,
+  });
+
+  const out = await nflverseSync.patchCurrentWeeks();
+
+  assert.deepEqual(out.patched, []);
+  assert.equal(log.head.length, 1, 'one cheap HEAD');
+  assert.deepEqual(log.get, [], 'no download');
+  assert.equal(runRows.length, 0, 'no run row for a check that found nothing new');
+  assert.deepEqual(fake.calls.find((c) => /FROM "data_sync_runs"/.test(c.text)).params, [VERSION, '2025', '3']);
+});
+
+test('patchCurrentWeeks re-patches a week once nflverse republishes it', async (t) => {
+  const log = stubCurrentWeekFeed(t, { version: '"0xDEF"' });
+  const runRows = [];
+  fakeCurrentWeekPool(t, {
+    leagues: [{ id: 7, current_season: 2025, current_week: 3 }],
+    recent: ['2025:3'],
+    seen: [`2025:3:${VERSION}`], // patched at the OLD version only
+    runRows,
+  });
+
+  const out = await nflverseSync.patchCurrentWeeks();
+
+  assert.deepEqual(out.patched, [{ season: 2025, week: 3, playersUpdated: 1 }]);
+  assert.equal(log.get.filter((u) => u.includes('stats_player_week')).length, 1);
+  assert.equal(JSON.parse(runRows[0][3]).version, '"0xDEF"|Fri, 25 Sep 2026 04:34:54 GMT');
+});
+
+test('patchCurrentWeeks checks only weeks with a kickoff in the last 7 days', async (t) => {
+  const log = stubCurrentWeekFeed(t);
+  const fake = fakeCurrentWeekPool(t, {
+    leagues: [
+      { id: 7, current_season: 2025, current_week: 3 }, // this week
+      { id: 8, current_season: 2025, current_week: 1 }, // commissioner never advanced
+      { id: 9, current_season: 2027, current_week: 1 }, // preseason: no file published yet
+    ],
+    recent: ['2025:3'],
+  });
+
+  const out = await nflverseSync.patchCurrentWeeks();
+
+  assert.deepEqual(out.patched, [{ season: 2025, week: 3, playersUpdated: 1 }]);
+  assert.ok(![...log.head, ...log.get].some((u) => u.includes('2027')), 'no 404 to retry before the season starts');
+  assert.equal(log.get.filter((u) => u.includes('stats_player_week')).length, 1);
+  assert.deepEqual(
+    fake.calls.filter((c) => /FROM "nfl_games"/.test(c.text)).map((c) => c.params),
+    [[2025, 3], [2025, 1], [2027, 1]]
+  );
+});
+
+test('patchCurrentWeeks: one season\'s failed HEAD or download does not stop another', async (t) => {
+  const log = stubCurrentWeekFeed(t, { headFails: [2023], getFails: [2024] });
+  fakeCurrentWeekPool(t, {
+    leagues: [
+      { id: 5, current_season: 2023, current_week: 18 },
+      { id: 6, current_season: 2024, current_week: 18 },
+      { id: 7, current_season: 2025, current_week: 3 },
+    ],
+    recent: ['2023:18', '2024:18', '2025:3'],
+  });
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(util.format(...args)); });
+
+  const out = await nflverseSync.patchCurrentWeeks();
+
+  assert.deepEqual(out.patched, [{ season: 2025, week: 3, playersUpdated: 1 }]);
+  assert.ok(!log.get.some((u) => u.includes('_2023.csv')), 'a failed HEAD never falls through to a download');
+  assert.ok(errors.some((e) => /current-week patch failed for 2023 week 18: HEAD 503/.test(e)));
+  assert.ok(errors.some((e) => /current-week patch failed for 2024 week 18/.test(e)));
+});
+
 // --- nflverse schedule backfill ----------------------------------------------
 
 test('nflverseTeamToScheduleAbbr writes Tank01 schedule vocabulary: WAS -> WSH, LA -> LAR', () => {
