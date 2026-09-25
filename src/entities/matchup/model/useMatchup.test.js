@@ -175,6 +175,7 @@ test('an optimistic per-starter bump reaches homeStarters without a refetch', as
 
   act(() => {
     socket.fire('scores:updated', {
+      week: 3,
       scored: [{ matchupId: 9, homeScore: 47.2, awayScore: 55.9 }],
       plays: [{ playerId: 1, pointsDelta: 6 }],
     });
@@ -200,6 +201,7 @@ test('two plays for the same starter with different deltas in one event still su
 
   act(() => {
     socket.fire('scores:updated', {
+      week: 3,
       scored: [{ matchupId: 9, homeScore: 47.2, awayScore: 55.9 }],
       plays: [
         { playerId: 1, pointsDelta: 3 },
@@ -210,6 +212,32 @@ test('two plays for the same starter with different deltas in one event still su
 
   const qb = result.current.homeStarters.find((s) => s.id === 1);
   expect(qb.points).toBe(24);
+});
+
+// The week guard: a settled week's Matchup Detail must not move while a later
+// week's games are live.
+test('a scores event stamped for a different week leaves every starter unchanged; a same-week event bumps the right one', async () => {
+  apiClient.get.mockResolvedValue(detailWithStarters());
+
+  const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'] }));
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+  const pointsOf = () => [...result.current.homeStarters, ...result.current.awayStarters].map((s) => s.points);
+  const before = pointsOf();
+
+  act(() => {
+    socket.fire('scores:updated', {
+      week: 4,
+      scored: [],
+      plays: [{ playerId: 1, pointsDelta: 6 }, { playerId: 3, pointsDelta: 2 }],
+    });
+  });
+  expect(pointsOf()).toEqual(before);
+
+  act(() => {
+    socket.fire('scores:updated', { week: 3, scored: [], plays: [{ playerId: 1, pointsDelta: 6 }] });
+  });
+  expect(result.current.homeStarters.find((s) => s.id === 1).points).toBe(26);
+  expect(result.current.homeStarters.find((s) => s.id === 2).points).toBe(8);
 });
 
 test('a live score event for this matchup moves the model without a refetch', async () => {

@@ -27,7 +27,7 @@ export function favoriteFromLine(line, homeTeam, awayTeam) {
  * no weather at all, which the server already models as a null `weather`, so
  * this returns null right through.
  *
- * This read is independent of `entities/line/model/lineModel`'s own Weather
+ * This read is independent of `entities/player/model/lineModel`'s own Weather
  * read (CONTEXT.md, Weather; #1294, ADR 0038 amendment) — the two mirror
  * different server contracts and are not unified here.
  */

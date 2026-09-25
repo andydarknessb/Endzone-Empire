@@ -111,12 +111,7 @@ test('Watch calls onActionDone from the built context on a rostered open', async
 });
 
 describe('Opp rank vs position (#1609)', () => {
-  const contextRoute = (opponents) => {
-    apiClient.get.mockImplementation((url) => {
-      if (url.includes('/card?')) return Promise.resolve({ data: {} });
-      return Promise.resolve({ data: { line: null, weather: null, usage: null, opponents } });
-    });
-  };
+  const contextRoute = (opponents) => mockCardRoute({ opponents });
 
   test('renders the position and each opponent rank ordinal', async () => {
     contextRoute([
@@ -136,4 +131,21 @@ describe('Opp rank vs position (#1609)', () => {
     await screen.findByTestId('decision-card-propose-trade');
     expect(screen.queryByText(/Opp rank vs/)).not.toBeInTheDocument();
   });
+});
+
+// #1667: the Usage table is the managed context's alone; the card read
+// carries usage for every context, and a non-managed one still hides it.
+test('a rostered open hides the Usage table even when the card carries usage', async () => {
+  mockCardRoute({
+    decision: {
+      usage: {
+        weeks: [{ season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, snaps: 58, snapShare: 0.87, targetShare: 0.23, fantasyPoints: 12.4 }],
+        seasonAverage: null,
+      },
+    },
+  });
+  renderCard();
+
+  await screen.findByTestId('decision-card-propose-trade');
+  expect(screen.queryByTestId('decision-card-usage-table')).not.toBeInTheDocument();
 });

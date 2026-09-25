@@ -714,7 +714,7 @@ test('the bench points left on the table line reads the hindsight endpoint', asy
 // Formal review finding legacy-controls-dropped-without-a-criterion:
 // restored controls. #1240 AC1/AC8: the player name now opens the Decision
 // card (replacing the earlier Quick View wiring on Lineup only).
-const decisionContextUrl = (playerId) => `/api/team/lineup/${playerId}/context?leagueId=1&week=4`;
+const decisionContextUrl = (playerId) => `/api/players/${playerId}/card?leagueId=1&week=4`;
 
 test('the player name opens the Decision card with the row\'s own fields, and every section fills in once its context resolves', async () => {
   const user = userEvent.setup();
@@ -723,9 +723,11 @@ test('the player name opens the Decision card with the row\'s own fields, and ev
       data: {
         line: { spread: -3, total: 47, impliedTeamTotal: 22, observedAt: '2026-09-14T00:00:00Z' },
         weather: { indoor: false, temperatureF: 45, windSpeedMph: 10, windGustMph: 18, precipitationProbability: 20, shortForecast: 'Cloudy' },
-        usage: {
-          weeks: [{ season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, targetShare: 0.23, fantasyPoints: 12.4 }],
-          seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, targetShare: 0.21, fantasyPoints: 10.2 },
+        decision: {
+          usage: {
+            weeks: [{ season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, targetShare: 0.23, fantasyPoints: 12.4 }],
+            seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, targetShare: 0.21, fantasyPoints: 10.2 },
+          },
         },
       },
     },
@@ -790,9 +792,9 @@ test('the opponent/kickoff line and the largest Factor\'s explanation render at 
   expect(await within(card).findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
-test('with no Line, weather or usage from the context endpoint, those tiles are hidden - AC3\'s null-source rule', async () => {
+test('with no Line, weather or usage from the card, those tiles are hidden - AC3\'s null-source rule', async () => {
   const user = userEvent.setup();
-  renderPage(); // no decisionContextUrl mock: the context GET rejects, leaving line/weather/usage null
+  renderPage(); // no decisionContextUrl mock: the card GET rejects, leaving line/weather/usage null
   await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
 
   const card = await screen.findByTestId('decision-card');

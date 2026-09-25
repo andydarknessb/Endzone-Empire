@@ -4,10 +4,11 @@ import { playerCardFromResponse, playerCardUrl } from './playerCardModel';
 /**
  * The Decision-card payload for one player in one league/week, as a read
  * model (ADR 0029: the thin hook on the entity's index), over `shared/lib`'s
- * `useEndpoint` the same way `entities/line` and `entities/player-usage`
- * already read the Decision card's other context (#669). Every Availability
+ * `useEndpoint` the same way every plain League Dashboard read is (#669).
+ * Every Availability
  * context reads through this one hook - `player`, `availability`,
- * `decision` (projWeek, ros, upgrade, usage), `weeks[1..18]`, `news[]`,
+ * `line`, `weather`, `opponents`, `decision` (projWeek, ros, upgrade, usage),
+ * `weeks[1..18]`, `news[]`,
  * `log`, `bio` (ADR 0040: "one payload for the Decision card in every
  * availability context", #1306/#1331).
  *

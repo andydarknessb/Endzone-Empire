@@ -174,10 +174,6 @@ async function fulfilApi(route: Route) {
   if (method === 'GET' && cardMatch && CARD_PAYLOAD_BY_ID[Number(cardMatch[1])]) {
     return json(route, 200, CARD_PAYLOAD_BY_ID[Number(cardMatch[1])]);
   }
-  const contextMatch = pathname.match(/^\/api\/team\/lineup\/(\d+)\/context$/);
-  if (method === 'GET' && contextMatch && CARD_PAYLOAD_BY_ID[Number(contextMatch[1])]) {
-    return json(route, 200, { line: null, weather: null, usage: null });
-  }
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
 }
