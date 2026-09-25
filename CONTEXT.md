@@ -839,6 +839,12 @@ Decision card for the last three weeks beside the season average: targets,
 carries, air yards, target share and fantasy points. Snap counts are not
 usage until a snap feed exists. Distinct from the engine's usage blend,
 which is a Factor.
+**Opponent rank vs position** is the Usage tile's line for the next three
+weeks: each opponent's 1-based rank among defenses by fantasy points allowed
+per game to the player's position group under the league's scoring rules
+(rank 1 allows the most, the easiest matchup; ties share the lower rank; a
+bye has no entry). A fact read from the season's stats, not the engine's
+shrunk opponent Factor.
 _Avoid_: opportunity, workload, snaps (unqualified)
 
 **Bye cluster**:
@@ -1082,12 +1088,16 @@ candidate or another team's player, so it doubles as a trade-target score.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
 
 **News**:
-A dated headline about a player. Two producers: the ESPN news list read on
-card open, and the feed sync's single note on the player row. The ESPN list
-wins when present and the note is the one fallback item. An ESPN item carries
-the story link and the headline opens it in a new tab; the feed note has no
-story and stays plain text. Shown on the Decision card in every Availability
-context except your own player (ADR 0037).
+A dated headline about a player, with an optional blurb (a short plain-text
+body). Producers, tried in order, the first that has items wins (a fallback,
+never a merge): ESPN's fantasy player-news feed (RotoWire items only, newest
+first, each with a blurb), the overview's single RotoWire item (headline and
+blurb), the overview's news list, then the feed sync's single note on the
+player row. The link guarantee: an overview-list item carries the story link
+and its headline opens it in a new tab; a RotoWire item may carry a link (the
+feed's `links.web`) or none, and the feed note never has one and stays plain
+text. Shown on the Decision card in every Availability context except your own
+player (ADR 0037).
 _Avoid_: alert, update, headline (a Pick'em term)
 
 ### Scoring and the week

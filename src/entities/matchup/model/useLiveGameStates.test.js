@@ -51,6 +51,21 @@ describe('useLiveGameStates', () => {
     expect(result.current.map((r) => r.tank01_game_id)).toEqual(['g1', 'g2']);
   });
 
+  it('ignores a DELETE payload without re-rendering or storing a row', async () => {
+    const { push } = install(() => [{ tank01_game_id: 'g1', game_status: 'in_progress' }]);
+    let passes = 0;
+    const { result } = renderHook(() => { passes += 1; return useLiveGameStates('s1', ['g1']); });
+    await waitFor(() => expect(result.current).toHaveLength(1));
+    const before = result.current;
+    const passesBefore = passes;
+
+    await push({ eventType: 'DELETE', new: {}, old: { tank01_game_id: 'g1' } });
+    await push({ eventType: 'UPDATE', new: {} });
+
+    expect(passes).toBe(passesBefore);
+    expect(result.current).toBe(before);
+  });
+
   it('keeps a channel-delivered entry over an older read', async () => {
     let resolveRead;
     const inFn = jest.fn(() => new Promise((r) => { resolveRead = r; }));

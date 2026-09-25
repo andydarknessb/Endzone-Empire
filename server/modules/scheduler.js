@@ -93,6 +93,11 @@ async function tickUnlocked() {
       console.error('nflverse finalization failed (will retry next tick):', err.message);
     }
     try {
+      await runNflverseCurrentWeek();
+    } catch (err) {
+      console.error('nflverse current-week pass failed (will retry in 15 minutes):', err.message);
+    }
+    try {
       await runDailyInjurySync();
     } catch (err) {
       console.error('daily injury sync failed (will retry next tick):', err.message);
@@ -936,6 +941,45 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
   return result;
 }
 
+// How often to ask nflverse whether it has republished (a HEAD per season,
+// nflverseSync.patchCurrentWeeks). nflverse republishes about an hour after
+// each night's last game - 04:25-04:50 UTC after every 2026 prime-time game
+// through week 3 - and the live-scoring window stays open 8 hours from the
+// latest kickoff (about 08:15 UTC), so a 15-minute check lands the patch with
+// hours of window to spare.
+const NFLVERSE_CURRENT_WEEK_CHECK_MS = 15 * 60 * 1000;
+let lastNflverseCurrentWeekCheckAt = null; // epoch ms
+
+/**
+ * nflverse current-week pass: every 15 minutes, any hour of any day, ask
+ * `nflverseSync.patchCurrentWeeks` to patch nflverse-only stats onto the week
+ * each in-season league is sitting on now. That call does a HEAD per season
+ * and downloads only when nflverse has republished since its last patch of
+ * that week, so a check that finds nothing new costs one small request. It
+ * sits beside `runNflverseFinalization` above, which keeps its Mon-Thu
+ * prior-week window unchanged.
+ *
+ * No cadence gate: the thing being rate-limited is the HEAD, not a Sync run
+ * (a run row is only written when there is something to patch), so an
+ * in-memory stamp is the whole throttle. It is stamped BEFORE the call, so a
+ * failing nflverse is retried every 15 minutes, not every tick. A worker
+ * restart just checks once early. No game-window deferral either: nflverse
+ * publishes Sunday's afternoon games while the night game is still on, and a
+ * patch that lands inside a live window is exactly what gets it re-scored.
+ */
+async function runNflverseCurrentWeek({ now = new Date() } = {}) {
+  const elapsed = lastNflverseCurrentWeekCheckAt === null ? null : now.getTime() - lastNflverseCurrentWeekCheckAt;
+  if (elapsed !== null && elapsed >= 0 && elapsed < NFLVERSE_CURRENT_WEEK_CHECK_MS) return null;
+  lastNflverseCurrentWeekCheckAt = now.getTime();
+  const nflverseSync = require('../services/nflverseSync.service');
+  const result = await nflverseSync.patchCurrentWeeks();
+  const updated = (result.patched || []).filter((p) => p.playersUpdated > 0);
+  if (updated.length > 0) {
+    console.log(`scheduler: nflverse current-week pass updated stats for ${updated.length} week(s)`);
+  }
+  return result;
+}
+
 /**
  * Pick'em-only leagues follow the NFL calendar (they have no matchups, so the
  * commissioner advance-week action can never run for them). Point each one at
@@ -1077,7 +1121,7 @@ function stopScheduler() {
  */
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'odds', 'game-context',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'odds', 'game-context',
   'espn-depth-chart', 'espn-ownership',
 ];
 
@@ -1224,6 +1268,7 @@ module.exports = {
   runDailyStatCorrections,
   runNightlyProjectionFill,
   runNflverseFinalization,
+  runNflverseCurrentWeek,
   runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,

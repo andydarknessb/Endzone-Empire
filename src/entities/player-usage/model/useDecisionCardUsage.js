@@ -1,5 +1,5 @@
 import { useEndpoint } from '../../../shared/lib';
-import { usageFromResponse } from './usageModel';
+import { usageFromResponse, opponentsFromResponse } from './usageModel';
 
 /**
  * A player's Usage for one league/week, as a read model (ADR 0029: the thin
@@ -22,7 +22,7 @@ import { usageFromResponse } from './usageModel';
  * `useEndpoint` call).
  *
  * @param {{ leagueId?: number|string|null, playerId?: number|string|null, week?: number|string|null }} [params]
- * @returns {{ status: 'loading'|'ready'|'error', usage: object|null }}
+ * @returns {{ status: 'loading'|'ready'|'error', usage: object|null, opponents: object[] }}
  */
 export function useDecisionCardUsage({ leagueId, playerId, week } = {}) {
   const ready = leagueId != null && playerId != null;
@@ -30,7 +30,7 @@ export function useDecisionCardUsage({ leagueId, playerId, week } = {}) {
     ? `/api/team/lineup/${playerId}/context?leagueId=${leagueId}${week != null ? `&week=${week}` : ''}`
     : null;
   const { status, data } = useEndpoint(url);
-  return { status, usage: usageFromResponse(data) };
+  return { status, usage: usageFromResponse(data), opponents: opponentsFromResponse(data) };
 }
 
 export default useDecisionCardUsage;

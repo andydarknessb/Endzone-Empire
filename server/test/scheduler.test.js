@@ -825,6 +825,53 @@ test('tickUnlocked runs the nflverse finalization pass in its own containment', 
   assert.match(tickBody, /try \{\s*await runNflverseFinalization\(\);\s*\} catch/);
 });
 
+// ---- nflverse current-week pass ---------------------------------------------
+// Checked every 15 minutes at any hour of any day: the service's own HEAD
+// decides whether there is anything to download. These stub the service and
+// pin only the throttle. Each test uses its own far-apart day, since the
+// throttle is an in-memory stamp shared across this file.
+
+test('runNflverseCurrentWeek checks at most every 15 minutes, at any hour', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  let calls = 0;
+  t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => {
+    calls += 1;
+    return { patched: [{ season: 2026, week: 3, playersUpdated: 3 }] };
+  });
+
+  // 04:40 UTC Tuesday: nflverse has just published Monday night's game and
+  // the week's live window is still open.
+  const first = new Date('2026-10-06T04:40:00Z');
+  assert.deepEqual(await scheduler.runNflverseCurrentWeek({ now: first }), { patched: [{ season: 2026, week: 3, playersUpdated: 3 }] });
+  assert.equal(await scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-06T04:50:00Z') }), null, '10 minutes later is too soon');
+  assert.notEqual(await scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-06T04:55:00Z') }), null, '15 minutes later checks again');
+  assert.equal(calls, 2);
+});
+
+test('runNflverseCurrentWeek waits 15 minutes after a failed check too', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  let calls = 0;
+  t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => {
+    calls += 1;
+    throw new Error('nflverse unreachable');
+  });
+
+  await assert.rejects(scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-13T05:00:00Z') }), /nflverse unreachable/);
+  assert.equal(await scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-13T05:05:00Z') }), null, 'not retried on the next tick');
+  assert.equal(calls, 1);
+});
+
+test('tickUnlocked runs the nflverse current-week pass in its own containment', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runNflverseCurrentWeek\(\);\s*\} catch/);
+});
+
 // ---- hourly game-context Sync run (#1262, ADR 0038) ------------------------
 // Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
 // CONTEXT.md's Line is the spread/total Sync run tested above as

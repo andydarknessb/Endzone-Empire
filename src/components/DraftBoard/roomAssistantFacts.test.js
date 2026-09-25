@@ -174,6 +174,22 @@ describe('the other room triggers', () => {
     expect(facts.round).toBe(1);
   });
 
+  it('factsForQueueSnipe reads ADP off the pick payload, never the pool row (#1601)', () => {
+    const facts = factsForQueueSnipe({
+      pick: ownPick({ pickNumber: 8, adp: 7 }),
+      teamCount: 12, draftRounds: 12, poolRow: { adp: 30 }, netVsAdp: 0,
+    });
+    expect(facts.adp).toBe(7);
+  });
+
+  it('factsForQueueSnipe has no ADP when the pick carries none, even if the pool row does (#1601)', () => {
+    const facts = factsForQueueSnipe({
+      pick: ownPick({ pickNumber: 8 }),
+      teamCount: 12, draftRounds: 12, poolRow: { adp: 30 }, netVsAdp: 0,
+    });
+    expect(facts.adp).toBeNull();
+  });
+
   it('factsForPoolBrowse reads the whole row, emits POOL_PLAYER_BROWSED, and never announces a round', () => {
     const facts = factsForPoolBrowse({
       poolRow: { name: 'Browsed Guy', position: 'TE', nfl_team: 'SF', adp: 40, injury_status: 'Out' },

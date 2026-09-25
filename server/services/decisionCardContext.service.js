@@ -5,10 +5,12 @@ const { isIndoorGame } = require('./nwsWeather.service');
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 const { isPresentNumber: isNum } = require('./numericPresence');
+const { positionGroup } = require('./projectionModel');
+const { loadLeagueContext } = require('./projectionFeatures');
 
 /**
  * The Decision card's per-player context (#1236, ADR 0037, ADR 0032):
- * `GET /api/team/lineup/:playerId/context` returns `{ line, weather, usage }`
+ * `GET /api/team/lineup/:playerId/context` returns `{ line, weather, usage, opponents }`
  * for one rostered player in one league/week, everything the card shows
  * beyond the Ledger row it opened from.
  *
@@ -236,6 +238,57 @@ async function loadUsage({ playerId, playerTeam, season, week, rules }) {
 }
 
 /**
+ * Opponent rank vs position (#1609): for each of the player's next games,
+ * where the opponent ranks among the defenses in `allowedByDefense` (the
+ * `buildLeagueContext` map for the player's position group). Rank 1 allows
+ * the most points per game (the easiest matchup); ties share the lower rank
+ * number. A game whose opponent has no allowance row contributes no entry,
+ * the same as a bye (no game row), so the tile hides on missing data.
+ * `games` is `[{ week, opponent }]`, already in week order.
+ */
+function opponentEntries(games, allowedByDefense) {
+  if (!allowedByDefense || allowedByDefense.size === 0) return [];
+  const allowed = [...allowedByDefense.values()].map((v) => v.allowedPerGame);
+  const entries = [];
+  for (const game of games) {
+    const opponent = normalizeNflTeam(game.opponent);
+    const row = opponent ? allowedByDefense.get(opponent) : null;
+    if (!row) continue;
+    entries.push({
+      week: Number(game.week),
+      opponent,
+      rankVsPosition: 1 + allowed.filter((a) => a > row.allowedPerGame).length,
+      allowedPerGame: row.allowedPerGame,
+      games: row.games,
+    });
+  }
+  return entries;
+}
+
+/**
+ * The next three weeks' opponents' rank vs the player's position. The league
+ * scan is `loadFeatureBundle`'s own, via `loadLeagueContext` (one producer, no second aggregation of
+ * points allowed), read under the league's rules.
+ */
+async function loadOpponents({ player, season, week, rules }) {
+  const group = positionGroup(player.position);
+  if (!group) return [];
+  const gamesResult = await pool.query(
+    `SELECT "week", "opponent" FROM "nfl_games"
+     WHERE "season" = $1 AND "week" >= $2 AND "week" <= $3
+       AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($4)
+     ORDER BY "week"`,
+    [season, week, week + 2, player.nfl_team]
+  );
+  if (gamesResult.rows.length === 0) return [];
+  const leagueContext = await loadLeagueContext({
+    season, week, rules, positions: [player.position],
+  });
+  const context = leagueContext.get(group);
+  return opponentEntries(gamesResult.rows, context ? context.allowedByDefense : null);
+}
+
+/**
  * The full Decision card context for one player on the caller's roster.
  * Throws DecisionCardError(404, ..., 'league not found'-shaped) when the
  * league does not exist, MembershipError(403) when the caller holds no team
@@ -268,7 +321,8 @@ async function getDecisionCardContext({ leagueId, userId, playerId, week }) {
   );
   const game = gameResult.rows[0] || null;
 
-  const [line, weather, usage] = await Promise.all([
+  const rules = rulesForLeague(league);
+  const [line, weather, usage, opponents] = await Promise.all([
     game && game.game_key ? loadLine(game.game_key, game.home_away) : Promise.resolve(null),
     game && game.game_key ? loadWeather(game.game_key, game.roof) : Promise.resolve(null),
     loadUsage({
@@ -276,11 +330,12 @@ async function getDecisionCardContext({ leagueId, userId, playerId, week }) {
       playerTeam: player.nfl_team,
       season,
       week: effectiveWeek,
-      rules: rulesForLeague(league),
+      rules,
     }),
+    loadOpponents({ player, season, week: Number(effectiveWeek), rules }),
   ]);
 
-  return { line, weather, usage };
+  return { line, weather, usage, opponents };
 }
 
 module.exports = {
@@ -290,6 +345,7 @@ module.exports = {
   averageOf,
   impliedTotalForTeam,
   usageEntryFromStats,
+  opponentEntries,
   // Exported for playerCard.service.js (#1306 Ruling item 3): the card's
   // `usage` tile is this function's `{ weeks, seasonAverage } | null` verbatim,
   // not the body's four-field sketch, so the Lineup card's Usage tile (ADR

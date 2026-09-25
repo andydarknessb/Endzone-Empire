@@ -32,6 +32,7 @@ import {
   MIN_TOUCH_TARGET_SX,
   NFL_TEAM_COLORS,
   FALLBACK_KIT,
+  ordinal,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import { useDecisionCardLine } from '../../../entities/line';
@@ -319,7 +320,7 @@ export default function PlayerDecisionCard(props) {
   }, [draftedBy, isOpen]);
 
   const { line, weather } = useDecisionCardLine({ leagueId, playerId: entry?.playerId ?? null, week });
-  const { usage } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
+  const { usage, opponents } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
   // #1307: the one Decision-card payload, read in every context (ADR 0040's
   // decision strip and eighteen-week bars are additive to `my_team`'s
   // existing entry-based sections above, not a replacement for them).
@@ -411,7 +412,7 @@ export default function PlayerDecisionCard(props) {
     playerId: compareEntry?.playerId ?? null,
     week,
   });
-  const { usage: compareUsage } = useDecisionCardUsage({
+  const { usage: compareUsage, opponents: compareOpponents } = useDecisionCardUsage({
     leagueId,
     playerId: compareEntry?.playerId ?? null,
     week,
@@ -946,7 +947,7 @@ export default function PlayerDecisionCard(props) {
                 <InjurySection entry={entry} level="h4" />
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
                 <ProjectionSection entry={entry} level="h4" />
-                <UsageSection usage={usage} level="h4" />
+                <UsageSection usage={usage} opponents={opponents} position={entry.position} level="h4" />
                 <BenchOptionsSection
                   entry={entry}
                   entries={list}
@@ -970,7 +971,7 @@ export default function PlayerDecisionCard(props) {
                 <InjurySection entry={compareEntry} level="h4" />
                 <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
                 <ProjectionSection entry={compareEntry} level="h4" />
-                <UsageSection usage={compareUsage} level="h4" />
+                <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
               </Box>
             </Box>
           ) : (
@@ -978,7 +979,7 @@ export default function PlayerDecisionCard(props) {
               <InjurySection entry={displayEntry} />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
               {lineupManaged && <ProjectionSection entry={entry} />}
-              {lineupManaged && <UsageSection usage={usage} />}
+              <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
@@ -1219,14 +1220,22 @@ function ProjectionSection({ entry, level }) {
 
 // AC2/AC3: the last three weeks beside the season average, hidden entirely
 // on empty usage (his team had no played week yet).
-function UsageSection({ usage, level }) {
-  if (!usage || !Array.isArray(usage.weeks) || usage.weeks.length === 0) return null;
-  const rows = [
-    ...usage.weeks.map((w) => ({ ...w, isAverage: false })),
-    { ...usage.seasonAverage, isAverage: true },
-  ];
+// #1609: the "Opp rank vs <POS>" line under the table, one entry per next
+// game, rendering nothing when there are none (ADR 0040). It shows in every
+// context; the table itself stays with the lineup-managed card (`showTable`).
+function UsageSection({ usage, opponents, position, level, showTable = true }) {
+  const hasTable = showTable && usage && Array.isArray(usage.weeks) && usage.weeks.length > 0;
+  const hasOpponents = Array.isArray(opponents) && opponents.length > 0;
+  if (!hasTable && !hasOpponents) return null;
+  const rows = hasTable
+    ? [
+        ...usage.weeks.map((w) => ({ ...w, isAverage: false })),
+        { ...usage.seasonAverage, isAverage: true },
+      ]
+    : [];
   return (
     <Section title="Usage" testId="decision-card-usage" level={level}>
+      {hasTable && (
       <Table size="small" aria-label="Usage" data-testid="decision-card-usage-table">
         <TableHead>
           <TableRow>
@@ -1251,6 +1260,13 @@ function UsageSection({ usage, level }) {
           ))}
         </TableBody>
       </Table>
+      )}
+      {hasOpponents && (
+        <Typography variant="body2" data-testid="decision-card-opp-rank" sx={{ px: 2, py: 1 }}>
+          Opp rank vs {position}:{' '}
+          {opponents.map((o) => `W${o.week} ${o.opponent} ${ordinal(o.rankVsPosition)}`).join(', ')}
+        </Typography>
+      )}
     </Section>
   );
 }

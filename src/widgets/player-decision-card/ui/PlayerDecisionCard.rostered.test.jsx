@@ -109,3 +109,31 @@ test('Watch calls onActionDone from the built context on a rostered open', async
   expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
   expect(onActionDone).toHaveBeenCalledTimes(1);
 });
+
+describe('Opp rank vs position (#1609)', () => {
+  const contextRoute = (opponents) => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/card?')) return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: { line: null, weather: null, usage: null, opponents } });
+    });
+  };
+
+  test('renders the position and each opponent rank ordinal', async () => {
+    contextRoute([
+      { week: 4, opponent: 'DAL', rankVsPosition: 1, allowedPerGame: 30, games: 3 },
+      { week: 5, opponent: 'NYG', rankVsPosition: 32, allowedPerGame: 8, games: 3 },
+    ]);
+    renderCard();
+
+    expect(await screen.findByText(/Opp rank vs RB/)).toBeInTheDocument();
+    expect(screen.getByText(/W4 DAL 1st, W5 NYG 32nd/)).toBeInTheDocument();
+  });
+
+  test('renders nothing when opponents is empty', async () => {
+    contextRoute([]);
+    renderCard();
+
+    await screen.findByTestId('decision-card-propose-trade');
+    expect(screen.queryByText(/Opp rank vs/)).not.toBeInTheDocument();
+  });
+});

@@ -11,7 +11,8 @@ function gamesInOrder(ids, byId) {
 /**
  * Subscribes to, then reads, the live NFL games represented by a page's
  * matchup list. The channel is joined first (filtered on every listed id, for
- * INSERT and UPDATE) and the snapshot is read once it is SUBSCRIBED, then merged
+ * every event, of which INSERT and UPDATE are applied and DELETE is ignored) and
+ * the snapshot is read once it is SUBSCRIBED, then merged
  * by game id with channel-delivered entries winning. No change between the read
  * and the join is lost, and a scheduled game's first row is received.
  */
@@ -73,7 +74,8 @@ export function useLiveGameStates(scopeId, gameIds) {
           filter: `tank01_game_id=in.(${ids.join(',')})`,
         },
         (payload) => {
-          if (cancelled || !payload || !payload.new) return;
+          // supabase-js v2 DELETE payloads carry `new: {}` (truthy), so test the id.
+          if (cancelled || !payload || payload.eventType === 'DELETE' || payload.new?.tank01_game_id == null) return;
           setById((prev) => {
             const next = new Map(prev);
             next.set(String(payload.new.tank01_game_id), payload.new);

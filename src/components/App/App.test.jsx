@@ -255,7 +255,7 @@ test('"/league/:leagueId/draft" is protected and renders DraftBoard when logged 
   expect(await screen.findByText('Draft Board')).toBeInTheDocument();
 });
 
-test('"/league/:leagueId/waivers" is protected and renders WaiverWire when logged in', async () => {
+test('"/league/:leagueId/waivers" is protected and renders the Waivers page when logged in', async () => {
   const { unmount } = renderApp('#/league/1/waivers', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument();
   unmount();
@@ -275,7 +275,7 @@ test('"/league/:leagueId/waivers" is protected and renders WaiverWire when logge
       return Promise.resolve({ data: [] });
     });
   });
-  expect(await screen.findByText('Waiver Wire')).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Waivers' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId/trades" is protected and renders TradeCenter when logged in', async () => {

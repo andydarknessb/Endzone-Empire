@@ -108,6 +108,22 @@ async function fetchPlayerWeekStatsForSeason(season) {
   return parseCsv(await fetchCsvText(url));
 }
 
+/**
+ * The published version of one season's combined player weekly file, from a
+ * HEAD request (no body): the ETag and Last-Modified the release asset host
+ * serves after GitHub's redirect, joined into one opaque string, or null when
+ * the host sent neither. The asset host is not the GitHub REST API, so this
+ * costs nothing against its 60-an-hour unauthenticated limit.
+ */
+async function fetchPlayerWeekStatsVersion(season) {
+  const url = `${NFLVERSE_RELEASE_BASE}/stats_player/stats_player_week_${season}.csv`;
+  const response = await axios.head(url, { timeout: 15000 });
+  const headers = response.headers || {};
+  const etag = headers.etag || '';
+  const lastModified = headers['last-modified'] || '';
+  return etag || lastModified ? `${etag}|${lastModified}` : null;
+}
+
 /** One season's team weekly file — same columns as the player file but
  * aggregated per team side, one row per team per game. The def_* columns are
  * that team's DEFENSE; the offense columns are its own offense (so a team's
@@ -897,6 +913,97 @@ async function finalizePriorWeeks() {
   return { finalized };
 }
 
+/**
+ * Scheduler entry point for the current-week pass: for every in-season
+ * league, patch the same nflverse-only keys `finalizePriorWeeks` does onto
+ * the week the league is sitting on now, as soon as nflverse publishes them.
+ * Groups leagues by (season, current week) so each week's file is fetched
+ * once.
+ *
+ * Polls cheaply: one HEAD per season (`fetchPlayerWeekStatsVersion`), and a
+ * week is downloaded and patched only when that version is one this job has
+ * not already patched it at - the version rides on the run row's detail. So
+ * the scheduler can ask every few minutes and the full files come down only
+ * when nflverse republishes, which it does about an hour after each night's
+ * last game (04:25-04:50 UTC after every 2026 prime-time game through week
+ * 3, nflverse/nflverse-pbp update_data.yaml runs) - while that week's
+ * live-scoring window (8 hours from the latest kickoff) is still open, so
+ * the live re-score folds the patch in on its next tick.
+ *
+ * The write is `applyNflverseWeekUnit`'s read-merge-upsert, so everything
+ * Tank01 wrote on the row stays, and the live box apply carries these keys
+ * forward on its next rewrite (boxScoreApply's NFLVERSE_ONLY_STAT_KEYS): the
+ * two feeds never fight over a key.
+ *
+ * Its own Sync run job, 'nflverse-current-week', not 'nflverse-week': the
+ * cadence gate reads the job's last ok row, so sharing the name would let
+ * whichever daily pass ran first satisfy the other's gate for the day.
+ *
+ * Writes stats only, and deliberately re-scores nothing. The week is still
+ * open, and the only re-score that fits an open week is the live one, which
+ * prices lineups off the CURRENT roster: run outside a game window it would
+ * move displayed scores for every drop or claim since the games were played,
+ * and a pass landing just after advance-week would silently re-score the
+ * final week. The patched keys reach matchups the way every other stat does
+ * instead: the live window still open when nflverse publishes, or
+ * advance-week's settle, which recomputes the week as played. A patch that
+ * lands after the week went final is the Tue/Wed correction pass's to
+ * announce.
+ *
+ * Only weeks with a kickoff in the last 7 days are checked: before the
+ * season's first game nflverse has no file for it (a 404 retried on every
+ * check), and a league whose commissioner never advanced past a
+ * long-finished week has nothing left to gain from a re-pull.
+ */
+async function patchCurrentWeeks() {
+  const leaguesResult = await pool.query(
+    `SELECT "id", "current_season", "current_week" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()}`
+  );
+  const weeks = new Map(); // 'season:week' -> { season, week }
+  for (const league of leaguesResult.rows) {
+    const key = `${league.current_season}:${league.current_week}`;
+    if (!weeks.has(key)) weeks.set(key, { season: league.current_season, week: league.current_week });
+  }
+
+  const versions = new Map(); // season -> Promise<version>, one HEAD per season
+  const patched = [];
+  for (const { season, week } of weeks.values()) {
+    try {
+      const played = await pool.query(
+        `SELECT 1 FROM "nfl_games"
+         WHERE "season" = $1 AND "week" = $2
+           AND "kickoff_at" BETWEEN now() - interval '7 days' AND now()
+         LIMIT 1`,
+        [season, week]
+      );
+      if (!played.rows[0]) continue;
+      if (!versions.has(season)) versions.set(season, fetchPlayerWeekStatsVersion(season));
+      const version = await versions.get(season);
+      if (version !== null) {
+        const seen = await pool.query(
+          `SELECT 1 FROM "data_sync_runs"
+           WHERE "job" = 'nflverse-current-week' AND "ok" = true
+             AND "detail"->>'version' = $1
+             AND "detail"->>'season' = $2 AND "detail"->>'week' = $3
+           LIMIT 1`,
+          [version, String(season), String(week)]
+        );
+        if (seen.rows[0]) continue;
+      }
+      patched.push(await runSyncJob({
+        job: 'nflverse-current-week',
+        lock: null,
+        fetch: async () => ({ units: await fetchNflverseWeekUnit({ season, week }), detail: { version } }),
+        apply: (client, unit) => applyNflverseWeekUnit(client, unit),
+      }));
+    } catch (err) {
+      console.error('nflverse current-week patch failed for %s week %s:', season, week, err.message);
+    }
+  }
+  return { patched };
+}
+
 module.exports = {
   parseCsv,
   fetchPlayerWeekStatsForSeason,
@@ -924,4 +1031,5 @@ module.exports = {
   syncNflverseWeek,
   isNflverseFinalizationDay,
   finalizePriorWeeks,
+  patchCurrentWeeks,
 };

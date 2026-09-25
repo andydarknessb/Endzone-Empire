@@ -875,14 +875,23 @@ test('neutral rows leave the home/away sample but stay in every other aggregate'
   assert.equal(context.residuals.length, 3, 'a neutral game still contributes dispersion');
 });
 
-test('both schedule reads carry neutral_site out of the database', () => {
+test('both schedule reads carry neutral_site out of the database', async (t) => {
   // A column that is not SELECTed arrives as undefined, and undefined is not
   // true, so dropping either one would silently restore the nominal-home
   // reading with every guard above still passing. Kills the "forgot the
   // column" mutant at the only place it can be caught: the SQL text.
   const sql = String(features.loadFeatureBundle);
-  // The league scan is the only query that aliases nfl_games as "ng".
-  assert.match(sql, /"ng"\."neutral_site"/, 'the league scan must select neutral_site');
+  // The league scan is the only query that aliases nfl_games as "ng"; its text
+  // lives once (#1637), so read it off the statement the engine issues.
+  let scanSql = '';
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    onQuery: (text) => {
+      if (text.includes('FROM "player_stats" "ps"')) scanSql = text;
+    },
+  });
+  await features.loadLeagueContext({ season: SEASON, week: 6, rules: SCORING_PRESETS.half_ppr, positions: ['RB'] });
+  assert.match(scanSql, /"ng"\."neutral_site"/, 'the league scan must select neutral_site');
   // The prior-schedule read is the one bounded by "season" >= $1.
   const priorAt = sql.indexOf('"season" >= $1');
   assert.notEqual(priorAt, -1, 'the prior-schedule read is still there');
@@ -2217,4 +2226,33 @@ test('getRestOfSeason: a caller passing runsByWeek gets its total from those run
   assert.equal(result.get(1).perGame, Math.round(((10 * 5 + 9) / 6) * 100) / 100);
   assert.equal(readsOf(calls, 'FROM "projection_runs"'), 0);
   assert.equal(readsOf(calls, 'FROM "player_week_projections"'), 0);
+});
+
+test('loadLeagueContext issues the same scan and defense-games SQL loadFeatureBundle does (#1637)', async (t) => {
+  const seen = { bundle: {}, league: {} };
+  let sink = seen.bundle;
+  const norm = (text) => text.replace(/\s+/g, ' ').trim();
+  mockPool(t, {
+    players: [player(1, 'WR')],
+    weeklyStats: [weeklyRow(1, 1, { receivingYards: 60 })],
+    // A current-season schedule row is what makes the bundle issue the count.
+    priorSchedule: [{ season: SEASON, week: 1, team_key: 'BUF', opponent: 'DAL' }],
+    onQuery: (text) => {
+      if (text.includes('"player_stats" "pps"')) return;
+      if (text.includes('FROM "player_stats" "ps"')) sink.scan = norm(text);
+      if (text.includes('COUNT(*)::int AS "games"')) sink.games = norm(text);
+    },
+  });
+
+  await features.loadFeatureBundle({
+    season: SEASON, week: 6, playerIds: [1], rules: SCORING_PRESETS.half_ppr, positions: ['WR'],
+  });
+  sink = seen.league;
+  await features.loadLeagueContext({
+    season: SEASON, week: 6, rules: SCORING_PRESETS.half_ppr, positions: ['WR'],
+  });
+
+  assert.ok(seen.bundle.scan && seen.bundle.games, 'the bundle issued both statements');
+  assert.equal(seen.league.scan, seen.bundle.scan, 'one scan statement, not a second aggregation');
+  assert.equal(seen.league.games, seen.bundle.games, 'one defense-games statement');
 });

@@ -45,3 +45,10 @@ test('playerRowColumnCount matches the rendered header cell count in both modes'
   expect(playerRowColumnCount(false)).toBe(8);
   expect(playerRowColumnCount(true)).toBe(7);
 });
+
+test('hideOwnership drops the Ownership header and one column from the count', () => {
+  renderHead({ hideOwnership: true });
+  expect(screen.queryByText('Ownership')).not.toBeInTheDocument();
+  expect(playerRowColumnCount(false, true)).toBe(playerRowColumnCount(false) - 1);
+  expect(playerRowColumnCount(true, true)).toBe(playerRowColumnCount(true) - 1);
+});

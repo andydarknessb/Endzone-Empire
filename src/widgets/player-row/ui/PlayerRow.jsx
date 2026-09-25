@@ -154,7 +154,7 @@ function PlayerIdentity({ player, onOpenPlayer, nameAsLink = true }) {
       <Box sx={{ minWidth: 0 }}>
         <Stack direction="row" spacing={0.75} alignItems="center">
           {nameAsLink ? (
-            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} />
+            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} sx={MIN_TOUCH_TARGET_SX} />
           ) : (
             <Typography sx={{ fontWeight: 600 }} noWrap>
               {player.name}
@@ -210,6 +210,7 @@ function ActionControl({ action }) {
         variant={action.variant || 'contained'}
         onClick={action.onClick}
         disabled={action.disabled}
+        aria-label={action.ariaLabel}
         sx={sx}
         data-testid="player-row-action"
       >
@@ -278,7 +279,7 @@ function WatchToggle({ watchAction, playerName }) {
  * onClick, pending? }` - and renders nothing when the caller omits it, so a
  * consumer with no watch state wired in (or no league selected) is unchanged.
  */
-export default function PlayerRow({ player, action, watchAction, bestBall = false, variant = 'row', onOpenPlayer }) {
+export default function PlayerRow({ player, action, watchAction, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false }) {
   const weeks = weeksForSparkline(player.weeks);
   const showWeeks = weeks.length > 0;
   const showUpgrade = !bestBall;
@@ -338,9 +339,11 @@ export default function PlayerRow({ player, action, watchAction, bestBall = fals
         <ProjWeekCell projWeek={player.projWeek} />
       </TableCell>
       <TableCell align="right">{formatPoints(player.ros?.points)}</TableCell>
-      <TableCell align="right">
-        <OwnershipCell ownership={player.ownership} />
-      </TableCell>
+      {!hideOwnership && (
+        <TableCell align="right">
+          <OwnershipCell ownership={player.ownership} />
+        </TableCell>
+      )}
       {showUpgrade && (
         <TableCell align="right">
           <UpgradeCell upgrade={player.upgrade} />

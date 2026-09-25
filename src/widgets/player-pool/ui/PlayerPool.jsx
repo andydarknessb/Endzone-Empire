@@ -40,7 +40,7 @@ import apiClient from "../../../api/apiClient";
 import { readHttpFailure } from "../../../lib/httpFailure";
 import { useLeague } from "../../../hooks/useLeague";
 import { wireSortName } from "../../../components/DraftBoard/sortFields";
-import SegmentedControl from "../../../shared/ui/SegmentedControl";
+import { SegmentedControl } from "../../../shared/ui";
 import { parseRosterSlots, chipsForRosterSlots } from "../../../shared/lib";
 import { SORT_OPTIONS, DEFAULT_SORT_KEY, sortKeyFromParam } from "../model/sortKeys";
 
@@ -53,11 +53,19 @@ const AVAILABILITY_FILTERS = [
   { value: "rostered", label: "Rostered" },
   { value: "my_team", label: "My team" },
 ];
+const BYE_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 const headCellSx = {
   fontWeight: 800,
   color: "primary.contrastText",
   bgcolor: "primary.main",
   borderColor: "var(--border-subtle)",
+};
+// The 44px floor for the small-size inputs, selects and pager items this
+// widget renders (the Waivers page's layout guard measures every control).
+const fieldSx = {
+  "& .MuiInputBase-root": { minHeight: 44 },
+  "& .MuiInputBase-input": { boxSizing: "border-box", minHeight: 44 },
+  "& .MuiSelect-select.MuiSelect-select": { boxSizing: "border-box", minHeight: 44, display: "flex", alignItems: "center" },
 };
 const actionSx = {
   minHeight: 44,
@@ -78,10 +86,16 @@ const actionSx = {
  * Watch action and open handler, and `renderTableHead({ bestBall, currentWeek,
  * sx })` returns the desktop header, `columnCount` is its width. The caller also passes the filter-row
  * controls that are not the list's own (`leadingControl`, `afterAvailabilityControl`).
- * `onLoaded({ players, context })` reports every successful read so the caller
+ * `onLoaded({ players, context, total })` reports every successful read so the caller
  * can build the Decision card context over the same page of players; `onError`
  * receives the refusal message, or null when a read starts. `ref.refresh()`
  * re-reads the list after a caller's action.
+ *
+ * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
+ * `byeWeeks`, the read's include-only filter; off by default, so the Players
+ * page is unchanged. `cardsBelow` is the breakpoint under which rows render as
+ * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
+ * passes `sm`). `emptyCopy` replaces the default empty message.
  *
  * `availabilityLock`: when set, every read sends that Availability and no
  * Availability control renders; the `availability` URL param is ignored.
@@ -99,6 +113,9 @@ const PlayerPool = forwardRef(function PlayerPool(
     onError,
     leadingControl,
     afterAvailabilityControl,
+    byeWeekFilter = false,
+    cardsBelow = "md",
+    emptyCopy: emptyCopyOverride,
   },
   ref,
 ) {
@@ -108,6 +125,7 @@ const PlayerPool = forwardRef(function PlayerPool(
   const [filtersOpen, setFiltersOpen] = useState(false);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const cardLayout = useMediaQuery(theme.breakpoints.down(cardsBelow));
   const [searchParams, setSearchParams] = useSearchParams();
   const pageNumber = Math.max(1, Number(searchParams.get("page")) || 1);
   const selectedLeague = leagueId ? String(leagueId) : "";
@@ -117,6 +135,8 @@ const PlayerPool = forwardRef(function PlayerPool(
   // fetched - never sent to the server, never a fifth Availability segment.
   const watchingOnly = searchParams.get("watching") === "true";
   const search = searchParams.get("q") || "";
+  const byeParam = Number(searchParams.get("bye"));
+  const byeWeek = byeWeekFilter && Number.isInteger(byeParam) && byeParam >= 1 && byeParam <= 18 ? byeParam : null;
   const dir = searchParams.get("dir") || "asc";
 
   // Callbacks held in refs so a caller passing fresh closures each render
@@ -209,6 +229,7 @@ const PlayerPool = forwardRef(function PlayerPool(
       if (availabilityFilter !== "all") params.availability = availabilityFilter;
       if (dir === "desc") params.dir = "desc";
       if (search) params.search = search;
+      if (byeWeek) params.byeWeeks = String(byeWeek);
       const response = await apiClient.get("/api/players", { params });
       const nextPlayers = response.data.players || [];
       setPlayers(nextPlayers);
@@ -217,12 +238,14 @@ const PlayerPool = forwardRef(function PlayerPool(
       onLoadedRef.current?.({
         players: nextPlayers,
         context: response.data.context || null,
+        total: response.data.total ?? 0,
       });
     } catch (err) {
       onErrorRef.current?.(readHttpFailure(err).message || err.message);
     }
   }, [
     availabilityFilter,
+    byeWeek,
     dir,
     pageNumber,
     positionParam,
@@ -250,7 +273,9 @@ const PlayerPool = forwardRef(function PlayerPool(
 
   const currentWeek = players.find((player) => player.projWeek)?.projWeek?.week;
     const visiblePlayers = watchingOnly ? players.filter((player) => player.watching) : players;
-  const emptyCopy = watchingOnly
+  const emptyCopy = emptyCopyOverride && !watchingOnly && !search && !byeWeek
+    ? emptyCopyOverride
+    : watchingOnly
     ? "No watched players on this page"
     : search
     ? `No players matching “${search}”`
@@ -271,7 +296,7 @@ const PlayerPool = forwardRef(function PlayerPool(
         alignItems={row ? "center" : undefined}
       >
         {leadingControl?.(layout)}
-        <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 130 } : undefined}>
+        <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
           <InputLabel id="pm-pos-label">Position</InputLabel>
           <Select
             labelId="pm-pos-label"
@@ -304,6 +329,24 @@ const PlayerPool = forwardRef(function PlayerPool(
           />
         )}
         {afterAvailabilityControl?.(layout)}
+        {byeWeekFilter && (
+          <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
+            <InputLabel id="pm-bye-label">Bye week</InputLabel>
+            <Select
+              labelId="pm-bye-label"
+              label="Bye week"
+              value={byeWeek ? String(byeWeek) : ""}
+              onChange={(event) => updateParams({ bye: event.target.value, page: 1 })}
+            >
+              <MenuItem value="">Any</MenuItem>
+              {BYE_WEEKS.map((week) => (
+                <MenuItem key={week} value={String(week)}>
+                  {`Wk ${week}`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
         <FormControlLabel
           control={
             <Checkbox
@@ -315,7 +358,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           label="Watching"
         />
         <Stack direction="row" spacing={1} sx={row ? { ml: "auto" } : undefined}>
-          <FormControl size="small" fullWidth={!row} sx={row ? { minWidth: 170 } : undefined}>
+          <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 170 } : fieldSx}>
             <InputLabel id="pm-sort-label">Sort</InputLabel>
             <Select
               labelId="pm-sort-label"
@@ -355,7 +398,7 @@ const PlayerPool = forwardRef(function PlayerPool(
             size="small"
             fullWidth
             // The search sits on its own line above the filter row on desktop.
-            sx={isMobile ? undefined : { maxWidth: 360 }}
+            sx={isMobile ? fieldSx : { ...fieldSx, maxWidth: 360 }}
             label="Search players"
             placeholder="Search by name"
             value={searchInput}
@@ -371,7 +414,7 @@ const PlayerPool = forwardRef(function PlayerPool(
                   <Button
                     onClick={() => setSearchInput("")}
                     aria-label="Clear search"
-                    sx={{ minWidth: 36, minHeight: 36, p: 0.5 }}
+                    sx={{ minWidth: 44, minHeight: 44, p: 0.5 }}
                   >
                     <CloseIcon fontSize="small" />
                   </Button>
@@ -413,7 +456,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           {renderControls("column")}
         </Stack>
       </Drawer>
-      {!isMobile && (
+      {!cardLayout && (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
           {/* Cell padding at 10px a side rather than MUI's 16px: it is what lets
               the table fit a 1024px viewport instead of hiding the Action
@@ -441,7 +484,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           </Table>
         </TableContainer>
       )}
-      {isMobile && (
+      {cardLayout && (
         <Stack spacing={1.25}>
           {visiblePlayers.length === 0 && (
             <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 3 }}>
@@ -459,6 +502,7 @@ const PlayerPool = forwardRef(function PlayerPool(
           page={pageNumber}
           onChange={(event, value) => updateParams({ page: value })}
           shape="rounded"
+          sx={{ "& .MuiPaginationItem-root": { minWidth: 44, height: 44 } }}
         />
         <Typography variant="caption" color="text.secondary">
           {totalPlayers} player{totalPlayers === 1 ? "" : "s"}

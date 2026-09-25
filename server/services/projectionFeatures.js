@@ -42,6 +42,23 @@ const HISTORY_SEASONS = 2;
 // themselves unavailable rather than the request timing out.
 const MAX_LEAGUE_SCAN_ROWS = 60000;
 
+// The two statements that feed the current-season league context. Defined once:
+// `loadFeatureBundle` and `loadLeagueContext` both issue exactly this text, so
+// there is one producer of points allowed (#1637, the #1609 Ruling).
+const CURRENT_SEASON_SCAN_SQL = `SELECT "ps"."player_id", "ps"."week", "ps"."stats", "p"."position",
+                  fn_normalize_nfl_team("ng"."opponent") AS "defense",
+                  "ng"."home_away", "ng"."neutral_site"
+           FROM "player_stats" "ps"
+           JOIN "players" "p" ON "p"."id" = "ps"."player_id"
+           LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
+             AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
+           WHERE "ps"."season" = $1 AND "ps"."week" < $2 AND "p"."position" = ANY($3::text[])
+           ORDER BY "ps"."player_id", "ps"."week"
+           LIMIT $4`;
+const DEFENSE_GAMES_SQL = `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "games"
+       FROM "nfl_games" WHERE "season" = $1 AND "week" < $2
+       GROUP BY 1`;
+
 /** Pure: how many "recency weeks" separate a historical game from the target week. */
 function weeksAgo({ gameSeason, gameWeek, season, week, seasonWeekSpan = model.MODEL_CONSTANTS.baseline.seasonWeekSpan }) {
   const seasonGap = Number(season) - Number(gameSeason);
@@ -625,16 +642,7 @@ async function loadFeatureBundle({
       // what the prior-season scan below exists to cover.
       Number(week) > 1
         ? client.query(
-          `SELECT "ps"."player_id", "ps"."week", "ps"."stats", "p"."position",
-                  fn_normalize_nfl_team("ng"."opponent") AS "defense",
-                  "ng"."home_away", "ng"."neutral_site"
-           FROM "player_stats" "ps"
-           JOIN "players" "p" ON "p"."id" = "ps"."player_id"
-           LEFT JOIN "nfl_games" "ng" ON "ng"."season" = "ps"."season" AND "ng"."week" = "ps"."week"
-             AND fn_normalize_nfl_team("ng"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
-           WHERE "ps"."season" = $1 AND "ps"."week" < $2 AND "p"."position" = ANY($3::text[])
-           ORDER BY "ps"."player_id", "ps"."week"
-           LIMIT $4`,
+          CURRENT_SEASON_SCAN_SQL,
           [season, week, scanPositions, MAX_LEAGUE_SCAN_ROWS]
         )
         : Promise.resolve({ rows: [] }),
@@ -704,12 +712,7 @@ async function loadFeatureBundle({
     .filter((r) => Number(r.season) === Number(season));
   const normalizedDefenseGames = new Map();
   if (currentSeasonScheduleRows.length > 0) {
-    const normalized = await client.query(
-      `SELECT fn_normalize_nfl_team("nfl_team") AS "team", COUNT(*)::int AS "games"
-       FROM "nfl_games" WHERE "season" = $1 AND "week" < $2
-       GROUP BY 1`,
-      [season, week]
-    );
+    const normalized = await client.query(DEFENSE_GAMES_SQL, [season, week]);
     for (const row of normalized.rows) normalizedDefenseGames.set(row.team, Number(row.games));
   }
 
@@ -767,6 +770,26 @@ function emptyCoverage() {
   };
 }
 
+/**
+ * The current-season league context alone (#1637): the same scan and
+ * defense-games count `loadFeatureBundle` issues, without the players, stats,
+ * schedule, prior-season and bye reads. Both statements stay gated on
+ * `week > 1` (no completed week to read before that).
+ */
+async function loadLeagueContext({ season, week, rules, positions, client = pool }) {
+  let rows = [];
+  const defenseGamesByTeam = new Map();
+  if (Number(week) > 1 && positions && positions.length > 0) {
+    const [scan, games] = await Promise.all([
+      client.query(CURRENT_SEASON_SCAN_SQL, [season, week, positions, MAX_LEAGUE_SCAN_ROWS]),
+      client.query(DEFENSE_GAMES_SQL, [season, week]),
+    ]);
+    rows = scan.rows;
+    for (const row of games.rows) defenseGamesByTeam.set(row.team, Number(row.games));
+  }
+  return buildLeagueContext({ rows, rules, defenseGamesByTeam });
+}
+
 module.exports = {
   HISTORY_SEASONS,
   MAX_LEAGUE_SCAN_ROWS,
@@ -781,5 +804,6 @@ module.exports = {
   buildLeagueContext,
   buildVersusOpponentMeetings,
   loadFeatureBundle,
+  loadLeagueContext,
   emptyCoverage,
 };
