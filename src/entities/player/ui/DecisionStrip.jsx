@@ -42,6 +42,27 @@ export default function DecisionStrip({ decision, usage, ownership, depth }) {
     );
   }
 
+  if (ownership && ownership.percentOwned != null) {
+    tiles.push(
+      <Tile key="ownership" label="Ownership" testId="decision-strip-ownership">
+        {`${Number(ownership.percentOwned).toFixed(1)}%`}
+        {ownership.change != null && (
+          <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
+            {`${ownership.change >= 0 ? '+' : ''}${Number(ownership.change).toFixed(1)} 7d`}
+          </Typography>
+        )}
+      </Tile>
+    );
+  }
+
+  if (depth && depth.positionGroup && depth.rank != null) {
+    tiles.push(
+      <Tile key="depth" label="Depth chart" testId="decision-strip-depth">
+        {`${depth.positionGroup}${depth.rank}`}
+      </Tile>
+    );
+  }
+
   if (decision?.upgrade != null && decision.upgrade.points != null) {
     tiles.push(
       <Tile key="upgrade" label="Upgrade" testId="decision-strip-upgrade">
@@ -82,27 +103,6 @@ export default function DecisionStrip({ decision, usage, ownership, depth }) {
         <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
           FPTS/gm
         </Typography>
-      </Tile>
-    );
-  }
-
-  if (ownership && ownership.percentOwned != null) {
-    tiles.push(
-      <Tile key="ownership" label="Ownership" testId="decision-strip-ownership">
-        {`${Number(ownership.percentOwned).toFixed(1)}%`}
-        {ownership.change != null && (
-          <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
-            {`${ownership.change >= 0 ? '+' : ''}${Number(ownership.change).toFixed(1)}`}
-          </Typography>
-        )}
-      </Tile>
-    );
-  }
-
-  if (depth && depth.positionGroup && depth.rank != null) {
-    tiles.push(
-      <Tile key="depth" label="Depth chart" testId="decision-strip-depth">
-        {`${depth.positionGroup}${depth.rank}`}
       </Tile>
     );
   }

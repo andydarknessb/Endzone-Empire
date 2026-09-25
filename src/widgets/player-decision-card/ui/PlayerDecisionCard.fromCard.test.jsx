@@ -4,6 +4,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import { fromCard, myTeam } from '../model/decisionContext';
+import { ESPN_FACTS } from './decisionCardTestFixtures';
 
 /**
  * player-decision-card widget tests, the `fromCard()` kind (#1311, ADR 0040
@@ -27,7 +28,7 @@ afterEach(() => {
 
 function mockCardRoute(card) {
   apiClient.get.mockImplementation((url) => {
-    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
+    if (url.includes('/card?')) return Promise.resolve({ data: { ...ESPN_FACTS, ...(card || {}) } });
     return Promise.resolve({ data: { line: null, weather: null, usage: null } });
   });
 }
@@ -145,4 +146,12 @@ test('a caller with a kind of its own (myTeam) is untouched by the card payload\
 
   await screen.findByTestId('decision-card-bench-action');
   expect(screen.queryByTestId('claim-player-action')).not.toBeInTheDocument();
+});
+
+test('the decision strip shows the Ownership and depth chart tiles in this context (#1677)', async () => {
+  mockCardRoute({});
+  renderCard();
+
+  expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
+  expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
 });

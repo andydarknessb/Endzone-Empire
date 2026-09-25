@@ -6,6 +6,7 @@ import apiClient from '../../../api/apiClient';
 import PlayerDecisionCard from './PlayerDecisionCard';
 import * as slotActions from '../model/slotActions';
 import { myTeam } from '../model/decisionContext';
+import { ESPN_FACTS } from './decisionCardTestFixtures';
 
 /**
  * player-decision-card widget tests (#1240), the `my_team` kind (#1515, T19:
@@ -101,7 +102,7 @@ const availabilityEntry = (over = {}) => ({
 // other URL.
 function mockCardRoute(card) {
   apiClient.get.mockImplementation((url) => {
-    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
+    if (url.includes('/card?')) return Promise.resolve({ data: { ...ESPN_FACTS, ...(card || {}) } });
     return Promise.reject(new Error(`unexpected request: ${url}`));
   });
 }
@@ -1131,4 +1132,12 @@ describe('Opp rank vs position (#1609)', () => {
       await waitFor(() => expect(within(panel).getAllByTestId('decision-card-opp-rank')).toHaveLength(1));
     }
   });
+});
+
+test('the decision strip shows the Ownership and depth chart tiles in this context (#1677)', async () => {
+  mockCardRoute({});
+  renderCard();
+
+  expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
+  expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
 });

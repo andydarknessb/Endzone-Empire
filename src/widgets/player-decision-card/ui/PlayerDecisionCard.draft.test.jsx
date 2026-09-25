@@ -167,3 +167,11 @@ test('renders the Opp rank line from the card\'s opponents', async () => {
 
   expect(await screen.findByTestId('decision-card-opp-rank')).toHaveTextContent('Opp rank vs RB: W4 DAL 1st, W5 NYG 32nd');
 });
+
+test('the decision strip shows the Ownership and depth chart tiles in this context (#1677)', async () => {
+  mockCardRoute({});
+  renderCard();
+
+  expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
+  expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
+});
