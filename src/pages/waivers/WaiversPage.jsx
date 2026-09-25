@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Typography } from '@mui/material';
-import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { useLeague } from '../../hooks/useLeague';
 import LeagueBreadcrumb from '../../components/LeagueBreadcrumb/LeagueBreadcrumb';
 import { Card, SegmentedControl } from '../../shared/ui';
 import { useEndpoint, isRosterAtCapacity } from '../../shared/lib';
-import { useWaiverClaims } from '../../entities/waiver-claim';
+import { useWaiverClaims, readClaimTarget } from '../../entities/waiver-claim';
 import { lineupModel } from '../../entities/roster';
 import { toDecisionCardEntry } from '../../entities/player';
 import { PlayerPool } from '../../widgets/player-pool';
@@ -43,9 +42,9 @@ const TABS = [
  *
  * BELOW-ISLAND EDGES (ADR 0031 amendment), each named with its reason:
  *   - `hooks/useLeague`: the league row, whose `best_ball` decides the sort
- *     before the first read (`GET /api/waivers` does not carry it).
+ *     before the first read (the waivers read does not carry it).
  *   - `components/LeagueBreadcrumb`: the back-link every league subpage shows.
- *   - `api/apiClient` and `lib/httpFailure`: the one `claim-target` read behind
+ *   - `lib/httpFailure`: the refusal text of the `claim-target` read (the entity's `readClaimTarget`) behind
  *     the Player Browser's `?playerId=` deep link (and, through `useCardReads`,
  *     the expanded row's Decision-card read).
  *   - `utils/formatRelative`: the Clear time's relative wording in the expanded
@@ -92,12 +91,11 @@ export default function WaiversPage() {
     if (!targetId || requestedTargetRef.current === targetId) return undefined;
     requestedTargetRef.current = targetId;
     let cancelled = false;
-    apiClient
-      .get(`/api/waivers/claim-target?leagueId=${leagueId}&playerId=${targetId}`)
+    readClaimTarget({ leagueId, playerId: targetId })
       .then((response) => {
         if (cancelled) return;
-        setTargetPlayer(response.data.player);
-        setClaimId(response.data.player.id);
+        setTargetPlayer(response.player);
+        setClaimId(response.player.id);
       })
       .catch((err) => {
         if (!cancelled) setTargetError(readHttpFailure(err).message || err.message);

@@ -393,12 +393,22 @@ const unstubbed = [
     ],
   },
   {
-    file: 'features/claim-player/model/useClaimPlayer.js',
+    // #1671: the waiver claim writes moved from useClaimPlayer (and
+    // useManageClaim) into the waiver-claim entity; the classification moved
+    // with them.
+    file: 'entities/waiver-claim/model/claimWrites.js',
     reason:
       'Same reachability as add-player above: pulled in by the Decision card ' +
-      'widget\'s barrel, never rendered by the Draft room\'s own `draft` ' +
-      'context (context="waivers" never fires there).',
-    paths: [{ method: 'POST', pattern: '/api/waivers/claim' }],
+      'widget\'s barrel (features/claim-player imports the entity), never ' +
+      'rendered by the Draft room\'s own `draft` context (context="waivers" ' +
+      'never fires there).',
+    paths: [
+      { method: 'POST', pattern: '/api/waivers/claim' },
+      { method: 'PATCH', pattern: '/api/waivers/claim/:param' },
+      { method: 'DELETE', pattern: '/api/waivers/claim/:param' },
+      { method: 'PUT', pattern: '/api/waivers/claims/order' },
+      { method: 'GET', pattern: '/api/waivers/claim-target' },
+    ],
   },
   {
     // #1312: the Watch/Watching action bar button, reachable from every one
