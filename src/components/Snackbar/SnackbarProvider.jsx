@@ -2,7 +2,7 @@ import React, { createContext, useContext, useCallback, useState } from 'react';
 import { Snackbar, Alert, Box, Button, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { visuallyHidden } from '@mui/utils';
-import { MIN_TOUCH_TARGET_SX } from '../../shared/lib';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 /**
  * App-wide toast feedback. `useSnackbar()` returns a `notify` function:
