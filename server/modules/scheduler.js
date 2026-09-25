@@ -72,6 +72,21 @@ async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
+    // Jobs OUTSIDE the cadence gate (the Sync runs below that write a run row
+    // ask `cadence.due`, which reads that row):
+    //  - the stat-correction pass (#839): it records its own row by hand
+    //    (`recordDataSyncRun`) outside `runSyncJob`'s transaction, so it keeps
+    //    a same-process day stamp and its own `lastRun` reader beside the gate;
+    //  - the nflverse HEAD poll: a check that finds nothing new writes no run
+    //    row, so there is nothing for the gate to read; an in-memory 15-minute
+    //    stamp is the whole throttle;
+    //  - retention: a housekeeping delete, not a Sync run, so it writes no
+    //    run row; a same-process day stamp is its throttle;
+    //  - the tick-counted live sync: paced by `ticksSinceSync` while a game
+    //    window is open (a tick count, not a wall-clock cadence);
+    //  - the in-window injury cadence: inside a game window `injurySyncDue`
+    //    decides on a 15-minute window; only the outside-window daily pass
+    //    goes through the gate.
     // Data-freshness and deadline duties FIRST, each in its own containment:
     // corrections and finalization so the holdout captures corrected inputs,
     // then the holdout capture itself — a duty with a hard real-world
@@ -456,17 +471,17 @@ async function runHourlyOddsSync({ now = new Date() } = {}) {
 }
 
 const GAME_CONTEXT_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1262, ADR 0038)
-let lastGameContextSyncAt = 0; // epoch ms; 0 forces a sync on the first eligible tick
 
 /**
  * Hourly game-context Sync run (#1262, ADR 0038): Record, Venue and
  * Broadcast for every live fantasy league's current slate(s), same
- * interval-gate and per-week isolation shape as `runHourlyOddsSync` above
- * (and the same `fantasySeasonLiveWhereSql()` predicate, so a league
- * mid-transition to a new week still gets both weeks' slates updated). A
- * single week's throw is logged and does not stop the others; the interval
- * is stamped once the set of weeks is known, so a read failure here retries
- * next tick.
+ * cadence gate (`cadence.due({ job: 'game-context', every: { ms } })`, which
+ * reads the run row `syncGameContext` already writes) and per-week isolation
+ * shape as `runHourlyOddsSync` above (and the same
+ * `fantasySeasonLiveWhereSql()` predicate, so a league mid-transition to a
+ * new week still gets both weeks' slates updated). No in-memory epoch: a
+ * worker restart with a recent successful row does not refetch on its first
+ * tick. A single week's throw is logged and does not stop the others.
  *
  * Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
  * CONTEXT.md's Line is the spread/total Sync run `runHourlyOddsSync` already
@@ -475,12 +490,12 @@ let lastGameContextSyncAt = 0; // epoch ms; 0 forces a sync on the first eligibl
  * own module doc for why the two are not folded together.
  */
 async function runHourlyGameContextSync({ now = new Date() } = {}) {
-  if (now.getTime() - lastGameContextSyncAt < GAME_CONTEXT_SYNC_INTERVAL_MS) return null;
+  const gate = await cadence.due({ job: 'game-context', every: { ms: GAME_CONTEXT_SYNC_INTERVAL_MS }, now });
+  if (!gate.due) return null;
   const leaguesResult = await pool.query(
     `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()}`
   );
-  lastGameContextSyncAt = now.getTime();
   const gameContextSync = require('../services/gameContextSync.service');
   const results = [];
   for (const row of leaguesResult.rows) {
@@ -1277,4 +1292,5 @@ module.exports = {
   DRAFT_CLOCK_MS,
   SYNC_EVERY_TICKS,
   ODDS_SYNC_INTERVAL_MS,
+  GAME_CONTEXT_SYNC_INTERVAL_MS,
 };
