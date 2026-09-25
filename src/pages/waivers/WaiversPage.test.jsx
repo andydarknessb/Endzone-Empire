@@ -728,8 +728,7 @@ test('cancelling the last claim with no results leaves focus on the empty state,
   cancel.focus();
   await userEvent.click(cancel);
   await within(card).findByText('No claims yet');
-  await waitFor(() => expect(document.activeElement).not.toBe(document.body));
-  expect(within(card).getByText('No claims yet')).toHaveFocus();
+  await waitFor(() => expect(within(card).getByText('No claims yet')).toHaveFocus());
 });
 
 test('a failed Undo says so in the toast', async () => {
