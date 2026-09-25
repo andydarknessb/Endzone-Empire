@@ -203,11 +203,10 @@ const routeTable = [
     },
   },
 
-  // GET /api/players/:id/card + GET /api/team/lineup/:id/context (#1313): the
-  // Decision card's own reads, replacing the deleted per-player summary
+  // GET /api/players/:id/card (#1313; the one read since #1667): the
+  // Decision card's own read, replacing the deleted per-player summary
   // route above for the Draft room's `draft` context. Shaped like
-  // tests/e2e/fixtures/decisionCardFixtures.ts's `cardPayload`/context
-  // responses; `seasons` is required (#1358, lead correction on the issue
+  // tests/e2e/fixtures/decisionCardFixtures.ts's `cardPayload`; `seasons` is required (#1358, lead correction on the issue
   // thread) - the card's weekly bars and game log read `card.seasons`, never
   // a top-level `weeks`/`log`.
   {
@@ -231,6 +230,9 @@ const routeTable = [
             injury: { designation: player.injury_status ?? null, detail: player.injury_detail ?? null },
           },
           availability: { state: 'free_agent', teamId: null, teamName: null },
+          line: null,
+          weather: null,
+          opponents: [],
           decision: { projWeek: null, ros: null, upgrade: null, usage: null },
           weeks: [],
           seasons: [
@@ -255,11 +257,6 @@ const routeTable = [
         },
       };
     },
-  },
-  {
-    method: 'GET',
-    pattern: '/api/team/lineup/:id/context',
-    respond: () => ({ status: 200, body: { line: null, weather: null, usage: null } }),
   },
 
   // Feeds only the pool's Bye overlap hint (useMyRoster.js) -- every rostered
@@ -364,8 +361,8 @@ const unstubbed = [
   },
   // #1313: the Decision card (src/widgets/player-decision-card) enters the
   // Draft room's closure for the first time, replacing DraftQuickView. The
-  // four groups below are pulled in by its barrel imports (entities/player,
-  // entities/line, entities/player-usage, features/add-player,
+  // groups below are pulled in by its barrel imports (entities/player,
+  // features/add-player,
   // features/claim-player, features/swap-players) even though the Draft
   // room's own `draft` context never renders the pieces that call them -
   // AddPlayerAction/ClaimPlayerAction only mount for context="free_agent"/
@@ -378,10 +375,9 @@ const unstubbed = [
     file: 'shared/lib/useEndpoint.js',
     reason:
       'Generic one-GET-per-URL fetcher behind the Decision card\'s entity ' +
-      'reads (usePlayerCard, useDecisionCardLine, useDecisionCardUsage). Its ' +
-      'apiClient.get(url) takes a caller-built URL, not a literal; the two ' +
-      'literals those hooks build (GET /api/players/:id/card, GET ' +
-      '/api/team/lineup/:id/context) are stubbed in the table above.',
+      'read (usePlayerCard). Its apiClient.get(url) takes a caller-built ' +
+      'URL, not a literal; the one literal that hook builds ' +
+      '(GET /api/players/:id/card) is stubbed in the table above.',
     paths: [],
   },
   {
@@ -397,12 +393,22 @@ const unstubbed = [
     ],
   },
   {
-    file: 'features/claim-player/model/useClaimPlayer.js',
+    // #1671: the waiver claim writes moved from useClaimPlayer (and
+    // useManageClaim) into the waiver-claim entity; the classification moved
+    // with them.
+    file: 'entities/waiver-claim/model/claimWrites.js',
     reason:
       'Same reachability as add-player above: pulled in by the Decision card ' +
-      'widget\'s barrel, never rendered by the Draft room\'s own `draft` ' +
-      'context (context="waivers" never fires there).',
-    paths: [{ method: 'POST', pattern: '/api/waivers/claim' }],
+      'widget\'s barrel (features/claim-player imports the entity), never ' +
+      'rendered by the Draft room\'s own `draft` context (context="waivers" ' +
+      'never fires there).',
+    paths: [
+      { method: 'POST', pattern: '/api/waivers/claim' },
+      { method: 'PATCH', pattern: '/api/waivers/claim/:param' },
+      { method: 'DELETE', pattern: '/api/waivers/claim/:param' },
+      { method: 'PUT', pattern: '/api/waivers/claims/order' },
+      { method: 'GET', pattern: '/api/waivers/claim-target' },
+    ],
   },
   {
     // #1312: the Watch/Watching action bar button, reachable from every one

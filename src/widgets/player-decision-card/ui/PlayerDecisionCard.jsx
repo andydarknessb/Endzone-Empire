@@ -35,9 +35,17 @@ import {
   ordinal,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
-import { useDecisionCardLine } from '../../../entities/line';
-import { useDecisionCardUsage } from '../../../entities/player-usage';
-import { usePlayerCard, DecisionStrip, WeeklyPointsBars, GameLogTable, NewsList, Bio } from '../../../entities/player';
+import {
+  usePlayerCard,
+  lineContextFromResponse,
+  usageFromResponse,
+  opponentsFromResponse,
+  DecisionStrip,
+  WeeklyPointsBars,
+  GameLogTable,
+  NewsList,
+  Bio,
+} from '../../../entities/player';
 import { isEligibleMove } from '../../../features/swap-players';
 import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
@@ -94,9 +102,9 @@ function isTypingTarget(el) {
  * The Decision card (#1240, ADR 0037, CONTEXT.md's Decision card): the
  * player detail a manager opens from a Ledger row on Lineup - a right-hand
  * drawer on desktop, a bottom sheet on a phone (AC6). Fetches its own Line/
- * Weather/Usage context on open through the `line` and `player-usage`
- * entities' `useDecisionCard*` hooks (ADR 0037: "the Decision card fetches
- * on open"); the row's own fields (name, position, slot, projection, Floor,
+ * Weather/Usage/Opponent-rank context on open off the one card read
+ * (`entities/player`'s `usePlayerCard`; ADR 0037: "the Decision card
+ * fetches on open"); the row's own fields (name, position, slot, projection, Floor,
  * Ceiling, edge) it already holds from the page's lineup read, so those
  * paint immediately while the extras load in behind them (AC1).
  *
@@ -131,8 +139,8 @@ function isTypingTarget(el) {
  * Every context also reads `entities/player`'s `usePlayerCard` (the
  * `GET /api/players/:id/card` payload, #1306/#1331) for the decision strip,
  * the eighteen-week bars, the game log and Bio - the fields ADR 0040 says
- * every context adds, layered on top of what `my_team` already had from
- * `entities/line`/`entities/player-usage` rather than replacing it.
+ * every context adds - and, since #1667, the Line, Weather, Usage and
+ * Opponent rank the card's one read now carries too.
  *
  * Formal review round 1 (f1, blocker): `context === 'my_team'` is not proof
  * of a Lineup caller - PlayerManagement opens the card for the caller's own
@@ -319,12 +327,14 @@ export default function PlayerDecisionCard(props) {
     prevDraftedByRef.current = draftedBy ?? null;
   }, [draftedBy, isOpen]);
 
-  const { line, weather } = useDecisionCardLine({ leagueId, playerId: entry?.playerId ?? null, week });
-  const { usage, opponents } = useDecisionCardUsage({ leagueId, playerId: entry?.playerId ?? null, week });
   // #1307: the one Decision-card payload, read in every context (ADR 0040's
   // decision strip and eighteen-week bars are additive to `my_team`'s
   // existing entry-based sections above, not a replacement for them).
   const { status: cardStatus, card } = usePlayerCard({ leagueId, playerId: entry?.playerId ?? null, week });
+  // #1667: Line, Weather, Usage and Opponent rank ride the same read.
+  const { line, weather } = lineContextFromResponse(card);
+  const usage = usageFromResponse(card);
+  const opponents = opponentsFromResponse(card);
 
   // #1358: the Season pick - which of `card.seasons` drives the bars and the
   // game log. `null` means "no explicit pick yet", which resolves to
@@ -407,16 +417,15 @@ export default function PlayerDecisionCard(props) {
     : entry;
 
   const compareEntry = compareId != null ? list.find((e) => e.playerId === compareId) || null : null;
-  const { line: compareLine, weather: compareWeather } = useDecisionCardLine({
+  // One card read per side in compare mode (#1667).
+  const { card: compareCard } = usePlayerCard({
     leagueId,
     playerId: compareEntry?.playerId ?? null,
     week,
   });
-  const { usage: compareUsage, opponents: compareOpponents } = useDecisionCardUsage({
-    leagueId,
-    playerId: compareEntry?.playerId ?? null,
-    week,
-  });
+  const { line: compareLine, weather: compareWeather } = lineContextFromResponse(compareCard);
+  const compareUsage = usageFromResponse(compareCard);
+  const compareOpponents = opponentsFromResponse(compareCard);
 
   const handleClose = (event, reason) => {
     setStartMenuAnchor(null);
@@ -983,7 +992,12 @@ export default function PlayerDecisionCard(props) {
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
-              <DecisionStripSection decision={card?.decision} usage={card?.decision?.usage} />
+              <DecisionStripSection
+                decision={card?.decision}
+                usage={card?.decision?.usage}
+                ownership={card?.ownership}
+                depth={card?.depth}
+              />
               {/* #1358: Season summary and Season pick, between the strip and
                   the bars (the body's own section order). The bars and the
                   game log below now read the PICKED season's own `weeks`/
@@ -1284,16 +1298,18 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
 // `hasContent` restates `DecisionStrip`'s own per-tile null checks (the
 // same duplicated-on-purpose shape `GameLogSection` below already uses)
 // rather than rendering an empty, still-titled Section around nothing.
-function DecisionStripSection({ decision, usage }) {
+function DecisionStripSection({ decision, usage, ownership, depth }) {
   const hasContent =
     (decision?.projWeek && decision.projWeek.points != null) ||
     (decision?.ros && decision.ros.points != null) ||
     (decision?.upgrade != null && decision.upgrade.points != null) ||
-    (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null);
+    (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null) ||
+    (ownership && ownership.percentOwned != null) ||
+    (depth && depth.positionGroup && depth.rank != null);
   if (!hasContent) return null;
   return (
     <Section title="Decision strip" testId="decision-card-strip-section">
-      <DecisionStrip decision={decision} usage={usage} />
+      <DecisionStrip decision={decision} usage={usage} ownership={ownership} depth={depth} />
     </Section>
   );
 }

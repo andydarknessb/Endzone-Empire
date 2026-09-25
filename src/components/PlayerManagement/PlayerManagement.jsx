@@ -20,6 +20,7 @@ import apiClient from "../../api/apiClient";
 import { readHttpFailure } from "../../lib/httpFailure";
 import PlayerDecisionCard, { myTeam, freeAgent, waivers, rostered } from "../../widgets/player-decision-card";
 import { toDecisionCardEntry } from "../../entities/player";
+import { useWaiverClaims } from "../../entities/waiver-claim";
 import { PlayerPool } from "../../widgets/player-pool";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
 import { useAddPlayer } from "../../features/add-player";
@@ -128,35 +129,29 @@ function PlayerManagement() {
     fetchRoster();
   }, [fetchRoster]);
 
-  // #1575: the manager's own pending waiver claim count, read once per
-  // league from the same `GET /api/waivers?leagueId=N` WaiverWire makes
-  // (`myClaims`, filtered to pending client-side). null = unknown/hidden;
-  // best ball leagues have no waivers, so they never read it. Re-read in
-  // `refreshAfterAction` so every claim path (row one-tap, Decision card)
-  // moves it, without Add/Watch blindly bumping a counter.
-  const [pendingClaimCount, setPendingClaimCount] = useState(null);
-  const fetchPendingClaimCount = useCallback(async () => {
-    if (!selectedLeague || bestBall) return;
-    try {
-      const response = await apiClient.get(`/api/waivers?leagueId=${Number(selectedLeague)}`);
-      const claims = response.data?.myClaims || [];
-      setPendingClaimCount(claims.filter((claim) => claim.status === "pending").length);
-    } catch (err) {
-      // Best-effort: without the count the link simply stays hidden (or
-      // keeps its last known value after an action-time re-read fails).
-    }
-  }, [selectedLeague, bestBall]);
-  useEffect(() => {
-    setPendingClaimCount(null);
-    fetchPendingClaimCount();
-  }, [fetchPendingClaimCount]);
+  // #1575: the manager's own pending waiver claim count, read through the
+  // `waiver-claim` entity (#1671). null = unknown/hidden: best ball leagues
+  // have no waivers so they never read it, and a failed read leaves the link
+  // hidden. Re-read in `refreshAfterAction` (a new `refreshKey`) so every claim
+  // path (row one-tap, Decision card) moves it, without Add/Watch blindly
+  // bumping a counter.
+  const [claimsRefresh, setClaimsRefresh] = useState(0);
+  const { status: claimsStatus, claims: waiverClaims } = useWaiverClaims({
+    leagueId: selectedLeague && !bestBall ? Number(selectedLeague) : null,
+    refreshKey: claimsRefresh,
+  });
+  const pendingClaimCount =
+    selectedLeague && !bestBall && claimsStatus === "ready" ? waiverClaims.pending.length : null;
 
   // Formal review round 2, f11: an add or a drop-and-add both change the
   // caller's own roster, so the drop pick a LATER at-capacity add offers
   // must be refreshed alongside the players list.
   const refreshAfterAction = useCallback(
-    () => Promise.all([poolRef.current?.refresh(), fetchRoster(), fetchPendingClaimCount()]),
-    [fetchRoster, fetchPendingClaimCount],
+    () => {
+      setClaimsRefresh((n) => n + 1);
+      return Promise.all([poolRef.current?.refresh(), fetchRoster()]);
+    },
+    [fetchRoster],
   );
   // Formal review formal-1310-f3: `useAddPlayer`/`useClaimPlayer` each hold
   // ONE page-wide `pending` boolean, so applying it to every row's action

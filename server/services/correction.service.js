@@ -5,9 +5,7 @@ const matchupScoring = require('./matchupScoring.service');
 const { logTransaction, notifyLeague } = require('./activity.service');
 const { notifyCommissioners } = require('./leagueRole.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-const recap = require('./recap.service');
-const montecarlo = require('./montecarlo.service');
-const trophies = require('./trophy.service');
+const settleFollowUpSvc = require('./settleFollowUp.service');
 
 /**
  * Stat corrections: the NFL routinely adjusts box scores on Tuesday/Wednesday
@@ -233,74 +231,16 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     // succeeded, so the recap rebuild still runs before this rethrows
     // (#1409 formal-001-f1). Power rankings go first on this path too (#1410),
     // and the weekly trophy reconcile follows the recap rebuild here too
-    // (#1411), matching the advance-week order below.
+    // (#1411), in the Settle follow-up's order.
     if (hasFinalChange) {
-      await recomputePowerRankings({ leagueId });
-      await rebuildStoredRecap({ leagueId, season, week });
-      await reconcileWeeklyTrophy({ leagueId, season, week });
+      await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
     }
     throw error;
   }
   if (hasFinalChange) {
-    await recomputePowerRankings({ leagueId });
-    await rebuildStoredRecap({ leagueId, season, week });
-    await reconcileWeeklyTrophy({ leagueId, season, week });
+    await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
   }
   return { leagueId, changes };
-}
-
-/**
- * Recompute and store this league's power rankings ahead of the recap
- * rebuild (#1410), matching the advance-week chain's order in
- * scoring.router.js ("Odds first so the recap reads fresh playoff numbers"):
- * the recap reads the latest stored `power_rankings` row directly
- * (recap.service.js), so odds must be stored before the rebuild for the
- * recap to see them. Never allowed to fail or block the correction pass, nor
- * the recap rebuild that follows it: caught and logged, not rethrown -
- * exactly how the advance-week chain treats this same call.
- */
-async function recomputePowerRankings({ leagueId }) {
-  try {
-    await montecarlo.computeLeagueOdds({ leagueId });
-  } catch (err) {
-    console.error('stat correction: power rankings failed for league %s:', leagueId, err.message);
-  }
-}
-
-/**
- * Rebuild the stored weekly recap from the now-corrected scores, silently:
- * only `computeAndStoreWeeklyRecap`, never `announceWeeklyRecap` - the
- * correction's own "scores were updated" notice is the one announcement
- * (#1409). Never allowed to fail or block the correction pass: caught and
- * logged, not rethrown.
- */
-async function rebuildStoredRecap({ leagueId, season, week }) {
-  try {
-    await recap.computeAndStoreWeeklyRecap({ leagueId, season, week });
-  } catch (err) {
-    console.error('stat correction: recap rebuild failed for league %s week %s:', leagueId, week, err.message);
-  }
-}
-
-/**
- * Reconcile the weekly high score trophy from the now-corrected scores,
- * after the recap rebuild - matching the advance-week chain's order in
- * scoring.router.js (odds, then recap, then trophies) and #1409/#1410's own
- * placement in this same block (#1411). Never allowed to fail or block the
- * correction pass, nor the steps ahead of it: caught and logged, not
- * rethrown.
- */
-async function reconcileWeeklyTrophy({ leagueId, season, week }) {
-  try {
-    await trophies.reconcileWeeklyHighScoreTrophy({ leagueId, season, week });
-  } catch (err) {
-    console.error(
-      'stat correction: weekly high score trophy reconcile failed for league %s week %s:',
-      leagueId,
-      week,
-      err.message
-    );
-  }
 }
 
 /**

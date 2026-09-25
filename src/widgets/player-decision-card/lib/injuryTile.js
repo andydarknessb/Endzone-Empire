@@ -7,9 +7,8 @@ import { injuryView } from '../../../shared/ui';
  * paints; the feed's own free-text detail is client-reachable in exactly one
  * place - the Ledger row's own Edge line, when its `kind` is `'injury'`
  * (CONTEXT.md's Edge line, priority 1: "the injury designation with its
- * detail"). Researched before writing this: the Decision card context
- * endpoint (`GET /api/team/lineup/:playerId/context`, #1236) carries only
- * `{ line, weather, usage }`, no separate detail field, so the Edge line's
+ * detail"). Researched before writing this: the Decision card read
+ * (`GET /api/players/:id/card`) carries no separate free-text detail field, so the Edge line's
  * own text is the one source rather than a guess or a new server field.
  *
  * Null for a healthy player (no designation at all) - the tile's own

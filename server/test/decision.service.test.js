@@ -551,3 +551,14 @@ test('upgradeFor: names the weakest eligible starter as overPlayer', () => {
   assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX' });
   assert.equal(upgrade.slot, 'FLEX');
 });
+
+// #1668: a released player (nfl_team null) is Unavailable and never proposed.
+test('buildSuggestions: a released bench player with the highest projection is never proposed as a start', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    { ...entry(2, 'RB', 'BENCH'), nflTeam: null },
+  ];
+  const projections = new Map([[1, { points: 10 }], [2, { points: 30 }]]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+});

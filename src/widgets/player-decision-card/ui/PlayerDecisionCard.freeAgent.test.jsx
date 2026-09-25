@@ -150,3 +150,24 @@ test('playerIds/onNavigate from the built context drive prev/next', async () => 
   await userEvent.click(screen.getByTestId('decision-card-next'));
   expect(onNavigate).toHaveBeenCalledWith(9);
 });
+
+// #1667: Opponent rank vs position rides the card's one read in every context.
+test('renders the Opp rank line from the card\'s opponents', async () => {
+  mockCardRoute({
+    opponents: [
+      { week: 4, opponent: 'DAL', rankVsPosition: 1, allowedPerGame: 30, games: 3 },
+      { week: 5, opponent: 'NYG', rankVsPosition: 32, allowedPerGame: 8, games: 3 },
+    ],
+  });
+  renderCard();
+
+  expect(await screen.findByTestId('decision-card-opp-rank')).toHaveTextContent('Opp rank vs RB: W4 DAL 1st, W5 NYG 32nd');
+});
+
+test('the decision strip shows the Ownership and depth chart tiles in this context (#1677)', async () => {
+  mockCardRoute({});
+  renderCard();
+
+  expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
+  expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
+});

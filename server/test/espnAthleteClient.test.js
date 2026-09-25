@@ -441,6 +441,8 @@ function cardPoolHandlers(player, { ownershipRow = null, depthRow = null } = {})
     [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2$/, () => ({ rows: [CARD_TEAM] })],
     [/^SELECT \* FROM "players" WHERE "id" = \$1$/, () => ({ rows: [player] })],
     [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
+    // #1667: the player's own game this week (line/weather); no game here.
+    [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
     [/^WITH "target" AS \(/, () => ({ rows: [{ id: player.id }] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],

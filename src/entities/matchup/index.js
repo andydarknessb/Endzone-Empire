@@ -33,7 +33,7 @@ export {
   matchupStatusView,
 } from './model/matchupModel';
 export {
-  playsFromScoreEvent, matchupPlaySide, playLabel, formatSignedPoints,
+  playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
 export { useMatchup } from './model/useMatchup';

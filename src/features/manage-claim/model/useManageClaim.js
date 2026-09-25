@@ -1,5 +1,10 @@
 import { useRef, useState } from 'react';
-import apiClient from '../../../api/apiClient';
+import {
+  submitClaim,
+  editClaim as editClaimRequest,
+  cancelClaim as cancelClaimRequest,
+  moveClaim,
+} from '../../../entities/waiver-claim';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 
@@ -32,9 +37,11 @@ function focusRestoredClaim(claimId, tries = 20) {
  * `pendingIds` is the caller's current pending claim ids in Claim order; it is
  * read at Undo time, after the refresh that `onDone` triggers.
  *
- * BELOW-ISLAND EDGES (ADR 0031 amendment): `api/apiClient`, `lib/httpFailure`
- * and `components/Snackbar/SnackbarProvider`, the same three edges
- * `claim-player` names, for the identical reasons.
+ * The requests are the `waiver-claim` entity's writes.
+ *
+ * BELOW-ISLAND EDGES (ADR 0031 amendment): `lib/httpFailure` and
+ * `components/Snackbar/SnackbarProvider`, the same edges `claim-player`
+ * names, for the identical reasons.
  */
 export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
   const notify = useSnackbar();
@@ -47,10 +54,7 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
   const editClaim = async (claim, { bid, dropPlayerId }) => {
     setPending(true);
     try {
-      await apiClient.patch(`/api/waivers/claim/${claim.id}`, {
-        bid: bid ? Number(bid) : 0,
-        dropPlayerId: dropPlayerId == null || dropPlayerId === '' ? null : Number(dropPlayerId),
-      });
+      await editClaimRequest({ claimId: claim.id, bid, dropPlayerId });
       notify('Waiver claim updated');
       await onDone?.();
       return { ok: true };
@@ -66,13 +70,13 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
   const undoCancel = async (claim, position) => {
     let created;
     try {
-      const response = await apiClient.post('/api/waivers/claim', {
-        leagueId: Number(leagueId),
+      const restored = await submitClaim({
+        leagueId,
         playerId: claim.playerId,
         dropPlayerId: claim.dropPlayerId ?? null,
-        bid: claim.bid ? Number(claim.bid) : 0,
+        bid: claim.bid,
       });
-      created = response?.data?.id;
+      created = restored?.id;
     } catch (err) {
       notify(`Could not undo the cancel: ${failure(err)}`, { severity: 'error' });
       return;
@@ -81,7 +85,7 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
       if (created != null) {
         const ids = idsRef.current.filter((id) => id !== created);
         ids.splice(Math.min(position, ids.length), 0, created);
-        await apiClient.put('/api/waivers/claims/order', { leagueId: Number(leagueId), claimIds: ids });
+        await moveClaim({ leagueId, claimIds: ids });
       }
       notify(`Claim on ${claim.playerName} restored`);
     } catch (err) {
@@ -96,7 +100,7 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
   const cancelClaim = async (claim, position) => {
     setPending(true);
     try {
-      await apiClient.delete(`/api/waivers/claim/${claim.id}?leagueId=${Number(leagueId)}`);
+      await cancelClaimRequest({ leagueId, claimId: claim.id });
     } catch (err) {
       notify(failure(err), { severity: 'error' });
       return { ok: false };

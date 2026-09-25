@@ -877,8 +877,11 @@ test('tickUnlocked runs the nflverse current-week pass in its own containment', 
 // CONTEXT.md's Line is the spread/total Sync run tested above as
 // runHourlyOddsSync.
 
-test('runHourlyGameContextSync runs once per hour, syncing every distinct live-league week', async (t) => {
+test('runHourlyGameContextSync delegates the due/not-due decision to the cadence gate for the game-context job', async (t) => {
   const gameContextSync = require('../services/gameContextSync.service');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
   const calls = [];
   t.mock.method(gameContextSync, 'syncGameContext', async ({ season, week }) => {
     calls.push({ season, week });
@@ -888,23 +891,35 @@ test('runHourlyGameContextSync runs once per hour, syncing every distinct live-l
     [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
   ]).install(t);
 
-  const first = new Date('2026-09-13T12:00:00Z');
-  assert.deepEqual(await scheduler.runHourlyGameContextSync({ now: first }), [{ gamesUpdated: 1 }]);
+  const now = new Date('2026-09-13T12:00:00Z');
+  assert.deepEqual(await scheduler.runHourlyGameContextSync({ now }), [{ gamesUpdated: 1 }]);
   assert.deepEqual(calls, [{ season: 2026, week: 2 }]);
+  assert.deepEqual(dueArgs, { job: 'game-context', every: { ms: scheduler.GAME_CONTEXT_SYNC_INTERVAL_MS }, now });
+});
 
-  // A tick 10 minutes later is not due yet.
-  const soon = new Date('2026-09-13T12:10:00Z');
-  assert.equal(await scheduler.runHourlyGameContextSync({ now: soon }), null);
-  assert.equal(calls.length, 1);
+test('runHourlyGameContextSync performs no sync on a first tick when a recent successful run row exists (fresh module state, a worker restart)', async (t) => {
+  // Tick well past every earlier test's now, so the pre-PR in-memory epoch (module state shared across this file) is unambiguously due and this test is red there.
+  const gameContextSync = require('../services/gameContextSync.service');
+  const syncRun = require('../modules/syncRun');
+  t.mock.method(syncRun, 'lastRun', async (job) => {
+    assert.equal(job, 'game-context');
+    const at = new Date('2026-09-20T11:50:00Z');
+    return { latest: { finishedAt: at, startedAt: at, status: 'ok' }, latestOk: { finishedAt: at, startedAt: at, status: 'ok' } };
+  });
+  const calls = [];
+  t.mock.method(gameContextSync, 'syncGameContext', async (a) => { calls.push(a); return {}; });
+  const fake = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
+  ]).install(t);
 
-  // An hour later it runs again.
-  const later = new Date('2026-09-13T13:01:00Z');
-  await scheduler.runHourlyGameContextSync({ now: later });
-  assert.equal(calls.length, 2);
+  assert.equal(await scheduler.runHourlyGameContextSync({ now: new Date('2026-09-20T12:00:00Z') }), null);
+  assert.equal(calls.length, 0);
+  assert.equal(fake.calls.length, 0, 'not due never reaches the leagues read');
 });
 
 test('runHourlyGameContextSync syncs every distinct (season, week) a live league is on, and one week failing does not stop another', async (t) => {
   const gameContextSync = require('../services/gameContextSync.service');
+  t.mock.method(require('../modules/cadence'), 'due', async () => ({ due: true, reason: 'stubbed due' }));
   const calls = [];
   t.mock.method(gameContextSync, 'syncGameContext', async ({ season, week }) => {
     calls.push({ season, week });

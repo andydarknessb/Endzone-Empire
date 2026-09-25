@@ -62,6 +62,8 @@ function buildHandlers({
     [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2$/, () => ({ rows: [team] })],
     [/^SELECT \* FROM "players" WHERE "id" = \$1$/, () => ({ rows: [player] })],
     [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
+    // #1667: the player's own game this week (line/weather); no game by default.
+    [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
     [/^WITH "target" AS \(/, () => ({ rows: identityIds.map((id) => ({ id })) })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: ownRosterRows })],
@@ -89,6 +91,7 @@ function mockServices(t, {
   byeWeek = null,
   restOfSeason = { total: 0, perGame: 0 },
   rosterCapacity = 16,
+  realUsage = false, // leave loadUsage to the fake pool (the IDP side case)
 } = {}) {
   const weekProjectionCalls = [];
   t.mock.method(projectionService, 'getWeekProjections', async (options) => {
@@ -114,7 +117,7 @@ function mockServices(t, {
     return new Map(playerIds.map((id) => [id, restOfSeason]));
   });
   t.mock.method(byeService, 'computeByeWeek', async () => byeWeek);
-  t.mock.method(decisionCardContextService, 'loadUsage', async () => null);
+  if (!realUsage) t.mock.method(decisionCardContextService, 'loadUsage', async () => null);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(irPolicy, 'rosterCapacity', async () => rosterCapacity);
   return { weekProjectionCalls };
@@ -521,4 +524,137 @@ test('getPlayerCard: a traded player\'s past-season bye/schedule come from that 
   assert.equal(logWeek6.opponent, 'DEN');
   const week6Bar = y2025.weeks.find((w) => w.week === 6);
   assert.equal(week6Bar.opponent, 'SF');
+});
+
+// ---------------------------------------------------------------------------
+// #1667: the one read carries line, weather, usage (by side) and opponents
+// ---------------------------------------------------------------------------
+
+test('getPlayerCard: IDP usage reads the defense snap keys, not the offense ones (#1667)', async (t) => {
+  const league = { ...LEAGUE, current_week: 5 };
+  const lb = { ...PLAYER, id: 61, position: 'LB' };
+  createFakePool([
+    [/^SELECT "week" FROM "nfl_games"/, () => ({ rows: [{ week: 4 }] })],
+    [/^SELECT "week", "stats" FROM "player_stats" WHERE "player_id"/, () => ({
+      rows: [{ week: 4, stats: {
+        gameTeam: 'BUF', usageDefenseSnaps: 60, usageDefenseSnapPct: 0.9, usageOffenseSnaps: 3, usageOffenseSnapPct: 0.05,
+      } }],
+    })],
+    [/^SELECT "week", "stats" FROM "player_stats" WHERE "season"/, () => ({ rows: [] })],
+    ...buildHandlers({ league, player: lb }),
+  ]).install(t);
+  mockServices(t, { realUsage: true });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: lb.id });
+
+  assert.equal(card.decision.usage.weeks[0].snaps, 60);
+  assert.equal(card.decision.usage.weeks[0].snapShare, 0.9);
+});
+
+test('getPlayerCard: a free agent gets line, weather, usage and opponents (#1667)', async (t) => {
+  const league = { ...LEAGUE, current_week: 5 };
+  decisionCardContextService.clearLeagueContextMemo();
+  createFakePool([
+    [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [{ week: 5, opponent: 'DAL' }] })],
+    [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
+      rows: [{ game_key: '2026_05_BUF_DAL', roof: 'outdoors', home_away: 'away' }],
+    })],
+    [/^SELECT "total", "spread", "observed_at" FROM "game_odds_snapshots"/, () => ({
+      rows: [{ total: '47.00', spread: '-3.00', observed_at: '2026-10-01T12:00:00.000Z' }],
+    })],
+    [/^SELECT "temperature_f".*FROM "game_weather_snapshots"/, () => ({
+      rows: [{ temperature_f: '45.5', wind_speed_mph: '10', wind_gust_mph: '18', precipitation_probability: 20, short_forecast: 'Cloudy' }],
+    })],
+    [/FROM "player_stats" "ps"/, () => ({
+      rows: [{ player_id: 21, week: 1, position: 'WR', defense: 'DAL', stats: { receivingYards: 150 } }],
+    })],
+    [/COUNT\(\*\)::int AS "games"/, () => ({ rows: [{ team: 'DAL', games: 4 }] })],
+    ...buildHandlers({ league }),
+  ]).install(t);
+  mockServices(t);
+  t.mock.method(decisionCardContextService, 'loadUsage', async () => ({ weeks: [], seasonAverage: null }));
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.availability.state, 'free_agent');
+  assert.equal(card.line.total, 47);
+  assert.equal(card.line.impliedTeamTotal, 22);
+  assert.equal(card.weather.temperatureF, 45.5);
+  assert.deepEqual(card.decision.usage, { weeks: [], seasonAverage: null });
+  assert.equal(card.opponents.length, 1);
+  assert.equal(card.opponents[0].opponent, 'DAL');
+});
+
+test('getPlayerCard: opponents cover the next three weeks, binding [week, week + 2] (#1667)', async (t) => {
+  const league = { ...LEAGUE, current_week: 5 };
+  decisionCardContextService.clearLeagueContextMemo();
+  const fake = createFakePool([
+    [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({
+      rows: [{ week: 5, opponent: 'DAL' }, { week: 6, opponent: 'NYG' }, { week: 7, opponent: 'DAL' }],
+    })],
+    [/FROM "player_stats" "ps"/, () => ({
+      rows: [
+        { player_id: 21, week: 1, position: 'WR', defense: 'DAL', stats: { receivingYards: 150 } },
+        { player_id: 23, week: 1, position: 'WR', defense: 'NYG', stats: { receivingYards: 20 } },
+      ],
+    })],
+    [/COUNT\(\*\)::int AS "games"/, () => ({ rows: [{ team: 'DAL', games: 4 }, { team: 'NYG', games: 4 }] })],
+    ...buildHandlers({ league }),
+  ]);
+  fake.install(t);
+  mockServices(t);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  const windowCall = fake.calls.find((c) => /^SELECT "week", "opponent" FROM "nfl_games" WHERE "season" = \$1 AND "week" >= \$2/.test(c.text));
+  assert.deepEqual(windowCall.params, [2026, 5, 7, 'BUF']);
+  assert.deepEqual(card.opponents.map((o) => [o.week, o.opponent, o.rankVsPosition]), [
+    [5, 'DAL', 1], [6, 'NYG', 2], [7, 'DAL', 1],
+  ]);
+});
+
+/** A memo fixture: counts season scans, with one game in the window. */
+function memoFixture(t, { league = { ...LEAGUE, current_week: 5 } } = {}) {
+  decisionCardContextService.clearLeagueContextMemo();
+  const fake = createFakePool([
+    [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [{ week: 5, opponent: 'DAL' }] })],
+    [/FROM "player_stats" "ps"/, () => ({
+      rows: [{ player_id: 21, week: 1, position: 'WR', defense: 'DAL', stats: { receivingYards: 150 } }],
+    })],
+    [/COUNT\(\*\)::int AS "games"/, () => ({ rows: [{ team: 'DAL', games: 4 }] })],
+    [/^SELECT \* FROM "players" WHERE "id" = \$1$/, (text, params) => ({
+      rows: [{ ...PLAYER, id: params[0], position: params[0] === 99 ? 'RB' : 'WR' }],
+    })],
+    ...buildHandlers({ league }),
+  ]);
+  fake.install(t);
+  mockServices(t);
+  const scans = () => fake.calls.filter((c) => /FROM "player_stats" "ps"/.test(c.text)).length;
+  return { scans };
+}
+
+test('getPlayerCard: two reads at one position, league and week run the season scan once; another position runs it again (#1667)', async (t) => {
+  const { scans } = memoFixture(t);
+
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 56 });
+  assert.equal(scans(), 1);
+
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 99 });
+  assert.equal(scans(), 2);
+});
+
+test('getPlayerCard: a read after the ten-minute lifetime runs the season scan again (#1667)', async (t) => {
+  const { scans } = memoFixture(t);
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+  now += decisionCardContextService.LEAGUE_CONTEXT_TTL_MS - 1;
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 56 });
+  assert.equal(scans(), 1);
+
+  now += 2;
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+  assert.equal(scans(), 2);
 });
