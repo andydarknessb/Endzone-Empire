@@ -13,6 +13,32 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## Ticket template
+
+A ticket cut from a spec carries these sections, in this order. `## Premises` is required: it lists each code fact the criteria depend on, in the format `docs/agents/agent-briefs.md` gives under **Stated** (one `<path>: <claim> @<sha>` line per premise, or `none`), in the body and never in a comment.
+
+```markdown
+## Parent
+
+Spec #<n>. Cut against integration <sha> on <date>.
+
+## What to build
+
+<the result, end to end>
+
+## Premises
+
+<path>: <claim> @<sha>
+
+## Acceptance criteria
+
+- [ ] <a result the actor can observe>
+
+## Blocked by
+
+- #<n>, or "None. Can start immediately."
+```
+
 ## Bug reports
 
 The web UI offers a bug form (`.github/ISSUE_TEMPLATE/bug.yml`) that applies the `bug` label and asks for What happened, Expected, Steps and **Escaped from PR #**, the number of the pull request that introduced the bug. Blank issues stay available. A bug filed with `gh issue create` bypasses the form, so write the same headings yourself and add `--label bug`:
