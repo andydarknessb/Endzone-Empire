@@ -6,7 +6,7 @@ import { readHttpFailure } from '../../../lib/httpFailure';
 import {
   matchupFromDetailBody, applyScoreEvent, applyIdentityPatch,
 } from './matchupModel';
-import { playsFromScoreEvent } from './play';
+import { playsFromScoreEvent, deltasFor } from './play';
 import { useLiveGameStates } from './useLiveGameStates';
 
 /**
@@ -91,6 +91,8 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
   const [error, setError] = useState(null);
   const onScoresRef = useRef(onScores);
   onScoresRef.current = onScores;
+  // The week on screen, from the last fetched detail body's matchup.
+  const weekRef = useRef(null);
 
   // `silent` separates the first load from a background refresh, exactly as the
   // league hook does: the first load drives `loading` (the page skeleton); a
@@ -104,6 +106,7 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
       setError(null);
       const res = await apiClient.get(`/api/league/${leagueId}/matchups/${matchupId}`);
       setDetail(res.data);
+      weekRef.current = res.data?.matchup?.week ?? null;
       setMatchup(matchupFromDetailBody(res.data));
       setHome(res.data?.home ?? null);
       setAway(res.data?.away ?? null);
@@ -136,12 +139,12 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
         // entity's Play model (#1137) so a wire quirk (isTouchdown sent as
         // something other than a real boolean, say) never reaches the delta
         // math or the callback below.
+        // The week guard (#1672): `deltasFor` is empty unless the event is
+        // stamped for the week on screen, so a settled week never moves while a
+        // later week's games are live.
         const plays = playsFromScoreEvent(event);
-        if (plays.length) {
-          const deltaById = new Map();
-          for (const p of plays) {
-            deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + p.pointsDelta);
-          }
+        const deltaById = deltasFor(event, weekRef.current);
+        if (deltaById.size) {
           setHome((prev) => applyStarterDeltas(prev, deltaById));
           setAway((prev) => applyStarterDeltas(prev, deltaById));
         }

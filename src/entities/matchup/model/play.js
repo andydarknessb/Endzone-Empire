@@ -51,6 +51,30 @@ export function playsFromScoreEvent(event) {
 }
 
 /**
+ * The live delta rule: a `scores:updated` event as a map from player id to the
+ * summed points delta of that player's plays (a player can carry several plays
+ * in one event - the rescore gate's buckets - each an incremental share, so
+ * they sum rather than dedupe). The week guard lives here: an event stamped
+ * for a week other than the one on screen, or stamped with no week at all (the
+ * server always stamps one, but a defensive read never assumes it), yields an
+ * empty map, so a settled week never moves while a later week's games are
+ * live (#1546). A play with no player id contributes nothing.
+ *
+ * @param {object} event  a `scores:updated` event
+ * @param {number|null|undefined} weekOnScreen
+ * @returns {Map<number|string, number>} player id -> summed points delta
+ */
+export function deltasFor(event, weekOnScreen) {
+  const deltas = new Map();
+  if (event?.week == null || event.week !== weekOnScreen) return deltas;
+  for (const p of playsFromScoreEvent(event)) {
+    if (p.playerId == null) continue;
+    deltas.set(p.playerId, (deltas.get(p.playerId) || 0) + p.pointsDelta);
+  }
+  return deltas;
+}
+
+/**
  * Which side of a Matchup a Scoring play belongs to, from the two starter id
  * sets a caller already holds: `'own'` for the viewer's own starter,
  * `'opponent'` for the opponent's, and `'none'` for anyone else (a bench
