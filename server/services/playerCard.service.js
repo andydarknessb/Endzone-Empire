@@ -69,7 +69,8 @@ function opponentRankOf(projections, playerId) {
 
 /**
  * Classifies one `getWeeklyProjections` result for one week (formal review
- * f3): unavailable, with the 'on IR' | 'out' reason, or a point value (the
+ * f3): unavailable, with the reason CODE ('bye' | 'out' | 'ir' | 'no_team';
+ * the client labels it, #1675), or a point value (the
  * RANKING statistic, `projectionService.pointEstimateFor` - #1483 - `null`
  * when the producer had neither). Shared by `buildWeeksForPage` (the list,
  * #1309) and `buildWeeklyBars` (the card, #1306) so the two never classify the
@@ -82,7 +83,7 @@ function classifyWeekProjection(projection) {
     && projection.factors.availability
     && projection.factors.availability.available === false);
   if (unavailable) {
-    return { unavailable: true, reason: projection.factors.availability.reason === 'ir' ? 'on IR' : 'out' };
+    return { unavailable: true, reason: projection.factors.availability.reason || 'out' };
   }
   const point = projection ? projectionService.pointEstimateFor(projection) : null;
   return { unavailable: false, points: point == null ? null : Number(point) };
@@ -419,7 +420,7 @@ async function availabilityFor({ league, team, player }) {
  * 25-row page and a 1-row page make the same number of calls (the nightly
  * run, #1305, has already filled every one of these for an in-season
  * league). Each entry is `{ week, points }` under the league's own
- * scoring, or `{ week, reason }` ('on bye' | 'out' | 'on IR') with no
+ * scoring, or `{ week, reason }` (a reason code: 'bye' | 'out' | 'ir' | 'no_team') with no
  * `points` for a week the player is unavailable; `projWeek` is simply the
  * first (current-week) entry.
  */
@@ -446,7 +447,7 @@ async function buildWeeksForPage({
     const run = (runsByWeek && runsByWeek.get(wk)) || fetched.get(wk) || { projections: new Map() };
     for (const id of playerIds) {
       if (byeWeekByPlayerId.get(id) === wk) {
-        weeksByPlayer.get(id).push({ week: wk, reason: 'on bye' });
+        weeksByPlayer.get(id).push({ week: wk, reason: 'bye' });
         continue;
       }
       const classified = classifyWeekProjection(run.projections.get(id));
@@ -466,7 +467,7 @@ async function buildWeeksForPage({
  * `currentWeek` onward is one `getWeeklyProjections` call per week (the rows
  * the nightly projection run, #1305, already fills); the bye week is
  * `'bye'` with no points; a week `projection.factors.availability` marks
- * unavailable is `'unavailable'` with `reason` 'out' or 'on IR'.
+ * unavailable is `'unavailable'` with `reason` a code ('out' | 'ir' | 'no_team').
  *
  * Open interpretation (formal review f3, not settled by the Ruling or ADR
  * 0040-0042): a past, non-bye week with no `player_stats` row at all (a
@@ -488,7 +489,7 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
   for (let wk = 1; wk <= 18; wk++) {
     const opponent = opponentByWeek.get(wk) ?? null;
     if (wk === byeWeek) {
-      weeks.push({ week: wk, opponent, kind: 'bye' });
+      weeks.push({ week: wk, opponent, kind: 'bye', reason: 'bye' });
       continue;
     }
     if (wk < currentWeek) {
