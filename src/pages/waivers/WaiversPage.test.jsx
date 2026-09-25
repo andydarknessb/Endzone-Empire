@@ -427,3 +427,14 @@ test('no claims at all says "No claims yet"', async () => {
   const card = await claimsCard();
   expect(await within(card).findByText('No claims yet')).toBeInTheDocument();
 });
+
+test('a refused move up keeps focus on the moved claim\'s control after the revert', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  apiClient.put.mockRejectedValue({ response: { status: 409, data: { message: 'Your pending claims changed; refresh and retry.' } } });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  await userEvent.click(within(card).getByRole('button', { name: 'Move Claim A up' }));
+  await within(card).findByText('Your pending claims changed; refresh and retry.');
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim A up' })).toHaveFocus());
+});

@@ -77,6 +77,9 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
     focusRef.current = { id, dir: delta < 0 ? 'up' : 'down' };
     onMove(id, delta);
   };
+  // The target is kept until the PUT settles (a success announcement or a
+  // refusal), so the revert render after a refusal restores focus too.
+  const settledRef = useRef({ orderError, orderAnnouncement });
   useEffect(() => {
     const target = focusRef.current;
     if (!target || !rootRef.current) return;
@@ -84,9 +87,11 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
     const el =
       rootRef.current.querySelector(`[data-claim-move="${target.id}-${target.dir}"]:not(:disabled)`) ||
       rootRef.current.querySelector(`[data-claim-move="${target.id}-${other}"]:not(:disabled)`);
-    if (el) {
+    if (el && document.activeElement !== el) el.focus();
+    const settled = settledRef.current;
+    if (settled.orderError !== orderError || settled.orderAnnouncement !== orderAnnouncement) {
+      settledRef.current = { orderError, orderAnnouncement };
       focusRef.current = null;
-      el.focus();
     }
   });
 
