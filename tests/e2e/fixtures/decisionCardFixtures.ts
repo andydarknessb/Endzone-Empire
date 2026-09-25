@@ -155,6 +155,12 @@ async function fulfilApi(route: Route) {
   if (method === 'GET' && pathname === '/api/notifications') return json(route, 200, { notifications: [], unread: 0 });
   if (method === 'GET' && pathname === '/api/notifications/prefs') return json(route, 200, { prefs: {} });
   if (method === 'GET' && pathname === '/api/waivers') return json(route, 200, waiversResponse());
+  // The Waivers page (#1613) reads the league row (best ball decides the sort
+  // before the first players read) and the lineup (the Bye cluster grid).
+  if (method === 'GET' && pathname === `/api/league/${LEAGUE_ID}`) {
+    return json(route, 200, { league: { id: LEAGUE_ID, best_ball: false, waiver_type: 'priority', waiver_period_hours: 24 }, teams: [] });
+  }
+  if (method === 'GET' && pathname === '/api/team/lineup') return json(route, 200, { week: 4, currentWeek: 4, entries: [] });
   if (method === 'GET' && pathname === '/api/waivers/suggestions') return json(route, 200, { suggestions: [] });
   if (method === 'GET' && pathname === '/api/team/roster') return json(route, 200, rosterRows());
   // #1310 formal review f2: WaiverWire's on-waivers table's own required

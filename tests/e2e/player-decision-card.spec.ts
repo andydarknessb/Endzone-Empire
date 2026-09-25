@@ -98,7 +98,7 @@ test('the Decision card sheet at 390px: no horizontal scroll, tap targets at lea
   await page.setViewportSize({ width: WIDTH, height: HEIGHT });
   await page.goto(WAIVERS_URL);
 
-  await page.getByRole('button', { name: PLAYER_NAME }).click();
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
   const card = page.getByTestId('decision-card');
   await expect(card).toHaveAttribute('data-variant', 'sheet');
   // Content that only arrives once the card route resolves - waiting on it
@@ -148,7 +148,7 @@ test('the weekly bars keep their full height inside the sheet', async ({ page })
   await page.setViewportSize({ width: WIDTH, height: HEIGHT });
   await page.goto(WAIVERS_URL);
 
-  await page.getByRole('button', { name: PLAYER_NAME }).click();
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
   const strip = page.getByTestId('weekly-points-bars');
   await expect(strip).toBeVisible();
   await page.evaluate(() => document.fonts.ready.then(() => true));
@@ -182,7 +182,7 @@ test('arrow keys still navigate after Prev/Next focuses a genuinely truncated ti
   await page.setViewportSize({ width: WIDTH, height: HEIGHT });
   await page.goto(WAIVERS_URL);
 
-  await page.getByRole('button', { name: PLAYER_NAME }).click();
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
   await expect(page.getByTestId('decision-card')).toBeVisible();
 
   await page.getByTestId('decision-card-next').click();
@@ -206,7 +206,7 @@ test('negative control: the width predicate reports a forced sheet overflow', as
   await setupDecisionCardLayoutGuard(page);
   await page.setViewportSize({ width: WIDTH, height: HEIGHT });
   await page.goto(WAIVERS_URL);
-  await page.getByRole('button', { name: PLAYER_NAME }).click();
+  await page.getByRole('button', { name: new RegExp(`^${PLAYER_NAME}`) }).click();
   await expect(page.getByTestId('decision-card')).toBeVisible();
 
   const before = await page.evaluate(probeWidth, '[data-testid="decision-card"]');
