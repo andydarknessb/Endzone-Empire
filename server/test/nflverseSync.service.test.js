@@ -1103,3 +1103,80 @@ test('every snap key is protected from the box replace and the Tue/Wed rebuild',
   }
   assert.deepEqual([...SNAP_STAT_KEYS].sort(), Object.keys(updates[0].patch).sort());
 });
+
+// --- finalizePriorWeeks: one players.csv per pass, snap failure isolated (#1649) --
+
+const FINALIZE_PLAYERS_CSV = 'gsis_id,pfr_id,espn_id\n00-0039924,BankKe01,4429795\n';
+
+/** One live league on week 2 (so the pass finalizes week 1), the weekly feed,
+ * the snap feed and both players.csv-backed crosswalks. `snapsFail` makes the
+ * snap file 404 (PFR not published yet). Returns the request URL log. */
+function stubFinalizeWorld(t, { snapsFail = false } = {}) {
+  const urls = [];
+  t.mock.method(axios, 'get', async (url) => {
+    urls.push(url);
+    if (url.includes('players.csv')) return { data: FINALIZE_PLAYERS_CSV };
+    if (url.includes('snap_counts_')) {
+      if (snapsFail) throw Object.assign(new Error('Request failed with status code 404'), { response: { status: 404 } });
+      return {
+        data: [
+          'season,week,game_type,pfr_player_id,team,offense_snaps,offense_pct,defense_snaps,defense_pct',
+          '2025,1,REG,BankKe01,KC,75,1,0,0',
+        ].join('\n'),
+      };
+    }
+    if (url.includes('stats_player_week')) {
+      return {
+        data: [
+          'season,week,season_type,player_id,def_sack_yards,def_tackles_for_loss_yards,fumble_recovery_yards_opp,def_interception_yards,def_safeties',
+          '2025,1,REG,00-0039924,9,2,15,27,1',
+        ].join('\n'),
+      };
+    }
+    return { data: '' };
+  });
+  createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
+    [insert('player_stats'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+    [select('leagues'), (text) => ({
+      rows: text.includes('"current_season"') ? [{ id: 7, current_season: 2025, current_week: 2 }] : [{ id: 7 }],
+    })],
+  ]).install(t);
+  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+  return urls;
+}
+
+test('finalizePriorWeeks downloads players.csv once per pass, not once per job', async (t) => {
+  const urls = stubFinalizeWorld(t);
+  const { finalized } = await nflverseSync.finalizePriorWeeks();
+  assert.equal(finalized.length, 1);
+  assert.equal(urls.filter((u) => u.includes('players.csv')).length, 1);
+  assert.equal(urls.filter((u) => u.includes('snap_counts_')).length, 1, 'the snap job still ran');
+});
+
+test('finalizePriorWeeks: a snap failure keeps the committed weekly outcome and logs a snap failure', async (t) => {
+  stubFinalizeWorld(t, { snapsFail: true });
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  const { finalized } = await nflverseSync.finalizePriorWeeks();
+  assert.equal(finalized.length, 1, 'the weekly patch already committed');
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0][0]), /^nflverse snaps failed/);
+});
+
+test('finalizePriorWeeks: a failed players.csv download logs once and finalizes nothing', async (t) => {
+  createFakePool([
+    [select('leagues'), () => ({ rows: [{ id: 7, current_season: 2025, current_week: 2 }] })],
+  ]).install(t);
+  t.mock.method(axios, 'get', async () => {
+    throw new Error('players.csv unreachable');
+  });
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  const out = await nflverseSync.finalizePriorWeeks();
+  assert.deepEqual(out, { finalized: [] });
+  assert.equal(errors.length, 1);
+});
