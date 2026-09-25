@@ -82,6 +82,22 @@ npm run test:server   # node:test unit tests (scoring + draft-order logic)
 npm run build         # production build of the frontend
 ```
 
+## Pull requests into integration
+
+Every pull request into `integration` needs the `fleet-review` commit status on
+its head commit, next to the six CI checks the branch ruleset already requires
+(fleet ADR 0014).
+
+- A fleet PR gets it from the project lead's formal review
+  (`review-policy.js record --kind formal` posts the status).
+- A PR with no fleet Work record gets it from an attest. That covers your own
+  interactive PRs and every Dependabot PR (they target `integration`, see
+  `.github/dependabot.yml`). Review the diff yourself, then run
+  `node C:/Users/Cory/fleet/bin/review-policy.js attest --tenant endzone --pr <n> --head <sha> --artifact <path>`
+  with a findings artifact or a one-sentence `noFindings` statement. Until the
+  status exists the check shows as Required and the PR cannot merge.
+- Release PRs into `main` are untouched.
+
 ## Production hosting
 
 Netlify serves the CRA build at `endzoneempire.gg`; Render runs the Express and
