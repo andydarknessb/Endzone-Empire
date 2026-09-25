@@ -379,7 +379,13 @@ export default function WaiversPage() {
         claim={editingClaim}
         onSave={(values) => editClaim(editingClaim, values)}
         leagueId={leagueId}
-        availability={availability}
+        // FAAB is deducted only when a claim wins and the server checks an edited
+        // bid against the whole budget, so the sheet offers `left` plus every
+        // pending bid (the budget), not the strip's committed-adjusted figure.
+        availability={{
+          ...availability,
+          faabRemaining: isFaab && claims.faab ? claims.faab.left + claims.faab.committed : undefined,
+        }}
         roster={rosterData}
         onClose={() => setEditClaimId(null)}
       />

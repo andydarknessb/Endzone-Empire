@@ -44,7 +44,7 @@ function SharedDropWarning({ claim, rankById }) {
       sx={{ mt: 0.5, p: 1, border: '1px solid var(--dash-line)', borderRadius: 1, fontSize: 12, minWidth: 0 }}
     >
       <Typography component="span" sx={{ display: 'block', fontSize: 12, fontWeight: 600, overflowWrap: 'anywhere' }}>
-        {`Only one of these can go through: ${rankList(ranks)} both drop ${claim.dropPlayerName || 'the same player'}`}
+        {`Only one of these can go through: ${rankList(ranks)} ${ranks.length > 2 ? 'all' : 'both'} drop ${claim.dropPlayerName || 'the same player'}`}
       </Typography>
       <Typography component="span" sx={{ display: 'block', fontSize: 12, color: 'var(--dash-dim)' }}>
         Higher bid first, then Waiver priority, then your Claim order, each at its player&apos;s Clear time.
@@ -165,7 +165,11 @@ export default function WaiverClaims({ claims, onMove, onEdit, onCancel, busy = 
   const results = resultsByWeek.filter((group) => group.results.length > 0);
 
   if (pending.length === 0 && results.length === 0) {
-    return <Typography sx={{ p: 2, fontSize: 14, color: 'var(--dash-dim)' }}>No claims yet</Typography>;
+    return (
+      <Typography ref={rootRef} tabIndex={-1} sx={{ p: 2, fontSize: 14, color: 'var(--dash-dim)', outline: 'none' }}>
+        No claims yet
+      </Typography>
+    );
   }
 
   return (

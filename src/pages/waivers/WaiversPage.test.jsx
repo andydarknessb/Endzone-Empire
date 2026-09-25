@@ -693,6 +693,45 @@ test('after saving an edit, focus returns to that claim\'s Edit control', async 
   await waitFor(() => expect(within(card).getByRole('button', { name: 'Edit claim on Claim A' })).toHaveFocus());
 });
 
+test('the edit sheet offers the whole FAAB budget the server checks against, not budget plus the claim\'s own bid', async () => {
+  // faab_remaining 62, pending bids 4 + 10 + 1: the server checks an edited bid against 62 (bids are deducted only on a win).
+  setup({ waivers: waiversBody({ myClaims: manageClaims() }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Edit claim on Claim A' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim A/ });
+  expect(within(sheet).getByText('$62 remaining')).toBeInTheDocument();
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Bid max' }));
+  expect(within(sheet).getByRole('spinbutton', { name: 'Bid' })).toHaveValue(62);
+});
+
+test('three claims naming the same drop read "all drop", two read "both drop"', async () => {
+  const claims = manageClaims().map((c) => ({ ...c, drop_player_id: 3, drop_player_name: 'Best Bench' }));
+  setup({ waivers: waiversBody({ myClaims: claims }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  expect(await within(card).findAllByText('Only one of these can go through: #1, #2 and #3 all drop Best Bench')).toHaveLength(3);
+  expect(within(card).queryByText(/both drop/)).not.toBeInTheDocument();
+});
+
+test('cancelling the last claim with no results leaves focus on the empty state, not body', async () => {
+  const waivers = waiversBody({ myClaims: [manageClaims()[1]] });
+  setup({ waivers, roster: SHEET_ROSTER });
+  freshClaimReads(waivers);
+  apiClient.delete.mockImplementation(async () => {
+    waivers.myClaims = [];
+    return { data: {} };
+  });
+  renderWithToast();
+  const card = await claimsCard();
+  const cancel = await within(card).findByRole('button', { name: 'Cancel claim on Claim A' });
+  cancel.focus();
+  await userEvent.click(cancel);
+  await within(card).findByText('No claims yet');
+  await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+  expect(within(card).getByText('No claims yet')).toHaveFocus();
+});
+
 test('a failed Undo says so in the toast', async () => {
   const waivers = waiversBody({ myClaims: manageClaims() });
   setup({ waivers, roster: SHEET_ROSTER });

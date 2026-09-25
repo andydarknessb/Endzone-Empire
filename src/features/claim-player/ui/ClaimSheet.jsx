@@ -57,8 +57,7 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
   const pending = filing || saving;
 
   const isFaab = availability?.faabRemaining != null;
-  // An edited claim's own bid is already committed in the FAAB left.
-  const faabRemaining = (availability?.faabRemaining ?? 0) + (editing ? Number(claim.bid) || 0 : 0);
+  const faabRemaining = availability?.faabRemaining ?? 0;
   const atCapacity = isRosterAtCapacity(availability);
   const dropMissing = atCapacity && dropId === '';
   const bidNumber = bid === '' ? NaN : Number(bid);
