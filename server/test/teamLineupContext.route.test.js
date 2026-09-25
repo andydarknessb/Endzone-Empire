@@ -284,3 +284,45 @@ test('GET lineup/:playerId/context: leagueId query param is required', async (t)
     .set('Authorization', authed);
   assert.equal(res.status, 400);
 });
+
+test('GET lineup/:playerId/context: opponents bind the three-week window and rank the defenses through the real league scan (#1637)', async (t) => {
+  const fake = createFakePool([
+    // Ahead of the base handlers: the window has two games (week 7 is the bye).
+    [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({
+      rows: [{ week: 5, opponent: 'DAL' }, { week: 6, opponent: 'NYG' }],
+    })],
+    ...baseHandlers(),
+    [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "week" FROM "nfl_games"/, () => ({ rows: [] })],
+    // The league scan: DAL allows the most, NYG the least, both to WRs.
+    [/FROM "player_stats" "ps"/, () => ({
+      rows: [
+        { player_id: 21, week: 1, position: 'WR', defense: 'DAL', stats: { receivingYards: 150 } },
+        { player_id: 22, week: 2, position: 'WR', defense: 'DAL', stats: { receivingYards: 140 } },
+        { player_id: 23, week: 1, position: 'WR', defense: 'NYG', stats: { receivingYards: 20 } },
+        { player_id: 24, week: 2, position: 'WR', defense: 'NYG', stats: { receivingYards: 10 } },
+      ],
+    })],
+    [/COUNT\(\*\)::int AS "games"/, () => ({
+      rows: [{ team: 'DAL', games: 4 }, { team: 'NYG', games: 4 }],
+    })],
+  ]);
+  fake.install(t);
+
+  const res = await request(app)
+    .get(`/api/team/lineup/${PLAYER.id}/context`)
+    .query({ leagueId: VIEWER.leagueId })
+    .set('Authorization', authed);
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const windowCall = fake.matching(/^SELECT "week", "opponent" FROM "nfl_games"/)[0];
+  assert.deepEqual(windowCall.params, [2026, 5, 7, 'BUF']);
+  assert.equal(res.body.opponents.length, 2);
+  assert.deepEqual(
+    res.body.opponents.map(({ week, opponent, rankVsPosition, games }) => ({ week, opponent, rankVsPosition, games })),
+    [
+      { week: 5, opponent: 'DAL', rankVsPosition: 1, games: 4 },
+      { week: 6, opponent: 'NYG', rankVsPosition: 2, games: 4 },
+    ]
+  );
+});

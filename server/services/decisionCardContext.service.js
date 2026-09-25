@@ -6,7 +6,7 @@ const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 const { isPresentNumber: isNum } = require('./numericPresence');
 const { positionGroup } = require('./projectionModel');
-const { loadFeatureBundle } = require('./projectionFeatures');
+const { loadLeagueContext } = require('./projectionFeatures');
 
 /**
  * The Decision card's per-player context (#1236, ADR 0037, ADR 0032):
@@ -267,7 +267,7 @@ function opponentEntries(games, allowedByDefense) {
 
 /**
  * The next three weeks' opponents' rank vs the player's position. The league
- * scan is `loadFeatureBundle`'s own (one producer, no second aggregation of
+ * scan is `loadFeatureBundle`'s own, via `loadLeagueContext` (one producer, no second aggregation of
  * points allowed), read under the league's rules.
  */
 async function loadOpponents({ player, season, week, rules }) {
@@ -281,10 +281,10 @@ async function loadOpponents({ player, season, week, rules }) {
     [season, week, week + 2, player.nfl_team]
   );
   if (gamesResult.rows.length === 0) return [];
-  const bundle = await loadFeatureBundle({
-    season, week, playerIds: [player.id], rules, positions: [player.position],
+  const leagueContext = await loadLeagueContext({
+    season, week, rules, positions: [player.position],
   });
-  const context = bundle.leagueContext.get(group);
+  const context = leagueContext.get(group);
   return opponentEntries(gamesResult.rows, context ? context.allowedByDefense : null);
 }
 
