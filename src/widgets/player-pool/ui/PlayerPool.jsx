@@ -40,7 +40,7 @@ import apiClient from "../../../api/apiClient";
 import { readHttpFailure } from "../../../lib/httpFailure";
 import { useLeague } from "../../../hooks/useLeague";
 import { wireSortName } from "../../../components/DraftBoard/sortFields";
-import SegmentedControl from "../../../shared/ui/SegmentedControl";
+import { SegmentedControl } from "../../../shared/ui";
 import { parseRosterSlots, chipsForRosterSlots } from "../../../shared/lib";
 import { SORT_OPTIONS, DEFAULT_SORT_KEY, sortKeyFromParam } from "../model/sortKeys";
 
