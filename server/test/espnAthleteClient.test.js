@@ -63,7 +63,7 @@ test('normalizeBio: athlete-profile.json maps to bio', () => {
 });
 
 test('normalizeEspnNews: athlete-overview.json maps to news[] ordered newest first', () => {
-  const news = normalizeEspnNews(athleteOverviewFixture).filter((n) => n.source === 'espn');
+  const news = normalizeEspnNews({ news: athleteOverviewFixture.news });
   assert.ok(news.length > 0);
   assert.equal(news[0].source, 'espn');
   assert.ok(typeof news[0].headline === 'string' && news[0].headline.length > 0);
@@ -73,7 +73,7 @@ test('normalizeEspnNews: athlete-overview.json maps to news[] ordered newest fir
 });
 
 test('normalizeEspnNews: every item keeps the ESPN story url (links.web.href) so the card can link the headline', () => {
-  const news = normalizeEspnNews(athleteOverviewFixture).filter((n) => n.source === 'espn');
+  const news = normalizeEspnNews({ news: athleteOverviewFixture.news });
   assert.ok(news.length > 0);
   for (const item of news) {
     assert.ok(String(item.url).startsWith("https://www.espn.com/"), `expected an espn.com url, got ${item.url}`);
@@ -283,16 +283,22 @@ test('parseRotowirePublished: parses the non-ISO "Sun Sep 20 13:57:33 PDT 2026" 
   assert.equal(parseRotowirePublished(null), null);
 });
 
-test('normalizeEspnNews: the overview rotowire object comes first, then news[]', () => {
+test('normalizeEspnNews: the overview rotowire object is a fallback step - when present, news[] is not listed beside it', () => {
   const news = normalizeEspnNews({
     rotowire: { headline: 'RW', description: 'Blurb', story: 'Long story', published: 'Sun Sep 20 13:57:33 PDT 2026' },
     news: [{ headline: 'Generic', lastModified: '2026-09-01T00:00:00Z' }],
   });
+  assert.equal(news.length, 1);
   assert.equal(news[0].source, 'rotowire');
   assert.equal(news[0].headline, 'RW');
   assert.equal(news[0].publishedAt, '2026-09-20T20:57:33.000Z');
-  assert.equal(news[0].blurb, 'Blurb');
-  assert.equal(news[1].headline, 'Generic');
+  assert.equal(news[0].blurb, 'Long story', 'story first, description second - same precedence as the fantasy feed');
+  assert.equal(normalizeEspnNews({ news: [{ headline: 'Generic' }] })[0].headline, 'Generic');
+});
+
+test('normalizeFantasyNews: numeric decimal and hex entities decode in the blurb', () => {
+  const [item] = normalizeFantasyNews({ feed: [{ type: 'Rotowire', headline: 'H', story: '<p>Jeudy&#8217;s 2&#x2013;26 line &#128077;</p>' }] });
+  assert.equal(item.blurb, 'Jeudy’s 2–26 line 👍');
 });
 
 test('overview: card news is the fantasy Rotowire feed when it has items, one extra call, cached together', async () => {
@@ -321,6 +327,29 @@ test('overview: empty or failed feed falls back to the overview news; both faili
 
   const bothDown = fakeTransport(() => { throw httpError(500); });
   assert.equal(await overview('9990025', { transport: bothDown }), null);
+});
+
+test('overview: a feed FAILURE (overview ok) is held five minutes, not six hours; an EMPTY feed is a real answer held six hours (#1641 review f1)', async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  let feedOk = false;
+  const transport = fakeTransport((url) => {
+    if (!String(url).includes('/fantasy/')) return okResponse(athleteOverviewFixture);
+    if (!feedOk) throw new Error('timeout');
+    return okResponse(FANTASY_FEED);
+  });
+  const first = await overview('9990031', { transport });
+  assert.deepEqual(first.news, normalizeEspnNews(athleteOverviewFixture));
+  feedOk = true;
+  now += 6 * 60 * 1000; // past the 5 minute failure TTL
+  const second = await overview('9990031', { transport });
+  assert.deepEqual(second.news.map((n) => n.headline), ['Newer', 'Older'], 'the failed feed was retried');
+
+  const empty = fakeTransport((url) => okResponse(String(url).includes('/fantasy/') ? { feed: [] } : athleteOverviewFixture));
+  await overview('9990032', { transport: empty });
+  now += 6 * 60 * 1000;
+  await overview('9990032', { transport: empty });
+  assert.equal(empty.calls.length, 2, 'an empty feed is cached at the success TTL');
 });
 
 // --- teamDepthChart()/ownership(): never cached, resolve null on failure ----

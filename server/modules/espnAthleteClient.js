@@ -120,7 +120,7 @@ function storyUrl(href) {
 const FANTASY_NEWS_URL = 'https://site.api.espn.com/apis/fantasy/v2/games/ffl/news/players';
 const FANTASY_NEWS_LIMIT = 20;
 
-const HTML_ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };
+const HTML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
 /** Pure: an ESPN HTML `story` -> a plain-text blurb, or null when empty. */
 function htmlToText(html) {
@@ -128,7 +128,11 @@ function htmlToText(html) {
   const text = html
     .replace(/<\/(p|div|li|h\d)>|<br\s*\/?>/gi, ' ')
     .replace(/<[^>]*>/g, '')
-    .replace(/&(amp|lt|gt|quot|apos|nbsp|#39);/g, (m) => HTML_ENTITIES[m])
+    .replace(/&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|(amp|lt|gt|quot|apos|nbsp));/g, (m, dec, hex, named) => {
+      if (named) return HTML_ENTITIES[named];
+      const code = dec ? parseInt(dec, 10) : parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+    })
     .replace(/\s+/g, ' ')
     .trim();
   return text || null;
@@ -160,28 +164,29 @@ function parseRotowirePublished(value) {
 }
 
 /**
- * Pure: an athlete overview payload -> News (CONTEXT.md), in the fallback
- * order of #1641: the top-level `rotowire` object first (the latest dedicated
- * RotoWire blurb), then `news[]`. Each item is `{ headline, source,
+ * Pure: an athlete overview payload -> News (CONTEXT.md), one step of the
+ * fallback order of #1641: the top-level `rotowire` object (the latest
+ * dedicated RotoWire blurb) alone when present, else `news[]` - a fallback,
+ * never a concatenation, so generic articles do not sit under the blurb. Each item is `{ headline, source,
  * publishedAt, url, blurb? }`. Empty array, never null, when ESPN reports
  * none - `getPlayerCard` supplies the feed-note fallback itself.
  */
 function normalizeEspnNews(payload) {
-  const items = [];
   const rotowire = payload && payload.rotowire;
   if (rotowire && typeof rotowire === 'object' && rotowire.headline) {
-    items.push({
+    return [{
       headline: String(rotowire.headline),
       source: 'rotowire',
       publishedAt: parseRotowirePublished(rotowire.published),
       url: null,
-      blurb: (typeof rotowire.description === 'string' && rotowire.description.trim()) || htmlToText(rotowire.story),
-    });
+      // story first, description second: the same precedence as normalizeFantasyNews.
+      blurb: htmlToText(rotowire.story) || htmlToText(rotowire.description),
+    }];
   }
   const news = payload && Array.isArray(payload.news) ? payload.news : [];
-  for (const item of news) {
-    if (!item || !item.headline) continue;
-    items.push({
+  return news
+    .filter((item) => item && item.headline)
+    .map((item) => ({
       headline: String(item.headline),
       source: 'espn',
       publishedAt: item.lastModified || item.categorized || null,
@@ -191,9 +196,7 @@ function normalizeEspnNews(payload) {
       // `sportscenter://` deep links under other rel keys, and this value
       // lands verbatim in an <a href>.
       url: storyUrl(item.links && item.links.web && item.links.web.href),
-    });
-  }
-  return items;
+    }));
 }
 
 /**
@@ -211,7 +214,7 @@ function normalizeFantasyNews(payload) {
       source: 'rotowire',
       publishedAt: item.published || item.lastModified || null,
       url: storyUrl(item.links && item.links.web && item.links.web.href),
-      blurb: htmlToText(item.story) || (typeof item.description === 'string' && item.description.trim()) || null,
+      blurb: htmlToText(item.story) || htmlToText(item.description),
     }))
     .sort((x, y) => (Date.parse(y.publishedAt) || 0) - (Date.parse(x.publishedAt) || 0));
 }
@@ -316,7 +319,7 @@ async function getJson(transport, url, { params, headers } = {}) {
 // left to race: the single result is the only thing `cacheSet` ever writes.
 const inFlight = new Map();
 
-async function cachedFetch(kind, id, transport, fetchFn) {
+async function cachedFetch(kind, id, transport, fetchFn, isPartial = () => false) {
   const key = `${kind}:${id}`;
   const cached = cacheGet(key);
   if (cached !== undefined) return cached;
@@ -325,7 +328,7 @@ async function cachedFetch(kind, id, transport, fetchFn) {
   const promise = (async () => {
     try {
       const value = await fetchFn();
-      cacheSet(key, value, value === null ? FAILURE_TTL_MS : SUCCESS_TTL_MS);
+      cacheSet(key, value, value === null || isPartial(value) ? FAILURE_TTL_MS : SUCCESS_TTL_MS);
       return value;
     } finally {
       inFlight.delete(key);
@@ -345,6 +348,9 @@ async function profile(athleteId, { transport } = {}) {
   });
 }
 
+// Overview results built while one of its two ESPN calls failed (see overview()).
+const partialResults = new WeakSet();
+
 /** `{ news: [...], injuryFacts: {...}|null } | null`, same cache rule as
  * `profile`. `null` for a missing id. */
 async function overview(athleteId, { transport } = {}) {
@@ -353,7 +359,10 @@ async function overview(athleteId, { transport } = {}) {
     // The fantasy player-news feed rides the same cache entry (#1641): one
     // extra call per athlete, never a separate cache key. It leads the card's
     // news when it has Rotowire items; an empty/failed feed leaves the
-    // overview's own rotowire/news[] (then the caller's feed note).
+    // overview's own rotowire/news[] (then the caller's feed note). Either
+    // call failing (getJson null) makes the entry partial, so it takes the
+    // five-minute failure TTL like any failure, not six hours (#1641 review).
+    // An empty feed (200 with no items) is a real answer and stays six hours.
     const [payload, feedPayload] = await Promise.all([
       getJson(transport, `${ATHLETE_BASE}/${athleteId}/overview`),
       getJson(transport, FANTASY_NEWS_URL, { params: { playerId: String(athleteId), limit: FANTASY_NEWS_LIMIT } }),
@@ -361,11 +370,13 @@ async function overview(athleteId, { transport } = {}) {
     const feedNews = normalizeFantasyNews(feedPayload);
     if (!payload && feedNews.length === 0) return null;
     const overviewNews = normalizeEspnNews(payload);
-    return {
+    const result = {
       news: feedNews.length > 0 ? feedNews : overviewNews,
       injuryFacts: normalizeInjuryFacts(payload),
     };
-  });
+    if (!payload || !feedPayload) partialResults.add(result);
+    return result;
+  }, (value) => partialResults.has(value));
 }
 
 /** This team's depth chart -> `{ athleteId, teamCode, positionGroup, rank
