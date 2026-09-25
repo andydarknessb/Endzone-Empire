@@ -8,11 +8,11 @@
  * `usage` is `{ weeks, seasonAverage }` or `null` (his team had no played
  * week before the requested one, e.g. week 1). `weeks` is up to three
  * entries, most-recent-first, each `{ season, week, targets, carries,
- * airYards, targetShare, fantasyPoints }`; a week his team played but he did
- * not carries a real `season`/`week` with every other field null.
- * `seasonAverage` is the same five stat fields averaged over his weeks with
- * a stats row, or `null` when he has none. Snap counts are not usage
- * (CONTEXT.md's Usage entry) and are never read here.
+ * airYards, snaps, snapShare, targetShare, fantasyPoints }`; a week his team
+ * played but he did not carries a real `season`/`week` with every other field
+ * null. `seasonAverage` is the same stat fields averaged over his weeks with
+ * a stats row, or `null` when he has none. `snaps`/`snapShare` (nflverse
+ * snap_counts; offense side, or defense for IDP) ride through unchanged.
  *
  * `opponents` (#1609) is the same body's next-opponents list, each `{ week,
  * opponent, rankVsPosition, allowedPerGame, games }`; rank 1 allows the most
