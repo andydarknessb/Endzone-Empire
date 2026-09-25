@@ -65,6 +65,7 @@ const setup = ({
   playersError = null,
   lineup = { week: 4, currentWeek: 4, entries: [] },
   claimTarget,
+  roster = [],
 } = {}) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/players') {
@@ -73,7 +74,7 @@ const setup = ({
     }
     if (url.startsWith('/api/waivers/claim-target')) return Promise.resolve({ data: { player: claimTarget } });
     if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waivers });
-    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: [] });
+    if (url.startsWith('/api/team/roster')) return Promise.resolve({ data: roster });
     if (url.startsWith('/api/team/lineup')) return Promise.resolve({ data: lineup });
     if (url.startsWith('/api/league/')) return Promise.resolve({ data: { league, teams: [] } });
     return Promise.reject(new Error(`unexpected url ${url}`));
@@ -250,11 +251,12 @@ test('the Bye cluster grid sits in the side panel, off the roster the lineup rea
   expect(await screen.findByTestId('bye-cluster-grid')).toBeInTheDocument();
 });
 
-test('a server-validated claim target from the Player Browser opens its Decision card', async () => {
+test('a server-validated claim target from the Player Browser opens the claim sheet, no swap preview', async () => {
   setup({ claimTarget: { id: 8, name: 'Blanket Waiver Player', position: 'WR', nfl_team: 'DAL' } });
   renderPage('/league/1/waivers?playerId=8');
-  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  const sheet = await screen.findByRole('dialog', { name: 'Claim Blanket Waiver Player' });
   expect(apiClient.get).toHaveBeenCalledWith('/api/waivers/claim-target?leagueId=1&playerId=8');
+  expect(within(sheet).queryByTestId('claim-sheet-swap')).not.toBeInTheDocument();
 });
 
 test('a failed league read shows the error and never the empty-list copy', async () => {
@@ -451,4 +453,126 @@ test('two refused moves up in a row both keep focus on the moved claim\'s contro
     await within(card).findByText('Your pending claims changed; refresh and retry.');
     await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim A up' })).toHaveFocus());
   }
+});
+
+// #1615: the claim sheet.
+const bench = (id, name, pts, position = 'RB') => ({ id, name, position, projected_weekly_points: pts });
+const upgradeFor = (over = { id: 2, name: 'Starter Two' }, points = 3.5) => ({ points, overPlayer: over, slot: 'RB' });
+const SHEET_ROSTER = [bench(3, 'Best Bench', 9.0), bench(2, 'Starter Two', 8.6), bench(1, 'Worst Guy', 2.0), bench(4, 'No Proj', null)];
+const openSheet = async (name = 'Breece Hall') => {
+  await userEvent.click(await screen.findByRole('button', { name: `Claim ${name}` }));
+  return screen.findByRole('dialog', { name: `Claim ${name}` });
+};
+const submitBtn = (sheet) => within(sheet).getByRole('button', { name: 'Submit claim' });
+const claimReads = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/waivers') && !url.includes('claim-target')).length;
+
+test('Claim on a row opens the sheet; submitting files the claim, closes it and refreshes claims', async () => {
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+  apiClient.post.mockResolvedValue({ data: {} });
+  renderPage();
+  const sheet = await openSheet();
+  const before = claimReads();
+  await userEvent.click(submitBtn(sheet));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', { leagueId: 1, playerId: 7, dropPlayerId: 2, bid: 0 })
+  );
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(claimReads()).toBeGreaterThan(before));
+});
+
+test('the swap preview shows both projections and the gain', async () => {
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+  renderPage();
+  const swap = within(await openSheet()).getByTestId('claim-sheet-swap');
+  expect(swap).toHaveTextContent('Breece Hall');
+  expect(swap).toHaveTextContent('12.1');
+  expect(swap).toHaveTextContent('Starter Two');
+  expect(swap).toHaveTextContent('8.6');
+  expect(swap).toHaveTextContent('+3.5');
+});
+
+test('no Upgrade means no swap preview and no preselected drop', async () => {
+  setup({ players: [cardsPlayer({ upgrade: null })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  expect(within(sheet).queryByTestId('claim-sheet-swap')).not.toBeInTheDocument();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).toBeChecked();
+});
+
+test('drops sort weakest first with projections and the replaced starter is preselected', async () => {
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  const radios = within(sheet).getAllByRole('radio');
+  expect(radios).toHaveLength(5);
+  ['No drop', 'Worst Guy (RB) · 2.0 proj', 'Starter Two', 'Best Bench', 'No Proj'].forEach((name, i) =>
+    expect(radios[i]).toHaveAccessibleName(expect.stringContaining(name))
+  );
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+});
+
+test('a replaced starter who is not on the roster is not preselected', async () => {
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor({ id: 99, name: 'Ghost' }) })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).toBeChecked();
+});
+
+test('at Roster capacity Submit is disabled until a drop is chosen', async () => {
+  setup({ players: [cardsPlayer()], roster: SHEET_ROSTER, context: { rosterCount: 20, rosterCapacity: 20 } });
+  renderPage();
+  const sheet = await openSheet();
+  expect(within(sheet).queryByRole('radio', { name: /No drop/ })).not.toBeInTheDocument();
+  expect(submitBtn(sheet)).toBeDisabled();
+  await userEvent.click(within(sheet).getByRole('radio', { name: /Worst Guy/ }));
+  expect(submitBtn(sheet)).toBeEnabled();
+});
+
+test('the bid is refused outside $0 to FAAB remaining; $1 and Max set it', async () => {
+  setup({ players: [cardsPlayer()], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  const bid = within(sheet).getByRole('spinbutton', { name: 'Bid' });
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Bid $1' }));
+  expect(bid).toHaveValue(1);
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Bid max' }));
+  expect(bid).toHaveValue(62);
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Raise bid' }));
+  expect(bid).toHaveValue(62);
+  await userEvent.clear(bid);
+  await userEvent.type(bid, '63');
+  expect(submitBtn(sheet)).toBeDisabled();
+  expect(within(sheet).getByText('Enter a bid between $0 and $62')).toBeInTheDocument();
+  await userEvent.clear(bid);
+  await userEvent.type(bid, '5');
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Raise bid' }));
+  expect(bid).toHaveValue(6);
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Lower bid' }));
+  expect(bid).toHaveValue(5);
+  expect(submitBtn(sheet)).toBeEnabled();
+});
+
+test('a non-FAAB league shows Waiver priority and no bid', async () => {
+  setup({
+    league: { id: 1, best_ball: false, waiver_type: 'priority' },
+    waivers: waiversBody({ league: { waiver_type: 'priority', waivers_clear_at: null } }),
+    players: [cardsPlayer()],
+    roster: SHEET_ROSTER,
+  });
+  apiClient.post.mockResolvedValue({ data: {} });
+  renderPage();
+  const sheet = await openSheet();
+  expect(within(sheet).getByText(/Waiver priority #7/)).toBeInTheDocument();
+  expect(within(sheet).queryByRole('spinbutton', { name: 'Bid' })).not.toBeInTheDocument();
+  await userEvent.click(submitBtn(sheet));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', expect.objectContaining({ bid: 0 })));
+});
+
+test('every sheet control is at least 44px tall', async () => {
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  const controls = within(sheet).getAllByRole('button');
+  expect(controls.length).toBeGreaterThan(5);
+  controls.forEach((el) => expect(parseInt(getComputedStyle(el).minHeight, 10) || 0).toBeGreaterThanOrEqual(44));
 });
