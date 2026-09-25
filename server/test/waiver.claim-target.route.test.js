@@ -104,6 +104,7 @@ test('GET /api/waivers: a resolved claim carries its week and a pending claim ca
   assert.equal(byId[1].clear_at, '2026-09-30T07:00:00.000Z', 'pending claim carries its own Clear time');
   assert.equal(byId[1].week, null, 'pending claim has no week');
   assert.equal(Number.isInteger(byId[2].week), true, 'resolved claim carries an integer week');
+  assert.equal(byId[2].week, 3, 'processed 2026-09-15T10:00Z is past week 2 plus grace, so the smallest open week is 3');
   assert.equal(byId[3].week, null, 'cancelled claim has no week');
   assert.equal(byId[3].clear_at, null);
 
@@ -111,4 +112,5 @@ test('GET /api/waivers: a resolved claim carries its week and a pending claim ca
   assert.match(claimsQuery.text, /"waiver_players"\."available_at" AS "clear_at"/);
   assert.match(claimsQuery.text, /"waiver_players"\."league_id" = \$2/, 'joined on league and player');
   assert.equal(fake.matching(/FROM "nfl_games"/).length, 1, 'week bounds load once per request, not per claim');
+  assert.deepEqual(fake.matching(/FROM "nfl_games"/)[0].params, [2026, 18], "the league's current_season reaches the bounds query");
 });
