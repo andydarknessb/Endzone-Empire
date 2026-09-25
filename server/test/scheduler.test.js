@@ -898,11 +898,12 @@ test('runHourlyGameContextSync delegates the due/not-due decision to the cadence
 });
 
 test('runHourlyGameContextSync performs no sync on a first tick when a recent successful run row exists (fresh module state, a worker restart)', async (t) => {
+  // Tick well past every earlier test's now, so the pre-PR in-memory epoch (module state shared across this file) is unambiguously due and this test is red there.
   const gameContextSync = require('../services/gameContextSync.service');
   const syncRun = require('../modules/syncRun');
   t.mock.method(syncRun, 'lastRun', async (job) => {
     assert.equal(job, 'game-context');
-    const at = new Date('2026-09-13T11:50:00Z');
+    const at = new Date('2026-09-20T11:50:00Z');
     return { latest: { finishedAt: at, startedAt: at, status: 'ok' }, latestOk: { finishedAt: at, startedAt: at, status: 'ok' } };
   });
   const calls = [];
@@ -911,7 +912,7 @@ test('runHourlyGameContextSync performs no sync on a first tick when a recent su
     [/FROM "leagues"/, () => ({ rows: [{ current_season: 2026, current_week: 2 }] })],
   ]).install(t);
 
-  assert.equal(await scheduler.runHourlyGameContextSync({ now: new Date('2026-09-13T12:00:00Z') }), null);
+  assert.equal(await scheduler.runHourlyGameContextSync({ now: new Date('2026-09-20T12:00:00Z') }), null);
   assert.equal(calls.length, 0);
   assert.equal(fake.calls.length, 0, 'not due never reaches the leagues read');
 });
