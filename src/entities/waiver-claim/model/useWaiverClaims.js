@@ -27,7 +27,14 @@ export function useWaiverClaims({ leagueId, refreshKey = 0 } = {}) {
   const url =
     leagueId != null ? `/api/waivers?leagueId=${leagueId}${refreshKey ? `&r=${refreshKey}` : ''}` : null;
   const { status, data } = useEndpoint(url);
-  const base = useMemo(() => claimsFromResponse(data), [data]);
+  // A refresh (`refreshKey`) parks `useEndpoint` on null data until the read
+  // lands; the last body stays on screen meanwhile, so rows keep their nodes
+  // (and their focus) instead of flashing "No claims yet" (#1616).
+  // Only within one league: a different league never shows the last one's rows.
+  const lastDataRef = useRef({ leagueId, data: null });
+  if (data) lastDataRef.current = { leagueId, data };
+  const shown = data ?? (lastDataRef.current.leagueId === leagueId ? lastDataRef.current.data : null);
+  const base = useMemo(() => claimsFromResponse(shown), [shown]);
 
   // The optimistic id order, dropped when a newer read lands.
   const [order, setOrder] = useState(null);

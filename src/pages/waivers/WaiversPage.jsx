@@ -17,6 +17,7 @@ import WaiverClaims from '../../widgets/waiver-claims';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
 import { ClaimSheet } from '../../features/claim-player';
+import { useManageClaim } from '../../features/manage-claim';
 
 const TABS = [
   { value: 'waivers', label: 'On waivers' },
@@ -136,6 +137,14 @@ export default function WaiversPage() {
     setRefreshKey((key) => key + 1);
     return poolRef.current?.refresh();
   }, []);
+
+  const [editClaimId, setEditClaimId] = useState(null);
+  const editingClaim = claims.pending.find((claim) => claim.id === editClaimId) || null;
+  const { editClaim, cancelClaim, pending: manageBusy } = useManageClaim({
+    leagueId,
+    pendingIds: claims.pending.map((claim) => claim.id),
+    onDone: refreshAfterAction,
+  });
 
   const claimOrderByPlayer = useMemo(() => {
     const map = new Map();
@@ -321,6 +330,9 @@ export default function WaiversPage() {
               <WaiverClaims
                 claims={claims}
                 onMove={moveClaim}
+                onEdit={(claim) => setEditClaimId(claim.id)}
+                onCancel={cancelClaim}
+                busy={manageBusy}
                 orderError={orderError}
                 orderAnnouncement={orderAnnouncement}
                 orderSettled={orderSettled}
@@ -360,6 +372,16 @@ export default function WaiversPage() {
         roster={rosterData}
         onClose={() => setClaimId(null)}
         onClaimed={refreshAfterAction}
+      />
+      <ClaimSheet
+        open={editingClaim != null}
+        player={editingClaim ? { id: editingClaim.playerId, name: editingClaim.playerName } : null}
+        claim={editingClaim}
+        onSave={(values) => editClaim(editingClaim, values)}
+        leagueId={leagueId}
+        availability={availability}
+        roster={rosterData}
+        onClose={() => setEditClaimId(null)}
       />
     </Box>
   );

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { SnackbarProvider } from '../../components/Snackbar/SnackbarProvider';
 import WaiversPage from './WaiversPage';
 
 jest.mock('../../api/apiClient', () => ({
@@ -575,4 +576,211 @@ test('every sheet control is at least 44px tall', async () => {
   const controls = within(sheet).getAllByRole('button');
   expect(controls.length).toBeGreaterThan(5);
   controls.forEach((el) => expect(parseInt(getComputedStyle(el).minHeight, 10) || 0).toBeGreaterThanOrEqual(44));
+});
+
+// #1616: manage-claim (Edit, Cancel with Undo, the shared-drop warning).
+const renderWithToast = () =>
+  renderWithProviders(
+    <SnackbarProvider>
+      <WaiversPage />
+    </SnackbarProvider>,
+    { path: '/league/:leagueId/waivers', route: '/league/1/waivers?tab=claims' }
+  );
+const manageClaims = () => [
+  pendingClaim({ id: 1, player_id: 11, player_name: 'Claim B', claim_order: 1, drop_player_id: 3, drop_player_name: 'Best Bench', bid: 4 }),
+  pendingClaim({ id: 2, player_id: 12, player_name: 'Claim A', claim_order: 2, drop_player_id: 2, drop_player_name: 'Starter Two', bid: 10 }),
+  pendingClaim({ id: 3, player_id: 13, player_name: 'Claim C', claim_order: 3, drop_player_id: 1, drop_player_name: 'Worst Guy', bid: 1 }),
+];
+
+test('every pending-claim control (Move, Edit, Cancel) is at least 44px in both directions', async () => {
+  setup({ waivers: waiversBody({ myClaims: manageClaims() }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  const controls = within(card).getAllByRole('button');
+  expect(within(card).getAllByRole('button', { name: /^Edit claim on / })).toHaveLength(3);
+  expect(within(card).getAllByRole('button', { name: /^Cancel claim on / })).toHaveLength(3);
+  expect(controls).toHaveLength(12);
+  controls.forEach((el) => {
+    expect(parseInt(getComputedStyle(el).minHeight, 10) || 0).toBeGreaterThanOrEqual(44);
+    expect(parseInt(getComputedStyle(el).minWidth, 10) || 0).toBeGreaterThanOrEqual(44);
+  });
+});
+
+test('Edit opens the sheet prefilled; saving PATCHes the bid and drop and never touches the order', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  apiClient.patch.mockResolvedValue({ data: {} });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Edit claim on Claim A' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim A/ });
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+  expect(within(sheet).getByRole('spinbutton', { name: 'Bid' })).toHaveValue(10);
+  await userEvent.click(within(sheet).getByRole('radio', { name: /Worst Guy/ }));
+  const bid = within(sheet).getByRole('spinbutton', { name: 'Bid' });
+  await userEvent.clear(bid);
+  await userEvent.type(bid, '15');
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Save claim' }));
+  await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith('/api/waivers/claim/2', { bid: 15, dropPlayerId: 1 }));
+  expect(apiClient.post).not.toHaveBeenCalled();
+  expect(apiClient.put).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+});
+
+// Each claims read returns a fresh body, as the server does (a mutated shared object would not re-render).
+const freshClaimReads = (waivers) => {
+  const base = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) =>
+    url.startsWith('/api/waivers') && !url.includes('claim-target')
+      ? Promise.resolve({ data: { ...waivers, myClaims: [...waivers.myClaims] } })
+      : base(url)
+  );
+};
+const cancelWith = (waivers) => {
+  freshClaimReads(waivers);
+  apiClient.delete.mockImplementation(async () => {
+    waivers.myClaims = waivers.myClaims.filter((c) => c.id !== 2);
+    return { data: {} };
+  });
+};
+
+test('Cancel removes the claim and Undo re-files it, then restores its Claim order position', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  apiClient.post.mockResolvedValue({ data: { id: 9 } });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderWithToast();
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
+  await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/waivers/claim/2?leagueId=1'));
+  await waitFor(() => expect(within(card).queryByText('Claim A')).not.toBeInTheDocument());
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/waivers/claim', { leagueId: 1, playerId: 12, dropPlayerId: 2, bid: 10 })
+  );
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/waivers/claims/order', { leagueId: 1, claimIds: [1, 9, 3] })
+  );
+});
+
+test('after Cancel, focus lands on the next claim\'s Cancel control and the list never flashes empty', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  renderWithToast();
+  const card = await claimsCard();
+  const cancel = await within(card).findByRole('button', { name: 'Cancel claim on Claim A' });
+  cancel.focus();
+  await userEvent.click(cancel);
+  await waitFor(() => expect(within(card).queryByText('Claim A')).not.toBeInTheDocument());
+  expect(within(card).queryByText('No claims yet')).not.toBeInTheDocument();
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Cancel claim on Claim C' })).toHaveFocus());
+});
+
+test('after saving an edit, focus returns to that claim\'s Edit control', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  freshClaimReads(waivers);
+  apiClient.patch.mockResolvedValue({ data: {} });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Edit claim on Claim A' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim A/ });
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Save claim' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Edit claim on Claim A' })).toHaveFocus());
+});
+
+test('the edit sheet offers the FAAB left net of the OTHER pending claims (left plus this claim\'s own bid)', async () => {
+  // faab_remaining 62, pending bids 4 + 10 + 1: left is 47, and editing the $10 claim offers 47 + 10.
+  setup({ waivers: waiversBody({ myClaims: manageClaims() }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Edit claim on Claim A' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim A/ });
+  expect(within(sheet).getByText('$57 remaining')).toBeInTheDocument();
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Bid max' }));
+  expect(within(sheet).getByRole('spinbutton', { name: 'Bid' })).toHaveValue(57);
+});
+
+test('three claims naming the same drop read "all drop", two read "both drop"', async () => {
+  const claims = manageClaims().map((c) => ({ ...c, drop_player_id: 3, drop_player_name: 'Best Bench' }));
+  setup({ waivers: waiversBody({ myClaims: claims }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  expect(await within(card).findAllByText('Only one of these can go through: #1, #2 and #3 all drop Best Bench')).toHaveLength(3);
+  expect(within(card).queryByText(/both drop/)).not.toBeInTheDocument();
+});
+
+test('cancelling the last claim with no results leaves focus on the empty state, not body', async () => {
+  const waivers = waiversBody({ myClaims: [manageClaims()[1]] });
+  setup({ waivers, roster: SHEET_ROSTER });
+  freshClaimReads(waivers);
+  apiClient.delete.mockImplementation(async () => {
+    waivers.myClaims = [];
+    return { data: {} };
+  });
+  renderWithToast();
+  const card = await claimsCard();
+  const cancel = await within(card).findByRole('button', { name: 'Cancel claim on Claim A' });
+  cancel.focus();
+  await userEvent.click(cancel);
+  await within(card).findByText('No claims yet');
+  await waitFor(() => expect(within(card).getByText('No claims yet')).toHaveFocus());
+});
+
+test('a failed Undo says so in the toast', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  apiClient.post.mockRejectedValue({ response: { status: 409, data: { message: 'Roster is full' } } });
+  renderWithToast();
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  expect(await screen.findByText(/Could not undo/i)).toBeInTheDocument();
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('claims that name the same drop each carry the neutral warning and the resolution line, with no prediction', async () => {
+  const claims = manageClaims();
+  claims[2] = { ...claims[2], drop_player_id: 3, drop_player_name: 'Best Bench' };
+  setup({ waivers: waiversBody({ myClaims: claims }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  const warnings = within(card).getAllByText('Only one of these can go through: #1 and #3 both drop Best Bench');
+  expect(warnings).toHaveLength(2);
+  expect(within(card).getAllByText(/higher bid first, then Waiver priority, then your Claim order, each at its player's Clear time/i)).toHaveLength(2);
+  expect(card.textContent).not.toMatch(/will (win|go through)|likely/i);
+});
+
+test('claims with different drops carry no shared-drop warning', async () => {
+  setup({ waivers: waiversBody({ myClaims: manageClaims() }), roster: SHEET_ROSTER });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  expect(within(card).queryByText(/Only one of these can go through/)).not.toBeInTheDocument();
+});
+
+test('the warning disappears once an edit changes the drop', async () => {
+  const claims = manageClaims();
+  claims[2] = { ...claims[2], drop_player_id: 3, drop_player_name: 'Best Bench' };
+  const waivers = waiversBody({ myClaims: claims });
+  setup({ waivers, roster: SHEET_ROSTER });
+  freshClaimReads(waivers);
+  apiClient.patch.mockImplementation(async () => {
+    waivers.myClaims = waivers.myClaims.map((c) => (c.id === 3 ? { ...c, drop_player_id: 1, drop_player_name: 'Worst Guy' } : c));
+    return { data: {} };
+  });
+  renderPage('/league/1/waivers?tab=claims');
+  const card = await claimsCard();
+  await within(card).findAllByText(/Only one of these can go through/);
+  await userEvent.click(within(card).getByRole('button', { name: 'Edit claim on Claim C' }));
+  const sheet = await screen.findByRole('dialog', { name: /Claim C/ });
+  await userEvent.click(within(sheet).getByRole('radio', { name: /Worst Guy/ }));
+  await userEvent.click(within(sheet).getByRole('button', { name: 'Save claim' }));
+  await waitFor(() => expect(within(card).queryByText(/Only one of these can go through/)).not.toBeInTheDocument());
 });
