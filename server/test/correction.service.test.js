@@ -798,7 +798,7 @@ test('#1410: a correction that changes no scores never recomputes power rankings
 // A stateful "world" tracks the trophies table in JS (mirroring
 // correctionPowerRankingsWorld's rankingsInserts) so a test can assert the
 // FINAL shape of the table, including that a seeded season-level trophy
-// never moves. recomputePowerRankings and rebuildStoredRecap are stubbed to
+// never moves. The odds and recap steps of the Settle follow-up are stubbed to
 // no-ops: their own ordering and failure handling are #1409/#1410's coverage,
 // not this one's.
 
@@ -916,7 +916,7 @@ test('#1411: a correction that raises the leader\'s total without changing the l
  * decided.
  *
  * formal-002 f1: a thrown guard is not a valid negative assertion here -
- * correction.service.js's reconcileWeeklyTrophy wrapper catches and
+ * the Settle follow-up (settleFollowUp.service.js) catches and
  * console.errors every error out of the reconcile (by design: a reconcile
  * failure must never block the correction pass), so a handler that threw
  * only aborted the whole reconcile before ever reaching a wrong decision;
