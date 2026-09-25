@@ -1073,3 +1073,40 @@ test('Watch calls onActionDone from the built context on a read-only (managed: f
   expect(await screen.findByRole('button', { name: 'Watching' })).toBeInTheDocument();
   expect(onActionDone).toHaveBeenCalledTimes(1);
 });
+
+describe('Opp rank vs position (#1609)', () => {
+  const opponents = [
+    { week: 4, opponent: 'DAL', rankVsPosition: 1, allowedPerGame: 30, games: 3 },
+    { week: 5, opponent: 'NYG', rankVsPosition: 32, allowedPerGame: 8, games: 3 },
+  ];
+  const contextRoute = () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/card?')) return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: { line: null, weather: null, usage: null, opponents } });
+    });
+  };
+
+  test('the managed my_team card renders the Opp rank line from the context opponents', async () => {
+    contextRoute();
+    renderCard();
+
+    const line = await screen.findByTestId('decision-card-opp-rank');
+    expect(line).toHaveTextContent('Opp rank vs QB: W4 DAL 1st, W5 NYG 32nd');
+  });
+
+  test('each Compare panel renders its own Opp rank line', async () => {
+    contextRoute();
+    const starter = entry();
+    const other = entry({ playerId: 2, name: 'Compare Target' });
+    renderCard({ entry: starter, entries: [starter, other] });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('decision-card-compare-action'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+
+    for (const id of [1, 2]) {
+      const panel = await screen.findByTestId(`decision-card-compare-panel-${id}`);
+      await waitFor(() => expect(within(panel).getAllByTestId('decision-card-opp-rank')).toHaveLength(1));
+    }
+  });
+});
