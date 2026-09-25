@@ -290,7 +290,6 @@ const orderedClaims = () => [
   pendingClaim({ id: 1, player_id: 11, player_name: 'Claim B', claim_order: 1, created_at: '2026-09-20T00:00:00Z' }),
 ];
 const claimsCard = () => screen.findByTestId('waivers-claims-card');
-const claimNames = () => screen.getAllByText(/^Claim [ABC]$/).map((el) => el.textContent);
 
 const resolved = (over) => ({
   id: 50,
@@ -415,7 +414,8 @@ test('a lost claim with a null winner reads plain Lost with the bid, never blank
   });
   renderPage();
   const card = await claimsCard();
-  const row = (await within(card).findByText('Old Loss')).closest('li');
+  await within(card).findByText('Old Loss');
+  const row = within(card).getAllByRole('listitem').find((li) => li.textContent.includes('Old Loss'));
   expect(row).toHaveTextContent(/Lost/);
   expect(row).toHaveTextContent('$3');
   expect(row.textContent).not.toMatch(/undefined|null|Lost to/);
