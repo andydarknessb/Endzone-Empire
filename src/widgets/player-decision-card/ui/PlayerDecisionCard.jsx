@@ -992,7 +992,12 @@ export default function PlayerDecisionCard(props) {
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
                   Game/Projection/Usage sections above, not a replacement. */}
-              <DecisionStripSection decision={card?.decision} usage={card?.decision?.usage} />
+              <DecisionStripSection
+                decision={card?.decision}
+                usage={card?.decision?.usage}
+                ownership={card?.ownership}
+                depth={card?.depth}
+              />
               {/* #1358: Season summary and Season pick, between the strip and
                   the bars (the body's own section order). The bars and the
                   game log below now read the PICKED season's own `weeks`/
@@ -1293,16 +1298,18 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
 // `hasContent` restates `DecisionStrip`'s own per-tile null checks (the
 // same duplicated-on-purpose shape `GameLogSection` below already uses)
 // rather than rendering an empty, still-titled Section around nothing.
-function DecisionStripSection({ decision, usage }) {
+function DecisionStripSection({ decision, usage, ownership, depth }) {
   const hasContent =
     (decision?.projWeek && decision.projWeek.points != null) ||
     (decision?.ros && decision.ros.points != null) ||
     (decision?.upgrade != null && decision.upgrade.points != null) ||
-    (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null);
+    (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null) ||
+    (ownership && ownership.percentOwned != null) ||
+    (depth && depth.positionGroup && depth.rank != null);
   if (!hasContent) return null;
   return (
     <Section title="Decision strip" testId="decision-card-strip-section">
-      <DecisionStrip decision={decision} usage={usage} />
+      <DecisionStrip decision={decision} usage={usage} ownership={ownership} depth={depth} />
     </Section>
   );
 }

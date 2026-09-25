@@ -27,9 +27,16 @@ export const availabilityEntry = (over = {}) => ({
   ...over,
 });
 
+// ESPN facts every context's card stub carries (#1677), so each context's render
+// tests run with the Ownership and depth chart tiles present.
+export const ESPN_FACTS = {
+  ownership: { percentOwned: 64, change: -1.5 },
+  depth: { positionGroup: 'RB', rank: 1 },
+};
+
 export function mockCardRoute(card) {
   apiClient.get.mockImplementation((url) => {
-    if (url.includes('/card?')) return Promise.resolve({ data: card || {} });
+    if (url.includes('/card?')) return Promise.resolve({ data: { ...ESPN_FACTS, ...(card || {}) } });
     return Promise.reject(new Error(`unexpected request: ${url}`));
   });
 }

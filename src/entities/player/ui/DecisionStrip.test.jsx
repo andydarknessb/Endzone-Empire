@@ -39,3 +39,30 @@ test('Usage hides when seasonAverage is absent, and shows the season average FPT
   rerender(<DecisionStrip decision={null} usage={{ weeks: [], seasonAverage: { fantasyPoints: 12.4 } }} />);
   expect(screen.getByTestId('decision-strip-usage')).toHaveTextContent('12.4');
 });
+
+test('Ownership shows percent owned with its trend, and hides on null', () => {
+  const { rerender } = render(<DecisionStrip ownership={{ percentOwned: 87.5, change: 2.3 }} />);
+  const tile = screen.getByTestId('decision-strip-ownership');
+  expect(tile).toHaveTextContent('87.5%');
+  expect(tile).toHaveTextContent('+2.3');
+
+  rerender(<DecisionStrip ownership={{ percentOwned: 40, change: null }} />);
+  expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('40.0%');
+  expect(screen.getByTestId('decision-strip-ownership')).not.toHaveTextContent(/null|unavailable/i);
+
+  rerender(<DecisionStrip ownership={null} />);
+  expect(screen.queryByTestId('decision-strip-ownership')).not.toBeInTheDocument();
+  rerender(<DecisionStrip ownership={{ percentOwned: null, change: 1 }} />);
+  expect(screen.queryByTestId('decision-strip-ownership')).not.toBeInTheDocument();
+});
+
+test('Depth chart shows position group and rank, and hides on null', () => {
+  const { container, rerender } = render(<DecisionStrip depth={{ teamCode: 'KC', positionGroup: 'WR', rank: 2 }} />);
+  expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('WR2');
+
+  rerender(<DecisionStrip depth={null} />);
+  expect(container).toBeEmptyDOMElement();
+  rerender(<DecisionStrip depth={{ positionGroup: 'WR', rank: null }} />);
+  expect(screen.queryByTestId('decision-strip-depth')).not.toBeInTheDocument();
+  expect(screen.queryByText(/null|unavailable/i)).not.toBeInTheDocument();
+});

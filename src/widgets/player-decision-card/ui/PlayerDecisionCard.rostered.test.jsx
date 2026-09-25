@@ -149,3 +149,11 @@ test('a rostered open hides the Usage table even when the card carries usage', a
   await screen.findByTestId('decision-card-propose-trade');
   expect(screen.queryByTestId('decision-card-usage-table')).not.toBeInTheDocument();
 });
+
+test('the decision strip shows the card payload\'s Ownership and depth chart tiles', async () => {
+  mockCardRoute({ ownership: { percentOwned: 64, change: -1.5 }, depth: { positionGroup: 'RB', rank: 1 } });
+  renderCard({ availability: {} });
+
+  expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
+  expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
+});

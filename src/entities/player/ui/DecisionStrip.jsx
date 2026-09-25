@@ -9,9 +9,8 @@ import { formatPoints } from '../../../shared/lib';
  * field off `decision` (`server/services/playerCard.service.js`
  * `getPlayerCard`); a tile whose source is null or absent renders nothing
  * and the grid reflows around it (ADR 0040's null-hides-the-tile rule) -
- * `ownership` and `depth` ship `null` today (no producer exists yet, ADR
- * 0040's Plan), so only Weekly projection, Rest of season, Upgrade and
- * Usage ever show in this slice.
+ * Ownership and depth chart read the card's own `ownership` / `depth` (ESPN
+ * facts, ADR 0041), passed as props beside `decision`.
  *
  * Upgrade is the one tile with a positive-highlight treatment: a beat-the-
  * bench Upgrade renders in a small pill, `success` text on the `accent-soft`
@@ -19,7 +18,7 @@ import { formatPoints } from '../../../shared/lib';
  * (best ball, or the caller's own player, ADR 0040) hides the tile outright
  * rather than showing an empty label (the issue's own acceptance criterion).
  */
-export default function DecisionStrip({ decision, usage }) {
+export default function DecisionStrip({ decision, usage, ownership, depth }) {
   const tiles = [];
 
   if (decision?.projWeek && decision.projWeek.points != null) {
@@ -38,6 +37,27 @@ export default function DecisionStrip({ decision, usage }) {
         testId="decision-strip-ros"
       >
         {formatPoints(decision.ros.points)}
+      </Tile>
+    );
+  }
+
+  if (ownership && ownership.percentOwned != null) {
+    tiles.push(
+      <Tile key="ownership" label="Ownership" testId="decision-strip-ownership">
+        {`${Number(ownership.percentOwned).toFixed(1)}%`}
+        {ownership.change != null && (
+          <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
+            {`${ownership.change >= 0 ? '+' : ''}${Number(ownership.change).toFixed(1)} 7d`}
+          </Typography>
+        )}
+      </Tile>
+    );
+  }
+
+  if (depth && depth.positionGroup && depth.rank != null) {
+    tiles.push(
+      <Tile key="depth" label="Depth chart" testId="decision-strip-depth">
+        {`${depth.positionGroup}${depth.rank}`}
       </Tile>
     );
   }
