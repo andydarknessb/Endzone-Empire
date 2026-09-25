@@ -169,6 +169,7 @@ export default function WaiversPage() {
           kind: 'button',
           label: order != null ? `Claim #${order}` : 'Claim',
           variant: order != null ? 'outlined' : 'contained',
+          ariaLabel: `${order != null ? `Claim #${order}` : 'Claim'} ${player.name}`,
           onClick: () => setQuickViewId(player.id),
           helper: order != null ? 'You already have a pending claim on this player.' : undefined,
         }}
@@ -259,8 +260,10 @@ export default function WaiversPage() {
         }}
       >
         <Box
-          sx={{ display: { xs: tab === 'waivers' ? 'block' : 'none', md: 'block' }, minWidth: 0 }}
-          hidden={!!poolError}
+          sx={{
+            display: poolError ? 'none' : { xs: tab === 'waivers' ? 'block' : 'none', md: 'block' },
+            minWidth: 0,
+          }}
         >
           <PlayerPool
             ref={poolRef}

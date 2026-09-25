@@ -210,6 +210,7 @@ function ActionControl({ action }) {
         variant={action.variant || 'contained'}
         onClick={action.onClick}
         disabled={action.disabled}
+        aria-label={action.ariaLabel}
         sx={sx}
         data-testid="player-row-action"
       >

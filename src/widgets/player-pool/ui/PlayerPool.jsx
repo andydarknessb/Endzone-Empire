@@ -414,7 +414,7 @@ const PlayerPool = forwardRef(function PlayerPool(
                   <Button
                     onClick={() => setSearchInput("")}
                     aria-label="Clear search"
-                    sx={{ minWidth: 36, minHeight: 36, p: 0.5 }}
+                    sx={{ minWidth: 44, minHeight: 44, p: 0.5 }}
                   >
                     <CloseIcon fontSize="small" />
                   </Button>

@@ -160,8 +160,8 @@ test('a row with a pending claim reads "Claim #n", others read Claim', async () 
   });
   renderPage();
   await screen.findByText('Other Guy');
-  await screen.findByRole('button', { name: 'Claim #2' });
-  expect(screen.getAllByRole('button', { name: 'Claim' })).toHaveLength(1);
+  await screen.findByRole('button', { name: 'Claim #2 Breece Hall' });
+  expect(screen.getAllByRole('button', { name: /^Claim Other Guy$/ })).toHaveLength(1);
 });
 
 test('Ownership renders when present', async () => {
@@ -189,6 +189,8 @@ test('a failed read shows the error state, never an empty list', async () => {
   renderPage();
   expect(await screen.findByRole('alert')).toHaveTextContent(/boom|Request failed/);
   screen.queryAllByText(/No players/).forEach((el) => expect(el).not.toBeVisible());
+  // The pool region is display:none, not merely [hidden] (page CSS would beat the attribute).
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
 });
 
 test('paging reads the next page from the server and lives in the URL', async () => {
