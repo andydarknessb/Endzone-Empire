@@ -836,8 +836,9 @@ _Avoid_: season toggle, season tab, year filter
 **Usage**:
 A player's opportunity counts from the week stats feed, shown on the
 Decision card for the last three weeks beside the season average: targets,
-carries, air yards, target share and fantasy points. Snap counts are not
-usage until a snap feed exists. Distinct from the engine's usage blend,
+carries, air yards, snaps with snap share (nflverse `snap_counts`, from PFR:
+offense side for skill positions, defense side for IDP), target share and
+fantasy points. Distinct from the engine's usage blend,
 which is a Factor.
 **Opponent rank vs position** is the Usage tile's line for the next three
 weeks: each opponent's 1-based rank among defenses by fantasy points allowed
@@ -845,7 +846,7 @@ per game to the player's position group under the league's scoring rules
 (rank 1 allows the most, the easiest matchup; ties share the lower rank; a
 bye has no entry). A fact read from the season's stats, not the engine's
 shrunk opponent Factor.
-_Avoid_: opportunity, workload, snaps (unqualified)
+_Avoid_: opportunity, workload
 
 **Bye cluster**:
 Two or more rostered players, IR excluded, sharing one future bye week

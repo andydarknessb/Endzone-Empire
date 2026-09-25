@@ -6,6 +6,8 @@ const {
   parseCsv,
   filterRowsForWeek,
   buildStatUpdates,
+  buildSnapUpdates,
+  SNAP_STAT_KEYS,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
   optionalTeamAbbr,
@@ -1014,4 +1016,90 @@ test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill 
   assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first upsert');
   assert.ok(commitIdx > firstWriteIdx, 'the writes commit inside the same transaction');
   fake.assertClean();
+});
+
+// --- snap counts (nflverse snap_counts, keyed by PFR id) ---------------------
+
+const SNAP_ROW = {
+  season: '2025', week: '1', game_type: 'REG', pfr_player_id: 'BankKe01', team: 'KC',
+  offense_snaps: '75', offense_pct: '1', defense_snaps: '0', defense_pct: '0',
+};
+const snapArgs = (rows, extra = {}) => ({
+  season: 2025,
+  week: 1,
+  snapRows: rows,
+  pfrCrosswalk: new Map([['BankKe01', '4429795']]),
+  knownPlayersByExternalId: new Map([['4429795', 42]]),
+  gameTeamByPlayerId: new Map(),
+  ...extra,
+});
+
+test('buildSnapUpdates patches the four usage snap keys for a matched player', () => {
+  const { updates, teamMismatches } = buildSnapUpdates(snapArgs([SNAP_ROW]));
+  assert.equal(teamMismatches, 0);
+  assert.deepEqual(updates, [{
+    playerId: 42,
+    patch: { usageOffenseSnaps: 75, usageOffenseSnapPct: 1, usageDefenseSnaps: 0, usageDefenseSnapPct: 0 },
+  }]);
+});
+
+test('buildSnapUpdates keeps a blank column null, never 0', () => {
+  const { updates } = buildSnapUpdates(snapArgs([{ ...SNAP_ROW, offense_pct: '' }]));
+  assert.equal(updates[0].patch.usageOffenseSnapPct, null);
+});
+
+test('buildSnapUpdates skips other weeks, non-REG rows, unmatched and unknown players', () => {
+  const other = [
+    { ...SNAP_ROW, week: '2' },
+    { ...SNAP_ROW, game_type: 'POST' },
+    { ...SNAP_ROW, pfr_player_id: 'Nobody00' },
+  ];
+  assert.deepEqual(buildSnapUpdates(snapArgs(other)).updates, []);
+  assert.deepEqual(
+    buildSnapUpdates(snapArgs([SNAP_ROW], { knownPlayersByExternalId: new Map() })).updates,
+    []
+  );
+});
+
+test('buildSnapUpdates folds the snap row team before comparing to gameTeam', () => {
+  const r = buildSnapUpdates(
+    snapArgs([{ ...SNAP_ROW, team: 'LA' }], { gameTeamByPlayerId: new Map([[42, 'LAR']]) })
+  );
+  assert.equal(r.updates.length, 1);
+  assert.equal(r.teamMismatches, 0);
+});
+
+test('buildSnapUpdates drops and counts a row whose team differs from the recorded gameTeam', () => {
+  const r = buildSnapUpdates(
+    snapArgs([{ ...SNAP_ROW, team: 'NO' }], { gameTeamByPlayerId: new Map([[42, 'ARI']]) })
+  );
+  assert.deepEqual(r, { updates: [], teamMismatches: 1 });
+});
+
+test('buildSnapUpdates merges when no gameTeam is recorded yet', () => {
+  const r = buildSnapUpdates(snapArgs([{ ...SNAP_ROW, team: 'NO' }]));
+  assert.equal(r.updates.length, 1);
+  assert.equal(r.teamMismatches, 0);
+});
+
+test('buildSnapUpdates resolves two rows for one player to the one matching gameTeam, else the first', () => {
+  const rows = [
+    { ...SNAP_ROW, team: 'NO', offense_snaps: '10' },
+    { ...SNAP_ROW, team: 'KC', offense_snaps: '75' },
+  ];
+  const matched = buildSnapUpdates(snapArgs(rows, { gameTeamByPlayerId: new Map([[42, 'KC']]) }));
+  assert.equal(matched.updates.length, 1);
+  assert.equal(matched.updates[0].patch.usageOffenseSnaps, 75);
+  const first = buildSnapUpdates(snapArgs(rows));
+  assert.equal(first.updates.length, 1);
+  assert.equal(first.updates[0].patch.usageOffenseSnaps, 10);
+});
+
+test('every snap key is protected from the box replace and the Tue/Wed rebuild', () => {
+  const { updates } = buildSnapUpdates(snapArgs([SNAP_ROW]));
+  for (const key of Object.keys(updates[0].patch)) {
+    assert.ok(scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key), `${key} not on NFLVERSE_ONLY_STAT_KEYS`);
+    assert.ok(SNAP_STAT_KEYS.includes(key), `${key} not on SNAP_STAT_KEYS`);
+  }
+  assert.deepEqual([...SNAP_STAT_KEYS].sort(), Object.keys(updates[0].patch).sort());
 });

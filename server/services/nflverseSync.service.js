@@ -162,11 +162,110 @@ async function fetchPlayersCrosswalk() {
   return map;
 }
 
-/** Pure: rows -> only the target (season, week, REG-season) rows. */
+/** One season's snap counts (nflverse's separate `snap_counts` asset, keyed by
+ * PFR id: game_id, pfr_game_id, season, game_type, week, player,
+ * pfr_player_id, position, team, opponent, offense_snaps, offense_pct,
+ * defense_snaps, defense_pct, st_snaps, st_pct). */
+async function fetchSnapCountsForSeason(season) {
+  const url = `${NFLVERSE_RELEASE_BASE}/snap_counts/snap_counts_${season}.csv`;
+  return parseCsv(await fetchCsvText(url));
+}
+
+/** Pure: players.csv rows -> both id crosswalks to espn_id, gsis_id (weekly
+ * stats) and pfr_id (snap counts), from the one download. */
+function buildIdCrosswalks(rows) {
+  const gsisToEspn = new Map();
+  const pfrToEspn = new Map();
+  for (const row of rows) {
+    if (!row.espn_id) continue;
+    if (row.gsis_id) gsisToEspn.set(row.gsis_id, row.espn_id);
+    if (row.pfr_id) pfrToEspn.set(row.pfr_id, row.espn_id);
+  }
+  return { gsisToEspn, pfrToEspn };
+}
+
+/** pfr_id -> espn_id crosswalk (the snap file is keyed by PFR id). */
+async function fetchPfrCrosswalk() {
+  const url = `${NFLVERSE_RELEASE_BASE}/players/players.csv`;
+  return buildIdCrosswalks(parseCsv(await fetchCsvText(url))).pfrToEspn;
+}
+
+/** Pure: rows -> only the target (season, week, REG-season) rows. The snap
+ * file spells the season type `game_type`, so either column counts. */
 function filterRowsForWeek(rows, { season, week }) {
   return (rows || []).filter(
-    (r) => Number(r.season) === Number(season) && Number(r.week) === Number(week) && r.season_type === 'REG'
+    (r) =>
+      Number(r.season) === Number(season) &&
+      Number(r.week) === Number(week) &&
+      (r.season_type || r.game_type) === 'REG'
   );
+}
+
+/** The unscored per-week snap keys nflverse's snap_counts feed writes. */
+const SNAP_STAT_KEYS = [
+  'usageOffenseSnaps',
+  'usageOffenseSnapPct',
+  'usageDefenseSnaps',
+  'usageDefenseSnapPct',
+];
+
+/**
+ * Pure: join one (season, week)'s snap rows to our players (pfr_player_id ->
+ * players.csv pfr_id -> espn_id -> players.external_id) and build each matched
+ * player's snap patch. Blank columns stay null (never 0). `st_*` is not
+ * stored. A row whose folded team differs from the player's recorded
+ * `gameTeam` is dropped and counted (a crosswalk collision must not put
+ * another team's snaps on a card); with either side absent it merges. Two REG
+ * rows for one player resolve to the one matching gameTeam, else the first.
+ * `season`/`week` narrow the rows when given.
+ */
+function buildSnapUpdates({
+  snapRows,
+  pfrCrosswalk,
+  knownPlayersByExternalId,
+  gameTeamByPlayerId = new Map(),
+  season,
+  week,
+}) {
+  const rows = season === undefined || week === undefined
+    ? (snapRows || []).filter((r) => (r.season_type || r.game_type) === 'REG')
+    : filterRowsForWeek(snapRows, { season, week });
+  const usage = (v) => {
+    if (v === undefined || v === null || String(v).trim() === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const byPlayer = new Map();
+  let teamMismatches = 0;
+  for (const row of rows) {
+    const pfrId = row.pfr_player_id;
+    if (!pfrId) continue;
+    const espnId = pfrCrosswalk.get(pfrId);
+    if (!espnId) continue;
+    const playerId = knownPlayersByExternalId.get(String(espnId));
+    if (!playerId) continue;
+    const recorded = gameTeamByPlayerId.get(playerId) || null;
+    const rowTeam = optionalTeamAbbr(row.team);
+    if (recorded && rowTeam && recorded !== rowTeam) {
+      teamMismatches += 1;
+      continue;
+    }
+    // A second surviving row only wins when it matches the recorded team and
+    // the first did not; otherwise the first stays.
+    const prev = byPlayer.get(playerId);
+    if (prev && !(recorded && rowTeam === recorded && prev.team !== recorded)) continue;
+    byPlayer.set(playerId, {
+      team: rowTeam,
+      patch: {
+        usageOffenseSnaps: usage(row.offense_snaps),
+        usageOffenseSnapPct: usage(row.offense_pct),
+        usageDefenseSnaps: usage(row.defense_snaps),
+        usageDefenseSnapPct: usage(row.defense_pct),
+      },
+    });
+  }
+  const updates = [...byPlayer].map(([playerId, { patch }]) => ({ playerId, patch }));
+  return { updates, teamMismatches };
 }
 
 /**
@@ -234,6 +333,60 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
  * the run or rolls back the write it is scoring. Resolved value is
  * unchanged: `{ season, week, playersUpdated, leaguesRescored }`.
  */
+/**
+ * Snap counts for one (season, week): a second Sync run (ADR 0036), job
+ * 'nflverse-snaps', no lock. Same read-merge-upsert as the weekly patch; the
+ * keys are unscored, so nothing is re-scored. Resolves to
+ * `{ season, week, playersUpdated, teamMismatches }`; runSyncJob records that
+ * same object as the data_sync_runs detail, so teamMismatches shows there.
+ */
+async function syncNflverseSnaps({ season, week }) {
+  return runSyncJob({
+    job: 'nflverse-snaps',
+    lock: null,
+    fetch: async () => {
+      const [snapRows, pfrCrosswalk] = await Promise.all([
+        fetchSnapCountsForSeason(season),
+        fetchPfrCrosswalk(),
+      ]);
+      return [{ season, week, snapRows, pfrCrosswalk }];
+    },
+    apply: (client, unit) => applyNflverseSnapsUnit(client, unit),
+  });
+}
+
+async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk }) {
+  const knownPlayers = await db.query(
+    `SELECT "id", "external_id" FROM "players" WHERE "external_id" IS NOT NULL`
+  );
+  const idByExternal = new Map(knownPlayers.rows.map((r) => [String(r.external_id), r.id]));
+  const existingStats = await db.query(
+    `SELECT "player_id", "stats" FROM "player_stats" WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  const statsByPlayer = new Map(existingStats.rows.map((r) => [r.player_id, r.stats || {}]));
+  const gameTeamByPlayerId = new Map();
+  for (const [playerId, stats] of statsByPlayer) {
+    if (stats.gameTeam) gameTeamByPlayerId.set(playerId, stats.gameTeam);
+  }
+
+  const { updates, teamMismatches } = buildSnapUpdates({
+    season,
+    week,
+    snapRows,
+    pfrCrosswalk,
+    knownPlayersByExternalId: idByExternal,
+    gameTeamByPlayerId,
+  });
+  let playersUpdated = 0;
+  for (const { playerId, patch } of updates) {
+    const stats = { ...(statsByPlayer.get(playerId) || {}), ...patch };
+    await upsertPlayerStats(db, { playerId, season, week, stats });
+    playersUpdated += 1;
+  }
+  return { season, week, playersUpdated, teamMismatches };
+}
+
 async function syncNflverseWeek({ season, week }) {
   const result = await runSyncJob({
     job: 'nflverse-week',
@@ -838,7 +991,7 @@ async function correctWeekFromNflverse({
   season,
   week,
   rescoreLeagues = true,
-  preserveKeys = PBP_ONLY_STAT_KEYS,
+  preserveKeys = [...PBP_ONLY_STAT_KEYS, ...SNAP_STAT_KEYS],
 }) {
   const [playerRows, teamRows, scoresByGameId, crosswalk] = await Promise.all([
     fetchPlayerWeekStatsForSeason(season),
@@ -905,6 +1058,7 @@ async function finalizePriorWeeks() {
   for (const { season, week } of weeks.values()) {
     try {
       const outcome = await syncNflverseWeek({ season, week });
+      await syncNflverseSnaps({ season, week });
       if (outcome.playersUpdated > 0) finalized.push(outcome);
     } catch (err) {
       console.error('nflverse finalization failed for %s week %s:', season, week, err.message);
@@ -1010,8 +1164,14 @@ module.exports = {
   fetchTeamWeekStatsForSeason,
   fetchGameScoresForSeason,
   fetchPlayersCrosswalk,
+  fetchSnapCountsForSeason,
+  fetchPfrCrosswalk,
+  buildIdCrosswalks,
   filterRowsForWeek,
   buildStatUpdates,
+  buildSnapUpdates,
+  syncNflverseSnaps,
+  SNAP_STAT_KEYS,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
   optionalTeamAbbr,

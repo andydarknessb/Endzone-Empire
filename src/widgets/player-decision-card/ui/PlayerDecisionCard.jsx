@@ -1243,6 +1243,7 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
             <TableCell align="right">Tgt</TableCell>
             <TableCell align="right">Car</TableCell>
             <TableCell align="right">Air yds</TableCell>
+            <TableCell align="right">Snaps</TableCell>
             <TableCell align="right">Tgt share</TableCell>
             <TableCell align="right">FPTS</TableCell>
           </TableRow>
@@ -1254,6 +1255,11 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
               <TableCell align="right">{row.targets ?? '-'}</TableCell>
               <TableCell align="right">{row.carries ?? '-'}</TableCell>
               <TableCell align="right">{row.airYards ?? '-'}</TableCell>
+              <TableCell align="right">
+                {row.snaps != null
+                  ? `${row.snaps}${row.snapShare != null ? ` (${Math.round(row.snapShare * 100)}%)` : ''}`
+                  : '-'}
+              </TableCell>
               <TableCell align="right">{row.targetShare != null ? `${Math.round(row.targetShare * 100)}%` : '-'}</TableCell>
               <TableCell align="right">{formatPoints(row.fantasyPoints)}</TableCell>
             </TableRow>
