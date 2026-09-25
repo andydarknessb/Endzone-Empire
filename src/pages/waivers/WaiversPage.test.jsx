@@ -693,16 +693,16 @@ test('after saving an edit, focus returns to that claim\'s Edit control', async 
   await waitFor(() => expect(within(card).getByRole('button', { name: 'Edit claim on Claim A' })).toHaveFocus());
 });
 
-test('the edit sheet offers the whole FAAB budget the server checks against, not budget plus the claim\'s own bid', async () => {
-  // faab_remaining 62, pending bids 4 + 10 + 1: the server checks an edited bid against 62 (bids are deducted only on a win).
+test('the edit sheet offers the FAAB left net of the OTHER pending claims (left plus this claim\'s own bid)', async () => {
+  // faab_remaining 62, pending bids 4 + 10 + 1: left is 47, and editing the $10 claim offers 47 + 10.
   setup({ waivers: waiversBody({ myClaims: manageClaims() }), roster: SHEET_ROSTER });
   renderPage('/league/1/waivers?tab=claims');
   const card = await claimsCard();
   await userEvent.click(await within(card).findByRole('button', { name: 'Edit claim on Claim A' }));
   const sheet = await screen.findByRole('dialog', { name: /Claim A/ });
-  expect(within(sheet).getByText('$62 remaining')).toBeInTheDocument();
+  expect(within(sheet).getByText('$57 remaining')).toBeInTheDocument();
   await userEvent.click(within(sheet).getByRole('button', { name: 'Bid max' }));
-  expect(within(sheet).getByRole('spinbutton', { name: 'Bid' })).toHaveValue(62);
+  expect(within(sheet).getByRole('spinbutton', { name: 'Bid' })).toHaveValue(57);
 });
 
 test('three claims naming the same drop read "all drop", two read "both drop"', async () => {
