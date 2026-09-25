@@ -706,6 +706,23 @@ test('after Undo restores a cancelled claim, focus lands in its control group (#
   await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim A up' })).toHaveFocus());
 });
 
+test('Undo focus also lands on the restored claim when only the reorder fails (#1645)', async () => {
+  const waivers = waiversBody({ myClaims: manageClaims() });
+  setup({ waivers, roster: SHEET_ROSTER });
+  cancelWith(waivers);
+  apiClient.post.mockImplementation(async () => {
+    waivers.myClaims = [{ ...manageClaims()[1], id: 9 }, ...waivers.myClaims];
+    return { data: { id: 9 } };
+  });
+  apiClient.put.mockRejectedValue({ response: { status: 500, data: { message: 'nope' } } });
+  renderWithToast();
+  const card = await claimsCard();
+  await userEvent.click(await within(card).findByRole('button', { name: 'Cancel claim on Claim A' }));
+  await waitFor(() => expect(within(card).queryByText('Claim A')).not.toBeInTheDocument());
+  await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim A up' })).toHaveFocus());
+});
+
 test('after saving an edit, focus returns to that claim\'s Edit control', async () => {
   const waivers = waiversBody({ myClaims: manageClaims() });
   setup({ waivers, roster: SHEET_ROSTER });

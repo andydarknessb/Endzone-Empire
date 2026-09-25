@@ -9,6 +9,9 @@ import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
  * the refresh renders, so retry for a few frames rather than assume it is there.
  */
 function focusRestoredClaim(claimId, tries = 20) {
+  // Never steal focus the user has since moved elsewhere; the Undo click leaves it on <body> or the closing toast.
+  const active = document.activeElement;
+  if (active && active !== document.body && !active.closest('[role="alert"]')) return;
   const group = document.getElementById(`waiver-claim-${claimId}-controls`);
   const target = group?.querySelector('button:not(:disabled)');
   if (target) target.focus();
@@ -62,7 +65,6 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
 
   const undoCancel = async (claim, position) => {
     let created;
-    let restored = false;
     try {
       const response = await apiClient.post('/api/waivers/claim', {
         leagueId: Number(leagueId),
@@ -82,14 +84,13 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
         await apiClient.put('/api/waivers/claims/order', { leagueId: Number(leagueId), claimIds: ids });
       }
       notify(`Claim on ${claim.playerName} restored`);
-      restored = true;
     } catch (err) {
       notify(`Claim on ${claim.playerName} was restored but at the end of your Claim order: ${failure(err)}`, {
         severity: 'error',
       });
     }
     await onDone?.();
-    if (restored && created != null) focusRestoredClaim(created);
+    if (created != null) focusRestoredClaim(created);
   };
 
   const cancelClaim = async (claim, position) => {
