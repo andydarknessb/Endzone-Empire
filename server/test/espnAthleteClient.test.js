@@ -7,6 +7,8 @@ const fantasyPlayerInfoFixture = require('./fixtures/espn/fantasy-player-info.js
 const {
   profile,
   overview,
+  normalizeFantasyNews,
+  parseRotowirePublished,
   teamDepthChart,
   ownership,
   normalizeBio,
@@ -61,7 +63,7 @@ test('normalizeBio: athlete-profile.json maps to bio', () => {
 });
 
 test('normalizeEspnNews: athlete-overview.json maps to news[] ordered newest first', () => {
-  const news = normalizeEspnNews(athleteOverviewFixture);
+  const news = normalizeEspnNews(athleteOverviewFixture).filter((n) => n.source === 'espn');
   assert.ok(news.length > 0);
   assert.equal(news[0].source, 'espn');
   assert.ok(typeof news[0].headline === 'string' && news[0].headline.length > 0);
@@ -71,7 +73,7 @@ test('normalizeEspnNews: athlete-overview.json maps to news[] ordered newest fir
 });
 
 test('normalizeEspnNews: every item keeps the ESPN story url (links.web.href) so the card can link the headline', () => {
-  const news = normalizeEspnNews(athleteOverviewFixture);
+  const news = normalizeEspnNews(athleteOverviewFixture).filter((n) => n.source === 'espn');
   assert.ok(news.length > 0);
   for (const item of news) {
     assert.ok(String(item.url).startsWith("https://www.espn.com/"), `expected an espn.com url, got ${item.url}`);
@@ -240,7 +242,85 @@ test('overview: two calls inside six hours make one transport call', async () =>
   const transport = fakeTransport(() => okResponse(athleteOverviewFixture));
   await overview('9990007', { transport });
   await overview('9990007', { transport });
-  assert.equal(transport.calls.length, 1);
+  assert.equal(transport.calls.length, 2, 'one overview call + one fantasy-feed call (#1641), both from the single cached fetch');
+});
+
+// --- fantasy player-news feed (#1641) ---------------------------------------
+
+const FANTASY_FEED = {
+  feed: [
+    { playerId: 1, type: 'Story', headline: 'Roundup', story: '<p>Shared</p>', published: '2026-09-21T10:00:00Z' },
+    { playerId: 1, type: 'Rotowire', headline: 'Older', description: 'Old desc', story: '<p>Older &amp; <b>wiser</b></p><p>Second.</p>', published: '2026-09-20T10:00:00Z', lastModified: '2026-09-20T11:00:00Z', links: { web: { href: 'https://www.espn.com/a' } } },
+    { playerId: 1, type: 'Rotowire', headline: 'Newer', story: '<p>Newest</p>', published: '2026-09-22T10:00:00Z', lastModified: '2026-09-22T11:00:00Z' },
+    { playerId: 1, type: 'Rotowire', headline: '', story: 'no headline' },
+  ],
+};
+
+test('normalizeFantasyNews: keeps only Rotowire items, newest first, HTML story stripped to a blurb', () => {
+  const news = normalizeFantasyNews(FANTASY_FEED);
+  assert.deepEqual(news.map((n) => n.headline), ['Newer', 'Older']);
+  assert.equal(news[0].source, 'rotowire');
+  assert.equal(news[0].blurb, 'Newest');
+  assert.equal(news[0].publishedAt, '2026-09-22T10:00:00Z');
+  assert.equal(news[1].blurb, 'Older & wiser Second.');
+  assert.equal(news[1].url, 'https://www.espn.com/a');
+  assert.equal(news[0].url, null);
+});
+
+test('normalizeFantasyNews: falls back to description when story is absent; unusable shapes give []', () => {
+  const [item] = normalizeFantasyNews({ feed: [{ type: 'Rotowire', headline: 'H', description: 'D', published: '2026-09-22T10:00:00Z' }] });
+  assert.equal(item.blurb, 'D');
+  assert.deepEqual(normalizeFantasyNews(null), []);
+  assert.deepEqual(normalizeFantasyNews({ feed: 'nope' }), []);
+  assert.deepEqual(normalizeFantasyNews({}), []);
+});
+
+test('parseRotowirePublished: parses the non-ISO "Sun Sep 20 13:57:33 PDT 2026" form to ISO', () => {
+  assert.equal(parseRotowirePublished('Sun Sep 20 13:57:33 PDT 2026'), '2026-09-20T20:57:33.000Z');
+  assert.equal(parseRotowirePublished('Mon Dec 07 09:00:00 EST 2026'), '2026-12-07T14:00:00.000Z');
+  assert.equal(parseRotowirePublished('2026-09-20T13:57:33Z'), '2026-09-20T13:57:33.000Z');
+  assert.equal(parseRotowirePublished('garbage'), null);
+  assert.equal(parseRotowirePublished(null), null);
+});
+
+test('normalizeEspnNews: the overview rotowire object comes first, then news[]', () => {
+  const news = normalizeEspnNews({
+    rotowire: { headline: 'RW', description: 'Blurb', story: 'Long story', published: 'Sun Sep 20 13:57:33 PDT 2026' },
+    news: [{ headline: 'Generic', lastModified: '2026-09-01T00:00:00Z' }],
+  });
+  assert.equal(news[0].source, 'rotowire');
+  assert.equal(news[0].headline, 'RW');
+  assert.equal(news[0].publishedAt, '2026-09-20T20:57:33.000Z');
+  assert.equal(news[0].blurb, 'Blurb');
+  assert.equal(news[1].headline, 'Generic');
+});
+
+test('overview: card news is the fantasy Rotowire feed when it has items, one extra call, cached together', async () => {
+  const transport = fakeTransport((url) => okResponse(String(url).includes('/fantasy/') ? FANTASY_FEED : athleteOverviewFixture));
+  const result = await overview('9990021', { transport });
+  assert.deepEqual(result.news.map((n) => n.headline), ['Newer', 'Older']);
+  const feedCall = transport.calls.find((c) => String(c.url).includes('/fantasy/v2/games/ffl/news/players'));
+  assert.deepEqual(feedCall.config.params, { playerId: '9990021', limit: 20 });
+  await overview('9990021', { transport });
+  assert.equal(transport.calls.length, 2);
+});
+
+test('overview: empty or failed feed falls back to the overview news; both failing is null', async () => {
+  const emptyFeed = fakeTransport((url) => okResponse(String(url).includes('/fantasy/') ? { feed: [] } : athleteOverviewFixture));
+  const a = await overview('9990022', { transport: emptyFeed });
+  assert.deepEqual(a.news, normalizeEspnNews(athleteOverviewFixture));
+
+  const failedFeed = fakeTransport((url) => { if (String(url).includes('/fantasy/')) throw httpError(500); return okResponse(athleteOverviewFixture); });
+  const b = await overview('9990023', { transport: failedFeed });
+  assert.deepEqual(b.news, normalizeEspnNews(athleteOverviewFixture));
+
+  const overviewDown = fakeTransport((url) => { if (!String(url).includes('/fantasy/')) throw httpError(403); return okResponse(FANTASY_FEED); });
+  const c = await overview('9990024', { transport: overviewDown });
+  assert.deepEqual(c.news.map((n) => n.headline), ['Newer', 'Older']);
+  assert.equal(c.injuryFacts, null);
+
+  const bothDown = fakeTransport(() => { throw httpError(500); });
+  assert.equal(await overview('9990025', { transport: bothDown }), null);
 });
 
 // --- teamDepthChart()/ownership(): never cached, resolve null on failure ----

@@ -13,6 +13,9 @@ import { Box, Link, Typography } from '@mui/material';
  * `espnAthleteClient`'s `normalizeEspnNews`) renders its headline as an
  * external link that opens the story in a new tab; the feed-note fallback
  * carries `url: null` and stays plain text - there is no story to open.
+ *
+ * An item with a `blurb` (a RotoWire item, #1641) shows it, clamped to three
+ * lines, under the headline.
  */
 export default function NewsList({ news }) {
   if (!Array.isArray(news) || news.length === 0) return null;
@@ -33,6 +36,22 @@ export default function NewsList({ news }) {
             </Link>
           ) : (
             <Typography sx={{ fontSize: 13 }}>{item.headline}</Typography>
+          )}
+          {item.blurb && (
+            <Typography
+              data-testid="decision-card-news-blurb"
+              sx={{
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                mt: 0.25,
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {item.blurb}
+            </Typography>
           )}
           {item.publishedAt && (
             <Typography sx={{ fontSize: 11, color: 'var(--text-muted)', mt: 0.25 }}>

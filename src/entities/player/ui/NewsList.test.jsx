@@ -47,3 +47,17 @@ test('a news item without a url (the feed-note fallback) renders plain text, not
   expect(screen.getByText('Ruled out for Sunday')).toBeInTheDocument();
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
 });
+
+test('a news item with a blurb renders it under the headline; one without renders none', () => {
+  render(
+    <NewsList
+      news={[
+        { headline: 'Jeudy fails to haul in lone target', source: 'rotowire', publishedAt: null, url: null, blurb: 'Jeudy played 34 of 58 snaps Sunday.' },
+        { headline: 'No blurb here', source: 'espn', publishedAt: null, url: null },
+      ]}
+    />
+  );
+  const blurb = screen.getByTestId('decision-card-news-blurb');
+  expect(blurb).toHaveTextContent('Jeudy played 34 of 58 snaps Sunday.');
+  expect(screen.getAllByTestId('decision-card-news-blurb')).toHaveLength(1);
+});

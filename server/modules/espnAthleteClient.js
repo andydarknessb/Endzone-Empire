@@ -110,24 +110,78 @@ function normalizeBio(payload) {
   };
 }
 
-/**
- * Pure: an athlete overview payload's `news[]` -> our News shape
- * (CONTEXT.md) `{ headline, source, publishedAt, url }`, newest first as
- * ESPN already orders it. Empty array, never
- * null, when ESPN reports none - `getPlayerCard` supplies the feed-note
- * fallback itself (ADR 0041/CONTEXT.md "News").
- */
+/** Pure: an http(s) story link, or null (non-http schemes never reach an <a href>). */
 function storyUrl(href) {
   if (typeof href !== 'string') return null;
   const lower = href.toLowerCase();
   return lower.startsWith('https://') || lower.startsWith('http://') ? href : null;
 }
 
+const FANTASY_NEWS_URL = 'https://site.api.espn.com/apis/fantasy/v2/games/ffl/news/players';
+const FANTASY_NEWS_LIMIT = 20;
+
+const HTML_ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };
+
+/** Pure: an ESPN HTML `story` -> a plain-text blurb, or null when empty. */
+function htmlToText(html) {
+  if (typeof html !== 'string') return null;
+  const text = html
+    .replace(/<\/(p|div|li|h\d)>|<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(amp|lt|gt|quot|apos|nbsp|#39);/g, (m) => HTML_ENTITIES[m])
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text || null;
+}
+
+// UTC offsets (hours) for the US zone abbreviations ESPN's rotowire stamp uses.
+const TZ_OFFSET_HOURS = { UTC: 0, GMT: 0, EST: -5, EDT: -4, CST: -6, CDT: -5, MST: -7, MDT: -6, PST: -8, PDT: -7 };
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * Pure: the overview `rotowire.published` stamp -> ISO string, or null. ESPN
+ * sends it NOT as ISO but as `"Sun Sep 20 13:57:33 PDT 2026"` (#1641); an ISO
+ * string is accepted too. An unknown zone abbreviation or any unparseable
+ * value is null, never a guess.
+ */
+function parseRotowirePublished(value) {
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(/^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+([A-Za-z]{2,4})\s+(\d{4})$/);
+  if (match) {
+    const month = MONTHS.indexOf(match[1].toLowerCase());
+    const offset = TZ_OFFSET_HOURS[match[6].toUpperCase()];
+    if (month < 0 || offset === undefined) return null;
+    const ms = Date.UTC(Number(match[7]), month, Number(match[2]), Number(match[3]) - offset, Number(match[4]), Number(match[5]));
+    return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+  }
+  if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
+
+/**
+ * Pure: an athlete overview payload -> News (CONTEXT.md), in the fallback
+ * order of #1641: the top-level `rotowire` object first (the latest dedicated
+ * RotoWire blurb), then `news[]`. Each item is `{ headline, source,
+ * publishedAt, url, blurb? }`. Empty array, never null, when ESPN reports
+ * none - `getPlayerCard` supplies the feed-note fallback itself.
+ */
 function normalizeEspnNews(payload) {
+  const items = [];
+  const rotowire = payload && payload.rotowire;
+  if (rotowire && typeof rotowire === 'object' && rotowire.headline) {
+    items.push({
+      headline: String(rotowire.headline),
+      source: 'rotowire',
+      publishedAt: parseRotowirePublished(rotowire.published),
+      url: null,
+      blurb: (typeof rotowire.description === 'string' && rotowire.description.trim()) || htmlToText(rotowire.story),
+    });
+  }
   const news = payload && Array.isArray(payload.news) ? payload.news : [];
-  return news
-    .filter((item) => item && item.headline)
-    .map((item) => ({
+  for (const item of news) {
+    if (!item || !item.headline) continue;
+    items.push({
       headline: String(item.headline),
       source: 'espn',
       publishedAt: item.lastModified || item.categorized || null,
@@ -137,7 +191,29 @@ function normalizeEspnNews(payload) {
       // `sportscenter://` deep links under other rel keys, and this value
       // lands verbatim in an <a href>.
       url: storyUrl(item.links && item.links.web && item.links.web.href),
-    }));
+    });
+  }
+  return items;
+}
+
+/**
+ * Pure: the fantasy player-news feed (`{ feed: [...] }`, #1641) -> News. Only
+ * `type === 'Rotowire'` items (the others are shared roundups), newest first,
+ * blurb = the `story` HTML stripped to text, else `description`. A missing
+ * or reshaped feed is an empty array - undocumented endpoint, never an error.
+ */
+function normalizeFantasyNews(payload) {
+  const feed = payload && Array.isArray(payload.feed) ? payload.feed : [];
+  return feed
+    .filter((item) => item && item.type === 'Rotowire' && item.headline)
+    .map((item) => ({
+      headline: String(item.headline),
+      source: 'rotowire',
+      publishedAt: item.published || item.lastModified || null,
+      url: storyUrl(item.links && item.links.web && item.links.web.href),
+      blurb: htmlToText(item.story) || (typeof item.description === 'string' && item.description.trim()) || null,
+    }))
+    .sort((x, y) => (Date.parse(y.publishedAt) || 0) - (Date.parse(x.publishedAt) || 0));
 }
 
 /**
@@ -274,9 +350,21 @@ async function profile(athleteId, { transport } = {}) {
 async function overview(athleteId, { transport } = {}) {
   if (athleteId == null || athleteId === '') return null;
   return cachedFetch('overview', athleteId, transport, async () => {
-    const payload = await getJson(transport, `${ATHLETE_BASE}/${athleteId}/overview`);
-    if (!payload) return null;
-    return { news: normalizeEspnNews(payload), injuryFacts: normalizeInjuryFacts(payload) };
+    // The fantasy player-news feed rides the same cache entry (#1641): one
+    // extra call per athlete, never a separate cache key. It leads the card's
+    // news when it has Rotowire items; an empty/failed feed leaves the
+    // overview's own rotowire/news[] (then the caller's feed note).
+    const [payload, feedPayload] = await Promise.all([
+      getJson(transport, `${ATHLETE_BASE}/${athleteId}/overview`),
+      getJson(transport, FANTASY_NEWS_URL, { params: { playerId: String(athleteId), limit: FANTASY_NEWS_LIMIT } }),
+    ]);
+    const feedNews = normalizeFantasyNews(feedPayload);
+    if (!payload && feedNews.length === 0) return null;
+    const overviewNews = normalizeEspnNews(payload);
+    return {
+      news: feedNews.length > 0 ? feedNews : overviewNews,
+      injuryFacts: normalizeInjuryFacts(payload),
+    };
   });
 }
 
@@ -323,6 +411,8 @@ module.exports = {
   // pure - unit tested
   normalizeBio,
   normalizeEspnNews,
+  normalizeFantasyNews,
+  parseRotowirePublished,
   normalizeInjuryFacts,
   normalizeDepthChart,
   normalizeOwnership,
