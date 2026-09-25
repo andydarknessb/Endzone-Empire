@@ -9,9 +9,8 @@ import { formatPoints } from '../../../shared/lib';
  * field off `decision` (`server/services/playerCard.service.js`
  * `getPlayerCard`); a tile whose source is null or absent renders nothing
  * and the grid reflows around it (ADR 0040's null-hides-the-tile rule) -
- * `ownership` and `depth` ship `null` today (no producer exists yet, ADR
- * 0040's Plan), so only Weekly projection, Rest of season, Upgrade and
- * Usage ever show in this slice.
+ * Ownership and depth chart read the card's own `ownership` / `depth` (ESPN
+ * facts, ADR 0041), passed as props beside `decision`.
  *
  * Upgrade is the one tile with a positive-highlight treatment: a beat-the-
  * bench Upgrade renders in a small pill, `success` text on the `accent-soft`
