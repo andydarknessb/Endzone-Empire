@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useCallback, useState } from 'react';
-import { Snackbar, Alert, Button, IconButton } from '@mui/material';
+import { Snackbar, Alert, Box, Button, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import { visuallyHidden } from '@mui/utils';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 
 /**
  * App-wide toast feedback. `useSnackbar()` returns a `notify` function:
@@ -27,8 +29,9 @@ export function SnackbarProvider({ children }) {
       severity: options.severity || 'success',
       actionLabel: options.actionLabel,
       onAction: options.onAction,
-      // Reversible actions linger longer so the Undo is reachable.
-      duration: options.duration ?? (options.onAction ? 8000 : 4000),
+      // Reversible actions linger 20s (WCAG 2.2.1 floor) so the Undo is reachable;
+      // MUI still pauses the timer while the toast has focus or hover.
+      duration: options.duration ?? (options.onAction ? 20000 : 4000),
       key: Date.now(),
     });
     setOpen(true);
@@ -62,17 +65,18 @@ export function SnackbarProvider({ children }) {
           action={
             <>
               {snack?.actionLabel && (
-                <Button color="inherit" size="small" onClick={handleAction} sx={{ fontWeight: 700 }}>
+                <Button color="inherit" size="small" onClick={handleAction} sx={{ fontWeight: 700, ...MIN_TOUCH_TARGET_SX }}>
                   {snack.actionLabel}
                 </Button>
               )}
-              <IconButton aria-label="Dismiss notification" color="inherit" size="small" onClick={handleClose}>
+              <IconButton aria-label="Dismiss notification" color="inherit" size="small" onClick={handleClose} sx={MIN_TOUCH_TARGET_SX}>
                 <CloseIcon fontSize="small" />
               </IconButton>
             </>
           }
         >
           {snack?.message}
+          {snack?.actionLabel && <Box component="span" sx={visuallyHidden}>{`. ${snack.actionLabel} available.`}</Box>}
         </Alert>
       </Snackbar>
     </SnackbarContext.Provider>
