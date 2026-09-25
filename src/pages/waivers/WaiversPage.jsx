@@ -14,6 +14,7 @@ import { PlayerPool } from '../../widgets/player-pool';
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from '../../widgets/player-row';
 import WaiverSummary from '../../widgets/waiver-summary';
 import WaiverClaims from '../../widgets/waiver-claims';
+import WaiverRowDetail from './WaiverRowDetail';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
 import { ClaimSheet } from '../../features/claim-player';
@@ -71,6 +72,10 @@ export default function WaiversPage() {
   const [poolSettled, setPoolSettled] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
   const [claimId, setClaimId] = useState(null);
+  // #1617: one expanded row at a time; `cardCache` holds each expanded player's
+  // Decision-card read so a player is fetched once per page view.
+  const [expandedId, setExpandedId] = useState(null);
+  const cardCache = useRef(new Map()).current;
   const [targetPlayer, setTargetPlayer] = useState(null);
   const [targetError, setTargetError] = useState(null);
 
@@ -133,6 +138,10 @@ export default function WaiversPage() {
     if (message) setPoolError(message);
   }, []);
 
+  // Paging collapses the expanded row.
+  const pageParam = searchParams.get('page');
+  useEffect(() => setExpandedId(null), [pageParam]);
+
   const refreshAfterAction = useCallback(() => {
     setRefreshKey((key) => key + 1);
     return poolRef.current?.refresh();
@@ -188,6 +197,22 @@ export default function WaiversPage() {
         hideOwnership={!ownershipKnown}
         variant={variant === 'card' ? 'card' : undefined}
         onOpenPlayer={setQuickViewId}
+        expansion={{
+          expanded: expandedId === player.id,
+          onToggle: () => setExpandedId((current) => (current === player.id ? null : player.id)),
+          panelId: `waiver-row-detail-${player.id}`,
+          panel: (
+            <WaiverRowDetail
+              id={`waiver-row-detail-${player.id}`}
+              player={player}
+              leagueId={leagueId}
+              roster={rosterData}
+              isFaab={isFaab}
+              cache={cardCache}
+              onOpen={setQuickViewId}
+            />
+          ),
+        }}
         action={{
           kind: 'button',
           label: order != null ? `Claim #${order}` : 'Claim',

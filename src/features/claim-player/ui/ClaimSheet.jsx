@@ -21,7 +21,7 @@ const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFix
 const TOUCH = { minHeight: 44, minWidth: 44 };
 
 /** The swap preview: this player's Proj Wk against the starter he replaces. */
-function SwapPreview({ player, roster }) {
+export function SwapPreview({ player, roster }) {
   const upgrade = player.upgrade;
   if (upgrade == null || upgrade.points == null || upgrade.overPlayer == null) return null;
   const mine = player.projWeek?.points ?? null;

@@ -132,6 +132,20 @@ function waiversResponse() {
   };
 }
 
+// The Decision card read the expanded row makes for News (#1617).
+function cardResponse() {
+  return {
+    news: [
+      {
+        headline: 'A long headline about a depth chart move that has to wrap inside the expanded row without pushing the page wider than the viewport',
+        url: null,
+        blurb: 'A blurb of a couple of sentences so the expanded row has real text to wrap at phone width, clamped to three lines by the list.',
+        publishedAt: '2026-09-24T12:00:00Z',
+      },
+    ],
+  };
+}
+
 function lineupResponse() {
   const entry = (id: number, name: string, position: string, bye: number) => ({
     id, name, position, slot: position, bye_week: bye, nfl_team: 'GB', projected_points: 10,
@@ -162,6 +176,7 @@ async function fulfilApi(route: Route) {
   if (method === 'GET' && pathname === '/api/team/lineup') return json(route, 200, lineupResponse());
   if (method === 'GET' && pathname === '/api/waivers') return json(route, 200, waiversResponse());
   if (method === 'GET' && pathname === '/api/players') return json(route, 200, playersResponse());
+  if (method === 'GET' && /^\/api\/players\/\d+\/card$/.test(pathname)) return json(route, 200, cardResponse());
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
 }
