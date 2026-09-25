@@ -16,6 +16,7 @@ import WaiverSummary from '../../widgets/waiver-summary';
 import WaiverClaims from '../../widgets/waiver-claims';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
+import { ClaimSheet } from '../../features/claim-player';
 
 const TABS = [
   { value: 'waivers', label: 'On waivers' },
@@ -32,9 +33,9 @@ const TABS = [
  * unchanged. From `md` the list and the side panel sit side by side; below it
  * two tabs, On waivers and My claims, are held in `?tab=`.
  *
- * The claim sheet arrives in its own ticket, so the Claim action opens the
- * Decision card's claim bar for now (the same door the Players page's FAAB and
- * at-capacity claims use). My claims is the `waiver-claims` widget (#1614):
+ * The Claim action opens the claim sheet (#1615, `claim-player`), which the
+ * `?playerId=` deep link opens too; the Decision card's claim bar files
+ * through the same submission. My claims is the `waiver-claims` widget (#1614):
  * pending claims in Claim order with the reorder, and Results by week.
  *
  * BELOW-ISLAND EDGES (ADR 0031 amendment), each named with its reason:
@@ -68,6 +69,7 @@ export default function WaiversPage() {
   // has not been read.
   const [poolSettled, setPoolSettled] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
+  const [claimId, setClaimId] = useState(null);
   const [targetPlayer, setTargetPlayer] = useState(null);
   const [targetError, setTargetError] = useState(null);
 
@@ -85,7 +87,7 @@ export default function WaiversPage() {
       .then((response) => {
         if (cancelled) return;
         setTargetPlayer(response.data.player);
-        setQuickViewId(response.data.player.id);
+        setClaimId(response.data.player.id);
       })
       .catch((err) => {
         if (!cancelled) setTargetError(readHttpFailure(err).message || err.message);
@@ -158,9 +160,15 @@ export default function WaiversPage() {
       : null;
 
   const isFaab = league?.waiver_type === 'faab' || claims.faab != null;
-  const quickViewPlayer =
-    players.find((player) => player.id === quickViewId) ||
-    (targetPlayer && targetPlayer.id === quickViewId ? targetPlayer : null);
+  const quickViewPlayer = players.find((player) => player.id === quickViewId) || null;
+  const claimPlayer =
+    players.find((player) => player.id === claimId) || (targetPlayer && targetPlayer.id === claimId ? targetPlayer : null);
+  const availability = {
+    rosterCount: context?.rosterCount,
+    rosterCapacity: context?.rosterCapacity,
+    waiverPriority: !isFaab ? (claims.waiverPriority ?? undefined) : undefined,
+    faabRemaining: isFaab && claims.faab ? claims.faab.left : undefined,
+  };
 
   const rowFor = (player, variant) => {
     const order = claimOrderByPlayer.get(player.id);
@@ -176,7 +184,7 @@ export default function WaiversPage() {
           label: order != null ? `Claim #${order}` : 'Claim',
           variant: order != null ? 'outlined' : 'contained',
           ariaLabel: `${order != null ? `Claim #${order}` : 'Claim'} ${player.name}`,
-          onClick: () => setQuickViewId(player.id),
+          onClick: () => setClaimId(player.id),
           helper: order != null ? 'You already have a pending claim on this player.' : undefined,
         }}
       />
@@ -337,17 +345,21 @@ export default function WaiversPage() {
         entry={toDecisionCardEntry(quickViewPlayer)}
         leagueId={Number(leagueId)}
         context={waivers({
-          availability: {
-            rosterCount: context?.rosterCount,
-            rosterCapacity: context?.rosterCapacity,
-            waiverPriority: !isFaab ? (claims.waiverPriority ?? undefined) : undefined,
-            faabRemaining: isFaab && claims.faab ? claims.faab.left : undefined,
-          },
+          availability,
           roster: Array.isArray(rosterData) ? rosterData : [],
           onActionDone: refreshAfterAction,
           playerIds: players.map((player) => player.id),
           onNavigate: setQuickViewId,
         })}
+      />
+      <ClaimSheet
+        open={claimId != null}
+        player={claimPlayer}
+        leagueId={leagueId}
+        availability={availability}
+        roster={rosterData}
+        onClose={() => setClaimId(null)}
+        onClaimed={refreshAfterAction}
       />
     </Box>
   );

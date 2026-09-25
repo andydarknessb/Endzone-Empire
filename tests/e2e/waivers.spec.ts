@@ -122,6 +122,37 @@ for (const width of [320, 390]) {
   });
 }
 
+// #1615: the claim sheet is full height on a phone, with no overflow and 44px controls.
+test('the claim sheet at 390px: full height, no overflow, controls at least 44px', async ({ page }) => {
+  await setupWaiversLayoutGuard(page);
+  await page.setViewportSize({ width: 390, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await page.getByRole('button', { name: `Claim ${CLAIMED_PLAYER_NAME}` }).or(page.getByRole('button', { name: `Claim #1 ${CLAIMED_PLAYER_NAME}` })).first().click();
+
+  const sheet = page.getByRole('dialog', { name: new RegExp(`Claim ${CLAIMED_PLAYER_NAME}`) });
+  await expect(sheet).toBeVisible();
+  await expect(page.getByTestId('claim-sheet-swap')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const box = await sheet.boundingBox();
+  expect(box?.height, 'the sheet fills the phone height').toBeGreaterThanOrEqual(HEIGHT - 1);
+  const overflow = await sheet.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+  const doc = await page.evaluate(probeDocument);
+  expect(doc.scrollWidth).toBeLessThanOrEqual(doc.clientWidth + 1);
+
+  const small = await sheet.locator('button, label.MuiFormControlLabel-root, input[type="number"]').evaluateAll((els) =>
+    els
+      .filter((el) => el.getClientRects().length > 0 && (el as HTMLInputElement).type !== 'radio')
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { name: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30), h: Math.round(r.height), w: Math.round(r.width) };
+      })
+      .filter((t) => t.h < 43 || (t.w < 43 && t.name !== ''))
+  );
+  expect(small, `sheet controls under 44px: ${JSON.stringify(small)}`).toEqual([]);
+});
+
 // Permanent negative control (the players-list spec's own pattern): proves
 // the width predicate can still go red.
 test('negative control: the width predicate reports a forced overflow', async ({ page }) => {

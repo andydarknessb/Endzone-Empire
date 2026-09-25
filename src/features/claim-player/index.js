@@ -18,3 +18,4 @@
  */
 export { useClaimPlayer } from './model/useClaimPlayer';
 export { default as ClaimPlayerAction } from './ui/ClaimPlayerAction';
+export { default as ClaimSheet } from './ui/ClaimSheet';
