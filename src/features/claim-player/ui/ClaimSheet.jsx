@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
+import { bidHelperText, isValidBid } from '../model/bidValidity';
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
 const TOUCH = { minHeight: 44, minWidth: 44 };
@@ -62,7 +63,7 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
   const atCapacity = isRosterAtCapacity(availability);
   const dropMissing = atCapacity && dropId === '';
   const bidNumber = bid === '' ? NaN : Number(bid);
-  const bidInvalid = isFaab && (!Number.isInteger(bidNumber) || bidNumber < 0 || bidNumber > faabRemaining);
+  const bidInvalid = isFaab && !isValidBid({ bid, faabRemaining });
   const step = (delta) => {
     const base = Number.isFinite(bidNumber) ? bidNumber : 0;
     setBid(String(Math.min(faabRemaining, Math.max(0, base + delta))));
@@ -127,7 +128,7 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
                 value={bid}
                 onChange={(e) => setBid(e.target.value)}
                 error={bidInvalid}
-                helperText={bidInvalid ? `Enter a bid between $0 and $${faabRemaining}` : undefined}
+                helperText={bidInvalid ? bidHelperText(faabRemaining) : undefined}
                 inputProps={{ min: 0, max: faabRemaining, step: 1 }}
                 sx={{ width: 110 }}
               />

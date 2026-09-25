@@ -1,6 +1,7 @@
 import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import { clearLeagueCache } from '../../hooks/useLeague';
@@ -266,6 +267,24 @@ test('a server-validated claim target from the Player Browser opens the claim sh
   const sheet = await screen.findByRole('dialog', { name: 'Claim Blanket Waiver Player' });
   expect(apiClient.get).toHaveBeenCalledWith('/api/waivers/claim-target?leagueId=1&playerId=8');
   expect(within(sheet).queryByTestId('claim-sheet-swap')).not.toBeInTheDocument();
+});
+
+function LocationEcho() {
+  const { pathname, search } = useLocation();
+  return <div data-testid="location">{`${pathname}${search}`}</div>;
+}
+
+test('the claim-target deep link clears playerId from the URL once the sheet is open', async () => {
+  setup({ claimTarget: { id: 8, name: 'Blanket Waiver Player', position: 'WR', nfl_team: 'DAL' } });
+  renderWithProviders(
+    <>
+      <WaiversPage />
+      <LocationEcho />
+    </>,
+    { path: '/league/:leagueId/waivers', route: '/league/1/waivers?playerId=8' }
+  );
+  await screen.findByRole('dialog', { name: 'Claim Blanket Waiver Player' });
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^\/league\/1\/waivers$/));
 });
 
 test('a failed league read shows the error and never the empty-list copy', async () => {
@@ -551,7 +570,7 @@ test('the bid is refused outside $0 to FAAB remaining; $1 and Max set it', async
   await userEvent.clear(bid);
   await userEvent.type(bid, '63');
   expect(submitBtn(sheet)).toBeDisabled();
-  expect(within(sheet).getByText('Enter a bid between $0 and $62')).toBeInTheDocument();
+  expect(within(sheet).getByText('Enter a whole-dollar bid between $0 and $62')).toBeInTheDocument();
   await userEvent.clear(bid);
   await userEvent.type(bid, '5');
   await userEvent.click(within(sheet).getByRole('button', { name: 'Raise bid' }));

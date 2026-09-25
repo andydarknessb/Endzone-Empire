@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
 import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
+import { bidHelperText, isValidBid } from '../model/bidValidity';
 
 /**
  * The Decision card's waivers action bar (#1307, ADR 0040 CardStates):
@@ -24,8 +25,7 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
   const dropMissing = atCapacity && dropPlayerId === '';
   const dropLabel = atCapacity ? 'Drop a player' : 'Drop a player (optional)';
 
-  const bidIsValidNumber = bid !== '' && !Number.isNaN(Number(bid));
-  const bidInvalid = isFaab && (!bidIsValidNumber || Number(bid) < 0 || Number(bid) > faabRemaining);
+  const bidInvalid = isFaab && !isValidBid({ bid, faabRemaining });
 
   const handleClaim = () => {
     submitClaim({
@@ -71,8 +71,8 @@ export default function ClaimPlayerAction({ player, leagueId, availability, rost
           value={bid}
           onChange={(e) => setBid(e.target.value)}
           error={bidInvalid}
-          helperText={bidInvalid ? `Enter a bid between $0 and $${faabRemaining}` : `$${faabRemaining} remaining`}
-          inputProps={{ min: 0, max: faabRemaining }}
+          helperText={bidInvalid ? bidHelperText(faabRemaining) : `$${faabRemaining} remaining`}
+          inputProps={{ min: 0, max: faabRemaining, step: 1 }}
         />
       )}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>

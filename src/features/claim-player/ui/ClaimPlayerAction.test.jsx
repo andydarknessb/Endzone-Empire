@@ -56,6 +56,15 @@ test('a FAAB league shows the bid field, invalid over budget, and posts the bid 
   });
 });
 
+test('a fractional bid disables Claim and never posts', async () => {
+  renderAction({ availability: { faabRemaining: 85 } });
+
+  await userEvent.type(screen.getByLabelText('Bid'), '2.5');
+  expect(screen.getByTestId('claim-player-submit')).toBeDisabled();
+  expect(screen.getByText('Enter a whole-dollar bid between $0 and $85')).toBeInTheDocument();
+  expect(apiClient.post).not.toHaveBeenCalled();
+});
+
 test('a drop pick is sorted worst projection first and included in the claim', async () => {
   apiClient.post.mockResolvedValue({});
   renderAction({
