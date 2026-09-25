@@ -40,3 +40,9 @@ export async function cancelClaim({ leagueId, claimId }) {
 export async function moveClaim({ leagueId, claimIds }) {
   await apiClient.put('/api/waivers/claims/order', { leagueId: Number(leagueId), claimIds });
 }
+
+/** GET the server's validation of a claim target; resolves `{ player }`. A plain read, no side effects. */
+export async function readClaimTarget({ leagueId, playerId }) {
+  const response = await apiClient.get(`/api/waivers/claim-target?leagueId=${leagueId}&playerId=${playerId}`);
+  return response.data;
+}

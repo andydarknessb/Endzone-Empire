@@ -1,9 +1,9 @@
 import apiClient from '../../../api/apiClient';
-import { submitClaim, editClaim, cancelClaim, moveClaim } from './claimWrites';
+import { submitClaim, editClaim, cancelClaim, moveClaim, readClaimTarget } from './claimWrites';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
-  default: { post: jest.fn(), patch: jest.fn(), delete: jest.fn(), put: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn(), patch: jest.fn(), delete: jest.fn(), put: jest.fn() },
 }));
 
 beforeEach(() => jest.clearAllMocks());
@@ -55,4 +55,11 @@ test('moveClaim puts the full id list', async () => {
   apiClient.put.mockResolvedValue({});
   await moveClaim({ leagueId: '7', claimIds: [2, 1, 3] });
   expect(apiClient.put).toHaveBeenCalledWith('/api/waivers/claims/order', { leagueId: 7, claimIds: [2, 1, 3] });
+});
+
+test('readClaimTarget gets the claim target and returns the body', async () => {
+  apiClient.get.mockResolvedValue({ data: { player: { id: 8 } } });
+  const body = await readClaimTarget({ leagueId: 1, playerId: 8 });
+  expect(apiClient.get).toHaveBeenCalledWith('/api/waivers/claim-target?leagueId=1&playerId=8');
+  expect(body).toEqual({ player: { id: 8 } });
 });
