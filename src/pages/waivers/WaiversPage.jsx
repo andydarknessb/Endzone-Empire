@@ -182,7 +182,7 @@ export default function WaiversPage() {
     );
   };
 
-  const error = poolError || targetError || (leagueError ? 'Could not load the league.' : null);
+  const error = (leagueError ? 'Could not load the league.' : null) || poolError || targetError;
   const pendingCount = claims.pending.length;
 
   return (
