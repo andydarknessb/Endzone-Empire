@@ -15,6 +15,7 @@ import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from '../../widge
 import WaiverSummary from '../../widgets/waiver-summary';
 import WaiverClaims from '../../widgets/waiver-claims';
 import WaiverRowDetail from './WaiverRowDetail';
+import { useCardReads } from './useCardReads';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
 import { ClaimSheet } from '../../features/claim-player';
@@ -45,7 +46,10 @@ const TABS = [
  *     before the first read (`GET /api/waivers` does not carry it).
  *   - `components/LeagueBreadcrumb`: the back-link every league subpage shows.
  *   - `api/apiClient` and `lib/httpFailure`: the one `claim-target` read behind
- *     the Player Browser's `?playerId=` deep link.
+ *     the Player Browser's `?playerId=` deep link (and, through `useCardReads`,
+ *     the expanded row's Decision-card read).
+ *   - `utils/formatRelative`: the Clear time's relative wording in the expanded
+ *     row (`WaiverRowDetail`), the same plumbing edge `player-row` names.
  */
 export default function WaiversPage() {
   const { leagueId } = useParams();
@@ -72,10 +76,10 @@ export default function WaiversPage() {
   const [poolSettled, setPoolSettled] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
   const [claimId, setClaimId] = useState(null);
-  // #1617: one expanded row at a time; `cardCache` holds each expanded player's
-  // Decision-card read so a player is fetched once per page view.
+  // #1617: one expanded row at a time; `cardReads` keeps each expanded player's
+  // Decision-card read attempt so a player is read once per page view.
   const [expandedId, setExpandedId] = useState(null);
-  const cardCache = useRef(new Map()).current;
+  const cardReads = useCardReads(leagueId);
   const [targetPlayer, setTargetPlayer] = useState(null);
   const [targetError, setTargetError] = useState(null);
 
@@ -205,10 +209,9 @@ export default function WaiversPage() {
             <WaiverRowDetail
               id={`waiver-row-detail-${player.id}`}
               player={player}
-              leagueId={leagueId}
               roster={rosterData}
               isFaab={isFaab}
-              cache={cardCache}
+              reads={cardReads}
               onOpen={setQuickViewId}
             />
           ),

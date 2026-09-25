@@ -68,12 +68,14 @@ const setup = ({
   claimTarget,
   roster = [],
   cards = {},
+  cardGate = null,
 } = {}) => {
   apiClient.get.mockImplementation((url) => {
     const cardMatch = /^\/api\/players\/(\d+)\/card/.exec(url);
     if (cardMatch) {
       const body = cards[cardMatch[1]];
-      return body instanceof Error ? Promise.reject(body) : Promise.resolve({ data: body || { news: [] } });
+      const settle = () => (body instanceof Error ? Promise.reject(body) : Promise.resolve({ data: body || { news: [] } }));
+      return cardGate ? cardGate.then(settle) : settle();
     }
     if (url === '/api/players') {
       if (playersError) return Promise.reject(playersError);
@@ -932,4 +934,49 @@ test('the phone card expands the same way', async () => {
   } finally {
     window.matchMedia = original;
   }
+});
+
+test('re-expanding after a failed News read does not read again', async () => {
+  setup({ players: [cardsPlayer()], cards: { 7: new Error('boom') } });
+  renderPage();
+  const button = await expandButton('Breece Hall');
+  await userEvent.click(button);
+  await screen.findByText(/News is on the Decision card/i);
+  await userEvent.click(button);
+  await userEvent.click(button);
+  expect(await screen.findByText(/News is on the Decision card/i)).toBeInTheDocument();
+  expect(cardReads()).toHaveLength(1);
+});
+
+test('collapsing mid-read and re-expanding neither re-reads nor loses the News', async () => {
+  let release;
+  const cardGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  setup({
+    players: [cardsPlayer()],
+    cardGate,
+    cards: { 7: { news: [{ headline: 'Late headline', url: null, blurb: null, publishedAt: null }] } },
+  });
+  renderPage();
+  const button = await expandButton('Breece Hall');
+  await userEvent.click(button);
+  await screen.findByText('Loading news');
+  await userEvent.click(button);
+  release();
+  await userEvent.click(button);
+  expect(await screen.findByText('Late headline')).toBeInTheDocument();
+  expect(cardReads()).toHaveLength(1);
+});
+
+test('the live region announces the loaded headlines', async () => {
+  setup({
+    players: [cardsPlayer()],
+    cards: { 7: { news: [{ headline: 'One', url: null }, { headline: 'Two', url: null }] } },
+  });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  const panel = await screen.findByTestId('waiver-row-detail');
+  await within(panel).findByText('One');
+  expect(within(panel).getByRole('status')).toHaveTextContent('2 news items');
 });
