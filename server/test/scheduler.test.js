@@ -825,77 +825,43 @@ test('tickUnlocked runs the nflverse finalization pass in its own containment', 
   assert.match(tickBody, /try \{\s*await runNflverseFinalization\(\);\s*\} catch/);
 });
 
-// ---- daily nflverse current-week pass ---------------------------------------
-// Every day of the week, not a Mon-Thu window: from the off-peak hour on, the
-// pass's own cadence gate (job 'nflverse-current-week') decides, and an open
-// game window defers it to the first tick after the slate goes final.
+// ---- nflverse current-week pass ---------------------------------------------
+// Checked every 15 minutes at any hour of any day: the service's own HEAD
+// decides whether there is anything to download. These stub the service and
+// pin only the throttle. Each test uses its own far-apart day, since the
+// throttle is an in-memory stamp shared across this file.
 
-test('runDailyNflverseCurrentWeek runs on a Friday, Saturday and Sunday, delegating to its own daily gate', async (t) => {
+test('runNflverseCurrentWeek checks at most every 15 minutes, at any hour', async (t) => {
   const nflverseSync = require('../services/nflverseSync.service');
-  const cadence = require('../modules/cadence');
-  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
-  const dueArgs = [];
-  t.mock.method(cadence, 'due', async (args) => { dueArgs.push(args); return { due: true, reason: 'stubbed due' }; });
-  let patchCalls = 0;
+  let calls = 0;
   t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => {
-    patchCalls += 1;
-    return { patched: [{ season: 2026, week: 4, playersUpdated: 3 }] };
+    calls += 1;
+    return { patched: [{ season: 2026, week: 3, playersUpdated: 3 }] };
   });
 
-  // Saturday at 15:00 pins the hour as a FLOOR, not a one-hour window: a worker
-  // that was down at 10:00 still runs that day.
-  for (const iso of ['2026-09-25T10:05:00Z', '2026-09-26T15:00:00Z', '2026-09-27T10:05:00Z']) {
-    const now = new Date(iso);
-    const result = await scheduler.runDailyNflverseCurrentWeek({ now });
-    assert.deepEqual(result, { patched: [{ season: 2026, week: 4, playersUpdated: 3 }] }, iso);
-  }
-  assert.equal(patchCalls, 3);
-  assert.deepEqual(dueArgs.map((a) => a.job), ['nflverse-current-week', 'nflverse-current-week', 'nflverse-current-week']);
-  assert.ok(dueArgs.every((a) => a.every === 'utc-day' && a.after === undefined));
+  // 04:40 UTC Tuesday: nflverse has just published Monday night's game and
+  // the week's live window is still open.
+  const first = new Date('2026-10-06T04:40:00Z');
+  assert.deepEqual(await scheduler.runNflverseCurrentWeek({ now: first }), { patched: [{ season: 2026, week: 3, playersUpdated: 3 }] });
+  assert.equal(await scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-06T04:50:00Z') }), null, '10 minutes later is too soon');
+  assert.notEqual(await scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-06T04:55:00Z') }), null, '15 minutes later checks again');
+  assert.equal(calls, 2);
 });
 
-test('runDailyNflverseCurrentWeek never asks the gate before the off-peak hour', async (t) => {
+test('runNflverseCurrentWeek waits 15 minutes after a failed check too', async (t) => {
   const nflverseSync = require('../services/nflverseSync.service');
-  const cadence = require('../modules/cadence');
-  let dueCalls = 0;
-  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
-  let patchCalls = 0;
-  t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => { patchCalls += 1; return { patched: [] }; });
+  let calls = 0;
+  t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => {
+    calls += 1;
+    throw new Error('nflverse unreachable');
+  });
 
-  // 02:00 UTC Friday: Thursday night's game has barely ended; nflverse has not
-  // published it yet.
-  const result = await scheduler.runDailyNflverseCurrentWeek({ now: new Date('2026-09-25T02:00:00Z') });
-  assert.equal(result, null);
-  assert.equal(dueCalls, 0);
-  assert.equal(patchCalls, 0);
+  await assert.rejects(scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-13T05:00:00Z') }), /nflverse unreachable/);
+  assert.equal(await scheduler.runNflverseCurrentWeek({ now: new Date('2026-10-13T05:05:00Z') }), null, 'not retried on the next tick');
+  assert.equal(calls, 1);
 });
 
-test('runDailyNflverseCurrentWeek does nothing when its gate says it already ran today', async (t) => {
-  const nflverseSync = require('../services/nflverseSync.service');
-  const cadence = require('../modules/cadence');
-  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
-  let patchCalls = 0;
-  t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => { patchCalls += 1; return { patched: [] }; });
-
-  const result = await scheduler.runDailyNflverseCurrentWeek({ now: new Date('2026-09-26T15:00:00Z') });
-  assert.equal(result, null);
-  assert.equal(patchCalls, 0);
-});
-
-test('runDailyNflverseCurrentWeek waits out an open game window', async (t) => {
-  const nflverseSync = require('../services/nflverseSync.service');
-  const cadence = require('../modules/cadence');
-  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [{ '?column?': 1 }] })]]).install(t);
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
-  let patchCalls = 0;
-  t.mock.method(nflverseSync, 'patchCurrentWeeks', async () => { patchCalls += 1; return { patched: [] }; });
-
-  const result = await scheduler.runDailyNflverseCurrentWeek({ now: new Date('2026-09-27T18:00:00Z') });
-  assert.equal(result, null);
-  assert.equal(patchCalls, 0, 'deferred, not skipped: the gate stays due until a run lands');
-});
-
-test('tickUnlocked runs the daily nflverse current-week pass in its own containment', () => {
+test('tickUnlocked runs the nflverse current-week pass in its own containment', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
@@ -903,7 +869,7 @@ test('tickUnlocked runs the daily nflverse current-week pass in its own containm
     source.indexOf('async function tickUnlocked'),
     source.indexOf('async function runRetention')
   );
-  assert.match(tickBody, /try \{\s*await runDailyNflverseCurrentWeek\(\);\s*\} catch/);
+  assert.match(tickBody, /try \{\s*await runNflverseCurrentWeek\(\);\s*\} catch/);
 });
 
 // ---- hourly game-context Sync run (#1262, ADR 0038) ------------------------

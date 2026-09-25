@@ -93,9 +93,9 @@ async function tickUnlocked() {
       console.error('nflverse finalization failed (will retry next tick):', err.message);
     }
     try {
-      await runDailyNflverseCurrentWeek();
+      await runNflverseCurrentWeek();
     } catch (err) {
-      console.error('nflverse current-week pass failed (will retry next tick):', err.message);
+      console.error('nflverse current-week pass failed (will retry in 15 minutes):', err.message);
     }
     try {
       await runDailyInjurySync();
@@ -941,33 +941,36 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
   return result;
 }
 
-// nflverse republishes stats_player_week a few hours after each game day's
-// last game (the 2026 week 3 Thursday game was in the file by 04:35 UTC
-// Friday); Sunday and Monday night slates end around 04:00 UTC. 10:00 UTC
-// leaves margin for all three and sits hours before the earliest kickoff
-// (Sunday London games, 13:30 UTC).
-const NFLVERSE_CURRENT_WEEK_UTC_HOUR = 10;
+// How often to ask nflverse whether it has republished (a HEAD per season,
+// nflverseSync.patchCurrentWeeks). nflverse republishes about an hour after
+// each night's last game - 04:25-04:50 UTC after every 2026 prime-time game
+// through week 3 - and the live-scoring window stays open 8 hours from the
+// latest kickoff (about 08:15 UTC), so a 15-minute check lands the patch with
+// hours of window to spare.
+const NFLVERSE_CURRENT_WEEK_CHECK_MS = 15 * 60 * 1000;
+let lastNflverseCurrentWeekCheckAt = null; // epoch ms
 
 /**
- * Daily nflverse current-week pass: every day of the week, from
- * `NFLVERSE_CURRENT_WEEK_UTC_HOUR` on, patch nflverse-only stats onto the week
- * each in-season league is sitting on now (`nflverseSync.patchCurrentWeeks`).
- * It sits beside `runNflverseFinalization` above, which keeps its Mon-Thu
+ * nflverse current-week pass: every 15 minutes, any hour of any day, ask
+ * `nflverseSync.patchCurrentWeeks` to patch nflverse-only stats onto the week
+ * each in-season league is sitting on now. That call does a HEAD per season
+ * and downloads only when nflverse has republished since its last patch of
+ * that week, so a check that finds nothing new costs one small request. It
+ * sits beside `runNflverseFinalization` above, which keeps its Mon-Thu
  * prior-week window unchanged.
  *
- * Once per UTC day via the cadence gate on its own job's rows
- * ('nflverse-current-week'), no `after`. The hour floor is a plain check
- * beside the gate, the same split `runNightlyProjectionFill` uses for its
- * off-peak hour: it is a floor rather than a one-hour window so a worker that
- * was down at 10:00 still runs later that day. An open game window defers the
- * pass to the first tick after the slate goes final: nothing to gain from
- * nflverse mid-game, and the live path owns those ticks.
+ * No cadence gate: the thing being rate-limited is the HEAD, not a Sync run
+ * (a run row is only written when there is something to patch), so an
+ * in-memory stamp is the whole throttle. It is stamped BEFORE the call, so a
+ * failing nflverse is retried every 15 minutes, not every tick. A worker
+ * restart just checks once early. No game-window deferral either: nflverse
+ * publishes Sunday's afternoon games while the night game is still on, and a
+ * patch that lands inside a live window is exactly what gets it re-scored.
  */
-async function runDailyNflverseCurrentWeek({ now = new Date() } = {}) {
-  if (now.getUTCHours() < NFLVERSE_CURRENT_WEEK_UTC_HOUR) return null;
-  const gate = await cadence.due({ job: 'nflverse-current-week', every: 'utc-day', now });
-  if (!gate.due) return null;
-  if (await inGameWindow()) return null;
+async function runNflverseCurrentWeek({ now = new Date() } = {}) {
+  const elapsed = lastNflverseCurrentWeekCheckAt === null ? null : now.getTime() - lastNflverseCurrentWeekCheckAt;
+  if (elapsed !== null && elapsed >= 0 && elapsed < NFLVERSE_CURRENT_WEEK_CHECK_MS) return null;
+  lastNflverseCurrentWeekCheckAt = now.getTime();
   const nflverseSync = require('../services/nflverseSync.service');
   const result = await nflverseSync.patchCurrentWeeks();
   const updated = (result.patched || []).filter((p) => p.playersUpdated > 0);
@@ -1265,7 +1268,7 @@ module.exports = {
   runDailyStatCorrections,
   runNightlyProjectionFill,
   runNflverseFinalization,
-  runDailyNflverseCurrentWeek,
+  runNflverseCurrentWeek,
   runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,
