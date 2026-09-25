@@ -358,7 +358,7 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
   // Cache maintenance failures surface AFTER the whole pass so the scheduler's
   // stamp-only-on-success design actually covers them: swallowing one here
   // would mark the correction day complete with stale projection rows still
-  // being served, and the five-minute retry the scheduler documents would
+  // being served, and the hourly retry the scheduler documents would
   // never fire. Every week's sync, cache work and league corrections have
   // already run by this point, so the retry the throw buys re-enters an
   // idempotent pass.

@@ -1903,7 +1903,7 @@ test('a stat-corrections pass with a failed week records ok false with the faile
   assert.equal(world.inserts.length, 1);
   assert.equal(world.inserts[0].job, 'stat-corrections');
   assert.equal(world.inserts[0].ok, false);
-  assert.deepEqual(world.inserts[0].detail.failed, failed);
+  assert.deepEqual(world.inserts[0].detail.failedWeeks, failed);
   assert.equal(world.inserts[0].detail.day, '2026-09-22');
   // Unstamped: with no ok row on file the same day's next pass is due again.
   await scheduler.runDailyStatCorrections({ now: new Date('2026-09-22T13:30:00Z') });

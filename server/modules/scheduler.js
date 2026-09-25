@@ -720,7 +720,7 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
         reason: 'write_failed',
         message: err && err.message ? err.message : String(err),
         invalidated: (err && err.invalidated) || [],
-        ...(err && err.failed && err.failed.length > 0 ? { failed: err.failed } : {}),
+        ...(err && err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
       },
     });
     throw err;
@@ -734,7 +734,7 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
       day: today,
       corrected: (result.corrected || []).length,
       invalidated: result.invalidated || [],
-      ...(failedWeeks.length > 0 ? { reason: 'week_sync_failed', failed: failedWeeks } : {}),
+      ...(failedWeeks.length > 0 ? { reason: 'write_failed', failedWeeks } : {}),
     },
   });
   if (failedWeeks.length === 0) {
