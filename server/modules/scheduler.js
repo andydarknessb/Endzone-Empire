@@ -901,7 +901,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
 }
 
 /**
- * Mon-Thu nflverse IDP-finalization pass: patch in sack/TFL/fumble-return
+ * Mon-Thu nflverse IDP-finalization pass (also runs the snap-counts Sync run
+ * per week, `finalizePriorWeeks`): patch in sack/TFL/fumble-return
  * yardage and individual safety for the prior week's defenders (see
  * nflverseSync.service) and re-score any league whose scores moved. The
  * second consumer of the cadence gate (server/modules/cadence.js, spec #1492

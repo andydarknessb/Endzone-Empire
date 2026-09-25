@@ -28,6 +28,7 @@ import rams49ersWeek1Preview from './rams-49ers-week1-preview.meta';
 import week1SundayMondayPreview from './week1-sunday-monday-preview.meta';
 import week2WaiverWirePriorityBoard from './week2-waiver-wire-priority-board.meta';
 import week3WaiverWireDarknessReport from './week3-waiver-wire-darkness-report.meta';
+import week3StartSitDarknessReport from './week3-start-sit-darkness-report.meta';
 
 // One loader per article, keyed by slug. Literal import() calls so the
 // bundler can split one chunk per body.
@@ -46,6 +47,7 @@ const BODY_LOADERS = {
   'week1-sunday-monday-preview': () => import('./week1-sunday-monday-preview'),
   'week2-waiver-wire-priority-board': () => import('./week2-waiver-wire-priority-board'),
   'week3-waiver-wire-darkness-report': () => import('./week3-waiver-wire-darkness-report'),
+  'week3-start-sit-darkness-report': () => import('./week3-start-sit-darkness-report'),
 };
 
 // Newest first.
@@ -64,6 +66,7 @@ const ARTICLES = [
   week1SundayMondayPreview,
   week2WaiverWirePriorityBoard,
   week3WaiverWireDarknessReport,
+  week3StartSitDarknessReport,
 ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
 const META_KEYS = ['slug', 'title', 'category', 'excerpt', 'readMinutes', 'date', 'author'];

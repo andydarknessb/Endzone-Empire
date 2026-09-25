@@ -4,7 +4,7 @@ import Grid from '@mui/material/Unstable_Grid2';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import PriorityHighIcon from '@mui/icons-material/PriorityHigh';
 import ShieldIcon from '@mui/icons-material/Shield';
-import EventBusyIcon from '@mui/icons-material/EventBusy';
+import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import PublicLayout from '../PublicLayout';
 import PublicSeo from '../PublicSeo';
 import ArticleCard from '../kit/ArticleCard';
@@ -18,9 +18,9 @@ import publicApiClient from '../../../api/publicApiClient';
 
 const CARDS = [
   { slug: 'week3-waiver-wire-darkness-report', Icon: LeaderboardIcon },
+  { slug: 'week3-start-sit-darkness-report', Icon: SportsFootballIcon },
   { slug: 'waiver-priority-vs-faab', Icon: PriorityHighIcon },
   { slug: 'streaming-defense-and-kicker', Icon: ShieldIcon },
-  { slug: 'playoff-prep', Icon: EventBusyIcon },
 ];
 
 const KEY_TERMS = [

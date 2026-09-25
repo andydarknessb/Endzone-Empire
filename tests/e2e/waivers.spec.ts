@@ -179,3 +179,33 @@ test('negative control: the width predicate reports a forced overflow', async ({
   const during = await page.evaluate(probeDocument);
   expect(during.scrollWidth).toBeGreaterThan(during.clientWidth + 1);
 });
+
+// #1617: the expanded row at a phone and a desktop width.
+for (const width of [390, 1280]) {
+  test(`an expanded row at ${width}px shows the swap, Rest of season, Clear time and News with no overflow`, async ({ page }) => {
+    await setupWaiversLayoutGuard(page);
+    await page.setViewportSize({ width, height: HEIGHT });
+    await page.goto(WAIVERS_URL);
+
+    const toggle = page.getByRole('button', { name: `Show details for ${CLAIMED_PLAYER_NAME}` });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const box = await toggle.boundingBox();
+    expect(Math.min(box!.width, box!.height)).toBeGreaterThanOrEqual(MIN_TARGET - 1);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    const panel = page.getByTestId('waiver-row-detail');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId('claim-sheet-swap')).toBeVisible();
+    await expect(panel.getByText('Rest of season')).toBeVisible();
+    await expect(panel.getByTestId('waiver-row-detail-clear')).toBeVisible();
+    await expect(panel.getByText(/A long headline about a depth chart move/)).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+
+    const doc = await page.evaluate(probeDocument);
+    expect(doc.scrollWidth, `document @ ${width}: scrollWidth=${doc.scrollWidth} clientWidth=${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
+    const panelBox = await panel.boundingBox();
+    expect(panelBox!.x + panelBox!.width, `panel off-screen @ ${width}`).toBeLessThanOrEqual(width + 1);
+  });
+}

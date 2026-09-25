@@ -16,6 +16,8 @@ import {
 import { Link as RouterLink } from 'react-router-dom';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
 import { MIN_TOUCH_TARGET_SX, formatPoints } from '../../../shared/lib';
 import { formatRelative } from '../../../utils/formatRelative';
@@ -263,6 +265,33 @@ function WatchToggle({ watchAction, playerName }) {
 }
 
 /**
+ * The expand control (#1617): a real button with `aria-expanded`, its name the
+ * same open or closed (the state is `aria-expanded`'s to say), 44px square.
+ * `expansion` is `{ expanded, onToggle, panelId, panel }`, the same "caller
+ * builds it, the widget renders it" shape `action` uses; the panel's content
+ * is the caller's, so the row holds no read of its own.
+ */
+function ExpandToggle({ expansion, playerName }) {
+  if (!expansion) return null;
+  return (
+    <IconButton
+      aria-label={`Show details for ${playerName}`}
+      aria-expanded={expansion.expanded}
+      aria-controls={expansion.expanded ? expansion.panelId : undefined}
+      onClick={expansion.onToggle}
+      size="small"
+      sx={MIN_TOUCH_TARGET_SX}
+      data-testid="player-row-expand"
+    >
+      <ExpandMoreIcon
+        fontSize="small"
+        sx={{ transform: expansion.expanded ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }}
+      />
+    </IconButton>
+  );
+}
+
+/**
  * One Players list row (#1310, ADR 0040): every availability state renders
  * through the SAME row, columns Player / Proj Wk / ROS / Ownership / Upgrade
  * / Weeks / Status / Action - `variant="row"` (default) for the desktop
@@ -279,7 +308,7 @@ function WatchToggle({ watchAction, playerName }) {
  * onClick, pending? }` - and renders nothing when the caller omits it, so a
  * consumer with no watch state wired in (or no league selected) is unchanged.
  */
-export default function PlayerRow({ player, action, watchAction, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false }) {
+export default function PlayerRow({ player, action, watchAction, expansion, bestBall = false, variant = 'row', onOpenPlayer, hideOwnership = false }) {
   const weeks = weeksForSparkline(player.weeks);
   const showWeeks = weeks.length > 0;
   const showUpgrade = !bestBall;
@@ -322,15 +351,18 @@ export default function PlayerRow({ player, action, watchAction, bestBall = fals
           </Stack>
           {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} />}
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5 }}>
+            <ExpandToggle expansion={expansion} playerName={player.name} />
             <WatchToggle watchAction={watchAction} playerName={player.name} />
             <ActionControl action={action} />
           </Box>
+          {expansion?.expanded && expansion.panel}
         </CardContent>
       </Card>
     );
   }
 
   return (
+    <>
     <TableRow hover data-testid="player-row">
       <TableCell component="th" scope="row">
         <PlayerIdentity player={player} onOpenPlayer={onOpenPlayer} />
@@ -363,10 +395,19 @@ export default function PlayerRow({ player, action, watchAction, bestBall = fals
       </TableCell>
       <TableCell align="right">
         <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+          <ExpandToggle expansion={expansion} playerName={player.name} />
           <WatchToggle watchAction={watchAction} playerName={player.name} />
           <ActionControl action={action} />
         </Stack>
       </TableCell>
     </TableRow>
+    {expansion?.expanded && (
+      <TableRow>
+        <TableCell colSpan={playerRowColumnCount(bestBall, hideOwnership)} sx={{ bgcolor: 'action.hover' }}>
+          {expansion.panel}
+        </TableCell>
+      </TableRow>
+    )}
+    </>
   );
 }

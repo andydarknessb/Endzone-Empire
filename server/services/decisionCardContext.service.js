@@ -95,15 +95,20 @@ function impliedTotalForTeam(quote, homeAway) {
  * exact (week, folded gameTeam). `teamPassAttempts` is null when the row
  * carries no `gameTeam` to look one up for.
  */
-function usageEntryFromStats(stats, rules, teamPassAttempts) {
+function usageEntryFromStats(stats, rules, teamPassAttempts, side = 'offense') {
   const targets = isNum(stats.usageTargets) ? Number(stats.usageTargets) : null;
   const carries = isNum(stats.usageCarries) ? Number(stats.usageCarries) : null;
   const airYards = isNum(stats.usageAirYards) ? Number(stats.usageAirYards) : null;
+  // `side` picks the snap keys: 'defense' for IDP positions, else offense.
+  const snapKey = side === 'defense' ? 'usageDefenseSnaps' : 'usageOffenseSnaps';
+  const shareKey = side === 'defense' ? 'usageDefenseSnapPct' : 'usageOffenseSnapPct';
+  const snaps = isNum(stats[snapKey]) ? Number(stats[snapKey]) : null;
+  const snapShare = isNum(stats[shareKey]) ? Number(stats[shareKey]) : null;
   const fantasyPoints = calculateFantasyPoints(stats, rules);
   const targetShare = targets !== null && typeof teamPassAttempts === 'number' && teamPassAttempts > 0
     ? round4(targets / teamPassAttempts)
     : null;
-  return { targets, carries, airYards, targetShare, fantasyPoints };
+  return { targets, carries, airYards, snaps, snapShare, targetShare, fantasyPoints };
 }
 
 /** The newest odds snapshot for a game, or null. */
@@ -157,7 +162,7 @@ async function loadWeather(gameKey, roof) {
  * Usage for the last three played weeks plus the season average, or null
  * when his team has no played week at all before `week` (e.g. week 1).
  */
-async function loadUsage({ playerId, playerTeam, season, week, rules }) {
+async function loadUsage({ playerId, playerTeam, season, week, rules, side = 'offense' }) {
   const playedWeeksResult = await pool.query(
     `SELECT "week" FROM "nfl_games"
      WHERE "season" = $1 AND "week" < $2 AND fn_normalize_nfl_team("nfl_team") = fn_normalize_nfl_team($3)
@@ -207,7 +212,7 @@ async function loadUsage({ playerId, playerTeam, season, week, rules }) {
     if (!stats) return null; // a played week his team had, that he did not
     const team = normalizeNflTeam(stats.gameTeam);
     const teamPassAttempts = team !== null ? (attemptsByWeekTeam.get(`${statWeek}:${team}`) ?? 0) : null;
-    return usageEntryFromStats(stats, rules, teamPassAttempts);
+    return usageEntryFromStats(stats, rules, teamPassAttempts, side);
   };
 
   const weeks = playedWeeks.map((statWeek) => {
@@ -218,6 +223,8 @@ async function loadUsage({ playerId, playerTeam, season, week, rules }) {
       targets: entry ? entry.targets : null,
       carries: entry ? entry.carries : null,
       airYards: entry ? entry.airYards : null,
+      snaps: entry ? entry.snaps : null,
+      snapShare: entry ? entry.snapShare : null,
       targetShare: entry ? entry.targetShare : null,
       fantasyPoints: entry ? entry.fantasyPoints : null,
     };
@@ -229,6 +236,8 @@ async function loadUsage({ playerId, playerTeam, season, week, rules }) {
         targets: averageOf(seasonRows.map((r) => r.targets)),
         carries: averageOf(seasonRows.map((r) => r.carries)),
         airYards: averageOf(seasonRows.map((r) => r.airYards)),
+        snaps: averageOf(seasonRows.map((r) => r.snaps)),
+        snapShare: averageOf(seasonRows.map((r) => r.snapShare)),
         targetShare: averageOf(seasonRows.map((r) => r.targetShare)),
         fantasyPoints: averageOf(seasonRows.map((r) => r.fantasyPoints)),
       }
@@ -331,6 +340,7 @@ async function getDecisionCardContext({ leagueId, userId, playerId, week }) {
       season,
       week: effectiveWeek,
       rules,
+      side: String(positionGroup(player.position) || '').startsWith('IDP_') ? 'defense' : 'offense',
     }),
     loadOpponents({ player, season, week: Number(effectiveWeek), rules }),
   ]);

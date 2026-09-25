@@ -417,8 +417,11 @@ test('usage renders the weekly rows and the season average', async () => {
       line: null,
       weather: null,
       usage: {
-        weeks: [{ season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, targetShare: 0.23, fantasyPoints: 12.4 }],
-        seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, targetShare: 0.21, fantasyPoints: 10.2 },
+        weeks: [
+          { season: 2026, week: 3, targets: 8, carries: 0, airYards: 90, snaps: 58, snapShare: 0.87, targetShare: 0.23, fantasyPoints: 12.4 },
+          { season: 2026, week: 2, targets: 5, carries: 1, airYards: 40, snaps: null, snapShare: null, targetShare: 0.15, fantasyPoints: 7.1 },
+        ],
+        seasonAverage: { targets: 6.5, carries: 0.5, airYards: 65, snaps: 58, snapShare: 0.87, targetShare: 0.21, fantasyPoints: 10.2 },
       },
     },
   });
@@ -426,6 +429,11 @@ test('usage renders the weekly rows and the season average', async () => {
   const table = await screen.findByTestId('decision-card-usage-table');
   expect(within(table).getByText('Wk 3')).toBeInTheDocument();
   expect(within(table).getByText('Season avg')).toBeInTheDocument();
+  expect(within(table).getByRole('columnheader', { name: 'Snaps' })).toBeInTheDocument();
+  const [, week3, week2] = within(table).getAllByRole('row');
+  expect(within(week3).getByText('58 (87%)')).toBeInTheDocument();
+  const snapsCol = within(table).getAllByRole('columnheader').findIndex((h) => h.textContent === 'Snaps');
+  expect(within(week2).getAllByRole('cell')[snapsCol]).toHaveTextContent('-');
 });
 
 test('the largest Factor\'s explanation renders from factorExplanation, not from the Edge line', async () => {

@@ -119,3 +119,25 @@ test('opponentEntries: no allowance data is []', () => {
   assert.deepEqual(opponentEntries([{ week: 1, opponent: 'DAL' }], new Map()), []);
   assert.deepEqual(opponentEntries([{ week: 1, opponent: 'DAL' }], null), []);
 });
+
+test('usageEntryFromStats: offense side reads the offense snap keys', () => {
+  const stats = { usageTargets: 6, usageOffenseSnaps: 58, usageOffenseSnapPct: 0.87, gameTeam: 'BUF' };
+  const entry = usageEntryFromStats(stats, RULES, 30, 'offense');
+  assert.equal(entry.snaps, 58);
+  assert.equal(entry.snapShare, 0.87);
+});
+
+test('usageEntryFromStats: defense side reads the defense snap keys', () => {
+  const stats = {
+    usageOffenseSnaps: 3, usageOffenseSnapPct: 0.05, usageDefenseSnaps: 41, usageDefenseSnapPct: 0.62,
+  };
+  const entry = usageEntryFromStats(stats, RULES, null, 'defense');
+  assert.equal(entry.snaps, 41);
+  assert.equal(entry.snapShare, 0.62);
+});
+
+test('usageEntryFromStats: missing snap keys stay null, not zero', () => {
+  const entry = usageEntryFromStats({ usageTargets: 6 }, RULES, 30, 'offense');
+  assert.equal(entry.snaps, null);
+  assert.equal(entry.snapShare, null);
+});
