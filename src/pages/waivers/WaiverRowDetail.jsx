@@ -62,17 +62,12 @@ export default function WaiverRowDetail({ id, player, leagueId, roster, isFaab, 
       </Box>
       <Box>
         <Typography sx={LABEL_SX}>News</Typography>
-        {newsLoading && (
-          <Typography role="status" sx={{ fontSize: 13, color: 'var(--dash-dim)' }}>
-            Loading news
-          </Typography>
-        )}
-        {newsFailed && (
-          <Typography sx={{ fontSize: 13, color: 'var(--dash-dim)' }}>News is on the Decision card.</Typography>
-        )}
-        {payload && news.length === 0 && (
-          <Typography sx={{ fontSize: 13, color: 'var(--dash-dim)' }}>No recent news.</Typography>
-        )}
+        {/* One live region, mounted with the panel, so each state change is announced. */}
+        <Typography role="status" sx={{ fontSize: 13, color: 'var(--dash-dim)' }}>
+          {newsLoading && 'Loading news'}
+          {newsFailed && 'News is on the Decision card.'}
+          {payload && news.length === 0 && 'No recent news.'}
+        </Typography>
         {news.length > 0 && <NewsList news={news} />}
       </Box>
       <Box>
