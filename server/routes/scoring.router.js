@@ -13,6 +13,7 @@ const correction = require('../services/correction.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
+const settleFollowUpSvc = require('../services/settleFollowUp.service');
 const {
   isLeagueCommissioner,
   commissionerPredicate,
@@ -512,39 +513,17 @@ router.post('/league/:id/advance-week', async (req, res) => {
       settle: true,
     });
     const advance = await season.finalizeWeekAndAdvance({ leagueId });
-    // Post-week analytics in the background — display data, never worth
-    // failing (or delaying) the week advance over. Odds first so the recap
-    // reads fresh playoff numbers.
-    montecarlo
-      .computeLeagueOdds({ leagueId })
-      .catch((err) => {
-        console.error('power rankings failed for league %s:', leagueId, err.message);
-      })
-      .then(() => {
-        const recap = require('../services/recap.service');
-        return recap.generateWeeklyRecap({
-          leagueId,
-          season: current_season,
-          week: current_week, // the week just finalized
-        });
-      })
-      .catch((err) => {
-        console.error('weekly recap failed for league %s:', leagueId, err.message);
-      })
-      .then(() => {
-        const trophies = require('../services/trophy.service');
-        return trophies.awardWeeklyTrophies({ leagueId, season: current_season, week: current_week });
-      })
-      .catch((err) => {
-        console.error('trophy awards failed for league %s:', leagueId, err.message);
-      })
-      .then(() => {
-        const digest = require('../services/digest.service');
-        return digest.sendWeeklyRecapDigest({ leagueId, season: current_season, week: current_week });
-      })
-      .catch((err) => {
-        console.error('recap digest failed for league %s:', leagueId, err.message);
-      });
+    // Post-week analytics in the background - display data, never worth
+    // failing (or delaying) the week advance over. Not awaited; the follow-up
+    // catches and logs each step itself.
+    settleFollowUpSvc.settleFollowUp({
+      leagueId,
+      season: current_season,
+      week: current_week, // the week just finalized
+      mode: 'advance',
+    }).catch((err) => {
+      console.error('settle follow-up failed for league %s:', leagueId, err.message);
+    });
     res.json({ scored: scoredResult.scored, ...advance });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
