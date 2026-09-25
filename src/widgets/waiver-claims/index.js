@@ -5,6 +5,7 @@
  *
  * Presentational over the `waiver-claim` entity's read model, which the page
  * owns (one read serves the strip, the row buttons and this widget); imports
- * nothing but `@mui/material`, `shared/lib` and its own ui.
+ * nothing but `@mui/material`, `@mui/utils`, `@mui/icons-material`, `shared/lib`
+ * and its own ui.
  */
 export { default } from './ui/WaiverClaims';

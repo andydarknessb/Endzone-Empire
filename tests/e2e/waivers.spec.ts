@@ -105,6 +105,16 @@ for (const width of [320, 390]) {
     const doc = await page.evaluate(probeDocument);
     expect(doc.scrollWidth, `document @ ${width}: scrollWidth=${doc.scrollWidth} clientWidth=${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
 
+    // The full result line fits: a clipped or ellipsized line has scrollWidth > clientWidth.
+    const lines = await page.getByTestId('claim-result-line').evaluateAll((els) =>
+      els.map((el) => ({ text: el.textContent || '', scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, right: Math.round(el.getBoundingClientRect().right) }))
+    );
+    expect(lines.some((l) => l.text.includes('Lost to The Extraordinarily Long Team Name FC · won at $17 · your bid $5'))).toBe(true);
+    for (const l of lines) {
+      expect(l.scrollWidth, `result line clipped @ ${width}: ${l.text}`).toBeLessThanOrEqual(l.clientWidth + 1);
+      expect(l.right, `result line off-screen @ ${width}: ${l.text}`).toBeLessThanOrEqual(width);
+    }
+
     const targets = await page.evaluate(probeTapTargets);
     expect(targets.some((t) => t.name.startsWith('Move '))).toBe(true);
     const small = targets.filter((t) => Math.min(t.width, t.height) < MIN_TARGET - 1);

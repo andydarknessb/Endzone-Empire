@@ -438,3 +438,17 @@ test('a refused move up keeps focus on the moved claim\'s control after the reve
   await within(card).findByText('Your pending claims changed; refresh and retry.');
   await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim A up' })).toHaveFocus());
 });
+
+test('two refused moves up in a row both keep focus on the moved claim\'s control', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  apiClient.put.mockRejectedValue({ response: { status: 409, data: { message: 'Your pending claims changed; refresh and retry.' } } });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await userEvent.click(within(card).getByRole('button', { name: 'Move Claim A up' }));
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(attempt));
+    await within(card).findByText('Your pending claims changed; refresh and retry.');
+    await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim A up' })).toHaveFocus());
+  }
+});

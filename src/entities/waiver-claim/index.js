@@ -4,8 +4,9 @@
  * `GET /api/waivers` response; the entity imports no feature, widget, page or
  * other entity.
  *
- * BELOW-ISLAND EDGES: the hook imports `shared/lib`'s `useEndpoint`; the model
- * imports nothing at all.
+ * BELOW-ISLAND EDGES (ADR 0029, #874): the hook imports `shared/lib`'s
+ * `useEndpoint` and, for the Claim-order reorder write and its refusal text,
+ * `api/apiClient` and `lib/httpFailure`; the model imports nothing at all.
  */
 export { claimsFromResponse } from './model/claimsModel';
 export { useWaiverClaims } from './model/useWaiverClaims';

@@ -53,7 +53,7 @@ export default function WaiversPage() {
   const bestBall = !!league?.best_ball;
 
   const [refreshKey, setRefreshKey] = useState(0);
-  const { status: claimsStatus, claims, moveClaim, orderError, orderAnnouncement } =useWaiverClaims({ leagueId, refreshKey });
+  const { status: claimsStatus, claims, moveClaim, orderError, orderAnnouncement, orderSettled } =useWaiverClaims({ leagueId, refreshKey });
   const { data: rosterData } = useEndpoint(`/api/team/roster?leagueId=${leagueId}`);
   const { data: lineupData } = useEndpoint(`/api/team/lineup?leagueId=${leagueId}`);
   const lineup = useMemo(() => (lineupData ? lineupModel(lineupData) : null), [lineupData]);
@@ -315,6 +315,7 @@ export default function WaiversPage() {
                 onMove={moveClaim}
                 orderError={orderError}
                 orderAnnouncement={orderAnnouncement}
+                orderSettled={orderSettled}
                 showBid={isFaab}
               />
             )}

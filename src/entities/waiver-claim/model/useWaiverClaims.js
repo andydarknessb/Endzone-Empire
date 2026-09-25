@@ -15,10 +15,10 @@ import { claimsFromResponse } from './claimsModel';
  * `moveClaim(claimId, delta)` is the #1579 Claim-order reorder: it swaps the
  * claim with its neighbour optimistically (every consumer of `claims.pending`
  * sees the new order at once), PUTs the FULL id list, and reverts on refusal
- * with the refusal in `orderError`. `orderAnnouncement` is the live-region
+ * with the refusal in `orderError`; `orderSettled` ticks when each PUT ends. `orderAnnouncement` is the live-region
  * text for a successful move. A fresh read supersedes the optimistic order.
  *
- * BELOW-ISLAND EDGES (ADR 0031 amendment): `api/apiClient` and
+ * BELOW-ISLAND EDGES (ADR 0029, #874): `api/apiClient` and
  * `lib/httpFailure`, for the one reorder write and its refusal text.
  *
  * @param {{ leagueId?: number|string|null, refreshKey?: number }} [params]
@@ -33,6 +33,10 @@ export function useWaiverClaims({ leagueId, refreshKey = 0 } = {}) {
   const [order, setOrder] = useState(null);
   const [orderError, setOrderError] = useState(null);
   const [orderAnnouncement, setOrderAnnouncement] = useState('');
+  // Counts settled moves (success or refusal): the one signal a consumer can
+  // trust that a PUT is over, unlike `orderError`, which also resets to null
+  // when the next move starts.
+  const [orderSettled, setOrderSettled] = useState(0);
   useEffect(() => {
     setOrder(null);
   }, [data]);
@@ -67,12 +71,14 @@ export function useWaiverClaims({ leagueId, refreshKey = 0 } = {}) {
         setOrderAnnouncement('');
         setOrder(previous);
         setOrderError(readHttpFailure(err).message || err.message);
+      } finally {
+        setOrderSettled((n) => n + 1);
       }
     },
     [leagueId],
   );
 
-  return { status, claims, moveClaim, orderError, orderAnnouncement };
+  return { status, claims, moveClaim, orderError, orderAnnouncement, orderSettled };
 }
 
 export default useWaiverClaims;

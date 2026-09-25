@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { Alert, Box, Chip, IconButton, Typography } from '@mui/material';
+import { Alert, Box, IconButton, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib/a11y';
+import { MIN_TOUCH_TARGET_SX } from '../../../shared/lib';
 
 const dollars = (n) => `$${n}`;
 
@@ -66,7 +66,7 @@ function PendingClaim({ claim, rank, isFirst, isLast, onMove }) {
  * Pending claims in Claim order, then Results grouped by week. `claims` is the
  * `waiver-claim` read model; `onMove(claimId, -1 | +1)` is its `moveClaim`.
  */
-export default function WaiverClaims({ claims, onMove, orderError, orderAnnouncement, showBid }) {
+export default function WaiverClaims({ claims, onMove, orderError, orderAnnouncement, orderSettled, showBid }) {
   const { pending, resultsByWeek } = claims;
   const rootRef = useRef(null);
   const focusRef = useRef(null);
@@ -77,9 +77,9 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
     focusRef.current = { id, dir: delta < 0 ? 'up' : 'down' };
     onMove(id, delta);
   };
-  // The target is kept until the PUT settles (a success announcement or a
-  // refusal), so the revert render after a refusal restores focus too.
-  const settledRef = useRef({ orderError, orderAnnouncement });
+  // The target is kept until the hook reports the PUT settled (`orderSettled`),
+  // so both the optimistic render and a refusal's revert render restore focus.
+  const settledRef = useRef(orderSettled);
   useEffect(() => {
     const target = focusRef.current;
     if (!target || !rootRef.current) return;
@@ -88,9 +88,8 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
       rootRef.current.querySelector(`[data-claim-move="${target.id}-${target.dir}"]:not(:disabled)`) ||
       rootRef.current.querySelector(`[data-claim-move="${target.id}-${other}"]:not(:disabled)`);
     if (el && document.activeElement !== el) el.focus();
-    const settled = settledRef.current;
-    if (settled.orderError !== orderError || settled.orderAnnouncement !== orderAnnouncement) {
-      settledRef.current = { orderError, orderAnnouncement };
+    if (settledRef.current !== orderSettled) {
+      settledRef.current = orderSettled;
       focusRef.current = null;
     }
   });
@@ -155,13 +154,20 @@ export default function WaiverClaims({ claims, onMove, orderError, orderAnnounce
                     <Typography component="span" sx={{ fontWeight: 600, display: 'block', overflowWrap: 'anywhere' }}>
                       {r.playerName}
                     </Typography>
-                    <Chip
-                      size="small"
-                      label={resultLine(r, showBid)}
-                      color={r.result === 'won' ? 'success' : 'default'}
-                      variant="outlined"
-                      sx={{ mt: 0.5, maxWidth: '100%' }}
-                    />
+                    <Typography
+                      component="span"
+                      data-testid="claim-result-line"
+                      sx={{
+                        display: 'block',
+                        mt: 0.5,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        overflowWrap: 'anywhere',
+                        color: r.result === 'won' ? 'success.main' : 'var(--dash-ink)',
+                      }}
+                    >
+                      {resultLine(r, showBid)}
+                    </Typography>
                     {r.result === 'didnt-go-through' && r.reason && (
                       <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mt: 0.5 }}>{r.reason}</Typography>
                     )}
