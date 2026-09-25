@@ -19,7 +19,7 @@ import { formatPoints } from '../../../shared/lib';
  * (best ball, or the caller's own player, ADR 0040) hides the tile outright
  * rather than showing an empty label (the issue's own acceptance criterion).
  */
-export default function DecisionStrip({ decision, usage }) {
+export default function DecisionStrip({ decision, usage, ownership, depth }) {
   const tiles = [];
 
   if (decision?.projWeek && decision.projWeek.points != null) {
@@ -82,6 +82,27 @@ export default function DecisionStrip({ decision, usage }) {
         <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
           FPTS/gm
         </Typography>
+      </Tile>
+    );
+  }
+
+  if (ownership && ownership.percentOwned != null) {
+    tiles.push(
+      <Tile key="ownership" label="Ownership" testId="decision-strip-ownership">
+        {`${Number(ownership.percentOwned).toFixed(1)}%`}
+        {ownership.change != null && (
+          <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
+            {`${ownership.change >= 0 ? '+' : ''}${Number(ownership.change).toFixed(1)}`}
+          </Typography>
+        )}
+      </Tile>
+    );
+  }
+
+  if (depth && depth.positionGroup && depth.rank != null) {
+    tiles.push(
+      <Tile key="depth" label="Depth chart" testId="decision-strip-depth">
+        {`${depth.positionGroup}${depth.rank}`}
       </Tile>
     );
   }
