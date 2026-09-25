@@ -70,7 +70,7 @@ function PendingClaim({ claim, rank, rankById, isFirst, isLast, onMove, onEdit, 
         </Typography>
       </Box>
       </Box>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', ml: 5 }}>
+      <Box id={`waiver-claim-${claim.id}-controls`} sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', ml: 5 }}>
         <IconButton
           aria-label={`Move ${claim.playerName} up`}
           data-claim-move={`${claim.id}-up`}

@@ -4,6 +4,21 @@ import { readHttpFailure } from '../../../lib/httpFailure';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 
 /**
+ * #1645: after Undo the restored row remounts under a new id, so focus goes to
+ * its first enabled control (id set by `WaiverClaims`). The row appears after
+ * the refresh renders, so retry for a few frames rather than assume it is there.
+ */
+function focusRestoredClaim(claimId, tries = 20) {
+  // Never steal focus the user has since moved elsewhere; the Undo click leaves it on <body> or the closing toast.
+  const active = document.activeElement;
+  if (active && active !== document.body && !active.closest('[role="alert"]')) return;
+  const group = document.getElementById(`waiver-claim-${claimId}-controls`);
+  const target = group?.querySelector('button:not(:disabled)');
+  if (target) target.focus();
+  else if (tries > 0) requestAnimationFrame(() => focusRestoredClaim(claimId, tries - 1));
+}
+
+/**
  * manage-claim feature (#1616, ADR 0049): the writes on a pending waiver
  * claim other than the reorder (which stays in the `waiver-claim` entity).
  *
@@ -75,6 +90,7 @@ export function useManageClaim({ leagueId, pendingIds = [], onDone }) {
       });
     }
     await onDone?.();
+    if (created != null) focusRestoredClaim(created);
   };
 
   const cancelClaim = async (claim, position) => {
