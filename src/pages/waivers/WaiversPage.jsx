@@ -62,6 +62,10 @@ export default function WaiversPage() {
   const [context, setContext] = useState(null);
   const [total, setTotal] = useState(null);
   const [poolError, setPoolError] = useState(null);
+  // True once a players read has landed: until then (or on any page error) the
+  // pool is kept out of sight so its empty copy never shows for a list that
+  // has not been read.
+  const [poolSettled, setPoolSettled] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
   const [targetPlayer, setTargetPlayer] = useState(null);
   const [targetError, setTargetError] = useState(null);
@@ -119,6 +123,7 @@ export default function WaiversPage() {
     setContext(nextContext);
     setTotal(nextTotal);
     setPoolError(null);
+    setPoolSettled(true);
   }, []);
   const handleError = useCallback((message) => {
     if (message) setPoolError(message);
@@ -240,6 +245,12 @@ export default function WaiversPage() {
         </Alert>
       )}
 
+      {!poolError && !leagueError && !poolSettled && (
+        <Typography role="status" sx={{ fontSize: 14, color: 'var(--dash-dim)', mb: 2 }}>
+          Loading players
+        </Typography>
+      )}
+
       <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 2 }}>
         <SegmentedControl
           aria-label="Waivers view"
@@ -261,7 +272,7 @@ export default function WaiversPage() {
       >
         <Box
           sx={{
-            display: poolError ? 'none' : { xs: tab === 'waivers' ? 'block' : 'none', md: 'block' },
+            display: poolError || leagueError || !poolSettled ? 'none' : { xs: tab === 'waivers' ? 'block' : 'none', md: 'block' },
             minWidth: 0,
           }}
         >

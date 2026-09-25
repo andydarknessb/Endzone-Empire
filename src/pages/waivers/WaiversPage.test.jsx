@@ -256,3 +256,29 @@ test('a server-validated claim target from the Player Browser opens its Decision
   expect(await screen.findByRole('dialog')).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith('/api/waivers/claim-target?leagueId=1&playerId=8');
 });
+
+test('a failed league read shows the error and never the empty-list copy', async () => {
+  setup();
+  const base = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url, config) =>
+    url.startsWith('/api/league/')
+      ? Promise.reject({ response: { status: 500, data: { error: 'league down' } }, message: 'Request failed' })
+      : base(url, config)
+  );
+  renderPage();
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  screen.queryAllByText(/No players/).forEach((el) => expect(el).not.toBeVisible());
+  expect(playerReads()).toHaveLength(0);
+});
+
+test('the empty-list copy waits for the first read to settle', async () => {
+  setup();
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/players') return new Promise(() => {});
+    if (url.startsWith('/api/league/')) return Promise.resolve({ data: { league: FAAB_LEAGUE, teams: [] } });
+    return Promise.resolve({ data: waiversBody() });
+  });
+  renderPage();
+  await waitFor(() => expect(playerReads().length).toBeGreaterThan(0));
+  screen.queryAllByText(/No players/).forEach((el) => expect(el).not.toBeVisible());
+});
