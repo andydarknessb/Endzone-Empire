@@ -151,17 +151,6 @@ async function fetchGameScoresForSeason(season) {
   return map;
 }
 
-/** gsis_id -> espn_id crosswalk (confirmed columns on nflverse's players.csv). */
-async function fetchPlayersCrosswalk() {
-  const url = `${NFLVERSE_RELEASE_BASE}/players/players.csv`;
-  const rows = parseCsv(await fetchCsvText(url));
-  const map = new Map();
-  for (const row of rows) {
-    if (row.gsis_id && row.espn_id) map.set(row.gsis_id, row.espn_id);
-  }
-  return map;
-}
-
 /** One season's snap counts (nflverse's separate `snap_counts` asset, keyed by
  * PFR id: game_id, pfr_game_id, season, game_type, week, player,
  * pfr_player_id, position, team, opponent, offense_snaps, offense_pct,
@@ -184,10 +173,22 @@ function buildIdCrosswalks(rows) {
   return { gsisToEspn, pfrToEspn };
 }
 
+/** One players.csv download -> both id crosswalks (confirmed columns on
+ * nflverse's players.csv). A pass that needs both hands the maps down rather
+ * than letting each job download the file again. */
+async function fetchIdCrosswalks() {
+  const url = `${NFLVERSE_RELEASE_BASE}/players/players.csv`;
+  return buildIdCrosswalks(parseCsv(await fetchCsvText(url)));
+}
+
+/** gsis_id -> espn_id crosswalk. */
+async function fetchPlayersCrosswalk() {
+  return (await fetchIdCrosswalks()).gsisToEspn;
+}
+
 /** pfr_id -> espn_id crosswalk (the snap file is keyed by PFR id). */
 async function fetchPfrCrosswalk() {
-  const url = `${NFLVERSE_RELEASE_BASE}/players/players.csv`;
-  return buildIdCrosswalks(parseCsv(await fetchCsvText(url))).pfrToEspn;
+  return (await fetchIdCrosswalks()).pfrToEspn;
 }
 
 /** Pure: rows -> only the target (season, week, REG-season) rows. The snap
@@ -314,40 +315,21 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
 }
 
 /**
- * Finalize one (season, week): fetch nflverse's defense file + players
- * crosswalk, patch the finalization-only fields onto each matched player's
- * already-synced player_stats row (preserving whatever Tank01 already wrote
- * there), and re-score every league sitting on that week — reusing
- * correction.service's correctLeagueWeek (the same recompute/notify path
- * Tank01 stat corrections use), not a new scoring code path.
- *
- * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction
- * and the one data_sync_runs row per run, job 'nflverse-week' — no lock
- * (per-week player_stats rows, the same reasoning as the week-stats job:
- * these are not a whole-table bulk writer). The unit covers only the
- * player_stats patch writes (#1204 ruling #2): apply does the known-players
- * read and the per-player read-merge-upsert on the transaction client. The
- * league re-score loop runs AFTER runSyncJob resolves and OUTSIDE its
- * transaction, only on an ok run (a failed run throws before reaching it) —
- * it keeps its own per-League try/catch, so a re-score failure never fails
- * the run or rolls back the write it is scoring. Resolved value is
- * unchanged: `{ season, week, playersUpdated, leaguesRescored }`.
- */
-/**
  * Snap counts for one (season, week): a second Sync run (ADR 0036), job
- * 'nflverse-snaps', no lock. Same read-merge-upsert as the weekly patch; the
+ * 'nflverse-snaps', no lock. An optional pre-fetched `pfrCrosswalk` skips this
+ * job's own players.csv download. Same read-merge-upsert as the weekly patch; the
  * keys are unscored, so nothing is re-scored. Resolves to
  * `{ season, week, playersUpdated, teamMismatches }`; runSyncJob records that
  * same object as the data_sync_runs detail, so teamMismatches shows there.
  */
-async function syncNflverseSnaps({ season, week }) {
+async function syncNflverseSnaps({ season, week, pfrCrosswalk: given }) {
   return runSyncJob({
     job: 'nflverse-snaps',
     lock: null,
     fetch: async () => {
       const [snapRows, pfrCrosswalk] = await Promise.all([
         fetchSnapCountsForSeason(season),
-        fetchPfrCrosswalk(),
+        given || fetchPfrCrosswalk(),
       ]);
       return [{ season, week, snapRows, pfrCrosswalk }];
     },
@@ -387,11 +369,31 @@ async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk
   return { season, week, playersUpdated, teamMismatches };
 }
 
-async function syncNflverseWeek({ season, week }) {
+/**
+ * Finalize one (season, week): fetch nflverse's defense file + players
+ * crosswalk (or take a pre-fetched `crosswalk`), patch the finalization-only fields onto each matched player's
+ * already-synced player_stats row (preserving whatever Tank01 already wrote
+ * there), and re-score every league sitting on that week — reusing
+ * correction.service's correctLeagueWeek (the same recompute/notify path
+ * Tank01 stat corrections use), not a new scoring code path.
+ *
+ * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction
+ * and the one data_sync_runs row per run, job 'nflverse-week' — no lock
+ * (per-week player_stats rows, the same reasoning as the week-stats job:
+ * these are not a whole-table bulk writer). The unit covers only the
+ * player_stats patch writes (#1204 ruling #2): apply does the known-players
+ * read and the per-player read-merge-upsert on the transaction client. The
+ * league re-score loop runs AFTER runSyncJob resolves and OUTSIDE its
+ * transaction, only on an ok run (a failed run throws before reaching it) —
+ * it keeps its own per-League try/catch, so a re-score failure never fails
+ * the run or rolls back the write it is scoring. Resolved value is
+ * unchanged: `{ season, week, playersUpdated, leaguesRescored }`.
+ */
+async function syncNflverseWeek({ season, week, crosswalk }) {
   const result = await runSyncJob({
     job: 'nflverse-week',
     lock: null,
-    fetch: () => fetchNflverseWeekUnit({ season, week }),
+    fetch: () => fetchNflverseWeekUnit({ season, week, crosswalk }),
     apply: (client, unit) => applyNflverseWeekUnit(client, unit),
   });
   if (result.playersUpdated === 0) {
@@ -406,10 +408,10 @@ async function syncNflverseWeek({ season, week }) {
  * any transaction or lock. Returns one unit — everything apply needs to
  * compute and write this week's patches.
  */
-async function fetchNflverseWeekUnit({ season, week }) {
+async function fetchNflverseWeekUnit({ season, week, crosswalk: given }) {
   const [defRows, crosswalk] = await Promise.all([
     fetchPlayerWeekStatsForSeason(season),
-    fetchPlayersCrosswalk(),
+    given || fetchPlayersCrosswalk(),
   ]);
   return [{ season, week, defRows, crosswalk }];
 }
@@ -1054,14 +1056,32 @@ async function finalizePriorWeeks() {
     if (!weeks.has(key)) weeks.set(key, { season: league.current_season, week });
   }
 
+  if (weeks.size === 0) return { finalized: [] };
+
+  // players.csv is not per season: one download serves every job in the pass.
+  let crosswalks;
+  try {
+    crosswalks = await fetchIdCrosswalks();
+  } catch (err) {
+    console.error('nflverse finalization: players crosswalk failed:', err.message);
+    return { finalized: [] };
+  }
+
   const finalized = [];
   for (const { season, week } of weeks.values()) {
     try {
-      const outcome = await syncNflverseWeek({ season, week });
-      await syncNflverseSnaps({ season, week });
+      const outcome = await syncNflverseWeek({ season, week, crosswalk: crosswalks.gsisToEspn });
       if (outcome.playersUpdated > 0) finalized.push(outcome);
     } catch (err) {
       console.error('nflverse finalization failed for %s week %s:', season, week, err.message);
+      continue;
+    }
+    // The weekly patch has committed; a snap failure (its file 404s until PFR
+    // publishes) is its own failure and must not unreport it.
+    try {
+      await syncNflverseSnaps({ season, week, pfrCrosswalk: crosswalks.pfrToEspn });
+    } catch (err) {
+      console.error('nflverse snaps failed for %s week %s:', season, week, err.message);
     }
   }
   return { finalized };
@@ -1163,6 +1183,7 @@ module.exports = {
   fetchPlayerWeekStatsForSeason,
   fetchTeamWeekStatsForSeason,
   fetchGameScoresForSeason,
+  fetchIdCrosswalks,
   fetchPlayersCrosswalk,
   fetchSnapCountsForSeason,
   fetchPfrCrosswalk,
