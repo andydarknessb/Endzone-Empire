@@ -282,3 +282,148 @@ test('the empty-list copy waits for the first read to settle', async () => {
   await waitFor(() => expect(playerReads().length).toBeGreaterThan(0));
   screen.queryAllByText(/No players/).forEach((el) => expect(el).not.toBeVisible());
 });
+
+// #1614: the waiver-claims widget (Claim order and Results) in the side panel.
+const orderedClaims = () => [
+  pendingClaim({ id: 3, player_id: 13, player_name: 'Claim C', claim_order: 3, created_at: '2026-09-22T00:00:00Z' }),
+  pendingClaim({ id: 2, player_id: 12, player_name: 'Claim A', claim_order: 2, created_at: '2026-09-21T00:00:00Z' }),
+  pendingClaim({ id: 1, player_id: 11, player_name: 'Claim B', claim_order: 1, created_at: '2026-09-20T00:00:00Z' }),
+];
+const claimsCard = () => screen.findByTestId('waivers-claims-card');
+const claimNames = () => screen.getAllByText(/^Claim [ABC]$/).map((el) => el.textContent);
+
+const resolved = (over) => ({
+  id: 50,
+  player_id: 40,
+  player_name: 'Done Guy',
+  drop_player_id: null,
+  drop_player_name: null,
+  bid: 9,
+  status: 'won',
+  note: null,
+  claim_order: null,
+  created_at: '2026-09-10T00:00:00Z',
+  processed_at: '2026-09-16T10:00:00Z',
+  week: 2,
+  ...over,
+});
+
+test('pending claims list in Claim order with a rank and the qualified ranking line', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  expect(within(card).getAllByText(/^Claim [ABC]$/).map((el) => el.textContent)).toEqual(['Claim B', 'Claim A', 'Claim C']);
+  expect(within(card).getByText('#1')).toBeInTheDocument();
+  expect(within(card).getByText(/ranks your own claims/i)).toHaveTextContent(/higher bid still processes first/i);
+  expect(card.textContent).not.toMatch(/#1 (claim )?is tried first/i);
+});
+
+test('up is disabled on the first claim and down on the last', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  const ups = within(card).getAllByRole('button', { name: /^Move .* up$/ });
+  const downs = within(card).getAllByRole('button', { name: /^Move .* down$/ });
+  expect(ups[0]).toBeDisabled();
+  expect(ups[1]).toBeEnabled();
+  expect(downs[2]).toBeDisabled();
+});
+
+test('moving a claim up PUTs the full id list, reorders at once, announces and keeps focus', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  await userEvent.click(within(card).getAllByRole('button', { name: /^Move .* up$/ })[1]);
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith('/api/waivers/claims/order', { leagueId: 1, claimIds: [2, 1, 3] })
+  );
+  expect(within(card).getAllByText(/^Claim [ABC]$/).map((el) => el.textContent)).toEqual(['Claim A', 'Claim B', 'Claim C']);
+  expect(await within(card).findByText('Claim A moved to Claim order #1')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: 'Move Claim A down' })).toHaveFocus();
+});
+
+test('moving a claim down keeps focus on that claim\'s down button', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  await userEvent.click(within(card).getByRole('button', { name: 'Move Claim B down' }));
+  await waitFor(() => expect(within(card).getByRole('button', { name: 'Move Claim B down' })).toHaveFocus());
+});
+
+test('a refused reorder reverts the list and shows the refusal', async () => {
+  setup({ waivers: waiversBody({ myClaims: orderedClaims() }) });
+  apiClient.put.mockRejectedValue({
+    response: { status: 409, data: { code: 'CLAIM_ORDER_MISMATCH', message: 'Your pending claims changed; refresh and retry.' } },
+  });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Claim A');
+  await userEvent.click(within(card).getAllByRole('button', { name: /^Move .* down$/ })[0]);
+  expect(await within(card).findByText('Your pending claims changed; refresh and retry.')).toBeInTheDocument();
+  expect(within(card).getAllByText(/^Claim [ABC]$/).map((el) => el.textContent)).toEqual(['Claim B', 'Claim A', 'Claim C']);
+});
+
+test('the Claim button on a row follows a reorder', async () => {
+  setup({
+    players: [cardsPlayer({ id: 11, name: 'Claim B' })],
+    waivers: waiversBody({ myClaims: orderedClaims() }),
+  });
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage();
+  await screen.findByRole('button', { name: 'Claim #1 Claim B' });
+  const card = await claimsCard();
+  await userEvent.click(within(card).getByRole('button', { name: 'Move Claim B down' }));
+  expect(await screen.findByRole('button', { name: 'Claim #2 Claim B' })).toBeInTheDocument();
+});
+
+test('Results group by week with Won, Lost and Didn\'t go through wording, never "invalid" or cancelled', async () => {
+  setup({
+    waivers: waiversBody({
+      myClaims: [
+        resolved({ id: 50, player_name: 'Won Guy', status: 'won', bid: 9, week: 2 }),
+        resolved({ id: 51, player_name: 'Lost Guy', status: 'lost', bid: 5, week: 2, winning_team_name: 'Rival FC', winning_bid: 17 }),
+        resolved({ id: 52, player_name: 'Old Loss', status: 'lost', bid: 3, week: 1 }),
+        resolved({ id: 53, player_name: 'Dead Guy', status: 'invalid', bid: 4, week: 1, note: 'Roster was full' }),
+        resolved({ id: 54, player_name: 'Gone Guy', status: 'cancelled', week: 1 }),
+      ],
+    }),
+  });
+  renderPage();
+  const card = await claimsCard();
+  await within(card).findByText('Won Guy');
+  expect(within(card).getByRole('heading', { name: 'Week 2' })).toBeInTheDocument();
+  expect(within(card).getByRole('heading', { name: 'Week 1' })).toBeInTheDocument();
+  expect(card.textContent).toMatch(/Won\s*·\s*\$9/);
+  expect(card.textContent).toContain('Lost to Rival FC · won at $17');
+  expect(card.textContent).toMatch(/Didn't go through/);
+  expect(card.textContent).toContain('Roster was full');
+  expect(card.textContent).not.toMatch(/invalid/i);
+  expect(within(card).queryByText('Gone Guy')).not.toBeInTheDocument();
+});
+
+test('a lost claim with a null winner reads plain Lost with the bid, never blank or undefined', async () => {
+  setup({
+    waivers: waiversBody({
+      myClaims: [resolved({ id: 52, player_name: 'Old Loss', status: 'lost', bid: 3, week: 1, winning_team_name: null, winning_bid: null })],
+    }),
+  });
+  renderPage();
+  const card = await claimsCard();
+  const row = (await within(card).findByText('Old Loss')).closest('li');
+  expect(row).toHaveTextContent(/Lost/);
+  expect(row).toHaveTextContent('$3');
+  expect(row.textContent).not.toMatch(/undefined|null|Lost to/);
+});
+
+test('no claims at all says "No claims yet"', async () => {
+  setup();
+  renderPage();
+  const card = await claimsCard();
+  expect(await within(card).findByText('No claims yet')).toBeInTheDocument();
+});

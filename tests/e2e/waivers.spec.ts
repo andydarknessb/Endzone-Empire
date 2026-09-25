@@ -88,6 +88,30 @@ for (const width of WIDTHS) {
   });
 }
 
+// #1614: the My claims tab (Claim order and Results) at the two phone widths.
+for (const width of [320, 390]) {
+  test(`My claims at ${width}px: no overflow, controls at least 44px`, async ({ page }) => {
+    await setupWaiversLayoutGuard(page);
+    await page.setViewportSize({ width, height: HEIGHT });
+    await page.goto(`${WAIVERS_URL}?tab=claims`);
+
+    const side = page.getByRole('complementary', { name: 'Waivers side panel' });
+    await expect(side).toBeVisible();
+    await expect(page.getByRole('button', { name: `Move ${CLAIMED_PLAYER_NAME} down` })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Week 2' })).toBeVisible();
+    await expect(page.getByText(/Lost to The Extraordinarily Long Team Name FC · won at \$17/)).toBeVisible();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+
+    const doc = await page.evaluate(probeDocument);
+    expect(doc.scrollWidth, `document @ ${width}: scrollWidth=${doc.scrollWidth} clientWidth=${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
+
+    const targets = await page.evaluate(probeTapTargets);
+    expect(targets.some((t) => t.name.startsWith('Move '))).toBe(true);
+    const small = targets.filter((t) => Math.min(t.width, t.height) < MIN_TARGET - 1);
+    expect(small, `controls under ${MIN_TARGET}px @ ${width}: ${JSON.stringify(small)}`).toEqual([]);
+  });
+}
+
 // Permanent negative control (the players-list spec's own pattern): proves
 // the width predicate can still go red.
 test('negative control: the width predicate reports a forced overflow', async ({ page }) => {

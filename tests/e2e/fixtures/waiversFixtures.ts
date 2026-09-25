@@ -69,6 +69,24 @@ function playersResponse() {
   };
 }
 
+function resolvedClaim(id: number, name: string, status: string, week: number, extra: Record<string, unknown>) {
+  return {
+    id,
+    player_id: 9200 + id,
+    player_name: name,
+    drop_player_id: null,
+    drop_player_name: null,
+    bid: 0,
+    status,
+    note: null,
+    claim_order: null,
+    created_at: '2026-09-10T00:00:00Z',
+    processed_at: '2026-09-16T10:00:00Z',
+    week,
+    ...extra,
+  };
+}
+
 function waiversResponse() {
   return {
     league: { waiver_type: 'faab', waiver_period_hours: 24, faab_budget: 100, waivers_clear_at: null, current_season: 2026 },
@@ -89,6 +107,27 @@ function waiversResponse() {
         processed_at: null,
         clear_at: hoursFromNow(14),
       },
+      {
+        id: 2,
+        player_id: 9103,
+        player_name: 'Chris Godwin With A Very Long Name Indeed',
+        drop_player_id: null,
+        drop_player_name: 'Bench Guy With A Long Name Too',
+        bid: 8,
+        status: 'pending',
+        note: null,
+        claim_order: 2,
+        created_at: '2026-09-21T00:00:00Z',
+        processed_at: null,
+        clear_at: hoursFromNow(20),
+      },
+      resolvedClaim(3, 'Won Player', 'won', 2, { bid: 12 }),
+      resolvedClaim(4, 'Lost Player Name That Runs Long', 'lost', 2, {
+        bid: 5,
+        winning_team_name: 'The Extraordinarily Long Team Name FC',
+        winning_bid: 17,
+      }),
+      resolvedClaim(5, 'Blocked Player', 'invalid', 1, { bid: 4, note: 'Roster was full' }),
     ],
   };
 }

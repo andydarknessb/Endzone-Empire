@@ -13,6 +13,7 @@ import { toDecisionCardEntry } from '../../entities/player';
 import { PlayerPool } from '../../widgets/player-pool';
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from '../../widgets/player-row';
 import WaiverSummary from '../../widgets/waiver-summary';
+import WaiverClaims from '../../widgets/waiver-claims';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
 
@@ -31,10 +32,10 @@ const TABS = [
  * unchanged. From `md` the list and the side panel sit side by side; below it
  * two tabs, On waivers and My claims, are held in `?tab=`.
  *
- * The claims list and the claim sheet arrive in their own tickets, so the
- * Claim action opens the Decision card's claim bar for now (the same door the
- * Players page's FAAB and at-capacity claims use), and My claims shows the
- * pending count only.
+ * The claim sheet arrives in its own ticket, so the Claim action opens the
+ * Decision card's claim bar for now (the same door the Players page's FAAB and
+ * at-capacity claims use). My claims is the `waiver-claims` widget (#1614):
+ * pending claims in Claim order with the reorder, and Results by week.
  *
  * BELOW-ISLAND EDGES (ADR 0031 amendment), each named with its reason:
  *   - `hooks/useLeague`: the league row, whose `best_ball` decides the sort
@@ -52,7 +53,7 @@ export default function WaiversPage() {
   const bestBall = !!league?.best_ball;
 
   const [refreshKey, setRefreshKey] = useState(0);
-  const { status: claimsStatus, claims } = useWaiverClaims({ leagueId, refreshKey });
+  const { status: claimsStatus, claims, moveClaim, orderError, orderAnnouncement } =useWaiverClaims({ leagueId, refreshKey });
   const { data: rosterData } = useEndpoint(`/api/team/roster?leagueId=${leagueId}`);
   const { data: lineupData } = useEndpoint(`/api/team/lineup?leagueId=${leagueId}`);
   const lineup = useMemo(() => (lineupData ? lineupModel(lineupData) : null), [lineupData]);
@@ -304,15 +305,19 @@ export default function WaiversPage() {
           }}
         >
           <Card title="My claims" data-testid="waivers-claims-card">
-            <Box sx={{ p: 2 }}>
-              <Typography sx={{ fontSize: 14, color: 'var(--dash-dim)' }}>
-                {claimsStatus === 'error'
-                  ? 'Your claims could not be loaded.'
-                  : pendingCount === 0
-                    ? 'No pending claims'
-                    : `${pendingCount} pending claim${pendingCount === 1 ? '' : 's'}`}
+            {claimsStatus === 'error' ? (
+              <Typography sx={{ p: 2, fontSize: 14, color: 'var(--dash-dim)' }}>
+                Your claims could not be loaded.
               </Typography>
-            </Box>
+            ) : (
+              <WaiverClaims
+                claims={claims}
+                onMove={moveClaim}
+                orderError={orderError}
+                orderAnnouncement={orderAnnouncement}
+                showBid={isFaab}
+              />
+            )}
           </Card>
           {lineup && (lineup.currentWeek ?? lineup.week) != null && (
             <ByeClusterGrid
