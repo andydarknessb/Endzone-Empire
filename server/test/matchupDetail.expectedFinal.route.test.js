@@ -224,7 +224,7 @@ const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z ki
 
 // One home starter (KC) and one away starter (DAL); the live rows and the
 // schedule set their game states, so a fixture can name any status.
-async function detailStatus(t, { live, schedule, throwLive = false }) {
+async function detailStatus(t, { live, schedule, throwLive = false, awayTeam = 'DAL' }) {
   t.mock.method(clock, 'now', () => new Date(NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map([[301, { points: 10 }], [401, { points: 10 }]]) }));
   t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
@@ -233,7 +233,7 @@ async function detailStatus(t, { live, schedule, throwLive = false }) {
   const homeStarters = [player(301, 'Home QB', 'QB', 'KC', null, 'QB', null)];
   // The away RB is ruled Out, so the no-priced-row fallback (F1) has a
   // designation to speak from.
-  const awayStarters = [player(401, 'Away RB', 'RB', 'DAL', 'O', 'RB', null)];
+  const awayStarters = [player(401, 'Away RB', 'RB', awayTeam, awayTeam === null ? null : 'O', 'RB', null)];
   const byes = [];
   for (let w = 1; w <= 18; w++) for (const team of ['KC', 'DAL']) byes.push({ nfl_team: team, week: w });
   createFakePool([
@@ -961,4 +961,13 @@ test('a settled matchup passes weekIsFinal into liveWhatIf, buying it out of its
   assert.deepEqual(res.body.viewerWhatIf, {
     teamId: HOME, week: WEEK, actualPoints: 30, optimalPoints: 30, delta: 0, swaps: [],
   });
+});
+
+test('the detail fallback passes the no-team fact: a released player reads unavailable no_team (#1668)', async (t) => {
+  const body = await detailStatus(t, {
+    throwLive: true,
+    awayTeam: null,
+    schedule: [{ nfl_team: 'KC', opponent: 'LV', kickoff_at: '2026-10-25T17:00:00.000Z' }],
+  });
+  assert.deepEqual(body.away.starters[0].availability, { available: false, reason: 'no_team' });
 });

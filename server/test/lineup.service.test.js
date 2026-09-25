@@ -2334,3 +2334,11 @@ test('getLineup leaves the CURRENT week unchanged: a departed starter still arri
   assert.equal(fake.matching(/^SELECT "players"\."id"[\s\S]*"team_players"/).length, 1);
   assert.equal(fake.matching(/FROM "roster_tenures"/).length, 0);
 });
+
+test('annotateLineupEntries: a released player (no NFL team) reads Unavailable no_team (#1668)', () => {
+  const [entry] = annotateLineupEntries(
+    [{ id: 1, nfl_team: null, injury_status: null, slot: 'BENCH' }],
+    { locked: new Set(), byeByTeam: new Map(), selectedWeek: 8 }
+  );
+  assert.equal(entry.unavailable, 'no_team');
+});

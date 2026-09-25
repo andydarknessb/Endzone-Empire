@@ -783,7 +783,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const { countedRoster } = require('../services/countedRoster.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
-    const { availabilityFor } = require('../services/projectionModel');
+    const { unavailableFor } = require('../services/unavailable');
     const rules = rulesForLeague(leagueRow);
 
     // This week's real-game opponents, for the cutscene's chasing defender.
@@ -926,7 +926,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       const availability = priced
         ? priced.availability
         : (() => {
-          const verdict = availabilityFor({ injuryStatus: row.injury_status, onBye: false });
+          const verdict = unavailableFor({ injuryStatus: row.injury_status, onBye: false, noTeam: row.nfl_team == null });
           return { available: verdict.available, reason: verdict.available ? null : verdict.reason };
         })();
       return {
