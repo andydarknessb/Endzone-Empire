@@ -8,8 +8,8 @@ import { TableCell, TableRow, TableSortLabel } from '@mui/material';
 // literal at each consumer's empty-state colSpan (#1310 formal review f2:
 // WaiverWire's own table adopting this same column set is exactly the
 // second consumer this shared header and column count exist for).
-export function playerRowColumnCount(bestBall) {
-  return bestBall ? 7 : 8;
+export function playerRowColumnCount(bestBall, hideOwnership = false) {
+  return (bestBall ? 7 : 8) - (hideOwnership ? 1 : 0);
 }
 
 /**
@@ -23,7 +23,9 @@ export function playerRowColumnCount(bestBall) {
  * keeps its own click-to-toggle Upgrade header and passes
  * `{ active, direction, onClick }` to render a `TableSortLabel` instead.
  */
-export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, upgradeSort }) {
+// `hideOwnership` drops the Ownership column while no row carries a share yet
+// (#1308): the Waivers page passes it, the Players page keeps the column.
+export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, upgradeSort, hideOwnership = false }) {
   return (
     <TableRow>
       <TableCell sx={sx}>Player</TableCell>
@@ -33,9 +35,11 @@ export default function PlayerRowTableHead({ bestBall = false, currentWeek, sx, 
       <TableCell sx={sx} align="right">
         ROS
       </TableCell>
-      <TableCell sx={sx} align="right">
-        Ownership
-      </TableCell>
+      {!hideOwnership && (
+        <TableCell sx={sx} align="right">
+          Ownership
+        </TableCell>
+      )}
       {!bestBall && (
         <TableCell sx={sx} align="right">
           {upgradeSort ? (

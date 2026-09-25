@@ -109,21 +109,24 @@ export function claimsFromResponse(data, { now = new Date() } = {}) {
     .sort(([a], [b]) => (b ?? -Infinity) - (a ?? -Infinity) || 0)
     .map(([week, rs]) => ({ week, results: rs }));
 
-  let nextClearTime = null;
+  let nextClear = null;
   if (pending.length) {
     const blanket = data.league?.waivers_clear_at ?? null;
     const blanketT = time(blanket);
     if (blanketT !== null && blanketT > now.getTime()) {
-      nextClearTime = blanket;
+      nextClear = { at: blanket, kind: 'blanket', playerName: null };
     } else {
       let best = null;
       for (const c of pending) {
         const t = time(c.clearAt);
-        if (t !== null && (best === null || t < best.t)) best = { t, v: c.clearAt };
+        if (t !== null && (best === null || t < best.t)) best = { t, c };
       }
-      nextClearTime = best ? best.v : null;
+      if (best) nextClear = { at: best.c.clearAt, kind: 'player', playerName: best.c.playerName };
     }
   }
+  const nextClearTime = nextClear ? nextClear.at : null;
+
+  const waiverPriority = num(data.myTeam?.waiver_priority);
 
   let faab = null;
   if (data.league?.waiver_type === 'faab') {
@@ -131,5 +134,5 @@ export function claimsFromResponse(data, { now = new Date() } = {}) {
     faab = { committed, left: (num(data.myTeam?.faab_remaining) ?? 0) - committed };
   }
 
-  return { pending, sharedDrops, results, resultsByWeek, nextClearTime, faab };
+  return { pending, sharedDrops, results, resultsByWeek, nextClearTime, nextClear, waiverPriority, faab };
 }

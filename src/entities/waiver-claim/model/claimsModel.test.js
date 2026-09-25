@@ -197,6 +197,40 @@ describe('next Clear time', () => {
   });
 });
 
+describe('what the next Clear time is', () => {
+  test('names the claim and its player when it is a per-player clear time', () => {
+    const m = claimsFromResponse(
+      body([claim({ id: 1, player_name: 'Late', clear_at: hours(30) }), claim({ id: 2, player_name: 'Soon', clear_at: hours(5) })]),
+      { now: NOW }
+    );
+    expect(m.nextClear).toEqual({ at: hours(5), kind: 'player', playerName: 'Soon' });
+  });
+
+  test('is the blanket kind, with no player, while the blanket clear time runs', () => {
+    const m = claimsFromResponse(
+      body([claim({ id: 1, clear_at: hours(5) })], { league: { waiver_type: 'priority', waivers_clear_at: hours(48) } }),
+      { now: NOW }
+    );
+    expect(m.nextClear).toEqual({ at: hours(48), kind: 'blanket', playerName: null });
+  });
+
+  test('null with no pending claims', () => {
+    expect(claimsFromResponse(body([]), { now: NOW }).nextClear).toBeNull();
+  });
+});
+
+describe('Waiver priority', () => {
+  test('is the team priority, in either waiver type', () => {
+    expect(claimsFromResponse(body([]), { now: NOW }).waiverPriority).toBe(3);
+    expect(claimsFromResponse(faabBody([]), { now: NOW }).waiverPriority).toBe(3);
+  });
+
+  test('null when the team has none yet', () => {
+    const m = claimsFromResponse(body([], { myTeam: { waiver_priority: null, faab_remaining: 0 } }), { now: NOW });
+    expect(m.waiverPriority).toBeNull();
+  });
+});
+
 describe('FAAB', () => {
   test('committed is the sum of pending bids and left is remaining minus it', () => {
     const m = claimsFromResponse(

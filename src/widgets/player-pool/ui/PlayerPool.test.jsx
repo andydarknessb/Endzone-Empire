@@ -73,3 +73,23 @@ test("locked, every read sends the locked Availability and no Availability contr
   expect(screen.queryByText("Free agents")).not.toBeInTheDocument();
   expect(await screen.findByText("Patrick Mahomes")).toBeInTheDocument();
 });
+
+test("byeWeekFilter sends the ?bye= week as byeWeeks, and without the prop the param is ignored", async () => {
+  renderPool({ byeWeekFilter: true }, "/?bye=7");
+  await waitFor(() => expect(playerReads().length).toBeGreaterThan(0));
+  expect(playerReads()[0][1].params.byeWeeks).toBe("7");
+  expect(screen.getByRole("combobox", { name: "Bye week" })).toBeInTheDocument();
+});
+
+test("no byeWeekFilter prop: no Bye week control and no byeWeeks param", async () => {
+  renderPool({}, "/?bye=7");
+  await waitFor(() => expect(playerReads().length).toBeGreaterThan(0));
+  expect(playerReads()[0][1].params.byeWeeks).toBeUndefined();
+  expect(screen.queryByRole("combobox", { name: "Bye week" })).not.toBeInTheDocument();
+});
+
+test("emptyCopy replaces the default empty message", async () => {
+  apiClient.get.mockResolvedValue({ data: { players: [], totalPages: 1, total: 0, context: null } });
+  renderPool({ emptyCopy: "No players are on waivers" });
+  expect(await screen.findByText("No players are on waivers")).toBeInTheDocument();
+});

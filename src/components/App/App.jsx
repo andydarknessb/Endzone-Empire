@@ -53,7 +53,7 @@ const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
 const LeagueRules = lazy(() => import('../LeagueRules/LeagueRules'));
 const PickemPage = lazy(() => import('../../pages/pickem'));
 const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
-const WaiverWire = lazy(() => import('../WaiverWire/WaiverWire'));
+const WaiversPage = lazy(() => import('../../pages/waivers'));
 const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
 const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
 const PowerRankings = lazy(() => import('../PowerRankings/PowerRankings'));
@@ -203,7 +203,7 @@ function App() {
           <Route path="/league/:leagueId/rules" element={<ProtectedRoute><LeagueRules /></ProtectedRoute>} />
           <Route path="/league/:leagueId/pickem" element={<ProtectedRoute><PickemPage /></ProtectedRoute>} />
           <Route path="/league/:leagueId/lineup" element={<ProtectedRoute><FantasyOnly><LegacyLineupRedirect /></FantasyOnly></ProtectedRoute>} />
-          <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><FantasyOnly><WaiverWire /></FantasyOnly></ProtectedRoute>} />
+          <Route path="/league/:leagueId/waivers" element={<ProtectedRoute><FantasyOnly><WaiversPage /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/trades" element={<ProtectedRoute><FantasyOnly><TradeCenter /></FantasyOnly></ProtectedRoute>} />
           <Route path="/league/:leagueId/activity" element={<ProtectedRoute><TransactionLog /></ProtectedRoute>} />
           <Route path="/league/:leagueId/power-rankings" element={<ProtectedRoute><FantasyOnly><PowerRankings /></FantasyOnly></ProtectedRoute>} />
