@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const util = require('node:util');
 const {
   CORRECTION_WINDOW_ERROR,
   CorrectionWindowError,
@@ -328,7 +329,7 @@ test('one cache-maintenance failure does not prevent attempting the other', asyn
     'a legacy refresh failure must not skip the versioned invalidation'
   );
   assert.deepEqual(correctedLeagueIds, [42], 'nor must it skip re-scoring the leagues');
-  const logged = logs.find((l) => String(l[0]).includes('legacy projection refresh failed'));
+  const logged = logs.find((l) => util.format(...l).includes('legacy projection refresh failed'));
   assert.ok(logged, 'the failure is logged');
   assert.deepEqual(logged.slice(1, 3), [2026, 4], 'with season and week context');
 });
@@ -354,7 +355,7 @@ test('a failed invalidation surfaces AFTER the leagues are corrected', async (t)
     [{ op: 'run invalidation', season: 2026, week: 4, message: 'delete failed' }],
     'the aggregate error carries the exact failed operations'
   );
-  const logged = logs.find((l) => String(l[0]).includes('invalidation failed'));
+  const logged = logs.find((l) => util.format(...l).includes('invalidation failed'));
   assert.ok(logged, 'the failure is also logged as it happens');
   assert.deepEqual(logged.slice(1, 3), [2026, 4], 'with season and week context');
 });
@@ -606,7 +607,7 @@ test('#1409: a recap rebuild failure is logged and never blocks the correction p
     1,
     'and still completes its own log/notify step'
   );
-  const logged = logs.find((l) => String(l[0]).includes('recap rebuild failed'));
+  const logged = logs.find((l) => util.format(...l).includes('recap rebuild failed'));
   assert.ok(logged, 'the recap rebuild failure is logged');
 });
 
@@ -759,7 +760,7 @@ test('#1410: a power-rankings recompute failure is logged and never blocks the r
     1,
     'and the log/notify step still completed'
   );
-  const logged = logs.find((l) => String(l[0]).includes('power rankings failed'));
+  const logged = logs.find((l) => util.format(...l).includes('power rankings failed'));
   assert.ok(logged, 'the power-rankings failure is logged');
 });
 
@@ -1151,6 +1152,6 @@ test('#1411: a weekly high score trophy reconcile failure is logged and never bl
     1,
     'and the log/notify step still completed'
   );
-  const logged = logs.find((l) => String(l[0]).includes('weekly high score trophy reconcile failed'));
+  const logged = logs.find((l) => util.format(...l).includes('weekly high score trophy reconcile failed'));
   assert.ok(logged, 'the trophy reconcile failure is logged');
 });

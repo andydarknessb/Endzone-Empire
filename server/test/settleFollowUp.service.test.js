@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const util = require('node:util');
 const montecarlo = require('../services/montecarlo.service');
 const recap = require('../services/recap.service');
 const trophies = require('../services/trophy.service');
@@ -53,7 +54,7 @@ for (const [mode, labels] of [
   ['advance', ['odds', 'generateWeeklyRecap', 'awardWeeklyTrophies', 'sendWeeklyRecapDigest']],
   ['correction', ['odds', 'computeAndStoreWeeklyRecap', 'reconcileWeeklyHighScoreTrophy']],
 ]) {
-  for (const failing of labels.slice(0, -1)) {
+  for (const failing of labels) {
     test(`${mode}: ${failing} throwing is logged and the next step still runs`, async (t) => {
       const order = stubAll(t, { failing });
       const logs = [];
@@ -61,7 +62,7 @@ for (const [mode, labels] of [
       await settleFollowUp({ ...ARGS, mode });
       assert.deepEqual(order.map((o) => o.label), labels, 'every step still ran');
       assert.equal(logs.length, 1, 'the failure is logged once');
-      assert.match(String(logs[0][0]), /settle follow-up/);
+      assert.match(util.format(...logs[0]), /settle follow-up (w+): .* failed for league 7 week 5: .*boom/);
     });
   }
 }

@@ -40,7 +40,7 @@ async function settleFollowUp({ leagueId, season, week, mode }) {
     try {
       await step.run({ leagueId, season, week });
     } catch (err) {
-      console.error(`settle follow-up (${mode}): ${step.failed} for league %s week %s:`, leagueId, week, err.message);
+      console.error('settle follow-up (%s): %s for league %s week %s:', mode, step.failed, leagueId, week, err.message);
     }
   }
 }
