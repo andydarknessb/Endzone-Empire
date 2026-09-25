@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { subscribeToScoreFeed } from '../../../shared/lib';
-import { playsFromScoreEvent } from '../../../entities/matchup';
+import { deltasFor } from '../../../entities/matchup';
 
 /**
  * Live points via the existing scores socket (#1241, ADR 0037 ticket 9): the
@@ -10,7 +10,7 @@ import { playsFromScoreEvent } from '../../../entities/matchup';
  * both consumers that need it - the "value two widgets both need is passed
  * down by the page" rule `useLineupData`/`useAdvice` already follow.
  *
- * The per-player point deltas (`plays[].playerId`/`pointsDelta`) are applied
+ * The per-player point deltas (`deltasFor`'s player-id map) are applied
  * directly onto the page's own `raw` lineup state (the same wire shape
  * `useLineupData` fetched and the swap/drop features already patch), summed
  * per player the same way `useMatchup.js`'s own `applyStarterDeltas` does,
@@ -46,19 +46,12 @@ export function useLiveScores({ leagueId, setRaw, refetch }) {
     const unsubscribe = subscribeToScoreFeed(leagueId, {
       onScores: (event) => {
         setScoreEvent(event);
-        const plays = playsFromScoreEvent(event);
-        if (!plays.length) return;
-        const deltaById = new Map();
-        for (const p of plays) {
-          if (p.playerId == null) continue;
-          deltaById.set(p.playerId, (deltaById.get(p.playerId) || 0) + p.pointsDelta);
-        }
-        if (deltaById.size === 0) return;
         setRaw((prev) => {
           if (!prev || !Array.isArray(prev.entries)) return prev;
-          // The week guard: an event stamped for a week other than the one
-          // on screen (or stamped with no week at all) changes nothing here.
-          if (event.week == null || event.week !== prev.week) return prev;
+          // The week guard lives in `deltasFor`: an event stamped for a week
+          // other than the one on screen (or with no week at all) is empty.
+          const deltaById = deltasFor(event, prev.week);
+          if (deltaById.size === 0) return prev;
           let touched = false;
           const entries = prev.entries.map((e) => {
             const delta = deltaById.get(e.id);

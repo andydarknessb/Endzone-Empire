@@ -741,6 +741,7 @@ test("a touchdown by the viewer's starter queues a cutscene, and an opponent's i
   await screen.findByTestId('scoreboard-strip');
 
   emitScores({
+    week: 3,
     scored: [{ matchupId: 9, homeScore: 107.5, awayScore: 88 }],
     plays: [{
       playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',

@@ -1,5 +1,5 @@
 import {
-  playsFromScoreEvent, matchupPlaySide, playLabel, formatSignedPoints,
+  playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './play';
 
 const rawPlay = (playerId, over = {}) => ({
@@ -133,5 +133,23 @@ describe('formatSignedPoints', () => {
     expect(formatSignedPoints(6.5, { trim: true })).toBe('+6.5');
     expect(formatSignedPoints(-8, { trim: true })).toBe('-8');
     expect(formatSignedPoints(-8, { trim: true })).not.toContain('+-');
+  });
+});
+
+describe('deltasFor', () => {
+  const ev = (week, plays) => ({ week, plays });
+  test.each([
+    ['same week sums per player across plays',
+      ev(3, [rawPlay(1, { pointsDelta: 3 }), rawPlay(1, { pointsDelta: 1 }), rawPlay(2, { pointsDelta: 6 })]), 3,
+      [[1, 4], [2, 6]]],
+    ['a different week is empty', ev(2, [rawPlay(1)]), 3, []],
+    ['a missing week is empty', ev(undefined, [rawPlay(1)]), 3, []],
+    ['a null week on screen is empty', ev(3, [rawPlay(1)]), null, []],
+    ['a play with a null playerId contributes nothing',
+      ev(3, [rawPlay(null, { pointsDelta: 9 }), rawPlay(1, { pointsDelta: 2 })]), 3, [[1, 2]]],
+  ])('%s', (_name, event, week, expected) => {
+    const result = deltasFor(event, week);
+    expect(result).toBeInstanceOf(Map);
+    expect([...result.entries()]).toEqual(expected);
   });
 });
