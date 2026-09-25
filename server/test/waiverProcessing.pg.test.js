@@ -12,19 +12,19 @@
  *   players X, Y: T1 bids 3 on each, both dropping D       -> Claim order: X wins,
  *                                                             Y is invalid (sibling note)
  *
- * Gated exactly like the other *.pg.test.js files: PG_TESTS=1 must be set and
+ * Gated exactly like the other *.pg.test.js files: PG_TESTS=1 (or WAIVER_PROCESSING_PG_TESTS=1) must be set and
  * every DATABASE_URL* variable must be ABSENT, so a stray local run can never
  * touch the shared production database.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const ENABLED = process.env.PG_TESTS === '1';
+const ENABLED = process.env.PG_TESTS === '1' || process.env.WAIVER_PROCESSING_PG_TESTS === '1';
 const URL_VARS = ['DATABASE_URL', 'DATABASE_URL_RUNTIME', 'DATABASE_URL_MIGRATIONS'];
 const urlLeak = URL_VARS.filter((k) => process.env[k]);
 
 if (!ENABLED) {
-  test('waiver processing PG tests (skipped: set PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
+  test('waiver processing PG tests (skipped: set PG_TESTS=1 or WAIVER_PROCESSING_PG_TESTS=1; CI migration-smoke runs these)', { skip: true }, () => {});
 } else if (urlLeak.length > 0) {
   test('waiver processing PG tests refuse to run with DATABASE_URL* set', () => {
     assert.fail(`unset ${urlLeak.join(', ')} - these tests must only ever see a disposable PG* database`);
