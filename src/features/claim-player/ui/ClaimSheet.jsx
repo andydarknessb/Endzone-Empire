@@ -83,11 +83,13 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
             {atCapacity ? 'Drop a player' : 'Drop a player (optional)'}
           </Typography>
           {atCapacity && (
-            <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)' }}>
+            <Typography id="claim-sheet-capacity-note" sx={{ fontSize: 12, color: 'var(--dash-dim)' }}>
               Your roster is full. Choose a player to drop when this claim clears.
             </Typography>
           )}
-          <RadioGroup aria-labelledby="claim-sheet-drop-label" value={dropId} onChange={(e) => setDropId(e.target.value)}>
+          <RadioGroup aria-labelledby="claim-sheet-drop-label"
+            aria-describedby={atCapacity ? 'claim-sheet-capacity-note' : undefined}
+            value={dropId} onChange={(e) => setDropId(e.target.value)}>
             {!atCapacity && (
               <FormControlLabel value="" control={<Radio />} label="No drop" sx={{ ...TOUCH, m: 0 }} />
             )}
@@ -114,6 +116,7 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
                 value={bid}
                 onChange={(e) => setBid(e.target.value)}
                 error={bidInvalid}
+                helperText={bidInvalid ? `Enter a bid between $0 and ${faabRemaining}` : undefined}
                 inputProps={{ min: 0, max: faabRemaining, step: 1 }}
                 sx={{ width: 110 }}
               />
@@ -127,9 +130,7 @@ function ClaimSheetBody({ player, leagueId, availability, roster, onClose, onCla
                 Max
               </Button>
             </Box>
-            <Typography sx={{ fontSize: 12, mt: 0.5, color: bidInvalid ? 'error.main' : 'var(--dash-dim)' }}>
-              {bidInvalid ? `Enter a bid between $0 and $${faabRemaining}` : `$${faabRemaining} remaining`}
-            </Typography>
+            <Typography sx={{ fontSize: 12, mt: 0.5, color: 'var(--dash-dim)' }}>{`${faabRemaining} remaining`}</Typography>
           </Box>
         ) : (
           availability?.waiverPriority != null && (
