@@ -10,7 +10,7 @@
  * (`formatPoints`) only - never a feature, a widget, a page, or another
  * entity.
  */
-export { playerCardFromResponse } from './model/playerCardModel';
+export { playerCardFromResponse, playerCardUrl } from './model/playerCardModel';
 export { usePlayerCard } from './model/usePlayerCard';
 export { toDecisionCardEntry } from './model/decisionCardEntry';
 export { default as DecisionStrip } from './ui/DecisionStrip';

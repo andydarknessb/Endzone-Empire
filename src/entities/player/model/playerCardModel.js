@@ -13,4 +13,13 @@ export function playerCardFromResponse(data) {
   return data || null;
 }
 
+/**
+ * The Decision-card read URL, the one place it is spelled. `week` is omitted
+ * when null or undefined, matching the route's default (the league's current
+ * week).
+ */
+export function playerCardUrl({ leagueId, playerId, week }) {
+  return `/api/players/${playerId}/card?leagueId=${leagueId}${week != null ? `&week=${week}` : ''}`;
+}
+
 export default playerCardFromResponse;
