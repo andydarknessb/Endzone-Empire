@@ -14,6 +14,8 @@ import { PlayerPool } from '../../widgets/player-pool';
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from '../../widgets/player-row';
 import WaiverSummary from '../../widgets/waiver-summary';
 import WaiverClaims from '../../widgets/waiver-claims';
+import WaiverRowDetail from './WaiverRowDetail';
+import { useCardReads } from './useCardReads';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import PlayerDecisionCard, { waivers } from '../../widgets/player-decision-card';
 import { ClaimSheet } from '../../features/claim-player';
@@ -44,7 +46,10 @@ const TABS = [
  *     before the first read (`GET /api/waivers` does not carry it).
  *   - `components/LeagueBreadcrumb`: the back-link every league subpage shows.
  *   - `api/apiClient` and `lib/httpFailure`: the one `claim-target` read behind
- *     the Player Browser's `?playerId=` deep link.
+ *     the Player Browser's `?playerId=` deep link (and, through `useCardReads`,
+ *     the expanded row's Decision-card read).
+ *   - `utils/formatRelative`: the Clear time's relative wording in the expanded
+ *     row (`WaiverRowDetail`), the same plumbing edge `player-row` names.
  */
 export default function WaiversPage() {
   const { leagueId } = useParams();
@@ -71,6 +76,10 @@ export default function WaiversPage() {
   const [poolSettled, setPoolSettled] = useState(false);
   const [quickViewId, setQuickViewId] = useState(null);
   const [claimId, setClaimId] = useState(null);
+  // #1617: one expanded row at a time; `cardReads` keeps each expanded player's
+  // Decision-card read attempt so a player is read once per page view.
+  const [expandedId, setExpandedId] = useState(null);
+  const cardReads = useCardReads(leagueId);
   const [targetPlayer, setTargetPlayer] = useState(null);
   const [targetError, setTargetError] = useState(null);
 
@@ -133,6 +142,10 @@ export default function WaiversPage() {
     if (message) setPoolError(message);
   }, []);
 
+  // Paging collapses the expanded row.
+  const pageParam = searchParams.get('page');
+  useEffect(() => setExpandedId(null), [pageParam]);
+
   const refreshAfterAction = useCallback(() => {
     setRefreshKey((key) => key + 1);
     return poolRef.current?.refresh();
@@ -188,6 +201,21 @@ export default function WaiversPage() {
         hideOwnership={!ownershipKnown}
         variant={variant === 'card' ? 'card' : undefined}
         onOpenPlayer={setQuickViewId}
+        expansion={{
+          expanded: expandedId === player.id,
+          onToggle: () => setExpandedId((current) => (current === player.id ? null : player.id)),
+          panelId: `waiver-row-detail-${player.id}`,
+          panel: (
+            <WaiverRowDetail
+              id={`waiver-row-detail-${player.id}`}
+              player={player}
+              roster={rosterData}
+              isFaab={isFaab}
+              reads={cardReads}
+              onOpen={setQuickViewId}
+            />
+          ),
+        }}
         action={{
           kind: 'button',
           label: order != null ? `Claim #${order}` : 'Claim',

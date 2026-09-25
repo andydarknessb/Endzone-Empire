@@ -67,8 +67,16 @@ const setup = ({
   lineup = { week: 4, currentWeek: 4, entries: [] },
   claimTarget,
   roster = [],
+  cards = {},
+  cardGate = null,
 } = {}) => {
   apiClient.get.mockImplementation((url) => {
+    const cardMatch = /^\/api\/players\/(\d+)\/card/.exec(url);
+    if (cardMatch) {
+      const body = cards[cardMatch[1]];
+      const settle = () => (body instanceof Error ? Promise.reject(body) : Promise.resolve({ data: body || { news: [] } }));
+      return cardGate ? cardGate.then(settle) : settle();
+    }
     if (url === '/api/players') {
       if (playersError) return Promise.reject(playersError);
       return Promise.resolve({ data: { players, totalPages: 1, total: total ?? players.length, context } });
@@ -783,4 +791,192 @@ test('the warning disappears once an edit changes the drop', async () => {
   await userEvent.click(within(sheet).getByRole('radio', { name: /Worst Guy/ }));
   await userEvent.click(within(sheet).getByRole('button', { name: 'Save claim' }));
   await waitFor(() => expect(within(card).queryByText(/Only one of these can go through/)).not.toBeInTheDocument());
+});
+
+// #1617: the expandable row.
+const cardReads = () => apiClient.get.mock.calls.filter(([url]) => /^\/api\/players\/\d+\/card/.test(url));
+const expandButton = (name) => screen.findByRole('button', { name: `Show details for ${name}` });
+const SWAPPER = {
+  upgrade: { points: 3.2, overPlayer: { id: 3, name: 'Best Bench' }, slot: 'RB' },
+  ros: { points: 150, perGame: 11.5 },
+};
+
+test('the expand control is a real 44px button that toggles aria-expanded and shows the panel', async () => {
+  setup({ players: [cardsPlayer(SWAPPER)] });
+  renderPage();
+  const button = await expandButton('Breece Hall');
+  expect(button.tagName).toBe('BUTTON');
+  expect(button).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByTestId('waiver-row-detail')).not.toBeInTheDocument();
+  await userEvent.click(button);
+  expect(button).toHaveAttribute('aria-expanded', 'true');
+  expect(await screen.findByTestId('waiver-row-detail')).toBeInTheDocument();
+  await userEvent.click(button);
+  expect(button).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByTestId('waiver-row-detail')).not.toBeInTheDocument();
+});
+
+test('the panel shows the swap, Rest of season with per game, the Clear time and News, and a Decision card link', async () => {
+  setup({
+    players: [cardsPlayer(SWAPPER)],
+    cards: { 7: { news: [{ headline: 'Hall cleared to practice', url: null, blurb: null, publishedAt: null }] } },
+  });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  const panel = await screen.findByTestId('waiver-row-detail');
+  expect(within(panel).getByTestId('claim-sheet-swap')).toHaveTextContent('Best Bench');
+  expect(within(panel).getByTestId('claim-sheet-swap')).toHaveTextContent('+3.2 this week');
+  expect(within(panel).getByText('Rest of season')).toBeInTheDocument();
+  expect(panel).toHaveTextContent('150.0');
+  expect(panel).toHaveTextContent('11.5 per game');
+  expect(within(panel).getByTestId('waiver-row-detail-clear')).toHaveTextContent(/resolve at/i);
+  expect(within(panel).getByTestId('waiver-row-detail-clear').textContent).not.toMatch(/claims process at/i);
+  expect(await within(panel).findByText('Hall cleared to practice')).toBeInTheDocument();
+  expect(within(panel).getByRole('button', { name: 'Open Breece Hall Decision card' })).toBeInTheDocument();
+  expect(panel.textContent).not.toMatch(/usage/i);
+});
+
+test('the swap is hidden without an Upgrade', async () => {
+  setup({ players: [cardsPlayer({ upgrade: null })] });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  const panel = await screen.findByTestId('waiver-row-detail');
+  expect(within(panel).queryByTestId('claim-sheet-swap')).not.toBeInTheDocument();
+  expect(within(panel).getByText('Rest of season')).toBeInTheDocument();
+});
+
+test('the panel link opens the Decision card', async () => {
+  setup({ players: [cardsPlayer()] });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  await userEvent.click(await screen.findByRole('button', { name: 'Open Breece Hall Decision card' }));
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+});
+
+test('no News request until a row expands, and one per player however often it re-expands', async () => {
+  setup({ players: [cardsPlayer(), cardsPlayer({ id: 8, name: 'Other Guy' })] });
+  renderPage();
+  const first = await expandButton('Breece Hall');
+  await screen.findByText('Other Guy');
+  expect(cardReads()).toHaveLength(0);
+  await userEvent.click(first);
+  await screen.findByTestId('waiver-row-detail');
+  await waitFor(() => expect(cardReads()).toHaveLength(1));
+  await userEvent.click(first);
+  await userEvent.click(first);
+  await screen.findByTestId('waiver-row-detail');
+  expect(cardReads()).toHaveLength(1);
+  await userEvent.click(await expandButton('Other Guy'));
+  await waitFor(() => expect(cardReads()).toHaveLength(2));
+});
+
+test('only one row is expanded at a time', async () => {
+  setup({ players: [cardsPlayer(), cardsPlayer({ id: 8, name: 'Other Guy' })] });
+  renderPage();
+  const first = await expandButton('Breece Hall');
+  const second = await expandButton('Other Guy');
+  await userEvent.click(first);
+  await userEvent.click(second);
+  expect(first).toHaveAttribute('aria-expanded', 'false');
+  expect(second).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getAllByTestId('waiver-row-detail')).toHaveLength(1);
+});
+
+test('paging collapses the expanded row', async () => {
+  setup();
+  apiClient.get.mockImplementation((url) => {
+    if (/^\/api\/players\/\d+\/card/.test(url)) return Promise.resolve({ data: { news: [] } });
+    if (url === '/api/players') {
+      return Promise.resolve({
+        data: { players: [cardsPlayer()], totalPages: 3, total: 60, context: { rosterCount: 1, rosterCapacity: 20 } },
+      });
+    }
+    if (url.startsWith('/api/waivers')) return Promise.resolve({ data: waiversBody() });
+    if (url.startsWith('/api/league/')) return Promise.resolve({ data: { league: FAAB_LEAGUE, teams: [] } });
+    if (url.startsWith('/api/team/')) return Promise.resolve({ data: [] });
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  await screen.findByTestId('waiver-row-detail');
+  await userEvent.click(screen.getByRole('button', { name: /page 2/i }));
+  await waitFor(() => expect(screen.queryByTestId('waiver-row-detail')).not.toBeInTheDocument());
+  expect(await expandButton('Breece Hall')).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('a failed News read falls back to the Decision card link', async () => {
+  setup({ players: [cardsPlayer()], cards: { 7: new Error('boom') } });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  const panel = await screen.findByTestId('waiver-row-detail');
+  expect(await within(panel).findByText(/News is on the Decision card/i)).toBeInTheDocument();
+  expect(within(panel).getByRole('button', { name: 'Open Breece Hall Decision card' })).toBeInTheDocument();
+});
+
+test('the phone card expands the same way', async () => {
+  const original = window.matchMedia;
+  window.matchMedia = (query) => ({
+    matches: /max-width/.test(query),
+    media: query,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  });
+  try {
+    setup({ players: [cardsPlayer(SWAPPER)] });
+    renderPage();
+    const button = await expandButton('Breece Hall');
+    expect(screen.getByTestId('player-row-card')).toBeInTheDocument();
+    await userEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByTestId('waiver-row-detail')).toHaveTextContent('Rest of season');
+  } finally {
+    window.matchMedia = original;
+  }
+});
+
+test('re-expanding after a failed News read does not read again', async () => {
+  setup({ players: [cardsPlayer()], cards: { 7: new Error('boom') } });
+  renderPage();
+  const button = await expandButton('Breece Hall');
+  await userEvent.click(button);
+  await screen.findByText(/News is on the Decision card/i);
+  await userEvent.click(button);
+  await userEvent.click(button);
+  expect(await screen.findByText(/News is on the Decision card/i)).toBeInTheDocument();
+  expect(cardReads()).toHaveLength(1);
+});
+
+test('collapsing mid-read and re-expanding neither re-reads nor loses the News', async () => {
+  let release;
+  const cardGate = new Promise((resolve) => {
+    release = resolve;
+  });
+  setup({
+    players: [cardsPlayer()],
+    cardGate,
+    cards: { 7: { news: [{ headline: 'Late headline', url: null, blurb: null, publishedAt: null }] } },
+  });
+  renderPage();
+  const button = await expandButton('Breece Hall');
+  await userEvent.click(button);
+  await screen.findByText('Loading news');
+  await userEvent.click(button);
+  release();
+  await userEvent.click(button);
+  expect(await screen.findByText('Late headline')).toBeInTheDocument();
+  expect(cardReads()).toHaveLength(1);
+});
+
+test('the live region announces the loaded headlines', async () => {
+  setup({
+    players: [cardsPlayer()],
+    cards: { 7: { news: [{ headline: 'One', url: null }, { headline: 'Two', url: null }] } },
+  });
+  renderPage();
+  await userEvent.click(await expandButton('Breece Hall'));
+  const panel = await screen.findByTestId('waiver-row-detail');
+  await within(panel).findByText('One');
+  expect(within(panel).getByRole('status')).toHaveTextContent('2 news items');
 });
