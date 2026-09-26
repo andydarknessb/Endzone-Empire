@@ -755,6 +755,7 @@ test("a touchdown by the viewer's starter queues a cutscene, and an opponent's i
   expect(within(screen.getByTestId('slot-comparison')).getAllByTestId('slot-points')[0]).toHaveTextContent('30.1');
 
   emitScores({
+    week: 3,
     scored: [{ matchupId: 9, homeScore: 107.5, awayScore: 94.4 }],
     plays: [{
       playerId: 6, name: 'D. Adams', position: 'WR', nflTeam: 'LV', opponent: 'DEN',
@@ -768,6 +769,25 @@ test("a touchdown by the viewer's starter queues a cutscene, and an opponent's i
   expect(screen.getAllByRole('alertdialog')).toHaveLength(1);
 });
 
+// #1683: a later week's touchdown by a player who started this week too must
+// not celebrate on this (settled) week's Matchup Detail.
+test("a touchdown stamped for a later week fires no cutscene or toast; the same play for this week does", async () => {
+  reducedMotion = true;
+  renderPage();
+  await screen.findByTestId('scoreboard-strip');
+  const play = {
+    playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',
+    type: 'passing', isTouchdown: true, pointsDelta: 6,
+  };
+
+  emitScores({ week: 4, scored: [{ matchupId: 9, homeScore: 107.5, awayScore: 88 }], plays: [play] });
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+  emitScores({ week: 3, scored: [{ matchupId: 9, homeScore: 107.5, awayScore: 88 }], plays: [play] });
+  expect(screen.getByRole('alertdialog', { name: 'Touchdown, P. Mahomes, +6 points' })).toBeInTheDocument();
+});
+
 test("with celebrations off, the viewer's touchdown fires no cutscene while the opponent's toast still shows", async () => {
   reducedMotion = true;
   mockApi({ prefs: { touchdownCelebrations: false } });
@@ -776,6 +796,7 @@ test("with celebrations off, the viewer's touchdown fires no cutscene while the 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/api/notifications/prefs'));
 
   emitScores({
+    week: 3,
     scored: [],
     plays: [
       { playerId: 5, name: 'P. Mahomes', nflTeam: 'KC', opponent: 'BUF', type: 'passing', isTouchdown: true, pointsDelta: 6 },
@@ -811,6 +832,7 @@ test('a non-touchdown moment play (a sack) flashes the retro callout in Scoreboa
   await toScoreboard();
 
   emitScores({
+    week: 3,
     scored: [{ matchupId: 9, homeScore: 101.5, awayScore: 88 }],
     plays: [{
       playerId: 5, name: 'P. Mahomes', position: 'QB', nflTeam: 'KC', opponent: 'BUF',
@@ -831,6 +853,7 @@ test('the Scoreboard view lists the last touchdown plays by either side, newest 
   expect(screen.queryByTestId('last-plays')).not.toBeInTheDocument();
 
   emitScores({
+    week: 3,
     scored: [],
     plays: [
       { playerId: 6, name: 'D. Adams', nflTeam: 'LV', type: 'receiving', isTouchdown: true, pointsDelta: 6.4 },
