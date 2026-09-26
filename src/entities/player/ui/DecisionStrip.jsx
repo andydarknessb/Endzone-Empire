@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { formatPoints } from '../../../shared/lib';
+import { finite, formatPoints } from '../../../shared/lib';
 
 /**
  * The decision strip (#1307, ADR 0040: "Every context adds the decision
@@ -41,13 +41,17 @@ export default function DecisionStrip({ decision, usage, ownership, depth }) {
     );
   }
 
-  if (ownership && ownership.percentOwned != null) {
+  // ADR 0031: read through finite(), so a blank or non-numeric wire value is
+  // unknown (tile / trend omitted), never a rendered 0.0 or NaN.
+  const percentOwned = finite(ownership?.percentOwned);
+  const ownershipChange = finite(ownership?.change);
+  if (percentOwned != null) {
     tiles.push(
       <Tile key="ownership" label="Ownership" testId="decision-strip-ownership">
-        {`${Number(ownership.percentOwned).toFixed(1)}%`}
-        {ownership.change != null && (
+        {`${percentOwned.toFixed(1)}%`}
+        {ownershipChange != null && (
           <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>
-            {`${ownership.change >= 0 ? '+' : ''}${Number(ownership.change).toFixed(1)} 7d`}
+            {`${ownershipChange >= 0 ? '+' : ''}${ownershipChange.toFixed(1)} 7d`}
           </Typography>
         )}
       </Tile>
