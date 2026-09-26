@@ -7,6 +7,7 @@ describe('unavailableLabel', () => {
     expect(unavailableLabel('bye')).toBe('on bye');
     expect(unavailableLabel('out')).toBe('out');
     expect(unavailableLabel('ir')).toBe('on IR');
+    expect(unavailableLabel('no_team')).toBe('no team');
   });
 
   it('returns null for an unknown or missing reason', () => {

@@ -156,7 +156,7 @@ test('view=cards: a rostered row carries availability.teamId and teamName', asyn
   assert.equal(res.body.players[0].availability.teamName, 'Rival Team');
 });
 
-test('view=cards: an unavailable week (IR) carries projWeek: { reason: "on IR" } and no points', async (t) => {
+test('view=cards: an unavailable week (IR) carries projWeek: { reason: "ir" } and no points', async (t) => {
   const league = makeLeague({ currentWeek: 3 });
   const players = makePlayers(1);
   mockBasePool(t, { league, players });
@@ -173,9 +173,9 @@ test('view=cards: an unavailable week (IR) carries projWeek: { reason: "on IR" }
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   const [player] = res.body.players;
-  assert.deepEqual(player.projWeek, { week: 3, reason: 'on IR' });
+  assert.deepEqual(player.projWeek, { week: 3, reason: 'ir' });
   assert.equal('points' in player.projWeek, false);
-  assert.equal(player.weeks[0].reason, 'on IR');
+  assert.equal(player.weeks[0].reason, 'ir');
   assert.equal(player.weeks.length, 16); // weeks 3..18
 });
 

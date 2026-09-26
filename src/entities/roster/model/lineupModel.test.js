@@ -465,13 +465,16 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(entries.find((e) => e.playerId === 2).locked).toBe(false);
   });
 
-  test('availability reports the reason code alone, no label', () => {
+  test('availability maps the unavailable code from the wire alone, no label, and re-derives nothing (#1675)', () => {
     const entries = lineupEntries(
       [
-        row({ id: 1, slot: 'QB', onBye: true }),
-        row({ id: 2, name: 'Out', slot: 'TE', injury_status: 'O', onBye: false }),
-        row({ id: 3, name: 'IR-eligible', slot: 'FLEX', position: 'RB', injury_status: 'IR', onBye: false }),
-        row({ id: 4, name: 'Healthy', slot: 'FLEX', position: 'WR', injury_status: null, onBye: false }),
+        row({ id: 1, slot: 'QB', onBye: true, unavailable: 'bye' }),
+        row({ id: 2, name: 'Out', slot: 'TE', injury_status: 'O', onBye: false, unavailable: 'out' }),
+        row({ id: 3, name: 'IR-eligible', slot: 'FLEX', position: 'RB', injury_status: 'IR', onBye: false, unavailable: 'ir' }),
+        row({ id: 4, name: 'Healthy', slot: 'FLEX', position: 'WR', injury_status: null, onBye: false, unavailable: null }),
+        row({ id: 5, name: 'Released', slot: 'FLEX', position: 'WR', unavailable: 'no_team' }),
+        // No wire code: the client does not rebuild a verdict from onBye or injury_status.
+        row({ id: 6, name: 'NoCode', slot: 'FLEX', position: 'WR', injury_status: 'O', onBye: true }),
       ],
       league
     );
@@ -480,6 +483,8 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(byId(2).availability).toEqual({ available: false, reason: 'out' });
     expect(byId(3).availability).toEqual({ available: false, reason: 'ir' });
     expect(byId(4).availability).toEqual({ available: true, reason: null });
+    expect(byId(5).availability).toEqual({ available: false, reason: 'no_team' });
+    expect(byId(6).availability).toEqual({ available: true, reason: null });
   });
 
   // #1502: eligibleSlots is no longer this module's own fact - it is built by

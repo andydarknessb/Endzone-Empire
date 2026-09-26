@@ -181,7 +181,7 @@ const lineupBody = (overrides = {}) => ({
     // Bench player, Unavailable (out), Edge line kind "injury".
     entryRow({
       id: 10, name: 'Bench Guy', position: 'WR', slot: 'BENCH', nfl_team: 'MIA',
-      injury_status: 'O', projected_points: null, projection: null,
+      injury_status: 'O', unavailable: 'out', projected_points: null, projection: null,
       edge: { kind: 'injury', text: 'Out' },
     }),
     // IR player, attested stash.

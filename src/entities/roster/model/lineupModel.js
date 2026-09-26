@@ -74,8 +74,8 @@ const IR = 'IR';
 // injury_status codes that are "questionable-class" rather than Unavailable
 // (#1330 ruling): the feed's `normalizeInjuryStatus`
 // (server/services/scoring.service.js) writes exactly four non-null codes -
-// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (`unavailableReasonFor`
-// below), so the remaining two, Q and D, are the whole set. This is the one
+// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (the wire's
+// `unavailable` code), so the remaining two, Q and D, are the whole set. This is the one
 // spelling of "questionable"; a widget reads it through `isQuestionable`
 // below rather than inventing its own designation list.
 const QUESTIONABLE_DESIGNATIONS = new Set(['Q', 'D']);
@@ -235,8 +235,8 @@ export function locked(entry) {
  * Whether a lineup entry's injury designation is questionable-class (#1330
  * ruling: Q or D, `QUESTIONABLE_DESIGNATIONS` above) - the feed's only two
  * non-null, non-Unavailable codes. Reads the camelCase `injuryStatus` this
- * module's builders produce, matching `unavailableReasonFor`'s own read of
- * that field.
+ * module's builders produce, reading the same field as the server's
+ * Unavailable verdict.
  */
 export function isQuestionable(entry) {
   const status = (entry && entry.injuryStatus) ?? null;
@@ -244,20 +244,14 @@ export function isQuestionable(entry) {
 }
 
 /**
- * A lineup entry's availability (CONTEXT.md's Unavailable: on bye, Out, or on
- * IR - Questionable and Doubtful are NOT unavailable). `reason` is the code
- * alone ('bye' | 'out' | 'ir' | null), no label; a caller renders its own
- * copy the way LineupScreen.jsx's UNAVAILABLE_LABELS does. Mirrors
- * projectionModel.js's `availabilityFor`'s bye/O/IR branches, narrowed to
- * just `{ available, reason }` - this entity does not model
- * activeProbability or autoRecommend, which are start/sit advisor concerns.
+ * A lineup entry's availability from the wire's own Unavailable code
+ * (CONTEXT.md's Unavailable; #1668 made `unavailable` the verdict's reason
+ * code: 'bye' | 'out' | 'ir' | 'no_team', null when the player can play).
+ * `reason` is the code alone, no label; a caller renders it through
+ * `unavailableLabel`. The client holds no copy of the verdict (#1675).
  */
-function unavailableReasonFor(entry) {
-  if (entry.onBye) return { available: false, reason: 'bye' };
-  const status = entry.injuryStatus;
-  if (status === 'O') return { available: false, reason: 'out' };
-  if (status === 'IR') return { available: false, reason: 'ir' };
-  return { available: true, reason: null };
+function availabilityFor(code) {
+  return code ? { available: false, reason: code } : { available: true, reason: null };
 }
 
 /**
@@ -394,12 +388,9 @@ export function lineupEntries(rosterWire, league) {
       ...entry,
       eligibleSlots: slotsFor(rosterSlots, entry),
       locked: locked(r),
-      availability: unavailableReasonFor(entry),
+      availability: availabilityFor(r.unavailable ?? null),
       // The server's own Unavailable reason (#1235), passed through
-      // unchanged alongside this model's locally-derived `availability`
-      // above - the two can never disagree, since both ultimately read the
-      // same onBye/injury facts, but a consumer that wants the server's own
-      // answer directly (rather than re-deriving it) can read this field.
+      // unchanged; `availability` above is mapped from this same code.
       unavailable: r.unavailable ?? null,
       // The Edge line (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
       // `{ kind, text }`, computed on the server (`lineup.service.js`'s

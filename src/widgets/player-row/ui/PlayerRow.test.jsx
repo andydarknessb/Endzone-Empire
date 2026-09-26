@@ -76,7 +76,7 @@ test('Ownership renders nothing when null, never a dash or an "unavailable" labe
 
 test('an unavailable Proj Wk shows the reason, never a fabricated number', () => {
   renderRow({
-    player: player({ projWeek: { week: 3, reason: 'on IR' } }),
+    player: player({ projWeek: { week: 3, reason: 'ir' } }),
     action: { kind: 'button', label: 'Add', onClick: jest.fn() },
   });
 

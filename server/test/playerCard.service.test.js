@@ -162,6 +162,26 @@ test('getPlayerCard: a player on bye in week N yields weeks[N-1].kind === "bye" 
   assert.equal('opponentRankVsPosition' in card.weeks[4], false);
 });
 
+test('getPlayerCard (#1675): weeks[].reason is the Unavailable reason CODE - bye reads bye, a released player reads no_team, IR reads ir', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, {
+    byeWeek: 5,
+    weeklyProjection: (week) => {
+      if (week === 7) return { median: null, factors: { availability: { available: false, reason: 'no_team' } } };
+      if (week === 8) return { median: null, factors: { availability: { available: false, reason: 'ir' } } };
+      if (week === 9) return { median: null, factors: { availability: { available: false, reason: 'out' } } };
+      return { median: 5, factors: { availability: { available: true } } };
+    },
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  assert.equal(card.weeks[4].reason, 'bye');
+  assert.equal(card.weeks[6].kind, 'unavailable');
+  assert.equal(card.weeks[6].reason, 'no_team');
+  assert.equal(card.weeks[7].reason, 'ir');
+  assert.equal(card.weeks[8].reason, 'out');
+});
+
 test('getPlayerCard: a rostered player yields availability.teamId and teamName', async (t) => {
   createFakePool(buildHandlers({ rosteredBy: { team_id: 77, team_name: 'Rival Team' } })).install(t);
   mockServices(t);

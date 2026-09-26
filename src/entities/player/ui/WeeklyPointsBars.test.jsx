@@ -56,6 +56,18 @@ test('an unavailable week shows its reason instead of a number', () => {
   expect(within(unavailable).queryByTestId('weekly-bar-3-fill')).not.toBeInTheDocument();
 });
 
+test('bars label the reason code through the shared map: "on bye" and "no team" (#1675)', () => {
+  const list = weeks();
+  list[7] = { week: 8, opponent: null, kind: 'bye', reason: 'bye' };
+  list[2] = { week: 3, opponent: 'KC', kind: 'unavailable', reason: 'no_team' };
+  list[5] = { week: 6, opponent: 'KC', kind: 'unavailable', reason: 'ir' };
+  render(<WeeklyPointsBars weeks={list} currentWeek={5} />);
+  expect(screen.getByTestId('weekly-bar-8')).toHaveAttribute('title', 'Week 8: on bye');
+  expect(screen.getByTestId('weekly-bar-3')).toHaveAttribute('title', 'Week 3 vs KC: no team');
+  expect(screen.getByTestId('weekly-bar-3-reason')).toHaveTextContent('no team');
+  expect(screen.getByTestId('weekly-bar-6-reason')).toHaveTextContent('on IR');
+});
+
 test('the current week carries the accessible current marker', () => {
   render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} />);
   const current = screen.getByTestId('weekly-bar-5');
