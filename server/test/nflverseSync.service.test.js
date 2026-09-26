@@ -475,7 +475,6 @@ test('isNflverseFinalizationDay is false Friday through Sunday', () => {
 // nflverse cannot supply: Tank01's play-by-play TD-length arrays, which price
 // TD-length bonuses for leagues that opted into them.
 
-const pool = require('../modules/pool');
 const nflverseSync = require('../services/nflverseSync.service');
 
 test('PBP_ONLY_STAT_KEYS covers the TD-length arrays and not FG distances', () => {
@@ -487,37 +486,41 @@ test('PBP_ONLY_STAT_KEYS covers the TD-length arrays and not FG distances', () =
   assert.ok(!nflverseSync.PBP_ONLY_STAT_KEYS.includes('fieldGoalDistances'));
 });
 
-test('applyNflverseFullWeek carries forward preserved keys over the fresh stats', async (t) => {
+/** The fake pool the nflverse-correction run needs: the two fetch-side reads on
+ * the pool, the carry-forward read and the stat upserts on each unit's client,
+ * and the one run row on the pool. */
+function fakeCorrectionPool(t, { existing = [], defRows = [], upserts = [], runRows = [] } = {}) {
+  return createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'pool'],
+    [/"position" = 'DEF'/, () => ({ rows: defRows }), 'pool'],
+    [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: existing }), 'client'],
+    [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), (text, params) => { runRows.push(params); return { rows: [] }; }],
+  ]).install(t);
+}
+
+const CORRECTION_PLAYER_ROW = {
+  season: '2025', week: '3', season_type: 'REG', player_id: '00-0039924',
+  passing_yards: '300', team: 'KC', opponent_team: 'BUF',
+};
+const CORRECTION_TEAM_ROWS = [
+  { season: '2025', week: '3', season_type: 'REG', game_id: '2025_03_BUF_KC', team: 'KC', opponent_team: 'BUF' },
+  { season: '2025', week: '3', season_type: 'REG', game_id: '2025_03_BUF_KC', team: 'BUF', opponent_team: 'KC' },
+];
+
+test('syncNflverseCorrection carries forward preserved keys over the fresh stats', async (t) => {
   const upserts = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    if (text.includes('FROM "players" WHERE "external_id"')) {
-      return { rows: [{ id: 42, external_id: '4429795' }] };
-    }
-    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
-    if (text.includes('FROM "player_stats"')) {
-      // What Tank01 wrote live: pbp arrays plus a now-corrected yardage figure.
-      return {
-        rows: [
-          {
-            player_id: 42,
-            stats: { passingYards: 288, passingTDLengths: [42, 7], receivingTDLengths: [] },
-          },
-        ],
-      };
-    }
-    if (text.includes('INTO "player_stats"')) {
-      upserts.push(params);
-      return { rows: [] };
-    }
-    throw new Error(`Unexpected SQL: ${text}`);
+  fakeCorrectionPool(t, {
+    upserts,
+    // What Tank01 wrote live: pbp arrays plus a now-corrected yardage figure.
+    existing: [{ player_id: 42, stats: { passingYards: 288, passingTDLengths: [42, 7], receivingTDLengths: [] } }],
   });
 
-  await nflverseSync.applyNflverseFullWeek({
+  await nflverseSync.syncNflverseCorrection({
     season: 2025,
     week: 3,
-    playerRows: [{ season: '2025', week: '3', season_type: 'REG', player_id: '00-0039924', passing_yards: '300' }],
-    teamRows: [],
+    playerRows: [CORRECTION_PLAYER_ROW],
+    teamRows: CORRECTION_TEAM_ROWS,
     scoresByGameId: new Map(),
     crosswalk: new Map([['00-0039924', '4429795']]),
     preserveKeys: nflverseSync.PBP_ONLY_STAT_KEYS,
@@ -525,60 +528,32 @@ test('applyNflverseFullWeek carries forward preserved keys over the fresh stats'
 
   assert.equal(upserts.length, 1);
   const stats = JSON.parse(upserts[0][3]);
-  assert.equal(stats.passingYards, 300, 'nflverse’s corrected number wins');
+  assert.equal(stats.passingYards, 300, 'nflverse corrected number wins');
   assert.deepEqual(stats.passingTDLengths, [42, 7], 'the pbp-only array survived');
   assert.deepEqual(stats.receivingTDLengths, []);
 });
 
-test('applyNflverseFullWeek preserves nothing by default (backfill behavior)', async (t) => {
+test('syncNflverseCorrection preserves nothing by default (backfill behavior)', async (t) => {
   const upserts = [];
-  let readExisting = false;
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    if (text.includes('FROM "players" WHERE "external_id"')) {
-      return { rows: [{ id: 42, external_id: '4429795' }] };
-    }
-    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
-    if (text.includes('FROM "player_stats"')) {
-      readExisting = true;
-      return { rows: [] };
-    }
-    if (text.includes('INTO "player_stats"')) {
-      upserts.push(params);
-      return { rows: [] };
-    }
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
+  const fake = fakeCorrectionPool(t, { upserts });
 
-  await nflverseSync.applyNflverseFullWeek({
+  await nflverseSync.syncNflverseCorrection({
     season: 2025,
     week: 3,
-    playerRows: [{ season: '2025', week: '3', season_type: 'REG', player_id: '00-0039924', passing_yards: '300' }],
-    teamRows: [],
+    playerRows: [CORRECTION_PLAYER_ROW],
+    teamRows: CORRECTION_TEAM_ROWS,
     scoresByGameId: new Map(),
     crosswalk: new Map([['00-0039924', '4429795']]),
   });
 
-  assert.equal(readExisting, false, 'no extra read when nothing needs preserving');
+  assert.equal(fake.matching(/^SELECT "player_id", "stats"/).length, 0, 'no extra read when nothing needs preserving');
   assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
 });
 
-test('applyNflverseFullWeek still matches Washington: nflverse WAS -> the Washington Commanders DEF unit (#431)', async (t) => {
+test('syncNflverseCorrection still matches Washington: nflverse WAS -> the Washington Commanders DEF unit (#431)', async (t) => {
   const upserts = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    if (text.includes('FROM "players" WHERE "external_id"')) return { rows: [] };
-    if (text.includes(`"position" = 'DEF'`)) {
-      // Seeded DEF unit stored as a full name, which folds to the Team code WAS.
-      return { rows: [{ id: 91, nfl_team: 'Washington Commanders' }] };
-    }
-    if (text.includes('FROM "player_stats"')) return { rows: [] };
-    if (text.includes('INTO "player_stats"')) {
-      upserts.push(params);
-      return { rows: [] };
-    }
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
+  // Seeded DEF unit stored as a full name, which folds to the Team code WAS.
+  fakeCorrectionPool(t, { upserts, defRows: [{ id: 91, nfl_team: 'Washington Commanders' }] });
 
   // nflverse spells Washington WAS (not Tank01's WSH); the fold to the Team code
   // must leave that path matching, since it is what masks the live bug today.
@@ -600,7 +575,7 @@ test('applyNflverseFullWeek still matches Washington: nflverse WAS -> the Washin
       fg_blocked: '0', pat_blocked: '0', pt_blocked: '0',
     },
   ];
-  const out = await nflverseSync.applyNflverseFullWeek({
+  const out = await nflverseSync.syncNflverseCorrection({
     season: 2026,
     week: 1,
     playerRows: [],
@@ -612,6 +587,7 @@ test('applyNflverseFullWeek still matches Washington: nflverse WAS -> the Washin
   });
 
   assert.equal(out.dstUpdated, 1, 'only the seeded Washington DEF unit was matched (DAL is not seeded)');
+  assert.equal(out.gamesInFile, 1);
   const wasUpsert = upserts.find((p) => p[0] === 91);
   assert.ok(wasUpsert, 'the Washington DEF unit (id 91) got its nflverse DST row');
   const stored = JSON.parse(wasUpsert[3]);
@@ -619,9 +595,43 @@ test('applyNflverseFullWeek still matches Washington: nflverse WAS -> the Washin
   assert.equal(stored.pointsAllowed, 17, 'away score, WAS is home');
 });
 
-/** Stubs the four CSV fetches + every query the correction path makes. */
-function stubCorrectionWorld(t) {
-  const upserts = [];
+test('buildCorrectionUnits: one unit per game; players join through their team; an unmatched team trails as gameId null', () => {
+  const teamRows = [
+    { game_id: 'g1', team: 'KC' }, { game_id: 'g1', team: 'BUF' },
+    { game_id: 'g2', team: 'DAL' }, { game_id: 'g2', team: 'WAS' },
+  ];
+  const playerRows = [{ team: 'BUF', n: 1 }, { team: 'DAL', n: 2 }, { team: 'KC', n: 3 }, { team: 'ZZZ', n: 4 }];
+  const units = nflverseSync.buildCorrectionUnits({ weekPlayerRows: playerRows, weekTeamRows: teamRows });
+  assert.deepEqual(units.map((u) => u.gameId), ['g1', 'g2', null]);
+  assert.deepEqual(units[0].playerRows.map((r) => r.n), [1, 3]);
+  assert.equal(units[0].teamRows.length, 2);
+  assert.deepEqual(units[2].playerRows.map((r) => r.n), [4]);
+});
+
+test('syncNflverseCorrection: one transaction per game, one run row', async (t) => {
+  const runRows = [];
+  const fake = fakeCorrectionPool(t, { runRows });
+  const teamRows = [
+    ...CORRECTION_TEAM_ROWS,
+    { season: '2025', week: '3', season_type: 'REG', game_id: '2025_03_DAL_WAS', team: 'DAL', opponent_team: 'WAS' },
+    { season: '2025', week: '3', season_type: 'REG', game_id: '2025_03_DAL_WAS', team: 'WAS', opponent_team: 'DAL' },
+  ];
+  const out = await nflverseSync.syncNflverseCorrection({
+    season: 2025, week: 3,
+    playerRows: [CORRECTION_PLAYER_ROW],
+    teamRows,
+    scoresByGameId: new Map(),
+    crosswalk: new Map([['00-0039924', '4429795']]),
+  });
+  assert.equal(out.gamesInFile, 2);
+  assert.equal(out.playersUpdated, 1);
+  assert.equal(runRows.length, 1, 'exactly one run row');
+  assert.equal(fake.matching(/^BEGIN$/).length, 2, 'each game in its own transaction');
+  fake.assertClean();
+});
+
+// The whole path: correctWeekFromNflverse fetches the season files itself.
+function stubCorrectionFeed(t) {
   t.mock.method(axios, 'get', async (url) => {
     if (url.includes('stats_player_week')) {
       return {
@@ -632,32 +642,29 @@ function stubCorrectionWorld(t) {
       };
     }
     if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
-    if (url.includes('stats_team_week')) return { data: 'season,week,season_type,team\n' };
+    if (url.includes('stats_team_week')) {
+      return {
+        data: [
+          'season,week,season_type,game_id,team,opponent_team',
+          '2025,3,REG,2025_03_BUF_KC,KC,BUF',
+          '2025,3,REG,2025_03_BUF_KC,BUF,KC',
+        ].join('\n'),
+      };
+    }
     return { data: 'game_id,season,game_type,week\n' }; // games.csv
   });
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    if (text.includes('FROM "players" WHERE "external_id"')) {
-      return { rows: [{ id: 42, external_id: '4429795' }] };
-    }
-    if (text.includes(`"position" = 'DEF'`)) return { rows: [] };
-    if (text.includes('FROM "player_stats"')) {
-      return { rows: [{ player_id: 42, stats: { passingYards: 288, passingTDLengths: [42, 7] } }] };
-    }
-    if (text.includes('INTO "player_stats"')) {
-      upserts.push(params);
-      return { rows: [] };
-    }
-    throw new Error(`Unexpected SQL: ${text}`);
-  });
-  return upserts;
 }
 
 test('correctWeekFromNflverse preserves the pbp-only keys without the caller asking', async (t) => {
   // This path always runs over weeks Tank01 already filled, so the default has
   // to live in the function rather than in each caller (correction.service
   // passes only season/week/rescoreLeagues).
-  const upserts = stubCorrectionWorld(t);
+  stubCorrectionFeed(t);
+  const upserts = [];
+  fakeCorrectionPool(t, {
+    upserts,
+    existing: [{ player_id: 42, stats: { passingYards: 288, passingTDLengths: [42, 7] } }],
+  });
   await nflverseSync.correctWeekFromNflverse({ season: 2025, week: 3, rescoreLeagues: false });
 
   const stats = JSON.parse(upserts[0][3]);
@@ -670,7 +677,9 @@ test('correctWeekFromNflverse preserves the pbp-only keys without the caller ask
 });
 
 test('correctWeekFromNflverse still honors an explicit preserveKeys', async (t) => {
-  const upserts = stubCorrectionWorld(t);
+  stubCorrectionFeed(t);
+  const upserts = [];
+  fakeCorrectionPool(t, { upserts, existing: [{ player_id: 42, stats: { passingTDLengths: [42, 7] } }] });
   await nflverseSync.correctWeekFromNflverse({
     season: 2025, week: 3, rescoreLeagues: false, preserveKeys: [],
   });

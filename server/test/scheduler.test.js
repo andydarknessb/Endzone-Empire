@@ -1017,6 +1017,10 @@ test('getSchedulerStatus never throws when the data_sync_runs read fails, and lo
 test('getSchedulerStatus.syncRuns reports every job, null for one with no rows', async (t) => {
   dataSyncRunsPool({}).install(t);
   const status = await scheduler.getSchedulerStatus();
+  for (const job of ['nflverse-correction', 'nflverse-snaps']) {
+    assert.ok(scheduler.SYNC_RUN_JOBS.includes(job), `${job} is a Sync run the health probe lists`);
+    assert.ok(job in status.syncRuns, `${job} appears in the status report`);
+  }
   assert.deepEqual(Object.keys(status.syncRuns), scheduler.SYNC_RUN_JOBS);
   for (const job of scheduler.SYNC_RUN_JOBS) {
     assert.deepEqual(status.syncRuns[job], { latest: null, latestOk: null });
