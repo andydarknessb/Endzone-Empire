@@ -366,6 +366,35 @@ test('buildSuggestions: the #1483 pair (starter mean 9.03/median 8.21, bench mea
   assert.equal(v31.optimalTotal, 10.06);
 });
 
+test('buildSuggestions: ranking follows projectionService.pointEstimateFor (#1678)', () => {
+  const projectionService = require('../services/projection.service');
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const dist = (mean, median) => ({ mean, median, p10: 0, p25: 1, p75: 20, p90: 30 });
+  const projections = new Map([
+    [1, { points: 9, projection: dist(9, 8) }],
+    [2, { points: 7, projection: dist(7, 10) }],
+  ]);
+  for (const lineupRanking of ['mean', 'median']) {
+    const constants = { decision: { lineupRanking } };
+    const estimate = (id) => projectionService.pointEstimateFor(projections.get(id).projection, constants);
+    const benchWins = estimate(2) > estimate(1);
+    const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking });
+    assert.equal(result.movePlan.some((m) => m.playerId === 2 && m.toSlot === 'RB'), benchWins,
+      `${lineupRanking}: the ranking agrees with pointEstimateFor`);
+  }
+});
+
+test('buildSuggestions: a finite mean with no display points ranks by the mean (#1678)', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = new Map([
+    [1, { points: 3 }],
+    // No display points and no median: pointEstimateFor falls back to the mean.
+    [2, { points: null, projection: { mean: 9, median: null, p10: 4, p25: 6, p75: 12, p90: 15 } }],
+  ]);
+  const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'median' });
+  assert.deepEqual(result.movePlan.map((m) => [m.playerId, m.toSlot]), [[2, 'RB'], [1, 'BENCH']]);
+});
+
 // ---------------------------------------------------------------------------
 // fitAdjustedValue
 // ---------------------------------------------------------------------------
