@@ -66,3 +66,21 @@ test('Depth chart shows position group and rank, and hides on null', () => {
   expect(screen.queryByTestId('decision-strip-depth')).not.toBeInTheDocument();
   expect(screen.queryByText(/null|unavailable/i)).not.toBeInTheDocument();
 });
+
+test('Ownership reads percent and trend through finite(): blank and non-numeric are unknown, zero is known', () => {
+  const { rerender } = render(<DecisionStrip ownership={{ percentOwned: '', change: 1 }} />);
+  expect(screen.queryByTestId('decision-strip-ownership')).not.toBeInTheDocument();
+
+  rerender(<DecisionStrip ownership={{ percentOwned: 'abc', change: 1 }} />);
+  expect(screen.queryByTestId('decision-strip-ownership')).not.toBeInTheDocument();
+
+  rerender(<DecisionStrip ownership={{ percentOwned: 40, change: '' }} />);
+  expect(screen.getByTestId('decision-strip-ownership').textContent).toBe('Ownership40.0%');
+
+  rerender(<DecisionStrip ownership={{ percentOwned: 40, change: 'abc' }} />);
+  expect(screen.getByTestId('decision-strip-ownership').textContent).toBe('Ownership40.0%');
+
+  rerender(<DecisionStrip ownership={{ percentOwned: 0, change: 0 }} />);
+  expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('0.0%');
+  expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('+0.0 7d');
+});

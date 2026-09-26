@@ -8,14 +8,15 @@
  *
  * `buildWeeksForPage` never marks a week 'actual' (the list runs from the
  * CURRENT week forward only, ADR 0040's Lead correction item 3), so every
- * points-bearing week maps to 'projected'; `reason: 'on bye'` is WeeklyPointsBars'
- * own 'bye' kind, and any other reason ('on IR', 'out') is its 'unavailable'
- * kind, carrying the reason through unchanged.
+ * points-bearing week maps to 'projected'; `reason: 'bye'` (the wire's Unavailable
+ * reason code, #1675) is WeeklyPointsBars' own 'bye' kind, and any other code
+ * ('ir', 'out', 'no_team') is its 'unavailable' kind, carrying the code
+ * through unchanged for the bars to label.
  */
 export function weeksForSparkline(weeks) {
   if (!Array.isArray(weeks)) return [];
   return weeks.map((week) => {
-    if (week.reason === 'on bye') return { week: week.week, kind: 'bye' };
+    if (week.reason === 'bye') return { week: week.week, kind: 'bye' };
     if (week.reason != null) return { week: week.week, kind: 'unavailable', reason: week.reason };
     return { week: week.week, kind: 'projected', points: week.points };
   });

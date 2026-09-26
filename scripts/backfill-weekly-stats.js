@@ -170,7 +170,7 @@ async function runNflverseSeason({ season, weeks, crosswalk, summary }) {
   for (const wk of weeks) {
     const expectedGames = await expectedGamesFor(season, wk);
     try {
-      const out = await nflverse.applyNflverseFullWeek({
+      const out = await nflverse.syncNflverseCorrection({
         season, week: wk, playerRows, teamRows, scoresByGameId, crosswalk,
         preserveKeys: [...nflverse.PBP_ONLY_STAT_KEYS, ...nflverse.SNAP_STAT_KEYS],
       });

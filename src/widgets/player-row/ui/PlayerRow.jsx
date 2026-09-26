@@ -19,7 +19,7 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX, formatPoints } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, formatPoints, unavailableLabel } from '../../../shared/lib';
 import { formatRelative } from '../../../utils/formatRelative';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';
 import { weeksForSparkline } from '../model/weeksAdapter';
@@ -101,7 +101,7 @@ function StatusCell({ player }) {
  * players show the reason, never a number, in the list and on the bars"). */
 function ProjWeekCell({ projWeek }) {
   if (!projWeek) return <span>-</span>;
-  if (projWeek.reason) return <span>{projWeek.reason}</span>;
+  if (projWeek.reason) return <span>{unavailableLabel(projWeek.reason) || projWeek.reason}</span>;
   return <span>{formatPoints(projWeek.points)}</span>;
 }
 

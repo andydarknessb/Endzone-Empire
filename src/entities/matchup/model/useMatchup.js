@@ -148,6 +148,9 @@ export function useMatchup(leagueId, matchupId, { onScores, slotOrder } = {}) {
           setHome((prev) => applyStarterDeltas(prev, deltaById));
           setAway((prev) => applyStarterDeltas(prev, deltaById));
         }
+        // The same guard gates the callback (#1683): a week-less or other-week
+        // event never reaches the page's cutscenes, toasts, ticker or retro field.
+        if (event?.week == null || event.week !== weekRef.current) return;
         onScoresRef.current?.({ ...event, plays });
       },
       // A reconnect refetches to recover the deltas missed while offline, but

@@ -227,7 +227,7 @@ function attributePlayPoints(prev, next, events, wholeDelta) {
  * leave WSH as WSH and never reconcile it with WAS (the #431 bug).
  *
  * ONE builder, shared by both DEF-scoring paths — the live box-score apply
- * (loadWeekMaps, below) and the nflverse finalization (applyNflverseFullWeek) —
+ * (loadWeekMaps, below) and the nflverse finalization (syncNflverseCorrection) —
  * so the keying rule lives in exactly one place and the two paths cannot drift.
  * Each caller looks the map up by folding ITS box-score/stat side through
  * normalizeNflTeam the same way, and reads what it needs off the row (the live

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { formatPoints } from '../../../shared/lib';
+import { formatPoints, unavailableLabel } from '../../../shared/lib';
 
 /**
  * The eighteen-week bars (#1307, ADR 0040: "Every context adds ... the
@@ -96,10 +96,16 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd, dense 
   );
 }
 
+// The wire carries the Unavailable reason CODE (#1675); the shared map labels
+// it. A code the map does not know reads as the code itself, never blank.
+function reasonLabel(reason) {
+  return unavailableLabel(reason) || reason;
+}
+
 function weekTitle(week) {
   const opponent = week.opponent ? ` vs ${week.opponent}` : '';
-  if (week.kind === 'bye') return `Week ${week.week}: bye`;
-  if (week.kind === 'unavailable') return `Week ${week.week}${opponent}: ${week.reason}`;
+  if (week.kind === 'bye') return `Week ${week.week}: ${unavailableLabel('bye')}`;
+  if (week.kind === 'unavailable') return `Week ${week.week}${opponent}: ${reasonLabel(week.reason)}`;
   const points = week.points != null ? formatPoints(week.points) : 'no number';
   const label = week.kind === 'projected' ? `${points} projected` : points;
   return `Week ${week.week}${opponent}: ${label}`;
@@ -144,7 +150,7 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd, dense }) {
           data-testid={`weekly-bar-${week.week}-reason`}
           sx={{ fontSize: 9, fontWeight: 700, color: 'var(--warning)', textAlign: 'center', lineHeight: 1.1 }}
         >
-          {week.reason}
+          {reasonLabel(week.reason)}
         </Typography>
       )}
       {(week.kind === 'actual' || week.kind === 'projected') && (

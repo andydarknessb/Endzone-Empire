@@ -2,6 +2,7 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LedgerRow from './LedgerRow';
+import { lineupEntries } from '../../../entities/roster';
 
 const entry = (overrides = {}) => ({
   playerId: 1,
@@ -109,6 +110,17 @@ test('an Unavailable row shows the reason in the projection cell and a dash for 
   );
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('out');
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
+});
+
+test('a wire entry whose unavailable is no_team reads "no team" in the projection cell (#1675)', () => {
+  const league = { roster_slots: [{ key: 'WR', count: 1, eligiblePositions: ['WR'] }] };
+  const [wireEntry] = lineupEntries([{
+    id: 9, name: 'Released Guy', position: 'WR', nfl_team: null, slot: 'WR', projected_points: null,
+    injury_status: null, opponent: null, bye_week: null, locked: false, onBye: false,
+    valid_stash: false, unavailable: 'no_team',
+  }], league);
+  render(<LedgerRow slotLabel="WR" entry={wireEntry} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no team');
 });
 
 test('an Unavailable Game cell reads its own reason state, distinct from bye (formal review)', () => {

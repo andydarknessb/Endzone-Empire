@@ -72,7 +72,7 @@ function stubNflverseSeason(t) {
   t.mock.method(nflverse, 'fetchPlayerWeekStatsForSeason', async () => []);
   t.mock.method(nflverse, 'fetchTeamWeekStatsForSeason', async () => []);
   t.mock.method(nflverse, 'fetchGameScoresForSeason', async () => new Map());
-  t.mock.method(nflverse, 'applyNflverseFullWeek', async (args) => {
+  t.mock.method(nflverse, 'syncNflverseCorrection', async (args) => {
     applied.push(args);
     return { playersUpdated: 3, dstUpdated: 2, gamesInFile: 16 };
   });
