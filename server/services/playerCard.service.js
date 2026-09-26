@@ -675,9 +675,16 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       rules,
       side: decisionCardContextService.sideForPosition(player.position),
     }),
-    decisionCardContextService.loadGameContext({ season, week: effectiveWeek, nflTeam: player.nfl_team }),
+    decisionCardContextService.loadGameContext({ season, week: effectiveWeek, nflTeam: player.nfl_team })
+      .catch((err) => {
+        console.error('getPlayerCard: game context failed', err);
+        return { line: null, weather: null };
+      }),
     decisionCardContextService.loadOpponents({
       leagueId, player, season, week: Number(effectiveWeek), rules,
+    }).catch((err) => {
+      console.error('getPlayerCard: opponents failed', err);
+      return [];
     }),
     projectionService.getRestOfSeason([player.id], leagueId),
     availabilityFor({ league, team, player }),

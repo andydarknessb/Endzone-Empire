@@ -5,7 +5,7 @@ const { calculateFantasyPoints } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 const { isPresentNumber: isNum } = require('./numericPresence');
 const { positionGroup } = require('./projectionModel');
-const { loadLeagueContext } = require('./projectionFeatures');
+const projectionFeatures = require('./projectionFeatures');
 
 /**
  * The Decision card's per-player context loaders (#1236, ADR 0037, ADR 0032;
@@ -249,7 +249,8 @@ function opponentEntries(games, allowedByDefense) {
 // The per-position season scan behind Opponent rank is the heaviest query on
 // the card read, and a Waivers row expand opens many cards at one position in
 // one league/week (#1667). Memoised here, keyed league + season + week +
-// position (the rules are the league's own), for ten minutes. The in-flight
+// position (the rules are the league's own), for ten minutes; a scoring-rules
+// edit is served under the old rules for up to LEAGUE_CONTEXT_TTL_MS. The in-flight
 // promise is cached so concurrent reads share one scan; a failed scan is
 // dropped so the next read retries.
 const LEAGUE_CONTEXT_TTL_MS = 10 * 60 * 1000;
@@ -259,12 +260,20 @@ function clearLeagueContextMemo() {
   leagueContextMemo.clear();
 }
 
+function leagueContextMemoSize() {
+  return leagueContextMemo.size;
+}
+
 function memoLeagueContext({ leagueId, season, week, rules, position }) {
   const key = `${leagueId}:${season}:${week}:${position}`;
   const now = Date.now();
   const hit = leagueContextMemo.get(key);
   if (hit && now - hit.at < LEAGUE_CONTEXT_TTL_MS) return hit.promise;
-  const promise = loadLeagueContext({ season, week, rules, positions: [position] });
+  // Sweep on set: a past week's key is never read again, so drop every expired entry.
+  for (const [k, entry] of leagueContextMemo) {
+    if (now - entry.at >= LEAGUE_CONTEXT_TTL_MS) leagueContextMemo.delete(k);
+  }
+  const promise = projectionFeatures.loadLeagueContext({ season, week, rules, positions: [position] });
   leagueContextMemo.set(key, { at: now, promise });
   promise.catch(() => {
     if (leagueContextMemo.get(key)?.promise === promise) leagueContextMemo.delete(key);
@@ -298,6 +307,8 @@ async function loadOpponents({ leagueId, player, season, week, rules }) {
 module.exports = {
   LEAGUE_CONTEXT_TTL_MS,
   clearLeagueContextMemo,
+  leagueContextMemoSize,
+  memoLeagueContext,
   loadLine,
   loadWeather,
   loadOpponents,
