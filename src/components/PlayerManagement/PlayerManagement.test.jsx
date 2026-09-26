@@ -84,13 +84,32 @@ function mockBrowser({
   templateLeagueLoading = false,
   myClaims = [],
   claimsAfterAction = null,
+  deferWaiverRefresh = false,
+  rejectWaiverRefresh = false,
 } = {}) {
   let actionDone = false;
+  let resolveWaiverRefresh;
+  const deferredWaiverRefresh = deferWaiverRefresh ? new Promise((resolve) => { resolveWaiverRefresh = resolve; }) : null;
+
   if (claimsAfterAction) apiClient.post.mockImplementation(async () => { actionDone = true; return {}; });
   apiClient.get.mockImplementation((url) => {
     if (url === "/api/league") return Promise.resolve({ data: leagues });
     if (url.startsWith("/api/team/roster")) return Promise.resolve({ data: roster });
-    if (url.startsWith("/api/waivers?")) return Promise.resolve({ data: { myClaims: actionDone && claimsAfterAction ? claimsAfterAction : myClaims } });
+    if (url.startsWith("/api/waivers?")) {
+      // Handle the post-action refresh read with deferred/rejecting behavior
+      if (actionDone) {
+        if (deferWaiverRefresh) {
+          return deferredWaiverRefresh.then(() =>
+            Promise.resolve({ data: { myClaims: claimsAfterAction } })
+          );
+        }
+        if (rejectWaiverRefresh) {
+          return Promise.reject(new Error("Waiver refresh failed"));
+        }
+        return Promise.resolve({ data: { myClaims: claimsAfterAction } });
+      }
+      return Promise.resolve({ data: { myClaims } });
+    }
     if (url === "/api/players")
       return Promise.resolve({
         data: {
@@ -111,6 +130,12 @@ function mockBrowser({
       });
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
+
+  // Make resolveWaiverRefresh available for tests that need to control resolution timing
+  if (deferWaiverRefresh) {
+    mockBrowser.resolveWaiverRefresh = resolveWaiverRefresh;
+  }
+
   useLeague.mockReturnValue({
     league: templateLeague,
     viewerTeamId: null,
@@ -415,6 +440,53 @@ test("Pending claims count moves after a claim submitted from the at-capacity De
 
   // The Decision card is a modal, so the page behind it is aria-hidden.
   expect(await screen.findByRole("link", { name: "Pending claims (2)", hidden: true })).toBeInTheDocument();
+});
+
+test("Pending claims link keeps the prior count while the post-action re-read is in flight (#1686)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    myClaims: [{ id: 1, status: "pending" }],
+    claimsAfterAction: [{ id: 1, status: "pending" }, { id: 2, status: "pending" }],
+    deferWaiverRefresh: true,
+  });
+  renderWithProviders(<PlayerManagement />);
+  expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  // While the refresh read is in flight (deferred), the link should still show the prior count
+  expect(screen.getByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+
+  // Resolve the deferred read
+  mockBrowser.resolveWaiverRefresh();
+
+  // Now the link should update to show the new count
+  expect(await screen.findByRole("link", { name: "Pending claims (2)" })).toBeInTheDocument();
+});
+
+test("Pending claims link keeps the last known count after a failed re-read (#1686)", async () => {
+  mockBrowser({
+    leagues: [priorityLeague],
+    players: [
+      player({ id: 2, name: "On Waivers", availability: { state: "waivers", teamId: null, teamName: null, availableAt: null } }),
+    ],
+    myClaims: [{ id: 1, status: "pending" }],
+    claimsAfterAction: [{ id: 1, status: "pending" }, { id: 2, status: "pending" }],
+    rejectWaiverRefresh: true,
+  });
+  renderWithProviders(<PlayerManagement />);
+  expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+
+  await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
+
+  // Wait for the action to complete (the post-action read will fail)
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalled());
+
+  // Even after the refresh read fails, the link should still show the prior count
+  expect(screen.getByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
 });
 
 // A full roster makes the one-tap claim impossible: the server 409s with
