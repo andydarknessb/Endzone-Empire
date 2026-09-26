@@ -1171,7 +1171,7 @@ function stopScheduler() {
  */
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'odds', 'game-context',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'nflverse-snaps', 'nflverse-correction', 'odds', 'game-context',
   'espn-depth-chart', 'espn-ownership',
 ];
 
