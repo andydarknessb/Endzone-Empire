@@ -240,6 +240,25 @@ test('a scores event stamped for a different week leaves every starter unchanged
   expect(result.current.homeStarters.find((s) => s.id === 2).points).toBe(8);
 });
 
+// #1683: the week guard also gates the onScores callback, so the page's
+// cutscenes, toasts, ticker and retro field never see a later week's plays.
+test('onScores is not called for an event stamped for another week or for no week; a same-week event receives its plays', async () => {
+  apiClient.get.mockResolvedValue(detailWithStarters());
+  const onScores = jest.fn();
+
+  const { result } = renderHook(() => useMatchup(1, 9, { slotOrder: ['QB', 'DL'], onScores }));
+  await waitFor(() => expect(result.current.matchup).not.toBeNull());
+  const plays = [{ playerId: 1, pointsDelta: 6, isTouchdown: true }];
+
+  act(() => { socket.fire('scores:updated', { week: 4, scored: [], plays }); });
+  act(() => { socket.fire('scores:updated', { scored: [], plays }); });
+  expect(onScores).not.toHaveBeenCalled();
+
+  act(() => { socket.fire('scores:updated', { week: 3, scored: [], plays }); });
+  expect(onScores).toHaveBeenCalledTimes(1);
+  expect(onScores.mock.calls[0][0].plays).toHaveLength(1);
+});
+
 test('a live score event for this matchup moves the model without a refetch', async () => {
   apiClient.get.mockResolvedValue(detailBody());
 
