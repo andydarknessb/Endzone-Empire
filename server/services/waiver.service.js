@@ -639,7 +639,8 @@ async function processWaivers({ leagueId }) {
       const playerId = claim.player_id;
       const team = teams.get(claim.team_id);
       if (wonPlayers.has(playerId)) {
-        await finish(claim, 'lost', 'a higher claim won this player', winnerByPlayer.get(playerId));
+        const winner = winnerByPlayer.get(playerId);
+        await finish(claim, 'lost', 'a higher claim won this player', winner);
         await notify(client, {
           userId: team.user_id,
           leagueId,
@@ -647,6 +648,7 @@ async function processWaivers({ leagueId }) {
           message: 'Your waiver claim did not go through.',
           data: { claimId: claim.id, playerId },
         });
+        results.push({ claimId: claim.id, playerId, status: 'lost', teamId: winner.teamId });
         continue;
       }
       const failure = await claimFailureReason(client, { league, team, claim });

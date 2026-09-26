@@ -1148,6 +1148,22 @@ test('processWaivers (FAAB): the winner and Winning bid land on the won claim an
   assert.deepEqual(byId.get(3), { id: 3, status: 'lost', winner: 32, bid: 23 });
 });
 
+test('processWaivers returns a lost entry naming the winning team for a claim that lost to a higher claim (#1670)', async (t) => {
+  contestedWorld(t, {
+    waiverType: 'faab',
+    claims: [
+      { id: 1, team_id: 31, bid: 10 },
+      { id: 2, team_id: 32, bid: 23 },
+    ],
+  });
+
+  const { results } = await processWaivers({ leagueId: 1 });
+
+  assert.deepEqual(results.filter((r) => r.status === 'lost'), [
+    { claimId: 1, playerId: 500, status: 'lost', teamId: 32 },
+  ]);
+});
+
 test('processWaivers (priority league): the winner is recorded, the Winning bid stays null (#1611)', async (t) => {
   const fake = contestedWorld(t, {
     waiverType: 'priority',
