@@ -176,20 +176,22 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     const points = effectiveProjection(playerId).points;
     return Number.isFinite(Number(points)) ? Number(points) : 0;
   };
-  const effectivePointsFor = new Map(entries.map((e) => [e.playerId, effectivePoints(e.playerId)]));
-
-  // The optimizer's ranking values. At 'median' this IS effectivePointsFor -
-  // the same Map object, so the shipped configuration cannot diverge by even a
-  // rounding step. At 'mean' the rank is the distribution's mean (the
-  // statistic that maximizes an expected total), falling back to the displayed
-  // points for a projection with no distribution, and 0 for a player who
-  // cannot play - the same zero the availability rule gives the display.
-  const rankingPointsFor = lineupRanking !== 'mean' ? effectivePointsFor : new Map(entries.map((e) => {
+  // The optimizer's ranking values: projection.service's `pointEstimateFor`
+  // (#1483), the one ranking statistic - the same number the card headlines.
+  // The statistic follows `lineupRanking` (the run's constants in production).
+  // A projection with no distribution (a bare number, or `projection: null`)
+  // ranks by its displayed points; a player who cannot play is worth 0, the
+  // same zero the availability rule gives the display.
+  const rankingConstants = { decision: { lineupRanking } };
+  const rankingValues = new Map(entries.map((e) => {
     const detail = effectiveProjection(e.playerId);
     if (detail.unavailable) return [e.playerId, 0];
-    const dist = detail.projection;
-    const mean = dist && Number.isFinite(Number(dist.mean)) ? Number(dist.mean) : null;
-    return [e.playerId, mean != null ? mean : effectivePoints(e.playerId)];
+    const point = detail.projection
+      ? projectionService.pointEstimateFor(detail.projection, rankingConstants)
+      : null;
+    return [e.playerId, point != null && Number.isFinite(Number(point))
+      ? Number(point)
+      : effectivePoints(e.playerId)];
   }));
 
   // The projected total covers the WHOLE lineup, locked starters included —
@@ -203,27 +205,21 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const optimal = optimalAssignment({
     rosterSlots: slots,
     candidates,
-    pointsFor: rankingPointsFor,
+    pointsFor: rankingValues,
     pinned,
   });
 
   // The DISPLAYED optimal total is always the DISPLAYED points
-  // (`effectivePointsFor`, projection.service.js's `pointEstimateFor` -
-  // #1483 - the mean under the shipped v3.2 constants, the median under
-  // v3.1), whatever statistic the optimizer itself ranked by: under 'mean'
-  // ranking the two happen to be the same statistic today, but this
-  // recomputation is what keeps the total adding up on screen even if that
-  // ever changes, rather than mixing a ranking-only statistic into a row of
-  // displayed per-player numbers. At 'median' the maps are the same object
-  // and this recomputation reproduces optimal.total exactly.
-  let optimalTotal = optimal.total;
-  if (rankingPointsFor !== effectivePointsFor) {
-    let displayTotal = 0;
-    for (const assignment of optimal.assignments) {
-      if (assignment.playerId != null) displayTotal += effectivePoints(assignment.playerId);
-    }
-    optimalTotal = round2(displayTotal);
+  // (`effectivePoints`), whatever the optimizer ranked by: the display and the
+  // ranking read the same `pointEstimateFor` statistic, but this recomputation
+  // keeps the total adding up on screen even for a projection whose displayed
+  // points and distribution disagree, rather than mixing a ranking-only
+  // number into a row of displayed per-player numbers.
+  let displayTotal = 0;
+  for (const assignment of optimal.assignments) {
+    if (assignment.playerId != null) displayTotal += effectivePoints(assignment.playerId);
   }
+  const optimalTotal = round2(displayTotal);
 
   const { swaps, fills } = buildSwapSuggestions({
     entries,
