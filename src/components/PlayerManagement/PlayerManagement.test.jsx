@@ -482,11 +482,15 @@ test("Pending claims link keeps the last known count after a failed re-read (#16
 
   await userEvent.click(await screen.findByRole("button", { name: "Claim" }));
 
-  // Wait for the action to complete (the post-action read will fail)
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalled());
-
-  // Even after the refresh read fails, the link should still show the prior count
-  expect(screen.getByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
+  // Wait for the post-action re-read (the `&r=` URL) to be issued and to reject,
+  // then let the rejection settle into the endpoint's error state before asserting.
+  await waitFor(() =>
+    expect(apiClient.get.mock.calls.some(([url]) => /^\/api\/waivers\?.*&r=/.test(String(url)))).toBe(true),
+  );
+  const refreshIndex = apiClient.get.mock.calls.findIndex(([url]) => /^\/api\/waivers\?.*&r=/.test(String(url)));
+  await expect(apiClient.get.mock.results[refreshIndex].value).rejects.toThrow("Waiver refresh failed");
+  // After the failed re-read settles, the link still shows the last known count
+  expect(await screen.findByRole("link", { name: "Pending claims (1)" })).toBeInTheDocument();
 });
 
 // A full roster makes the one-tap claim impossible: the server 409s with
