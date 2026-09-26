@@ -753,10 +753,13 @@ _Avoid_: roster, starting roster, My Team (a third name for the surface), Team
 page
 
 **Unavailable**:
-A player who cannot play this week: on bye, Out, or on IR. His projection
-counts as zero wherever a total is summed, and every surface shows the reason
-("on bye", "out", "on IR") instead of a number. Questionable and Doubtful are
-not unavailable.
+A player who cannot play this week: on bye, Out, on IR, or with No NFL team.
+His projection counts as zero wherever a total is summed, he is never among the
+Players remaining, and every surface shows the reason ("on bye", "out",
+"on IR", "no team") instead of a number. One verdict, read from the same facts
+everywhere (bye, injury designation, NFL team): the Optimizer, the Expected
+final, the Lineup, the Decision card and the Players page never decide it
+separately. Questionable and Doubtful are not unavailable.
 _Avoid_: inactive, injured
 
 **Ledger row**:
@@ -1222,6 +1225,15 @@ _Avoid_: final scoring, finalize (the step that follows it)
 **Advance week**:
 The commissioner action that closes out the current week: finalizes scores,
 settles standings, awards trophies and opens the next week.
+
+**Settle follow-up**:
+The work that follows a Settle pass, in one fixed order: power rankings
+recomputed, the Recap rebuilt, Trophies awarded (after an Advance week) or the
+weekly high score reconciled (after a correction of a final week), and after an
+Advance week the digest sent. The order is the same for both; only the mode
+differs: an advance announces and awards every Trophy, a correction is silent
+and reconciles one.
+_Avoid_: post-settle chain, post-week analytics, the recap chain
 
 **Expected final**:
 A starter's, or a team's, points at the end of the week as best known now: his
