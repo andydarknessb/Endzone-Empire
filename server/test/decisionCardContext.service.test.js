@@ -5,7 +5,12 @@ const {
   impliedTotalForTeam,
   usageEntryFromStats,
   opponentEntries,
+  memoLeagueContext,
+  leagueContextMemoSize,
+  clearLeagueContextMemo,
+  LEAGUE_CONTEXT_TTL_MS,
 } = require('../services/decisionCardContext.service');
+const projectionFeatures = require('../services/projectionFeatures');
 
 // ---------------------------------------------------------------------------
 // impliedTotalForTeam
@@ -140,4 +145,15 @@ test('usageEntryFromStats: missing snap keys stay null, not zero', () => {
   const entry = usageEntryFromStats({ usageTargets: 6 }, RULES, 30, 'offense');
   assert.equal(entry.snaps, null);
   assert.equal(entry.snapShare, null);
+});
+
+test('memoLeagueContext (#1682): setting a new key sweeps entries past the lifetime', (t) => {
+  t.mock.method(projectionFeatures, 'loadLeagueContext', async () => new Map());
+  clearLeagueContextMemo();
+  const now = t.mock.method(Date, 'now', () => 1_000);
+  memoLeagueContext({ leagueId: 1, season: 2026, week: 3, rules: {}, position: 'WR' });
+  assert.equal(leagueContextMemoSize(), 1);
+  now.mock.mockImplementation(() => 1_000 + LEAGUE_CONTEXT_TTL_MS + 1);
+  memoLeagueContext({ leagueId: 1, season: 2026, week: 4, rules: {}, position: 'WR' });
+  assert.equal(leagueContextMemoSize(), 1);
 });

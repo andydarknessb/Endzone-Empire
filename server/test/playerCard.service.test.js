@@ -678,3 +678,27 @@ test('getPlayerCard: a read after the ten-minute lifetime runs the season scan a
   await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
   assert.equal(scans(), 2);
 });
+
+test('getPlayerCard (#1682): a failing loadGameContext degrades line and weather to null; the rest of the card still ships', async (t) => {
+  createFakePool(buildHandlers({ league: LEAGUE })).install(t);
+  mockServices(t);
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(decisionCardContextService, 'loadGameContext', async () => { throw new Error('odds down'); });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.line, null);
+  assert.equal(card.weather, null);
+  assert.ok(Array.isArray(card.news));
+});
+
+test('getPlayerCard (#1682): a failing loadOpponents degrades opponents to []', async (t) => {
+  createFakePool(buildHandlers({ league: LEAGUE })).install(t);
+  mockServices(t);
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(decisionCardContextService, 'loadOpponents', async () => { throw new Error('scan down'); });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.opponents, []);
+});
