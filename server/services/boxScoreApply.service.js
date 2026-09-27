@@ -21,15 +21,22 @@ const tank01BoxSource = require('./tank01BoxSource');
  * upsert replaces the whole stats jsonb — must carry them forward instead of
  * silently erasing them.
  *
- * Three groups, all written by nflverseSync.service:
+ * Four groups, all written by nflverseSync.service:
  *  - usage*: per-week opportunity/role columns (attempts, completions, carries,
- *    targets, air yards) from the combined weekly file. Unscored; the projection
- *    engine reads them as features, and their PRESENCE is the signal that role
- *    data exists at all, so a wipe reads as "we never knew", not "he sat".
+ *    targets, air yards) from the combined weekly file. Unscored; the
+ *    projection engine reads THESE as features, and their PRESENCE is the
+ *    signal that role data exists at all, so a wipe reads as "we never knew",
+ *    not "he sat".
  *  - gameTeam/gameOpponent: the team a stat line was earned for and against.
  *  - idp*Yards/idpSafety: the finalization patch (see nflverseSync's
  *    buildStatUpdates) — per-defender yardage Tank01's live feed has no field
  *    for at all.
+ *  - usageTargetShare/usageAirYardsShare/usageWopr/epa* (#1706): target
+ *    share, air yards share, WOPR and per-category EPA (passing_epa,
+ *    rushing_epa, receiving_epa) from the same combined weekly file. Also
+ *    unscored, but the engine does not read these yet — they are persisted
+ *    now so a later usage-weighting/WOPR challenger can be built and
+ *    measured against them without a second backfill.
  *
  * Deliberately NOT here: anything Tank01 does produce. This list is only for
  * keys the live feed cannot regenerate, so carrying them can never mask a stat
@@ -48,6 +55,9 @@ const NFLVERSE_ONLY_STAT_KEYS = [
   'usageOffenseSnapPct',
   'usageDefenseSnaps',
   'usageDefenseSnapPct',
+  'usageTargetShare',
+  'usageAirYardsShare',
+  'usageWopr',
   'gameTeam',
   'gameOpponent',
   'idpSackYards',
@@ -55,6 +65,9 @@ const NFLVERSE_ONLY_STAT_KEYS = [
   'idpFumbleReturnYards',
   'idpInterceptionReturnYards',
   'idpSafety',
+  'epaPassing',
+  'epaRushing',
+  'epaReceiving',
 ];
 
 /**

@@ -921,7 +921,7 @@ async function getWeeklyProjections({
     generatedAt: new Date().toISOString(), inputCutoff: null,
     sourceCoverage: features.emptyCoverage(), projections: new Map(),
   };
-  if (ids.length === 0) return empty;
+  if (ids.length === 0) return toWeeklyProjectionResult(empty);
 
   let run = refresh ? null : await findRun({ season, week, hashValue, client });
   let cached = new Map();
@@ -939,7 +939,7 @@ async function getWeeklyProjections({
 
 /** The result shape for a week every requested player already had cached. */
 function cachedRunResult({ season, week, hashValue, run, cached }) {
-  return {
+  return toWeeklyProjectionResult({
     season,
     week,
     modelVersion: model.MODEL_VERSION,
@@ -948,7 +948,7 @@ function cachedRunResult({ season, week, hashValue, run, cached }) {
     inputCutoff: run.input_cutoff ? new Date(run.input_cutoff).toISOString() : null,
     sourceCoverage: run.source_coverage || {},
     projections: cached,
-  };
+  });
 }
 
 /**
@@ -984,7 +984,7 @@ async function completeRun({
   const merged = new Map(cached);
   for (const [id, projection] of generated.projections) merged.set(id, projection);
 
-  return {
+  return toWeeklyProjectionResult({
     season,
     week,
     modelVersion: model.MODEL_VERSION,
@@ -995,7 +995,7 @@ async function completeRun({
     inputCutoff: generated.inputCutoff ? new Date(generated.inputCutoff).toISOString() : null,
     sourceCoverage: generated.sourceCoverage,
     projections: merged,
-  };
+  });
 }
 
 /**
@@ -1032,11 +1032,11 @@ async function getWeeklyProjectionsForWeeks({
   if (wks.length === 0) return out;
   if (ids.length === 0) {
     for (const week of wks) {
-      out.set(week, {
+      out.set(week, toWeeklyProjectionResult({
         season, week, modelVersion: model.MODEL_VERSION, scoringHash: hashValue,
         generatedAt: new Date().toISOString(), inputCutoff: null,
         sourceCoverage: features.emptyCoverage(), projections: new Map(),
-      });
+      }));
     }
     return out;
   }
@@ -1225,6 +1225,112 @@ function toLegacyProjectionMap(run) {
   return out;
 }
 
+/**
+ * Pure: classifies one raw run entry for one week — unavailable plus a
+ * reason code ('bye' | 'out' | 'ir' | 'no_team'), or the Point estimate
+ * (`pointEstimateFor`) — exactly what the Decision card module's
+ * `classifyWeekProjection` (`playerCard.service.js`) computes today. Kept as
+ * its own function rather than imported from that module, so this file gains
+ * no new dependency; #1703 (the migrate ticket) is what points
+ * `classifyWeekProjection` at `classify` below instead of at its own copy.
+ */
+function classifyProjectionEntry(projection) {
+  const unavailable = !!(projection
+    && projection.factors
+    && projection.factors.availability
+    && projection.factors.availability.available === false);
+  if (unavailable) {
+    return { unavailable: true, reason: projection.factors.availability.reason || 'out' };
+  }
+  const point = projection ? pointEstimateFor(projection) : null;
+  return { unavailable: false, points: point == null ? null : Number(point) };
+}
+
+/**
+ * The Weekly projection result (#1702, unparked #1495): wraps a
+ * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the six
+ * accessors the Decision card module (`playerCard.service.js`'s `pointsOf`,
+ * `opponentRankOf`, `classifyWeekProjection`) and the decision service
+ * (`decision.service.js`'s `detailOf`) each compute for themselves today, so
+ * a caller migrating onto this object reads the SAME answer every other
+ * reader of the run already does. Every accessor is defined over the raw run
+ * entry the engine emits (mean, median, p10, p90, factors, confidence,
+ * activeProbability) — no producer emits a bare number, so there is no
+ * number branch here either.
+ *
+ * `run`'s own fields (`season`, `week`, `modelVersion`, `scoringHash`,
+ * `generatedAt`, `inputCutoff`, `sourceCoverage`, `projections`) are carried
+ * through unchanged, so every existing reader of a `getWeeklyProjections` /
+ * `getWeeklyProjectionsForWeeks` run — none of which are touched by this
+ * ticket — keeps working untouched. `toLegacyMap()` is the migration seam:
+ * the `{ points, source, ... }` shape `toLegacyProjectionMap` has always
+ * built, reachable from the result for one release (the contract ticket,
+ * #1704, removes it) while callers migrate onto the accessors (#1703).
+ */
+function toWeeklyProjectionResult(run) {
+  const entryFor = (playerId) => run.projections.get(playerId) || null;
+
+  return {
+    ...run,
+
+    /**
+     * The Point estimate (`pointEstimateFor`) for `playerId`; `null` when
+     * there is none. Never coerces to 0 — a caller that wants that keeps its
+     * own `|| 0`, same as `pointsOf` does today.
+     */
+    pointsFor(playerId) {
+      const entry = entryFor(playerId);
+      const point = entry ? pointEstimateFor(entry) : null;
+      return point == null ? null : Number(point);
+    },
+
+    /** Unavailable plus reason code, or the Point estimate — `classifyWeekProjection` today. */
+    classify(playerId) {
+      return classifyProjectionEntry(entryFor(playerId));
+    },
+
+    /**
+     * `{ rank, of } | null` from the engine's opponent factor
+     * (`rankOpponentDefense`'s convention: rank 1 = toughest matchup).
+     * `null` whenever the factor carries no `rank` (no opponent data, an
+     * insufficient sample, or no entry for `playerId` at all) — never the
+     * `decisionCardContext.opponentEntries` rank, a different convention
+     * with no sample gate that this accessor never merges with.
+     */
+    opponentRankFor(playerId) {
+      const entry = entryFor(playerId);
+      const opponent = entry && entry.factors ? entry.factors.opponent : null;
+      if (!opponent || opponent.rank == null) return null;
+      return { rank: opponent.rank, of: opponent.of };
+    },
+
+    /** `factors.opponent.available` — the flag behind the "context only" label. */
+    opponentAppliedFor(playerId) {
+      const entry = entryFor(playerId);
+      return !!(entry && entry.factors && entry.factors.opponent && entry.factors.opponent.available);
+    },
+
+    /** The factors object exactly as the engine produced it, or `null` for no entry. */
+    factorsFor(playerId) {
+      const entry = entryFor(playerId);
+      return entry ? entry.factors : null;
+    },
+
+    /** `{ mean, median, p10, p90, confidence, activeProbability } | null`. */
+    detailFor(playerId) {
+      const entry = entryFor(playerId);
+      if (!entry) return null;
+      const { mean, median, p10, p90, confidence, activeProbability } = entry;
+      return { mean, median, p10, p90, confidence, activeProbability };
+    },
+
+    /** `toLegacyProjectionMap(run)` — the map this result supersedes, reachable for one release. */
+    toLegacyMap() {
+      return toLegacyProjectionMap(run);
+    },
+  };
+}
+
 module.exports = {
   ProjectionError,
   MODEL_VERSION: model.MODEL_VERSION,
@@ -1250,4 +1356,5 @@ module.exports = {
   distinctGamesFor,
   toLegacyProjectionMap,
   pointEstimateFor,
+  toWeeklyProjectionResult,
 };
