@@ -85,7 +85,8 @@ async function signalSwitch({ direction, gameId, failureKind, consecutiveFailure
 }
 
 /**
- * Pure: an in-progress summary that is still scoreless in the first quarter.
+ * Pure: an in-progress summary that is still scoreless in the first quarter
+ * (ESPN period 1, both teams present).
  * An empty box then only means ESPN has not credited anyone yet; at the 1 pm
  * slot nine such games in a row used to trip the shared failure counter and
  * flap the Live box to Tank01 and back (2026-09-27). Once the game has a
@@ -96,9 +97,12 @@ function justKickedOff(summary) {
     ? summary.header.competitions[0]
     : null;
   if (!competition) return false;
-  const period = Number(competition.status && competition.status.period) || 0;
-  const scoreless = espnBoxSource.readTeams(summary).every((t) => t.score === 0);
-  return period <= 1 && scoreless;
+  // A header missing its period or either team is a shape problem, not a
+  // kickoff: it must count, or a changed ESPN shape would never fall back.
+  const period = Number(competition.status && competition.status.period);
+  const teams = espnBoxSource.readTeams(summary);
+  if (period !== 1 || teams.length !== 2) return false;
+  return teams.every((t) => t.score === 0);
 }
 
 async function fetchEspn({ gameId, espnEventId, inProgress, transport, timeoutMs }) {

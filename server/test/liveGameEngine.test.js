@@ -502,3 +502,23 @@ test('upsertRows: the first final poll writes linescores and headline, COALESCEd
   assert.deepEqual(call.params[18], [JSON.stringify({ home: [7, 3, 7, 7], away: [0, 7, 7, 3] })]);
   assert.deepEqual(call.params[19], ['Bills hold on late']);
 });
+
+test('upsertRows: an unmoved in-progress game whose box this process never read comes back for a refresh (the engine passes now)', async (t) => {
+  const liveBoxPoll = require('../modules/liveBoxPoll');
+  const liveBox = require('../modules/liveBox');
+  liveBoxPoll.__resetPollState();
+  liveBox.__resetLiveBoxState();
+  t.after(() => liveBoxPoll.__resetPollState());
+  const fake = createFakePool([
+    [select('live_game_states'), () => ({ rows: [{
+      tank01_game_id: ESPN_ROW.tank01GameId, game_status: 'in_progress', current_score_home: 10, current_score_away: 14,
+      quarter: 'Q3', time_remaining: '8:42', espn_event_id: '401772999', final_stats_synced_at: null,
+    }] })],
+    [insert('live_game_states'), (text, params) => ({
+      rows: params[0].map((id) => ({ tank01_game_id: id, game_status: 'in_progress' })),
+    })],
+  ]);
+  fake.install(t);
+  const { changed } = await upsertRows([ESPN_ROW]);
+  assert.deepEqual(changed.map((c) => [c.gameId, c.refresh]), [[ESPN_ROW.tank01GameId, true]]);
+});

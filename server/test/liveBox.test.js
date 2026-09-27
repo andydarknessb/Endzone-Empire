@@ -283,3 +283,17 @@ test('kickoff: a not-ready box neither counts nor clears a failure streak alread
   const third = await liveBox.fetchLiveBox({ ...args, now: 3 });
   assert.equal(third.source, 'tank01', 'the third real failure still enters fallback');
 });
+
+test('kickoff: a summary whose header is missing its status or teams is never read as not-ready', async (t) => {
+  const noStatus = kickoffSummary();
+  delete noStatus.header.competitions[0].status.period;
+  const noTeams = kickoffSummary();
+  noTeams.header.competitions[0].competitors = [];
+  for (const data of [noStatus, noTeams]) {
+    const w = world(t, { espn: () => ({ data }) });
+    const out = await liveBox.fetchLiveBox({ ...GAME, transport: w.transport, tank01Transport: w.tank01Transport, now: 0 });
+    assert.notEqual(out.reason, 'box_not_ready');
+    assert.equal(liveBox.getLiveBoxStatus().espnBoxFailures, 1, 'it counts as a failure');
+    liveBox.__resetLiveBoxState();
+  }
+});

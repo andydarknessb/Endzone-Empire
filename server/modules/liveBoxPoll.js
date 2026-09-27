@@ -36,7 +36,7 @@ const lastFetchedAt = new Map(); // tank01_game_id -> epoch ms of the last box r
  * @param {number} [opts.now] epoch ms; without it only movement counts
  * @param {Map<string, number>} [opts.fetchedAt] last box read per game
  * @param {boolean} [opts.espnActive] the Live box is reading ESPN (free)
- * @returns {Array<{gameId: string, espnEventId: ?string, status: string}>}
+ * @returns {Array<{gameId: string, espnEventId: ?string, status: string, refresh?: true}>}
  */
 function changedGames(priorRows, rows, { now, fetchedAt = lastFetchedAt, espnActive = liveBox.activeBoxSource() === 'espn' } = {}) {
   const out = [];
@@ -57,7 +57,9 @@ function changedGames(priorRows, rows, { now, fetchedAt = lastFetchedAt, espnAct
     const espnEventId = row.espnEventId != null
       ? String(row.espnEventId)
       : (prior && prior.espn_event_id != null ? String(prior.espn_event_id) : null);
-    out.push({ gameId: row.tank01GameId, espnEventId, status: row.gameStatus });
+    const entry = { gameId: row.tank01GameId, espnEventId, status: row.gameStatus };
+    if (!moved) entry.refresh = true; // re-read only because the box is old
+    out.push(entry);
   }
   return out;
 }
@@ -147,6 +149,10 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
     const maps = await weekMaps({ season, week, now });
     maps.finalSyncedGameIds = finalSyncedGameIds || new Set();
     for (const game of games) {
+      // A refresh is free only on ESPN. If ESPN fell back earlier in this very
+      // pass, reading the rest would buy a Tank01 box for games that did not
+      // move.
+      if (game.refresh && liveBox.activeBoxSource() !== 'espn') continue;
       try {
         const fetched = await liveBox.fetchLiveBox({
           gameId: game.gameId,
