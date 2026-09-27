@@ -381,8 +381,8 @@ async function upsertRows(rows) {
   // Pre-upsert rows: the status detects games transitioning INTO 'final' on
   // this tick (and only this tick) — the Final box and recap are scheduled
   // once, when the game first goes final; the score, quarter and clock are the
-  // change signal the Live box poll keys on (#1185), so a game that did not
-  // move costs no summary fetch; final_stats_synced_at and espn_event_id ride
+  // change signal the Live box poll keys on (#1185; an unmoved game is re-read
+  // once a minute on ESPN only); final_stats_synced_at and espn_event_id ride
   // along for the poll's final guard and its ESPN key.
   const gameIds = rows.map((r) => r.tank01GameId);
   const priorRes = await pool.query(
@@ -446,7 +446,7 @@ async function upsertRows(rows) {
   }
 
   const hasInProgress = result.rows.some((r) => r.game_status === 'in_progress');
-  const changed = liveBoxPoll.changedGames(priorRows, rows);
+  const changed = liveBoxPoll.changedGames(priorRows, rows, { now: Date.now() });
   return { hasInProgress, upserted: result.rows.length, changed, finals, finalSyncedGameIds };
 }
 

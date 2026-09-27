@@ -4,8 +4,11 @@
  * liveGameEngine's 30-second ESPN tick already knows which games moved: the
  * scoreboard upsert compares each in-progress game's score, quarter and clock
  * against the row it is replacing. Only those games have their Live box
- * fetched (modules/liveBox picks the source) and applied, so halftime and
- * timeouts cost nothing. A league is then re-scored only when a player it
+ * fetched (modules/liveBox picks the source) and applied. A game that stopped
+ * moving is still re-read once a minute while the Live box is on ESPN, because
+ * ESPN finishes a box a beat after its scoreboard moves and revises it at the
+ * half; in Tank01 fallback only movement fetches, so halftime and timeouts
+ * spend no quota. A league is then re-scored only when a player it
  * rosters changed in that pass, and at most once every 60 seconds per league;
  * the Scoring plays for a league that is inside its floor are accumulated and
  * ride its next run, never dropped.
@@ -17,17 +20,25 @@ const liveBox = require('./liveBox');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 
 const RESCORE_FLOOR_MS = 60 * 1000;
+const BOX_REFRESH_MS = 60 * 1000;
+const lastFetchedAt = new Map(); // tank01_game_id -> epoch ms of the last box read
 
 /**
- * Pure: which in-progress games moved since the row they replace.
+ * Pure: which in-progress games to read this tick - the ones that moved since
+ * the row they replace, plus (given `now`, while the Live box is on ESPN)
+ * the unmoved ones whose box was last read BOX_REFRESH_MS ago or never.
  *
  * @param {Map<string, object>} priorRows tank01_game_id -> the live_game_states
  *   row before this upsert (game_status, current_score_*, quarter,
  *   time_remaining, espn_event_id, final_stats_synced_at)
  * @param {Array<object>} rows normalized rows this tick is writing
- * @returns {Array<{gameId: string, espnEventId: ?string, status: string}>}
+ * @param {object} [opts]
+ * @param {number} [opts.now] epoch ms; without it only movement counts
+ * @param {Map<string, number>} [opts.fetchedAt] last box read per game
+ * @param {boolean} [opts.espnActive] the Live box is reading ESPN (free)
+ * @returns {Array<{gameId: string, espnEventId: ?string, status: string, refresh?: true}>}
  */
-function changedGames(priorRows, rows) {
+function changedGames(priorRows, rows, { now, fetchedAt = lastFetchedAt, espnActive = liveBox.activeBoxSource() === 'espn' } = {}) {
   const out = [];
   for (const row of rows || []) {
     if (!row || row.gameStatus !== 'in_progress') continue;
@@ -40,11 +51,15 @@ function changedGames(priorRows, rows) {
       (prior.quarter ?? null) !== (row.quarter ?? null) ||
       (prior.time_remaining ?? null) !== (row.timeRemaining ?? null) ||
       prior.game_status !== 'in_progress';
-    if (!moved) continue;
+    const last = fetchedAt.get(row.tank01GameId);
+    const stale = now != null && espnActive && (last == null || now - last >= BOX_REFRESH_MS);
+    if (!moved && !stale) continue;
     const espnEventId = row.espnEventId != null
       ? String(row.espnEventId)
       : (prior && prior.espn_event_id != null ? String(prior.espn_event_id) : null);
-    out.push({ gameId: row.tank01GameId, espnEventId, status: row.gameStatus });
+    const entry = { gameId: row.tank01GameId, espnEventId, status: row.gameStatus };
+    if (!moved) entry.refresh = true; // re-read only because the box is old
+    out.push(entry);
   }
   return out;
 }
@@ -134,6 +149,10 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
     const maps = await weekMaps({ season, week, now });
     maps.finalSyncedGameIds = finalSyncedGameIds || new Set();
     for (const game of games) {
+      // A refresh is free only on ESPN. If ESPN fell back earlier in this very
+      // pass, reading the rest would buy a Tank01 box for games that did not
+      // move.
+      if (game.refresh && liveBox.activeBoxSource() !== 'espn') continue;
       try {
         const fetched = await liveBox.fetchLiveBox({
           gameId: game.gameId,
@@ -143,6 +162,7 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
           quotaMode,
         });
         if (fetched.skipped || !fetched.liveBox) continue;
+        lastFetchedAt.set(game.gameId, now);
         // Snapshot the diff baseline for this game's players so the pass can
         // name exactly which players moved without changing applyGameBoxScore's
         // return shape.
@@ -198,9 +218,11 @@ module.exports = {
   pollChangedGames,
   leaguesRostering,
   RESCORE_FLOOR_MS,
+  BOX_REFRESH_MS,
   // test seam
   __resetPollState() {
     gate = createRescoreGate();
     mapsCache.clear();
+    lastFetchedAt.clear();
   },
 };

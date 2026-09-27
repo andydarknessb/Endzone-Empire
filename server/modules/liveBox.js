@@ -84,6 +84,27 @@ async function signalSwitch({ direction, gameId, failureKind, consecutiveFailure
   captureMessage(message, detail);
 }
 
+/**
+ * Pure: an in-progress summary that is still scoreless in the first quarter
+ * (ESPN period 1, both teams present).
+ * An empty box then only means ESPN has not credited anyone yet; at the 1 pm
+ * slot nine such games in a row used to trip the shared failure counter and
+ * flap the Live box to Tank01 and back (2026-09-27). Once the game has a
+ * score or has left the first quarter, an empty box is a shape failure again.
+ */
+function justKickedOff(summary) {
+  const competition = summary && summary.header && Array.isArray(summary.header.competitions)
+    ? summary.header.competitions[0]
+    : null;
+  if (!competition) return false;
+  // A header missing its period or either team is a shape problem, not a
+  // kickoff: it must count, or a changed ESPN shape would never fall back.
+  const period = Number(competition.status && competition.status.period);
+  const teams = espnBoxSource.readTeams(summary);
+  if (period !== 1 || teams.length !== 2) return false;
+  return teams.every((t) => t.score === 0);
+}
+
 async function fetchEspn({ gameId, espnEventId, inProgress, transport, timeoutMs }) {
   if (!espnEventId) {
     const err = new Error('no espn_event_id for this game');
@@ -100,6 +121,14 @@ async function fetchEspn({ gameId, espnEventId, inProgress, transport, timeoutMs
   }
   const box = espnBoxSource.fromSummary(response && response.data, { gameId });
   if (inProgress && box.players.length === 0) {
+    if (justKickedOff(response && response.data)) {
+      // Nothing is wrong with ESPN: the game is on the field but its box has
+      // no athletes yet. Not a failure, not a success either (the streak is
+      // left as it was); the next pass fetches it again.
+      const err = new Error('ESPN box has no athletes yet for a scoreless first-quarter game');
+      err.failureKind = 'box_not_ready';
+      throw err;
+    }
     const err = new Error('ESPN summary parsed to zero player rows for a game in progress');
     err.failureKind = 'empty_box';
     throw err;
@@ -144,6 +173,9 @@ async function fetchLiveBox({ gameId, espnEventId, inProgress = true, now = Date
       lastFailureKind = null;
       return { liveBox: box, source: 'espn', skipped: false };
     } catch (err) {
+      if (err.failureKind === 'box_not_ready') {
+        return { liveBox: null, source: 'espn', skipped: true, reason: 'box_not_ready' };
+      }
       espnBoxFailures += 1;
       lastFailureKind = err.failureKind || 'fetch_failed';
       console.error('liveBox: ESPN summary failed for %s (%d consecutive, %s):', gameId, espnBoxFailures, lastFailureKind, err.message);
