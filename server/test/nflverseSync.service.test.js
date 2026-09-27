@@ -96,6 +96,12 @@ test('buildStatUpdates joins gsis_id -> espn_id -> our player id and extracts th
       idpFumbleReturnYards: 15, // _opp only, never _own
       idpInterceptionReturnYards: 27,
       idpSafety: 1,
+      usageTargetShare: null, // column absent from this fixture -> unknown, not 0
+      usageAirYardsShare: null,
+      usageWopr: null,
+      epaPassing: null,
+      epaRushing: null,
+      epaReceiving: null,
     },
   }]);
 });
@@ -116,7 +122,85 @@ test('buildStatUpdates still reads the pre-2025 column names (def_ prefix, singu
     idpSackYards: 9, idpTacklesForLossYards: 2, idpFumbleReturnYards: 15,
     idpInterceptionReturnYards: 0, // column didn't exist in the old files
     idpSafety: 1,
+    usageTargetShare: null,
+    usageAirYardsShare: null,
+    usageWopr: null,
+    epaPassing: null,
+    epaRushing: null,
+    epaReceiving: null,
   });
+});
+
+// --- target_share / air_yards_share / wopr / EPA (#1706) --------------------
+
+test('buildStatUpdates parses target_share, air_yards_share, wopr and the EPA columns as optional numbers', () => {
+  const defRows = [{
+    player_id: '00-0039924',
+    target_share: '0.271', air_yards_share: '0.354', wopr: '0.611',
+    passing_epa: '2.5', rushing_epa: '-0.3', receiving_epa: '4.1',
+  }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  assert.deepEqual(updates[0].patch, {
+    idpSackYards: 0,
+    idpTacklesForLossYards: 0,
+    idpFumbleReturnYards: 0,
+    idpInterceptionReturnYards: 0,
+    idpSafety: 0,
+    usageTargetShare: 0.271,
+    usageAirYardsShare: 0.354,
+    usageWopr: 0.611,
+    epaPassing: 2.5,
+    epaRushing: -0.3,
+    epaReceiving: 4.1,
+  });
+});
+
+test('buildStatUpdates keeps a blank target_share/wopr/EPA column null, never 0', () => {
+  const defRows = [{
+    player_id: '00-0039924',
+    def_sack_yards: '9', // any real idp data avoids the all-zero skip
+    target_share: '', air_yards_share: '', wopr: '',
+    passing_epa: '', rushing_epa: '', receiving_epa: '',
+  }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  for (const key of [
+    'usageTargetShare', 'usageAirYardsShare', 'usageWopr',
+    'epaPassing', 'epaRushing', 'epaReceiving',
+  ]) {
+    assert.equal(updates[0].patch[key], null, key);
+  }
+});
+
+test('buildStatUpdates: the new target_share/air_yards_share/wopr/EPA keys are on NFLVERSE_ONLY_STAT_KEYS', () => {
+  const defRows = [{ player_id: '00-0039924', target_share: '0.2' }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  for (const key of Object.keys(updates[0].patch)) {
+    assert.ok(scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key), `${key} not protected from the Tank01 upsert`);
+  }
+});
+
+test('buildStatUpdates: a row with only target_share/wopr/EPA data (no idp yardage) is not skipped as a no-op', () => {
+  const defRows = [{ player_id: '00-0039924', target_share: '0.2', air_yards_share: '0', wopr: '0.3' }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].patch.usageTargetShare, 0.2);
+  assert.equal(updates[0].patch.usageAirYardsShare, 0, 'a real 0 in the file is still a real 0');
 });
 
 test('buildStatUpdates skips all-zero patches — the combined file lists every offensive player too', () => {
@@ -748,6 +832,49 @@ test('syncNflverseWeek: a re-score failure for one league logs and does not fail
   const out = await syncNflverseWeek({ season: 2025, week: 3 });
   assert.equal(out.playersUpdated, 1, 'the write already committed before the re-score loop ran');
   assert.equal(out.leaguesRescored, 0);
+});
+
+test('syncNflverseWeek: target_share/air_yards_share/wopr/EPA land as new keys on an already-enriched row, with every existing key and the row count unchanged (#1706)', async (t) => {
+  t.mock.method(axios, 'get', async (url) => {
+    if (url.includes('stats_player_week')) {
+      return {
+        data: [
+          'season,week,season_type,player_id,target_share,air_yards_share,wopr,passing_epa,rushing_epa,receiving_epa',
+          '2025,3,REG,00-0039924,0.25,0.3,0.55,,,3.1',
+        ].join('\n'),
+      };
+    }
+    if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
+    return { data: '' };
+  });
+  const existingStats = { receptions: 5, receivingYards: 61, gameTeam: 'KC', usageTargets: 7 };
+  const upserts = [];
+  createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [{ stats: existingStats }] }), 'client'],
+    [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+    [select('leagues'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+
+  const out = await syncNflverseWeek({ season: 2025, week: 3 });
+  assert.equal(out.playersUpdated, 1);
+  assert.equal(upserts.length, 1, 'exactly one upsert — the existing row is patched, no extra row is inserted');
+
+  const stored = JSON.parse(upserts[0][3]);
+  // Every pre-existing key survives unchanged.
+  assert.equal(stored.receptions, 5);
+  assert.equal(stored.receivingYards, 61);
+  assert.equal(stored.gameTeam, 'KC');
+  assert.equal(stored.usageTargets, 7);
+  // The four new column groups land as new keys.
+  assert.equal(stored.usageTargetShare, 0.25);
+  assert.equal(stored.usageAirYardsShare, 0.3);
+  assert.equal(stored.usageWopr, 0.55);
+  assert.equal(stored.epaPassing, null, 'blank passing_epa stays unknown, not 0');
+  assert.equal(stored.epaRushing, null, 'blank rushing_epa stays unknown, not 0');
+  assert.equal(stored.epaReceiving, 3.1);
 });
 
 // --- patchCurrentWeeks: the current-week pass --------------------------------

@@ -285,6 +285,15 @@ function buildSnapUpdates({
  * Column names accept both file generations: the combined file renamed
  * def_safety -> def_safeties and dropped the def_ prefix from
  * fumble_recovery_yards_opp.
+ *
+ * target_share, air_yards_share and wopr (usageTargetShare/usageAirYardsShare/
+ * usageWopr) and the per-category EPA columns (epaPassing/epaRushing/
+ * epaReceiving) are OPTIONAL, unscored features, read with `optionalNumber`
+ * the same as every other opportunity column: a blank column stays null
+ * ("we don't know"), never a fabricated 0. Unlike the idp* yardage fields
+ * they are not summed into the all-zero skip check below as zeros — a null
+ * carries no data either, so a row where every field is 0-or-null is still
+ * skipped as a no-op merge.
  */
 function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
   const num = (v) => {
@@ -305,11 +314,18 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
       idpFumbleReturnYards: num(row.fumble_recovery_yards_opp ?? row.def_fumble_recovery_yards_opp),
       idpInterceptionReturnYards: num(row.def_interception_yards),
       idpSafety: num(row.def_safeties ?? row.def_safety),
+      usageTargetShare: optionalNumber(row.target_share),
+      usageAirYardsShare: optionalNumber(row.air_yards_share),
+      usageWopr: optionalNumber(row.wopr),
+      epaPassing: optionalNumber(row.passing_epa),
+      epaRushing: optionalNumber(row.rushing_epa),
+      epaReceiving: optionalNumber(row.receiving_epa),
     };
     // The combined file has a row for EVERY player, not just defenders (the
-    // old def-only file didn't) — an all-zero patch is a no-op merge, so
-    // skipping it keeps the pass from rewriting every offensive row.
-    if (Object.values(patch).every((v) => v === 0)) continue;
+    // old def-only file didn't) — a patch with nothing but zero idp yardage
+    // and null optional fields is a no-op merge, so skipping it keeps the
+    // pass from rewriting every row that carries no data at all.
+    if (Object.values(patch).every((v) => v === 0 || v === null)) continue;
     updates.push({ playerId, patch });
   }
   return updates;
