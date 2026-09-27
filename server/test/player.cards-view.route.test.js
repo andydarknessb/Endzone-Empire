@@ -110,12 +110,15 @@ function mockCardServices(t, {
     return upgrades;
   });
   // #1403: the page's Weekly projections arrive through ONE multi-week read.
+  // #1703: `getWeeklyProjectionsForWeeks` itself now returns the result
+  // object, so the mock wraps each week's Map the same way the real
+  // producer does rather than handing `buildWeeksForPage` a bare Map.
   t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => {
     weeklyCalls.push({ weeks, playerIds });
-    return new Map(weeks.map((week) => [week, {
+    return new Map(weeks.map((week) => [week, projectionService.toWeeklyProjectionResult({
       week,
       projections: new Map(playerIds.map((id) => [id, weeklyProjection(week, id)])),
-    }]));
+    })]));
   });
   const restOfSeasonCalls = [];
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds, leagueId, options) => {
@@ -368,14 +371,14 @@ function mockRealProducerServices(t, { seasonEnd = 17 } = {}) {
   t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
   t.mock.method(decisionService, 'upgradeFor', () => ({ points: 1, overPlayer: { id: 9, name: 'Bench' }, slot: 'RB' }));
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
-  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
     projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
   }));
   t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => new Map(
-    weeks.map((week) => [week, {
+    weeks.map((week) => [week, projectionService.toWeeklyProjectionResult({
       week,
       projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
-    }]),
+    })]),
   ));
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => new Map(
     playerIds.map((id) => [id, { total: 10, perGame: 2 }]),
@@ -493,7 +496,9 @@ test('upgradesFor nulls a player with No NFL team (nfl_team null) and keeps a re
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
   t.mock.method(decisionService, 'upgradeFor', () => ({ points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' }));
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
 
   const upgrades = await playerCardService.upgradesFor({
     league, team: TEAM, season: 2026, week: 2, playerIds: [2, 3],
@@ -517,7 +522,9 @@ test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(lineupService, 'parseLineupSettings', () => ({ rosterSlots: [] }));
   t.mock.method(decisionService, 'upgradeFor', () => ({ points: 9, overPlayer: { id: 5, name: 'Starter' }, slot: 'RB' }));
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
 
   const upgrades = await playerCardService.upgradesFor({
     league, team: TEAM, season: 2026, week: 1, playerIds: [1, 2, 3],

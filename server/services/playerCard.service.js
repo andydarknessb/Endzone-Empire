@@ -34,7 +34,8 @@ const decisionCardContextService = require('./decisionCardContext.service');
  * the functions below) and the PR notes it as an open question rather than
  * a settled one. `decision.projWeek.opponentRankVsPosition` (and its
  * `weeks[]` counterpart) IS settled, by the #1342 Ruling: the opponent
- * Factor is the one producer, ranked (see `opponentRankOf` below).
+ * Factor is the one producer, ranked (the Weekly projection result object's
+ * `opponentRankFor` accessor, #1703).
  */
 
 class PlayerCardError extends Error {
@@ -42,51 +43,6 @@ class PlayerCardError extends Error {
     super(message);
     this.statusCode = statusCode;
   }
-}
-
-/** Accepts either a raw number or a { points, source } projection entry; missing/null -> 0. */
-function pointsOf(projections, playerId) {
-  const value = projections.get(playerId);
-  if (value == null) return 0;
-  const raw = typeof value === 'object' ? value.points : value;
-  return Number(raw) || 0;
-}
-
-/**
- * `{ rank, of } | null` (#1342 Ruling): the opponent Factor is the one
- * producer, so this reads `factors.opponent` off the SAME `getWeekProjections`
- * entry `pointsOf` already reads `.points` from, rather than a second query.
- * `null` whenever the factor carries no `rank` (no opponent data, an
- * insufficient sample, or no projection at all) - never `0`, the same
- * missing-data-hides rule the Decision card applies everywhere else.
- */
-function opponentRankOf(projections, playerId) {
-  const value = projections.get(playerId);
-  const opponent = value && typeof value === 'object' && value.factors ? value.factors.opponent : null;
-  if (!opponent || opponent.rank == null) return null;
-  return { rank: opponent.rank, of: opponent.of };
-}
-
-/**
- * Classifies one `getWeeklyProjections` result for one week (formal review
- * f3): unavailable, with the reason CODE ('bye' | 'out' | 'ir' | 'no_team';
- * the client labels it, #1675), or a point value (the
- * RANKING statistic, `projectionService.pointEstimateFor` - #1483 - `null`
- * when the producer had neither). Shared by `buildWeeksForPage` (the list,
- * #1309) and `buildWeeklyBars` (the card, #1306) so the two never classify the
- * same projection two different ways - the list and the card must agree here
- * (spec #1303, story 7).
- */
-function classifyWeekProjection(projection) {
-  const unavailable = !!(projection
-    && projection.factors
-    && projection.factors.availability
-    && projection.factors.availability.available === false);
-  if (unavailable) {
-    return { unavailable: true, reason: projection.factors.availability.reason || 'out' };
-  }
-  const point = projection ? projectionService.pointEstimateFor(projection) : null;
-  return { unavailable: false, points: point == null ? null : Number(point) };
 }
 
 /**
@@ -218,21 +174,25 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
 
   const starterIds = starterRows.map((r) => r.player_id);
   const combinedIds = [...new Set([...starterIds, ...ids])];
-  const projections = combinedIds.length > 0
-    ? await projectionService.getWeekProjections({ season, week, league, playerIds: combinedIds })
-    : new Map();
+  // The Weekly projection result object (#1703): `getWeeklyProjections`
+  // itself handles an empty player set, returning a valid (all-null) result
+  // rather than a bare Map, so every reader below goes through the same
+  // `pointsFor` accessor whether or not there was anything to project.
+  const projections = await projectionService.getWeeklyProjections({
+    season, week, league, playerIds: combinedIds,
+  });
 
   const currentStarters = starterRows.map((r) => ({
     playerId: r.player_id,
     slot: r.slot,
     name: r.name,
-    projection: pointsOf(projections, r.player_id),
+    projection: projections.pointsFor(r.player_id),
   }));
 
   // One identity read for every requested id (Ruling item 3a) rather than one
   // per id: `upgradesFor` over N ids is now the lineup transaction, the
   // roster read, the position read, one identity read and one
-  // `getWeekProjections` call, whatever N is.
+  // `getWeeklyProjections` call, whatever N is.
   const identityIdsById = await loadIdentityIdsFor(ids);
 
   const upgrades = new Map();
@@ -254,7 +214,7 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       upgrades.set(id, null);
       continue;
     }
-    const candidate = { position: positionById.get(id) ?? null, projection: pointsOf(projections, id) };
+    const candidate = { position: positionById.get(id) ?? null, projection: projections.pointsFor(id) };
     upgrades.set(id, decisionService.upgradeFor(candidate, currentStarters, settings.rosterSlots));
   }
 
@@ -444,13 +404,18 @@ async function buildWeeksForPage({
     : new Map();
 
   for (const wk of weeks) {
-    const run = (runsByWeek && runsByWeek.get(wk)) || fetched.get(wk) || { projections: new Map() };
+    // The fallback is a fully-formed (all-null) result object, not a bare
+    // Map, so `classify` below is always the result object's own accessor
+    // (#1703) - this branch is only ever defensive (the nightly run, #1305,
+    // has already filled every week an in-season league reaches here for).
+    const run = (runsByWeek && runsByWeek.get(wk)) || fetched.get(wk)
+      || projectionService.toWeeklyProjectionResult({ projections: new Map() });
     for (const id of playerIds) {
       if (byeWeekByPlayerId.get(id) === wk) {
         weeksByPlayer.get(id).push({ week: wk, reason: 'bye' });
         continue;
       }
-      const classified = classifyWeekProjection(run.projections.get(id));
+      const classified = run.classify(id);
       if (classified.unavailable) {
         weeksByPlayer.get(id).push({ week: wk, reason: classified.reason });
         continue;
@@ -506,7 +471,7 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
     // call per remaining week, by design (Ruling item 5); the nightly run
     // (#1305) has already filled every one of these for an in-season league.
     const run = await projectionService.getWeeklyProjections({ season, week: wk, league, playerIds: [player.id] });
-    const classified = classifyWeekProjection(run.projections.get(player.id));
+    const classified = run.classify(player.id);
     if (classified.unavailable) {
       weeks.push({ week: wk, opponent, kind: 'unavailable', reason: classified.reason });
       continue;
@@ -518,10 +483,10 @@ async function buildWeeklyBars({ league, player, season, currentWeek, opponentBy
       points: classified.points,
       // #1342 Ruling item 3: each projected week's own run carries its own
       // opponent Factor (the canvas hover), read the same way `projWeek`
-      // reads its current week's - never `classifyWeekProjection`'s or
-      // `buildWeeksForPage`'s job (Lead correction item 3: that would change
-      // the byte-identical `GET /api/players?view=cards` payload).
-      opponentRankVsPosition: opponentRankOf(run.projections, player.id),
+      // reads its current week's - never `classify`'s or `buildWeeksForPage`'s
+      // job (Lead correction item 3: that would change the byte-identical
+      // `GET /api/players?view=cards` payload).
+      opponentRankVsPosition: run.opponentRankFor(player.id),
     });
   }
   return weeks;
@@ -866,12 +831,15 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     decision: {
       projWeek: {
         week: effectiveWeek,
-        points: pointsOf(projections, player.id),
+        // `pointsFor` never coerces a missing estimate to 0 (unlike the old
+        // `pointsOf` this replaces) - restated here so the wire field keeps
+        // its documented "missing -> 0" contract, never a bare `null` (#1703).
+        points: projections.pointsFor(player.id) || 0,
         opponent: opponentByWeek.get(Number(effectiveWeek)) ?? null,
         // #1342 Ruling: the opponent Factor is the producer, ranked. Read off
-        // the same `getWeekProjections` entry `pointsOf` already draws
-        // `.points` from - no second query, no second producer.
-        opponentRankVsPosition: opponentRankOf(projections, player.id),
+        // the same result object's `opponentRankFor` - no second query, no
+        // second producer (#1703).
+        opponentRankVsPosition: projections.opponentRankFor(player.id),
       },
       ros: {
         points: ros.total,

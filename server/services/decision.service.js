@@ -8,7 +8,6 @@ const lineupService = require('./lineup.service');
 const { requireMember } = require('./leagueMembership.service');
 const {
   getWeekProjections,
-  toLegacyProjectionMap,
   getTradeProjectionMetrics,
 } = require('./projection.service');
 const {
@@ -71,8 +70,18 @@ function pointsOf(projections, playerId) {
 // 1. Start/sit advice
 // ---------------------------------------------------------------------------
 
-/** Accepts a raw number or a { points, ... } projection entry; missing/null -> null. */
-function detailOf(projections, playerId) {
+/**
+ * `buildSuggestions`'s own generic entry reader: it takes a plain
+ * `Map<playerId, points | { points, ... }>` (its documented contract, tested
+ * directly with bare fixtures), never a Weekly projection result object, so it
+ * is not the `detailOf` the migrate ticket (#1703) retired - `startSitAdvice`
+ * below reads the real Weekly projection through the result object's own
+ * accessors (`pointsFor`, `factorsFor`, `opponentAppliedFor`, `detailFor`) and
+ * hands `buildSuggestions` the legacy-shaped map (`run.toLegacyMap()`) it has
+ * always accepted. Accepts a raw number or a { points, ... } entry;
+ * missing/null -> null.
+ */
+function legacyEntryDetail(projections, playerId) {
   const value = projections.get(playerId);
   if (value == null) return { points: null };
   if (typeof value !== 'object') {
@@ -154,7 +163,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   // full projection, the lineup total overstates itself, and no replacement is
   // ever recommended because the bye player "outprojects" the healthy bench.
   const effectiveProjection = (playerId) => {
-    const detail = detailOf(projections, playerId);
+    const detail = legacyEntryDetail(projections, playerId);
     const availability = availabilityById.get(playerId);
     if (availability && !availability.available) {
       // The DISTRIBUTION goes too, not just the mean. A player who cannot play
@@ -355,7 +364,10 @@ async function startSitAdvice({ leagueId, userId, week }) {
     projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
   ]);
-  const projections = toLegacyProjectionMap(run);
+  // `buildSuggestions` below keeps its own documented contract (a plain
+  // legacy-shaped map); every OTHER read in this function goes through the
+  // result object's accessors directly (#1703).
+  const projections = run.toLegacyMap();
 
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
@@ -374,10 +386,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
     // shrunk-and-possibly-seeded value that actually moved the projection.
     // Read straight off the projection the client will show, so a lineup that
     // only ever displays one number cannot silently disagree with itself.
-    const detail = detailOf(projections, entry.id);
-    const opponentApplied = Boolean(
-      detail.factors && detail.factors.opponent && detail.factors.opponent.available
-    );
+    const opponentApplied = run.opponentAppliedFor(entry.id);
     defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed, opponentApplied });
   }
 
@@ -405,16 +414,21 @@ async function startSitAdvice({ leagueId, userId, week }) {
   );
 
   const players = lineupEntries.map((entry) => {
-    const detail = detailOf(projections, entry.playerId);
+    // Read straight off the result object (#1703): `pointsFor`/`factorsFor`
+    // for the two accessor-backed fields, `detailFor` for confidence/active
+    // probability, and the run's own `projections` map for the full
+    // distribution the client charts - the exact raw entry `toLegacyMap()`'s
+    // `.projection` field has always carried, never a second producer.
+    const detail = run.detailFor(entry.playerId);
     return {
       playerId: entry.playerId,
       name: entry.name,
       slot: entry.slot,
-      projection: detail.points,
-      distribution: detail.projection || null,
-      confidence: detail.confidence || null,
-      activeProbability: detail.activeProbability ?? null,
-      factors: detail.factors || null,
+      projection: run.pointsFor(entry.playerId),
+      distribution: run.projections.get(entry.playerId) || null,
+      confidence: (detail && detail.confidence) || null,
+      activeProbability: (detail && detail.activeProbability) ?? null,
+      factors: run.factorsFor(entry.playerId),
       ...defenseByPlayer.get(entry.playerId),
     };
   });

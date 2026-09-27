@@ -88,9 +88,20 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
   t.mock.method(clock, 'now', () => new Date(FIXED_NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
-    return { modelVersion: 'test', projections };
+    // A minimal stand-in for the real result object (#1703): just the one
+    // accessor `expectedFinalsForWeek` calls, reading this file's
+    // legacy-shaped `{ points }` fixtures.
+    return {
+      modelVersion: 'test',
+      projections,
+      pointsFor(id) {
+        const entry = projections.get(id);
+        if (entry == null) return null;
+        const raw = typeof entry === 'object' ? entry.points : entry;
+        return Number.isFinite(Number(raw)) ? Number(raw) : null;
+      },
+    };
   });
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   const fake = createFakePool([
     [/FROM "matchups" JOIN "teams" home/, () => ({ rows: matchups.map((m) => ({ ...m })) })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
@@ -175,8 +186,8 @@ test('each list row carries its status: scheduled, live, played and final at a f
   t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
     modelVersion: 'test',
     projections: new Map([21, 22, 23, 24, 25, 26].map((tid) => [tid * 100 + 1, { points: 10 }])),
+    pointsFor() { return 10; },
   }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
 
   const M = (id, home, away, extra = {}) => row({ id, week: 2, home_team_id: home, away_team_id: away, ...extra });
   const matchups = [

@@ -1361,29 +1361,27 @@ async function getLineup({ leagueId, userId, week }) {
       const projectionService = require('./projection.service');
       const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
       const rules = rulesForLeague(league);
-      const weeklyByPlayer = playerIds.length > 0
-        ? await projectionService.getWeekProjections({
-          season,
-          week: targetWeek,
-          league,
-          playerIds,
-        })
-        : new Map();
+      // The Weekly projection result object (#1703): `getWeeklyProjections`
+      // handles an empty player set on its own (a valid all-null result), so
+      // there is no separate bare-Map fallback to keep byte-identical here.
+      const weeklyResult = await projectionService.getWeeklyProjections({
+        season,
+        week: targetWeek,
+        league,
+        playerIds,
+      });
       // One entry per player: the mean/Floor(p10)/Ceiling(p90) that back the
       // Ledger row's Weekly projection (CONTEXT.md, Lineup entry; #1235,
-      // pre-launch ruling 2). All three come off the SAME distribution object
-      // the engine returned, so they are null together whenever it has no
-      // estimate - never derived separately here. `week_stats` (the raw
-      // player_stats row this row's own SELECT already joined, `entries` and
-      // `spent` alike) is consumed here and stripped: it is an internal input
-      // to the Edge line below, never a field the wire carries.
+      // pre-launch ruling 2). All three come off the SAME `detailFor` result
+      // (the result object's own accessor, #1703), so they are null together
+      // whenever it has no estimate - never derived separately here.
+      // `week_stats` (the raw player_stats row this row's own SELECT already
+      // joined, `entries` and `spent` alike) is consumed here and stripped:
+      // it is an internal input to the Edge line below, never a field the
+      // wire carries.
       for (const row of allRows) {
-        const weekly = weeklyByPlayer.get(row.id);
-        const points = Number(weekly?.points);
-        row.projected_points = weekly?.points == null || !Number.isFinite(points)
-          ? null
-          : points;
-        const dist = weekly?.projection || null;
+        row.projected_points = weeklyResult.pointsFor(row.id);
+        const dist = weeklyResult.detailFor(row.id);
         const mean = Number(dist?.mean);
         row.projection = dist?.mean == null || !Number.isFinite(mean) ? null : mean;
         const p10 = Number(dist?.p10);
@@ -1445,8 +1443,10 @@ async function getLineup({ leagueId, userId, week }) {
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
-        const weekly = weeklyByPlayer.get(row.id);
-        const factors = weekly?.projection?.factors || null;
+        // The full factors object exactly as the engine produced it (#1703),
+        // through the result object's own accessor rather than indexing
+        // `.projection.factors` off a legacy-map value.
+        const factors = weeklyResult.factorsFor(row.id);
         annotatedRow.edge = computeEdgeLine(annotatedRow, {
           entries: annotated,
           rosterSlots: settings.rosterSlots,

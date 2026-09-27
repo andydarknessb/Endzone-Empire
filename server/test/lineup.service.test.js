@@ -115,16 +115,20 @@ test('getLineup returns league-scored current-week projections and preserves una
     slot: 'QB',
   };
   const projectionCalls = [];
-  t.mock.method(projectionService, 'getWeekProjections', async (options) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
     projectionCalls.push(options);
-    return new Map([
-      [1, { points: '16.25', source: 'forecast' }],
-      [2, { points: 0, source: 'forecast' }],
-      [3, { points: null, source: 'forecast' }],
+    // Raw Weekly-projection run entries (#1703: `getWeeklyProjections` itself
+    // now returns the result object) - mean and median both set to the same
+    // value so the Point estimate reads it under either ranking statistic.
+    const projections = new Map([
+      [1, { mean: 16.25, median: 16.25, factors: {} }],
+      [2, { mean: 0, median: 0, factors: {} }],
+      [3, { mean: null, median: null, factors: {} }],
       // A spent row joins this same call (#1235, f2) and gets projection,
       // floor and ceiling by the same rule as any other entry.
-      [44, { points: 20, projection: { mean: 20, p10: 14, p90: 26, factors: {} } }],
+      [44, { mean: 20, median: 20, p10: 14, p90: 26, factors: {} }],
     ]);
+    return projectionService.toWeeklyProjectionResult({ projections });
   });
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
@@ -218,13 +222,15 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
     { id: 1, name: 'DK Metcalf', position: 'WR', nfl_team: 'SEA', injury_status: null, injury_detail: null, slot: 'FLEX', ir_attested: false },
     { id: 2, name: 'Terry McLaurin', position: 'WR', nfl_team: 'WAS', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
   ];
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map([
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
     // The starter's mean (9.03) beats the bench's mean (7.37), but the
     // starter's median (8.21) is BELOW the bench's median (10.06) - the
     // exact skew the issue's Cause section measured (run 9525, free_baseline_v3.1).
-    [1, { points: 8.21, projection: { mean: 9.03, p10: 5, p90: 12, factors: {} } }],
-    [2, { points: 10.06, projection: { mean: 7.37, p10: 6, p90: 14, factors: {} } }],
-  ]));
+    projections: new Map([
+      [1, { mean: 9.03, median: 8.21, p10: 5, p90: 12, factors: {} }],
+      [2, { mean: 7.37, median: 10.06, p10: 6, p90: 14, factors: {} }],
+    ]),
+  }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
@@ -262,17 +268,17 @@ test("an injured player still carries the largest Factor's explanation, independ
   const entries = [
     { id: 1, name: 'Edge Case', position: 'WR', nfl_team: 'MIN', injury_status: 'Q', injury_detail: null, slot: 'WR', ir_attested: false },
   ];
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map([
-    [1, {
-      points: 12,
-      projection: {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map([
+      [1, {
         mean: 12,
+        median: 12,
         p10: 8,
         p90: 16,
         factors: { opponent: { available: true, pointsContribution: 2 } },
-      },
-    }],
-  ]));
+      }],
+    ]),
+  }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
@@ -319,7 +325,9 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
     // turns exactly this assertion red, leaving it 'WSH' instead of 'WAS'.
     { id: 5, name: 'Miami Guy', position: 'WR', nfl_team: 'MIA', injury_status: null, slot: 'BENCH', ir_attested: false },
   ];
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
@@ -2186,7 +2194,9 @@ const asPlayedEntry = (id, name, position, nfl_team, slot) => ({
 function lineupWorld(t, {
   rows, roster, settled, bestBall = false, tenures = [], spentRows = [],
 }) {
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
   const byeRows = [];
   for (let w = 1; w <= REG_SEASON_WEEKS; w++) {
     for (const team of Object.keys(L_SCHEDULE)) byeRows.push({ nfl_team: team, week: w });

@@ -196,7 +196,9 @@ test('#227 a player with no game row that week is not locked (bye / unsynced sch
 });
 
 test('#227 getLineup reports a kicked-off DEF unit as locked to the manager', async (t) => {
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
   const fake = lineupWorld({
     entries: [{ ...DEF_UNIT, slot: 'DEF' }, { ...ALIAS_QB, slot: 'QB' }],
     kickedOff: ['DEN'],
