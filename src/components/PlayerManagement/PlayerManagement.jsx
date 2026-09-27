@@ -131,17 +131,18 @@ function PlayerManagement() {
 
   // #1575: the manager's own pending waiver claim count, read through the
   // `waiver-claim` entity (#1671). null = unknown/hidden: best ball leagues
-  // have no waivers so they never read it, and a failed read leaves the link
-  // hidden. Re-read in `refreshAfterAction` (a new `refreshKey`) so every claim
-  // path (row one-tap, Decision card) moves it, without Add/Watch blindly
-  // bumping a counter.
+  // have no waivers so they never read it. A failed read or first read that
+  // fails keeps the link hidden (no body for the league has been shown).
+  // Re-read in `refreshAfterAction` (a new `refreshKey`) so every claim path
+  // (row one-tap, Decision card) moves it, without Add/Watch blindly bumping a
+  // counter. During a re-read the count keeps the last known value (#1686).
   const [claimsRefresh, setClaimsRefresh] = useState(0);
-  const { status: claimsStatus, claims: waiverClaims } = useWaiverClaims({
+  const { claims: waiverClaims, loaded: claimsLoaded } = useWaiverClaims({
     leagueId: selectedLeague && !bestBall ? Number(selectedLeague) : null,
     refreshKey: claimsRefresh,
   });
   const pendingClaimCount =
-    selectedLeague && !bestBall && claimsStatus === "ready" ? waiverClaims.pending.length : null;
+    selectedLeague && !bestBall && claimsLoaded ? waiverClaims.pending.length : null;
 
   // Formal review round 2, f11: an add or a drop-and-add both change the
   // caller's own roster, so the drop pick a LATER at-capacity add offers

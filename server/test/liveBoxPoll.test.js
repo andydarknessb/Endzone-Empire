@@ -156,3 +156,62 @@ test('pollChangedGames: a skipped fetch (below the failure threshold, or cadence
   assert.deepEqual(out.changedPlayerIds, []);
   assert.deepEqual(w.scored, []);
 });
+
+// --- refresh: a game that stops moving is still re-read once a minute --------
+// ESPN finishes a box a beat after its scoreboard moves (Jake Bates' extra
+// point, 2026-09-27) and revises tackles at the half. Keyed on movement alone,
+// the poll read the box once and then froze it until the clock ran again.
+
+test('changedGames: an unmoved game whose box was last read more than a minute ago is read again', () => {
+  const fetchedAt = new Map([['g1', 0]]);
+  const opts = (now) => ({ now, fetchedAt, espnActive: true });
+  assert.deepEqual(liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh()], opts(59_000)), [], 'inside the minute: no read');
+  assert.deepEqual(
+    liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh()], opts(60_000)),
+    [{ gameId: 'g1', espnEventId: '401', status: 'in_progress', refresh: true }]
+  );
+  assert.equal(liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh()], { now: 60_000, fetchedAt: new Map(), espnActive: true }).length, 1,
+    'a game this process never read (a restart at halftime) is read');
+});
+
+test('changedGames: the refresh never spends Tank01 quota; in fallback only movement fetches', () => {
+  const out = liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh()], { now: 600_000, fetchedAt: new Map([['g1', 0]]), espnActive: false });
+  assert.deepEqual(out, []);
+});
+
+test('changedGames: halftime, and a Final box already landed, follow the same rules', () => {
+  const half = prior({ quarter: 'Half', time_remaining: '0:00' });
+  assert.equal(liveBoxPoll.changedGames(new Map([['g1', half]]), [fresh({ quarter: 'Half', timeRemaining: '0:00' })], { now: 120_000, fetchedAt: new Map([['g1', 0]]), espnActive: true }).length, 1);
+  assert.deepEqual(liveBoxPoll.changedGames(new Map([['g1', prior({ final_stats_synced_at: new Date() })]]), [fresh()], { now: 120_000, fetchedAt: new Map(), espnActive: true }), []);
+});
+
+test('pollChangedGames: a read box stamps the game, and the next unmoved pass inside the minute leaves it alone', async (t) => {
+  pollWorld(t, { fetch: async () => jsnBox(1), leaguesByPlayer: () => [] });
+  await liveBoxPoll.pollChangedGames({ season: 2026, week: 1, now: 1_000, games: [{ gameId: 'g1', espnEventId: '401', status: 'in_progress' }], finalSyncedGameIds: new Set() });
+  const still = [fresh()];
+  const priorRows = new Map([['g1', prior()]]);
+  assert.deepEqual(liveBoxPoll.changedGames(priorRows, still, { now: 31_000, espnActive: true }), [], 'thirty seconds on');
+  assert.equal(liveBoxPoll.changedGames(priorRows, still, { now: 61_000, espnActive: true }).length, 1, 'a minute on');
+});
+
+test('pollChangedGames: once ESPN falls back mid-pass, the remaining refresh-only games are not read (no paid box for an unmoved game)', async (t) => {
+  const fetches = [];
+  pollWorld(t, {
+    fetch: async (args) => {
+      fetches.push(args.gameId);
+      if (fetches.length === 3) t.mock.method(liveBox, 'activeBoxSource', () => 'tank01'); // third failure: fallback
+      return { liveBox: null, source: 'espn', skipped: true };
+    },
+    leaguesByPlayer: () => [],
+  });
+  const games = ['g1', 'g2', 'g3', 'g4', 'g5'].map((gameId) => ({ gameId, espnEventId: '401', status: 'in_progress', refresh: true }));
+  games.push({ gameId: 'g6', espnEventId: '401', status: 'in_progress' }); // this one moved
+  await liveBoxPoll.pollChangedGames({ season: 2026, week: 1, now: 1_000, games, finalSyncedGameIds: new Set() });
+  assert.deepEqual(fetches, ['g1', 'g2', 'g3', 'g6'], 'g4 and g5 only wanted a refresh; the moved g6 is still read');
+});
+
+test('changedGames: a refresh-only entry is tagged, a moved one is not', () => {
+  const opts = { now: 60_000, fetchedAt: new Map([['g1', 0]]), espnActive: true };
+  assert.equal(liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh()], opts)[0].refresh, true);
+  assert.equal(liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh({ timeRemaining: '1:00' })], opts)[0].refresh, undefined);
+});

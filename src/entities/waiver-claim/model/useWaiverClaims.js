@@ -85,7 +85,9 @@ export function useWaiverClaims({ leagueId, refreshKey = 0 } = {}) {
     [leagueId],
   );
 
-  return { status, claims, moveClaim, orderError, orderAnnouncement, orderSettled };
+  const loaded = shown != null;
+
+  return { status, claims, loaded, moveClaim, orderError, orderAnnouncement, orderSettled };
 }
 
 export default useWaiverClaims;
