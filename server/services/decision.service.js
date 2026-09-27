@@ -73,13 +73,13 @@ function pointsOf(projections, playerId) {
 /**
  * `buildSuggestions`'s own generic entry reader: it takes a plain
  * `Map<playerId, points | { points, ... }>` (its documented contract, tested
- * directly with bare fixtures), never a Weekly projection result object, so it
- * is not the `detailOf` the migrate ticket (#1703) retired - `startSitAdvice`
- * below reads the real Weekly projection through the result object's own
- * accessors (`pointsFor`, `factorsFor`, `opponentAppliedFor`, `detailFor`) and
- * hands `buildSuggestions` the legacy-shaped map (`run.toLegacyMap()`) it has
- * always accepted. Accepts a raw number or a { points, ... } entry;
- * missing/null -> null.
+ * directly with bare fixtures), never a Weekly projection result object, so
+ * it is a different thing from the per-request helper the migrate ticket
+ * (#1703) retired from this file - `startSitAdvice` below reads the real
+ * Weekly projection through the result object's own accessors (`pointsFor`,
+ * `factorsFor`, `opponentAppliedFor`, `detailFor`) and hands `buildSuggestions`
+ * the legacy-shaped map (`run.toLegacyMap()`) it has always accepted. Accepts
+ * a raw number or a { points, ... } entry; missing/null -> null.
  */
 function legacyEntryDetail(projections, playerId) {
   const value = projections.get(playerId);

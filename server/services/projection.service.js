@@ -1249,14 +1249,14 @@ function classifyProjectionEntry(projection) {
 /**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the six
- * accessors the Decision card module (`playerCard.service.js`'s `pointsOf`,
- * `opponentRankOf`, `classifyWeekProjection`) and the decision service
- * (`decision.service.js`'s `detailOf`) each compute for themselves today, so
- * a caller migrating onto this object reads the SAME answer every other
- * reader of the run already does. Every accessor is defined over the raw run
- * entry the engine emits (mean, median, p10, p90, factors, confidence,
- * activeProbability) — no producer emits a bare number, so there is no
- * number branch here either.
+ * accessors the Decision card module and the decision service each used to
+ * hand-roll for themselves - three private helpers in
+ * `playerCard.service.js` and one in `decision.service.js`, all retired by
+ * the migrate ticket (#1703) in favor of these - so a caller reads the SAME
+ * answer every other reader of the run already does. Every accessor is
+ * defined over the raw run entry the engine emits (mean, median, p10, p90,
+ * factors, confidence, activeProbability) — no producer emits a bare number,
+ * so there is no number branch here either.
  *
  * `run`'s own fields (`season`, `week`, `modelVersion`, `scoringHash`,
  * `generatedAt`, `inputCutoff`, `sourceCoverage`, `projections`) are carried
