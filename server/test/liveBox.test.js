@@ -220,3 +220,66 @@ test('applyGameBoxScore refuses a Live box for a game whose Final box has landed
   assert.deepEqual(out, { updated: 0, plays: [], skipped: 'final-box-landed' });
   assert.deepEqual(maps.prevById.get(12), { receptions: 8, receivingTDs: 1 }, 'fantasy points and the baseline are untouched');
 });
+
+// A just-kicked-off game: ESPN reports it in progress, scoreless in the first
+// quarter, before its box has any athletes. Nine of these at the 1 pm slot
+// counted as nine ESPN failures on the one shared counter and flapped the
+// Live box to Tank01 and back twice on 2026-09-27 (four paid box reads).
+const kickoffSummary = ({ period = 1, home = '0', away = '0' } = {}) => {
+  const base = inProgressSummary();
+  const comp = base.header.competitions[0];
+  return {
+    ...base,
+    header: {
+      ...base.header,
+      competitions: [{
+        ...comp,
+        status: { ...comp.status, period },
+        competitors: comp.competitors.map((c) => ({ ...c, score: c.homeAway === 'home' ? home : away })),
+      }],
+    },
+    boxscore: { teams: [], players: [] },
+    scoringPlays: [],
+    drives: {},
+  };
+};
+
+test('kickoff: a scoreless first-quarter game with no athletes yet is not an ESPN failure, however many games kick off', async (t) => {
+  const w = world(t, { espn: () => ({ data: kickoffSummary() }) });
+  const args = { ...GAME, transport: w.transport, tank01Transport: w.tank01Transport };
+  for (let i = 0; i < 9; i++) {
+    const out = await liveBox.fetchLiveBox({ ...args, gameId: `g${i}`, now: i * 1000 });
+    assert.equal(out.skipped, true, 'nothing to apply yet');
+    assert.equal(out.reason, 'box_not_ready');
+  }
+  assert.equal(liveBox.activeBoxSource(), 'espn', 'the Live box stays on ESPN');
+  assert.equal(w.tank01Calls.length, 0, 'no paid box read');
+  assert.deepEqual(w.runs, [], 'no switch row');
+});
+
+test('kickoff: an empty box still counts once the game has a score or has left the first quarter', async (t) => {
+  for (const shape of [{ home: '7' }, { period: 2 }]) {
+    const w = world(t, { espn: () => ({ data: kickoffSummary(shape) }) });
+    const args = { ...GAME, transport: w.transport, tank01Transport: w.tank01Transport };
+    await liveBox.fetchLiveBox({ ...args, now: 0 });
+    await liveBox.fetchLiveBox({ ...args, now: 30_000 });
+    const third = await liveBox.fetchLiveBox({ ...args, now: 60_000 });
+    assert.equal(third.source, 'tank01', JSON.stringify(shape));
+    assert.equal(w.runs[0].detail.failureKind, 'empty_box');
+    liveBox.__resetLiveBoxState();
+  }
+});
+
+test('kickoff: a not-ready box neither counts nor clears a failure streak already under way', async (t) => {
+  let data = null;
+  const w = world(t, { espn: () => { if (!data) throw new Error('boom'); return { data }; } });
+  const args = { ...GAME, transport: w.transport, tank01Transport: w.tank01Transport };
+  await liveBox.fetchLiveBox({ ...args, now: 0 });
+  await liveBox.fetchLiveBox({ ...args, now: 1 });
+  data = kickoffSummary();
+  await liveBox.fetchLiveBox({ ...args, now: 2 });
+  assert.equal(liveBox.getLiveBoxStatus().espnBoxFailures, 2);
+  data = null;
+  const third = await liveBox.fetchLiveBox({ ...args, now: 3 });
+  assert.equal(third.source, 'tank01', 'the third real failure still enters fallback');
+});

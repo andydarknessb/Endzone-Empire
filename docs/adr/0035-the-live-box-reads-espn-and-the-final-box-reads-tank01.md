@@ -92,3 +92,21 @@ pricing the one `player_stats` row the Final box and nflverse wrote (ADR
 - Injury designations stay single-writer (the daily Tank01 player-list sync).
   ESPN's per-team injuries block is a free in-game source the injuries ticket
   weighs; it does not become a second writer under this ADR.
+
+## Amendment (2026-09-27, live scoring audit)
+
+Two rules above, measured against the week 3 noon slot:
+
+- "Only games whose score or clock moved" left a box stale whenever ESPN
+  finished it after its scoreboard moved and the clock then stopped (a DET
+  extra point held back behind a stopped clock; tackle and pass-defended
+  revisions frozen through halftime). While the Live box is on ESPN, an
+  unmoved in-progress game is now also re-read once its box is a minute old.
+  In Tank01 fallback only movement fetches, so halftime still spends no
+  quota.
+- "Three consecutive failures" counted a just-kicked-off game's empty box
+  as a failure. Nine at once flapped the Live box to Tank01 and back twice
+  (four paid box reads). An empty box for a game still scoreless in the
+  first quarter is now `box_not_ready`: skipped, neither a failure nor a
+  success. With a score on the board or past the first quarter, an empty box
+  is a shape failure again.
