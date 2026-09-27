@@ -1868,6 +1868,146 @@ test('pointEstimateFor reads its constants off the projection\'s own modelVersio
 });
 
 // ---------------------------------------------------------------------------
+// toWeeklyProjectionResult (#1702, unparked #1495): the Weekly projection
+// result's six accessors, each defined over the raw run entry the engine
+// emits - no producer emits a bare number, so there is no number branch to
+// test here. The legacy map (`toLegacyProjectionMap`) stays reachable via
+// `toLegacyMap()` for one release; #1703/#1704 are what migrate and then
+// remove the callers' own copies.
+// ---------------------------------------------------------------------------
+
+test('toWeeklyProjectionResult: pointsFor is the Point estimate and never coerces a missing one to 0', () => {
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, { playerId: 1, mean: 12.2, median: 11.8, confidence: 'high', activeProbability: 1, factors: {} }],
+      [2, { playerId: 2, mean: null, median: null, confidence: 'low', activeProbability: null, factors: {} }],
+    ]),
+  });
+  assert.equal(result.pointsFor(1), 11.8, 'the median is the headline number under the shipped constants');
+  assert.equal(result.pointsFor(2), null, 'no estimate either side is null, never a fabricated 0');
+});
+
+test('toWeeklyProjectionResult: classify matches classifyWeekProjection - unavailable+reason, or the Point estimate', () => {
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, { playerId: 1, mean: 9, median: 8, confidence: 'high', activeProbability: 1, factors: {} }],
+      [2, {
+        playerId: 2, mean: null, median: null, confidence: 'low', activeProbability: 0,
+        factors: { availability: { available: false, reason: 'bye' } },
+      }],
+      [3, {
+        playerId: 3, mean: null, median: null, confidence: 'low', activeProbability: 0,
+        factors: { availability: { available: false } },
+      }],
+    ]),
+  });
+  assert.deepEqual(result.classify(1), { unavailable: false, points: 8 });
+  assert.deepEqual(result.classify(2), { unavailable: true, reason: 'bye' });
+  assert.deepEqual(result.classify(3), { unavailable: true, reason: 'out' }, 'defaults to out with no reason code');
+});
+
+test('toWeeklyProjectionResult: opponentRankFor reads { rank, of } off factors.opponent, null when the factor did not fire', () => {
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, { playerId: 1, mean: 9, median: 8, factors: { opponent: { available: true, rank: 3, of: 32 } } }],
+      [2, { playerId: 2, mean: 9, median: 8, factors: { opponent: { available: false } } }],
+      [3, { playerId: 3, mean: 9, median: 8, factors: {} }],
+    ]),
+  });
+  assert.deepEqual(result.opponentRankFor(1), { rank: 3, of: 32 });
+  assert.equal(result.opponentRankFor(2), null, 'an unavailable factor carries no rank');
+  assert.equal(result.opponentRankFor(3), null, 'no opponent factor at all');
+  assert.equal(result.opponentRankFor(999), null, 'no entry for the player at all');
+});
+
+test('toWeeklyProjectionResult: opponentAppliedFor is factors.opponent.available', () => {
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, { playerId: 1, factors: { opponent: { available: true, rank: 1, of: 32 } } }],
+      [2, { playerId: 2, factors: { opponent: { available: false } } }],
+    ]),
+  });
+  assert.equal(result.opponentAppliedFor(1), true);
+  assert.equal(result.opponentAppliedFor(2), false);
+  assert.equal(result.opponentAppliedFor(999), false, 'no entry for the player at all');
+});
+
+test('toWeeklyProjectionResult: factorsFor is the factors object as the engine produced it', () => {
+  const factors = { opponent: { available: true, rank: 5, of: 32 }, usage: { value: 0.4 } };
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([[1, { playerId: 1, factors }]]),
+  });
+  assert.equal(result.factorsFor(1), factors);
+  assert.equal(result.factorsFor(999), null, 'no entry for the player at all');
+});
+
+test('toWeeklyProjectionResult: detailFor is { mean, median, p10, p90, confidence, activeProbability }', () => {
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, {
+        playerId: 1, mean: 12.2, median: 11.8, p10: 4.1, p25: 8, p75: 15, p90: 20.6,
+        confidence: 'high', activeProbability: 1, factors: {}, sampleSize: 6,
+      }],
+    ]),
+  });
+  assert.deepEqual(result.detailFor(1), {
+    mean: 12.2, median: 11.8, p10: 4.1, p90: 20.6, confidence: 'high', activeProbability: 1,
+  });
+  assert.equal(result.detailFor(999), null, 'no entry for the player at all');
+});
+
+test('toWeeklyProjectionResult: the legacy map stays reachable via toLegacyMap for one release', () => {
+  const legacyRun = {
+    modelVersion: model.MODEL_VERSION,
+    generatedAt: '2026-10-08T00:00:00.000Z',
+    inputCutoff: '2026-10-11T17:00:00.000Z',
+    projections: new Map([
+      [1, { playerId: 1, mean: 12.2, median: 11.8, confidence: 'high', activeProbability: 1, factors: {} }],
+    ]),
+  };
+  const result = projection.toWeeklyProjectionResult(legacyRun);
+  const legacy = result.toLegacyMap();
+  assert.deepEqual(legacy, projection.toLegacyProjectionMap(legacyRun));
+  assert.equal(legacy.get(1).points, 11.8);
+});
+
+test('toWeeklyProjectionResult: every existing run field (.projections included) is still on the result', () => {
+  const projections = new Map([[1, { playerId: 1, mean: 9, median: 8, factors: {} }]]);
+  const result = projection.toWeeklyProjectionResult({
+    season: SEASON, week: 5, modelVersion: model.MODEL_VERSION, scoringHash: 'h',
+    generatedAt: '2026-10-08T00:00:00.000Z', inputCutoff: null, sourceCoverage: { opponent: {} }, projections,
+  });
+  assert.equal(result.season, SEASON);
+  assert.equal(result.week, 5);
+  assert.equal(result.projections, projections, 'the SAME Map, not a copy - existing readers keep working untouched');
+});
+
+test('toWeeklyProjectionResult: getWeeklyProjections returns a result whose accessors agree with the run for every player, including a no_team hard-unavailable', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB'), player(2, 'WR', { nfl_team: null, team_key: null })],
+    weeklyStats: [weeklyRow(1, 1, { rushingYards: 90 }), weeklyRow(1, 2, { rushingYards: 60 })],
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1, 2] });
+  for (const [playerId, entry] of result.projections) {
+    assert.equal(result.pointsFor(playerId), projection.pointEstimateFor(entry));
+    assert.deepEqual(result.factorsFor(playerId), entry.factors);
+    assert.deepEqual(result.detailFor(playerId), {
+      mean: entry.mean, median: entry.median, p10: entry.p10, p90: entry.p90,
+      confidence: entry.confidence, activeProbability: entry.activeProbability,
+    });
+  }
+  // player 2 has No NFL team -> hard-unavailable no_team, matching classifyWeekProjection.
+  assert.deepEqual(result.classify(2), { unavailable: true, reason: 'no_team' });
+});
+
+// ---------------------------------------------------------------------------
 // Cache invalidation after a stat correction
 // ---------------------------------------------------------------------------
 
