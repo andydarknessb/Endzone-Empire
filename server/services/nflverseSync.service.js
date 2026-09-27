@@ -271,6 +271,31 @@ function buildSnapUpdates({
 }
 
 /**
+ * Pure: the six target_share/air_yards_share/wopr/EPA columns nflverse's
+ * combined weekly file carries (#1706), read null-preserving with
+ * `optionalNumber` like every other opportunity/efficiency column: a blank
+ * column stays null ("we don't know"), never a fabricated 0. Shared between
+ * buildStatUpdates (the nightly finalization patch) and
+ * normalizeNflversePlayerStats (the full-week rewrite) so the two builders
+ * can never drift on these six keys — review issue #1706 f2 was exactly that
+ * drift, the full-week rewrite silently erasing keys the nightly pass wrote.
+ */
+function readNflverseShareAndEpa(row) {
+  return {
+    usageTargetShare: optionalNumber(row.target_share),
+    usageAirYardsShare: optionalNumber(row.air_yards_share),
+    usageWopr: optionalNumber(row.wopr),
+    epaPassing: optionalNumber(row.passing_epa),
+    epaRushing: optionalNumber(row.rushing_epa),
+    epaReceiving: optionalNumber(row.receiving_epa),
+  };
+}
+
+// The six keys readNflverseShareAndEpa writes, for applyNflverseWeekUnit's
+// no-existing-row guard (#1706 f1) below.
+const NFLVERSE_SHARE_EPA_KEYS = Object.keys(readNflverseShareAndEpa({}));
+
+/**
  * Pure: join filtered nflverse rows to our players (via the espn_id
  * crosswalk) and compute each matched player's finalization patch. Rows
  * with no gsis id (nflverse's own placeholder/team-penalty rows use
@@ -286,14 +311,14 @@ function buildSnapUpdates({
  * def_safety -> def_safeties and dropped the def_ prefix from
  * fumble_recovery_yards_opp.
  *
- * target_share, air_yards_share and wopr (usageTargetShare/usageAirYardsShare/
- * usageWopr) and the per-category EPA columns (epaPassing/epaRushing/
- * epaReceiving) are OPTIONAL, unscored features, read with `optionalNumber`
- * the same as every other opportunity column: a blank column stays null
- * ("we don't know"), never a fabricated 0. Unlike the idp* yardage fields
- * they are not summed into the all-zero skip check below as zeros — a null
- * carries no data either, so a row where every field is 0-or-null is still
- * skipped as a no-op merge.
+ * target_share/air_yards_share/wopr/EPA (readNflverseShareAndEpa, #1706) are
+ * OPTIONAL, unscored features. Unlike the idp* yardage fields they are not
+ * summed into the all-zero skip check below as zeros — a null carries no
+ * data either, so a row where every field is 0-or-null is still skipped as
+ * a no-op merge. This function has no DB access and so cannot tell whether
+ * a player_stats row already exists for (player, season, week); the separate
+ * guard against these six keys creating a brand new row on their own lives
+ * in applyNflverseWeekUnit below, which does have that read (#1706 f1).
  */
 function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
   const num = (v) => {
@@ -314,12 +339,7 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
       idpFumbleReturnYards: num(row.fumble_recovery_yards_opp ?? row.def_fumble_recovery_yards_opp),
       idpInterceptionReturnYards: num(row.def_interception_yards),
       idpSafety: num(row.def_safeties ?? row.def_safety),
-      usageTargetShare: optionalNumber(row.target_share),
-      usageAirYardsShare: optionalNumber(row.air_yards_share),
-      usageWopr: optionalNumber(row.wopr),
-      epaPassing: optionalNumber(row.passing_epa),
-      epaRushing: optionalNumber(row.rushing_epa),
-      epaReceiving: optionalNumber(row.receiving_epa),
+      ...readNflverseShareAndEpa(row),
     };
     // The combined file has a row for EVERY player, not just defenders (the
     // old def-only file didn't) — a patch with nothing but zero idp yardage
@@ -461,8 +481,21 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
       `SELECT "stats" FROM "player_stats" WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3`,
       [playerId, season, week]
     );
-    const prevStats = existing.rows[0] ? existing.rows[0].stats : {};
-    const stats = { ...prevStats, ...patch };
+    const priorRow = existing.rows[0];
+    // #1706 f1: this pass must never INSERT a brand new player_stats row as a
+    // side effect of the six unscored share/EPA keys alone (the successor eval
+    // rebuilds from player_stats as it stands). When no row exists yet for
+    // this (player, season, week), strip those six keys and re-apply the
+    // pre-#1706 all-zero IDP skip on what's left; only genuine IDP yardage
+    // still creates a row here, exactly as it did before this ticket. Once a
+    // row exists (Tank01 already wrote one, or a prior pass created one from
+    // real IDP data), every key in patch — new ones included — merges onto it.
+    const effectivePatch = priorRow
+      ? patch
+      : Object.fromEntries(Object.entries(patch).filter(([key]) => !NFLVERSE_SHARE_EPA_KEYS.includes(key)));
+    if (!priorRow && Object.values(effectivePatch).every((v) => v === 0)) continue;
+    const prevStats = priorRow ? priorRow.stats : {};
+    const stats = { ...prevStats, ...effectivePatch };
     await upsertPlayerStats(db, { playerId, season, week, stats });
     playersUpdated += 1;
   }
@@ -755,6 +788,12 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
  * - The TD-length bonus arrays (passingTDLengths etc.) need play-by-play
  *   and are omitted — they score 0 points under default rules, and no
  *   league has scored matchups on backfilled seasons.
+ * - target_share/air_yards_share/wopr/EPA (readNflverseShareAndEpa, #1706):
+ *   this builder reads the row fresh from the same combined file the nightly
+ *   finalization pass does, so it emits the six keys directly rather than
+ *   carrying them forward via `preserveKeys` — a full-week rewrite (the
+ *   Tue/Wed correction pass, or the backfill script) must not be the one
+ *   nflverse-only key group it silently erases (review issue #1706 f2).
  */
 function normalizeNflversePlayerStats(row) {
   const num = (v) => {
@@ -824,6 +863,7 @@ function normalizeNflversePlayerStats(row) {
     idpFumbleReturnYards: num(row.fumble_recovery_yards_opp),
     idpInterceptionReturnYards: num(row.def_interception_yards),
     idpSafety: num(row.def_safeties),
+    ...readNflverseShareAndEpa(row),
   };
 }
 

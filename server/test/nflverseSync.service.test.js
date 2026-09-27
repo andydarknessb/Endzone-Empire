@@ -383,6 +383,23 @@ test('normalizeNflversePlayerStats: per-week usage columns stay null when the fi
   assert.equal(known.usageAirYards, 84);
 });
 
+test('normalizeNflversePlayerStats emits target_share, air_yards_share, wopr and EPA fresh from the row (#1706 f2)', () => {
+  // The full-week rewrite (syncNflverseCorrection/backfill) reads this row
+  // directly rather than carrying these six keys forward via preserveKeys,
+  // so it must never be the one nflverse-only key group a wholesale rewrite
+  // silently erases.
+  const stats = normalizeNflversePlayerStats({
+    target_share: '0.25', air_yards_share: '0.3', wopr: '0.55',
+    passing_epa: '2.1', rushing_epa: '', receiving_epa: '4.4',
+  });
+  assert.equal(stats.usageTargetShare, 0.25);
+  assert.equal(stats.usageAirYardsShare, 0.3);
+  assert.equal(stats.usageWopr, 0.55);
+  assert.equal(stats.epaPassing, 2.1);
+  assert.equal(stats.epaRushing, null, 'blank rushing_epa stays unknown, not 0');
+  assert.equal(stats.epaReceiving, 4.4);
+});
+
 test('game-context and usage keys do not change the fantasy points of a stat line', () => {
   const row = {
     team: 'KC', opponent_team: 'BUF', targets: '9', carries: '3', receiving_air_yards: '77',
@@ -634,6 +651,38 @@ test('syncNflverseCorrection preserves nothing by default (backfill behavior)', 
   assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
 });
 
+test('syncNflverseCorrection emits target_share/air_yards_share/wopr/EPA fresh from nflverse, not erased by the wholesale rewrite and not dependent on preserveKeys (#1706 f2)', async (t) => {
+  const upserts = [];
+  fakeCorrectionPool(t, {
+    upserts,
+    // A stale value a prior nightly finalization pass wrote for two of the
+    // six keys. preserveKeys below does NOT name them, so if the rewrite
+    // depended on carry-forward for these keys (like it does for the
+    // pbp-only arrays) they would either vanish or stay stale; instead
+    // normalizeNflversePlayerStats must emit its own fresh values.
+    existing: [{ player_id: 42, stats: { usageTargetShare: 0.10, epaPassing: -9 } }],
+  });
+
+  await nflverseSync.syncNflverseCorrection({
+    season: 2025,
+    week: 3,
+    playerRows: [{
+      ...CORRECTION_PLAYER_ROW,
+      target_share: '0.4', air_yards_share: '0.5', wopr: '0.7', passing_epa: '3.3',
+    }],
+    teamRows: CORRECTION_TEAM_ROWS,
+    scoresByGameId: new Map(),
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    preserveKeys: nflverseSync.PBP_ONLY_STAT_KEYS, // deliberately not the six new keys
+  });
+
+  const stats = JSON.parse(upserts[0][3]);
+  assert.equal(stats.usageTargetShare, 0.4, 'fresh nflverse value, not the stale carried 0.10');
+  assert.equal(stats.epaPassing, 3.3, 'fresh nflverse value, not the stale carried -9');
+  assert.equal(stats.usageAirYardsShare, 0.5);
+  assert.equal(stats.usageWopr, 0.7);
+});
+
 test('syncNflverseCorrection still matches Washington: nflverse WAS -> the Washington Commanders DEF unit (#431)', async (t) => {
   const upserts = [];
   // Seeded DEF unit stored as a full name, which folds to the Team code WAS.
@@ -875,6 +924,34 @@ test('syncNflverseWeek: target_share/air_yards_share/wopr/EPA land as new keys o
   assert.equal(stored.epaPassing, null, 'blank passing_epa stays unknown, not 0');
   assert.equal(stored.epaRushing, null, 'blank rushing_epa stays unknown, not 0');
   assert.equal(stored.epaReceiving, 3.1);
+});
+
+test('syncNflverseWeek: a share/EPA-only row with no idp yardage never creates a new player_stats row when none exists (#1706 f1)', async (t) => {
+  t.mock.method(axios, 'get', async (url) => {
+    if (url.includes('stats_player_week')) {
+      return {
+        data: [
+          'season,week,season_type,player_id,target_share,air_yards_share,wopr',
+          '2025,3,REG,00-0039924,0.3,0.4,0.6',
+        ].join('\n'),
+      };
+    }
+    if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
+    return { data: '' };
+  });
+  const upserts = [];
+  createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'], // no existing row for this player/week
+    [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+    [select('leagues'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+
+  const out = await syncNflverseWeek({ season: 2025, week: 3 });
+  assert.equal(out.playersUpdated, 0, 'no row existed, and share/EPA data alone must not create one');
+  assert.equal(upserts.length, 0, 'no INSERT/upsert call was made at all');
 });
 
 // --- patchCurrentWeeks: the current-week pass --------------------------------
