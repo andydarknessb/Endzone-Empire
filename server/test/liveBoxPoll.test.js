@@ -81,7 +81,7 @@ test('rescoreGate: a league is due immediately the first time and not again insi
 
 // --- pollChangedGames: fetch once per changed game, apply, re-score rostering leagues ----
 
-function pollWorld(t, { fetch, leaguesByPlayer }) {
+function pollWorld(t, { fetch, leaguesByPlayer, priorStats = [] }) {
   liveBox.__resetLiveBoxState();
   liveBoxPoll.__resetPollState();
   const fake = createFakePool([
@@ -89,7 +89,7 @@ function pollWorld(t, { fetch, leaguesByPlayer }) {
       { id: 12, external_id: '4430878', name: 'JSN', position: 'WR', nfl_team: 'SEA' },
       { id: 13, external_id: '4431452', name: 'Drake Maye', position: 'QB', nfl_team: 'NE' },
     ] })],
-    [/FROM "player_stats"/, () => ({ rows: [] })],
+    [/FROM "player_stats"/, () => ({ rows: priorStats })],
     [/FROM "nfl_games"/, () => ({ rows: [] })],
     [/INTO "player_stats"/, () => ({ rows: [] })],
     // Leagues rostering the changed players this week.
@@ -214,4 +214,38 @@ test('changedGames: a refresh-only entry is tagged, a moved one is not', () => {
   const opts = { now: 60_000, fetchedAt: new Map([['g1', 0]]), espnActive: true };
   assert.equal(liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh()], opts)[0].refresh, true);
   assert.equal(liveBoxPoll.changedGames(new Map([['g1', prior()]]), [fresh({ timeRemaining: '1:00' })], opts)[0].refresh, undefined);
+});
+
+// --- change detection ignores key order --------------------------------------
+// The diff baseline is reloaded from player_stats every five minutes, and jsonb
+// hands keys back sorted by length, not in the order the box source wrote
+// them. Compared as JSON strings, an identical line then read as a change for
+// every player in the next box read, and every league rostering one was
+// re-scored for nothing (2026-09-27 audit).
+
+test('pollChangedGames: a re-read box identical to the stored line in a different key order changes no player and re-scores no league', async (t) => {
+  const w = pollWorld(t, {
+    fetch: async () => jsnBox(1), // { receptions: 8, receivingTDs: 1 }
+    leaguesByPlayer: () => [{ league_id: 1 }],
+    // The stored line as jsonb returns it: same numbers, keys in another order.
+    priorStats: [{ player_id: 12, stats: { receivingTDs: 1, receptions: 8 } }],
+  });
+  const out = await liveBoxPoll.pollChangedGames({
+    season: 2026, week: 1, now: 1_000,
+    games: [{ gameId: 'g1', espnEventId: '401', status: 'in_progress', refresh: true }],
+    finalSyncedGameIds: new Set(),
+  });
+  assert.deepEqual(out.changedPlayerIds, [], 'same numbers, different key order: nothing changed');
+  assert.deepEqual(w.scored, [], 'so no league is re-scored');
+});
+
+test('pollChangedGames: a real change is still a change whatever the key order', async (t) => {
+  const w = pollWorld(t, {
+    fetch: async () => jsnBox(2),
+    leaguesByPlayer: () => [{ league_id: 1 }],
+    priorStats: [{ player_id: 12, stats: { receivingTDs: 1, receptions: 8 } }],
+  });
+  const out = await liveBoxPoll.pollChangedGames({ season: 2026, week: 1, now: 1_000, games: [{ gameId: 'g1', espnEventId: '401', status: 'in_progress' }], finalSyncedGameIds: new Set() });
+  assert.deepEqual(out.changedPlayerIds, [12]);
+  assert.deepEqual(w.scored.map((s) => s.leagueId), [1]);
 });

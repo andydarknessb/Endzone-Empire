@@ -96,6 +96,24 @@ function createRescoreGate({ floorMs = RESCORE_FLOOR_MS } = {}) {
   };
 }
 
+/**
+ * Pure: a stat line as a string that ignores key order. The diff baseline is
+ * reloaded from player_stats every MAPS_TTL_MS, and jsonb returns keys sorted
+ * by length rather than in the order the box source wrote them, so a plain
+ * JSON.stringify read an identical line as a change once per reload for every
+ * player in the next box read, re-scoring every league that rostered one.
+ */
+function statLineKey(line) {
+  const canon = (v) => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v && typeof v === 'object') {
+      return Object.keys(v).sort().reduce((out, k) => { out[k] = canon(v[k]); return out; }, {});
+    }
+    return v;
+  };
+  return JSON.stringify(canon(line || null));
+}
+
 let gate = createRescoreGate();
 const mapsCache = new Map(); // `${season}:${week}` -> { maps, loadedAt }
 const MAPS_TTL_MS = 5 * 60 * 1000;
@@ -169,16 +187,16 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
         const before = new Map();
         for (const p of fetched.liveBox.players || []) {
           const id = maps.idByExternal.get(String(p.externalId));
-          if (id) before.set(id, JSON.stringify(maps.prevById.get(id) || null));
+          if (id) before.set(id, statLineKey(maps.prevById.get(id)));
         }
         for (const teamCode of Object.keys(fetched.liveBox.teamDefense || {})) {
           const unit = maps.defByTeamCode.get(teamCode);
-          if (unit) before.set(unit.id, JSON.stringify(maps.prevById.get(unit.id) || null));
+          if (unit) before.set(unit.id, statLineKey(maps.prevById.get(unit.id)));
         }
         const result = await liveBox.applyLiveBox({ liveBox: fetched.liveBox, season, week, maps });
         if (result.skipped) continue;
         for (const [id, prev] of before.entries()) {
-          if (JSON.stringify(maps.prevById.get(id) || null) !== prev) changedPlayerIds.push(id);
+          if (statLineKey(maps.prevById.get(id)) !== prev) changedPlayerIds.push(id);
         }
         plays.push(...result.plays);
       } catch (err) {
@@ -215,6 +233,7 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
 module.exports = {
   changedGames,
   createRescoreGate,
+  statLineKey,
   pollChangedGames,
   leaguesRostering,
   RESCORE_FLOOR_MS,
