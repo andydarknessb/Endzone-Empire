@@ -5,6 +5,7 @@ const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
 const { gameStateFor } = require('./gameState');
+const { gameFractionRemaining, varianceRemaining } = require('./winProbability');
 
 /**
  * Expected final (CONTEXT.md, Scoring and the week): a starter's, or a
@@ -168,6 +169,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   // abbreviation agree (the #423 / #425 pattern).
   const liveByTeam = new Map();
   const clockByTeam = new Map();
+  // The live row's own quarter and clock, unjoined, for win probability v2's
+  // fraction of a game still to play (shadow mode).
+  const periodByTeam = new Map();
   // When the live score pass last touched this week: the newest live row
   // update, or null when the week has no live rows yet (#892). One value for
   // the (season, week), carried on every team entry so a caller need not
@@ -182,6 +186,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     for (const team of [row.home_team, row.away_team]) {
       liveByTeam.set(normalizeNflTeam(team), row.game_status);
       clockByTeam.set(normalizeNflTeam(team), clock);
+      periodByTeam.set(normalizeNflTeam(team), { quarter: row.quarter, timeRemaining: row.time_remaining });
     }
     if (row.updated_at) {
       const at = new Date(row.updated_at);
@@ -236,6 +241,14 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       kickoffAt: onBye ? null : (kickoffByTeam.get(team) || null),
       expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState }) : null,
       rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
+      // Win probability v2 inputs (shadow mode; stripped from the output like
+      // rawExpectedFinal): his projection Interval (p10..p90), only when he is
+      // available (an Out or bye starter cannot move the score), and how much
+      // of his game is left to play.
+      rawInterval: priced && availability.available && typeof projections.result.detailFor === 'function'
+        ? projections.result.detailFor(row.player_id)
+        : null,
+      rawGameFraction: gameFractionRemaining({ gameState, ...(periodByTeam.get(team) || {}) }),
     };
     // A BENCH row is priced like any other but never summed. In a redraft
     // league it is only a bench row. In best ball there is no set lineup (ADR
@@ -251,7 +264,10 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     byTeam.get(row.team_id).push(starter);
   }
 
-  const stripRaw = ({ rawExpectedFinal, ...priced }) => priced;
+  // The raw* fields are inputs for this module's own sums (and win
+  // probability v2's shadow figures), never part of a priced row on any wire.
+  const stripRaw = ({ rawExpectedFinal, rawInterval, rawGameFraction, ...priced }) => priced;
+  const hasInterval = (s) => !!(s.rawInterval && s.rawInterval.p10 != null && s.rawInterval.p90 != null);
   // A team with bench rows and no starter rows still gets an entry (its bench
   // is priced); its figures are null, as they were when the team was absent.
   for (const teamId of benchByTeam.keys()) {
@@ -280,6 +296,17 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     result.set(Number(teamId), {
       expectedFinal: figures ? round2(starters.reduce((sum, s) => sum + s.rawExpectedFinal, 0)) : null,
       playersRemaining: figures ? starters.filter((s) => s.gameState !== 'final').length : null,
+      // Win probability v2 (shadow): the variance the starters still have to
+      // play, sigma_i^2 from each band times the fraction of his game left.
+      varianceRemaining: figures
+        ? varianceRemaining(starters.map((s) => ({ ...(s.rawInterval || {}), gameFraction: s.rawGameFraction })))
+        : null,
+      // Available starters with game time left but no Interval to size their
+      // uncertainty: they add no variance, so a snapshot with any is less
+      // certain than its sigma says. Counted so the evaluation can flag them.
+      uncertainStartersWithoutInterval: figures
+        ? starters.filter((s) => s.availability.available && s.rawGameFraction > 0 && !hasInterval(s)).length
+        : null,
       // The status is read from these starters' game states. That reading is
       // trustworthy for a redraft league even without projections (the lineup
       // is fixed), but not for best ball without a chosen lineup.
@@ -453,18 +480,17 @@ async function attachExpectedFinals(rows, { league, db = pool, now = new Date() 
  * score). An open entry whose status the decorator could not compute carries
  * `status: null` and null figures. Best-effort: a producer failure leaves the
  * fields null and the scores still go out.
+ *
+ * A caller that already holds the pass's decorations (from
+ * `decorateOpenMatchups`) passes them as `decorations` so the producer is read
+ * once; the score pass does, to hand the same figures to win probability v2's
+ * shadow recorder.
  */
-async function attachScoredExpectedFinals(scored, { openMatchups = [], league, db = pool, now = new Date() } = {}) {
+async function attachScoredExpectedFinals(scored, {
+  openMatchups = [], league, db = pool, now = new Date(), decorations = null,
+} = {}) {
   const openById = new Map(openMatchups.map((matchup) => [matchup.id, matchup]));
-  const decByMatchup = new Map();
-  if (openMatchups.length > 0 && league) {
-    try {
-      const decorations = await decorateMatchups(openMatchups, { league, db, now });
-      openMatchups.forEach((matchup, index) => decByMatchup.set(matchup.id, decorations[index]));
-    } catch (err) {
-      console.error('expected finals unavailable on score pass', err.message);
-    }
-  }
+  const decByMatchup = decorations || await decorateOpenMatchups(openMatchups, { league, db, now });
   for (const entry of scored) {
     const decoration = decByMatchup.get(entry.matchupId) || null;
     entry.status = decoration ? decoration.status : (openById.has(entry.matchupId) ? null : 'final');
@@ -478,6 +504,22 @@ async function attachScoredExpectedFinals(scored, { openMatchups = [], league, d
   return scored;
 }
 
+/**
+ * The open matchups' decorations as a Map<matchupId, decoration>, best-effort:
+ * a producer failure answers an empty Map (every figure then reads null).
+ */
+async function decorateOpenMatchups(openMatchups, { league, db = pool, now = new Date() } = {}) {
+  const decByMatchup = new Map();
+  if (openMatchups.length === 0 || !league) return decByMatchup;
+  try {
+    const decorations = await decorateMatchups(openMatchups, { league, db, now });
+    openMatchups.forEach((matchup, index) => decByMatchup.set(matchup.id, decorations[index]));
+  } catch (err) {
+    console.error('expected finals unavailable on score pass', err.message);
+  }
+  return decByMatchup;
+}
+
 module.exports = {
   expectedFinalForStarter,
   gameStateFor,
@@ -486,4 +528,5 @@ module.exports = {
   decorateMatchups,
   attachExpectedFinals,
   attachScoredExpectedFinals,
+  decorateOpenMatchups,
 };
