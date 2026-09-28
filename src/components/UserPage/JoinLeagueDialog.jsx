@@ -340,7 +340,8 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
       <DialogActions>
         {!refusal && missingAnswers && (
           <Typography id="join-league-blocker" variant="body2" sx={{ ...dimSx, mr: 'auto', pl: 1 }}>
-            Add the invite code and your Team name to continue.
+            {/* The first unmet answer only, so a filled field is never asked for again. */}
+            {inviteCode ? 'Add your Team name to continue.' : 'Add the invite code to continue.'}
           </Typography>
         )}
         <Button onClick={handleClose} color="primary" sx={{ ...quietButtonSx, ...MIN_TOUCH_TARGET_SX, px: 2 }}>

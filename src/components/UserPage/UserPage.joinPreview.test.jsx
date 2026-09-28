@@ -283,10 +283,13 @@ test('Invite code and Team name are required and a disabled Join says what is mi
   expect(teamField()).toBeRequired();
   const join = within(dialog).getByRole('button', { name: 'Join league' });
   expect(join).toBeDisabled();
-  expect(join).toHaveAccessibleDescription('Add the invite code and your Team name to continue.');
+  // The first unmet answer, one at a time: a Manager who has typed the code is
+  // not told to add it again.
+  expect(join).toHaveAccessibleDescription('Add the invite code to continue.');
 
   await userEvent.type(codeField(), 'x');
   expect(join).toBeDisabled();
+  expect(join).toHaveAccessibleDescription('Add your Team name to continue.');
   await userEvent.type(teamField(), 'y');
   expect(join).toBeEnabled();
 });
