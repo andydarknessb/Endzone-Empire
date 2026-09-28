@@ -17,8 +17,6 @@ import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import {
   GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
 } from './GreetingHeader';
-import JoinLeagueDialog from './JoinLeagueDialog';
-import CreateLeagueStepper from './CreateLeagueStepper';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import homeTheme from './homeTheme';
 import {
@@ -65,6 +63,11 @@ const heroGhostSx = {
   '&:hover': { ...ghostButtonSx['&:hover'], backgroundColor: 'var(--dash-surface)' },
 };
 
+// The create and join flows load when a Manager first opens them: Home is in
+// the initial bundle, and neither dialog is needed to paint it.
+const JoinLeagueDialog = lazy(() => import('./JoinLeagueDialog'));
+const CreateLeagueStepper = lazy(() => import('./CreateLeagueStepper'));
+
 function UserPage() {
   const user = useSelector((store) => store.user);
   const outerTheme = useTheme();
@@ -79,6 +82,10 @@ function UserPage() {
 
   // Create League stepper: its answers and request live in CreateLeagueStepper.
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
+  // Each dialog mounts on its first open and then stays mounted, so closing the
+  // stepper mid-way keeps its answers.
+  const [createOpened, setCreateOpened] = useState(false);
+  const [joinOpened, setJoinOpened] = useState(false);
 
   // The to-do list body ActionQueue fetched, lifted for the greeting's
   // summary line (one request, not two). Null until it loads and on error.
@@ -153,6 +160,7 @@ function UserPage() {
   // Functions to handle create dialog
   const handleOpenCreateDialog = () => {
     setOpenCreateDialog(true);
+    setCreateOpened(true);
   };
 
   const handleCloseCreateDialog = () => {
@@ -162,6 +170,7 @@ function UserPage() {
   // Functions to handle join dialog
   const handleOpenJoinDialog = () => {
     setOpenJoinDialog(true);
+    setJoinOpened(true);
   };
 
   const handleCloseJoinDialog = () => {
@@ -445,12 +454,18 @@ function UserPage() {
             <PublicHighlights />
           </Suspense>
 
-          <CreateLeagueStepper
-            open={openCreateDialog}
-            onClose={handleCloseCreateDialog}
-            onCreated={fetchMyLeagues}
-          />
-          <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
+          <Suspense fallback={null}>
+            {createOpened && (
+              <CreateLeagueStepper
+                open={openCreateDialog}
+                onClose={handleCloseCreateDialog}
+                onCreated={fetchMyLeagues}
+              />
+            )}
+            {joinOpened && (
+              <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
+            )}
+          </Suspense>
         </Container>
       </Box>
     </ThemeProvider>

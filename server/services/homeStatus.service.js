@@ -581,7 +581,7 @@ async function leagueStatuses(db, { userId, leagues, now }) {
             }
           } catch (error) {
             if (isPickemOnly(league)) throw error;
-            console.error(`home status: league ${league.id} pick'em unavailable`, error);
+            console.error("home status: league %s pick'em unavailable", league.id, error);
           }
         }
         if (phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING) {
@@ -594,7 +594,7 @@ async function leagueStatuses(db, { userId, leagues, now }) {
         }
         out.set(league.id, { status, statusError: false });
       } catch (error) {
-        console.error(`home status: league ${league.id} status failed`, error);
+        console.error('home status: league %s status failed', league.id, error);
         out.set(league.id, { status: null, statusError: true });
       }
     }
@@ -963,7 +963,7 @@ async function actionItems(db, { userId, now, tz }) {
   results.forEach((result, index) => {
     if (result.ok) items.push(...result.value);
     else {
-      console.error(`action items: ${types[index]} builder failed`, result.error);
+      console.error('action items: %s builder failed', types[index], result.error);
       partial.push(types[index]);
     }
   });
