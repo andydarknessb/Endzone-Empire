@@ -1548,6 +1548,27 @@ arm-versus-arm contrasts cannot ("is the engine beating nothing at all?") and
 are never selectable.
 _Avoid_: baseline, control
 
+**Champion**:
+The Model version production serves, in a champion/challenger evaluation (ADR
+0050). It holds its place until a Challenger clears the preregistered
+promotion rule at a checkpoint. Not the same thing as the Control: after a
+promotion the Control arm keeps its own kind and constants.
+_Avoid_: incumbent, production model
+
+**Challenger**:
+A Model version captured beside the Champion under its own capture kind but
+never served, judged against the Champion only at the preregistered
+checkpoints. Unlike a Candidate, it is a whole Model version rather than one
+constant flip, and its mean is expected to differ.
+_Avoid_: candidate (a Candidate is a sealed study's constant flip), variant
+
+**Shadow arm**:
+The captured, unserved series of one Challenger: written pre-kickoff in the
+same transaction and snapshot as the scheduled capture, but able to fail
+without rolling the scheduled capture back.
+_Avoid_: candidate arm (those abort the whole capture on a mean divergence),
+dark launch
+
 **Survivor**:
 A week captured cleanly and excluded by no rule, so it enters evaluation. The
 evaluability floor is the minimum survivor count, fixed in the preregistration,
