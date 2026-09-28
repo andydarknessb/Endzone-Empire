@@ -232,6 +232,8 @@ function resolveCandidateConstants(overrides) {
 
 /** Challenger (Shadow) arms live under this prefix, outside the sealed `candidate:*` namespace. */
 const CHALLENGER_KIND_PREFIX = 'challenger:';
+/** `projection_snapshots.capture_kind` is string(20); a longer kind is rejected by the column. */
+const CAPTURE_KIND_MAX_LENGTH = 20;
 
 /**
  * Resolve the opt-in Challenger (Shadow) arm requests of ADR 0050 into arms.
@@ -241,24 +243,35 @@ const CHALLENGER_KIND_PREFIX = 'challenger:';
  * the arms it always wrote. Its kind lives outside the sealed `candidate:*`
  * namespace (requirement 1), its constants come from the version-keyed
  * registry (requirement 7) and its header carries that version (requirement 3).
- * A request this checkout cannot run throws HERE, before any write.
+ *
+ * The kind is a caller-supplied short tag `challenger:<tag>` of at most 20
+ * characters (the column width); the full version lives only in
+ * `model_version`, which is part of the ledger's unique key. A bad request
+ * throws HERE, and `snapshotWeek` calls this before it touches the database,
+ * so a bad kind never opens a transaction.
  */
 function resolveChallengerArms(challengers = []) {
   if (!Array.isArray(challengers)) throw new Error('challengers must be an array');
   const seen = new Set();
   return challengers.map((request) => {
-    const modelVersion = request && request.modelVersion;
-    if (typeof modelVersion !== 'string' || modelVersion === '') {
-      throw new Error('a challenger arm requires a modelVersion');
-    }
-    const kind = request.kind === undefined ? `${CHALLENGER_KIND_PREFIX}${modelVersion}` : request.kind;
+    const kind = request && request.kind;
     if (typeof kind !== 'string' || !kind.startsWith(CHALLENGER_KIND_PREFIX)) {
-      throw new Error(
+      throw new TypeError(
         `challenger arm kind "${kind}" must start with "${CHALLENGER_KIND_PREFIX}" - ` +
-        'the candidate:* namespace is sealed by holdout-confirm-2026'
+        'scheduled and the candidate:* namespace are sealed by holdout-confirm-2026'
       );
     }
-    if (seen.has(kind)) throw new Error(`duplicate challenger arm kind "${kind}"`);
+    if (kind.length > CAPTURE_KIND_MAX_LENGTH) {
+      throw new TypeError(
+        `challenger arm kind "${kind}" is ${kind.length} characters; capture_kind holds at most ` +
+        `${CAPTURE_KIND_MAX_LENGTH} - use a short tag such as "challenger:v3.2" and keep the version in modelVersion`
+      );
+    }
+    const modelVersion = request.modelVersion;
+    if (typeof modelVersion !== 'string' || modelVersion === '') {
+      throw new TypeError(`challenger arm "${kind}" requires a modelVersion`);
+    }
+    if (seen.has(kind)) throw new TypeError(`duplicate challenger arm kind "${kind}"`);
     seen.add(kind);
     const constants = model.constantsForVersion(modelVersion);
     if (!constants) {
@@ -480,17 +493,19 @@ const CHILD_COLS = 18;
  * and leaves the ledger untouched.
  *
  * `challengers` (ADR 0050, default none) opts Shadow arms in, each
- * `{ modelVersion, kind? }` with kind `challenger:<modelVersion>`. The
+ * `{ kind, modelVersion }` with a short kind `challenger:<tag>` (at most 20
+ * characters; see resolveChallengerArms). The
  * scheduled entry point passes none, so the live capture is unchanged. A
  * Challenger is optional evidence: it runs after every required arm is written
  * and deadline-checked, inside its own SAVEPOINT, and any failure of it rolls
  * back that arm alone and is reported in `challengerFailures`.
  */
 async function snapshotWeek({ season, week, profileName, rules, client = pool, challengers = [] }) {
-  const releaseSha = requireReleaseSha();
-  // Resolved before any read or write: a request this checkout cannot run is a
-  // caller error, not a Challenger failure to be isolated.
+  // Resolved first, before any read or write: a malformed request or a version
+  // this checkout cannot run is a caller error, not a Challenger failure to be
+  // isolated, and it must never open a transaction.
   const challengerArms = resolveChallengerArms(challengers);
+  const releaseSha = requireReleaseSha();
   const manifestGames = manifestGamesForWeek(season, week);
   if (!manifestGames || manifestGames.length === 0) {
     throw new Error(`no schedule manifest for season ${season} week ${week} - refusing to capture without an authority`);

@@ -268,7 +268,7 @@ if (!ENABLED) {
   // ---- Shadow-arm (Challenger) capture prototype, ADR 0050 -----------------
   // Test database only: nothing here attaches to a live capture. Each test
   // takes its own far-future season, because ledger rows can never be deleted.
-  const CHALLENGER = Object.freeze({ kind: 'challenger:free_baseline_v3.2', modelVersion: 'free_baseline_v3.2' });
+  const CHALLENGER = Object.freeze({ kind: 'challenger:v3.2', modelVersion: 'free_baseline_v3.2' });
   const SERVED_VERSION = 'free_baseline_v3.1';
 
   function shadowCapture(season, challengers) {
@@ -405,6 +405,11 @@ if (!ENABLED) {
     assert.deepEqual(headers.map((h) => h.capture_kind), ['candidate:bw-15', 'candidate:bw-20', 'scheduled']);
     assert.equal(result.challengerFailures.length, 1);
     assert.equal(result.challengerFailures[0].kind, CHALLENGER.kind);
+    assert.match(
+      result.challengerFailures[0].message,
+      /deadline|pre_deadline_check|past its capture deadline/,
+      'it failed BECAUSE of the cutoff, not for an unrelated reason'
+    );
   });
 
   test('a second call after a complete four-arm capture skips as already complete', async (t) => {
@@ -421,12 +426,16 @@ if (!ENABLED) {
   test('a Challenger request that names a version this checkout cannot run fails before any write', async (t) => {
     await shadowSetup(t, 2096);
     await assert.rejects(
-      shadowCapture(2096, [{ kind: 'challenger:no_such_version', modelVersion: 'no_such_version' }]),
+      shadowCapture(2096, [{ kind: 'challenger:nope', modelVersion: 'no_such_version' }]),
       /no_such_version/
     );
     await assert.rejects(
       shadowCapture(2096, [{ kind: 'candidate:sneaky', modelVersion: CHALLENGER.modelVersion }]),
-      /challenger:/
+      TypeError
+    );
+    await assert.rejects(
+      shadowCapture(2096, [{ kind: 'challenger:free_baseline_v3.2', modelVersion: CHALLENGER.modelVersion }]),
+      TypeError
     );
     assert.equal((await ledgerHeaders(2096)).length, 0);
   });
