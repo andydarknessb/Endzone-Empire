@@ -22,8 +22,9 @@ const LEAGUE = { id: LEAGUE_ID, scoring_preset: 'half_ppr', best_ball: false, ro
 const OPEN = { id: 70, league_id: LEAGUE_ID, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false };
 const DONE = { id: 71, league_id: LEAGUE_ID, season: SEASON, week: WEEK, home_team_id: 30, away_team_id: 40, final: true };
 
-function scoringPool({ matchups }) {
+function scoringPool({ matchups, extra = [] }) {
   return createFakePool([
+    ...extra,
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
     [select('matchups'), () => ({ rows: matchups.map((m) => ({ ...m })) })],
     // Every team scores 0 this pass: no starter rows with stats.
@@ -169,4 +170,62 @@ test('with no broadcast registered, scoreMatchups rejects with the not-initialis
     scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK }),
     /not initialised/
   );
+});
+
+// ---------------------------------------------------------------------------
+// Win probability v2 shadow mode: the pass records v2 for its open matchups,
+// best-effort, and nothing new rides the socket.
+// ---------------------------------------------------------------------------
+
+const liveProducer = async () => new Map([
+  [10, { expectedFinal: 112.6, playersRemaining: 3, varianceRemaining: 150, starters: [{ gameState: 'in_progress' }] }],
+  [20, { expectedFinal: 88.05, playersRemaining: 1, varianceRemaining: 50, starters: [{ gameState: 'final' }] }],
+]);
+
+test('a live pass records one shadow row for each open matchup, and the emit carries no v2 field', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', liveProducer);
+  const inserts = [];
+  scoringPool({
+    matchups: [OPEN, DONE],
+    extra: [[/INSERT INTO "win_probability_shadow"/, (text, params) => { inserts.push(params); return { rows: [] }; }]],
+  }).install(t);
+  const emitted = captureEmits(t);
+
+  await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(inserts.length, 1);
+  // league_id and matchup_id lead the column list: the open matchup only.
+  assert.deepEqual(inserts[0].slice(0, 2), [LEAGUE_ID, 70]);
+  for (const entry of emitted[0].payload.scored) {
+    assert.deepEqual(Object.keys(entry).filter((key) => /variance|probability|sigma/i.test(key)), []);
+  }
+});
+
+test('a shadow write failure never blocks the scores or the emit', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', liveProducer);
+  scoringPool({
+    matchups: [OPEN],
+    extra: [[/INSERT INTO "win_probability_shadow"/, () => { throw new Error('relation "win_probability_shadow" does not exist'); }]],
+  }).install(t);
+  const emitted = captureEmits(t);
+
+  const { scored } = await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(scored[0].homeExpectedFinal, 112.6);
+  assert.equal(scored[0].status, 'live');
+  assert.equal(emitted.length, 1);
+});
+
+test('a stalled shadow write never holds up the pass: scoreMatchups returns without waiting for it', { timeout: 5000 }, async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', liveProducer);
+  scoringPool({
+    matchups: [OPEN],
+    extra: [[/INSERT INTO "win_probability_shadow"/, () => new Promise(() => {})]], // never settles
+  }).install(t);
+  const emitted = captureEmits(t);
+
+  const { scored } = await scoreMatchups({ leagueId: LEAGUE_ID, season: SEASON, week: WEEK });
+
+  assert.equal(scored[0].status, 'live');
+  assert.equal(emitted.length, 1);
 });
