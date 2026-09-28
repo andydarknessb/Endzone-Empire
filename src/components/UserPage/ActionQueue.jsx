@@ -8,6 +8,7 @@ import { visuallyHidden } from '@mui/utils';
 import apiClient from '../../api/apiClient';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { formatInstant } from '../../shared/lib/instantFormat';
+import { timeUntil, useNow } from '../../shared/lib/timeUntil';
 import {
   DISPLAY_FONT, HAIRLINE, alertActionSx, alertSx, dimSx, ghostButtonSx, microLabelSx, panelHeaderSx, panelSx,
   panelTitleSx, primaryButtonSx, progressSx, quietButtonSx, skeletonSx, textLinkSx,
@@ -33,14 +34,28 @@ function viewerTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-// "in 1h 12m", "in 5h 07m", "in 45m".
-function formatRelative(remainingMs) {
-  const totalMinutes = Math.floor(remainingMs / MINUTE_MS);
-  if (totalMinutes < 1) return 'in under a minute';
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `in ${minutes}m`;
-  return `in ${hours}h ${String(minutes).padStart(2, '0')}m`;
+// "in 1h 12m", "in 5h 07m", "in 45m", in the shared house style.
+function relativeText(at, now) {
+  const until = timeUntil(at, now);
+  return until.imminent ? 'in under a minute' : `in ${until.text}`;
+}
+
+// The earliest instant any row's deadline column reads differently: its
+// relative text ticking over, or a row crossing into the 24-hour relative
+// window or the 2-hour warning (the Handoff's rules, which stay here).
+function nextChange(items, now) {
+  let next = null;
+  const consider = (instant) => {
+    if (instant > now && (next === null || instant < next)) next = instant;
+  };
+  items.forEach((item) => {
+    const at = item && item.deadlineAt ? new Date(item.deadlineAt).getTime() : NaN;
+    if (Number.isNaN(at) || at <= now) return;
+    consider(at - RELATIVE_WINDOW_MS + 1);
+    consider(at - URGENT_WINDOW_MS + 1);
+    if (at - now < RELATIVE_WINDOW_MS) consider(timeUntil(at, now).changesAt);
+  });
+  return next;
 }
 
 // What the deadline column calls each item type's deadline (Contract A).
@@ -62,7 +77,7 @@ function deadlineParts(item, now) {
   const remaining = at - now;
   if (remaining <= 0) return { label, value: 'Now', sub: null, urgent: true };
   if (remaining < RELATIVE_WINDOW_MS) {
-    return { label, value: formatInstant(at, 'time'), sub: formatRelative(remaining), urgent: remaining < URGENT_WINDOW_MS };
+    return { label, value: formatInstant(at, 'time'), sub: relativeText(at, now), urgent: remaining < URGENT_WINDOW_MS };
   }
   return { label, value: formatInstant(at, 'day'), sub: formatInstant(at, 'kickoff'), urgent: false };
 }
@@ -266,12 +281,9 @@ function ActionQueue({ onLoaded }) {
   // The first row Show all reveals: the control disappears on click, so focus
   // moves here instead of dropping to the top of the page.
   const firstRevealedRef = useRef(null);
-  // Relative deadlines ("in 1h 12m") repaint once a minute.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), MINUTE_MS);
-    return () => clearInterval(id);
-  }, []);
+  // Relative deadlines ("in 1h 12m") repaint exactly when one of them would
+  // read differently, and a refetch re-reads the clock for the new rows.
+  const now = useNow((at) => nextChange(Array.isArray(data?.items) ? data.items : [], at), data);
 
   useEffect(() => {
     if (expanded) firstRevealedRef.current?.focus();
@@ -282,7 +294,6 @@ function ActionQueue({ onLoaded }) {
       setLoading(true);
       const response = await apiClient.get('/api/user/action-items', { params: { tz: viewerTimeZone() } });
       setData(response.data);
-      setNow(Date.now());
       setFailed(false);
       onLoadedRef.current?.(response.data);
     } catch (err) {

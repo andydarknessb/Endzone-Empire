@@ -20,7 +20,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
 import { MIN_TOUCH_TARGET_SX, formatPoints, unavailableLabel } from '../../../shared/lib';
-import { formatRelative } from '../../../utils/formatRelative';
+import { timeUntil } from '../../../shared/lib/timeUntil';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';
 import { weeksForSparkline } from '../model/weeksAdapter';
 
@@ -34,6 +34,13 @@ const STATE_VIEW = {
   rostered: { label: 'Rostered', color: 'var(--text-muted)' },
   my_team: { label: 'Your team', color: 'var(--accent)' },
 };
+
+// A player's Clear time in the shared house style ("Clears in 14h 40m").
+function clearsText(availableAt) {
+  const until = timeUntil(availableAt, Date.now());
+  if (!until || until.passed) return 'Clearing now';
+  return until.imminent ? 'Clears in under a minute' : `Clears in ${until.text}`;
+}
 
 function availabilityOf(player) {
   return player.availability?.state || 'free_agent';
@@ -60,7 +67,7 @@ function StatusDetail({ player }) {
   if (state === 'waivers' && availability.availableAt) {
     return (
       // Risk-review finding (accessibility): `describeChild` keeps this
-      // Typography's own visible text ("Clears in 3 days") as its
+      // Typography's own visible text ("Clears in 14h 40m") as its
       // accessible name and links the absolute timestamp in as an
       // `aria-describedby` instead - without it, MUI's default Tooltip
       // behavior overwrites the accessible name with the raw
@@ -68,7 +75,7 @@ function StatusDetail({ player }) {
       // timestamp in place of the relative text a sighted user reads.
       <Tooltip title={new Date(availability.availableAt).toLocaleString()} describeChild>
         <Typography data-testid="player-row-status-detail" sx={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {`Clears ${formatRelative(availability.availableAt)}`}
+          {clearsText(availability.availableAt)}
         </Typography>
       </Tooltip>
     );

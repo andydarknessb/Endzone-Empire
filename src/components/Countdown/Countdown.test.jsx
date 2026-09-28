@@ -36,6 +36,12 @@ describe('Countdown', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // No leading zero unit (spec #1737): the last minute reads seconds alone.
+  test('the last minute reads seconds alone', () => {
+    render(<Countdown date={futureIso(30 * 1000)} />);
+    expect(screen.getByText('Draft in 30s')).toBeInTheDocument();
+  });
+
   describe('tiered cadence (#117 AC4)', () => {
     test('more than 24h out shows days and hours', () => {
       render(<Countdown date={futureIso(2 * DAY + 3 * HOUR)} />);
