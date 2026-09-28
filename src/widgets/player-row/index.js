@@ -6,9 +6,7 @@
  * `PlayerAvatar`) and `shared/lib` (`formatPoints`, and since #1272 also
  * `MIN_TOUCH_TARGET_SX`, ordinary island layering rather than a below-island
  * edge) through their barrels - this is an island widget consumer, the same
- * door `player-decision-card` uses for the identical pieces; and
- * `utils/formatRelative`, the same plumbing edge `player-decision-card` and
- * WaiverWire's own clears-time column already name.
+ * door `player-decision-card` uses for the identical pieces.
  *
  * `entities/player` (`WeeklyPointsBars`, `PlayerNameLink`) is a same-layer
  * entity read through its own public index (ADR 0029) - this widget reuses

@@ -1,27 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { countdownText } from '../lib/countdown';
-
-const TICK_MS = 30 * 1000;
-
-// The clock the countdown reads, re-read every 30 seconds so "14h 22m" walks
-// down while the page is open. A `now` prop pins it for a test.
-function useNow(pinned) {
-  const [now, setNow] = useState(() => pinned || new Date());
-  useEffect(() => {
-    if (pinned) return undefined;
-    const handle = setInterval(() => setNow(new Date()), TICK_MS);
-    return () => clearInterval(handle);
-  }, [pinned]);
-  return pinned || now;
-}
-
-function clearMoment(at) {
-  const d = new Date(at);
-  const day = d.toLocaleDateString(undefined, { weekday: 'short' });
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${day} ${time}`;
-}
+import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
 
 function Tile({ label, value, unit, note, flag, warn, testId }) {
   return (
@@ -106,14 +85,18 @@ function Tile({ label, value, unit, note, flag, warn, testId }) {
  * while the league's blanket clear time runs.
  */
 export default function WaiverSummary({ nextClear, pendingCount = 0, faab, waiverPriority, roster, now: pinnedNow }) {
-  const now = useNow(pinnedNow);
-  const countdown = nextClear ? countdownText(nextClear.at, now) : null;
+  // The countdown walks down while the page is open, repainting exactly when
+  // its text changes; a `now` prop pins the clock for a test.
+  const liveNow = useNow((at) => (pinnedNow || !nextClear ? null : timeUntil(nextClear.at, at)?.changesAt ?? null), nextClear?.at);
+  const until = nextClear ? timeUntil(nextClear.at, pinnedNow || liveNow) : null;
+  let countdown = null;
+  if (until) countdown = until.passed ? 'Clearing now' : until.text;
 
   const nextNote = !nextClear
     ? 'No pending claims'
     : nextClear.kind === 'blanket'
-      ? `Waivers clear ${clearMoment(nextClear.at)}`
-      : `${nextClear.playerName || 'Your next claim'} clears ${clearMoment(nextClear.at)}`;
+      ? `Waivers clear ${formatInstant(nextClear.at, 'weekdayTime')}`
+      : `${nextClear.playerName || 'Your next claim'} clears ${formatInstant(nextClear.at, 'weekdayTime')}`;
 
   return (
     <Box

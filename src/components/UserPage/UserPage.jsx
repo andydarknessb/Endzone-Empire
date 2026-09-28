@@ -42,7 +42,7 @@ function sharedCurrentWeek(leagues) {
   return weeks.size === 1 ? [...weeks][0] : null;
 }
 
-const greetingDateFormat = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+const greetingDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
 
 // The feed cards below the fold (News, Activity) on the island: a panel, a
 // display-face title, ink rows with dim secondary lines, all on a card.

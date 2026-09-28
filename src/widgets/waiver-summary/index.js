@@ -8,4 +8,3 @@
  * entity they need not read).
  */
 export { default } from './ui/WaiverSummary';
-export { countdownText } from './lib/countdown';

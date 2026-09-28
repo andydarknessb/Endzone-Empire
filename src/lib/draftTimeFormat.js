@@ -10,6 +10,7 @@
  * and get the browser's own zone via Intl's runtime default.
  */
 import { isValidIanaTimeZone } from './draftTimezone';
+import { formatInstant } from '../shared/lib/instantFormat';
 
 // Intl.DateTimeFormat throws a RangeError for a zone name it doesn't
 // recognize. `timeZone` on a league row is written through validated paths
@@ -21,17 +22,9 @@ function safeTimeZone(timeZone) {
   return timeZone && isValidIanaTimeZone(timeZone) ? timeZone : null;
 }
 
-// Short weekday, no seconds, explicit zone abbreviation - "Thu, Sep 3, 1:00
-// PM CDT" - so a viewer never has to guess whose clock a bare time belongs
-// to (#117 AC1).
-const SCHEDULE_FORMAT_OPTIONS = {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  timeZoneName: 'short',
-};
+// The schedule format ("Thu, Sep 3, 1:00 PM CDT": short weekday, no seconds,
+// explicit zone abbreviation) is the shared named 'schedule' format, so a
+// viewer never has to guess whose clock a bare time belongs to (#117 AC1).
 
 function toDate(dateLike) {
   return dateLike instanceof Date ? dateLike : new Date(dateLike);
@@ -44,9 +37,7 @@ function toDate(dateLike) {
 export function formatViewerLocalSchedule(dateLike, viewerTimeZone) {
   const date = toDate(dateLike);
   if (Number.isNaN(date.getTime())) return '';
-  const zone = safeTimeZone(viewerTimeZone);
-  const options = zone ? { ...SCHEDULE_FORMAT_OPTIONS, timeZone: zone } : SCHEDULE_FORMAT_OPTIONS;
-  return new Intl.DateTimeFormat(undefined, options).format(date);
+  return formatInstant(date, 'schedule', { timeZone: safeTimeZone(viewerTimeZone) || undefined }) || '';
 }
 
 /**
@@ -57,7 +48,7 @@ export function formatViewerLocalSchedule(dateLike, viewerTimeZone) {
 export function formatDraftTimezoneSchedule(dateLike, timeZone) {
   const date = toDate(dateLike);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(undefined, { ...SCHEDULE_FORMAT_OPTIONS, timeZone: safeTimeZone(timeZone) || 'UTC' }).format(date);
+  return formatInstant(date, 'schedule', { timeZone: safeTimeZone(timeZone) || 'UTC' }) || '';
 }
 
 /**
