@@ -14,6 +14,9 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
 import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
+import {
+  GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
+} from './GreetingHeader';
 import JoinLeagueDialog from './JoinLeagueDialog';
 import CreateLeagueStepper from './CreateLeagueStepper';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
@@ -77,6 +80,10 @@ function UserPage() {
   // Create League stepper: its answers and request live in CreateLeagueStepper.
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
 
+  // The to-do list body ActionQueue fetched, lifted for the greeting's
+  // summary line (one request, not two). Null until it loads and on error.
+  const [actionItems, setActionItems] = useState(null);
+
   // Join League dialog — leagues are private, so joining is always by invite
   // code. The dialog owns its answers, preview and in-flight state.
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
@@ -95,6 +102,7 @@ function UserPage() {
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
   const nextDraft = nextScheduledDraft(myLeagues);
   const currentWeek = sharedCurrentWeek(myLeagues);
+  const liveMatchups = liveMatchupCount(myLeagues);
 
   const fetchMyLeagues = async () => {
     try {
@@ -192,13 +200,22 @@ function UserPage() {
             sx={{ mb: 4 }}
           >
             <Box>
-              {currentWeek && (
-                <Typography
-                  variant="body2"
+              {/* The eyebrow row: the week line and the live chip, each left
+                  out when it has nothing to say. */}
+              {(currentWeek || liveMatchups > 0) && (
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1.5}
+                  useFlexGap
+                  flexWrap="wrap"
                   sx={{ ...dimSx, fontSize: '12px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1.25 }}
                 >
-                  {`Week ${currentWeek} · ${greetingDateFormat.format(new Date())}`}
-                </Typography>
+                  {currentWeek && (
+                    <span>{`Week ${currentWeek} · ${greetingDateFormat.format(new Date())}`}</span>
+                  )}
+                  <LiveMatchupsChip leagues={myLeagues} />
+                </Stack>
               )}
               <Typography
                 variant="h4"
@@ -215,22 +232,24 @@ function UserPage() {
               >
                 Welcome back, {user.username}
               </Typography>
+              <GreetingSummary actionItems={actionItems} />
+              <GreetingStats leagues={myLeagues} />
             </Box>
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
               <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
-                Join League
+                Join league
               </Button>
               <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
-                Create League
+                Create league
               </Button>
             </Stack>
           </Stack>
 
           {/* The to-do list replaces the old hero and "Next up" nudge. It owns
-              its own fetch and states, so it never holds up My Leagues. */}
+              its own fetch and states, so it never holds up My leagues. */}
           <Grid container spacing={3} sx={{ mb: 5 }}>
             <Grid xs={12} lg={nextDraft ? 8 : 12}>
-              <ActionQueue />
+              <ActionQueue onLoaded={setActionItems} />
             </Grid>
             {nextDraft && (
               <Grid xs={12} lg={4}>
@@ -241,7 +260,7 @@ function UserPage() {
 
 
           <Typography variant="h5" component="h2" sx={{ ...sectionTitleSx, mb: 2 }}>
-            My Leagues
+            My leagues
           </Typography>
 
           {/* On the page: ink on the danger tint over `dash-bg`, the danger
@@ -317,10 +336,10 @@ function UserPage() {
                 </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                   <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
-                    Create League
+                    Create league
                   </Button>
                   <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={{ ...ghostButtonSx, ...heroButtonSx }}>
-                    Join League
+                    Join league
                   </Button>
                 </Stack>
               </Box>

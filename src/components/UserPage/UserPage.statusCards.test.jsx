@@ -154,7 +154,7 @@ test('a live fantasy card shows the league title as its link, both scores, proje
   const card = within(await cardFor('Winsconsota'));
   expect(card.getByRole('link', { name: 'Winsconsota' })).toHaveAttribute('href', '/league/71');
   expect(card.getByText('Live')).toBeInTheDocument();
-  expect(card.getByText('You · 3–0')).toBeInTheDocument();
+  expect(card.getByText('You · 3-0')).toBeInTheDocument();
   expect(card.getByText('Polk High Legends')).toBeInTheDocument();
   expect(card.getByText('87.4')).toBeInTheDocument();
   expect(card.getByText('Proj 118.6 · 4 yet to play')).toBeInTheDocument();
@@ -163,6 +163,22 @@ test('a live fantasy card shows the league title as its link, both scores, proje
   expect(card.getByText('Proj 104.1 · 3 yet to play')).toBeInTheDocument();
   expect(card.getByText('2nd')).toBeInTheDocument();
   expect(card.getByText(/of 12/)).toBeInTheDocument();
+});
+
+test('the record on a card is spelled by the standings entity: wins-losses with a hyphen, no zero ties', async () => {
+  mockLeagues([fantasyLeague({ record: { wins: 3, losses: 1, ties: 0 } })]);
+  renderPage();
+
+  const card = within(await cardFor('Winsconsota'));
+  expect(card.getByText('You · 3-1')).toBeInTheDocument();
+});
+
+test('a co-commissioner is named in sentence case on the card', async () => {
+  mockLeagues([fantasyLeague({}, { is_owner: false, is_commissioner: true })]);
+  renderPage();
+
+  const card = within(await cardFor('Winsconsota'));
+  expect(card.getByText('Polk High Legends · Co-commissioner · Half PPR')).toBeInTheDocument();
 });
 
 test('the win-probability bar is one image whose label carries both sides, computed with v1 from Expected final', async () => {
@@ -276,6 +292,26 @@ test("a pick'em card with every pick in says so and offers to view them", async 
   const card = within(await cardFor("Office Pick'em"));
   expect(card.getByText('Picks in')).toBeInTheDocument();
   expect(card.getByRole('link', { name: 'View picks' })).toHaveAttribute('href', '/league/5/pickem');
+});
+
+test("a pick'em card with nothing missing is done even when a locked game went unpicked", async () => {
+  // 15 of 16 made, the 16th locked unpicked: nothing is left to pick.
+  mockLeagues([pickemLeague({ made: 15, total: 16, missing: 0 })]);
+  renderPage();
+
+  const card = within(await cardFor("Office Pick'em"));
+  expect(card.getByText('Picks in')).toBeInTheDocument();
+  expect(card.queryByRole('link', { name: 'Finish picks' })).not.toBeInTheDocument();
+  expect(card.getByRole('link', { name: 'View picks' })).toHaveAttribute('href', '/league/5/pickem');
+});
+
+test("a pick'em card with picks still missing stays open", async () => {
+  mockLeagues([pickemLeague({ made: 15, total: 16, missing: 1 })]);
+  renderPage();
+
+  const card = within(await cardFor("Office Pick'em"));
+  expect(card.getByText('Picks open')).toBeInTheDocument();
+  expect(card.getByRole('link', { name: 'Finish picks' })).toBeInTheDocument();
 });
 
 // --- Pre-draft -----------------------------------------------------------

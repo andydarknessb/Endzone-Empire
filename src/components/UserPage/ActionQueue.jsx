@@ -265,7 +265,12 @@ function CaughtUp() {
   );
 }
 
-function ActionQueue() {
+// `onLoaded(body)` hands the page the response body after each successful
+// fetch, and null after a failed one, so the greeting header can summarize
+// the list without a second request.
+function ActionQueue({ onLoaded }) {
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -291,9 +296,12 @@ function ActionQueue() {
       setData(response.data);
       setNow(Date.now());
       setFailed(false);
+      onLoadedRef.current?.(response.data);
     } catch (err) {
-      // Keep the last good list (if any) under the error.
+      // Keep the last good list (if any) under the error. The page's summary
+      // line is told there is nothing to summarize, so it steps back.
       setFailed(true);
+      onLoadedRef.current?.(null);
     } finally {
       setLoading(false);
     }

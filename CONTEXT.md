@@ -216,6 +216,24 @@ team could have started is the one that scores. Once the week settles, the
 pool is the roster held through the week's last kickoff (ADR 0022).
 _Avoid_: auto-lineup
 
+**Action item**:
+One thing a Manager must do in one of their leagues, computed on the server
+from that league's current state (`GET /api/user/action-items`), typed, and
+carrying the deadline it is due by where it has one. There are eight types:
+`draft_live` (the league's draft is live), `lineup_problem` (a lineup problem
+before the lock), `picks_open` (pick'em picks still to make), `trade_review`
+(an accepted trade in its veto window the Manager has not voted on),
+`seats_open` (a Commissioner's league short of teams before its draft),
+`trade_offer` (a pending trade offered to the Manager's Team),
+`join_requests` (join requests awaiting a Commissioner) and `waiver_claims`
+(pending claims before waivers run). An Action item resolves when the
+underlying state resolves (the lineup is fixed, the pick made, the vote cast),
+never when a notification is read, so it is not read or dismissed, only
+refetched. On Home the Manager's open Action items, ranked blocking, then timed
+by deadline, then untimed, then info, are the to-do list.
+_Avoid_: Next up (the retired Home nudge it replaced), notification (an event
+that happened and can be read; an Action item is state that is still open)
+
 ### The NFL layer
 
 **Player**:

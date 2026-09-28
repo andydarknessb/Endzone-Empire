@@ -130,8 +130,8 @@ test('the greeting header is the page h1 and keeps Create and Join within reach'
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
   const header = screen.getByTestId('dashboard-hero');
-  expect(within(header).getByRole('button', { name: 'Create League' })).toBeInTheDocument();
-  expect(within(header).getByRole('button', { name: 'Join League' })).toBeInTheDocument();
+  expect(within(header).getByRole('button', { name: 'Create league' })).toBeInTheDocument();
+  expect(within(header).getByRole('button', { name: 'Join league' })).toBeInTheDocument();
   // The marketing tagline and banner photo gave way to the to-do list.
   expect(screen.queryByText(/Your command center for every league/)).not.toBeInTheDocument();
 });

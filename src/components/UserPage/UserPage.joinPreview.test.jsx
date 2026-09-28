@@ -70,7 +70,7 @@ const renderPage = () => renderWithProviders(<SnackbarProvider><UserPage /></Sna
 const openJoin = async () => {
   renderPage();
   await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
-  await userEvent.click(heroButton('Join League'));
+  await userEvent.click(heroButton('Join league'));
   return screen.findByRole('dialog');
 };
 

@@ -15,6 +15,7 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 import { matchupWinProbability } from '../../shared/lib/winProbability';
+import { teamStandingFromRow } from '../../entities/standings';
 import {
   DISPLAY_FONT, HAIRLINE, chipSx as toneChipSx, dimSx, ghostButtonSx, panelSx, primaryButtonSx,
   quietButtonSx, scoreSx,
@@ -93,10 +94,10 @@ function ordinal(n) {
   return `${n}${{ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'}`;
 }
 
+// The Record has one home, the standings entity (CONTEXT.md, Record): this
+// only guards a status with no record (not applicable, never zero).
 function recordText(record) {
-  if (!record) return null;
-  const base = `${record.wins}–${record.losses}`;
-  return record.ties ? `${base}–${record.ties}` : base;
+  return record ? teamStandingFromRow(record).record : null;
 }
 
 function formatScore(value) {
@@ -106,7 +107,7 @@ function formatScore(value) {
 
 function roleLabel(league) {
   if (league.is_owner === true) return 'Commissioner';
-  if (league.is_commissioner === true) return 'Co-Commissioner';
+  if (league.is_commissioner === true) return 'Co-commissioner';
   return null;
 }
 
@@ -610,8 +611,13 @@ function LeagueStatusCard({ league }) {
       </>
     );
   } else if (variant === 'pickem') {
-    const { made, total, nextLockAt } = status.pickem;
-    const done = total > 0 && made >= total;
+    const {
+      made, total, missing, nextLockAt,
+    } = status.pickem;
+    // Done is nothing left to pick: `missing` counts only open, unpicked
+    // games, so a game that locked unpicked (15 of 16 made) still reads done.
+    // A status from before `missing` shipped falls back to made of total.
+    const done = Number.isFinite(missing) ? missing === 0 : total > 0 && made >= total;
     const managers = league.team_count != null ? `${league.team_count} managers` : null;
     const lock = nextLockAt ? formatLockTime(nextLockAt) : null;
     subline = [league.my_team_name, role, managers].filter(Boolean).join(' · ');

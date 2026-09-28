@@ -26,7 +26,7 @@ const league = (overrides = {}) => ({
   ...overrides,
 });
 
-// The hero's Create/Join League buttons are always on screen; the rich empty
+// The hero's Create/Join league buttons are always on screen; the rich empty
 // state repeats the same two CTAs when there are no leagues yet. Scope to the
 // hero so these tests keep working regardless of which state is showing.
 const heroButton = (name) => within(screen.getByTestId('dashboard-hero')).getByRole('button', { name });
@@ -109,8 +109,8 @@ test('renders a rich empty state with an icon and CTAs once loading finishes wit
   const emptyState = await screen.findByTestId('leagues-empty-state');
   expect(within(emptyState).getByText("You aren't managing any teams yet.")).toBeInTheDocument();
   expect(within(emptyState).getByTestId('SportsFootballIcon')).toBeInTheDocument();
-  expect(within(emptyState).getByRole('button', { name: 'Create League' })).toBeInTheDocument();
-  expect(within(emptyState).getByRole('button', { name: 'Join League' })).toBeInTheDocument();
+  expect(within(emptyState).getByRole('button', { name: 'Create league' })).toBeInTheDocument();
+  expect(within(emptyState).getByRole('button', { name: 'Join league' })).toBeInTheDocument();
 });
 
 test('does not render the empty state once leagues are present', async () => {
@@ -203,7 +203,7 @@ test('the page has one h1, an h2 per section and an h3 per league card', async (
 
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
-  expect(screen.getByRole('heading', { level: 2, name: 'My Leagues' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'My leagues' })).toBeInTheDocument();
   expect(await screen.findByRole('heading', { level: 2, name: 'Needs your attention' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'Latest NFL News' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'Global Activity' })).toBeInTheDocument();
@@ -215,7 +215,7 @@ test('the page has one h1, an h2 per section and an h3 per league card', async (
   expect(screen.queryAllByRole('heading', { level: 6 })).toHaveLength(0);
 });
 
-test('the empty state heading sits under My Leagues', async () => {
+test('the empty state heading sits under My leagues', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderPage();
 
@@ -232,10 +232,10 @@ test('opening Create or Join does not clear a leagues fetch error', async () => 
   renderPage();
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
 
-  await userEvent.click(heroButton('Create League'));
+  await userEvent.click(heroButton('Create league'));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  await userEvent.click(heroButton('Join League'));
+  await userEvent.click(heroButton('Join league'));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

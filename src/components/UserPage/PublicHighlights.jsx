@@ -6,6 +6,7 @@ import {
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { listArticles } from '../../content/articles';
+import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import {
   dimSx, panelSx, panelTitleSx, sectionTitleSx, skeletonSx, textLinkSx,
 } from '../common/homeIslandSx';
@@ -37,6 +38,11 @@ const statusSx = { ...dimSx, fontSize: '14px' };
 const listSx = { '& .MuiListItemText-secondary': dimSx };
 const rowLinkSx = { color: 'var(--dash-ink)', fontWeight: 600, textDecorationColor: 'currentColor' };
 const moreLinkSx = { ...textLinkSx, fontSize: '14px' };
+// The header's quick links are the section's only way into those pages, so
+// each is a 44px target (inline-flex, since an inline box ignores min-height).
+const quickLinkSx = {
+  ...moreLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+};
 
 function WidgetSkeleton() {
   return (
@@ -94,10 +100,10 @@ function PublicHighlights() {
           Around the League
         </Typography>
         <Stack direction="row" spacing={2} flexWrap="wrap">
-          <Link href="/rankings" underline="hover" sx={moreLinkSx}>Rankings</Link>
-          <Link href="/waiver-wire" underline="hover" sx={moreLinkSx}>Waiver Wire</Link>
-          <Link href="/strategy" underline="hover" sx={moreLinkSx}>Strategy</Link>
-          <Link href="/recaps" underline="hover" sx={moreLinkSx}>Recaps</Link>
+          <Link href="/rankings" underline="hover" sx={quickLinkSx}>Rankings</Link>
+          <Link href="/waiver-wire" underline="hover" sx={quickLinkSx}>Waiver Wire</Link>
+          <Link href="/strategy" underline="hover" sx={quickLinkSx}>Strategy</Link>
+          <Link href="/recaps" underline="hover" sx={quickLinkSx}>Recaps</Link>
         </Stack>
       </Stack>
 
