@@ -165,3 +165,43 @@ test('the week stepper grows to the 44px touch target on a phone, matching every
 
   expect(screen.getByRole('button', { name: 'Previous week' })).toHaveStyle({ minWidth: '44px', minHeight: '44px' });
 });
+
+const finalGame = (overrides = {}) => ({
+  ...openGame(),
+  gameKey: 'HOU|IND',
+  teams: ['HOU', 'IND'],
+  homeTeam: 'IND',
+  awayTeam: 'HOU',
+  status: 'final',
+  homeScore: 19,
+  awayScore: 17,
+  locked: true,
+  winner: 'IND',
+  ...overrides,
+});
+
+// Red-tell (2026-09-28): with every game locked there is nothing left to
+// save, yet the board still pinned a save bar with a dead Save picks button
+// over the phone viewport ("0 of 16 picked" on a week of Finals). Mounting
+// the bar on `windows.length > 0` alone turns this red.
+test('a week with every game locked mounts no save bar', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/pickem/league/1/week/3': weekResponse({
+      games: [finalGame(), finalGame({ gameKey: 'NE|JAX', teams: ['NE', 'JAX'], homeTeam: 'JAX', awayTeam: 'NE', winner: 'JAX' })],
+    }),
+  });
+  render(<PickemBoard leagueId={LEAGUE_ID} />);
+  expect(await screen.findAllByTestId('game-card')).toHaveLength(2);
+  expect(screen.queryByTestId('save-bar')).not.toBeInTheDocument();
+});
+
+test('a week with any game still open keeps its save bar', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse(),
+    '/api/pickem/league/1/week/3': weekResponse({ games: [finalGame(), openGame()] }),
+  });
+  render(<PickemBoard leagueId={LEAGUE_ID} />);
+  expect(await screen.findAllByTestId('game-card')).toHaveLength(2);
+  expect(screen.getByTestId('save-bar')).toBeInTheDocument();
+});

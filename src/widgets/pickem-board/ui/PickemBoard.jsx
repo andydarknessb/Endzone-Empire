@@ -22,6 +22,12 @@ import SaveBar from './SaveBar';
  * count is exactly what has not loaded yet), and an empty week (no NFL
  * games scheduled).
  *
+ * The save bar mounts only while the slate still has something to save: a
+ * week with every game locked (a Sunday night of Finals) drops it, since no
+ * pick on it can change and a pinned bar with a dead Save button only covers
+ * the scores on a phone. It stays while a draft or a save error is still
+ * pending, so neither is lost at the moment the last game locks.
+ *
  * Three optional callbacks (#1267, `pages/pickem`) let a composing page keep
  * an unsaved-picks guard and the cross-entity standings invalidation of its
  * own, without this widget losing ownership of its own week state:
@@ -63,6 +69,7 @@ export default function PickemBoard({ leagueId, onDirtyChange, onRequestWeekChan
     totalManagers,
     slateSize,
     pickedCount,
+    weekLocked,
     windows,
     saving,
     isDirty,
@@ -143,7 +150,7 @@ export default function PickemBoard({ leagueId, onDirtyChange, onRequestWeekChan
         </Box>
       )}
 
-      {ready && windows.length > 0 && (
+      {ready && windows.length > 0 && (!weekLocked || isDirty || saveError) && (
         <SaveBar
           pickedCount={pickedCount}
           slateSize={slateSize}
