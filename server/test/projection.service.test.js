@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
 const projection = require('../services/projection.service');
+const poolProjection = require('../services/poolProjection');
 const features = require('../services/projectionFeatures');
 const model = require('../services/projectionModel');
 const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoringRules');
@@ -2402,10 +2403,10 @@ test('loadLeagueContext issues the same scan and defense-games SQL loadFeatureBu
 // `getWeekProjections` (no league) map through `poolPointsFor` /
 // `poolPointsMap` instead of indexing `.points` or testing `typeof` itself.
 // Same convention as the Weekly result's `pointsFor` (#1702): `null` for no
-// Point estimate, never a coerced 0.
+// Pool projection value, never a coerced 0.
 // ---------------------------------------------------------------------------
 
-test('poolPointsFor reads the Pool map value as a number, null when there is no estimate', () => {
+test('poolPointsFor reads the Pool map value as a number, null when there is no value', () => {
   const poolMap = new Map([
     [1, { points: 12.5, source: 'extrapolated' }],
     [2, { points: '7.25', source: 'external' }],
@@ -2413,20 +2414,20 @@ test('poolPointsFor reads the Pool map value as a number, null when there is no 
     [4, { points: null, source: 'unavailable' }],
     [5, { points: Number.NaN, source: 'extrapolated' }],
   ]);
-  assert.equal(projection.poolPointsFor(poolMap, 1), 12.5);
-  assert.equal(projection.poolPointsFor(poolMap, 2), 7.25, 'a numeric string is read as its number');
-  assert.equal(projection.poolPointsFor(poolMap, 3), 0, 'a real zero is preserved, not treated as missing');
-  assert.equal(projection.poolPointsFor(poolMap, 4), null);
-  assert.equal(projection.poolPointsFor(poolMap, 5), null);
-  assert.equal(projection.poolPointsFor(poolMap, 99), null, 'an absent player has no estimate');
-  assert.equal(projection.poolPointsFor(new Map(), 1), null);
+  assert.equal(poolProjection.poolPointsFor(poolMap, 1), 12.5);
+  assert.equal(poolProjection.poolPointsFor(poolMap, 2), 7.25, 'a numeric string is read as its number');
+  assert.equal(poolProjection.poolPointsFor(poolMap, 3), 0, 'a real zero is preserved, not treated as missing');
+  assert.equal(poolProjection.poolPointsFor(poolMap, 4), null);
+  assert.equal(poolProjection.poolPointsFor(poolMap, 5), null);
+  assert.equal(poolProjection.poolPointsFor(poolMap, 99), null, 'an absent player has no estimate');
+  assert.equal(poolProjection.poolPointsFor(new Map(), 1), null);
 });
 
-test('poolPointsMap is playerId -> points for every entry that has an estimate', () => {
+test('poolPointsMap is playerId -> points for every entry that has a value', () => {
   const poolMap = new Map([
     [1, { points: 12.5, source: 'extrapolated' }],
     [2, { points: 0, source: 'extrapolated' }],
     [3, { points: null, source: 'unavailable' }],
   ]);
-  assert.deepEqual([...projection.poolPointsMap(poolMap)], [[1, 12.5], [2, 0]]);
+  assert.deepEqual([...poolProjection.poolPointsMap(poolMap)], [[1, 12.5], [2, 0]]);
 });

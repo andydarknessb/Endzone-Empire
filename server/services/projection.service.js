@@ -1334,8 +1334,6 @@ module.exports = {
   extrapolateWeekly,
   getWeekProjections,
   getPoolWideProjections,
-  poolPointsFor,
-  poolPointsMap,
   getRestOfSeasonProjections,
   getTradeProjectionMetrics,
   getPositionDefense,
