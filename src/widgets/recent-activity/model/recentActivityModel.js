@@ -67,7 +67,7 @@ const WEEK_MS = 7 * DAY_MS;
  * minutes into today reads "1h ago" the same way a row 90 minutes into
  * yesterday's last hour does, rather than one of them jumping to "Yesterday"
  * a few minutes after midnight. This is the same shape `src/utils/
- * formatRelative.js` uses for waiver-clear timestamps; it is not reused here
+ * formatTimeSince.js` uses; it is not reused here
  * because that helper has no "Yesterday" step and this card's mockup and
  * acceptance criteria both name one explicitly.
  *

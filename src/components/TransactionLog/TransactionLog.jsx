@@ -40,7 +40,7 @@ import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerDecisionCard, { fromCard } from '../../widgets/player-decision-card';
 import { PlayerNameLink } from '../../entities/player';
-import { formatRelative } from '../../utils/formatRelative';
+import { formatTimeSince } from '../../utils/formatTimeSince';
 
 const PAGE_SIZE = 30;
 
@@ -83,7 +83,7 @@ function startOfDay(date) {
 }
 
 // "Today"/"Yesterday" close in, a short date beyond that (year included only
-// when it isn't the current one) — mirrors formatRelative's date fallback.
+// when it isn't the current one) — mirrors formatTimeSince's date fallback.
 function dayLabel(dateLike) {
   const date = new Date(dateLike);
   const now = new Date(Date.now());
@@ -165,7 +165,7 @@ function ActivityFeedItem({ txn, onOpenPlayer, isLast }) {
           </Box>
           <Tooltip title={new Date(txn.created_at).toLocaleString()}>
             <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
-              {formatRelative(txn.created_at)}
+              {formatTimeSince(txn.created_at)}
             </Typography>
           </Tooltip>
         </Box>
