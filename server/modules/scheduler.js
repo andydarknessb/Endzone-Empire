@@ -110,6 +110,11 @@ async function tickUnlocked() {
       console.error('nflverse finalization failed (will retry next tick):', err.message);
     }
     try {
+      await runNflverseGameContextFill();
+    } catch (err) {
+      console.error('nflverse game-context fill failed (will retry next tick):', err.message);
+    }
+    try {
       await runNflverseCurrentWeek();
     } catch (err) {
       console.error('nflverse current-week pass failed (will retry in 15 minutes):', err.message);
@@ -991,6 +996,36 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
   return result;
 }
 
+/**
+ * Daily nflverse game-context fill (#1725, follow-up to #1707): run the
+ * existing `syncScheduleFromNflverse` for the CURRENT season so `nfl_games`
+ * `venue`, `roof`, `surface` and `rest_days` are populated. The Tank01 schedule
+ * insert never writes them, so without this pass `venue` stays NULL, the
+ * venue-keyed coordinate table (services/venueCoordinates.js) resolves nothing
+ * and the NWS weather job is starved, and `roof` NULL reads a dome as outdoors.
+ * This schedules the one sync that exists, not a new path; the manual
+ * `POST /scoring/sync-schedule { source: 'nflverse' }` stays as the fallback.
+ *
+ * Gated by `cadence.due({ job: 'schedule-nflverse', every: 'utc-day' })`, the
+ * job `runSyncJob` already writes a run row for on every run, so a worker
+ * restart cannot double-fetch and a manual run today also satisfies the gate.
+ * A failed run is never `latestOk`, so a failing fill is due again next tick
+ * (one games.csv fetch per 5-minute tick until it succeeds, the same retry
+ * `runNflverseFinalization` has). The sync is COALESCE-only on the context
+ * columns and INSERT-safe on kickoffs, so running it any day is harmless.
+ * A throw propagates to `tickUnlocked`, which logs it and carries on.
+ * Current season only: 2024 and 2025 are not backfilled automatically.
+ */
+async function runNflverseGameContextFill({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'schedule-nflverse', every: 'utc-day', now });
+  if (!gate.due) return null;
+  const nflSeason = require('../services/nflSeason.service');
+  const season = await nflSeason.upcomingNflSeason();
+  if (season == null) return null;
+  const nflverseSync = require('../services/nflverseSync.service');
+  return nflverseSync.syncScheduleFromNflverse({ season });
+}
+
 // How often to ask nflverse whether it has republished (a HEAD per season,
 // nflverseSync.patchCurrentWeeks). nflverse republishes about an hour after
 // each night's last game - 04:25-04:50 UTC after every 2026 prime-time game
@@ -1318,6 +1353,7 @@ module.exports = {
   runDailyStatCorrections,
   runNightlyProjectionFill,
   runNflverseFinalization,
+  runNflverseGameContextFill,
   runNflverseCurrentWeek,
   runNightlyStatsIntegrityScan,
   runPickemWeekSync,

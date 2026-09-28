@@ -825,6 +825,105 @@ test('tickUnlocked runs the nflverse finalization pass in its own containment', 
   assert.match(tickBody, /try \{\s*await runNflverseFinalization\(\);\s*\} catch/);
 });
 
+// ---- nflverse game-context fill (#1725) --------------------------------------
+// `syncScheduleFromNflverse` fills nfl_games venue/roof/surface/rest_days (COALESCE)
+// and nothing else ran it. Once per UTC day, current season only, through the
+// cadence gate on the job the sync already writes a run row for
+// ('schedule-nflverse'), so a manual POST /scoring/sync-schedule that ran today
+// also satisfies the gate. Every "is it actually due" case is the cadence suite's.
+
+test('runNflverseGameContextFill asks the cadence gate about schedule-nflverse once per UTC day and fills the current season', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const nflSeason = require('../services/nflSeason.service');
+  const cadence = require('../modules/cadence');
+  let dueArgs = null;
+  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
+  t.mock.method(nflSeason, 'upcomingNflSeason', async () => 2026);
+  const calls = [];
+  t.mock.method(nflverseSync, 'syncScheduleFromNflverse', async (args) => { calls.push(args); return { ok: true }; });
+
+  const now = new Date('2026-09-28T12:00:00Z');
+  const result = await scheduler.runNflverseGameContextFill({ now });
+
+  assert.deepEqual(dueArgs, { job: 'schedule-nflverse', every: 'utc-day', now });
+  assert.deepEqual(calls, [{ season: 2026 }], 'the current season only, never a past one');
+  assert.deepEqual(result, { ok: true });
+});
+
+test('runNflverseGameContextFill does nothing when the cadence gate says it already ran today', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const nflSeason = require('../services/nflSeason.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
+  let seasonReads = 0;
+  t.mock.method(nflSeason, 'upcomingNflSeason', async () => { seasonReads += 1; return 2026; });
+  let syncCalls = 0;
+  t.mock.method(nflverseSync, 'syncScheduleFromNflverse', async () => { syncCalls += 1; return {}; });
+
+  const result = await scheduler.runNflverseGameContextFill({ now: new Date('2026-09-28T12:05:00Z') });
+  assert.equal(result, null);
+  assert.equal(syncCalls, 0, 'due: false never reaches the fill');
+  assert.equal(seasonReads, 0);
+});
+
+test('runNflverseGameContextFill runs at most once per UTC day against the real gate, and again the next UTC day', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const nflSeason = require('../services/nflSeason.service');
+  const syncRun = require('../modules/syncRun');
+  t.mock.method(nflSeason, 'upcomingNflSeason', async () => 2026);
+  let syncCalls = 0;
+  const runs = [];
+  t.mock.method(nflverseSync, 'syncScheduleFromNflverse', async () => {
+    syncCalls += 1;
+    return {};
+  });
+  // The sync writes its own run row; model it as the gate's reader would see it.
+  t.mock.method(syncRun, 'lastRun', async (job) => {
+    assert.equal(job, 'schedule-nflverse');
+    const last = runs[runs.length - 1] || null;
+    return { latest: last, latestOk: last };
+  });
+  const tickAt = async (iso) => {
+    const now = new Date(iso);
+    const before = syncCalls;
+    await scheduler.runNflverseGameContextFill({ now });
+    if (syncCalls > before) runs.push({ id: runs.length + 1, finishedAt: now, ok: true, detail: null });
+  };
+
+  await tickAt('2026-09-28T09:00:00Z');
+  await tickAt('2026-09-28T09:05:00Z');
+  await tickAt('2026-09-28T23:55:00Z');
+  assert.equal(syncCalls, 1, 'every later tick the same UTC day is gated out');
+  await tickAt('2026-09-29T00:05:00Z');
+  assert.equal(syncCalls, 2, 'the next UTC day runs again');
+});
+
+test('runNflverseGameContextFill lets a failed fill throw so tickUnlocked can log it, and the failed run stays due', async (t) => {
+  const nflverseSync = require('../services/nflverseSync.service');
+  const nflSeason = require('../services/nflSeason.service');
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(nflSeason, 'upcomingNflSeason', async () => 2026);
+  t.mock.method(nflverseSync, 'syncScheduleFromNflverse', async () => { throw new Error('games.csv unreachable'); });
+  await assert.rejects(() => scheduler.runNflverseGameContextFill({ now: new Date('2026-09-28T12:00:00Z') }), /games\.csv unreachable/);
+});
+
+test('tickUnlocked runs the nflverse game-context fill in its own containment, and a failure there is logged, not fatal', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(
+    tickBody,
+    /try \{\s*await runNflverseGameContextFill\(\);\s*\} catch \(err\) \{\s*console\.error\('nflverse game-context fill failed/
+  );
+  // Sits after finalization, before the next duty, so a throw cannot stop the rest of the tick.
+  assert.ok(tickBody.indexOf('runNflverseGameContextFill') > tickBody.indexOf('runNflverseFinalization'));
+});
+
 // ---- nflverse current-week pass ---------------------------------------------
 // Checked every 15 minutes at any hour of any day: the service's own HEAD
 // decides whether there is anything to download. These stub the service and
