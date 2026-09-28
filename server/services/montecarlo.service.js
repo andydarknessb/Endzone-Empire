@@ -1,7 +1,7 @@
 const pool = require('../modules/pool');
 const { computeStandings, pairBySeed } = require('./season.service');
 const { parseLineupSettings, optimalLineup } = require('./lineup.service');
-const { getWeekProjections } = require('./projection.service');
+const { getWeekProjections, poolPointsMap } = require('./projection.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
 const { isPickemOnly } = require('./leagueType');
 
@@ -261,9 +261,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
 
   // Roster-strength projection: optimal projected lineup per team
   const projections = await getWeekProjections({ season, week });
-  const pointsFor = new Map(
-    [...projections].map(([playerId, { points }]) => [playerId, points])
-  );
+  const pointsFor = poolPointsMap(projections);
   const { rosterSlots } = parseLineupSettings(league);
   const rosterResult = await pool.query(
     `SELECT "team_players"."team_id", "team_players"."player_id", "players"."position"

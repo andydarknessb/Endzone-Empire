@@ -504,11 +504,7 @@ router.get('/:id/rosters', async (req, res) => {
         });
       }
       if (row.id) {
-        const projection = weeklyByPlayer.get(row.id);
-        row.projected_weekly_points =
-          projection && Number.isFinite(Number(projection.points))
-            ? Number(projection.points)
-            : null;
+        row.projected_weekly_points = projectionService.poolPointsFor(weeklyByPlayer, row.id);
         const ros = rosByPlayer.get(row.id);
         row.rest_of_season_points = Number.isFinite(Number(ros)) ? Number(ros) : null;
         teams.get(row.team_id).players.push({

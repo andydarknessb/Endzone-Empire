@@ -21,7 +21,7 @@ const {
   RECAPS_TABLE_SQL,
   isMissingRecapStorage,
 } = require('../modules/recapStorage');
-const { getWeekProjections } = require('./projection.service');
+const { getWeekProjections, poolPointsFor } = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
 const { upcomingNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');
@@ -226,7 +226,7 @@ async function getRankings({ position = 'ALL', season, week, limit = 50 } = {}) 
   const ranked = candidatesRes.rows
     .map((row) => ({
       row,
-      projected: projections.has(row.id) ? Number(projections.get(row.id).points) : null,
+      projected: poolPointsFor(projections, row.id),
       seasonPoints: Number(row.season_points) || 0,
     }))
     .sort((a, b) =>

@@ -2396,3 +2396,37 @@ test('loadLeagueContext issues the same scan and defense-games SQL loadFeatureBu
   assert.equal(seen.league.scan, seen.bundle.scan, 'one scan statement, not a second aggregation');
   assert.equal(seen.league.games, seen.bundle.games, 'one defense-games statement');
 });
+
+// ---------------------------------------------------------------------------
+// Pool projection accessor (#1705): every Pool reader reads the
+// `getWeekProjections` (no league) map through `poolPointsFor` /
+// `poolPointsMap` instead of indexing `.points` or testing `typeof` itself.
+// Same convention as the Weekly result's `pointsFor` (#1702): `null` for no
+// Point estimate, never a coerced 0.
+// ---------------------------------------------------------------------------
+
+test('poolPointsFor reads the Pool map value as a number, null when there is no estimate', () => {
+  const poolMap = new Map([
+    [1, { points: 12.5, source: 'extrapolated' }],
+    [2, { points: '7.25', source: 'external' }],
+    [3, { points: 0, source: 'extrapolated' }],
+    [4, { points: null, source: 'unavailable' }],
+    [5, { points: Number.NaN, source: 'extrapolated' }],
+  ]);
+  assert.equal(projection.poolPointsFor(poolMap, 1), 12.5);
+  assert.equal(projection.poolPointsFor(poolMap, 2), 7.25, 'a numeric string is read as its number');
+  assert.equal(projection.poolPointsFor(poolMap, 3), 0, 'a real zero is preserved, not treated as missing');
+  assert.equal(projection.poolPointsFor(poolMap, 4), null);
+  assert.equal(projection.poolPointsFor(poolMap, 5), null);
+  assert.equal(projection.poolPointsFor(poolMap, 99), null, 'an absent player has no estimate');
+  assert.equal(projection.poolPointsFor(new Map(), 1), null);
+});
+
+test('poolPointsMap is playerId -> points for every entry that has an estimate', () => {
+  const poolMap = new Map([
+    [1, { points: 12.5, source: 'extrapolated' }],
+    [2, { points: 0, source: 'extrapolated' }],
+    [3, { points: null, source: 'unavailable' }],
+  ]);
+  assert.deepEqual([...projection.poolPointsMap(poolMap)], [[1, 12.5], [2, 0]]);
+});

@@ -133,6 +133,34 @@ async function getWeekProjections({ season, week, refresh = false, league = null
 }
 
 /**
+ * The Pool projection accessor (#1705): the one place a reader of the Pool
+ * map (`getWeekProjections` with no league / `getPoolWideProjections`, values
+ * `{ points, source }`) turns an entry into a number, so no reader indexes
+ * `.points` or tests `typeof` on a map value itself. Same convention as the
+ * Weekly result's `pointsFor` (#1702): `null` when there is no Point
+ * estimate (absent player, or a `points` that is not a finite number), never
+ * a coerced 0 - a caller that wants 0 keeps its own `|| 0`. The Pool
+ * projection is a different producer from the Weekly projection and stays
+ * one; this only removes the duplicated reads.
+ */
+function poolPointsFor(poolMap, playerId) {
+  const entry = poolMap.get(playerId);
+  if (entry == null || entry.points == null) return null;
+  const points = Number(entry.points);
+  return Number.isFinite(points) ? points : null;
+}
+
+/** playerId -> points for every Pool entry that has an estimate (`poolPointsFor`'s non-null rows). */
+function poolPointsMap(poolMap) {
+  const points = new Map();
+  for (const playerId of poolMap.keys()) {
+    const value = poolPointsFor(poolMap, playerId);
+    if (value != null) points.set(playerId, value);
+  }
+  return points;
+}
+
+/**
  * Rest-of-season totals: weekly projection x remaining weeks, as a Map
  * playerId -> total. Under extrapolation the weekly value is flat, so this is
  * a multiply — but callers should treat it as opaque so an external feed with
@@ -142,7 +170,7 @@ async function getRestOfSeasonProjections({ season, fromWeek, throughWeek }) {
   const weekly = await getWeekProjections({ season, week: fromWeek });
   const remaining = Math.max(0, throughWeek - fromWeek + 1);
   const totals = new Map();
-  for (const [playerId, { points }] of weekly) {
+  for (const [playerId, points] of poolPointsMap(weekly)) {
     totals.set(playerId, Math.round(points * remaining * 100) / 100);
   }
   return totals;
@@ -175,13 +203,7 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
   const statsByPlayer = new Map(statsResult.rows.map((row) => [row.player_id, row]));
   const remainingWeeks = Math.max(0, Number(throughWeek) - Number(fromWeek) + 1);
   return new Map(ids.map((playerId) => {
-    const projection = weekly.get(playerId);
-    const projectedPoints = projection && typeof projection === 'object'
-      ? projection.points
-      : projection;
-    const perGameProjection = Number.isFinite(Number(projectedPoints))
-      ? Number(projectedPoints)
-      : 0;
+    const perGameProjection = poolPointsFor(weekly, playerId) ?? 0;
     const stats = statsByPlayer.get(playerId) || {};
     const seasonTotalPoints = Number.isFinite(Number(stats.season_total_points))
       ? Number(stats.season_total_points)
@@ -1338,6 +1360,8 @@ module.exports = {
   extrapolateWeekly,
   getWeekProjections,
   getPoolWideProjections,
+  poolPointsFor,
+  poolPointsMap,
   getRestOfSeasonProjections,
   getTradeProjectionMetrics,
   getPositionDefense,

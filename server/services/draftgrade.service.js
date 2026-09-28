@@ -1,5 +1,5 @@
 const pool = require('../modules/pool');
-const { getWeekProjections } = require('./projection.service');
+const { getWeekProjections, poolPointsMap } = require('./projection.service');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
 
 /**
@@ -185,9 +185,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
   if (picksResult.rows.length === 0) return null;
 
   const projections = await getWeekProjections({ season, week: league.current_week });
-  const pointsFor = new Map(
-    [...projections].map(([playerId, { points }]) => [playerId, points])
-  );
+  const pointsFor = poolPointsMap(projections);
   const { rosterSlots } = parseLineupSettings(league);
 
   const byTeam = new Map();
