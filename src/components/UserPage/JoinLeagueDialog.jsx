@@ -12,7 +12,7 @@ import { isPickemOnly, shortLeagueTypeLabel } from '../../shared/lib/leagueType'
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import {
-  alertSx, dialogPaperSx, dialogTitleSx, dimSx, fieldSx, primaryButtonSx, quietButtonSx,
+  alertSx, dialogPaperSx, dialogTitleSx, dimSx, fieldSx, ghostButtonSx, primaryButtonSx, quietButtonSx,
 } from '../common/homeIslandSx';
 
 // The preview's closed-joining note, keyed on the server's joinability reason.
@@ -25,25 +25,35 @@ const JOIN_CLOSED_COPY = {
 };
 const ALREADY_MEMBER_COPY = "You're already a member of this league.";
 
-// LeagueManagement's threshold: shorter than this is still being typed, so it
-// is never looked up (the preview route is rate limited per caller).
-const MIN_PREVIEW_LENGTH = 6;
+// Every invite code is exactly 8 lowercase hex characters (checked against
+// production 2026-09-28). Shorter is still being typed and longer is not a
+// code, so only exactly 8 is ever looked up (the preview route is rate limited
+// per caller).
+const INVITE_CODE_LENGTH = 8;
 const PREVIEW_DEBOUNCE_MS = 300;
 
 /**
  * The invite code in whatever the manager typed or pasted: a bare code, or a
  * shared invite link (/#/league/join?code=...), whose `code` parameter is the
- * code. Case is kept: invite codes are matched exactly by the server.
+ * code. Lower-cased: every code is issued in lower case and the server
+ * matches it exactly, so a code typed in capitals still finds its league.
  */
 export function inviteCodeFrom(raw) {
   const text = (raw || '').trim();
   const match = text.match(/[?&]code=([^&#\s]*)/i);
-  if (!match) return text;
+  if (!match) return text.toLowerCase();
+  let code = match[1];
   try {
-    return decodeURIComponent(match[1]).trim();
+    code = decodeURIComponent(code);
   } catch {
-    return match[1].trim();
+    // A malformed escape: use the parameter as it stands.
   }
+  return code.trim().toLowerCase();
+}
+
+/** Whether this browser lets the page read the clipboard (it asks first). */
+function canReadClipboard() {
+  return typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function';
 }
 
 function formatLine(preview) {
@@ -83,8 +93,10 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
-  // The raw input is stored as typed; it is shown upper-cased by CSS only.
+  // The raw input is stored and shown as typed; the code read from it is
+  // lower-cased, so the field never shows a case the server would refuse.
   const [rawCode, setRawCode] = useState('');
+  const [clipboardFailed, setClipboardFailed] = useState(false);
   const [teamName, setTeamName] = useState('');
   const [joinError, setJoinError] = useState(null);
   const [joining, setJoining] = useState(false);
@@ -97,7 +109,7 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const trimmedTeamName = teamName.trim();
 
   useEffect(() => {
-    if (inviteCode.length < MIN_PREVIEW_LENGTH) {
+    if (inviteCode.length !== INVITE_CODE_LENGTH) {
       setLookup(null);
       return undefined;
     }
@@ -122,7 +134,8 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const current = lookup && lookup.code === inviteCode ? lookup : null;
   const preview = current && current.status === 'found' ? current.league : null;
   const notFound = Boolean(current && current.status === 'not-found');
-  const keepTyping = inviteCode.length > 0 && inviteCode.length < MIN_PREVIEW_LENGTH;
+  const keepTyping = inviteCode.length > 0 && inviteCode.length < INVITE_CODE_LENGTH;
+  const tooLong = inviteCode.length > INVITE_CODE_LENGTH;
   const refusal = refusalFor(preview);
 
   // A disabled button alone doesn't say why (WCAG 3.3.2), so the reason is
@@ -137,6 +150,22 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
   const handleClose = () => {
     setJoinError(null);
     onClose();
+  };
+
+  const handleCodeChange = (text) => {
+    setClipboardFailed(false);
+    setRawCode(text);
+  };
+
+  // A pasted link is read for its code exactly as a typed one is.
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      handleCodeChange((text || '').trim());
+    } catch {
+      // Permission refused or nothing readable: the field still takes a paste.
+      setClipboardFailed(true);
+    }
   };
 
   const handleJoin = async () => {
@@ -187,34 +216,54 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
           Your commissioner sends an invite code or link. Leagues are private, so you need one to join.
         </Typography>
         {joinError && <Alert severity="error" sx={{ ...alertSx('danger'), mb: 1 }}>{joinError}</Alert>}
-        <TextField
-          className="dialogTextField"
-          autoFocus
-          margin="dense"
-          label="Invite code"
-          required
-          fullWidth
-          sx={{
-            ...inputSx,
-            '& .MuiInputBase-input': { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontWeight: 600, letterSpacing: '0.1em' },
-          }}
-          value={rawCode}
-          onChange={(event) => setRawCode(event.target.value)}
-          error={notFound}
-          // Codes are matched exactly, so the keyboard must not re-case them.
-          inputProps={{
-            autoComplete: 'off',
-            autoCapitalize: 'none',
-            spellCheck: false,
-            'aria-describedby': 'join-code-status',
-            style: { textTransform: 'uppercase' },
-          }}
-        />
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 1 }}>
+          <TextField
+            className="dialogTextField"
+            autoFocus
+            margin="dense"
+            label="Invite code"
+            required
+            sx={{
+              ...inputSx,
+              flex: '1 1 12rem',
+              '& .MuiInputBase-input': { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontWeight: 600, letterSpacing: '0.1em' },
+            }}
+            value={rawCode}
+            onChange={(event) => handleCodeChange(event.target.value)}
+            error={notFound || tooLong}
+            // The keyboard must not re-case what is typed; the code read from
+            // it is lower-cased before it reaches the server.
+            inputProps={{
+              autoComplete: 'off',
+              autoCapitalize: 'none',
+              spellCheck: false,
+              'aria-describedby': 'join-code-status',
+            }}
+          />
+          {canReadClipboard() && (
+            <Button
+              onClick={handlePasteFromClipboard}
+              sx={{ ...ghostButtonSx, ...MIN_TOUCH_TARGET_SX, px: 2, mt: 1, minHeight: 56, whiteSpace: 'nowrap' }}
+            >
+              Paste from clipboard
+            </Button>
+          )}
+        </Box>
         {/* One polite live region for what the code resolves to. */}
         <Box id="join-code-status" aria-live="polite" sx={{ my: 1 }}>
           {keepTyping && (
             <Typography variant="body2" sx={dimSx}>
               Keep typing. Invite codes are 8 letters and numbers.
+            </Typography>
+          )}
+          {tooLong && (
+            <Typography variant="body2" sx={dimSx}>
+              That&apos;s longer than an invite code. Invite codes are 8 letters and numbers.
+            </Typography>
+          )}
+          {clipboardFailed && (
+            <Typography variant="body2" sx={dimSx}>
+              Couldn&apos;t read the clipboard. Paste the code or link into the field instead.
             </Typography>
           )}
           {/* Danger title and ink body on the danger tint, over the sheet

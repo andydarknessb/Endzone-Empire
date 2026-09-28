@@ -104,26 +104,114 @@ test('a valid code shows the league preview before the Team name field and names
   expect(within(dialog).getByRole('button', { name: 'Join Lakeshore Dynasty' })).toBeInTheDocument();
 });
 
-test('the code is stored as typed and shown upper-cased', async () => {
+const waitPastDebounce = () => act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400); }); });
+
+test('a code typed in capitals is previewed and joined in lower case, and never shown re-cased', async () => {
+  // Invite codes are 8 lowercase hex characters, matched exactly by the server.
   mockApi({ preview: previewBody() });
-  await openJoin();
+  apiClient.post.mockResolvedValue({});
+  const dialog = await openJoin();
 
-  await userEvent.type(codeField(), 'abcd1234');
+  await userEvent.type(codeField(), 'A1B2C3D4');
 
-  expect(codeField()).toHaveValue('abcd1234');
-  expect(codeField()).toHaveStyle({ textTransform: 'uppercase' });
+  await within(dialog).findByTestId('join-preview');
+  expect(previewCalls().map(([url]) => url)).toEqual([`${PREVIEW_PREFIX}a1b2c3d4`]);
+  // Shown as typed (or lower case), never upper-cased by CSS: the displayed
+  // case must be one the server accepts.
+  expect(['A1B2C3D4', 'a1b2c3d4']).toContain(codeField().value);
+  expect(codeField()).not.toHaveStyle({ textTransform: 'uppercase' });
+
+  await userEvent.type(teamField(), 'Joiner FC');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Join Lakeshore Dynasty' }));
+  await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'a1b2c3d4', teamName: 'Joiner FC' }));
 });
 
-test('a short code asks the manager to keep typing and previews nothing', async () => {
+test.each(['a', 'abc', 'abcd123'])('a partial code (%s) asks the manager to keep typing, is not marked wrong and previews nothing', async (partial) => {
+  // The preview would say "not found" if it were asked.
+  mockApi({ preview: notFound });
+  const dialog = await openJoin();
+
+  await userEvent.type(codeField(), partial);
+
+  expect(within(dialog).getByText('Keep typing. Invite codes are 8 letters and numbers.')).toBeInTheDocument();
+  // Longer than the 300ms debounce: still no lookup for a partial code.
+  await waitPastDebounce();
+  expect(previewCalls()).toHaveLength(0);
+  expect(within(dialog).queryByText('No league uses that code')).not.toBeInTheDocument();
+  expect(codeField()).not.toHaveAttribute('aria-invalid', 'true');
+});
+
+test('more than 8 characters is not a code: it says so without asking the server', async () => {
   mockApi({ preview: previewBody() });
   const dialog = await openJoin();
 
-  await userEvent.type(codeField(), 'abc');
+  await userEvent.type(codeField(), 'abcd12345');
 
-  expect(within(dialog).getByText(/keep typing/i)).toBeInTheDocument();
-  // Longer than the 300ms debounce: still no lookup for a partial code.
-  await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400); }); });
+  expect(within(dialog).getByText("That's longer than an invite code. Invite codes are 8 letters and numbers.")).toBeInTheDocument();
+  await waitPastDebounce();
   expect(previewCalls()).toHaveLength(0);
+  expect(within(dialog).queryByTestId('join-preview')).not.toBeInTheDocument();
+  expect(within(dialog).queryByText(/keep typing/i)).not.toBeInTheDocument();
+  // Unlike a partial code, it can never become a code by typing on.
+  expect(codeField()).toHaveAttribute('aria-invalid', 'true');
+});
+
+// --- Paste from clipboard ---
+
+const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+const setClipboard = (value) => Object.defineProperty(navigator, 'clipboard', { value, configurable: true });
+
+describe('Paste from clipboard', () => {
+  afterEach(() => {
+    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    else delete navigator.clipboard;
+  });
+
+  test('pastes an invite link from the clipboard, read for its code like a typed one', async () => {
+    const readText = jest.fn().mockResolvedValue('https://endzoneempire.com/#/league/join?code=ABCD1234');
+    setClipboard({ readText });
+    mockApi({ preview: previewBody() });
+    apiClient.post.mockResolvedValue({});
+    const dialog = await openJoin();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Paste from clipboard' }));
+
+    expect(readText).toHaveBeenCalledTimes(1);
+    expect(await within(dialog).findByTestId('join-preview')).toBeInTheDocument();
+    expect(previewCalls().map(([url]) => url)).toEqual([`${PREVIEW_PREFIX}abcd1234`]);
+
+    await userEvent.type(teamField(), 'Joiner FC');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Join Lakeshore Dynasty' }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'abcd1234', teamName: 'Joiner FC' }));
+  });
+
+  test('a clipboard the browser refuses to read says so and leaves the field as it was', async () => {
+    setClipboard({ readText: jest.fn().mockRejectedValue(new Error('NotAllowedError')) });
+    mockApi({ preview: previewBody() });
+    const dialog = await openJoin();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Paste from clipboard' }));
+
+    expect(await within(dialog).findByText("Couldn't read the clipboard. Paste the code or link into the field instead.")).toBeInTheDocument();
+    expect(codeField()).toHaveValue('');
+    expect(previewCalls()).toHaveLength(0);
+  });
+
+  test('is not offered when the browser cannot read the clipboard', async () => {
+    setClipboard(undefined);
+    mockApi({ preview: previewBody() });
+    const dialog = await openJoin();
+
+    expect(within(dialog).queryByRole('button', { name: 'Paste from clipboard' })).not.toBeInTheDocument();
+  });
+
+  test('is not offered when the clipboard can only be written', async () => {
+    setClipboard({ writeText: jest.fn() });
+    mockApi({ preview: previewBody() });
+    const dialog = await openJoin();
+
+    expect(within(dialog).queryByRole('button', { name: 'Paste from clipboard' })).not.toBeInTheDocument();
+  });
 });
 
 test('a pasted invite link is read for its code, previewed and joined with that code', async () => {
