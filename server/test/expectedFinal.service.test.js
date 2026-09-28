@@ -114,9 +114,21 @@ for (let w = 1; w <= 18; w++) {
 function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, projections = PROJECTIONS } = {}) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
-    return { modelVersion: 'test', projections };
+    // A minimal stand-in for the real result object (#1703): just the one
+    // accessor `expectedFinalsForWeek` actually calls, `pointsFor`, reading
+    // this file's legacy-shaped `{ points }` fixtures the same way
+    // `toLegacyProjectionMap` used to hand them over.
+    return {
+      modelVersion: 'test',
+      projections,
+      pointsFor(id) {
+        const entry = projections.get(id);
+        if (entry == null) return null;
+        const raw = typeof entry === 'object' ? entry.points : entry;
+        return Number.isFinite(Number(raw)) ? Number(raw) : null;
+      },
+    };
   });
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   return createFakePool([
     // The fake answers the read's slot predicate the way the table would: a
     // statement that still excludes BENCH rows gets none. This is what binds
@@ -443,8 +455,16 @@ test('the five-hour no-live-row bound yields played when every starter is past i
 });
 
 test('a failed read states no status, never a false scheduled (F1)', async (t) => {
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: PROJECTIONS }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
+    modelVersion: 'test',
+    projections: PROJECTIONS,
+    pointsFor(id) {
+      const entry = PROJECTIONS.get(id);
+      if (entry == null) return null;
+      const raw = typeof entry === 'object' ? entry.points : entry;
+      return Number.isFinite(Number(raw)) ? Number(raw) : null;
+    },
+  }));
   // The live-game read fails - the query most likely to fail transiently and
   // the one on the live path. The game classification cannot be produced, so
   // the status is unknown; it must not be asserted as scheduled beside a live

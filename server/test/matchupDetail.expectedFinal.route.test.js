@@ -38,6 +38,26 @@ const HOME = 11;
 const AWAY = 12;
 const authed = (userId) => `Bearer ${signToken({ id: userId, username: `u${userId}` })}`;
 
+/**
+ * A minimal stand-in for the real Weekly projection result object (#1703):
+ * just the one accessor `expectedFinalsForWeek` calls, `pointsFor`, reading
+ * this file's legacy-shaped `{ points }` fixtures the same way
+ * `toLegacyProjectionMap` used to hand them over.
+ */
+function fakeWeeklyResult(projections, extra = {}) {
+  return {
+    modelVersion: 'test',
+    projections,
+    pointsFor(id) {
+      const entry = projections.get(id);
+      if (entry == null) return null;
+      const raw = typeof entry === 'object' ? entry.points : entry;
+      return Number.isFinite(Number(raw)) ? Number(raw) : null;
+    },
+    ...extra,
+  };
+}
+
 const MATCHUP_ROW = {
   id: 7,
   league_id: LEAGUE_ID,
@@ -101,9 +121,8 @@ async function getDetail(t, { gameRows = [], throwGames = false } = {}) {
   const runCalls = [];
   t.mock.method(projectionService, 'getWeeklyProjections', async (args) => {
     runCalls.push([...args.playerIds].sort());
-    return { modelVersion: 'test', projections: PROJECTIONS };
+    return fakeWeeklyResult(PROJECTIONS);
   });
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   createFakePool([
@@ -226,8 +245,9 @@ const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z ki
 // schedule set their game states, so a fixture can name any status.
 async function detailStatus(t, { live, schedule, throwLive = false, awayTeam = 'DAL' }) {
   t.mock.method(clock, 'now', () => new Date(NOW));
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map([[301, { points: 10 }], [401, { points: 10 }]]) }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(
+    new Map([[301, { points: 10 }], [401, { points: 10 }]])
+  ));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   const homeStarters = [player(301, 'Home QB', 'QB', 'KC', null, 'QB', null)];
@@ -370,8 +390,7 @@ const FINAL_AWAY_BENCH = [
 ];
 
 test('a final (settled) matchup still returns non-empty starters and bench for both sides, with the settled score (#952)', async (t) => {
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(new Map()));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   createFakePool([
@@ -460,9 +479,8 @@ const BB_SCHEDULE = [
 async function getBestBallDetail(t, { projectionsThrow = false } = {}) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projectionsThrow) throw new Error('projection store unavailable');
-    return { modelVersion: 'test', projections: BB_PROJECTIONS };
+    return fakeWeeklyResult(BB_PROJECTIONS);
   });
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   createFakePool([
@@ -608,8 +626,7 @@ const SETTLED_TENURES = [tenure(HOME, 803, new Date('2026-10-26T00:00:00.000Z'))
 const SETTLED_HELD_SINCE = new Date('2026-08-01T00:00:00.000Z');
 
 async function getSettledDetail(t) {
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(new Map()));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   // The fake joins nothing, so answer these two questions the way the table
@@ -709,8 +726,7 @@ const BB_SETTLED_TEAM_OF = new Map([
 ]);
 
 async function getSettledBestBallDetail(t) {
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(new Map()));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   const allRows = [...BB_SETTLED_HOME_ROWS, ...BB_SETTLED_AWAY_ROWS];
@@ -835,8 +851,7 @@ const SETTLED_EXPECTED_BODY = {
 
 test('a settled matchup opens no transaction and never calls materializeLineup, and the body is unchanged (#978)', async (t) => {
   const materializeMock = t.mock.method(lineupService, 'materializeLineup', async () => {});
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(new Map()));
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   const answer = (pool, text, params) => {
     let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
@@ -876,8 +891,7 @@ test('a settled matchup opens no transaction and never calls materializeLineup, 
 
 test('an open matchup still opens a transaction and materializes each team once (#978)', async (t) => {
   const materializeMock = t.mock.method(lineupService, 'materializeLineup', async () => {});
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: PROJECTIONS }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(PROJECTIONS));
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   const fake = createFakePool([
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ '?column?': 1 }] })],
@@ -920,8 +934,7 @@ test('an open matchup still opens a transaction and materializes each team once 
 // makes against the fake pool.
 test('a settled matchup passes weekIsFinal into liveWhatIf, buying it out of its own finality COUNT read (#978, #1017)', async (t) => {
   t.mock.method(lineupService, 'materializeLineup', async () => {});
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(new Map()));
   const answer = (pool, text, params) => {
     let rows = pool.filter((p) => SETTLED_TEAM_OF.get(p.id) === params[0]);
     if (/"team_players"/.test(text)) rows = rows.filter((p) => SETTLED_ROSTER_TODAY.has(p.id));

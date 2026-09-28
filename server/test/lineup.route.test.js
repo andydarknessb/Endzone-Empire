@@ -26,6 +26,30 @@ const app = express();
 app.use(express.json());
 app.use('/api/team', teamRouter);
 
+/**
+ * Converts this file's legacy-shaped fixtures (`{ points, projection: { mean,
+ * p10, p90, factors } }`) into the raw Weekly-projection run entries
+ * `getWeeklyProjections` itself now returns (#1703): `median` carries
+ * `points` (the shipped default ranks on the median, so `pointsFor` reads it
+ * back as the Point estimate) and `mean` carries the distribution's own bare
+ * mean - kept distinct on purpose so a fixture where they differ (#1482)
+ * still exercises that distinction.
+ */
+function rawEntry({ points, projection }) {
+  const p = projection || {};
+  return {
+    mean: p.mean ?? null,
+    median: points ?? null,
+    p10: p.p10 ?? null,
+    p90: p.p90 ?? null,
+    factors: p.factors || {},
+  };
+}
+
+function rawProjections(weekly) {
+  return new Map([...weekly].map(([id, legacy]) => [id, rawEntry(legacy)]));
+}
+
 test("GET /api/team/lineup carries each entry's week opponent on the wire (#1132)", async (t) => {
   const entries = [
     { id: 1, name: 'Justin Jefferson', position: 'WR', nfl_team: 'MIN', injury_status: null, slot: 'WR', ir_attested: false },
@@ -33,7 +57,9 @@ test("GET /api/team/lineup carries each entry's week opponent on the wire (#1132
     // slate, and the wire must say null, never an absent field or ''.
     { id: 2, name: 'Stefon Diggs', position: 'WR', nfl_team: 'BUF', injury_status: null, slot: 'BENCH', ir_attested: false },
   ];
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
@@ -123,9 +149,9 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
     injury_status: null, injury_detail: null, slot: 'RB', week_stats: { actual: 9 },
   };
   const projectionCalls = [];
-  t.mock.method(projectionService, 'getWeekProjections', async (options) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
     projectionCalls.push(options);
-    return weekly;
+    return projectionService.toWeeklyProjectionResult({ projections: rawProjections(weekly) });
   });
   t.mock.method(scoringService, 'calculateFantasyPoints', (stats) => stats.actual);
 
@@ -232,7 +258,9 @@ test('GET /api/team/lineup: pace and result Edge lines follow the Point estimate
     [1, { points: 8, projection: { mean: 12, p10: 5, p90: 16, factors: {} } }],
     [2, { points: 14, projection: { mean: 20, p10: 10, p90: 24, factors: {} } }],
   ]);
-  t.mock.method(projectionService, 'getWeekProjections', async () => weekly);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: rawProjections(weekly),
+  }));
   t.mock.method(scoringService, 'calculateFantasyPoints', (stats) => stats.actual);
 
   const fake = createFakePool([
@@ -301,7 +329,9 @@ test('GET /api/team/lineup: with no live_game_states row, the Edge line falls ba
     [1, { points: 20, projection: { mean: 20, p10: 14, p90: 26, factors: {} } }],
     [2, { points: 12, projection: { mean: 12, p10: 8, p90: 16, factors: {} } }],
   ]);
-  t.mock.method(projectionService, 'getWeekProjections', async () => weekly);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: rawProjections(weekly),
+  }));
   t.mock.method(scoringService, 'calculateFantasyPoints', (stats) => stats.actual);
 
   const fake = createFakePool([
@@ -367,7 +397,9 @@ test('GET /api/team/lineup carries Line and weather per entry: both, neither, an
     { id: 2, name: 'No Game Guy', position: 'WR', nfl_team: 'BUF', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
     { id: 3, name: 'Dome Guy', position: 'WR', nfl_team: 'MIA', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
   ];
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
   setVegasOddsProvider({
     name: 'test-book',
     available: true,

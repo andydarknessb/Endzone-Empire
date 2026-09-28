@@ -1228,11 +1228,11 @@ function toLegacyProjectionMap(run) {
 /**
  * Pure: classifies one raw run entry for one week — unavailable plus a
  * reason code ('bye' | 'out' | 'ir' | 'no_team'), or the Point estimate
- * (`pointEstimateFor`) — exactly what the Decision card module's
- * `classifyWeekProjection` (`playerCard.service.js`) computes today. Kept as
- * its own function rather than imported from that module, so this file gains
- * no new dependency; #1703 (the migrate ticket) is what points
- * `classifyWeekProjection` at `classify` below instead of at its own copy.
+ * (`pointEstimateFor`) — exactly what the Decision card module's own copy
+ * (`playerCard.service.js`'s `classifyWeekProjection`) used to compute
+ * before the migrate ticket (#1703) pointed every caller at `classify`
+ * below instead and deleted it. Kept as its own function rather than
+ * imported from that module, so this file gains no new dependency.
  */
 function classifyProjectionEntry(projection) {
   const unavailable = !!(projection
@@ -1249,14 +1249,14 @@ function classifyProjectionEntry(projection) {
 /**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the six
- * accessors the Decision card module (`playerCard.service.js`'s `pointsOf`,
- * `opponentRankOf`, `classifyWeekProjection`) and the decision service
- * (`decision.service.js`'s `detailOf`) each compute for themselves today, so
- * a caller migrating onto this object reads the SAME answer every other
- * reader of the run already does. Every accessor is defined over the raw run
- * entry the engine emits (mean, median, p10, p90, factors, confidence,
- * activeProbability) — no producer emits a bare number, so there is no
- * number branch here either.
+ * accessors the Decision card module and the decision service each used to
+ * hand-roll for themselves - three private helpers in
+ * `playerCard.service.js` and one in `decision.service.js`, all retired by
+ * the migrate ticket (#1703) in favor of these - so a caller reads the SAME
+ * answer every other reader of the run already does. Every accessor is
+ * defined over the raw run entry the engine emits (mean, median, p10, p90,
+ * factors, confidence, activeProbability) — no producer emits a bare number,
+ * so there is no number branch here either.
  *
  * `run`'s own fields (`season`, `week`, `modelVersion`, `scoringHash`,
  * `generatedAt`, `inputCutoff`, `sourceCoverage`, `projections`) are carried
@@ -1276,7 +1276,8 @@ function toWeeklyProjectionResult(run) {
     /**
      * The Point estimate (`pointEstimateFor`) for `playerId`; `null` when
      * there is none. Never coerces to 0 — a caller that wants that keeps its
-     * own `|| 0`, same as `pointsOf` does today.
+     * own `|| 0`, the same coercion `playerCard.service.js`'s deleted
+     * `pointsOf` used to apply.
      */
     pointsFor(playerId) {
       const entry = entryFor(playerId);
@@ -1284,7 +1285,7 @@ function toWeeklyProjectionResult(run) {
       return point == null ? null : Number(point);
     },
 
-    /** Unavailable plus reason code, or the Point estimate — `classifyWeekProjection` today. */
+    /** Unavailable plus reason code, or the Point estimate — what the deleted `classifyWeekProjection` used to compute. */
     classify(playerId) {
       return classifyProjectionEntry(entryFor(playerId));
     },

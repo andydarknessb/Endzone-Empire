@@ -205,14 +205,14 @@ function mockCardServices(t) {
     opts.players.map((p) => [p.id, { state: 'free_agent', teamId: null, teamName: null, availableAt: null }]),
   ));
   t.mock.method(playerCardService, 'upgradesFor', async () => new Map());
-  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
     projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
   }));
   t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => new Map(
-    weeks.map((week) => [week, {
+    weeks.map((week) => [week, projectionService.toWeeklyProjectionResult({
       week,
       projections: new Map(playerIds.map((id) => [id, { median: 5, factors: { availability: { available: true } } }])),
-    }]),
+    })]),
   ));
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => new Map(
     playerIds.map((id) => [id, { total: 10, perGame: 2 }]),
