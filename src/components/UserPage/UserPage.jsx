@@ -82,8 +82,18 @@ function UserPage() {
 
   const [myLeagues, setMyLeagues] = useState([]);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
-  const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
+  // A failed leagues fetch is its own state, not the dialogs' `error`: it must
+  // never fall through to the empty state (which tells a manager they have no
+  // leagues) and opening Create or Join must not clear it.
+  const [leaguesError, setLeaguesError] = useState(null);
+  // Each dialog owns its failure message: it renders inside the dialog, which
+  // stays open with the answers, and is the only place the error is announced.
+  const [createError, setCreateError] = useState(null);
+  const [joinError, setJoinError] = useState(null);
+  // In-flight flags: POST /api/league is not idempotent, so a second click
+  // while the first request is pending would create a second league.
+  const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
   const notify = useSnackbar();
 
   // Create League dialog
@@ -102,7 +112,10 @@ function UserPage() {
   const [isPublic, setIsPublic] = useState(false);
   const [joinApproval, setJoinApproval] = useState(false);
   const [bestBall, setBestBall] = useState(false);
-  const [scoringPreset, setScoringPreset] = useState('');
+  // Half PPR is stored as the half_ppr preset rather than left NULL: the two
+  // score identically, but only a stored preset shows the league's scoring
+  // chip and matches Discover's scoring filter.
+  const [scoringPreset, setScoringPreset] = useState('half_ppr');
   const [draftDate, setDraftDate] = useState('');
   const [draftTimezone, setDraftTimezone] = useState(browserTimeZone);
   const [draftAcknowledged, setDraftAcknowledged] = useState(false);
@@ -122,14 +135,19 @@ function UserPage() {
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [activityError, setActivityError] = useState(false);
   const nextUp = nextUpFor(myLeagues, activityItems);
+  // Skeletons only stand in for a list we don't have yet. A refetch (Try
+  // again, or the refresh after a create or join) keeps the good list up.
+  const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
 
   const fetchMyLeagues = async () => {
     try {
       setLoadingLeagues(true);
       const response = await apiClient.get('/api/league');
       setMyLeagues(response.data);
+      setLeaguesError(null);
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      // Keep the last good list (if any) on screen under the alert.
+      setLeaguesError(readHttpFailure(err).message || err.message);
     } finally {
       setLoadingLeagues(false);
     }
@@ -174,6 +192,7 @@ function UserPage() {
 
   const handleCloseCreateDialog = () => {
     setOpenCreateDialog(false);
+    setCreateError(null);
   };
 
   // Switching type re-caps the team count: a 30-manager pick'em pool cannot
@@ -196,9 +215,20 @@ function UserPage() {
   // neither does a pick'em league, which never sends draftDate at all (a
   // date typed before switching away from fantasy is simply dropped).
   const draftScheduleReady = !includesFantasy(leagueType) || !draftDate || draftAcknowledged;
+  // A disabled button alone doesn't say why (WCAG 3.3.2), so the first unmet
+  // gate is spelled out beside it and tied to it with aria-describedby.
+  let createBlocker = null;
+  if (!leagueName.trim() || !teamNameValid) createBlocker = 'Add a league name and your Team name to continue.';
+  else if (!teamCountValid) createBlocker = `Enter ${MIN_TEAMS} to ${capForType(leagueType)} teams to continue.`;
+  else if (!draftScheduleReady) createBlocker = 'Confirm the draft date and time zone to continue.';
+  const joinBlocker = !inviteCode.trim() || !joinTeamName.trim()
+    ? 'Add the invite code and your Team name to continue.'
+    : null;
 
   const handleCreateLeague = async () => {
-    setError(null);
+    if (creating) return;
+    setCreateError(null);
+    setCreating(true);
     try {
       // maxTeams is always explicit: the server's default is the fantasy 10
       // for every type, so a pick'em pool must never rely on it.
@@ -213,7 +243,7 @@ function UserPage() {
       if (isPublic && joinApproval) payload.joinApproval = true;
 
       await apiClient.post('/api/league', payload);
-      setNotice('League created!');
+      // The snackbar is the one success announcement; the page adds none.
       notify('League created!');
       setLeagueName('');
       setTeamName('');
@@ -223,16 +253,16 @@ function UserPage() {
       setIsPublic(false);
       setJoinApproval(false);
       setBestBall(false);
-      setScoringPreset('');
+      setScoringPreset('half_ppr');
       setDraftDate('');
       setDraftTimezone(browserTimeZone());
       setDraftAcknowledged(false);
+      handleCloseCreateDialog();
       fetchMyLeagues();
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+      setCreateError(readHttpFailure(err).message || err.message);
     } finally {
-      handleCloseCreateDialog();
+      setCreating(false);
     }
   };
 
@@ -243,22 +273,24 @@ function UserPage() {
 
   const handleCloseJoinDialog = () => {
     setOpenJoinDialog(false);
+    setJoinError(null);
   };
 
   const handleJoinLeague = async () => {
-    setError(null);
+    if (joining) return;
+    setJoinError(null);
+    setJoining(true);
     try {
       await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
-      setNotice('Joined league!');
       notify('Joined league!');
       setInviteCode('');
       setJoinTeamName('');
+      handleCloseJoinDialog();
       fetchMyLeagues();
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+      setJoinError(readHttpFailure(err).message || err.message);
     } finally {
-      handleCloseJoinDialog();
+      setJoining(false);
     }
   };
 
@@ -266,7 +298,15 @@ function UserPage() {
     // flexGrow cooperates with the flex column shell App.jsx sets up around
     // <Nav />/<Routes />/<Footer /> so short pages still pin the footer to the
     // bottom of the viewport, while tall pages scroll normally.
-    <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+    // The page's one main landmark, named by its h1; the shell's skip link
+    // (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence tabIndex -1.
+    <Box
+      component="main"
+      id="user-main-content"
+      tabIndex={-1}
+      aria-labelledby="user-page-heading"
+      sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
+    >
       <Container maxWidth="lg" sx={{ py: 3 }}>
         {/* Unified hero: greeting + primary actions on the left, banner image
             contained on the right. Replaces the old disconnected banner +
@@ -291,7 +331,7 @@ function UserPage() {
               >
                 Endzone Empire
               </Typography>
-              <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5, mb: 1, lineHeight: 1.15 }}>
+              <Typography variant="h4" component="h1" id="user-page-heading" sx={{ fontWeight: 700, mt: 0.5, mb: 1, lineHeight: 1.15 }}>
                 Welcome, {user.username}!
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 460 }}>
@@ -313,7 +353,9 @@ function UserPage() {
                 role="presentation"
                 sx={{
                   position: 'relative',
-                  height: myLeagues.length > 0 ? { sm: 120, md: 140 } : { sm: 160, md: 200 },
+                  // Fixed, not keyed to myLeagues: that list is empty while loading,
+                  // so a keyed height shifted the page once leagues arrived.
+                  height: { sm: 140, md: 160 },
                   borderRadius: 2,
                   overflow: 'hidden',
                   backgroundImage: 'url(/endzone.jpeg)',
@@ -336,14 +378,22 @@ function UserPage() {
           </Grid>
         </Card>
 
-        {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
-        {notice && <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 2 }}>{notice}</Alert>}
 
-        <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>
+        <Typography variant="h5" component="h2" sx={{ mb: 2, fontWeight: 700 }}>
           My Leagues
         </Typography>
 
-        {loadingLeagues ? (
+        {leaguesError && !loadingLeagues && (
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={<Button color="inherit" size="small" onClick={fetchMyLeagues}>Try again</Button>}
+          >
+            {leaguesError}
+          </Alert>
+        )}
+
+        {awaitingFirstLeagues ? (
           <Grid container spacing={2}>
             {[0, 1, 2].map((i) => (
               <Grid xs={12} sm={6} md={4} key={i}>
@@ -358,7 +408,7 @@ function UserPage() {
               </Grid>
             ))}
           </Grid>
-        ) : myLeagues.length === 0 ? (
+        ) : myLeagues.length === 0 && leaguesError ? null : myLeagues.length === 0 ? (
           <Card
             data-testid="leagues-empty-state"
             variant="outlined"
@@ -366,7 +416,7 @@ function UserPage() {
           >
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
               <SportsFootballIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" component="h3" gutterBottom>
                 You aren&apos;t managing any teams yet.
               </Typography>
               <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 380 }}>
@@ -387,12 +437,16 @@ function UserPage() {
           <Grid container spacing={2}>
             {myLeagues.map((league) => (
               <Grid xs={12} sm={6} md={4} key={league.id}>
-                <LeagueCard league={league} compact />
+                <LeagueCard league={league} compact titleComponent="h3" />
               </Grid>
             ))}
           </Grid>
         )}
 
+        {/* Next Up is computed from the leagues list, so it waits for a good
+            one: while loading or after a failure it would fall back to
+            "Create or join a league", which is false for an existing manager. */}
+        {!awaitingFirstLeagues && !leaguesError && (
         <Paper
           variant="outlined"
           component="section"
@@ -407,7 +461,7 @@ function UserPage() {
           >
             <Box>
               <Typography variant="overline" color="primary.main">{nextUp.eyebrow}</Typography>
-              <Typography id="next-up-heading" variant="h6">{nextUp.title}</Typography>
+              <Typography id="next-up-heading" variant="h6" component="h2">{nextUp.title}</Typography>
               {nextUp.draftDate && (
                 <Countdown variant="chip" date={nextUp.draftDate} timeZone={nextUp.draftTimeZone} />
               )}
@@ -415,6 +469,7 @@ function UserPage() {
             <Button component={RouterLink} to={nextUp.to} variant="contained">{nextUp.action}</Button>
           </Stack>
         </Paper>
+        )}
 
         {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
         <Box sx={{ mt: 5 }}>
@@ -422,7 +477,7 @@ function UserPage() {
             <Grid xs={12} md={6}>
               <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
                 <CardContent>
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                  <Typography variant="h6" component="h2" sx={{ fontWeight: 700, mb: 1 }}>
                     Latest NFL News
                   </Typography>
                   {loadingNews ? (
@@ -468,7 +523,7 @@ function UserPage() {
             <Grid xs={12} md={6}>
               <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
                 <CardContent>
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                  <Typography variant="h6" component="h2" sx={{ fontWeight: 700, mb: 1 }}>
                     Global Activity
                   </Typography>
                   {loadingActivity ? (
@@ -516,7 +571,8 @@ function UserPage() {
         <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
           <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
           <DialogContent>
-            <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
+            {createError && <Alert severity="error" sx={{ mb: 1 }}>{createError}</Alert>}
+            <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" required fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
             <TextField
               className="dialogTextField"
               margin="dense"
@@ -552,22 +608,20 @@ function UserPage() {
                 onChange={(event) => setNumTeams(event.target.value)}
               />
             ) : (
-              <>
-            <InputLabel id="numTeams-label"></InputLabel>
-            <div style={{display: 'flex', alignItems: 'center', marginTop: '1em'}}>
-            <Typography variant="body1" style={{marginRight: '1em', color: 'var(--text-primary)', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
-          <Select
-              labelId="numTeams-label"
-              value={numTeams}
-              onChange={(event) => setNumTeams(event.target.value)}
-              style={{minWidth: 120}}
-          >
-              {Array.from({length: 19}, (_, i) => i+2).map((number) => (
-              <MenuItem key={number} value={number}>{number}</MenuItem>
-              ))}
-          </Select>
-        </div>
-              </>
+              <FormControl margin="dense" sx={{ minWidth: 120 }}>
+                <InputLabel id="numTeams-label">Teams</InputLabel>
+                <Select
+                  labelId="numTeams-label"
+                  id="numTeams-select"
+                  label="Teams"
+                  value={numTeams}
+                  onChange={(event) => setNumTeams(event.target.value)}
+                >
+                  {Array.from({ length: 19 }, (_, i) => i + 2).map((number) => (
+                    <MenuItem key={number} value={number}>{number}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             )}
 
             <FormControlLabel
@@ -619,8 +673,6 @@ function UserPage() {
                 value={scoringPreset}
                 onChange={(event) => setScoringPreset(event.target.value)}
               >
-                {/* No preset sent = the built-in default rules, which are half-PPR */}
-                <MenuItem value="">League default (Half PPR)</MenuItem>
                 <MenuItem value="standard">Standard</MenuItem>
                 <MenuItem value="half_ppr">Half PPR</MenuItem>
                 <MenuItem value="ppr">PPR</MenuItem>
@@ -639,22 +691,29 @@ function UserPage() {
             )}
             </DialogContent>
             <DialogActions>
+            {createBlocker && (
+              <Typography id="create-league-blocker" variant="body2" color="text.secondary" sx={{ mr: 'auto', pl: 1 }}>
+                {createBlocker}
+              </Typography>
+            )}
             <Button onClick={handleCloseCreateDialog} color="primary">
              Cancel
             </Button>
-            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamNameValid || !teamCountValid || !draftScheduleReady}>
-             Create
+            <Button onClick={handleCreateLeague} color="primary" aria-describedby={createBlocker ? 'create-league-blocker' : undefined} disabled={creating || Boolean(createBlocker)}>
+              {creating ? 'Creating…' : 'Create'}
             </Button>
             </DialogActions>
             </Dialog>
         <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
           <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
           <DialogContent>
+            {joinError && <Alert severity="error" sx={{ mb: 1 }}>{joinError}</Alert>}
             <TextField
               className="dialogTextField"
               autoFocus
               margin="dense"
               label="Invite Code"
+              required
               fullWidth
               value={inviteCode}
               onChange={(event) => setInviteCode(event.target.value)}
@@ -672,11 +731,16 @@ function UserPage() {
             />
           </DialogContent>
                   <DialogActions>
+                    {joinBlocker && (
+                      <Typography id="join-league-blocker" variant="body2" color="text.secondary" sx={{ mr: 'auto', pl: 1 }}>
+                        {joinBlocker}
+                      </Typography>
+                    )}
                     <Button onClick={handleCloseJoinDialog} color="primary">
                       Cancel
                     </Button>
-                    <Button onClick={handleJoinLeague} color="primary" disabled={!inviteCode.trim() || !joinTeamName.trim()}>
-                      Join
+                    <Button onClick={handleJoinLeague} color="primary" aria-describedby={joinBlocker ? 'join-league-blocker' : undefined} disabled={joining || Boolean(joinBlocker)}>
+                      {joining ? 'Joining…' : 'Join'}
                     </Button>
                   </DialogActions>
                 </Dialog>

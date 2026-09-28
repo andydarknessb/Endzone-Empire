@@ -462,7 +462,27 @@ test('the Draft route renders a skip link, first in the DOM, targeting the Draft
   expect(focusable[0]).toBe(skipLink);
 });
 
-test('a non-Draft route renders no skip link (this increment is scoped to the Draft route)', async () => {
+test('the /user route renders a skip link, first in the DOM, that moves focus to the page\'s main landmark', async () => {
+  renderApp('#/user', { user: loggedIn });
+  expect(await screen.findByText('Welcome, alice!')).toBeInTheDocument();
+
+  const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
+  expect(skipLink).toHaveAttribute('href', '#user-main-content');
+  const main = screen.getByRole('main', { name: 'Welcome, alice!' });
+  expect(main).toHaveAttribute('id', 'user-main-content');
+
+  // eslint-disable-next-line testing-library/no-node-access
+  const focusable = document.body.querySelectorAll(
+    'a[href], button:not([disabled]), input, select, textarea, [tabindex]'
+  );
+  expect(focusable[0]).toBe(skipLink);
+
+  main.scrollIntoView = jest.fn(); // jsdom implements no scrolling
+  skipLink.click();
+  expect(main).toHaveFocus();
+});
+
+test('a route without a main landmark of its own renders no skip link', async () => {
   renderApp('#/about', { user: loggedOut });
   await screen.findByText('This about page is for anyone to read!');
   expect(screen.queryByRole('link', { name: 'Skip to main content' })).not.toBeInTheDocument();
