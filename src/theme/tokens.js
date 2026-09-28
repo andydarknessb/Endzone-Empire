@@ -65,10 +65,14 @@ export const colorTokens = {
     // `dash-*` names duplicate the ROLES of the app tokens (`dash-bg`/`-surface`
     // /`-ink`/`-dim` mirror `bg-page`/`surface`/`text-primary`/`text-muted`) but
     // at the redesign's own darker, higher-contrast values. They are scoped to
-    // the League Dashboard island (ADR 0020) and are NOT transitional: use the
-    // `dash-*` tokens inside the dashboard slices, the app tokens everywhere
-    // else. The two scales coexisting here is the point of keeping them in one
-    // file, so a later merge or divergence is visible in a single place.
+    // the island's surfaces and are NOT transitional: the League Dashboard
+    // (ADR 0020), Game Center and Matchup Detail (ADR 0031), Lineup (ADR 0037),
+    // Pick'em (ADR 0038), Waivers (ADR 0049) and Home, `/user` (ADR 0051; its
+    // files stay under src/components/UserPage). Use the `dash-*` tokens on
+    // those surfaces, the app tokens everywhere else, the app shell's Nav and
+    // Footer included. The two scales coexisting here is the point of keeping
+    // them in one file, so a later merge or divergence is visible in a single
+    // place.
     'dash-bg': '#eef2f6',
     'dash-surface': '#ffffff',
     'dash-surface2': '#f4f7fa',
@@ -133,14 +137,18 @@ export const colorTokens = {
     // The Game Center canvas's danger tone (build.mjs :root, lifted verbatim;
     // the same hex as the app's `danger`), for the scoring strip's Live pill
     // (the canvas's `.chip.live`: danger text and border on the danger tint)
-    // and the strip's own border (the tint) (#895). The pill clears AA_TEXT on
-    // its tint over a CARD only: 4.81 light / 5.16 dark over `dash-surface`,
-    // but 4.47 light over `dash-surface2`, 4.29 light over `dash-bg` and
-    // 4.05 / 4.09 over `dash-surface3`. So the rule, registered in
-    // tokens.contrast, is that the danger pill sits on `dash-surface` and
-    // nowhere else.
+    // and the strip's own border (the tint) (#895). The light tint is 6%, not
+    // the Game Center canvas's 10% (ADR 0051, the value the Home boards were
+    // drawn with): Home paints the pill in its greeting header and the Join
+    // sheet's not-found alert straight on the page, where 10% measured 4.29,
+    // under AA_TEXT. At 6% the pill clears the page, a card and a stat tile
+    // (4.57 over `dash-bg`, 5.12 over `dash-surface`, 4.78 over
+    // `dash-surface2`) and still fails the raised tile (4.31 over
+    // `dash-surface3`). So the rule, registered in tokens.contrast, is that the
+    // danger pill sits on the page, a card or a stat tile, never on
+    // `dash-surface3`. The cost is a fainter fill for every light consumer.
     'dash-danger': '#c62828',
-    'dash-danger-soft': 'rgba(198, 40, 40, 0.10)',
+    'dash-danger-soft': 'rgba(198, 40, 40, 0.06)',
     'dash-led': '#ffb547',
     'dash-led-dim': 'rgba(255, 181, 71, 0.28)',
     'dash-board': '#0b1015',
@@ -155,6 +163,13 @@ export const colorTokens = {
     // paints the tinted chip on `dash-surface`/`-surface2`, never elsewhere.
     'dash-warning': '#8a5a00',
     'dash-warning-soft': 'rgba(138, 90, 0, 0.12)',
+    // The edge of a text input or select, the Teams stepper and an unselected
+    // choice card (Home's Create and Join, ADR 0051). WCAG 1.4.11 asks 3:1 of
+    // an input's boundary against what it sits on; `dash-line-strong` is
+    // decoration and cannot carry it. Registered in tokens.contrast on
+    // `dash-bg`, `dash-surface` and `dash-surface2`, never `dash-surface3`,
+    // which no input sits on.
+    'dash-field': '#7a8793',
   },
   dark: {
     'bg-page': '#0f1419',
@@ -219,8 +234,10 @@ export const colorTokens = {
     // rules paint on chips and the primary button, and the `dash-grade-*-text`
     // set is tuned for legible grade TEXT (the fills are unreadable as text).
     // The dashboard (ADR 0020) themes `shared/ui` and its widgets from these
-    // names via the usual --var flattening; every ink-on-surface pairing is
-    // contrast-guarded in tokens.contrast.test.js for BOTH modes.
+    // names via the usual --var flattening, as does every island surface
+    // since (see the scoping note in the light block, which names them); every
+    // ink-on-surface pairing is contrast-guarded in tokens.contrast.test.js
+    // for BOTH modes.
     'dash-bg': '#0b1015',
     'dash-surface': '#141b23',
     'dash-surface2': '#1b242f',
@@ -267,7 +284,8 @@ export const colorTokens = {
     'dash-away': '#7ee2a8',
     'dash-away-soft': 'rgba(126, 226, 168, 0.16)',
     // Danger tone for the scoring strip's Live pill (see the light note): the
-    // canvas's dark :root values, verbatim.
+    // canvas's dark :root values, verbatim. Dark keeps the 14% tint (5.78 over
+    // the page, 5.16 over a card).
     'dash-danger': '#ff6b6b',
     'dash-danger-soft': 'rgba(255, 107, 107, 0.14)',
     'dash-led': '#ffb547',
@@ -277,6 +295,8 @@ export const colorTokens = {
     // amber, and the canvas's 14% tint (the light tint is 12%).
     'dash-warning': '#f0b34e',
     'dash-warning-soft': 'rgba(240, 179, 78, 0.14)',
+    // Input and choice-card edge (see the light note).
+    'dash-field': '#6b7c8c',
   },
 };
 

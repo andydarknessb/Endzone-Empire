@@ -21,7 +21,6 @@ const {
 const { resolveMinTeams, createSizeError } = require('../services/leagueSize');
 const { resolveNflSeasonPointer } = require('../services/pickemSeason.service');
 const {
-  commissionerPredicate,
   grantCoCommissioner,
   revokeCoCommissioner,
 } = require('../services/leagueRole.service');
@@ -35,6 +34,8 @@ const { listLeagueChatFeed, listCombinedDraftFeed } = require('../services/leagu
 // (#1499) mocks leagueDetailService.leagueDetail directly to test the
 // route's wiring apart from the module's own logic.
 const leagueDetailService = require('../services/leagueDetail.service');
+// Kept whole for the same test-seam reason as leagueDetailService above.
+const homeStatus = require('../services/homeStatus.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -294,30 +295,26 @@ router.get('/preview', previewRateLimiter, async (req, res) => {
 // GET /api/league — leagues the caller belongs to
 router.get('/', async (req, res) => {
   try {
-    // `is_owner` and `is_commissioner` are the viewer's role on each league,
-    // answered here so no card has to rebuild it from `leagues.owner_id` and
-    // the signed-in account id (#188). `is_owner` is the creator-alone half,
-    // covering the powers leagueRole.service's header keeps owner-shaped
-    // (deleting the league, granting or revoking co-commissioners);
-    // `is_commissioner` is the half a co-commissioner holds too. Both are
-    // per-viewer, evaluated against $1, and this response is the list's only
-    // per-viewer channel, so they belong on the row.
-    const result = await pool.query(
-      `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
-              "teams"."avatar_url" AS "my_team_avatar_url",
-              "teams"."avatar_static_url" AS "my_team_avatar_static_url",
-              "teams"."waiver_priority" AS "my_team_waiver_priority",
-              "teams"."faab_remaining" AS "my_team_faab_remaining",
-              (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count",
-              ("leagues"."owner_id" = $1) AS "is_owner",
-              ${commissionerPredicate(1)} AS "is_commissioner"
-       FROM "leagues"
-       JOIN "teams" ON "teams"."league_id" = "leagues"."id"
-       WHERE "teams"."owner_id" = $1
-       ORDER BY "leagues"."created_at" DESC`,
-      [req.user.id]
-    );
-    res.json(result.rows);
+    // The list query (with the per-viewer is_owner / is_commissioner flags,
+    // #188) lives in homeStatus.service, so the Home to-do list reads exactly
+    // the rows this list shows.
+    const rows = await homeStatus.listMyLeagues(pool, req.user.id);
+    // Opt-in Home status (Home v2, contract B): only ?include=status pays for
+    // it, and every other caller keeps this response byte for byte. Each row
+    // gains `status` (phase, week, record, standing, matchup, lineup, pickem,
+    // draft; each key only where it applies) and `statusError`; the builders
+    // live in homeStatus.service and never fail the list.
+    const include = typeof req.query.include === 'string' ? req.query.include.split(',') : [];
+    if (!include.includes('status')) return res.json(rows);
+    const statuses = await homeStatus.leagueStatuses(pool, {
+      userId: req.user.id,
+      leagues: rows,
+      now: clock.now(),
+    });
+    res.json(rows.map((row) => ({
+      ...row,
+      ...(statuses.get(row.id) || { status: null, statusError: true }),
+    })));
   } catch (error) {
     console.error('Error fetching leagues', error);
     res.status(500).json({ error: 'failed to fetch leagues' });
