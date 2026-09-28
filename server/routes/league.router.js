@@ -35,6 +35,8 @@ const { listLeagueChatFeed, listCombinedDraftFeed } = require('../services/leagu
 // (#1499) mocks leagueDetailService.leagueDetail directly to test the
 // route's wiring apart from the module's own logic.
 const leagueDetailService = require('../services/leagueDetail.service');
+// Kept whole for the same test-seam reason as leagueDetailService above.
+const homeStatus = require('../services/homeStatus.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -317,7 +319,22 @@ router.get('/', async (req, res) => {
        ORDER BY "leagues"."created_at" DESC`,
       [req.user.id]
     );
-    res.json(result.rows);
+    // Opt-in Home status (Home v2, contract B): only ?include=status pays for
+    // it, and every other caller keeps this response byte for byte. Each row
+    // gains `status` (phase, week, record, standing, matchup, lineup, pickem,
+    // draft; each key only where it applies) and `statusError`; the builders
+    // live in homeStatus.service and never fail the list.
+    const include = typeof req.query.include === 'string' ? req.query.include.split(',') : [];
+    if (!include.includes('status')) return res.json(result.rows);
+    const statuses = await homeStatus.leagueStatuses(pool, {
+      userId: req.user.id,
+      leagues: result.rows,
+      now: clock.now(),
+    });
+    res.json(result.rows.map((row) => ({
+      ...row,
+      ...(statuses.get(row.id) || { status: null, statusError: true }),
+    })));
   } catch (error) {
     console.error('Error fetching leagues', error);
     res.status(500).json({ error: 'failed to fetch leagues' });
