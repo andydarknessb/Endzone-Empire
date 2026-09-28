@@ -155,8 +155,11 @@ function groupReport(graded) {
  * each row was recorded at.
  *
  * Checkpoints:
- *   - kickoff: each matchup's first row (by captured_at) before any starter
- *     kicked off, i.e. its earliest `scheduled` row;
+ *   - kickoff: each matchup's LAST `scheduled` row by captured_at, the
+ *     freshest forecast before its first starter kicks off. The recorder
+ *     writes only during live score passes, so a Sunday matchup's first
+ *     scheduled row is captured during Thursday night's game, days before
+ *     lineups settle. Earlier scheduled rows are in no checkpoint group;
  *   - inGame:  every `live` row;
  *   - played:  every `played` row (every game over, the week not settled),
  *              plus how many are exactly certain;
@@ -183,12 +186,12 @@ function evaluateShadowRows({ rows = [], results = new Map(), k = null } = {}) {
     });
   }
 
-  const firstScheduled = new Map();
+  const lastScheduled = new Map();
   for (const g of graded) {
     if (g.row.status !== 'scheduled') continue;
     const key = Number(g.row.matchup_id);
-    const current = firstScheduled.get(key);
-    if (!current || millis(g.row.captured_at) < millis(current.row.captured_at)) firstScheduled.set(key, g);
+    const current = lastScheduled.get(key);
+    if (!current || millis(g.row.captured_at) > millis(current.row.captured_at)) lastScheduled.set(key, g);
   }
   const played = graded.filter((g) => g.row.status === 'played');
 
@@ -198,7 +201,7 @@ function evaluateShadowRows({ rows = [], results = new Map(), k = null } = {}) {
     rowsGraded: graded.length,
     rowsWithoutResult,
     checkpoints: {
-      kickoff: groupReport([...firstScheduled.values()]),
+      kickoff: groupReport([...lastScheduled.values()]),
       inGame: groupReport(graded.filter((g) => g.row.status === 'live')),
       played: { ...groupReport(played), certainty: certaintyOf(played) },
       flagged: groupReport(graded.filter((g) => g.flagged)),

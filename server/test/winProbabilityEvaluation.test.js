@@ -115,7 +115,7 @@ const shadowRow = (fields) => ({
   ...fields,
 });
 
-test('rows are graded by checkpoint: first scheduled row per matchup, in-game, played', () => {
+test('rows are graded by checkpoint: last scheduled row per matchup, in-game, played', () => {
   // Matchup 1 settled 110 - 100 (home won, o = 1); matchup 2 settled 90 - 95
   // (home lost, o = 0); matchup 3 is not settled, so its row is not graded.
   const results = new Map([[1, { homeScore: '110.00', awayScore: '100.00' }], [2, { homeScore: 90, awayScore: 95 }]]);
@@ -124,7 +124,7 @@ test('rows are graded by checkpoint: first scheduled row per matchup, in-game, p
     shadowRow({ matchup_id: 1, status: 'scheduled', captured_at: '2026-10-04T16:30:00Z', home_expected_final: '110.00', away_expected_final: '100.00', mu: '10.000', sigma: '30.000', home_probability: 0.62 }),
     shadowRow({ matchup_id: 1, status: 'live', captured_at: '2026-10-04T18:00:00Z', home_score: '50.00', away_score: '40.00', home_expected_final: '110.00', away_expected_final: '100.00', mu: '10.000', sigma: '20.000', home_probability: 0.7 }),
     shadowRow({ matchup_id: 1, status: 'played', captured_at: '2026-10-04T23:00:00Z', home_score: '110.00', away_score: '100.00', home_expected_final: '110.00', away_expected_final: '100.00', mu: '10.000', sigma: '0.000', home_probability: 1 }),
-    // Out of time order on purpose: the 13:00 row is matchup 2's kickoff row.
+    // Out of time order on purpose: the 14:00 row is matchup 2's kickoff row.
     shadowRow({ matchup_id: 2, status: 'scheduled', captured_at: '2026-10-04T14:00:00Z', home_expected_final: '90.00', away_expected_final: '95.00', mu: '-5.000', sigma: '30.000', home_probability: 0.45 }),
     shadowRow({ matchup_id: 2, status: 'scheduled', captured_at: '2026-10-04T13:00:00Z', home_expected_final: '90.00', away_expected_final: '95.00', mu: '-5.000', sigma: '30.000', home_probability: 0.3 }),
     shadowRow({ matchup_id: 2, status: 'live', captured_at: '2026-10-04T19:00:00Z', home_score: '20.00', away_score: '30.00', home_expected_final: '90.00', away_expected_final: '95.00', mu: '-5.000', sigma: '15.000', home_probability: 0.2, starters_without_interval: 2 }),
@@ -137,12 +137,12 @@ test('rows are graded by checkpoint: first scheduled row per matchup, in-game, p
   assert.equal(report.rowsGraded, 7);
   assert.equal(report.rowsWithoutResult, 1);
 
-  // Kickoff: the 15:00 row for matchup 1 (p 0.6, o 1) and the 13:00 row for
-  // matchup 2 (p 0.3, o 0). v2 Brier = ((0.6 - 1)^2 + 0.3^2) / 2 = (0.16 +
-  // 0.09) / 2 = 0.125. Picking either later scheduled row would move it.
+  // Kickoff: the 16:30 row for matchup 1 (p 0.62, o 1) and the 14:00 row for
+  // matchup 2 (p 0.45, o 0). v2 Brier = ((0.62 - 1)^2 + 0.45^2) / 2 = (0.1444
+  // + 0.2025) / 2 = 0.17345. Picking either earlier scheduled row would move it.
   const { kickoff, inGame, played, flagged } = report.checkpoints;
   assert.equal(kickoff.count, 2);
-  close(kickoff.v2.brier, 0.125, 1e-12, 'kickoff v2 brier');
+  close(kickoff.v2.brier, 0.17345, 1e-12, 'kickoff v2 brier');
   // v1 recomputed from the row exactly as the client does: 110 vs 100 with no
   // score is 1 / (1 + e^(-10/24)) = 0.6026853380; 90 vs 95 is
   // 1 / (1 + e^(5/24)) = 0.4481042327. Brier = ((0.6026853380 - 1)^2 +
@@ -161,6 +161,30 @@ test('rows are graded by checkpoint: first scheduled row per matchup, in-game, p
   // Flagged rows (starters_without_interval > 0) are reported on their own too.
   assert.equal(flagged.count, 1);
   close(flagged.v2.brier, 0.04, 1e-12, 'flagged v2 brier');
+});
+
+test('the kickoff row is the LAST scheduled row per matchup, the freshest forecast before its first game', () => {
+  // The recorder writes only during live score passes, so a Sunday matchup's
+  // first scheduled row is captured during Thursday night's game, days before
+  // lineups settle. Matchup 31 won at home (o = 1).
+  //   Thursday 23:00 row: 100 vs 105, v2 p 0.3.
+  //   Sunday 16:45 row:   110 vs 100, v2 p 0.7.
+  // Grading Sunday: v2 Brier (1 - 0.7)^2 = 0.09, v1 (1 - 0.6026853380)^2 =
+  // 0.1578589407. Grading Thursday would give v2 (1 - 0.3)^2 = 0.49.
+  const results = new Map([[31, { homeScore: 118, awayScore: 104 }]]);
+  const rows = [
+    shadowRow({ matchup_id: 31, status: 'scheduled', captured_at: '2026-10-04T16:45:00Z', home_expected_final: '110.00', away_expected_final: '100.00', mu: '10.000', sigma: '30.000', home_probability: 0.7 }),
+    shadowRow({ matchup_id: 31, status: 'scheduled', captured_at: '2026-10-01T23:00:00Z', home_expected_final: '100.00', away_expected_final: '105.00', mu: '-5.000', sigma: '30.000', home_probability: 0.3 }),
+  ];
+
+  const { kickoff, inGame, played } = evaluateShadowRows({ rows, results }).checkpoints;
+
+  assert.equal(kickoff.count, 1);
+  close(kickoff.v2.brier, 0.09, 1e-12, 'kickoff v2 brier');
+  close(kickoff.v1.brier, 0.1578589406572654, 1e-12, 'kickoff v1 brier');
+  // The Thursday row is in no checkpoint group.
+  assert.equal(inGame.count, 0);
+  assert.equal(played.count, 0);
 });
 
 test('played rows report how many are exactly 0 or 1, for v1 and v2', () => {
