@@ -16,6 +16,7 @@ import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import JoinLeagueDialog from './JoinLeagueDialog';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 import {
@@ -55,11 +56,9 @@ function UserPage() {
   // Each dialog owns its failure message: it renders inside the dialog, which
   // stays open with the answers, and is the only place the error is announced.
   const [createError, setCreateError] = useState(null);
-  const [joinError, setJoinError] = useState(null);
   // In-flight flags: POST /api/league is not idempotent, so a second click
   // while the first request is pending would create a second league.
   const [creating, setCreating] = useState(false);
-  const [joining, setJoining] = useState(false);
   const notify = useSnackbar();
 
   // Create League dialog
@@ -86,10 +85,9 @@ function UserPage() {
   const [draftTimezone, setDraftTimezone] = useState(browserTimeZone);
   const [draftAcknowledged, setDraftAcknowledged] = useState(false);
 
-  // Join League dialog — leagues are private, so joining is always by invite code
+  // Join League dialog — leagues are private, so joining is always by invite
+  // code. The dialog owns its answers, preview and in-flight state.
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
-  const [inviteCode, setInviteCode] = useState('');
-  const [joinTeamName, setJoinTeamName] = useState('');
 
   // Below-the-fold dashboard widgets — each fetches independently so a slow
   // or failed one never blocks the leagues list (or each other).
@@ -188,9 +186,6 @@ function UserPage() {
   if (!leagueName.trim() || !teamNameValid) createBlocker = 'Add a league name and your Team name to continue.';
   else if (!teamCountValid) createBlocker = `Enter ${MIN_TEAMS} to ${capForType(leagueType)} teams to continue.`;
   else if (!draftScheduleReady) createBlocker = 'Confirm the draft date and time zone to continue.';
-  const joinBlocker = !inviteCode.trim() || !joinTeamName.trim()
-    ? 'Add the invite code and your Team name to continue.'
-    : null;
 
   const handleCreateLeague = async () => {
     if (creating) return;
@@ -240,25 +235,6 @@ function UserPage() {
 
   const handleCloseJoinDialog = () => {
     setOpenJoinDialog(false);
-    setJoinError(null);
-  };
-
-  const handleJoinLeague = async () => {
-    if (joining) return;
-    setJoinError(null);
-    setJoining(true);
-    try {
-      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
-      notify('Joined league!');
-      setInviteCode('');
-      setJoinTeamName('');
-      handleCloseJoinDialog();
-      fetchMyLeagues();
-    } catch (err) {
-      setJoinError(readHttpFailure(err).message || err.message);
-    } finally {
-      setJoining(false);
-    }
   };
 
   return (
@@ -615,46 +591,7 @@ function UserPage() {
             </Button>
             </DialogActions>
             </Dialog>
-        <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
-          <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
-          <DialogContent>
-            {joinError && <Alert severity="error" sx={{ mb: 1 }}>{joinError}</Alert>}
-            <TextField
-              className="dialogTextField"
-              autoFocus
-              margin="dense"
-              label="Invite Code"
-              required
-              fullWidth
-              value={inviteCode}
-              onChange={(event) => setInviteCode(event.target.value)}
-            />
-            <TextField
-              className="dialogTextField"
-              margin="dense"
-              label="Team Name"
-              fullWidth
-              required
-              inputProps={{ maxLength: 120 }}
-              helperText="Your Team's identity in this league. Other managers never see your account email or username."
-              value={joinTeamName}
-              onChange={(event) => setJoinTeamName(event.target.value)}
-            />
-          </DialogContent>
-                  <DialogActions>
-                    {joinBlocker && (
-                      <Typography id="join-league-blocker" variant="body2" color="text.secondary" sx={{ mr: 'auto', pl: 1 }}>
-                        {joinBlocker}
-                      </Typography>
-                    )}
-                    <Button onClick={handleCloseJoinDialog} color="primary">
-                      Cancel
-                    </Button>
-                    <Button onClick={handleJoinLeague} color="primary" aria-describedby={joinBlocker ? 'join-league-blocker' : undefined} disabled={joining || Boolean(joinBlocker)}>
-                      {joining ? 'Joining…' : 'Join'}
-                    </Button>
-                  </DialogActions>
-                </Dialog>
+        <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
       </Container>
     </Box>
   );

@@ -312,56 +312,6 @@ test('creating a league surfaces the server error on failure', async () => {
   expect(await screen.findByText('name already taken')).toBeInTheDocument();
 });
 
-test('joining a league posts the trimmed invite code, shows a notice, and refetches leagues', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockResolvedValue({});
-
-  renderPage();
-  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
-
-  await userEvent.click(heroButton('Join League'));
-  expect(getCallsTo('/api/league')).toBe(1); // opening the dialog fetches nothing — no browse list
-  await userEvent.type(screen.getByLabelText(/Invite Code/), '  abc123  ');
-  await userEvent.type(screen.getByLabelText(/Team Name/), 'Joiner FC');
-  await userEvent.click(screen.getByRole('button', { name: 'Join' }));
-
-  await waitFor(() =>
-    expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'abc123', teamName: 'Joiner FC' })
-  );
-  expect(await screen.findByText('Joined league!')).toBeInTheDocument();
-  await waitFor(() => expect(getCallsTo('/api/league')).toBe(2));
-});
-
-test('the Join button is disabled until both an invite code and a Team name are entered', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  renderWithProviders(<UserPage />, { state: baseState });
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
-
-  await userEvent.click(heroButton('Join League'));
-  expect(screen.getByRole('button', { name: 'Join' })).toBeDisabled();
-
-  await userEvent.type(screen.getByLabelText(/Invite Code/), 'x');
-  expect(screen.getByRole('button', { name: 'Join' })).toBeDisabled();
-
-  await userEvent.type(screen.getByLabelText(/Team Name/), 'y');
-  expect(screen.getByRole('button', { name: 'Join' })).toBeEnabled();
-});
-
-test('joining a league surfaces the server error on failure', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockRejectedValue({ response: { data: { error: 'no league with that invite code' } } });
-
-  renderWithProviders(<UserPage />, { state: baseState });
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
-
-  await userEvent.click(heroButton('Join League'));
-  await userEvent.type(screen.getByLabelText(/Invite Code/), 'bogus');
-  await userEvent.type(screen.getByLabelText(/Team Name/), 'Joiner FC');
-  await userEvent.click(screen.getByRole('button', { name: 'Join' }));
-
-  expect(await screen.findByText('no league with that invite code')).toBeInTheDocument();
-});
-
 test('Cancel closes the Create League dialog without making a write request', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
@@ -556,23 +506,6 @@ test('a failed create keeps the dialog open with the answers and shows the error
   expect(within(dialog).getByLabelText(/League Name/)).toHaveValue('Dup League');
 });
 
-test('a failed join keeps the dialog open with the answers and shows the error once, inside it', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockRejectedValue({ response: { data: { error: 'no league with that invite code' } } });
-  renderPage();
-  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
-
-  await userEvent.click(heroButton('Join League'));
-  await userEvent.type(screen.getByLabelText(/Invite Code/), 'bogus');
-  await userEvent.type(screen.getByLabelText(/Team Name/), 'Joiner FC');
-  await userEvent.click(screen.getByRole('button', { name: 'Join' }));
-
-  const dialog = await screen.findByRole('dialog');
-  expect(await within(dialog).findByText('no league with that invite code')).toBeInTheDocument();
-  expect(alertsWithText('no league with that invite code')).toHaveLength(1);
-  expect(within(dialog).getByLabelText(/Invite Code/)).toHaveValue('bogus');
-});
-
 test('a successful create is announced once', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   apiClient.post.mockResolvedValue({ data: { id: 2 } });
@@ -616,27 +549,6 @@ test('Create cannot be sent twice while the first request is in flight', async (
 
   pending.resolve({ data: { id: 2 } });
   expect(await screen.findByText('League created!')).toBeInTheDocument();
-});
-
-test('Join cannot be sent twice while the first request is in flight', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  const pending = deferred();
-  apiClient.post.mockReturnValue(pending.promise);
-  renderPage();
-  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
-
-  await userEvent.click(heroButton('Join League'));
-  await userEvent.type(screen.getByLabelText(/Invite Code/), 'abc123');
-  await userEvent.type(screen.getByLabelText(/Team Name/), 'Joiner FC');
-  await userEvent.click(screen.getByRole('button', { name: 'Join' }));
-
-  const busy = screen.getByRole('button', { name: 'Joining…' });
-  expect(busy).toBeDisabled();
-  fireEvent.click(busy); // a forced second submit (e.g. key repeat) still must not post
-  expect(apiClient.post).toHaveBeenCalledTimes(1);
-
-  pending.resolve({});
-  expect(await screen.findByText('Joined league!')).toBeInTheDocument();
 });
 
 // --- Heading outline (ADR 0021: levels are explicit) ---
@@ -698,16 +610,6 @@ test('a disabled Create names the draft time-zone confirmation when that is all 
   fireEvent.change(screen.getByLabelText('Draft date'), { target: { value: '2026-12-04T13:00' } });
 
   expect(screen.getByRole('button', { name: 'Create' })).toHaveAccessibleDescription('Confirm the draft date and time zone to continue.');
-});
-
-test('a disabled Join says what is missing', async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  renderPage();
-  await waitFor(() => expect(getCallsTo('/api/league')).toBe(1));
-
-  await userEvent.click(heroButton('Join League'));
-  expect(screen.getByLabelText(/Invite Code/)).toBeRequired();
-  expect(screen.getByRole('button', { name: 'Join' })).toHaveAccessibleDescription('Add the invite code and your Team name to continue.');
 });
 
 // --- Scoring: one Half PPR option, and it is stored ---
