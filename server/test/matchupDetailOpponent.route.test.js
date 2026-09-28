@@ -72,8 +72,11 @@ async function getHomeStarter(t, { starterRow, scheduleRows }) {
   // The route reads the weekly (league-aware) run through expectedFinal.service
   // (every row, starter and bench, since #883); it does not matter to the
   // opponent question.
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ modelVersion: 'test', projections: new Map() }));
-  t.mock.method(projectionService, 'toLegacyProjectionMap', (run) => run.projections);
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
+    modelVersion: 'test',
+    projections: new Map(),
+    pointsFor: () => null,
+  }));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   createFakePool([

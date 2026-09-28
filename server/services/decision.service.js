@@ -8,9 +8,9 @@ const lineupService = require('./lineup.service');
 const { requireMember } = require('./leagueMembership.service');
 const {
   getWeekProjections,
-  toLegacyProjectionMap,
   getTradeProjectionMetrics,
 } = require('./projection.service');
+const { poolPointsFor } = require('./poolProjection');
 const {
   optimalLineup,
   parseLineupSettings,
@@ -59,28 +59,9 @@ function finiteNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** Accepts either a raw number or a { points, source } projection entry. */
-function pointsOf(projections, playerId) {
-  const value = projections.get(playerId);
-  if (value == null) return 0;
-  const raw = typeof value === 'object' ? value.points : value;
-  return Number(raw) || 0;
-}
-
 // ---------------------------------------------------------------------------
 // 1. Start/sit advice
 // ---------------------------------------------------------------------------
-
-/** Accepts a raw number or a { points, ... } projection entry; missing/null -> null. */
-function detailOf(projections, playerId) {
-  const value = projections.get(playerId);
-  if (value == null) return { points: null };
-  if (typeof value !== 'object') {
-    return { points: Number.isFinite(Number(value)) ? Number(value) : null };
-  }
-  const points = Number.isFinite(Number(value.points)) ? Number(value.points) : null;
-  return { ...value, points };
-}
 
 /**
  * Pure: the exact best legal lineup, plus the subset of changes expressible as
@@ -107,7 +88,11 @@ function detailOf(projections, playerId) {
  *
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
- * projections: Map playerId -> points (number or { points, ... }).
+ * projections: the Weekly projection result object (`getWeeklyProjections`'s
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor` accessors and its
+ * own `projections` map (the raw run entries, for the full distribution and
+ * for telling a present-but-no-estimate entry from an absent one) are the
+ * only things read here.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
@@ -154,7 +139,13 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   // full projection, the lineup total overstates itself, and no replacement is
   // ever recommended because the bye player "outprojects" the healthy bench.
   const effectiveProjection = (playerId) => {
-    const detail = detailOf(projections, playerId);
+    // confidence/factors are read the same way whether or not the player can
+    // play - only `points`/`projection` (the distribution) are overridden
+    // below for an unavailable player, exactly as the legacy map's spread
+    // (`{ ...detail, points: 0, projection: null, ... }`) always kept them.
+    const detail = projections.detailFor(playerId);
+    const confidence = (detail && detail.confidence) || null;
+    const factors = projections.factorsFor(playerId);
     const availability = availabilityById.get(playerId);
     if (availability && !availability.available) {
       // The DISTRIBUTION goes too, not just the mean. A player who cannot play
@@ -163,14 +154,31 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       // it also correctly makes probabilityBetter null: there are no odds to
       // quote against someone who is not on the field.
       return {
-        ...detail,
         points: 0,
         projection: null,
+        confidence,
+        factors,
         unavailable: true,
         unavailableReason: availability.reason,
       };
     }
-    return detail;
+    // A player PRESENT in the run with no usable Point estimate is worth 0
+    // (the legacy map's own contract every reader here has always kept -
+    // `Number.isFinite(Number(null))` is true, so a present-but-null `points`
+    // always read as 0); a player genuinely ABSENT from the run is null,
+    // exactly what `pointsFor` itself already reports for that case.
+    const hasEntry = projections.projections.has(playerId);
+    const rawPoints = projections.pointsFor(playerId);
+    const points = hasEntry ? (rawPoints == null ? 0 : rawPoints) : null;
+    return {
+      points,
+      // The full raw entry, for `probabilityBetter` and the `distribution`
+      // field on the wire - the exact object `toLegacyMap()`'s `.projection`
+      // key has always carried, never a second producer.
+      projection: projections.projections.get(playerId) || null,
+      confidence,
+      factors,
+    };
   };
   const effectivePoints = (playerId) => {
     const points = effectiveProjection(playerId).points;
@@ -355,8 +363,6 @@ async function startSitAdvice({ leagueId, userId, week }) {
     projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
   ]);
-  const projections = toLegacyProjectionMap(run);
-
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
   // folds into (#1136), so this pairing is folded-on-folded with no local
@@ -374,10 +380,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
     // shrunk-and-possibly-seeded value that actually moved the projection.
     // Read straight off the projection the client will show, so a lineup that
     // only ever displays one number cannot silently disagree with itself.
-    const detail = detailOf(projections, entry.id);
-    const opponentApplied = Boolean(
-      detail.factors && detail.factors.opponent && detail.factors.opponent.available
-    );
+    const opponentApplied = run.opponentAppliedFor(entry.id);
     defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed, opponentApplied });
   }
 
@@ -398,23 +401,33 @@ async function startSitAdvice({ leagueId, userId, week }) {
   const runConstants = projectionModel.constantsForVersion(run.modelVersion) || projectionModel.MODEL_CONSTANTS;
   const plan = buildSuggestions(
     lineupEntries,
-    projections,
+    run,
     defenseByPlayer,
     lineup.rosterSlots,
     { lineupRanking: (runConstants.decision || {}).lineupRanking }
   );
 
   const players = lineupEntries.map((entry) => {
-    const detail = detailOf(projections, entry.playerId);
+    // Read straight off the result object (#1703): `pointsFor`/`factorsFor`
+    // for the two accessor-backed fields, `detailFor` for confidence/active
+    // probability, and the run's own `projections` map for the full
+    // distribution the client charts - the exact raw entry `toLegacyMap()`'s
+    // `.projection` field has always carried, never a second producer.
+    // A player PRESENT in the run with no usable Point estimate reads 0
+    // (the legacy map's own "missing -> 0" contract); a player genuinely
+    // ABSENT from the run reads null, same as `pointsFor` itself.
+    const hasEntry = run.projections.has(entry.playerId);
+    const rawPoints = run.pointsFor(entry.playerId);
+    const detail = run.detailFor(entry.playerId);
     return {
       playerId: entry.playerId,
       name: entry.name,
       slot: entry.slot,
-      projection: detail.points,
-      distribution: detail.projection || null,
-      confidence: detail.confidence || null,
-      activeProbability: detail.activeProbability ?? null,
-      factors: detail.factors || null,
+      projection: hasEntry ? (rawPoints == null ? 0 : rawPoints) : null,
+      distribution: run.projections.get(entry.playerId) || null,
+      confidence: (detail && detail.confidence) || null,
+      activeProbability: (detail && detail.activeProbability) ?? null,
+      factors: run.factorsFor(entry.playerId),
       ...defenseByPlayer.get(entry.playerId),
     };
   });
@@ -1042,7 +1055,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
   const currentStarters = starterRows.map((r) => ({
     playerId: r.player_id,
     slot: r.slot,
-    projection: pointsOf(projections, r.player_id),
+    projection: poolPointsFor(projections, r.player_id) || 0,
   }));
 
   const availableResult = await pool.query(
@@ -1059,7 +1072,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
     name: p.name,
     position: p.position,
     nflTeam: p.nfl_team,
-    projection: pointsOf(projections, p.id),
+    projection: poolPointsFor(projections, p.id) || 0,
   }));
 
   const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.rosterSlots);

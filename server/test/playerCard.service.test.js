@@ -56,6 +56,7 @@ function buildHandlers({
   rosterCount = 0,
   identityIds = [player.id], // every players row loadIdentityIds resolves for this player
   ownRosterRows = [], // rows for the caller's OWN team_players (own-roster Upgrade check)
+  starterRows = [], // loadUpgradeContext's own current-starter rows ({ player_id, slot, name })
 } = {}) {
   return [
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [league] })],
@@ -64,7 +65,7 @@ function buildHandlers({
     [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
     // #1667: the player's own game this week (line/weather); no game by default.
     [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: starterRows })],
     [/^WITH "target" AS \(/, () => ({ rows: identityIds.map((id) => ({ id })) })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: ownRosterRows })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],
@@ -81,6 +82,33 @@ function buildHandlers({
   ];
 }
 
+/**
+ * A raw Weekly-projection run entry for `id` (#1703: `getWeeklyProjections`
+ * itself now returns the result object, so every mock below has to build the
+ * same shape the real engine does - mean/median/factors - rather than the
+ * old legacy-map `{ points, ... }` shape). `weekPoints` overrides `id` with a
+ * fixed point value (mean and median both set to it, so either ranking
+ * statistic reads it the same) and/or `factors`, from a bare number (every
+ * pre-existing test) or a full `{ points, factors }` entry (the
+ * opponentRankVsPosition cases) - the same two shapes callers used to hand
+ * `toLegacyProjectionMap`. Anything `weekPoints` does not cover falls back to
+ * `weeklyProjection(week, id)`.
+ */
+function rawEntryFor(weekPoints, weeklyProjection, week, id) {
+  if (!weekPoints.has(id)) return weeklyProjection(week, id);
+  const value = weekPoints.get(id);
+  if (value == null) return { mean: null, median: null, factors: {} };
+  if (typeof value !== 'object') {
+    return { mean: Number(value), median: Number(value), factors: {} };
+  }
+  const points = value.points;
+  return {
+    mean: points == null ? null : Number(points),
+    median: points == null ? null : Number(points),
+    factors: value.factors || {},
+  };
+}
+
 /** Mocks every cross-module seam `getPlayerCard` reads through, so a test can
  * fix each one's answer instead of exercising the real projection engine,
  * lineup materialization, or bye/usage lookups. Returns the spy call logs the
@@ -93,25 +121,24 @@ function mockServices(t, {
   rosterCapacity = 16,
   realUsage = false, // leave loadUsage to the fake pool (the IDP side case)
 } = {}) {
+  // `getWeekProjections` (the Pool-wide bridge) is not a reader this ticket
+  // touches (#1703's Pool-projection carve-out) and playerCard.service.js no
+  // longer calls it at all; mocked only so a stray call surfaces loudly
+  // rather than hitting the real pool.
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
   const weekProjectionCalls = [];
-  t.mock.method(projectionService, 'getWeekProjections', async (options) => {
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
     weekProjectionCalls.push(options);
-    const map = new Map();
-    for (const id of options.playerIds) {
-      const value = weekPoints.get(id) ?? 0;
-      // #1342: a fixture may hand a bare number (every pre-existing test) or a
-      // full `{ points, factors }` entry (the opponentRankVsPosition cases),
-      // the same two shapes `toLegacyProjectionMap` actually produces.
-      map.set(id, typeof value === 'object' ? value : { points: value });
-    }
-    return map;
-  });
-  t.mock.method(projectionService, 'getWeeklyProjections', async ({ week, playerIds }) => {
-    const projections = new Map(playerIds.map((id) => [id, weeklyProjection(week, id)]));
-    return { projections };
+    const projections = new Map(
+      options.playerIds.map((id) => [id, rawEntryFor(weekPoints, weeklyProjection, options.week, id)])
+    );
+    return projectionService.toWeeklyProjectionResult({ projections });
   });
   t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks, playerIds }) => new Map(
-    weeks.map((week) => [week, { week, projections: new Map(playerIds.map((id) => [id, weeklyProjection(week, id)])) }]),
+    weeks.map((week) => [week, projectionService.toWeeklyProjectionResult({
+      week,
+      projections: new Map(playerIds.map((id) => [id, rawEntryFor(weekPoints, weeklyProjection, week, id)])),
+    })]),
   ));
   t.mock.method(projectionService, 'getRestOfSeason', async (playerIds) => {
     return new Map(playerIds.map((id) => [id, restOfSeason]));
@@ -201,22 +228,30 @@ test('getPlayerCard: seasonEnd equals the league\'s last playoff week', async (t
   assert.equal(card.decision.ros.throughWeek, card.seasonEnd);
 });
 
-test('getPlayerCard: projWeek.points is the one getWeekProjections call for the current week, under the league\'s own scoring', async (t) => {
-  createFakePool(buildHandlers()).install(t);
+test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the current week, under the league\'s own scoring', async (t) => {
+  // A current starter (999) alongside the card's own player (55) makes
+  // `loadUpgradeContext`'s ONE combined-ids call (Ruling item 2) distinguishable
+  // from `buildWeeklyBars`'s own per-week calls, which only ever ask for the
+  // card player alone (#1703 formal review f3).
+  createFakePool(buildHandlers({
+    starterRows: [{ player_id: 999, slot: 'RB', name: 'Other Starter' }],
+  })).install(t);
   const { weekProjectionCalls } = mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  assert.equal(weekProjectionCalls.length, 1);
-  assert.equal(weekProjectionCalls[0].season, LEAGUE.current_season);
-  assert.equal(weekProjectionCalls[0].week, LEAGUE.current_week);
+  const combinedIdsCalls = weekProjectionCalls.filter(
+    (call) => call.playerIds.includes(999) && call.playerIds.includes(PLAYER.id)
+  );
+  assert.equal(combinedIdsCalls.length, 1, 'loadUpgradeContext makes exactly ONE combined-ids call');
+  assert.equal(combinedIdsCalls[0].season, LEAGUE.current_season);
+  assert.equal(combinedIdsCalls[0].week, LEAGUE.current_week);
   // formal review f2: the ticket exists because waiverSuggestions calls
   // getWeekProjections with no `league` (routes to default-scoring pool
   // extrapolation) - assert the actual call carries the league object and
   // the player, not just that A call happened, so dropping `league` here
   // goes red.
-  assert.equal(weekProjectionCalls[0].league, LEAGUE);
-  assert.ok(weekProjectionCalls[0].playerIds.includes(PLAYER.id));
+  assert.equal(combinedIdsCalls[0].league, LEAGUE);
   assert.equal(card.decision.projWeek.week, LEAGUE.current_week);
   assert.equal(card.decision.projWeek.points, 14.5);
 });

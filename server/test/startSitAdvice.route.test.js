@@ -118,7 +118,10 @@ function mockAdviceDependencies(t, {
   }));
   t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
     projectionCalls.push(options);
-    return {
+    // The result object (#1703), not a bare run: `startSitAdvice` reads it
+    // through its accessors (`toLegacyMap`, `pointsFor`, `factorsFor`,
+    // `opponentAppliedFor`, `detailFor`) rather than the raw fields directly.
+    return projectionService.toWeeklyProjectionResult({
       season: options.season,
       week: options.week,
       modelVersion: model.MODEL_VERSION,
@@ -131,7 +134,7 @@ function mockAdviceDependencies(t, {
         expertConsensus: { status: 'unavailable', source: null },
       },
       projections: new Map(projections),
-    };
+    });
   });
   const guardedDefense = guardAgainstDefenseIteration(positionDefense);
   t.mock.method(projectionService, 'getPositionDefense', async () => guardedDefense);

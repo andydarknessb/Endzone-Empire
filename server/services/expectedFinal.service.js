@@ -129,12 +129,16 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
   const nflTeams = [...new Set(candidateRows.rows.map((r) => r.nfl_team).filter(Boolean))];
 
   const [projections, byeByTeam, liveRows, scheduleRows] = await Promise.all([
+    // The Weekly projection result object (#1703): kept whole rather than
+    // converted to the legacy map, so the per-starter loop below reads its
+    // Point estimate through `pointsFor` instead of indexing `.points` off a
+    // legacy-map value.
     projectionService
       .getWeeklyProjections({ season, week, league, playerIds })
-      .then((run) => ({ ok: true, map: projectionService.toLegacyProjectionMap(run) }))
+      .then((run) => ({ ok: true, result: run }))
       .catch((err) => {
         console.error('expected final: weekly projections unavailable', err.message);
-        return { ok: false, map: new Map() };
+        return { ok: false, result: null };
       }),
     computeByeWeeks(nflTeams, season, { client: db }),
     db.query(
@@ -193,9 +197,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
     const noTeam = row.nfl_team == null;
     const availability = unavailableFor({ injuryStatus: row.injury_status, onBye, noTeam });
-    const raw = projections.map.get(row.player_id);
-    const projection = priced && availability.available && raw && Number.isFinite(Number(raw.points))
-      ? round2(Number(raw.points))
+    const point = priced && availability.available ? projections.result.pointsFor(row.player_id) : null;
+    const projection = point != null && Number.isFinite(Number(point))
+      ? round2(Number(point))
       : 0;
     // Points stay unrounded until the team total is rounded once, the way
     // the score pass sums a team, so an expected final and a score built
