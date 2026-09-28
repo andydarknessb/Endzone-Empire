@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildSuggestions } = require('../services/decision.service');
 const model = require('../services/projectionModel');
+const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
 
 // ---------------------------------------------------------------------------
 // The lineup decision rule (MODEL_CONSTANTS.decision.lineupRanking).
@@ -10,6 +11,9 @@ const model = require('../services/projectionModel');
 // first tests prove that shipped value is inert to the byte. 'mean' is the
 // measured alternative: over the frozen pit-sweep artifacts it cut lineup
 // regret by 1.90 points per roster-week, consistent in both seasons.
+//
+// #1703: buildSuggestions takes the real Weekly projection result object, so
+// `disagreeing()` wraps its legacy-shaped fixture with `resultFromLegacyMap`.
 // ---------------------------------------------------------------------------
 
 const entry = (playerId, position, slot, name = `p${playerId}`) => ({ playerId, name, position, slot });
@@ -27,7 +31,7 @@ const proj = (median, mean, extra = {}) => ({
 // genuinely disagree on this fixture or every assertion below is vacuous.
 const disagreeing = () => ({
   lineup: [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')],
-  projections: new Map([[1, proj(10, 10)], [2, proj(9.5, 14)]]),
+  projections: resultFromLegacyMap(new Map([[1, proj(10, 10)], [2, proj(9.5, 14)]])),
 });
 
 test('the shipped constant is median, and the default path is the median path exactly', () => {
@@ -67,7 +71,7 @@ test("'mean' ranks the boom player into the lineup the median would bench", () =
 
 test("'mean' surfaces a swap card when the median agrees, with the gain computed from medians", () => {
   const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
-  const projections = new Map([[1, proj(10, 10)], [2, proj(11, 15)]]);
+  const projections = resultFromLegacyMap(new Map([[1, proj(10, 10)], [2, proj(11, 15)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'mean' });
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.playerId, 2);
@@ -80,7 +84,7 @@ test("'mean' surfaces a swap card when the median agrees, with the gain computed
 test("'mean' falls back to the displayed points for a projection with no distribution", () => {
   const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
   // Player 2 has a bare legacy number - no distribution to take a mean from.
-  const projections = new Map([[1, proj(10, 10)], [2, { points: 12 }]]);
+  const projections = resultFromLegacyMap(new Map([[1, proj(10, 10)], [2, { points: 12 }]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'mean' });
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.playerId, 2, '12 must outrank 10 through the fallback');
@@ -92,7 +96,7 @@ test("'mean' gives an unavailable player rank 0, same as the display rule", () =
     { ...entry(2, 'RB', 'BENCH'), onBye: true },
   ];
   // The bye player's mean towers over the starter; he still must not start.
-  const projections = new Map([[1, proj(4, 4)], [2, proj(20, 25)]]);
+  const projections = resultFromLegacyMap(new Map([[1, proj(4, 4)], [2, proj(20, 25)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'mean' });
   assert.equal(result.suggestions.length, 0);
   assert.deepEqual(result.movePlan, []);

@@ -56,6 +56,7 @@ function buildHandlers({
   rosterCount = 0,
   identityIds = [player.id], // every players row loadIdentityIds resolves for this player
   ownRosterRows = [], // rows for the caller's OWN team_players (own-roster Upgrade check)
+  starterRows = [], // loadUpgradeContext's own current-starter rows ({ player_id, slot, name })
 } = {}) {
   return [
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [league] })],
@@ -64,7 +65,7 @@ function buildHandlers({
     [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
     // #1667: the player's own game this week (line/weather); no game by default.
     [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: starterRows })],
     [/^WITH "target" AS \(/, () => ({ rows: identityIds.map((id) => ({ id })) })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: ownRosterRows })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],
@@ -228,26 +229,29 @@ test('getPlayerCard: seasonEnd equals the league\'s last playoff week', async (t
 });
 
 test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the current week, under the league\'s own scoring', async (t) => {
-  createFakePool(buildHandlers()).install(t);
+  // A current starter (999) alongside the card's own player (55) makes
+  // `loadUpgradeContext`'s ONE combined-ids call (Ruling item 2) distinguishable
+  // from `buildWeeklyBars`'s own per-week calls, which only ever ask for the
+  // card player alone (#1703 formal review f3).
+  createFakePool(buildHandlers({
+    starterRows: [{ player_id: 999, slot: 'RB', name: 'Other Starter' }],
+  })).install(t);
   const { weekProjectionCalls } = mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  // `getWeeklyProjections` is called more than once here (loadUpgradeContext's
-  // current-week read AND buildWeeklyBars's own per-week loop, #1703), so this
-  // asserts the SHAPE every call carries rather than a single call count.
-  assert.ok(weekProjectionCalls.length >= 1);
-  for (const call of weekProjectionCalls) {
-    assert.equal(call.season, LEAGUE.current_season);
-    // formal review f2: the ticket exists because waiverSuggestions calls
-    // getWeekProjections with no `league` (routes to default-scoring pool
-    // extrapolation) - assert every actual call carries the league object,
-    // so dropping `league` anywhere here goes red.
-    assert.equal(call.league, LEAGUE);
-  }
-  assert.ok(weekProjectionCalls.some(
-    (call) => call.week === LEAGUE.current_week && call.playerIds.includes(PLAYER.id)
-  ));
+  const combinedIdsCalls = weekProjectionCalls.filter(
+    (call) => call.playerIds.includes(999) && call.playerIds.includes(PLAYER.id)
+  );
+  assert.equal(combinedIdsCalls.length, 1, 'loadUpgradeContext makes exactly ONE combined-ids call');
+  assert.equal(combinedIdsCalls[0].season, LEAGUE.current_season);
+  assert.equal(combinedIdsCalls[0].week, LEAGUE.current_week);
+  // formal review f2: the ticket exists because waiverSuggestions calls
+  // getWeekProjections with no `league` (routes to default-scoring pool
+  // extrapolation) - assert the actual call carries the league object and
+  // the player, not just that A call happened, so dropping `league` here
+  // goes red.
+  assert.equal(combinedIdsCalls[0].league, LEAGUE);
   assert.equal(card.decision.projWeek.week, LEAGUE.current_week);
   assert.equal(card.decision.projWeek.points, 14.5);
 });

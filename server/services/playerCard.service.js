@@ -124,8 +124,9 @@ async function loadIdentityIds(playerId) {
 /**
  * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
  * the caller's lineup exactly as `decision.service.waiverSuggestions` does,
- * then makes ONE `getWeekProjections` call covering both the caller's current
- * starters and every requested `playerIds`, so the Weekly projection behind
+ * then makes ONE `getWeeklyProjections` call covering both the caller's
+ * current starters and every requested `playerIds`, so the Weekly projection
+ * behind
  * `decision.projWeek.points` and the one behind `decision.upgrade` are the
  * same producer call (Ruling item 2). `upgrades` is `null` for a player on
  * the caller's own roster (checked over the FULL identity set `loadIdentityIds`

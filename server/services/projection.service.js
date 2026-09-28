@@ -1228,11 +1228,11 @@ function toLegacyProjectionMap(run) {
 /**
  * Pure: classifies one raw run entry for one week — unavailable plus a
  * reason code ('bye' | 'out' | 'ir' | 'no_team'), or the Point estimate
- * (`pointEstimateFor`) — exactly what the Decision card module's
- * `classifyWeekProjection` (`playerCard.service.js`) computes today. Kept as
- * its own function rather than imported from that module, so this file gains
- * no new dependency; #1703 (the migrate ticket) is what points
- * `classifyWeekProjection` at `classify` below instead of at its own copy.
+ * (`pointEstimateFor`) — exactly what the Decision card module's own copy
+ * (`playerCard.service.js`'s `classifyWeekProjection`) used to compute
+ * before the migrate ticket (#1703) pointed every caller at `classify`
+ * below instead and deleted it. Kept as its own function rather than
+ * imported from that module, so this file gains no new dependency.
  */
 function classifyProjectionEntry(projection) {
   const unavailable = !!(projection
@@ -1276,7 +1276,8 @@ function toWeeklyProjectionResult(run) {
     /**
      * The Point estimate (`pointEstimateFor`) for `playerId`; `null` when
      * there is none. Never coerces to 0 — a caller that wants that keeps its
-     * own `|| 0`, same as `pointsOf` does today.
+     * own `|| 0`, the same coercion `playerCard.service.js`'s deleted
+     * `pointsOf` used to apply.
      */
     pointsFor(playerId) {
       const entry = entryFor(playerId);
@@ -1284,7 +1285,7 @@ function toWeeklyProjectionResult(run) {
       return point == null ? null : Number(point);
     },
 
-    /** Unavailable plus reason code, or the Point estimate — `classifyWeekProjection` today. */
+    /** Unavailable plus reason code, or the Point estimate — what the deleted `classifyWeekProjection` used to compute. */
     classify(playerId) {
       return classifyProjectionEntry(entryFor(playerId));
     },

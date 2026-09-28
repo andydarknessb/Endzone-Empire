@@ -71,27 +71,6 @@ function pointsOf(projections, playerId) {
 // ---------------------------------------------------------------------------
 
 /**
- * `buildSuggestions`'s own generic entry reader: it takes a plain
- * `Map<playerId, points | { points, ... }>` (its documented contract, tested
- * directly with bare fixtures), never a Weekly projection result object, so
- * it is a different thing from the per-request helper the migrate ticket
- * (#1703) retired from this file - `startSitAdvice` below reads the real
- * Weekly projection through the result object's own accessors (`pointsFor`,
- * `factorsFor`, `opponentAppliedFor`, `detailFor`) and hands `buildSuggestions`
- * the legacy-shaped map (`run.toLegacyMap()`) it has always accepted. Accepts
- * a raw number or a { points, ... } entry; missing/null -> null.
- */
-function legacyEntryDetail(projections, playerId) {
-  const value = projections.get(playerId);
-  if (value == null) return { points: null };
-  if (typeof value !== 'object') {
-    return { points: Number.isFinite(Number(value)) ? Number(value) : null };
-  }
-  const points = Number.isFinite(Number(value.points)) ? Number(value.points) : null;
-  return { ...value, points };
-}
-
-/**
  * Pure: the exact best legal lineup, plus the subset of changes expressible as
  * the one-for-one swap the Apply button performs.
  *
@@ -116,7 +95,11 @@ function legacyEntryDetail(projections, playerId) {
  *
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
- * projections: Map playerId -> points (number or { points, ... }).
+ * projections: the Weekly projection result object (`getWeeklyProjections`'s
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor` accessors and its
+ * own `projections` map (the raw run entries, for the full distribution and
+ * for telling a present-but-no-estimate entry from an absent one) are the
+ * only things read here.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
@@ -163,7 +146,13 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   // full projection, the lineup total overstates itself, and no replacement is
   // ever recommended because the bye player "outprojects" the healthy bench.
   const effectiveProjection = (playerId) => {
-    const detail = legacyEntryDetail(projections, playerId);
+    // confidence/factors are read the same way whether or not the player can
+    // play - only `points`/`projection` (the distribution) are overridden
+    // below for an unavailable player, exactly as the legacy map's spread
+    // (`{ ...detail, points: 0, projection: null, ... }`) always kept them.
+    const detail = projections.detailFor(playerId);
+    const confidence = (detail && detail.confidence) || null;
+    const factors = projections.factorsFor(playerId);
     const availability = availabilityById.get(playerId);
     if (availability && !availability.available) {
       // The DISTRIBUTION goes too, not just the mean. A player who cannot play
@@ -172,14 +161,31 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       // it also correctly makes probabilityBetter null: there are no odds to
       // quote against someone who is not on the field.
       return {
-        ...detail,
         points: 0,
         projection: null,
+        confidence,
+        factors,
         unavailable: true,
         unavailableReason: availability.reason,
       };
     }
-    return detail;
+    // A player PRESENT in the run with no usable Point estimate is worth 0
+    // (the legacy map's own contract every reader here has always kept -
+    // `Number.isFinite(Number(null))` is true, so a present-but-null `points`
+    // always read as 0); a player genuinely ABSENT from the run is null,
+    // exactly what `pointsFor` itself already reports for that case.
+    const hasEntry = projections.projections.has(playerId);
+    const rawPoints = projections.pointsFor(playerId);
+    const points = hasEntry ? (rawPoints == null ? 0 : rawPoints) : null;
+    return {
+      points,
+      // The full raw entry, for `probabilityBetter` and the `distribution`
+      // field on the wire - the exact object `toLegacyMap()`'s `.projection`
+      // key has always carried, never a second producer.
+      projection: projections.projections.get(playerId) || null,
+      confidence,
+      factors,
+    };
   };
   const effectivePoints = (playerId) => {
     const points = effectiveProjection(playerId).points;
@@ -364,11 +370,6 @@ async function startSitAdvice({ leagueId, userId, week }) {
     projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
   ]);
-  // `buildSuggestions` below keeps its own documented contract (a plain
-  // legacy-shaped map); every OTHER read in this function goes through the
-  // result object's accessors directly (#1703).
-  const projections = run.toLegacyMap();
-
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
   // folds into (#1136), so this pairing is folded-on-folded with no local
@@ -407,7 +408,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
   const runConstants = projectionModel.constantsForVersion(run.modelVersion) || projectionModel.MODEL_CONSTANTS;
   const plan = buildSuggestions(
     lineupEntries,
-    projections,
+    run,
     defenseByPlayer,
     lineup.rosterSlots,
     { lineupRanking: (runConstants.decision || {}).lineupRanking }
@@ -419,12 +420,17 @@ async function startSitAdvice({ leagueId, userId, week }) {
     // probability, and the run's own `projections` map for the full
     // distribution the client charts - the exact raw entry `toLegacyMap()`'s
     // `.projection` field has always carried, never a second producer.
+    // A player PRESENT in the run with no usable Point estimate reads 0
+    // (the legacy map's own "missing -> 0" contract); a player genuinely
+    // ABSENT from the run reads null, same as `pointsFor` itself.
+    const hasEntry = run.projections.has(entry.playerId);
+    const rawPoints = run.pointsFor(entry.playerId);
     const detail = run.detailFor(entry.playerId);
     return {
       playerId: entry.playerId,
       name: entry.name,
       slot: entry.slot,
-      projection: run.pointsFor(entry.playerId),
+      projection: hasEntry ? (rawPoints == null ? 0 : rawPoints) : null,
       distribution: run.projections.get(entry.playerId) || null,
       confidence: (detail && detail.confidence) || null,
       activeProbability: (detail && detail.activeProbability) ?? null,
