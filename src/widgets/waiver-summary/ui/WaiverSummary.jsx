@@ -1,7 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { timeUntil, useNow } from '../../../shared/lib/timeUntil';
-import { formatInstant } from '../../../shared/lib/instantFormat';
+import { formatInstant, timeUntil, useNow } from '../../../shared/lib';
 
 function Tile({ label, value, unit, note, flag, warn, testId }) {
   return (

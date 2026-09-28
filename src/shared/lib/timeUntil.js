@@ -68,8 +68,11 @@ export function timeUntil(at, now, { precision = 'minute' } = {}) {
     imminent = seconds === 0;
     floorTo = SECOND_MS;
   }
+  // The text holds while the remaining time is at least what it shows, and
+  // changes the moment it drops below; with nothing shown ("Under 1m", "0s")
+  // it changes when the instant arrives and reads as passed.
   const shown = Math.floor(remaining / floorTo) * floorTo;
-  return { text, passed: false, imminent, changesAt: atMs - shown + 1 };
+  return { text, passed: false, imminent, changesAt: shown === 0 ? atMs : atMs - shown + 1 };
 }
 
 // setTimeout fires almost at once past a 32-bit delay (~24.8 days), so a

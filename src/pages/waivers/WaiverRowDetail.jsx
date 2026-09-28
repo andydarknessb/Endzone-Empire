@@ -1,9 +1,8 @@
 import React, { useEffect } from 'react';
 import { Box, Button, Typography } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, formatPoints } from '../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, formatPoints, timeUntil } from '../../shared/lib';
 import { NewsList } from '../../entities/player';
 import { SwapPreview } from '../../features/claim-player';
-import { timeUntil } from '../../shared/lib/timeUntil';
 
 const LABEL_SX = { fontSize: 12, color: 'var(--dash-dim)', mb: 0.25 };
 

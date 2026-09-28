@@ -25,6 +25,7 @@ export {
 // all read these instead of a private copy.
 export { matchupWinProbability, homeWinProbability, remainingPoints, MARGIN_SCALE } from './winProbability';
 export { formatInstant, formatKickoff } from './instantFormat';
+export { timeUntil, useNow } from './timeUntil';
 export { finite, formatPoints } from './numeric';
 // Avatar-initials fallback (#1146, ADR 0031's component amendment), promoted
 // alongside TeamAvatar in `shared/ui` once both crossed the second-island-

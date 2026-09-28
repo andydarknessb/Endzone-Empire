@@ -1,6 +1,5 @@
 import { matchupStatusView } from '../../../entities/matchup';
-import { unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
-import { formatInstant } from '../../../shared/lib/instantFormat';
+import { formatInstant, unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
 
 /**
  * Pure presentation arithmetic for the retro-scoreboard widget (ADR 0031,

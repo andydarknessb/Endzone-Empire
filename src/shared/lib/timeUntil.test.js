@@ -63,8 +63,11 @@ describe('timeUntil changesAt: the first instant its text differs', () => {
     expect(after(2 * D + 3 * H + 20 * M).changesAt).toBe(NOW + 20 * M + 1);
   });
 
-  test('"Under 1m" changes when the instant passes', () => {
-    expect(after(20 * S).changesAt).toBe(NOW + 20 * S + 1);
+  test('"Under 1m" changes the moment the instant arrives, when it reads as passed', () => {
+    const r = after(20 * S);
+    expect(r.changesAt).toBe(NOW + 20 * S);
+    expect(timeUntil(NOW + 20 * S, r.changesAt - 1).text).toBe('Under 1m');
+    expect(timeUntil(NOW + 20 * S, r.changesAt).passed).toBe(true);
   });
 
   test('second precision changes on the second below', () => {

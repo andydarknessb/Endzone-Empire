@@ -1,4 +1,4 @@
-import { formatInstant } from '../../../shared/lib/instantFormat';
+import { formatInstant } from '../../../shared/lib';
 
 /**
  * The per-tile read of one `live_game_states` row (ticket #901): a pure

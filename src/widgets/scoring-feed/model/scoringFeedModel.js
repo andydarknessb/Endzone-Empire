@@ -28,7 +28,7 @@
  *     without it every dot is neutral.
  */
 import { formatSignedPoints } from '../../../entities/matchup';
-import { formatInstant } from '../../../shared/lib/instantFormat';
+import { formatInstant } from '../../../shared/lib';
 
 /** The idle line both surfaces render before the first play of the week lands. */
 export const IDLE_LINE = 'Live scoring plays will appear here once games kick off.';
