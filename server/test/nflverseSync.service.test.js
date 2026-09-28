@@ -15,6 +15,8 @@ const {
   etKickoffToUtc,
   buildScheduleRows,
   syncScheduleFromNflverse,
+  venueWithoutRoof,
+  ROOF_UNDECIDED_VENUES,
   normalizeNflversePlayerStats,
   buildFullStatUpdates,
   buildDstStatUpdates,
@@ -1228,6 +1230,75 @@ test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill 
   assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
   assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first upsert');
   assert.ok(commitIdx > firstWriteIdx, 'the writes commit inside the same transaction');
+  fake.assertClean();
+});
+
+// --- game-context invariant and COALESCE (#1725) -----------------------------
+
+const gameRow = (over = {}) => ({
+  season: '2026', game_type: 'REG', week: '6', gameday: '2026-10-18', gametime: '13:00',
+  home_team: 'CHI', away_team: 'GB', location: 'Home', stadium: 'Soldier Field',
+  roof: 'outdoors', surface: 'grass', home_rest: '7', away_rest: '7', ...over,
+});
+
+test('invariant: a schedule row with a venue must carry a roof (a NULL roof reads a dome as outdoors)', () => {
+  const rows = buildScheduleRows([
+    gameRow(),
+    gameRow({ week: '7', stadium: 'Ford Field', home_team: 'DET', roof: 'dome' }),
+    gameRow({ week: '8', stadium: 'Soldier Field', roof: '' }),
+    gameRow({ week: '9', stadium: 'Ford Field', home_team: 'DET', roof: 'NA' }),
+  ], { season: 2026 });
+  const bad = venueWithoutRoof(rows);
+  assert.deepEqual([...new Set(bad.map((r) => `${r.week}:${r.venue}`))], ['8:Soldier Field', '9:Ford Field']);
+  assert.deepEqual(venueWithoutRoof(rows.filter((r) => r.week <= 7)), []);
+});
+
+test('invariant: a venue with no coordinates (or no venue at all) is not held to the roof rule', () => {
+  const rows = buildScheduleRows([
+    gameRow({ stadium: 'Bernabeu', roof: '', location: 'Neutral' }),
+    gameRow({ week: '7', stadium: '', roof: '' }),
+  ], { season: 2026 });
+  assert.deepEqual(venueWithoutRoof(rows), []);
+});
+
+test('invariant: retractable-roof venues may carry no roof until nflverse decides it, and only those', () => {
+  // games.csv (2026 REG, read 2026-09-28) leaves `roof` blank for 34 future games
+  // at exactly these five stadiums, and for the Madrid game; every other game had one.
+  // (NRG Stadium is Reliant Stadium's current name, kept in case nflverse catches up.)
+  assert.deepEqual([...ROOF_UNDECIDED_VENUES].sort(), [
+    'AT&T Stadium', 'Lucas Oil Stadium', 'Mercedes-Benz Stadium', 'NRG Stadium', 'Reliant Stadium', 'State Farm Stadium',
+  ]);
+  const rows = buildScheduleRows(
+    ROOF_UNDECIDED_VENUES.map((stadium, i) => gameRow({ week: String(4 + i), stadium, roof: '' })),
+    { season: 2026 }
+  );
+  assert.equal(rows.length, ROOF_UNDECIDED_VENUES.length * 2);
+  assert.deepEqual(venueWithoutRoof(rows), []);
+});
+
+test('the fill leaves an existing venue and roof alone when games.csv has none (COALESCE, null not blank)', async (t) => {
+  const csv = [
+    'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,roof,surface,stadium',
+    '2026_06_GB_CHI,2026,REG,6,2026-10-18,Sunday,13:00,GB,,CHI,,NA,,',
+  ].join('\n');
+  t.mock.method(axios, 'get', async () => ({ data: csv }));
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), () => ({ rows: [{ inserted: false }] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  await syncScheduleFromNflverse({ season: 2026 });
+
+  const writes = fake.matching(insert('nfl_games'));
+  assert.equal(writes.length, 2);
+  for (const w of writes) {
+    // A missing value is sent as NULL (never '' or 'NA'), and the conflict branch keeps what is stored.
+    assert.equal(w.params[8], null, 'venue param');
+    assert.equal(w.params[9], null, 'roof param');
+    assert.match(w.text, /"venue" = COALESCE\(EXCLUDED\."venue", "nfl_games"\."venue"\)/);
+    assert.match(w.text, /"roof" = COALESCE\(EXCLUDED\."roof", "nfl_games"\."roof"\)/);
+  }
   fake.assertClean();
 });
 

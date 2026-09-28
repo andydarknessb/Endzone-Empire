@@ -8,6 +8,7 @@ const { normalizeNflTeam } = require('./nflTeam');
 const { NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { runSyncJob } = require('../modules/syncRun');
 const { upsertPlayerStats } = require('./playerStatsWrite.service');
+const venueCoordinates = require('./venueCoordinates');
 
 /**
  * Two nflverse-backed jobs share this service:
@@ -685,6 +686,37 @@ function buildScheduleRows(rows, { season }) {
 }
 
 /**
+ * Retractable-roof venues whose games.csv `roof` stays blank until the week of
+ * the game (2026 REG, read 2026-09-28: 34 future games at exactly these
+ * stadiums are blank, every other US game already carries a value; nflverse
+ * later writes 'open'/'closed'). A NULL roof there reads as outdoors, so the
+ * weather job looks the game up, which is harmless and self-corrects once the
+ * value lands (the fill COALESCEs, so NULL -> value is the one change it makes).
+ * NRG Stadium is Reliant Stadium's current name, listed in case nflverse
+ * catches up.
+ */
+const ROOF_UNDECIDED_VENUES = Object.freeze([
+  'AT&T Stadium', 'Lucas Oil Stadium', 'Mercedes-Benz Stadium',
+  'NRG Stadium', 'Reliant Stadium', 'State Farm Stadium',
+]);
+
+/**
+ * Pure invariant (#1725): schedule rows that name a venue but carry no roof.
+ * `isIndoorGame` reads a NULL roof as outdoors, so a dome with no roof gets
+ * weather it can never have. Exempt: a venue nflverse leaves undecided until
+ * game week (ROOF_UNDECIDED_VENUES) and a deliberately unmapped non-US venue
+ * (no weather job runs there, so its roof is moot). Anything else is a defect.
+ */
+function venueWithoutRoof(scheduleRows) {
+  return (scheduleRows || []).filter((row) => {
+    if (!row.venue || row.roof) return false;
+    if (ROOF_UNDECIDED_VENUES.includes(row.venue)) return false;
+    if (venueCoordinates.isKnownVenue(row.venue) && !venueCoordinates.coordinatesForVenue(row.venue)) return false;
+    return true;
+  });
+}
+
+/**
  * Backfill one season's schedule into nfl_games from games.csv — free (no
  * Tank01 quota) and complete even for weeks whose kickoff times are still
  * placeholders (week 18 is listed at Sunday 1pm ET until flexed; Tank01's
@@ -1301,6 +1333,8 @@ async function patchCurrentWeeks() {
 }
 
 module.exports = {
+  venueWithoutRoof,
+  ROOF_UNDECIDED_VENUES,
   parseCsv,
   fetchPlayerWeekStatsForSeason,
   fetchTeamWeekStatsForSeason,
