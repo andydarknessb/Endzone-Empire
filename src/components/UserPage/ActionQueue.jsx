@@ -4,10 +4,13 @@ import {
   Alert, Box, Button, LinearProgress, Link, Paper, Skeleton, Stack, Typography,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
-import { alpha } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import apiClient from '../../api/apiClient';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import {
+  DISPLAY_FONT, HAIRLINE, alertActionSx, alertSx, dimSx, ghostButtonSx, microLabelSx, panelHeaderSx, panelSx,
+  panelTitleSx, primaryButtonSx, progressSx, quietButtonSx, skeletonSx, textLinkSx,
+} from '../common/homeIslandSx';
 
 // The manager's to-do list (Home v2 slice 2): every open item across their
 // leagues from GET /api/user/action-items (Contract A), in the order the
@@ -76,9 +79,13 @@ function deadlineParts(item, now) {
   return { label, value: dateFormat.format(at), sub: weekdayTimeFormat.format(at), urgent: false };
 }
 
+// The urgent tone is `warning.main`, the app palette's warning. It is the
+// same hex as `dash-warning` in both modes (tokens.js), so it paints the
+// island's color, and the render tests pin the deadline to the palette path.
+// On a card it is the registered "to-do row deadline under two hours" row.
 function DeadlineColumn({ item, now }) {
   const { label, value, sub, urgent } = deadlineParts(item, now);
-  const tone = urgent ? 'warning.main' : 'text.secondary';
+  const tone = urgent ? 'warning.main' : 'var(--dash-dim)';
   return (
     <Box
       sx={{
@@ -91,20 +98,27 @@ function DeadlineColumn({ item, now }) {
     >
       <Typography
         component="span"
-        sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'text.secondary' }}
+        sx={microLabelSx}
       >
         {label}
       </Typography>
       {value && (
         <Typography
           component="span"
-          sx={{ fontSize: { xs: 16, sm: 24 }, fontWeight: 700, lineHeight: 1.1, color: urgent ? 'warning.main' : 'text.primary' }}
+          sx={{
+            fontFamily: DISPLAY_FONT,
+            fontSize: { xs: 18, sm: 24 },
+            fontWeight: 700,
+            lineHeight: 1.1,
+            fontVariantNumeric: 'tabular-nums',
+            color: urgent ? 'warning.main' : 'var(--dash-ink)',
+          }}
         >
           {value}
         </Typography>
       )}
       {sub && (
-        <Typography component="span" variant="caption" sx={{ color: tone, fontWeight: urgent ? 600 : 400 }}>
+        <Typography component="span" variant="caption" sx={{ color: tone, fontSize: '12px', fontWeight: urgent ? 600 : 400 }}>
           {sub}
         </Typography>
       )}
@@ -136,9 +150,9 @@ function ItemProgress({ type, progress }) {
         aria-valuemax={total}
         aria-valuenow={clamped}
         aria-valuetext={`${clamped} of ${total}`}
-        sx={{ width: { xs: 80, sm: 140 }, height: 6, borderRadius: 999 }}
+        sx={{ ...progressSx, width: { xs: 80, sm: 140 }, height: 6, borderRadius: 999 }}
       />
-      <Typography variant="body2" color="text.secondary" aria-hidden="true">
+      <Typography variant="body2" aria-hidden="true" sx={{ ...dimSx, fontSize: '13px' }}>
         {`${clamped} of ${total}${copy.suffix}`}
       </Typography>
     </Stack>
@@ -159,32 +173,37 @@ const ActionItemRow = React.forwardRef(function ActionItemRow({ item, primary, n
         alignItems: 'center',
         px: { xs: 2, sm: 2.5 },
         py: 2,
-        borderBottom: '1px solid',
-        borderColor: 'divider',
+        borderBottom: HAIRLINE,
         '&:last-of-type': { borderBottom: 0 },
       }}
     >
       <DeadlineColumn item={item} now={now} />
       <Stack spacing={0.75} sx={{ minWidth: 0 }}>
-        <Typography data-testid="action-item-title" sx={{ fontWeight: 600 }}>{item.title}</Typography>
+        <Typography data-testid="action-item-title" sx={{ fontSize: '16px', fontWeight: 600, color: 'var(--dash-ink)' }}>{item.title}</Typography>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          {/* The league tag: ink on a stat tile inside the card. */}
           {item.leagueName && (
             <Box
               component="span"
               sx={{
-                px: 1, py: 0.25, borderRadius: 1, border: '1px solid', borderColor: 'divider',
-                bgcolor: 'action.hover', typography: 'body2', fontWeight: 500,
+                px: 1, py: 0.25, borderRadius: '6px', border: HAIRLINE,
+                backgroundColor: 'var(--dash-surface2)', color: 'var(--dash-ink)', fontSize: '13px', fontWeight: 500,
               }}
             >
               {item.leagueName}
             </Box>
           )}
-          {item.detail && <Typography variant="body2" color="text.secondary">{item.detail}</Typography>}
+          {item.detail && <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{item.detail}</Typography>}
           {item.progress && <ItemProgress type={item.type} progress={item.progress} />}
         </Stack>
       </Stack>
       {item.cta?.to && (
-        <Button component={RouterLink} to={item.cta.to} variant={primary ? 'contained' : 'outlined'} sx={{ ...MIN_TOUCH_TARGET_SX, whiteSpace: 'nowrap' }}>
+        <Button
+          component={RouterLink}
+          to={item.cta.to}
+          variant={primary ? 'contained' : 'outlined'}
+          sx={{ ...(primary ? primaryButtonSx : ghostButtonSx), ...MIN_TOUCH_TARGET_SX, px: 2.25, fontSize: '14px', whiteSpace: 'nowrap' }}
+        >
           {item.cta.label}
         </Button>
       )}
@@ -202,15 +221,15 @@ function ActionQueueSkeleton() {
           sx={{
             height: 76, boxSizing: 'border-box', px: 2.5, py: 2, display: 'grid', gap: 2.5, alignItems: 'center',
             gridTemplateColumns: { xs: 'minmax(0, 1fr) 96px', sm: '90px minmax(0, 1fr) 110px' },
-            borderBottom: '1px solid', borderColor: 'divider', '&:last-of-type': { borderBottom: 0 },
+            borderBottom: HAIRLINE, '&:last-of-type': { borderBottom: 0 },
           }}
         >
-          <Skeleton variant="rounded" height={36} sx={{ display: { xs: 'none', sm: 'block' } }} />
+          <Skeleton variant="rounded" height={36} sx={{ ...skeletonSx, display: { xs: 'none', sm: 'block' } }} />
           <Box>
-            <Skeleton variant="text" width={`${width}%`} />
-            <Skeleton variant="text" width={`${width - 30}%`} />
+            <Skeleton variant="text" width={`${width}%`} sx={skeletonSx} />
+            <Skeleton variant="text" width={`${width - 30}%`} sx={skeletonSx} />
           </Box>
-          <Skeleton variant="rounded" height={44} />
+          <Skeleton variant="rounded" height={44} sx={{ ...skeletonSx, borderRadius: 'var(--dash-radius-sm)' }} />
         </Box>
       ))}
     </Box>
@@ -222,20 +241,24 @@ function CaughtUp() {
     <Stack alignItems="center" spacing={1.25} sx={{ flexGrow: 1, p: 4, textAlign: 'center' }}>
       <Box
         aria-hidden="true"
-        sx={(theme) => ({
+        sx={{
           width: 64, height: 64, borderRadius: '50%', display: 'grid', placeItems: 'center',
-          color: 'success.main', bgcolor: alpha(theme.palette.success.main, 0.12),
-        })}
+          color: 'var(--dash-accent)', backgroundColor: 'var(--dash-accent-soft)',
+        }}
       >
         <CheckIcon sx={{ fontSize: 32 }} />
       </Box>
-      <Typography variant="h5" component="h3" sx={{ fontWeight: 700 }}>
+      <Typography
+        variant="h5"
+        component="h3"
+        sx={{ fontFamily: DISPLAY_FONT, fontSize: { xs: '26px', sm: '30px' }, fontWeight: 700, lineHeight: 1.1, textTransform: 'uppercase' }}
+      >
         You&apos;re all caught up
       </Typography>
-      <Typography color="text.secondary" sx={{ maxWidth: 380 }}>
+      <Typography sx={{ ...dimSx, maxWidth: 380 }}>
         Every lineup is set and every pick is in.
       </Typography>
-      <Link component={RouterLink} to="/waiver-wire" sx={{ ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontWeight: 600 }}>
+      <Link component={RouterLink} to="/waiver-wire" sx={{ ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontSize: '14px' }}>
         Browse the waiver wire
       </Link>
     </Stack>
@@ -296,7 +319,7 @@ function ActionQueue() {
       component="section"
       variant="outlined"
       aria-labelledby="action-queue-heading"
-      sx={{ borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}
+      sx={{ ...panelSx, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}
     >
       <Stack
         direction="row"
@@ -304,28 +327,30 @@ function ActionQueue() {
         spacing={1.25}
         useFlexGap
         flexWrap="wrap"
-        sx={{ px: { xs: 2, sm: 2.5 }, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}
+        sx={{ ...panelHeaderSx, px: { xs: 2, sm: 2.5 }, py: 2 }}
       >
-        <Typography id="action-queue-heading" variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+        <Typography id="action-queue-heading" variant="h6" component="h2" sx={panelTitleSx}>
           Needs your attention
         </Typography>
         {data && (
           <Box
             component="span"
             data-testid="action-queue-count"
-            sx={(theme) => ({
-              minWidth: 24, height: 24, px: 1, borderRadius: 999, display: 'grid', placeItems: 'center',
-              typography: 'body2', fontWeight: 700,
-              color: total > 0 ? 'warning.main' : 'success.main',
-              bgcolor: alpha(total > 0 ? theme.palette.warning.main : theme.palette.success.main, 0.12),
-            })}
+            // Warning on the warning tint, or accent on the accent tint when
+            // clear: both registered over a card.
+            sx={{
+              minWidth: 24, height: 24, px: 1, boxSizing: 'border-box', borderRadius: 999, display: 'grid', placeItems: 'center',
+              fontSize: '13px', fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+              color: total > 0 ? 'var(--dash-warning)' : 'var(--dash-accent)',
+              backgroundColor: total > 0 ? 'var(--dash-warning-soft)' : 'var(--dash-accent-soft)',
+            }}
           >
             {total}
             <Box component="span" sx={visuallyHidden}>{total === 1 ? ' item' : ' items'}</Box>
           </Box>
         )}
         {items.length > 0 && (
-          <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto', textAlign: 'right' }}>
+          <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px', ml: 'auto', textAlign: 'right' }}>
             {`Deadlines first · times in ${zoneAbbreviation(now)}`}
           </Typography>
         )}
@@ -333,8 +358,8 @@ function ActionQueue() {
       {failed && !loading && (
         <Alert
           severity="error"
-          sx={{ m: 2 }}
-          action={<Button color="inherit" onClick={fetchItems} sx={MIN_TOUCH_TARGET_SX}>Try again</Button>}
+          sx={{ ...alertSx('danger'), m: 2 }}
+          action={<Button color="inherit" onClick={fetchItems} sx={{ ...alertActionSx('danger'), ...MIN_TOUCH_TARGET_SX }}>Try again</Button>}
         >
           We couldn&apos;t load your to-do list.
         </Alert>
@@ -343,8 +368,8 @@ function ActionQueue() {
       {incomplete && !failed && (
         <Alert
           severity="warning"
-          sx={{ m: 2 }}
-          action={<Button color="inherit" onClick={fetchItems} disabled={loading} sx={MIN_TOUCH_TARGET_SX}>Try again</Button>}
+          sx={{ ...alertSx('warning'), m: 2 }}
+          action={<Button color="inherit" onClick={fetchItems} disabled={loading} sx={{ ...alertActionSx('warning'), ...MIN_TOUCH_TARGET_SX }}>Try again</Button>}
         >
           Some of your to-do list couldn&apos;t be checked right now.
         </Alert>
@@ -369,13 +394,15 @@ function ActionQueue() {
           alignItems="center"
           justifyContent="space-between"
           spacing={2}
-          sx={{ mt: 'auto', px: { xs: 2, sm: 2.5 }, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}
+          // The footer well (`dash-surface2`): dim text, an accent action
+          // and the focus ring, all registered over a stat tile.
+          sx={{ mt: 'auto', px: { xs: 2, sm: 2.5 }, borderTop: HAIRLINE, backgroundColor: 'var(--dash-surface2)' }}
         >
-          <Typography variant="body2" color="text.secondary">{`${hiddenCount} more`}</Typography>
+          <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{`${hiddenCount} more`}</Typography>
           <Button
             aria-controls="action-queue-list"
             onClick={() => setExpanded(true)}
-            sx={MIN_TOUCH_TARGET_SX}
+            sx={{ ...quietButtonSx, ...MIN_TOUCH_TARGET_SX, '&:hover': { ...quietButtonSx['&:hover'], backgroundColor: 'var(--dash-surface3)' } }}
           >
             {`Show all ${items.length}`}
           </Button>

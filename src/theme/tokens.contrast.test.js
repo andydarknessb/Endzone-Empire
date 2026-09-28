@@ -481,10 +481,13 @@ const PAIRINGS = [
   pairing('dash-ink', 'dash-warning-soft', AA_TEXT, 'Create draft-time acknowledgement on the warning tint over a card', 'dash-surface'),
   pairing('dash-danger', 'dash-warning-soft', AA_TEXT, 'Create draft-time acknowledgement error on the warning tint over a card', 'dash-surface'),
   // Plain accent text links: on a card (All notifications, Browse the waiver
-  // wire) and in a footer well (Show all in the to-do footer, card footers).
-  // The greeting header keeps no text link, so `dash-bg` is not registered.
+  // wire), in a footer well (Show all in the to-do footer), and on the page.
+  // The greeting header keeps no text link, but two do sit on `dash-bg`: the
+  // Around the League header's quick links, and the Join sheet's Cancel when
+  // the sheet is full screen (it is then the page).
   pairing('dash-accent', 'dash-surface', AA_TEXT, 'Home accent text link on a card'),
   pairing('dash-accent', 'dash-surface2', AA_TEXT, 'Home accent text link in a footer well'),
+  pairing('dash-accent', 'dash-bg', AA_TEXT, 'Home accent text link on the page (Around the League links, full-screen Join Cancel)'),
   // An error under its field: in the Create dialog (a card) and on the Join
   // sheet, which is full screen on a phone and so sits on the page.
   pairing('dash-danger', 'dash-surface', AA_TEXT, 'field error text in the Create dialog'),
@@ -495,6 +498,14 @@ const PAIRINGS = [
   // The to-do footer and the card footers are wells, so a focused link there
   // rings over `dash-surface2`.
   pairing('focus-ring', 'dash-surface2', AA_LARGE, 'focus ring in a Home footer well'),
+  // Not in ADR 0051's list, found by the restyle: a focused control whose
+  // ring lands on a tint. The radio in a selected choice card (Create), and
+  // the Try again inside the page's failed-refresh alert, the to-do list's
+  // failed alert and its partial-results warning.
+  pairing('focus-ring', 'dash-accent-soft', AA_LARGE, 'focus ring on a selected Create choice card', 'dash-surface'),
+  pairing('focus-ring', 'dash-danger-soft', AA_LARGE, 'focus ring on the danger alert over the page', 'dash-bg'),
+  pairing('focus-ring', 'dash-danger-soft', AA_LARGE, 'focus ring on the danger alert over a card', 'dash-surface'),
+  pairing('focus-ring', 'dash-warning-soft', AA_LARGE, 'focus ring on the warning alert over a card', 'dash-surface'),
   // The win probability bar's fill against its track, a graphical object.
   pairing('dash-accent', 'dash-surface3', AA_LARGE, 'win probability bar fill on its track'),
   // `dash-field`: the edge of a text input or select (Create and Join), the

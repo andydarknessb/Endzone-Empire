@@ -11,6 +11,9 @@ import { JOIN_REFUSAL_REASON } from '../../shared/lib/leaguePhase';
 import { isPickemOnly, shortLeagueTypeLabel } from '../../shared/lib/leagueType';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
+import {
+  alertSx, dialogPaperSx, dialogTitleSx, dimSx, fieldSx, primaryButtonSx, quietButtonSx,
+} from '../common/homeIslandSx';
 
 // The preview's closed-joining note, keyed on the server's joinability reason.
 // Same words as LeagueManagement's invite preview (JOIN_CLOSED_COPY there): a
@@ -162,14 +165,28 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
 
   const draftDay = preview ? draftDayLabel(preview.draftDate) : null;
 
+  // On a phone the sheet is full screen, so it IS the page: it paints
+  // `dash-bg`, and every pairing in it (the not-found alert, a field error,
+  // the Cancel link) is registered over the page as well as over a card.
+  // Inputs keep a `dash-surface` fill in both, with the `dash-field` edge.
+  const sheet = fullScreen ? 'var(--dash-bg)' : 'var(--dash-surface)';
+  const inputSx = fieldSx('var(--dash-surface)');
+
   return (
-    <Dialog open={open} onClose={handleClose} fullScreen={fullScreen} className="dialogContainer" aria-labelledby="join-league-title">
-      <DialogTitle id="join-league-title" className="dialogTitle">Join a league</DialogTitle>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      fullScreen={fullScreen}
+      className="dialogContainer"
+      aria-labelledby="join-league-title"
+      PaperProps={{ sx: dialogPaperSx(sheet, { fullScreen }) }}
+    >
+      <DialogTitle id="join-league-title" className="dialogTitle" sx={dialogTitleSx}>Join a league</DialogTitle>
       <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        <Typography variant="body2" sx={{ ...dimSx, fontSize: '15px', mb: 1 }}>
           Your commissioner sends an invite code or link. Leagues are private, so you need one to join.
         </Typography>
-        {joinError && <Alert severity="error" sx={{ mb: 1 }}>{joinError}</Alert>}
+        {joinError && <Alert severity="error" sx={{ ...alertSx('danger'), mb: 1 }}>{joinError}</Alert>}
         <TextField
           className="dialogTextField"
           autoFocus
@@ -177,6 +194,10 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
           label="Invite code"
           required
           fullWidth
+          sx={{
+            ...inputSx,
+            '& .MuiInputBase-input': { fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontWeight: 600, letterSpacing: '0.1em' },
+          }}
           value={rawCode}
           onChange={(event) => setRawCode(event.target.value)}
           error={notFound}
@@ -192,14 +213,27 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
         {/* One polite live region for what the code resolves to. */}
         <Box id="join-code-status" aria-live="polite" sx={{ my: 1 }}>
           {keepTyping && (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={dimSx}>
               Keep typing. Invite codes are 8 letters and numbers.
             </Typography>
           )}
+          {/* Danger title and ink body on the danger tint, over the sheet
+              (the page on a phone, a card otherwise): both registered. */}
           {notFound && (
-            <Paper variant="outlined" sx={{ px: 2, py: 1.5, borderColor: 'error.main' }}>
-              <Typography variant="body2" component="p" color="error" sx={{ fontWeight: 600 }}>No league uses that code</Typography>
-              <Typography variant="body2" component="p">
+            <Paper
+              variant="outlined"
+              sx={{
+                px: 2,
+                py: 1.5,
+                backgroundColor: 'var(--dash-danger-soft)',
+                backgroundImage: 'none',
+                border: '1px solid var(--dash-danger)',
+                borderRadius: 'var(--dash-radius)',
+                color: 'var(--dash-ink)',
+              }}
+            >
+              <Typography variant="body2" component="p" sx={{ color: 'var(--dash-danger)', fontSize: '15px', fontWeight: 600 }}>No league uses that code</Typography>
+              <Typography variant="body2" component="p" sx={{ color: 'var(--dash-ink)', fontSize: '14px' }}>
                 Check for a mix-up like 0 and O, or ask your commissioner for a fresh link.
               </Typography>
             </Paper>
@@ -208,24 +242,33 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
             <Paper
               variant="outlined"
               data-testid="join-preview"
-              sx={{ p: 2, borderColor: refusal ? 'warning.main' : 'primary.main', borderWidth: 2 }}
+              // A card (`dash-surface`) wherever the sheet is, with the
+              // board's 2px accent edge (warning when it can't be joined).
+              sx={{
+                p: 2,
+                backgroundColor: 'var(--dash-surface)',
+                backgroundImage: 'none',
+                color: 'var(--dash-ink)',
+                borderRadius: 'var(--dash-radius)',
+                border: `2px solid ${refusal ? 'var(--dash-warning)' : 'var(--dash-accent)'}`,
+              }}
             >
-              <Typography variant="subtitle1" component="p" sx={{ fontWeight: 700 }}>{preview.name}</Typography>
+              <Typography variant="subtitle1" component="p" sx={{ fontSize: '17px', fontWeight: 600 }}>{preview.name}</Typography>
               {/* One fact per element (#209), so a screen reader announces
                   each on its own. The commissioner is named by Team, never
                   by account (CONTEXT.md Team identity). */}
-              <Typography variant="body2" color="text.secondary">{formatLine(preview)}</Typography>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={dimSx}>{formatLine(preview)}</Typography>
+              <Typography variant="body2" sx={dimSx}>
                 {`${preview.teamCount} of ${preview.maxTeams} seats taken`}
               </Typography>
               {draftDay && (
-                <Typography variant="body2" color="text.secondary">{`Draft ${draftDay}`}</Typography>
+                <Typography variant="body2" sx={dimSx}>{`Draft ${draftDay}`}</Typography>
               )}
               {preview.ownerTeamName && (
-                <Typography variant="body2" color="text.secondary">{`Run by ${preview.ownerTeamName}`}</Typography>
+                <Typography variant="body2" sx={dimSx}>{`Run by ${preview.ownerTeamName}`}</Typography>
               )}
               {refusal && (
-                <Typography id="join-league-refusal" variant="body2" color="warning.main" sx={{ mt: 0.5, fontWeight: 600 }}>
+                <Typography id="join-league-refusal" variant="body2" sx={{ color: 'var(--dash-warning)', mt: 0.5, fontWeight: 600 }}>
                   {refusal}
                 </Typography>
               )}
@@ -240,24 +283,25 @@ export default function JoinLeagueDialog({ open, onClose, onJoined }) {
           required
           inputProps={{ maxLength: 120 }}
           helperText="Your Team's identity in this league. Other managers never see your account email or username."
+          sx={inputSx}
           value={teamName}
           onChange={(event) => setTeamName(event.target.value)}
         />
       </DialogContent>
       <DialogActions>
         {!refusal && missingAnswers && (
-          <Typography id="join-league-blocker" variant="body2" color="text.secondary" sx={{ mr: 'auto', pl: 1 }}>
+          <Typography id="join-league-blocker" variant="body2" sx={{ ...dimSx, mr: 'auto', pl: 1 }}>
             Add the invite code and your Team name to continue.
           </Typography>
         )}
-        <Button onClick={handleClose} color="primary" sx={MIN_TOUCH_TARGET_SX}>
+        <Button onClick={handleClose} color="primary" sx={{ ...quietButtonSx, ...MIN_TOUCH_TARGET_SX, px: 2 }}>
           Cancel
         </Button>
         <Button
           onClick={handleJoin}
           color="primary"
           variant="contained"
-          sx={MIN_TOUCH_TARGET_SX}
+          sx={{ ...primaryButtonSx, ...MIN_TOUCH_TARGET_SX, px: 2.5 }}
           aria-describedby={joinBlockerId}
           disabled={joining || Boolean(joinBlockerId)}
         >

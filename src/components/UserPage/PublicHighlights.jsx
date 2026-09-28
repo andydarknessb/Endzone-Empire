@@ -6,6 +6,9 @@ import {
 import Grid from '@mui/material/Unstable_Grid2';
 import apiClient from '../../api/apiClient';
 import { listArticles } from '../../content/articles';
+import {
+  dimSx, panelSx, panelTitleSx, sectionTitleSx, skeletonSx, textLinkSx,
+} from '../common/homeIslandSx';
 
 /**
  * Public-layer content surfaced on the authed dashboard: rankings, game
@@ -25,11 +28,21 @@ import { listArticles } from '../../content/articles';
 
 const STRATEGY_TEASER_COUNT = 3;
 
+// On the island (ADR 0051): panel cards, display-face titles, ink rows with
+// dim secondary lines, and accent links on a card. The header's quick links
+// sit on the page (`dash-accent` on `dash-bg`, registered).
+const cardSx = { ...panelSx, height: '100%' };
+const cardTitleSx = { ...panelTitleSx, fontSize: '18px', mb: 1.5 };
+const statusSx = { ...dimSx, fontSize: '14px' };
+const listSx = { '& .MuiListItemText-secondary': dimSx };
+const rowLinkSx = { color: 'var(--dash-ink)', fontWeight: 600, textDecorationColor: 'currentColor' };
+const moreLinkSx = { ...textLinkSx, fontSize: '14px' };
+
 function WidgetSkeleton() {
   return (
     <Stack spacing={1}>
       {[0, 1, 2].map((i) => (
-        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} />
+        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
       ))}
     </Stack>
   );
@@ -77,41 +90,41 @@ function PublicHighlights() {
         spacing={1}
         sx={{ mb: 2 }}
       >
-        <Typography id="public-highlights-heading" variant="h5" component="h2" sx={{ fontWeight: 700 }}>
+        <Typography id="public-highlights-heading" variant="h5" component="h2" sx={sectionTitleSx}>
           Around the League
         </Typography>
         <Stack direction="row" spacing={2} flexWrap="wrap">
-          <Link href="/rankings" underline="hover">Rankings</Link>
-          <Link href="/waiver-wire" underline="hover">Waiver Wire</Link>
-          <Link href="/strategy" underline="hover">Strategy</Link>
-          <Link href="/recaps" underline="hover">Recaps</Link>
+          <Link href="/rankings" underline="hover" sx={moreLinkSx}>Rankings</Link>
+          <Link href="/waiver-wire" underline="hover" sx={moreLinkSx}>Waiver Wire</Link>
+          <Link href="/strategy" underline="hover" sx={moreLinkSx}>Strategy</Link>
+          <Link href="/recaps" underline="hover" sx={moreLinkSx}>Recaps</Link>
         </Stack>
       </Stack>
 
       <Grid container spacing={2}>
         <Grid xs={12} md={4}>
-          <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
+          <Card variant="outlined" sx={cardSx}>
             <CardContent>
-              <Typography variant="h6" component="h3" sx={{ fontWeight: 700, mb: 1 }}>
+              <Typography variant="h6" component="h3" sx={cardTitleSx}>
                 Top Players
               </Typography>
               {loadingRankings ? (
                 <WidgetSkeleton />
               ) : rankingsError ? (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={statusSx}>
                   Couldn&apos;t load the rankings right now.
                 </Typography>
               ) : rankings.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={statusSx}>
                   Rankings aren&apos;t available yet.
                 </Typography>
               ) : (
-                <List dense disablePadding>
+                <List dense disablePadding sx={listSx}>
                   {rankings.map((row) => (
                     <ListItem key={row.playerId} disableGutters>
                       <ListItemText
                         primary={
-                          <Link href={`/players/${row.playerId}`} underline="hover" color="text.primary">
+                          <Link href={`/players/${row.playerId}`} underline="hover" sx={rowLinkSx}>
                             {`#${row.rank} ${row.name}`}
                           </Link>
                         }
@@ -124,7 +137,7 @@ function PublicHighlights() {
                   ))}
                 </List>
               )}
-              <Link href="/rankings" underline="hover" variant="body2">
+              <Link href="/rankings" underline="hover" variant="body2" sx={moreLinkSx}>
                 Full rankings
               </Link>
             </CardContent>
@@ -132,28 +145,28 @@ function PublicHighlights() {
         </Grid>
 
         <Grid xs={12} md={4}>
-          <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
+          <Card variant="outlined" sx={cardSx}>
             <CardContent>
-              <Typography variant="h6" component="h3" sx={{ fontWeight: 700, mb: 1 }}>
+              <Typography variant="h6" component="h3" sx={cardTitleSx}>
                 Latest Game Recaps
               </Typography>
               {loadingRecaps ? (
                 <WidgetSkeleton />
               ) : recapsError ? (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={statusSx}>
                   Couldn&apos;t load recaps right now.
                 </Typography>
               ) : recaps.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={statusSx}>
                   No recaps published yet.
                 </Typography>
               ) : (
-                <List dense disablePadding>
+                <List dense disablePadding sx={listSx}>
                   {recaps.map((recap) => (
                     <ListItem key={recap.gameId} disableGutters>
                       <ListItemText
                         primary={
-                          <Link href={`/recaps/${recap.gameId}`} underline="hover" color="text.primary">
+                          <Link href={`/recaps/${recap.gameId}`} underline="hover" sx={rowLinkSx}>
                             {`${recap.awayTeam} ${recap.awayScore} @ ${recap.homeTeam} ${recap.homeScore}`}
                           </Link>
                         }
@@ -171,7 +184,7 @@ function PublicHighlights() {
                   ))}
                 </List>
               )}
-              <Link href="/recaps" underline="hover" variant="body2">
+              <Link href="/recaps" underline="hover" variant="body2" sx={moreLinkSx}>
                 All recaps
               </Link>
             </CardContent>
@@ -179,17 +192,17 @@ function PublicHighlights() {
         </Grid>
 
         <Grid xs={12} md={4}>
-          <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
+          <Card variant="outlined" sx={cardSx}>
             <CardContent>
-              <Typography variant="h6" component="h3" sx={{ fontWeight: 700, mb: 1 }}>
+              <Typography variant="h6" component="h3" sx={cardTitleSx}>
                 Strategy Library
               </Typography>
-              <List dense disablePadding>
+              <List dense disablePadding sx={listSx}>
                 {articles.map((article) => (
                   <ListItem key={article.slug} disableGutters>
                     <ListItemText
                       primary={
-                        <Link href={`/strategy/${article.slug}`} underline="hover" color="text.primary">
+                        <Link href={`/strategy/${article.slug}`} underline="hover" sx={rowLinkSx}>
                           {article.title}
                         </Link>
                       }
@@ -198,7 +211,7 @@ function PublicHighlights() {
                   </ListItem>
                 ))}
               </List>
-              <Link href="/strategy" underline="hover" variant="body2">
+              <Link href="/strategy" underline="hover" variant="body2" sx={moreLinkSx}>
                 All strategy articles
               </Link>
             </CardContent>

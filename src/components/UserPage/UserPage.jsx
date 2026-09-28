@@ -1,10 +1,13 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, {
+  useState, useEffect, useMemo, lazy, Suspense,
+} from 'react';
 import { useSelector } from 'react-redux';
 import {
   Typography, Button, Alert, Container, Box, Card, CardContent,
   Skeleton, Stack, List, ListItem, ListItemText, Link,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
+import { ThemeProvider, useTheme } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
@@ -14,6 +17,11 @@ import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import JoinLeagueDialog from './JoinLeagueDialog';
 import CreateLeagueStepper from './CreateLeagueStepper';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
+import homeTheme from './homeTheme';
+import {
+  DISPLAY_FONT, alertActionSx, alertSx, dimSx, ghostButtonSx, homeRootSx, panelSx, panelTitleSx,
+  primaryButtonSx, sectionTitleSx, skeletonSx,
+} from '../common/homeIslandSx';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
@@ -35,8 +43,29 @@ function sharedCurrentWeek(leagues) {
 
 const greetingDateFormat = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
+// The feed cards below the fold (News, Activity) on the island: a panel, a
+// display-face title, ink rows with dim secondary lines, all on a card.
+const feedCardSx = { ...panelSx, height: '100%' };
+const feedTitleSx = { ...panelTitleSx, fontSize: '18px', mb: 1.5 };
+const feedListSx = {
+  '& .MuiListItemText-primary': { color: 'var(--dash-ink)' },
+  '& .MuiListItemText-secondary': dimSx,
+};
+const feedStatusSx = { ...dimSx, fontSize: '14px' };
+const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
+// Join sits on the page, so the ghost paints its own `dash-surface` fill (the
+// board's Join league button): ink on a card surface, a registered pairing.
+const heroGhostSx = {
+  ...ghostButtonSx,
+  ...heroButtonSx,
+  backgroundColor: 'var(--dash-surface)',
+  '&:hover': { ...ghostButtonSx['&:hover'], backgroundColor: 'var(--dash-surface)' },
+};
+
 function UserPage() {
   const user = useSelector((store) => store.user);
+  const outerTheme = useTheme();
+  const theme = useMemo(() => homeTheme(outerTheme), [outerTheme]);
 
   const [myLeagues, setMyLeagues] = useState([]);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
@@ -132,231 +161,280 @@ function UserPage() {
   };
 
   return (
-    // flexGrow cooperates with the flex column shell App.jsx sets up around
-    // <Nav />/<Routes />/<Footer /> so short pages still pin the footer to the
-    // bottom of the viewport, while tall pages scroll normally.
-    // The page's one main landmark, named by its h1; the shell's skip link
-    // (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence tabIndex -1.
-    <Box
-      component="main"
-      id="user-main-content"
-      tabIndex={-1}
-      aria-labelledby="user-page-heading"
-      sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
-    >
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        {/* Greeting header (Home v2): the page's one h1, with Create and Join
-            beside it (under it below md). */}
-        <Stack
-          component="header"
-          data-testid="dashboard-hero"
-          direction={{ xs: 'column', md: 'row' }}
-          justifyContent="space-between"
-          alignItems={{ xs: 'flex-start', md: 'flex-end' }}
-          spacing={2}
-          sx={{ mb: 3 }}
-        >
-          <Box>
-            {currentWeek && (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1 }}
-              >
-                {`Week ${currentWeek} · ${greetingDateFormat.format(new Date())}`}
-              </Typography>
-            )}
-            <Typography variant="h4" component="h1" id="user-page-heading" sx={{ fontWeight: 700, lineHeight: 1.15 }}>
-              Welcome back, {user.username}
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-            <Button variant="outlined" size="large" onClick={handleOpenJoinDialog}>
-              Join League
-            </Button>
-            <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>
-              Create League
-            </Button>
-          </Stack>
-        </Stack>
-
-        {/* The to-do list replaces the old hero and "Next up" nudge. It owns
-            its own fetch and states, so it never holds up My Leagues. */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid xs={12} lg={nextDraft ? 8 : 12}>
-            <ActionQueue />
-          </Grid>
-          {nextDraft && (
-            <Grid xs={12} lg={4}>
-              <NextDraftCard league={nextDraft} />
-            </Grid>
-          )}
-        </Grid>
-
-
-        <Typography variant="h5" component="h2" sx={{ mb: 2, fontWeight: 700 }}>
-          My Leagues
-        </Typography>
-
-        {leaguesError && !loadingLeagues && (
-          <Alert
-            severity="error"
-            sx={{ mb: 2 }}
-            action={<Button color="inherit" size="small" onClick={fetchMyLeagues}>Try again</Button>}
+    // Home joins the island (ADR 0051): homeTheme sets every Typography,
+    // button and input in the island's body face, and the root paints its
+    // token context (`dash-bg`, `dash-ink`, the body face). Nav and Footer
+    // stay on the app tokens.
+    <ThemeProvider theme={theme}>
+      {/* flexGrow cooperates with the flex column shell App.jsx sets up
+          around <Nav />/<Routes />/<Footer /> so short pages still pin the
+          footer to the bottom of the viewport, while tall pages scroll
+          normally. The page's one main landmark, named by its h1; the shell's
+          skip link (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence
+          tabIndex -1. */}
+      <Box
+        component="main"
+        id="user-main-content"
+        tabIndex={-1}
+        aria-labelledby="user-page-heading"
+        sx={{ ...homeRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1 }}
+      >
+        <Container maxWidth="lg" sx={{ py: { xs: 3, md: 4.5 } }}>
+          {/* Greeting header (Home v2): the page's one h1, with Create and Join
+              beside it (under it below md). */}
+          <Stack
+            component="header"
+            data-testid="dashboard-hero"
+            direction={{ xs: 'column', md: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', md: 'flex-end' }}
+            spacing={2}
+            sx={{ mb: 4 }}
           >
-            {leaguesError}
-          </Alert>
-        )}
+            <Box>
+              {currentWeek && (
+                <Typography
+                  variant="body2"
+                  sx={{ ...dimSx, fontSize: '12px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1.25 }}
+                >
+                  {`Week ${currentWeek} · ${greetingDateFormat.format(new Date())}`}
+                </Typography>
+              )}
+              <Typography
+                variant="h4"
+                component="h1"
+                id="user-page-heading"
+                sx={{
+                  fontFamily: DISPLAY_FONT,
+                  fontSize: { xs: '36px', md: '48px' },
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  letterSpacing: '0.01em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Welcome back, {user.username}
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+              <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
+                Join League
+              </Button>
+              <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
+                Create League
+              </Button>
+            </Stack>
+          </Stack>
 
-        {awaitingFirstLeagues ? (
-          <Grid container spacing={2}>
-            {[0, 1, 2].map((i) => (
-              <Grid xs={12} sm={6} md={4} key={i}>
-                <Card variant="outlined" sx={{ height: '100%' }} data-testid="league-skeleton">
+          {/* The to-do list replaces the old hero and "Next up" nudge. It owns
+              its own fetch and states, so it never holds up My Leagues. */}
+          <Grid container spacing={3} sx={{ mb: 5 }}>
+            <Grid xs={12} lg={nextDraft ? 8 : 12}>
+              <ActionQueue />
+            </Grid>
+            {nextDraft && (
+              <Grid xs={12} lg={4}>
+                <NextDraftCard league={nextDraft} />
+              </Grid>
+            )}
+          </Grid>
+
+
+          <Typography variant="h5" component="h2" sx={{ ...sectionTitleSx, mb: 2 }}>
+            My Leagues
+          </Typography>
+
+          {/* On the page: ink on the danger tint over `dash-bg`, the danger
+              edge and icon, and the retry as a card-surface chip. */}
+          {leaguesError && !loadingLeagues && (
+            <Alert
+              severity="error"
+              sx={{ ...alertSx('danger'), mb: 2 }}
+              action={(
+                <Button color="inherit" size="small" onClick={fetchMyLeagues} sx={{ ...alertActionSx('danger'), minHeight: 44 }}>
+                  Try again
+                </Button>
+              )}
+            >
+              {leaguesError}
+            </Alert>
+          )}
+
+          {awaitingFirstLeagues ? (
+            <Grid container spacing={2}>
+              {[0, 1, 2].map((i) => (
+                <Grid xs={12} sm={6} md={4} key={i}>
+                  <Card variant="outlined" sx={{ ...panelSx, height: '100%' }} data-testid="league-skeleton">
+                    <CardContent>
+                      <Skeleton variant="text" width="60%" height={32} sx={skeletonSx} />
+                      <Skeleton variant="text" width="45%" sx={skeletonSx} />
+                      <Skeleton variant="text" width="30%" sx={skeletonSx} />
+                      <Skeleton variant="rounded" width={80} height={24} sx={{ ...skeletonSx, mt: 1 }} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          ) : myLeagues.length === 0 && leaguesError ? null : myLeagues.length === 0 ? (
+            <Card
+              data-testid="leagues-empty-state"
+              variant="outlined"
+              sx={{ ...panelSx, py: 6, px: 3 }}
+            >
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <Box
+                  aria-hidden="true"
+                  sx={{
+                    width: 72,
+                    height: 72,
+                    mb: 2,
+                    borderRadius: '50%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    backgroundColor: 'var(--dash-accent-soft)',
+                    color: 'var(--dash-accent)',
+                  }}
+                >
+                  <SportsFootballIcon sx={{ fontSize: 40 }} />
+                </Box>
+                <Typography
+                  variant="h6"
+                  component="h3"
+                  gutterBottom
+                  sx={{
+                    fontFamily: DISPLAY_FONT,
+                    fontSize: { xs: '26px', md: '32px' },
+                    fontWeight: 700,
+                    lineHeight: 1.05,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  You aren&apos;t managing any teams yet.
+                </Typography>
+                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 380 }}>
+                  Start a brand-new league with your friends, or jump into one
+                  you&apos;ve already been invited to.
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
+                    Create League
+                  </Button>
+                  <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={{ ...ghostButtonSx, ...heroButtonSx }}>
+                    Join League
+                  </Button>
+                </Stack>
+              </Box>
+            </Card>
+          ) : (
+            <LeagueStatusGrid leagues={myLeagues} />
+          )}
+
+          {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
+          <Box sx={{ mt: 5 }}>
+            <Grid container spacing={2}>
+              <Grid xs={12} md={6}>
+                <Card variant="outlined" sx={feedCardSx}>
                   <CardContent>
-                    <Skeleton variant="text" width="60%" height={32} />
-                    <Skeleton variant="text" width="45%" />
-                    <Skeleton variant="text" width="30%" />
-                    <Skeleton variant="rounded" width={80} height={24} sx={{ mt: 1 }} />
+                    <Typography variant="h6" component="h2" sx={feedTitleSx}>
+                      Latest NFL News
+                    </Typography>
+                    {loadingNews ? (
+                      <Stack spacing={1}>
+                        {[0, 1, 2].map((i) => (
+                          <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
+                        ))}
+                      </Stack>
+                    ) : newsError ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        Couldn&apos;t load the latest news right now.
+                      </Typography>
+                    ) : newsItems.length === 0 ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        No news to show right now.
+                      </Typography>
+                    ) : (
+                      <List dense disablePadding sx={feedListSx}>
+                        {/* The feed can carry two headlines pointing at the same
+                            URL, so the link alone isn't a unique key. */}
+                        {newsItems.map((item, index) => (
+                          <ListItem key={`${item.link}-${index}`} disableGutters>
+                            <ListItemText
+                              primary={
+                                <Link
+                                  href={item.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  underline="hover"
+                                  sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}
+                                >
+                                  {item.title}
+                                </Link>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>
-            ))}
-          </Grid>
-        ) : myLeagues.length === 0 && leaguesError ? null : myLeagues.length === 0 ? (
-          <Card
-            data-testid="leagues-empty-state"
-            variant="outlined"
-            sx={{ py: 6, px: 3, bgcolor: 'background.paper' }}
-          >
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-              <SportsFootballIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h6" component="h3" gutterBottom>
-                You aren&apos;t managing any teams yet.
-              </Typography>
-              <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 380 }}>
-                Start a brand-new league with your friends, or jump into one
-                you&apos;ve already been invited to.
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>
-                  Create League
-                </Button>
-                <Button variant="outlined" size="large" onClick={handleOpenJoinDialog}>
-                  Join League
-                </Button>
-              </Stack>
-            </Box>
-          </Card>
-        ) : (
-          <LeagueStatusGrid leagues={myLeagues} />
-        )}
-
-        {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
-        <Box sx={{ mt: 5 }}>
-          <Grid container spacing={2}>
-            <Grid xs={12} md={6}>
-              <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
-                <CardContent>
-                  <Typography variant="h6" component="h2" sx={{ fontWeight: 700, mb: 1 }}>
-                    Latest NFL News
-                  </Typography>
-                  {loadingNews ? (
-                    <Stack spacing={1}>
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} />
-                      ))}
-                    </Stack>
-                  ) : newsError ? (
-                    <Typography variant="body2" color="text.secondary">
-                      Couldn&apos;t load the latest news right now.
+              <Grid xs={12} md={6}>
+                <Card variant="outlined" sx={feedCardSx}>
+                  <CardContent>
+                    <Typography variant="h6" component="h2" sx={feedTitleSx}>
+                      Global Activity
                     </Typography>
-                  ) : newsItems.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No news to show right now.
-                    </Typography>
-                  ) : (
-                    <List dense disablePadding>
-                      {/* The feed can carry two headlines pointing at the same
-                          URL, so the link alone isn't a unique key. */}
-                      {newsItems.map((item, index) => (
-                        <ListItem key={`${item.link}-${index}`} disableGutters>
-                          <ListItemText
-                            primary={
-                              <Link
-                                href={item.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                underline="hover"
-                                color="text.primary"
-                              >
-                                {item.title}
-                              </Link>
-                            }
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  )}
-                </CardContent>
-              </Card>
+                    {loadingActivity ? (
+                      <Stack spacing={1}>
+                        {[0, 1, 2].map((i) => (
+                          <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
+                        ))}
+                      </Stack>
+                    ) : activityError ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        Couldn&apos;t load recent activity right now.
+                      </Typography>
+                    ) : activityItems.length === 0 ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        No recent activity across your leagues yet.
+                      </Typography>
+                    ) : (
+                      <List dense disablePadding sx={feedListSx}>
+                        {activityItems.map((item) => (
+                          <ListItem key={item.id} disableGutters>
+                            <ListItemText
+                              primary={item.message}
+                              secondary={
+                                item.league_name
+                                  ? `${item.league_name} · ${new Date(item.created_at).toLocaleDateString()}`
+                                  : new Date(item.created_at).toLocaleDateString()
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
             </Grid>
-            <Grid xs={12} md={6}>
-              <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
-                <CardContent>
-                  <Typography variant="h6" component="h2" sx={{ fontWeight: 700, mb: 1 }}>
-                    Global Activity
-                  </Typography>
-                  {loadingActivity ? (
-                    <Stack spacing={1}>
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} />
-                      ))}
-                    </Stack>
-                  ) : activityError ? (
-                    <Typography variant="body2" color="text.secondary">
-                      Couldn&apos;t load recent activity right now.
-                    </Typography>
-                  ) : activityItems.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No recent activity across your leagues yet.
-                    </Typography>
-                  ) : (
-                    <List dense disablePadding>
-                      {activityItems.map((item) => (
-                        <ListItem key={item.id} disableGutters>
-                          <ListItemText
-                            primary={item.message}
-                            secondary={
-                              item.league_name
-                                ? `${item.league_name} · ${new Date(item.created_at).toLocaleDateString()}`
-                                : new Date(item.created_at).toLocaleDateString()
-                            }
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Box>
+          </Box>
 
-        {/* Public-layer content (rankings, recaps, strategy) surfaced for
-            logged-in users; links cross into the public site. */}
-        <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ mt: 5 }} />}>
-          <PublicHighlights />
-        </Suspense>
+          {/* Public-layer content (rankings, recaps, strategy) surfaced for
+              logged-in users; links cross into the public site. */}
+          <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ ...skeletonSx, mt: 5, borderRadius: 'var(--dash-radius)' }} />}>
+            <PublicHighlights />
+          </Suspense>
 
-        <CreateLeagueStepper
-          open={openCreateDialog}
-          onClose={handleCloseCreateDialog}
-          onCreated={fetchMyLeagues}
-        />
-        <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
-      </Container>
-    </Box>
+          <CreateLeagueStepper
+            open={openCreateDialog}
+            onClose={handleCloseCreateDialog}
+            onCreated={fetchMyLeagues}
+          />
+          <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
+        </Container>
+      </Box>
+    </ThemeProvider>
   );
 }
 

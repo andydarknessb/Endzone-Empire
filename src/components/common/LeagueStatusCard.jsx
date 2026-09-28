@@ -15,6 +15,10 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 import { matchupWinProbability } from '../../shared/lib/winProbability';
+import {
+  DISPLAY_FONT, HAIRLINE, chipSx as toneChipSx, dimSx, ghostButtonSx, panelSx, primaryButtonSx,
+  quietButtonSx, scoreSx,
+} from './homeIslandSx';
 
 /**
  * One league on /user, told through its status block (Home v2 slice 3,
@@ -34,6 +38,12 @@ import { matchupWinProbability } from '../../shared/lib/winProbability';
  * The title is the card's link (a 44px target), not the whole card, so the
  * footer actions stay separate targets. The card is an article named by its
  * h3 (/user has one h1 and an h2 per section).
+ *
+ * Painted on the island (ADR 0051): a `dash-surface` card with the `dash-line`
+ * hairline (decoration: the title is the link, so the edge is not a boundary),
+ * the display face for scores and counts, and every text pairing on the card
+ * surface. The footer stays on the card (no well), so its warning and accent
+ * lines sit on `dash-surface`, where both are registered at AA_TEXT.
  */
 
 const LIVE_PHASES = [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS];
@@ -134,41 +144,59 @@ const actionSx = { ...MIN_TOUCH_TARGET_SX, px: 1.5, fontWeight: 600 };
 
 function ActionLink({ to, children, primary = false }) {
   return (
-    <Button component={RouterLink} to={to} variant={primary ? 'contained' : 'text'} sx={actionSx}>
+    <Button
+      component={RouterLink}
+      to={to}
+      variant={primary ? 'contained' : 'text'}
+      sx={{ ...(primary ? primaryButtonSx : quietButtonSx), ...actionSx, fontSize: '14px' }}
+    >
       {children}
     </Button>
   );
 }
 
-const chipSx = { fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' };
+// Status variant to island tone: Live is danger on the danger tint, Pick'em
+// accent on the accent tint, a draft date blue on the home tint, Awaiting
+// final warning on the warning tint, the rest a neutral outline. All on the
+// card surface.
+const CHIP_TONE = {
+  live: 'live', pickem: 'accent', draft: 'home', warning: 'warning',
+};
 
 function StatusChip({ variant, label }) {
   const color = { live: 'error', pickem: 'primary', draft: 'primary', warning: 'warning' }[variant] || 'default';
-  return <Chip size="small" color={color} variant={variant === 'live' ? 'filled' : 'outlined'} label={label} sx={chipSx} />;
+  return (
+    <Chip
+      size="small"
+      color={color}
+      variant={variant === 'live' ? 'filled' : 'outlined'}
+      label={label}
+      sx={toneChipSx(CHIP_TONE[variant] || 'neutral')}
+    />
+  );
 }
 
 function CardHeader({ league, headingId, subline, chip }) {
   return (
-    <Stack direction="row" alignItems="center" spacing={1.5} sx={{ px: 2.5, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+    <Stack direction="row" alignItems="center" spacing={1.5} sx={{ px: 2.5, py: 1.5, borderBottom: HAIRLINE }}>
       <Box
         aria-hidden="true"
         sx={{
-          width: 40, height: 40, flexShrink: 0, borderRadius: 2.5, bgcolor: 'action.selected',
-          display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 20,
+          width: 40, height: 40, flexShrink: 0, borderRadius: 'var(--dash-radius-sm)', backgroundColor: 'var(--dash-surface3)',
+          display: 'grid', placeItems: 'center', fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 20, color: 'var(--dash-ink)',
         }}
       >
         {(league.name || '?').trim().charAt(0).toUpperCase()}
       </Box>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-        <Typography variant="subtitle1" component="h3" id={headingId} sx={{ fontWeight: 600, m: 0 }}>
+        <Typography variant="subtitle1" component="h3" id={headingId} sx={{ fontSize: '17px', fontWeight: 600, m: 0 }}>
           <Link
             component={RouterLink}
             to={`/league/${league.id}`}
-            color="text.primary"
             underline="hover"
             title={league.name}
             sx={{
-              display: 'flex', alignItems: 'center', minHeight: 44,
+              display: 'flex', alignItems: 'center', minHeight: 44, color: 'var(--dash-ink)', textDecorationColor: 'currentColor',
               overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
             }}
           >
@@ -176,7 +204,7 @@ function CardHeader({ league, headingId, subline, chip }) {
           </Link>
         </Typography>
         {subline && (
-          <Typography variant="body2" color="text.secondary" noWrap title={subline}>{subline}</Typography>
+          <Typography variant="body2" noWrap title={subline} sx={{ ...dimSx, fontSize: '13px' }}>{subline}</Typography>
         )}
       </Box>
       {chip}
@@ -192,7 +220,7 @@ function CardFooter({ children }) {
       flexWrap="wrap"
       useFlexGap
       spacing={1.5}
-      sx={{ mt: 'auto', pl: 2.5, pr: 1.5, py: 0.75, borderTop: 1, borderColor: 'divider' }}
+      sx={{ mt: 'auto', pl: 2.5, pr: 1.5, py: 0.75, borderTop: HAIRLINE }}
     >
       {children}
     </Stack>
@@ -203,11 +231,13 @@ function FooterActions({ children }) {
   return <Stack direction="row" spacing={0.5} sx={{ ml: 'auto' }}>{children}</Stack>;
 }
 
+const footerTextSx = { ...dimSx, fontSize: '13px' };
+
 function Standing({ standing, extra }) {
-  if (!standing) return extra ? <Typography variant="body2" color="text.secondary">{extra}</Typography> : null;
+  if (!standing) return extra ? <Typography variant="body2" sx={footerTextSx}>{extra}</Typography> : null;
   return (
-    <Typography variant="body2" color="text.secondary">
-      <Box component="strong" sx={{ color: 'text.primary', fontWeight: 600 }}>{ordinal(standing.rank)}</Box>
+    <Typography variant="body2" sx={footerTextSx}>
+      <Box component="strong" sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}>{ordinal(standing.rank)}</Box>
       {` of ${standing.of}${extra ? ` · ${extra}` : ''}`}
     </Typography>
   );
@@ -219,16 +249,18 @@ function WinProbabilityBar({ mine, opponentName }) {
   const them = 100 - you;
   return (
     <Stack spacing={0.75}>
-      <Stack direction="row" justifyContent="space-between" sx={{ typography: 'caption', fontWeight: 600 }}>
-        <Box component="span" sx={{ color: 'primary.main' }}>{`You ${you}% to win`}</Box>
-        <Box component="span" sx={{ color: 'text.secondary' }}>{`Them ${them}%`}</Box>
+      <Stack direction="row" justifyContent="space-between" sx={{ fontSize: '12px', fontWeight: 600 }}>
+        <Box component="span" sx={{ color: 'var(--dash-accent)' }}>{`You ${you}% to win`}</Box>
+        <Box component="span" sx={dimSx}>{`Them ${them}%`}</Box>
       </Stack>
+      {/* Accent fill on the `dash-surface3` track: a graphical object,
+          registered at AA_LARGE. */}
       <Box
         role="img"
         aria-label={`Win probability: you ${you} percent, ${opponentName} ${them} percent`}
-        sx={{ height: 8, borderRadius: 999, overflow: 'hidden', display: 'flex', bgcolor: 'action.selected' }}
+        sx={{ height: 8, borderRadius: 999, overflow: 'hidden', display: 'flex', backgroundColor: 'var(--dash-surface3)' }}
       >
-        <Box sx={{ width: `${you}%`, bgcolor: 'primary.main' }} />
+        <Box sx={{ width: `${you}%`, backgroundColor: 'var(--dash-accent)' }} />
       </Box>
     </Stack>
   );
@@ -239,7 +271,7 @@ function LineupHealth({ lineup }) {
   const problems = Array.isArray(lineup.problems) ? lineup.problems : [];
   if (problems.length === 0) {
     return (
-      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'success.main', typography: 'body2', fontWeight: 600 }}>
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-accent)', fontSize: '13px', fontWeight: 600 }}>
         <CheckCircleOutlineIcon fontSize="small" aria-hidden="true" />
         <span>Lineup set</span>
       </Stack>
@@ -247,7 +279,7 @@ function LineupHealth({ lineup }) {
   }
   const text = problems.length === 1 ? problems[0] : `${problems[0]} · ${problems.length - 1} more`;
   return (
-    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'warning.main', typography: 'body2', fontWeight: 600, minWidth: 0 }}>
+    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'var(--dash-warning)', fontSize: '13px', fontWeight: 600, minWidth: 0 }}>
       <WarningAmberIcon fontSize="small" aria-hidden="true" />
       <span>{text}</span>
     </Stack>
@@ -261,13 +293,17 @@ function ScoreSide({ eyebrow, name, score, expectedFinal, playersRemaining, alig
   return (
     <Stack spacing={0.25} sx={{ minWidth: 0, alignItems: align === 'right' ? 'flex-end' : 'flex-start', textAlign: align }}>
       {eyebrow && (
-        <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: '0.08em', color: mine ? 'primary.main' : 'text.secondary' }}>
+        <Typography
+          variant="caption"
+          sx={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: mine ? 'var(--dash-accent)' : 'var(--dash-dim)' }}
+        >
           {eyebrow}
         </Typography>
       )}
-      <Typography variant="body2" sx={{ fontWeight: 600, maxWidth: '100%' }} noWrap title={name}>{name}</Typography>
-      <Typography sx={{ fontSize: 40, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{formatScore(score)}</Typography>
-      {detail && <Typography variant="caption" color="text.secondary">{detail}</Typography>}
+      <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 600, maxWidth: '100%' }} noWrap title={name}>{name}</Typography>
+      {/* The opponent's score steps back to `dash-dim`, as the boards draw it. */}
+      <Typography sx={{ ...scoreSx, fontSize: { xs: 40, sm: 48 }, color: mine ? 'var(--dash-ink)' : 'var(--dash-dim)' }}>{formatScore(score)}</Typography>
+      {detail && <Typography variant="caption" sx={{ ...dimSx, fontSize: '12px' }}>{detail}</Typography>}
     </Stack>
   );
 }
@@ -290,7 +326,7 @@ function resultText(matchup) {
 
 function PickemLine({ pickem }) {
   return (
-    <Typography variant="body2" color="text.secondary">
+    <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>
       {`Picks · ${pickem.made} of ${pickem.total} made`}
     </Typography>
   );
@@ -301,8 +337,8 @@ function FantasyBody({ league, status }) {
   if (!matchup) {
     return (
       <Box sx={{ px: 2.5, py: 2.5 }}>
-        <Typography variant="h6" component="p" sx={{ fontWeight: 600 }}>Bye week</Typography>
-        <Typography variant="body2" color="text.secondary">No matchup this week.</Typography>
+        <Typography variant="h6" component="p" sx={{ fontFamily: DISPLAY_FONT, fontSize: '24px', fontWeight: 700, textTransform: 'uppercase' }}>Bye week</Typography>
+        <Typography variant="body2" sx={dimSx}>No matchup this week.</Typography>
         {status.pickem && <PickemLine pickem={status.pickem} />}
       </Box>
     );
@@ -328,7 +364,10 @@ function FantasyBody({ league, status }) {
         />
         <Typography
           component="span"
-          sx={{ fontWeight: 600, color: 'text.secondary', border: 1, borderColor: 'divider', borderRadius: 999, px: 1.25, py: 0.5, fontSize: 14 }}
+          sx={{
+            fontFamily: DISPLAY_FONT, fontWeight: 600, fontSize: 15, color: 'var(--dash-dim)',
+            border: '1px solid var(--dash-line-strong)', borderRadius: 999, px: 1.25, py: 0.5,
+          }}
         >
           VS
         </Typography>
@@ -343,7 +382,7 @@ function FantasyBody({ league, status }) {
       <Box sx={{ px: 2.5, pt: 1, pb: 2 }}>
         {showOdds && <WinProbabilityBar mine={myWinProbability(matchup)} opponentName={opponentName} />}
         {matchup.status === 'final' && resultText(matchup) && (
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{resultText(matchup)}</Typography>
+          <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 700 }}>{resultText(matchup)}</Typography>
         )}
         {status.pickem && <Box sx={{ mt: 1 }}><PickemLine pickem={status.pickem} /></Box>}
       </Box>
@@ -366,7 +405,7 @@ function PicksStrip({ made, total, week }) {
         <Box
           key={i}
           data-testid="pick-cell-made"
-          sx={{ height: 28, borderRadius: 1.5, bgcolor: 'primary.main', color: 'primary.contrastText', display: 'grid', placeItems: 'center' }}
+          sx={{ height: 28, borderRadius: '6px', backgroundColor: 'var(--dash-accent)', color: 'var(--dash-on-accent)', display: 'grid', placeItems: 'center' }}
         >
           <CheckIcon sx={{ fontSize: 14 }} aria-hidden="true" />
         </Box>
@@ -374,7 +413,7 @@ function PicksStrip({ made, total, week }) {
         <Box
           key={i}
           data-testid="pick-cell-open"
-          sx={{ height: 28, boxSizing: 'border-box', borderRadius: 1.5, border: '2px dashed', borderColor: 'text.secondary' }}
+          sx={{ height: 28, boxSizing: 'border-box', borderRadius: '6px', border: '2px dashed var(--dash-dim)' }}
         />
       )))}
     </Box>
@@ -386,11 +425,11 @@ function PickemBody({ status }) {
   return (
     <Stack spacing={1.75} sx={{ p: 2.5 }}>
       <Stack direction="row" alignItems="baseline" spacing={1.25}>
-        <Typography component="span" sx={{ fontSize: 40, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+        <Typography component="span" sx={{ ...scoreSx, fontSize: { xs: 40, sm: 48 } }}>
           {made}
-          <Box component="span" sx={{ color: 'text.secondary' }}>{`/${total}`}</Box>
+          <Box component="span" sx={dimSx}>{`/${total}`}</Box>
         </Typography>
-        <Typography component="span" variant="body2" color="text.secondary">
+        <Typography component="span" variant="body2" sx={{ ...dimSx, fontSize: '14px' }}>
           {status.week ? `Week ${status.week} picks made` : 'Picks made'}
         </Typography>
       </Stack>
@@ -414,7 +453,13 @@ function SeatGrid({ filled, max }) {
           component="li"
           key={i}
           data-testid="seat-filled"
-          sx={{ height: 40, borderRadius: 2.5, bgcolor: 'action.selected', display: 'grid', placeItems: 'center', typography: 'caption', fontWeight: 700 }}
+          sx={{
+            height: 40, boxSizing: 'border-box', borderRadius: 'var(--dash-radius-sm)', display: 'grid', placeItems: 'center',
+            fontSize: '13px', fontWeight: 700, color: 'var(--dash-ink)',
+            // The viewer's own seat on the raised tile; the others as stat tiles.
+            backgroundColor: i === 0 ? 'var(--dash-surface3)' : 'var(--dash-surface2)',
+            border: i === 0 ? 0 : HAIRLINE,
+          }}
         >
           {i === 0 ? 'You' : ''}
         </Box>
@@ -424,8 +469,8 @@ function SeatGrid({ filled, max }) {
           key={i}
           data-testid="seat-open"
           sx={{
-            height: 40, boxSizing: 'border-box', borderRadius: 2.5, border: '2px dashed', borderColor: 'text.secondary',
-            display: 'grid', placeItems: 'center', typography: 'caption', color: 'text.secondary',
+            height: 40, boxSizing: 'border-box', borderRadius: 'var(--dash-radius-sm)', border: '2px dashed var(--dash-dim)',
+            display: 'grid', placeItems: 'center', fontSize: '12px', color: 'var(--dash-dim)',
           }}
         >
           Open
@@ -450,18 +495,25 @@ function InviteCode({ code }) {
       direction="row"
       alignItems="center"
       spacing={1.25}
-      sx={{ pl: 1.75, pr: 1, py: 1, borderRadius: 2.5, bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}
+      sx={{ pl: 1.75, pr: 1, py: 1, borderRadius: 'var(--dash-radius-sm)', backgroundColor: 'var(--dash-surface2)', border: HAIRLINE }}
     >
-      <Typography variant="caption" sx={{ fontWeight: 600, letterSpacing: '0.07em', color: 'text.secondary', textTransform: 'uppercase' }}>
+      <Typography variant="caption" sx={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.07em', color: 'var(--dash-dim)', textTransform: 'uppercase' }}>
         Invite code
       </Typography>
-      <Box component="code" sx={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 600, letterSpacing: '0.06em' }}>{code}</Box>
+      <Box component="code" sx={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 600, letterSpacing: '0.06em', color: 'var(--dash-ink)' }}>{code}</Box>
+      {/* Its own card-surface fill, as the board draws it: ink on a card. */}
       <Button
         variant="outlined"
         onClick={copy}
         aria-label={`Copy invite code ${code}`}
         startIcon={<ContentCopyIcon aria-hidden="true" />}
-        sx={{ ...MIN_TOUCH_TARGET_SX, ml: 'auto !important' }}
+        sx={{
+          ...ghostButtonSx,
+          ...MIN_TOUCH_TARGET_SX,
+          ml: 'auto !important',
+          backgroundColor: 'var(--dash-surface)',
+          '&:hover': { ...ghostButtonSx['&:hover'], backgroundColor: 'var(--dash-surface)' },
+        }}
       >
         Copy
       </Button>
@@ -478,18 +530,34 @@ function DraftBody({ league, status }) {
   return (
     <Stack spacing={1.75} sx={{ p: 2.5 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="baseline">
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>Seats</Typography>
-        <Typography variant="body2" color="text.secondary">{`${seatsFilled} of ${maxTeams} seats filled`}</Typography>
+        <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 600 }}>Seats</Typography>
+        <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{`${seatsFilled} of ${maxTeams} seats filled`}</Typography>
       </Stack>
       <SeatGrid filled={seatsFilled} max={maxTeams} />
       {!drafting && draft.date && (
-        <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          flexWrap="wrap"
+          useFlexGap
+          // The shared Countdown's chip paints app tokens; here it is ink on
+          // the raised tile, with tabular numerals.
+          sx={{
+            '& .MuiChip-root': {
+              backgroundColor: 'var(--dash-surface3)',
+              color: 'var(--dash-ink)',
+              fontWeight: 600,
+              fontVariantNumeric: 'tabular-nums',
+            },
+          }}
+        >
           <Countdown variant="chip" date={draft.date} timeZone={draft.timezone} />
-          <Typography variant="body2" color="text.secondary">{formatViewerLocalSchedule(draft.date)}</Typography>
+          <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{formatViewerLocalSchedule(draft.date)}</Typography>
         </Stack>
       )}
       {!drafting && !draft.date && (
-        <Typography variant="body2" color="text.secondary">Draft not scheduled yet</Typography>
+        <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>Draft not scheduled yet</Typography>
       )}
       {showInvite && <InviteCode code={league.invite_code} />}
     </Stack>
@@ -501,8 +569,8 @@ function BasicBody({ league, status }) {
   const record = recordText(status.record);
   return (
     <Stack spacing={0.5} sx={{ p: 2.5 }}>
-      <Typography variant="body2" sx={{ fontWeight: 600 }}>{meta?.label || 'League'}</Typography>
-      {record && <Typography variant="body2" color="text.secondary">{`Record ${record}`}</Typography>}
+      <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 600 }}>{meta?.label || 'League'}</Typography>
+      {record && <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px' }}>{`Record ${record}`}</Typography>}
     </Stack>
   );
 }
@@ -552,7 +620,7 @@ function LeagueStatusCard({ league }) {
     footer = (
       <>
         <Standing standing={status.standing} extra={recordText(status.record) ? `${recordText(status.record)} season` : null} />
-        {lock && !done && <Typography variant="body2" color="text.secondary">{`Next lock ${lock}`}</Typography>}
+        {lock && !done && <Typography variant="body2" sx={footerTextSx}>{`Next lock ${lock}`}</Typography>}
         <FooterActions>
           <ActionLink primary={!done} to={`${base}/pickem`}>{done ? 'View picks' : 'Finish picks'}</ActionLink>
         </FooterActions>
@@ -592,7 +660,7 @@ function LeagueStatusCard({ league }) {
       variant="outlined"
       aria-labelledby={headingId}
       data-testid="league-status-card"
-      sx={{ bgcolor: 'background.paper', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 4 }}
+      sx={{ ...panelSx, height: '100%', display: 'flex', flexDirection: 'column' }}
     >
       <CardHeader league={league} headingId={headingId} subline={subline} chip={chip} />
       {body}

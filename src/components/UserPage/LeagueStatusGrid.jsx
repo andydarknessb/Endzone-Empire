@@ -3,6 +3,27 @@ import { Box, Button, Stack } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import LeagueStatusCard, { leagueFilterKeys } from '../common/LeagueStatusCard';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { HAIRLINE, ghostButtonSx } from '../common/homeIslandSx';
+
+// The filter group (Main board): a card-surface track; the pressed filter is
+// the primary treatment (`dash-on-accent` on `dash-accent`), the others
+// `dash-dim` on the card, hover a step up to `dash-surface2` with ink.
+const filterSx = (pressed) => ({
+  ...MIN_TOUCH_TARGET_SX,
+  px: 2,
+  fontSize: '14px',
+  fontWeight: 600,
+  textTransform: 'none',
+  borderRadius: '8px',
+  boxShadow: 'none',
+  color: pressed ? 'var(--dash-on-accent)' : 'var(--dash-dim)',
+  backgroundColor: pressed ? 'var(--dash-accent)' : 'transparent',
+  '&:hover': {
+    boxShadow: 'none',
+    color: pressed ? 'var(--dash-on-accent)' : 'var(--dash-ink)',
+    backgroundColor: pressed ? 'var(--dash-accent)' : 'var(--dash-surface2)',
+  },
+});
 
 // Home v2 slice 3: the My leagues grid with its filter chips. The filters are
 // toggle buttons (aria-pressed), not tabs: they narrow one list in place.
@@ -48,7 +69,15 @@ function LeagueStatusGrid({ leagues }) {
           spacing={0.5}
           useFlexGap
           flexWrap="wrap"
-          sx={{ mb: 2, p: 0.5, borderRadius: 3, border: 1, borderColor: 'divider', bgcolor: 'background.paper', width: 'fit-content', maxWidth: '100%' }}
+          sx={{
+            mb: 2,
+            p: 0.5,
+            borderRadius: '12px',
+            border: HAIRLINE,
+            backgroundColor: 'var(--dash-surface)',
+            width: 'fit-content',
+            maxWidth: '100%',
+          }}
         >
           {offered.map(({ key, label }) => {
             const pressed = active === key;
@@ -61,7 +90,7 @@ function LeagueStatusGrid({ leagues }) {
                 variant={pressed ? 'contained' : 'text'}
                 color={pressed ? 'primary' : 'inherit'}
                 disableElevation
-                sx={{ ...MIN_TOUCH_TARGET_SX, px: 2, fontWeight: 600, color: pressed ? undefined : 'text.secondary' }}
+                sx={filterSx(pressed)}
               >
                 {label}
                 {' '}
@@ -82,7 +111,18 @@ function LeagueStatusGrid({ leagues }) {
 
       {!showAll && filtered.length > VISIBLE_LIMIT && (
         <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
-          <Button variant="outlined" onClick={() => setShowAll(true)} sx={MIN_TOUCH_TARGET_SX}>
+          {/* On the page, so the ghost carries its own card-surface fill. */}
+          <Button
+            variant="outlined"
+            onClick={() => setShowAll(true)}
+            sx={{
+              ...ghostButtonSx,
+              ...MIN_TOUCH_TARGET_SX,
+              px: 2.5,
+              backgroundColor: 'var(--dash-surface)',
+              '&:hover': { ...ghostButtonSx['&:hover'], backgroundColor: 'var(--dash-surface)' },
+            }}
+          >
             {`Show all ${filtered.length} leagues`}
           </Button>
         </Box>
