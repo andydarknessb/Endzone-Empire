@@ -27,6 +27,14 @@
  * While it runs, that transaction can hold a projection cache row a
  * concurrent projection run wants; run it outside the nightly window.
  *
+ * Why 2026 and kickoff only: the board named 2024 and 2025, but the app had no
+ * leagues, lineups or matchups before 2026, so there is nothing real to
+ * replay; the settled 2026 weeks are the only head-to-head matchups with the
+ * lineups that actually played. k is fitted at kickoff only because the
+ * final checkpoint needs no fit (v2 is exactly 0 or 1 once nothing is left
+ * to play); the in-game checkpoints come from the shadow rows
+ * (scripts/win-prob-shadow-report.js), not from history.
+ *
  * Known limits, stated so a reader does not over-read the fit:
  *   - Injury status is today's, not the week's, so it is not applied: an Out
  *     starter is priced at his projection. v1 and v2 share that input.
