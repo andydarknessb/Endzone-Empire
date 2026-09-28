@@ -65,10 +65,14 @@ export const colorTokens = {
     // `dash-*` names duplicate the ROLES of the app tokens (`dash-bg`/`-surface`
     // /`-ink`/`-dim` mirror `bg-page`/`surface`/`text-primary`/`text-muted`) but
     // at the redesign's own darker, higher-contrast values. They are scoped to
-    // the League Dashboard island (ADR 0020) and are NOT transitional: use the
-    // `dash-*` tokens inside the dashboard slices, the app tokens everywhere
-    // else. The two scales coexisting here is the point of keeping them in one
-    // file, so a later merge or divergence is visible in a single place.
+    // the island's surfaces and are NOT transitional: the League Dashboard
+    // (ADR 0020), Game Center and Matchup Detail (ADR 0031), Lineup (ADR 0037),
+    // Pick'em (ADR 0038), Waivers (ADR 0049) and Home, `/user` (ADR 0051; its
+    // files stay under src/components/UserPage). Use the `dash-*` tokens on
+    // those surfaces, the app tokens everywhere else, the app shell's Nav and
+    // Footer included. The two scales coexisting here is the point of keeping
+    // them in one file, so a later merge or divergence is visible in a single
+    // place.
     'dash-bg': '#eef2f6',
     'dash-surface': '#ffffff',
     'dash-surface2': '#f4f7fa',
@@ -219,8 +223,10 @@ export const colorTokens = {
     // rules paint on chips and the primary button, and the `dash-grade-*-text`
     // set is tuned for legible grade TEXT (the fills are unreadable as text).
     // The dashboard (ADR 0020) themes `shared/ui` and its widgets from these
-    // names via the usual --var flattening; every ink-on-surface pairing is
-    // contrast-guarded in tokens.contrast.test.js for BOTH modes.
+    // names via the usual --var flattening, as does every island surface
+    // since (see the scoping note in the light block, which names them); every
+    // ink-on-surface pairing is contrast-guarded in tokens.contrast.test.js
+    // for BOTH modes.
     'dash-bg': '#0b1015',
     'dash-surface': '#141b23',
     'dash-surface2': '#1b242f',
