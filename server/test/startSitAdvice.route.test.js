@@ -210,6 +210,34 @@ test('the advice endpoint adds model, distribution and coverage fields', async (
   assert.equal(suggestion.verdict, 'start');
 });
 
+test('players[].projection reads 0 for a present entry with no Point estimate and null for an absent one (#1717)', async (t) => {
+  // Wire-level pin for #1703 f1: decision.service.test.js only sees
+  // buildSuggestions totals, which coerce present-null and absent identically,
+  // so it is green with or without the `hasEntry ? (rawPoints == null ? 0 : ...)`
+  // mapping. Only the response body tells 0 (present, no estimate) from null
+  // (absent from the run).
+  const entries = [
+    lineupEntry(1, 'RB', 'RB'),
+    lineupEntry(3, 'RB', 'BENCH'),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    // Player 1 is in the run but has neither mean nor median; player 3 has no
+    // run entry at all.
+    projections: [[1, projectionFor(1, 6, { mean: null, median: null })]],
+  });
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  const byId = new Map(response.body.players.map((p) => [p.playerId, p]));
+  assert.equal(byId.get(1).projection, 0, 'present entry, no Point estimate -> 0');
+  assert.equal(byId.get(3).projection, null, 'absent from the run -> null');
+});
+
 test('advice scopes the projection request to the roster and passes the league', async (t) => {
   const entries = [lineupEntry(1, 'RB', 'RB'), lineupEntry(3, 'RB', 'BENCH')];
   const calls = mockAdviceDependencies(t, {
