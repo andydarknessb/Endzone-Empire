@@ -295,7 +295,11 @@ _Avoid_: standing (that is the league table), form
 
 **Venue**:
 Where an NFL game is played: the stadium, whether it is indoor (weather does
-not apply) and whether it is a neutral site (neither team is at home).
+not apply) and whether it is a neutral site (neither team is at home). The
+key is the venue string nflverse writes into `nfl_games.venue`, never the team,
+so a stadium two teams share is one Venue. Coordinates for the NWS weather
+snapshot come from the static table in `venueCoordinates.js` (#1707): a point
+for a US venue, `null` for a non-US or unknown one, which is skipped.
 _Avoid_: stadium (fine in copy, not as the term), location
 
 **Weather**:

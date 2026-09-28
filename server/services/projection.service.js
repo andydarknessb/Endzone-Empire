@@ -539,8 +539,7 @@ function distinctGamesFor(bundle, playerIds) {
       gameKey: game.game_key,
       kickoffAt: game.kickoff_at,
       roof: game.roof,
-      latitude: game.latitude,
-      longitude: game.longitude,
+      venue: game.venue,
     });
   }
   return [...games.values()];

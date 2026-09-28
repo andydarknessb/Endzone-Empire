@@ -52,8 +52,7 @@ const outdoorGame = (overrides = {}) => ({
   gameKey: '2026_06_NYJ_BUF',
   kickoffAt: KICKOFF,
   roof: 'outdoors',
-  latitude: 42.7738,
-  longitude: -78.787,
+  venue: 'Highmark Stadium',
   ...overrides,
 });
 
@@ -221,21 +220,68 @@ test('a timeout produces neutral weather rather than an error', async (t) => {
   assert.equal(result.coverage.status, 'unavailable');
 });
 
-test('a game with no verified coordinates reports unavailable and makes no request', async (t) => {
+test('an unknown venue reports unavailable and makes no request', async (t) => {
   withUserAgent(t);
   forbidRealNetwork(t);
   const calls = [];
-  // This is the SHIPPING state: nfl_games.latitude/longitude are nullable and
-  // no authoritative stadium-coordinate source is wired up, so weather is
-  // honestly unavailable rather than guessed from an invented coordinate.
+  // A venue string the table has never seen is honestly unavailable rather
+  // than guessed from an invented coordinate.
   const result = await weather.getForecastsForGames({
     season: 2026, week: 6,
-    games: [outdoorGame({ latitude: null, longitude: null })],
+    games: [outdoorGame({ venue: 'Some Future Stadium' }), outdoorGame({ gameKey: 'g2', venue: null })],
     now: NOW, transport: recordingTransport(calls), client: stubClient(),
   });
   assert.deepEqual(calls, []);
   assert.equal(result.coverage.status, 'unavailable');
   assert.match(result.coverage.reason, /coordinates/);
+});
+
+test('coordinates come from the venue table, never from nfl_games.latitude/longitude', async (t) => {
+  withUserAgent(t);
+  forbidRealNetwork(t);
+  const calls = [];
+  // The row's own columns point at the middle of the Atlantic; the venue is Buffalo.
+  const result = await weather.getForecastsForGames({
+    season: 2026, week: 6,
+    games: [outdoorGame({ latitude: 0.5, longitude: 0.5 })],
+    now: NOW, transport: recordingTransport(calls), client: stubClient(),
+  });
+  assert.match(calls[0], /\/points\/42\.7738,-78\.7870$/);
+  assert.equal(result.byGame.get('2026_06_NYJ_BUF').shortForecast, 'Windy');
+
+  const columnsOnly = await weather.getForecastsForGames({
+    season: 2026, week: 6,
+    games: [outdoorGame({ venue: null, latitude: 42.7738, longitude: -78.787 })],
+    now: NOW, transport: recordingTransport([]), client: stubClient(),
+  });
+  assert.equal(columnsOnly.coverage.status, 'unavailable');
+});
+
+test('a shared venue, a non-US venue and an unknown venue in one week', async (t) => {
+  withUserAgent(t);
+  forbidRealNetwork(t);
+  const calls = [];
+  const result = await weather.getForecastsForGames({
+    season: 2026, week: 6,
+    games: [
+      // Same stadium, two different home teams: both resolve to SoFi.
+      outdoorGame({ gameKey: '2026_06_LV_LAR', venue: 'SoFi Stadium' }),
+      outdoorGame({ gameKey: '2026_06_KC_LAC', venue: 'SoFi Stadium' }),
+      // Non-US: skipped without error, no request.
+      outdoorGame({ gameKey: '2026_06_JAX_LAR', venue: 'Tottenham Hotspur Stadium' }),
+      // Unknown string: skipped without error, no request.
+      outdoorGame({ gameKey: '2026_06_XXX_YYY', venue: 'Not A Real Stadium' }),
+    ],
+    now: NOW, transport: recordingTransport(calls), client: stubClient(),
+  });
+  const pointCalls = calls.filter((url) => url.includes('/points/'));
+  assert.equal(pointCalls.length, 2, 'only the two SoFi games are fetched');
+  for (const url of pointCalls) assert.match(url, /\/points\/33\.9535,-118\.3392$/);
+  assert.equal(result.byGame.get('2026_06_LV_LAR').shortForecast, 'Windy');
+  assert.equal(result.byGame.get('2026_06_KC_LAC').shortForecast, 'Windy');
+  assert.equal(result.byGame.get('2026_06_JAX_LAR'), null);
+  assert.equal(result.byGame.get('2026_06_XXX_YYY'), null);
+  assert.equal(result.coverage.status, 'available');
 });
 
 test('a snapshot cache failure still returns the forecast it fetched', async (t) => {
