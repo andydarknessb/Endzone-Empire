@@ -104,3 +104,40 @@ test('forwards a ref to the underlying button element', () => {
   render(<DashButton ref={ref}>Apply</DashButton>);
   expect(ref.current).toBe(screen.getByRole('button', { name: 'Apply' }));
 });
+
+// The declarations emotion wrote for one element's `&.Mui-disabled` rule.
+const disabledRuleOf = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let found = '';
+  const walk = (rules) => {
+    Array.from(rules).forEach((rule) => {
+      if (rule.media) {
+        walk(rule.cssRules || []);
+        return;
+      }
+      if (rule.selectorText === `.${cls}.Mui-disabled`) found += `${rule.style.cssText};`;
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules));
+  return found;
+};
+
+// Red-tell (Pick'em Save picks, 2026-09-28): with no disabled rule of its
+// own, a disabled primary kept the `dash-accent` fill and MUI's default
+// disabled rule faded only the label, so the pick'em board's Save button
+// read as a live green button with washed-out text. Deleting the primary's
+// `&.Mui-disabled` block turns this red.
+test('a disabled primary drops the accent fill for the dim label on the raised tile', () => {
+  render(<DashButton disabled>Save picks</DashButton>);
+  const rule = disabledRuleOf(screen.getByRole('button', { name: 'Save picks' }));
+  expect(rule).toContain('color: var(--dash-dim)');
+  expect(rule).toContain('background-color: var(--dash-surface3)');
+  expect(rule).toContain('border-color: var(--dash-line-strong)');
+});
+
+test('a disabled ghost keeps its transparent fill with the dim label', () => {
+  render(<DashButton variant="ghost" disabled>Compare rosters</DashButton>);
+  const rule = disabledRuleOf(screen.getByRole('button', { name: 'Compare rosters' }));
+  expect(rule).toContain('color: var(--dash-dim)');
+  expect(rule).toContain('background-color: transparent');
+});
