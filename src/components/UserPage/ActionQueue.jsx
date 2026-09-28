@@ -61,7 +61,7 @@ const DEADLINE_LABEL = {
   picks_open: 'Picks lock',
   trade_review: 'Review ends',
   seats_open: 'Before',
-  waiver_claims: 'Waivers run',
+  waiver_claims: 'Claims clear',
 };
 
 // The deadline column for one item: a micro label, the main value and a

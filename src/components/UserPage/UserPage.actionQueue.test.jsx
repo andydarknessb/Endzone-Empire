@@ -287,6 +287,21 @@ test('a deadline under 24 hours reads relative, and under 2 hours it takes the w
   expect(within(queue).getByText(/Deadlines first · times in /)).toBeInTheDocument();
 });
 
+// CONTEXT.md, Clear time: claims resolve at each player's Clear time, never in
+// a "waiver run", so the deadline column says when the claims clear.
+test('a waiver claims deadline is labelled by its Clear time, not a waiver run', async () => {
+  mockApi({
+    actionItems: actionItemsBody([
+      item({ id: 'w', type: 'waiver_claims', title: '2 claims pending', deadlineAt: inFromNow(5 * HOUR), cta: { label: 'View claims', to: '/league/71/waivers' } }),
+    ]),
+  });
+  renderPage();
+
+  const queue = await findQueue();
+  expect(await within(queue).findByText('Claims clear')).toBeInTheDocument();
+  expect(within(queue).queryByText(/waivers run/i)).not.toBeInTheDocument();
+});
+
 test('when some item types could not be checked, the list says so instead of claiming all caught up', async () => {
   mockApi({ actionItems: actionItemsBody([], { partial: ['picks_open'] }) });
   renderPage();

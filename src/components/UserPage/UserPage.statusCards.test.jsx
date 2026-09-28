@@ -342,6 +342,20 @@ test('a pre-draft card shows seat counts, a countdown, the invite code and the d
   expectTouchTarget(draftRoom);
 });
 
+// CONTEXT.md, Draft timezone: every Manager sees the draft in their own local
+// time first. 10:00 UTC is already the next day in the league's zone (UTC+14)
+// but still Oct 10 for any viewer from UTC-10 to UTC+13, so a chip that
+// formatted the day in the league's zone would read Oct 11 beside a schedule
+// line that says Oct 10.
+test("the pre-draft chip names the draft day in the viewer's zone, not the league's", async () => {
+  mockLeagues([preDraftLeague({ date: '2099-10-10T10:00:00.000Z', timezone: 'Pacific/Kiritimati' })]);
+  renderPage();
+
+  const card = within(await cardFor('Dynasty Startup'));
+  expect(card.getByText('Draft Oct 10')).toBeInTheDocument();
+  expect(card.queryByText('Draft Oct 11')).not.toBeInTheDocument();
+});
+
 test('a full pre-draft league hides the invite code', async () => {
   mockLeagues([preDraftLeague({ seatsFilled: 12 })]);
   renderPage();

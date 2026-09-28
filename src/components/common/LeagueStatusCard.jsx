@@ -117,15 +117,12 @@ function formatLockTime(iso) {
   return new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(date);
 }
 
-function formatDraftDay(iso, timeZone) {
+// The day in the viewer's own zone, matching the schedule line beside it
+// (CONTEXT.md, Draft timezone: local time first, the league's zone second).
+function formatDraftDay(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  const options = { month: 'short', day: 'numeric' };
-  try {
-    return new Intl.DateTimeFormat(undefined, timeZone ? { ...options, timeZone } : options).format(date);
-  } catch (err) {
-    return new Intl.DateTimeFormat(undefined, options).format(date);
-  }
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
 }
 
 /** 0..1 chance the viewer's side wins: the server's figure once v2 ships, else v1. */
@@ -634,7 +631,7 @@ function LeagueStatusCard({ league }) {
     );
   } else if (variant === 'draft') {
     const drafting = leaguePhaseOf(league) === LEAGUE_PHASE.DRAFTING;
-    const day = status.draft.date ? formatDraftDay(status.draft.date, status.draft.timezone) : null;
+    const day = status.draft.date ? formatDraftDay(status.draft.date) : null;
     subline = [league.my_team_name, role, SCORING_LABELS[league.scoring_preset]].filter(Boolean).join(' · ');
     let chipLabel = 'Pre-draft';
     if (drafting) chipLabel = 'Draft live';

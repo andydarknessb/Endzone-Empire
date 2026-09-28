@@ -226,7 +226,7 @@ before the lock), `picks_open` (pick'em picks still to make), `trade_review`
 `seats_open` (a Commissioner's league short of teams before its draft),
 `trade_offer` (a pending trade offered to the Manager's Team),
 `join_requests` (join requests awaiting a Commissioner) and `waiver_claims`
-(pending claims before waivers run). An Action item resolves when the
+(pending claims before their Clear time). An Action item resolves when the
 underlying state resolves (the lineup is fixed, the pick made, the vote cast),
 never when a notification is read, so it is not read or dismissed, only
 refetched. On Home the Manager's open Action items, ranked blocking, then timed
