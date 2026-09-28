@@ -133,8 +133,10 @@ function UpgradeCell({ upgrade }) {
   );
 }
 
-/** Ownership: null on every row until #1308 lands (ADR 0040 Lead correction
- * item 4) - renders nothing, not an "unavailable" label or a dash glyph. */
+/** Ownership: the row's latest ESPN share (`{ share, change }` from the
+ * view=cards read, ADR 0041). null when ESPN has no snapshot for the player -
+ * renders nothing then, not an "unavailable" label or a dash glyph (ADR 0040
+ * Lead correction item 4). */
 function OwnershipCell({ ownership }) {
   const value = typeof ownership === 'number' ? ownership : ownership?.share;
   if (value == null) return null;

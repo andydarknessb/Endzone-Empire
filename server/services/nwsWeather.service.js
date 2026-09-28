@@ -1,6 +1,7 @@
 const axios = require('axios');
 const pool = require('../modules/pool');
 const { isPresentNumber: isRealNumber } = require('./numericPresence');
+const { coordinatesForVenue } = require('./venueCoordinates');
 
 /**
  * Free game-day weather context from the US National Weather Service.
@@ -26,12 +27,11 @@ const { isPresentNumber: isRealNumber } = require('./numericPresence');
  *    reuse one forecast; a forecast pulled five days out does not overwrite
  *    the one pulled near kickoff.
  *
- * Coordinates come from `nfl_games.latitude/longitude`, which are nullable and
- * currently unpopulated: no authoritative stadium-coordinate source is wired
- * into this app, and inventing coordinates would produce a confident forecast
- * for the wrong place. Until a verified source is added, this module is a
- * fully-built, fully-tested provider boundary that honestly reports
- * "unavailable" — which is exactly what the UI renders.
+ * Coordinates come from the static venue table in `venueCoordinates.js`, keyed
+ * on `nfl_games.venue` (#1707). `nfl_games.latitude/longitude` are nullable,
+ * never populated, and deliberately ignored. A non-US or unknown venue
+ * resolves to null and that game honestly reports "unavailable" rather than a
+ * confident forecast for a guessed place.
  */
 
 // Roof values (nflverse vocabulary) that mean "no weather at field level".
@@ -202,7 +202,7 @@ async function saveSnapshot({ season, week, gameKey, horizonHours, forecast, cli
  * `{ status: 'unavailable' }`.
  *
  * `games` are the distinct games (one entry per game_key, not per team) with
- * `{ gameKey, kickoffAt, roof, latitude, longitude }`.
+ * `{ gameKey, kickoffAt, roof, venue }`.
  */
 async function getForecastsForGames({
   season,
@@ -236,7 +236,16 @@ async function getForecastsForGames({
 
   const outdoor = distinct.filter((game) => !isIndoorGame(game));
   const indoorCount = distinct.length - outdoor.length;
-  const locatable = outdoor.filter((game) => isRealNumber(game.latitude) && isRealNumber(game.longitude));
+  // Coordinates come from the venue table (#1707), never from the game row: a
+  // non-US or unknown venue resolves to null and the game is skipped here, so
+  // it costs no request and cannot raise.
+  const locatable = [];
+  for (const game of outdoor) {
+    const coordinates = coordinatesForVenue(game.venue);
+    if (coordinates && isRealNumber(coordinates.latitude) && isRealNumber(coordinates.longitude)) {
+      locatable.push({ ...game, latitude: coordinates.latitude, longitude: coordinates.longitude });
+    }
+  }
   for (const game of distinct) {
     if (isIndoorGame(game)) {
       byGame.set(game.gameKey, {

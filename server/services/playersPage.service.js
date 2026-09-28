@@ -94,6 +94,48 @@ async function watchlistWatchingForManySafe({ teamId, playerIds }) {
   }
 }
 
+// view=cards `ownership` (ADR 0041): each row's latest `player_ownership`
+// snapshot (the daily ESPN Ownership Sync, #1382) as `{ share, change }`,
+// share rounded to the tenth the Decision card shows. ONE read for the whole
+// page, over every identity id so a duplicate identity row still finds the
+// ESPN-matched row's snapshot. null when ESPN has no row for the player.
+async function ownershipForMany(db, players) {
+  const identityIds = [
+    ...new Set(players.flatMap((player) => player.identity_ids || [player.id])),
+  ];
+  const byPlayerId = new Map();
+  if (identityIds.length === 0) return byPlayerId;
+  const result = await db.query(
+    `SELECT DISTINCT ON ("player_id") "player_id", "percent_owned", "percent_change"
+     FROM "player_ownership" WHERE "player_id" = ANY($1)
+     ORDER BY "player_id", "captured_date" DESC`,
+    [identityIds],
+  );
+  const rowById = new Map(result.rows.map((row) => [Number(row.player_id), row]));
+  for (const player of players) {
+    const ids = [player.id, ...(player.identity_ids || [])];
+    const row = ids.map((id) => rowById.get(Number(id))).find((candidate) => candidate && candidate.percent_owned != null);
+    if (!row) continue;
+    byPlayerId.set(player.id, {
+      share: Math.round(Number(row.percent_owned) * 10) / 10,
+      change: row.percent_change != null ? Number(row.percent_change) : null,
+    });
+  }
+  return byPlayerId;
+}
+
+// Ownership is enrichment, the same tier as `watching`: a failed read leaves
+// every row's Ownership null (the Waivers page then hides the column) rather
+// than failing the whole page.
+async function ownershipForManySafe(db, players) {
+  try {
+    return await ownershipForMany(db, players);
+  } catch (error) {
+    console.error('Error reading player ownership', error);
+    return new Map();
+  }
+}
+
 async function attachLeagueAvailability(db, players, { leagueId, teamId, blanketWaiversOpen }) {
   const identityIds = [
     ...new Set(players.flatMap((player) => player.identity_ids || [player.id])),
@@ -611,7 +653,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
       playerIds: pagePlayers.map((p) => p.id),
     });
 
-    const [availabilityMap, weeksByPlayer, rosMap, watchingMap] = await Promise.all([
+    const [availabilityMap, weeksByPlayer, rosMap, watchingMap, ownershipMap] = await Promise.all([
       playerCardService.availabilityForMany({ league, team: memberTeam, players: pagePlayers }),
       playerCardService.buildWeeksForPage({
         league,
@@ -625,6 +667,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
       // #1312 Ruling: `watching` rides the SAME view=cards row every other
       // caller-scoped field does, one batched read for the whole page.
       watchlistWatchingForManySafe({ teamId: memberTeam.id, playerIds: pagePlayers.map((p) => p.id) }),
+      ownershipForManySafe(db, pagePlayers),
     ]);
 
     for (const p of pagePlayers) {
@@ -635,7 +678,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
       p.projWeek = weeks[0] || null;
       const ros = rosMap.get(p.id) || { total: 0, perGame: 0 };
       p.ros = { points: ros.total, perGame: ros.perGame, posRank: null, throughWeek: seasonEnd };
-      p.ownership = null;
+      p.ownership = ownershipMap.get(p.id) ?? null;
       p.trend = null;
       p.depth = null;
       p.watching = watchingMap.get(p.id) ?? false;
