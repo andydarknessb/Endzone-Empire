@@ -51,3 +51,43 @@ describe('formatTimeSince', () => {
     expect(formatTimeSince(new Date(NOW - M).toISOString())).toBe('1m ago');
   });
 });
+
+// One time-since ladder for the app: the recent-activity card's compact style
+// is an option here, not a second copy (its acceptance criteria name the
+// "Yesterday" step and weekday-only names).
+describe('formatTimeSince options', () => {
+  // Local Y/M/D/H/M components so the weekday buckets land on the same wall
+  // calendar day in any runner zone. September 9, 2026 is a Wednesday.
+  const WED = new Date(2026, 8, 9, 18, 0, 0).getTime();
+  const hoursAgo = (h) => WED - h * H;
+  const pinned = { now: WED, locale: 'en-US' };
+
+  test('now and locale pin the output', () => {
+    expect(formatTimeSince(hoursAgo(2), { now: WED })).toBe('2h ago');
+    expect(formatTimeSince(hoursAgo(2), { now: new Date(WED) })).toBe('2h ago');
+    expect(formatTimeSince(WED - 4 * 24 * H, pinned)).toBe('Sat 6:00 PM');
+  });
+
+  test('rounds down, like every countdown', () => {
+    expect(formatTimeSince(WED - (44 * M + 40 * 1000), pinned)).toBe('44m ago');
+    expect(formatTimeSince(hoursAgo(23.9), pinned)).toBe('23h ago');
+  });
+
+  test('compact reads "Yesterday" for the day before, then the weekday alone', () => {
+    const compact = { ...pinned, compact: true };
+    expect(formatTimeSince(WED - 10 * 1000, compact)).toBe('just now');
+    expect(formatTimeSince(hoursAgo(23), compact)).toBe('23h ago');
+    expect(formatTimeSince(hoursAgo(30), compact)).toBe('Yesterday');
+    expect(formatTimeSince(WED - 4 * 24 * H, compact)).toBe('Sat');
+    expect(formatTimeSince(WED - 10 * 24 * H, compact)).toBe('Aug 30');
+    expect(formatTimeSince(new Date(2025, 0, 15, 12, 0, 0), compact)).toBe('Jan 15, 2025');
+  });
+
+  test('absent or unreadable input is null, never the Unix epoch', () => {
+    expect(formatTimeSince(null, pinned)).toBeNull();
+    expect(formatTimeSince(undefined, pinned)).toBeNull();
+    expect(formatTimeSince('', pinned)).toBeNull();
+    expect(formatTimeSince('not-a-date', pinned)).toBeNull();
+    expect(formatTimeSince(new Date('invalid'), pinned)).toBeNull();
+  });
+});

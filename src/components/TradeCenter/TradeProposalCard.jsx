@@ -6,7 +6,7 @@ import { PlayerNameLink } from '../../entities/player';
 // 0031's #1146 amendment) - the index would pull the whole kit, and
 // shared/lib's useEndpoint through it, into this bundle.
 import TeamAvatar from '../../shared/ui/TeamAvatar';
-import { formatTimeSince } from '../../utils/formatTimeSince';
+import { formatTimeSince } from '../../shared/lib/formatTimeSince';
 
 const STATUS_COLOR = {
   pending: 'warning',

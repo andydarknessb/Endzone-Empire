@@ -40,7 +40,7 @@ import { activityFromRow } from '../../entities/activity';
 import LeagueBreadcrumb from '../LeagueBreadcrumb/LeagueBreadcrumb';
 import PlayerDecisionCard, { fromCard } from '../../widgets/player-decision-card';
 import { PlayerNameLink } from '../../entities/player';
-import { formatTimeSince } from '../../utils/formatTimeSince';
+import { formatTimeSince } from '../../shared/lib/formatTimeSince';
 
 const PAGE_SIZE = 30;
 

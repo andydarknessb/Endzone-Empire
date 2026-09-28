@@ -1,8 +1,8 @@
 // Named formats for showing an instant (spec #1737). The weekday-and-time
 // format began as the island's shared Kickoff formatter, "Sun 7:20 PM" (#1120,
 // ADR 0031), promoted from three private copies whose signatures had drifted;
-// the other formats joined it for the same reason, so a surface picks a name here instead of writing a seventh
-// Intl.DateTimeFormat of its own.
+// the other formats joined it for the same reason, so a surface picks a name
+// here instead of writing a seventh Intl.DateTimeFormat of its own.
 //
 // Every format follows the viewer's own locale and time zone. `timeZone` and
 // `locale` exist so a caller can name a zone (a league's Draft timezone) and a

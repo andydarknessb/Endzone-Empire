@@ -41,88 +41,27 @@ describe('activityBadge', () => {
   });
 });
 
+// The ladder itself (minutes, hours, "Yesterday", weekday, short date) is the
+// shared compact time-since style, tested in shared/lib/formatTimeSince.test.js.
+// The card owns its casing and its empty cell.
 describe('formatActivityTime', () => {
-  // Built from local Y/M/D/H/M components (the `new Date(y, m, d, h, min)`
-  // shape ScoringFeed.test.jsx uses, "times in local clock time so the
-  // formatted output is the viewer's own"), NOT parsed from a UTC 'Z' ISO
-  // string: the Date constructor's numeric-args form is read in the
-  // runner's own local zone, so NOW and every offset below land on the same
-  // wall-clock calendar day in any timezone the suite runs in. Building them
-  // from a UTC instant instead is exactly the bug ArticlePage.test.jsx's own
-  // comment records - "in any timezone west of UTC ... every byline was a
-  // day early" - and it would flip the weekday/date buckets below the same
-  // way. September 9, 2026 is a Wednesday on the Gregorian calendar; that
-  // fact does not depend on timezone.
+  // Local Y/M/D/H/M components so the buckets land on the same wall calendar
+  // day in any runner zone. September 9, 2026 is a Wednesday.
   const NOW = new Date(2026, 8, 9, 18, 0, 0).getTime();
   const hoursAgo = (h) => new Date(NOW - h * 60 * 60 * 1000);
-  const daysAgo = (d) => new Date(NOW - d * 24 * 60 * 60 * 1000);
 
-  // The weekday/short-date buckets format with `toLocaleDateString`, which
-  // also reads the runtime's DEFAULT LOCALE (distinct from timezone) - under
-  // `LANG=de-DE` 'Sat' renders 'Sa' and 'Aug 30' renders '30. Aug'. Pinning
-  // `locale` (formatActivityTime's third argument, the same shape
-  // `formatPlayTime`'s own `locale` param takes) makes those specific
-  // assertions independent of the machine running the suite; every other
-  // bucket below never reaches `toLocaleDateString` and needs no locale.
-  const LOCALE = 'en-US';
+  test('a timestamp under a minute old starts its cell as "Just now"', () => {
+    expect(formatActivityTime(new Date(NOW - 10 * 1000).toISOString(), NOW)).toBe('Just now');
+  });
 
-  test('a timestamp two hours old reads "2h ago"', () => {
+  test('reads the compact style: hours, then "Yesterday", then the weekday', () => {
     expect(formatActivityTime(hoursAgo(2).toISOString(), NOW)).toBe('2h ago');
-  });
-
-  test('a timestamp under a minute old reads "Just now"', () => {
-    const at = new Date(NOW - 10 * 1000);
-    expect(formatActivityTime(at.toISOString(), NOW)).toBe('Just now');
-  });
-
-  test('a timestamp under an hour old reads in minutes', () => {
-    const at = new Date(NOW - 42 * 60 * 1000);
-    expect(formatActivityTime(at.toISOString(), NOW)).toBe('42m ago');
-  });
-
-  test('a timestamp from yesterday (24-48h elapsed) reads "Yesterday"', () => {
     expect(formatActivityTime(hoursAgo(30).toISOString(), NOW)).toBe('Yesterday');
+    expect(formatActivityTime(hoursAgo(4 * 24).toISOString(), NOW, 'en-US')).toBe('Sat');
   });
 
-  test('a timestamp just under 24h old stays in the hour bucket, not "Yesterday"', () => {
-    expect(formatActivityTime(hoursAgo(23).toISOString(), NOW)).toBe('23h ago');
-  });
-
-  test('a timestamp 3-6 days old reads as the short weekday name', () => {
-    // 4 days back from Wednesday Sep 9 is Saturday Sep 5.
-    expect(formatActivityTime(daysAgo(4).toISOString(), NOW, LOCALE)).toBe('Sat');
-  });
-
-  test('a timestamp a week or more old reads as a short date', () => {
-    expect(formatActivityTime(daysAgo(10).toISOString(), NOW, LOCALE)).toBe('Aug 30');
-  });
-
-  test('a timestamp from a prior year carries the year', () => {
-    const at = new Date(2025, 0, 15, 12, 0, 0);
-    expect(formatActivityTime(at.toISOString(), NOW, LOCALE)).toBe('Jan 15, 2025');
-  });
-
-  test('accepts a Date for `now` as well as epoch ms', () => {
-    expect(formatActivityTime(hoursAgo(2).toISOString(), new Date(NOW))).toBe('2h ago');
-  });
-
-  test('null input returns null', () => {
+  test('absent or unreadable input leaves the cell empty', () => {
     expect(formatActivityTime(null, NOW)).toBeNull();
-  });
-
-  test('undefined input returns null', () => {
-    expect(formatActivityTime(undefined, NOW)).toBeNull();
-  });
-
-  test('empty string input returns null', () => {
-    expect(formatActivityTime('', NOW)).toBeNull();
-  });
-
-  test('invalid date string returns null', () => {
     expect(formatActivityTime('not-a-date', NOW)).toBeNull();
-  });
-
-  test('invalid Date object returns null', () => {
-    expect(formatActivityTime(new Date('invalid'), NOW)).toBeNull();
   });
 });

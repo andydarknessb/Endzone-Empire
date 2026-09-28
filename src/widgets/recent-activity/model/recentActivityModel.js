@@ -1,3 +1,5 @@
+import { formatTimeSince } from '../../../shared/lib';
+
 /**
  * Pure presentation helpers for the recent-activity widget (ticket #1105).
  * Both functions are exercised directly by recentActivityModel.test.js and
@@ -52,66 +54,14 @@ export function activityBadge(type) {
   };
 }
 
-const MINUTE_MS = 60 * 1000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-const WEEK_MS = 7 * DAY_MS;
-
 /**
- * The row's timestamp as the card's right-hand relative mark: "Just now" /
- * "Nm ago" / "Nh ago" inside a day, "Yesterday" for the next day back, the
- * short weekday name (e.g. "Mon") through the rest of the week, and a short
- * date beyond that (the year added only when it isn't the current one).
- *
- * Bucketed on ELAPSED time, not calendar-day boundaries: a row logged 90
- * minutes into today reads "1h ago" the same way a row 90 minutes into
- * yesterday's last hour does, rather than one of them jumping to "Yesterday"
- * a few minutes after midnight. This is the same shape `src/utils/
- * formatTimeSince.js` uses; it is not reused here
- * because that helper has no "Yesterday" step and this card's mockup and
- * acceptance criteria both name one explicitly.
- *
- * `now` (epoch ms or a Date) is the clock the buckets are measured against;
- * it defaults to the render time and exists so a test can pin it. `locale`
- * threads through to the weekday/date `toLocaleDateString` calls exactly the
- * way `scoring-feed/model/scoringFeedModel.js`'s `formatPlayTime` takes one:
- * `undefined` in production (the viewer's own locale), pinned to a fixed
- * value by a test so the asserted string does not depend on the machine
- * running it.
+ * The row's timestamp as the card's right-hand relative mark: the app's one
+ * time-since ladder in its compact style ("2h ago", "Yesterday", "Mon", then a
+ * short date; shared/lib formatTimeSince), capitalized because it starts a
+ * cell of its own ("Just now"). `now` and `locale` pin the output for a test.
+ * Absent or unreadable input is null, so the cell renders nothing.
  */
 export function formatActivityTime(at, now = Date.now(), locale) {
-  // Guard against null and undefined before constructing a Date.
-  // new Date(null) is the Unix epoch, not an Invalid Date (#1122): without
-  // this guard, null becomes "Dec 31, 1969" instead of rendering nothing.
-  if (at == null || at === '') {
-    return null;
-  }
-
-  // Guard against invalid Date objects before date math (#1122).
-  if (at instanceof Date && Number.isNaN(at.getTime())) {
-    return null;
-  }
-
-  const date = at instanceof Date ? at : new Date(at);
-
-  // Return null if the parsed date is invalid
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  const nowMs = now instanceof Date ? now.getTime() : now;
-  const diffMs = Math.max(0, nowMs - date.getTime());
-
-  if (diffMs < MINUTE_MS) return 'Just now';
-  if (diffMs < HOUR_MS) return `${Math.floor(diffMs / MINUTE_MS)}m ago`;
-  if (diffMs < DAY_MS) return `${Math.floor(diffMs / HOUR_MS)}h ago`;
-  if (diffMs < 2 * DAY_MS) return 'Yesterday';
-  if (diffMs < WEEK_MS) return date.toLocaleDateString(locale, { weekday: 'short' });
-
-  const sameYear = date.getFullYear() === new Date(nowMs).getFullYear();
-  return date.toLocaleDateString(locale, {
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' }),
-  });
+  const text = formatTimeSince(at, { now, locale, compact: true });
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : null;
 }

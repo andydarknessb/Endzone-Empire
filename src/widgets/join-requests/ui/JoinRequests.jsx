@@ -3,8 +3,7 @@ import { Avatar, Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, Skeleton } from '../../../shared/ui';
 import DecideJoinRequest from '../../../features/decide-join-request';
-import { initialsFor, teamNameLabel } from '../../../shared/lib';
-import formatTimeSince from '../../../utils/formatTimeSince';
+import { formatTimeSince, initialsFor, teamNameLabel } from '../../../shared/lib';
 import useJoinRequests from '../model/useJoinRequests';
 
 /**

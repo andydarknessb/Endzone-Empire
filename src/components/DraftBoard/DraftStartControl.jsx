@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { formatTimeSince } from '../../utils/formatTimeSince';
+import { formatTimeSince } from '../../shared/lib/formatTimeSince';
 import { readHttpFailure } from '../../lib/httpFailure';
 
 /**
