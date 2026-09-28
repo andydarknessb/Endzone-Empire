@@ -116,8 +116,7 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
     if (projections instanceof Error) throw projections;
     // A minimal stand-in for the real result object (#1703): just the one
     // accessor `expectedFinalsForWeek` actually calls, `pointsFor`, reading
-    // this file's legacy-shaped `{ points }` fixtures the same way
-    // `toLegacyProjectionMap` used to hand them over.
+    // this file's legacy-shaped `{ points }` fixtures.
     return {
       modelVersion: 'test',
       projections,

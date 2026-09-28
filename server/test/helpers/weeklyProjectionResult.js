@@ -2,8 +2,8 @@ const projectionService = require('../../services/projection.service');
 
 /**
  * Builds the real Weekly projection result object (`toWeeklyProjectionResult`,
- * #1702/#1703) from a suite's legacy-shaped fixture map - the same two shapes
- * `toLegacyProjectionMap` has always produced: a bare number, or
+ * #1702/#1703) from a suite's legacy-shaped fixture map - two fixture shapes
+ * (the retired legacy map's, #1704): a bare number, or
  * `{ points, projection: { mean, median, p10, p25, p75, p90 }, factors,
  * confidence, activeProbability }`. `mean`/`median` fall back to `points`
  * only when the distribution itself does not specify them, so a fixture that

@@ -90,8 +90,7 @@ function buildHandlers({
  * fixed point value (mean and median both set to it, so either ranking
  * statistic reads it the same) and/or `factors`, from a bare number (every
  * pre-existing test) or a full `{ points, factors }` entry (the
- * opponentRankVsPosition cases) - the same two shapes callers used to hand
- * `toLegacyProjectionMap`. Anything `weekPoints` does not cover falls back to
+ * opponentRankVsPosition cases) - the two fixture shapes. Anything `weekPoints` does not cover falls back to
  * `weeklyProjection(week, id)`.
  */
 function rawEntryFor(weekPoints, weeklyProjection, week, id) {
