@@ -267,6 +267,34 @@ test('#1562 arm (a): a new playerID whose numeric espnID matches an existing ext
   fake.assertClean();
 });
 
+test('#1562 arm (a): the batch anchor seed is used even when SELECT returns no rows', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
+        { playerID: '999', longName: 'Davante Adamms', pos: 'WR', team: 'LAR', espnID: '16800' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.deepEqual(insertParams[0], ['16800'], 'only the anchor entry is inserted');
+  assert.equal(result.playersUpserted, 1);
+  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '999', matchedExternalId: '16800' }],
+    'the espnID collision is caught by the batch-seeded anchor, even with empty SELECT');
+  fake.assertClean();
+});
+
 test('#1562: a teamed same-name player under a new playerID still inserts (a real second athlete, not a duplicate)', async (t) => {
   const api = async () => ({
     data: {
@@ -290,6 +318,33 @@ test('#1562: a teamed same-name player under a new playerID still inserts (a rea
   assert.deepEqual(insertParams[0], ['2589699'], 'a teamed same-name player is a distinct athlete, never folded away');
   assert.equal(result.playersUpserted, 1);
   assert.deepEqual(result.skippedDuplicateIdentity, []);
+  fake.assertClean();
+});
+
+test('#1562 arm (b): the SELECT anchor is used even when the batch has no matching teamed entry', async (t) => {
+  const api = async () => ({
+    data: {
+      body: [
+        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
+      ],
+    },
+  });
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncPlayers({ season: 2026, api });
+
+  assert.equal(insertParams, null, 'no INSERT ran: the teamless entry was refused by the SELECT anchor');
+  assert.equal(result.playersUpserted, 0);
+  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }],
+    'refused against arm (b) anchor from SELECT, even though batch had no matching teamed entry');
   fake.assertClean();
 });
 
