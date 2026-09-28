@@ -87,7 +87,7 @@ test("fetches and renders the user's leagues on mount", async () => {
 
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.getByText("Team: alice's Team")).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledWith('/api/league');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/league', { params: { include: 'status' } });
 });
 
 test('shows an error alert when fetching leagues fails', async () => {

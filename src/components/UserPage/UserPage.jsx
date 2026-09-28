@@ -13,7 +13,7 @@ import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import Countdown from '../Countdown/Countdown';
-import LeagueCard from '../common/LeagueCard';
+import LeagueStatusGrid from './LeagueStatusGrid';
 import LeagueTypeFields from '../common/LeagueTypeFields';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
@@ -142,7 +142,7 @@ function UserPage() {
   const fetchMyLeagues = async () => {
     try {
       setLoadingLeagues(true);
-      const response = await apiClient.get('/api/league');
+      const response = await apiClient.get('/api/league', { params: { include: 'status' } });
       setMyLeagues(response.data);
       setLeaguesError(null);
     } catch (err) {
@@ -434,13 +434,7 @@ function UserPage() {
             </Box>
           </Card>
         ) : (
-          <Grid container spacing={2}>
-            {myLeagues.map((league) => (
-              <Grid xs={12} sm={6} md={4} key={league.id}>
-                <LeagueCard league={league} compact titleComponent="h3" />
-              </Grid>
-            ))}
-          </Grid>
+          <LeagueStatusGrid leagues={myLeagues} />
         )}
 
         {/* Next Up is computed from the leagues list, so it waits for a good
