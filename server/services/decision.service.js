@@ -10,6 +10,7 @@ const {
   getWeekProjections,
   getTradeProjectionMetrics,
 } = require('./projection.service');
+const { poolPointsFor } = require('./poolProjection');
 const {
   optimalLineup,
   parseLineupSettings,
@@ -56,14 +57,6 @@ function round2(x) {
 function finiteNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-/** Accepts either a raw number or a { points, source } projection entry. */
-function pointsOf(projections, playerId) {
-  const value = projections.get(playerId);
-  if (value == null) return 0;
-  const raw = typeof value === 'object' ? value.points : value;
-  return Number(raw) || 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,7 +1055,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
   const currentStarters = starterRows.map((r) => ({
     playerId: r.player_id,
     slot: r.slot,
-    projection: pointsOf(projections, r.player_id),
+    projection: poolPointsFor(projections, r.player_id) || 0,
   }));
 
   const availableResult = await pool.query(
@@ -1079,7 +1072,7 @@ async function waiverSuggestions({ leagueId, userId, season, week }) {
     name: p.name,
     position: p.position,
     nflTeam: p.nfl_team,
-    projection: pointsOf(projections, p.id),
+    projection: poolPointsFor(projections, p.id) || 0,
   }));
 
   const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.rosterSlots);

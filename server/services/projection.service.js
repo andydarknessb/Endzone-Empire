@@ -1,5 +1,7 @@
 const pool = require('../modules/pool');
 const model = require('./projectionModel');
+// The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
+const { poolPointsFor, poolPointsMap } = require('./poolProjection');
 const { unavailableFor } = require('./unavailable');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
@@ -142,7 +144,7 @@ async function getRestOfSeasonProjections({ season, fromWeek, throughWeek }) {
   const weekly = await getWeekProjections({ season, week: fromWeek });
   const remaining = Math.max(0, throughWeek - fromWeek + 1);
   const totals = new Map();
-  for (const [playerId, { points }] of weekly) {
+  for (const [playerId, points] of poolPointsMap(weekly)) {
     totals.set(playerId, Math.round(points * remaining * 100) / 100);
   }
   return totals;
@@ -175,13 +177,7 @@ async function getTradeProjectionMetrics({ playerIds, season, fromWeek, throughW
   const statsByPlayer = new Map(statsResult.rows.map((row) => [row.player_id, row]));
   const remainingWeeks = Math.max(0, Number(throughWeek) - Number(fromWeek) + 1);
   return new Map(ids.map((playerId) => {
-    const projection = weekly.get(playerId);
-    const projectedPoints = projection && typeof projection === 'object'
-      ? projection.points
-      : projection;
-    const perGameProjection = Number.isFinite(Number(projectedPoints))
-      ? Number(projectedPoints)
-      : 0;
+    const perGameProjection = poolPointsFor(weekly, playerId) ?? 0;
     const stats = statsByPlayer.get(playerId) || {};
     const seasonTotalPoints = Number.isFinite(Number(stats.season_total_points))
       ? Number(stats.season_total_points)

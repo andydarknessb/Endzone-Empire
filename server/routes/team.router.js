@@ -11,6 +11,7 @@ const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const { getDraftRoomBroadcast } = require('../modules/draftRoomBroadcast');
 const projectionService = require('../services/projection.service');
+const { poolPointsFor } = require('../services/poolProjection');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -61,11 +62,7 @@ router.get('/roster', async (req, res) => {
       season
     );
     for (const row of result.rows) {
-      const projection = weeklyByPlayer.get(row.id);
-      row.projected_weekly_points =
-        projection && Number.isFinite(Number(projection.points))
-          ? Number(projection.points)
-          : null;
+      row.projected_weekly_points = poolPointsFor(weeklyByPlayer, row.id);
       row.bye_week = byeByTeam.get(row.nfl_team) ?? null;
     }
     res.json(result.rows);
