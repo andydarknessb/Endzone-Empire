@@ -34,7 +34,11 @@
  *     tolerant. A control statement built from a non-literal (a variable or a
  *     helper's return) is out of scope: this guard reads the source, not the
  *     runtime, and a literal is what a copy-pasted hand-rolled site actually
- *     writes.
+ *     writes. `SAVEPOINT name`, `RELEASE SAVEPOINT name` and
+ *     `ROLLBACK TO [SAVEPOINT] name` are NOT scanned: none of the three closes
+ *     the pooled transaction, it stays open around them, and that close still
+ *     belongs to withTransaction - ADR 0033 rules the close, not the work
+ *     inside it (#1723).
  *   - `<x>.release(` - returning a pooled client to the pool. The wrapper's
  *     whole point is that this call, and whether it destroys, is decided in one
  *     place. `.release(` cannot be proven to be a pg client statically, so it is
@@ -251,7 +255,10 @@ function isMemberCall(node, methodName) {
   );
 }
 
-const TXN_STATEMENT = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/i;
+// ROLLBACK TO [SAVEPOINT] name is excluded (negative lookahead on " TO\b"): it
+// closes nothing, the transaction stays open, and its own close still belongs
+// to withTransaction (ADR 0033 rules the close, not the work; #1723).
+const TXN_STATEMENT = /^\s*(BEGIN|COMMIT|ROLLBACK(?!\s+TO\b))\b/i;
 
 /**
  * Name the unit a hit lives in: the OUTERMOST enclosing function that has a
