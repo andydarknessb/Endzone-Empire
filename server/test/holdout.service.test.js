@@ -1713,3 +1713,27 @@ test('the ledger migration carries the load-bearing DDL', () => {
   assert.match(source, /"projection_snapshot_players" ENABLE ROW LEVEL SECURITY/);
   assert.match(source, /"holdout_capture_status" ENABLE ROW LEVEL SECURITY/);
 });
+
+// ---------------------------------------------------------------------------
+// Challenger (Shadow) arm requests are validated before any database work
+// (ADR 0050; #1723 ruling: kind is a caller-supplied `challenger:<tag>` of at
+// most 20 characters, the width of projection_snapshots.capture_kind)
+// ---------------------------------------------------------------------------
+
+test('a malformed Challenger kind is a TypeError before any query is issued', async (t) => {
+  withReleaseSha(t);
+  const db = fakeDb(dbArgs());
+  const bad = [
+    [{ kind: 'challenger:free_baseline_v3.2', modelVersion: 'free_baseline_v3.2' }, /20/],
+    [{ kind: 'candidate:x', modelVersion: 'free_baseline_v3.2' }, /challenger:/],
+    [{ kind: 'scheduled', modelVersion: 'free_baseline_v3.2' }, /challenger:/],
+  ];
+  for (const [challenger, message] of bad) {
+    await assert.rejects(
+      holdout.snapshotWeek({ ...captureArgs(db), challengers: [challenger] }),
+      (err) => err instanceof TypeError && message.test(err.message)
+    );
+  }
+  assert.equal(db.statements.length, 0, 'no statement was issued');
+  assert.equal(db.conns.length, 0, 'no connection was checked out');
+});
