@@ -423,7 +423,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
       playerId: entry.playerId,
       name: entry.name,
       slot: entry.slot,
-      projection: hasEntry ? (rawPoints == null ? 0 : rawPoints) : null,
+      projection: run.pointsFor(entry.playerId),
       distribution: run.projections.get(entry.playerId) || null,
       confidence: (detail && detail.confidence) || null,
       activeProbability: (detail && detail.activeProbability) ?? null,
