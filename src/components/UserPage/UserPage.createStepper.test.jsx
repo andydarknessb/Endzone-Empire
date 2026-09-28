@@ -10,6 +10,14 @@ import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 // is the page itself: UserPage rendered the way the app mounts it, apiClient
 // mocked, so every assertion is about what a manager sees and what is sent.
 
+// Each test walks the whole five-step flow over the full Home page, and a role
+// query there costs about 450 ms in jsdom (measured 2026-09-28: getByRole 450 ms,
+// getByLabelText 4 ms, the click itself 20-100 ms). The slowest test takes 8.9 s
+// alone and about twice that under a parallel full-suite run, past the 15 s
+// default in setupTests (8 tests failed there). The ceiling only matters on
+// the failure path.
+jest.setTimeout(45000);
+
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
