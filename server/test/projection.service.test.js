@@ -1746,25 +1746,22 @@ test('getWeekProjections without a league keeps the original pool-wide behavior'
   );
 });
 
-test('the legacy Weekly projection map is gone: no export, no toLegacyMap on the result, no league branch on getWeekProjections (#1704)', async (t) => {
+test('the legacy Weekly projection map is gone: no export, no toLegacyMap on the result, and getWeekProjections refuses league/playerIds (#1704)', async (t) => {
   assert.equal(projection.toLegacyProjectionMap, undefined);
   const result = projection.toWeeklyProjectionResult({ projections: new Map() });
   assert.equal(result.toLegacyMap, undefined);
 
-  // getWeekProjections is the pool-wide extrapolator only: a caller that still
-  // passes league + playerIds is served pool-wide, never routed to the engine.
-  const calls = [];
-  t.mock.method(pool, 'query', async (sql) => {
-    const text = String(sql);
-    calls.push({ text });
-    if (text.includes('FROM "player_projections"')) {
-      return { rows: [{ player_id: 5, projected_points: '12.34', source: 'extrapolated' }] };
-    }
-    throw new Error(`unexpected query: ${text}`);
-  });
-  const map = await projection.getWeekProjections({ season: SEASON, week: 5, league: league(), playerIds: [5] });
-  assert.deepEqual([...map], [[5, { points: 12.34, source: 'extrapolated' }]]);
-  assert.equal(calls.some((c) => c.text.includes('projection_runs')), false);
+  // getWeekProjections is the pool-wide extrapolator only: a leftover caller
+  // passing league or playerIds is refused loudly, never silently downgraded
+  // to default-scoring pool numbers, and never touches the database.
+  const calls = mockPool(t, {});
+  for (const extra of [{ league: league() }, { playerIds: [5] }, { league: league(), playerIds: [5] }]) {
+    await assert.rejects(
+      () => projection.getWeekProjections({ season: SEASON, week: 5, ...extra }),
+      { name: 'TypeError', message: /getWeeklyProjections/ }
+    );
+  }
+  assert.equal(calls.length, 0);
 });
 
 // ---------------------------------------------------------------------------

@@ -47,12 +47,6 @@ class ProjectionError extends Error {
  *    scoring hash AND the model version, so one league's numbers can never be
  *    served to a league that scores the same stat line differently.
  *
- * `getWeekProjections({ league, playerIds })` is the bridge: given both, it
- * routes through the v2 engine and returns the SAME `Map<playerId,
- * { points, source }>` shape, with the richer fields carried alongside. That
- * is what lets the start/sit path upgrade without touching a single other
- * caller.
- *
  * Rest of season is a third, separate horizon, and it too has two
  * producers: `getRestOfSeasonProjections` stays on the original pool-wide
  * extrapolator (a flat weekly value x remaining weeks), and `getRestOfSeason`
@@ -122,8 +116,15 @@ async function getPoolWideProjections({ season, week, refresh = false }) {
  * (the engine's per-league run) is read through `getWeeklyProjections` and its
  * result object's accessors, never through this map (#1704 removed the
  * league-scoped branch that used to hand back a legacy map of a run).
+ * Passing `league` or `playerIds` throws rather than silently returning
+ * default-scoring pool numbers to a caller that expected a league's.
  */
-async function getWeekProjections({ season, week, refresh = false }) {
+async function getWeekProjections({ season, week, refresh = false, ...rest }) {
+  if ('league' in rest || 'playerIds' in rest) {
+    throw new TypeError(
+      'getWeekProjections is pool-wide only: read a Weekly projection through getWeeklyProjections'
+    );
+  }
   return getPoolWideProjections({ season, week, refresh });
 }
 
