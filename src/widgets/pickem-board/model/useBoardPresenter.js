@@ -109,6 +109,8 @@ export function useBoardPresenter(leagueId) {
     totalManagers,
     slateSize: views.length,
     pickedCount: views.filter((view) => view.myPick != null).length,
+    // Every game on the slate is locked, so no pick on it can change.
+    weekLocked: views.length > 0 && views.every((view) => view.lock),
     windows,
     saving: savePicksApi.saving,
     isDirty: savePicksApi.isDirty,

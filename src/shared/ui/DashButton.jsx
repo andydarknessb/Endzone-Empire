@@ -26,6 +26,13 @@ import { Button } from '@mui/material';
  *     `dash-accent-line`; the fill stays transparent. Already a registered
  *     pairing.
  *
+ * `disabled` (first used by the pick'em board's Save picks button): the
+ * primary drops the accent fill for a `dash-dim` label on `dash-surface3`
+ * with a `dash-line-strong` border; the ghost keeps its transparent fill and
+ * `dash-dim` label. Both are registered pairings. Without these, MUI's own
+ * disabled rule faded only the label, so a disabled primary kept its green
+ * fill and read as a live button with washed-out text.
+ *
  * `size`:
  *   - `md` (default): the canvas `.btn`, 38px min-height at the `md` breakpoint
  *     and up, 44px below it - the hit-target rule the hero, preview and
@@ -60,6 +67,11 @@ const VARIANT_SX = {
     border: '1px solid var(--dash-accent)',
     transition: 'filter var(--transition-fast)',
     '&:hover': { backgroundColor: 'var(--dash-accent)', filter: 'brightness(1.08)' },
+    '&.Mui-disabled': {
+      color: 'var(--dash-dim)',
+      backgroundColor: 'var(--dash-surface3)',
+      borderColor: 'var(--dash-line-strong)',
+    },
   },
   ghost: {
     color: 'var(--dash-dim)',
@@ -68,6 +80,10 @@ const VARIANT_SX = {
     '&:hover': {
       color: 'var(--dash-ink)',
       borderColor: 'var(--dash-accent-line)',
+      backgroundColor: 'transparent',
+    },
+    '&.Mui-disabled': {
+      color: 'var(--dash-dim)',
       backgroundColor: 'transparent',
     },
   },
