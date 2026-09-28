@@ -1,5 +1,6 @@
 const pool = require('../modules/pool');
-const { getWeekProjections, poolPointsMap } = require('./projection.service');
+const { getWeekProjections } = require('./projection.service');
+const { poolPointsMap } = require('./poolProjection');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
 
 /**

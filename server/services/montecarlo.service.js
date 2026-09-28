@@ -1,7 +1,8 @@
 const pool = require('../modules/pool');
 const { computeStandings, pairBySeed } = require('./season.service');
 const { parseLineupSettings, optimalLineup } = require('./lineup.service');
-const { getWeekProjections, poolPointsMap } = require('./projection.service');
+const { getWeekProjections } = require('./projection.service');
+const { poolPointsMap } = require('./poolProjection');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
 const { isPickemOnly } = require('./leagueType');
 

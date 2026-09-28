@@ -1,5 +1,7 @@
 const pool = require('../modules/pool');
 const model = require('./projectionModel');
+// The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
+const { poolPointsFor, poolPointsMap } = require('./poolProjection');
 const { unavailableFor } = require('./unavailable');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
@@ -130,34 +132,6 @@ async function getWeekProjections({ season, week, refresh = false, league = null
 
   const run = await getWeeklyProjections({ season, week, league, playerIds: ids, refresh });
   return toLegacyProjectionMap(run);
-}
-
-/**
- * The Pool projection accessor (#1705): the one place a reader of the Pool
- * map (`getWeekProjections` with no league / `getPoolWideProjections`, values
- * `{ points, source }`) turns an entry into a number, so no reader indexes
- * `.points` or tests `typeof` on a map value itself. Same convention as the
- * Weekly result's `pointsFor` (#1702): `null` when there is no Point
- * estimate (absent player, or a `points` that is not a finite number), never
- * a coerced 0 - a caller that wants 0 keeps its own `|| 0`. The Pool
- * projection is a different producer from the Weekly projection and stays
- * one; this only removes the duplicated reads.
- */
-function poolPointsFor(poolMap, playerId) {
-  const entry = poolMap.get(playerId);
-  if (entry == null || entry.points == null) return null;
-  const points = Number(entry.points);
-  return Number.isFinite(points) ? points : null;
-}
-
-/** playerId -> points for every Pool entry that has an estimate (`poolPointsFor`'s non-null rows). */
-function poolPointsMap(poolMap) {
-  const points = new Map();
-  for (const playerId of poolMap.keys()) {
-    const value = poolPointsFor(poolMap, playerId);
-    if (value != null) points.set(playerId, value);
-  }
-  return points;
 }
 
 /**

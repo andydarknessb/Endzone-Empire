@@ -9,8 +9,8 @@ const { requireMember } = require('./leagueMembership.service');
 const {
   getWeekProjections,
   getTradeProjectionMetrics,
-  poolPointsFor,
 } = require('./projection.service');
+const { poolPointsFor } = require('./poolProjection');
 const {
   optimalLineup,
   parseLineupSettings,

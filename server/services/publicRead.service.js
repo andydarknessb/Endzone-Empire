@@ -21,7 +21,8 @@ const {
   RECAPS_TABLE_SQL,
   isMissingRecapStorage,
 } = require('../modules/recapStorage');
-const { getWeekProjections, poolPointsFor } = require('./projection.service');
+const { getWeekProjections } = require('./projection.service');
+const { poolPointsFor } = require('./poolProjection');
 const { computeByeWeeks } = require('./bye.service');
 const { upcomingNflSeason } = require('./nflSeason.service');
 const bestAvailable = require('./bestAvailable.service');

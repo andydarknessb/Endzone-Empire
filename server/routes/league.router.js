@@ -6,6 +6,7 @@ const clock = require('../modules/clock');
 const { requireAuth } = require('../modules/auth');
 const { createRateLimiter } = require('../modules/rateLimit');
 const projectionService = require('../services/projection.service');
+const { poolPointsFor } = require('../services/poolProjection');
 const {
   VALID_SCORING_PRESETS,
   VALID_DISCOVER_SORTS,
@@ -504,7 +505,7 @@ router.get('/:id/rosters', async (req, res) => {
         });
       }
       if (row.id) {
-        row.projected_weekly_points = projectionService.poolPointsFor(weeklyByPlayer, row.id);
+        row.projected_weekly_points = poolPointsFor(weeklyByPlayer, row.id);
         const ros = rosByPlayer.get(row.id);
         row.rest_of_season_points = Number.isFinite(Number(ros)) ? Number(ros) : null;
         teams.get(row.team_id).players.push({
