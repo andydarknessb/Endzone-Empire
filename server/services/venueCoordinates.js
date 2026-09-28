@@ -57,6 +57,9 @@ const VENUE_TABLE = {
   'State Farm Stadium': point(33.5276, -112.2626),
 
   // --- United States: earlier names for the same fields (historical rows) ---
+  // nflverse's 2026 games.csv still spells Houston's venue 'Reliant Stadium';
+  // 'NRG Stadium' above is kept, both resolve to the same field.
+  'Reliant Stadium': point(29.6847, -95.4107),
   'FirstEnergy Stadium': point(41.5061, -81.6995),
   'TIAA Bank Field': point(30.3239, -81.6373),
   'Arrowhead Stadium': point(39.0489, -94.4839),

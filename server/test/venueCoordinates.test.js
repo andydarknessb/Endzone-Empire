@@ -34,6 +34,12 @@ test('a shared venue resolves to one point whichever team is at home', () => {
   assert.equal(venues.coordinatesForVenue.length, 1);
 });
 
+test("'Reliant Stadium' (nflverse's 2026 Houston spelling) resolves to NRG Stadium's coordinates", () => {
+  const nrg = venues.coordinatesForVenue('NRG Stadium');
+  assert.ok(nrg);
+  assert.deepEqual(venues.coordinatesForVenue('Reliant Stadium'), nrg);
+});
+
 test('non-US venues resolve to null: NWS has no coverage there', () => {
   for (const venue of [
     'Tottenham Hotspur Stadium', 'Wembley Stadium', 'Allianz Arena', 'Deutsche Bank Park',
