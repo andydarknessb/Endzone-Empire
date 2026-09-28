@@ -691,9 +691,11 @@ function buildScheduleRows(rows, { season }) {
  * stadiums are blank, every other US game already carries a value; nflverse
  * later writes 'open'/'closed'). A NULL roof there reads as outdoors, so the
  * weather job looks the game up, which is harmless and self-corrects once the
- * value lands (the fill COALESCEs, so NULL -> value is the one change it makes).
- * NRG Stadium is Reliant Stadium's current name, listed in case nflverse
- * catches up.
+ * value lands (the fill COALESCEs, so a NULL fills in, and a later non-null
+ * value such as open -> closed replaces the stored one). The exemption is for
+ * FUTURE kickoffs only (`venueWithoutRoof`): a played game with no roof is a
+ * gap, not a pending decision. NRG Stadium is Reliant Stadium's current name,
+ * listed in case nflverse catches up.
  */
 const ROOF_UNDECIDED_VENUES = Object.freeze([
   'AT&T Stadium', 'Lucas Oil Stadium', 'Mercedes-Benz Stadium',
@@ -704,13 +706,16 @@ const ROOF_UNDECIDED_VENUES = Object.freeze([
  * Pure invariant (#1725): schedule rows that name a venue but carry no roof.
  * `isIndoorGame` reads a NULL roof as outdoors, so a dome with no roof gets
  * weather it can never have. Exempt: a venue nflverse leaves undecided until
- * game week (ROOF_UNDECIDED_VENUES) and a deliberately unmapped non-US venue
- * (no weather job runs there, so its roof is moot). Anything else is a defect.
+ * game week (ROOF_UNDECIDED_VENUES) while its kickoff is still in the future
+ * (`now`), and a deliberately unmapped non-US venue (no weather job runs
+ * there, so its roof is moot). Anything else is a defect. Called by
+ * `syncScheduleFromNflverse`, which warns for each offending game.
  */
-function venueWithoutRoof(scheduleRows) {
+function venueWithoutRoof(scheduleRows, { now = new Date() } = {}) {
   return (scheduleRows || []).filter((row) => {
     if (!row.venue || row.roof) return false;
-    if (ROOF_UNDECIDED_VENUES.includes(row.venue)) return false;
+    const pending = row.kickoffAt && row.kickoffAt.getTime() > now.getTime();
+    if (pending && ROOF_UNDECIDED_VENUES.includes(row.venue)) return false;
     if (venueCoordinates.isKnownVenue(row.venue) && !venueCoordinates.coordinatesForVenue(row.venue)) return false;
     return true;
   });
@@ -735,19 +740,36 @@ function venueWithoutRoof(scheduleRows) {
  * takes, so a run of each source started together serializes instead of
  * interleaving its upserts of the same season's games (#1203).
  */
-async function syncScheduleFromNflverse({ season }) {
+async function syncScheduleFromNflverse({ season, now = new Date() }) {
   return runSyncJob({
     job: 'schedule-nflverse',
     lock: NFL_GAMES_BULK_WRITE_LOCK,
-    fetch: () => fetchScheduleFromNflverseUnits({ season }),
+    fetch: () => fetchScheduleFromNflverseUnits({ season, now }),
     apply: (client, unit) => applyScheduleFromNflverseUnit(client, unit),
   });
 }
 
+/**
+ * The roof invariant (#1725) at the point the rows are built: one console.warn
+ * per offending GAME (both perspectives share a game key). Log only, the run
+ * stays ok: a missing roof must not stop the venue, kickoff and rest-day fill.
+ */
+function warnVenueWithoutRoof(scheduleRows, { now }) {
+  const seen = new Set();
+  for (const row of venueWithoutRoof(scheduleRows, { now })) {
+    if (seen.has(row.gameKey)) continue;
+    seen.add(row.gameKey);
+    const home = row.homeAway === 'home' ? row.nflTeam : row.opponent;
+    const away = row.homeAway === 'home' ? row.opponent : row.nflTeam;
+    console.warn(`nflverse schedule: ${row.season} week ${row.week} ${away} @ ${home} has venue "${row.venue}" but no roof`);
+  }
+}
+
 /** fetch() for the schedule-nflverse job: the CSV fetch and parse, before any transaction or lock. */
-async function fetchScheduleFromNflverseUnits({ season }) {
+async function fetchScheduleFromNflverseUnits({ season, now = new Date() }) {
   const rows = parseCsv(await fetchCsvText(NFLVERSE_GAMES_URL));
   const scheduleRows = buildScheduleRows(rows, { season });
+  warnVenueWithoutRoof(scheduleRows, { now });
   return [{ season, scheduleRows }];
 }
 

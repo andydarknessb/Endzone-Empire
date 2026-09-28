@@ -1235,6 +1235,10 @@ test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill 
 
 // --- game-context invariant and COALESCE (#1725) -----------------------------
 
+// Fixture kickoffs are 2026-10-18; the invariant is judged as of this instant (before them).
+const BEFORE_KICKOFF = new Date('2026-09-28T12:00:00Z');
+const AFTER_KICKOFF = new Date('2026-10-19T12:00:00Z');
+
 const gameRow = (over = {}) => ({
   season: '2026', game_type: 'REG', week: '6', gameday: '2026-10-18', gametime: '13:00',
   home_team: 'CHI', away_team: 'GB', location: 'Home', stadium: 'Soldier Field',
@@ -1248,9 +1252,9 @@ test('invariant: a schedule row with a venue must carry a roof (a NULL roof read
     gameRow({ week: '8', stadium: 'Soldier Field', roof: '' }),
     gameRow({ week: '9', stadium: 'Ford Field', home_team: 'DET', roof: 'NA' }),
   ], { season: 2026 });
-  const bad = venueWithoutRoof(rows);
+  const bad = venueWithoutRoof(rows, { now: BEFORE_KICKOFF });
   assert.deepEqual([...new Set(bad.map((r) => `${r.week}:${r.venue}`))], ['8:Soldier Field', '9:Ford Field']);
-  assert.deepEqual(venueWithoutRoof(rows.filter((r) => r.week <= 7)), []);
+  assert.deepEqual(venueWithoutRoof(rows.filter((r) => r.week <= 7), { now: BEFORE_KICKOFF }), []);
 });
 
 test('invariant: a venue with no coordinates (or no venue at all) is not held to the roof rule', () => {
@@ -1258,7 +1262,7 @@ test('invariant: a venue with no coordinates (or no venue at all) is not held to
     gameRow({ stadium: 'Bernabeu', roof: '', location: 'Neutral' }),
     gameRow({ week: '7', stadium: '', roof: '' }),
   ], { season: 2026 });
-  assert.deepEqual(venueWithoutRoof(rows), []);
+  assert.deepEqual(venueWithoutRoof(rows, { now: BEFORE_KICKOFF }), []);
 });
 
 test('invariant: retractable-roof venues may carry no roof until nflverse decides it, and only those', () => {
@@ -1273,7 +1277,75 @@ test('invariant: retractable-roof venues may carry no roof until nflverse decide
     { season: 2026 }
   );
   assert.equal(rows.length, ROOF_UNDECIDED_VENUES.length * 2);
-  assert.deepEqual(venueWithoutRoof(rows), []);
+  assert.deepEqual(venueWithoutRoof(rows, { now: BEFORE_KICKOFF }), []);
+});
+
+test('invariant: the retractable-venue exemption ends at kickoff, so a played game with no roof is flagged', () => {
+  const rows = buildScheduleRows(
+    [gameRow({ stadium: 'Lucas Oil Stadium', home_team: 'IND', roof: '' })],
+    { season: 2026 }
+  );
+  assert.deepEqual(venueWithoutRoof(rows, { now: BEFORE_KICKOFF }), [], 'future kickoff: exempt');
+  assert.equal(venueWithoutRoof(rows, { now: AFTER_KICKOFF }).length, 2, 'kickoff passed: both perspectives flagged');
+  assert.equal(venueWithoutRoof(rows, { now: rows[0].kickoffAt }).length, 2, 'at kickoff the game has started: flagged');
+});
+
+const roofCsv = (rows) => [
+  'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,roof,surface,stadium',
+  ...rows,
+].join('\n');
+const installFillFake = (t, csv) => {
+  t.mock.method(axios, 'get', async () => ({ data: csv }));
+  return createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), () => ({ rows: [{ inserted: false }] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+};
+
+test('the fill warns once per game whose venue has no roof at a non-exempt venue, and the run stays ok', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const fake = installFillFake(t, roofCsv([
+    '2026_06_GB_CHI,2026,REG,6,2026-10-18,Sunday,13:00,GB,,CHI,,NA,grass,Soldier Field',
+    '2026_06_MIN_DET,2026,REG,6,2026-10-18,Sunday,13:00,MIN,,DET,,dome,turf,Ford Field',
+  ]));
+
+  const out = await syncScheduleFromNflverse({ season: 2026, now: BEFORE_KICKOFF });
+
+  assert.equal(out.gamesInFile, 2, 'the run still applies both games');
+  assert.equal(fake.matching(insert('nfl_games')).length, 4);
+  assert.equal(warn.mock.calls.length, 1, 'one warning for the one offending game, not one per perspective');
+  const message = warn.mock.calls[0].arguments.join(' ');
+  assert.match(message, /Soldier Field/);
+  assert.match(message, /week 6/);
+  assert.match(message, /GB/);
+  assert.match(message, /CHI/);
+  fake.assertClean();
+});
+
+test('the fill does not warn for a retractable venue with a future kickoff or a game that carries a roof', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const fake = installFillFake(t, roofCsv([
+    '2026_06_TEN_IND,2026,REG,6,2026-10-18,Sunday,13:00,TEN,,IND,,NA,turf,Lucas Oil Stadium',
+    '2026_06_MIN_DET,2026,REG,6,2026-10-18,Sunday,13:00,MIN,,DET,,dome,turf,Ford Field',
+  ]));
+
+  await syncScheduleFromNflverse({ season: 2026, now: BEFORE_KICKOFF });
+
+  assert.equal(warn.mock.calls.length, 0);
+  fake.assertClean();
+});
+
+test('the fill warns for a retractable venue once its kickoff has passed with no roof', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  installFillFake(t, roofCsv([
+    '2026_06_TEN_IND,2026,REG,6,2026-10-18,Sunday,13:00,TEN,,IND,,NA,turf,Lucas Oil Stadium',
+  ]));
+
+  await syncScheduleFromNflverse({ season: 2026, now: AFTER_KICKOFF });
+
+  assert.equal(warn.mock.calls.length, 1);
+  assert.match(warn.mock.calls[0].arguments.join(' '), /Lucas Oil Stadium/);
 });
 
 test('the fill leaves an existing venue and roof alone when games.csv has none (COALESCE, null not blank)', async (t) => {
