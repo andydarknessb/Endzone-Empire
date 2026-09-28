@@ -195,6 +195,7 @@ function mockCardsViewPool(t, { league, players, world }) {
     if (text.includes('FROM "nfl_games"')) return { rows: [] };
     if (text.includes('FROM "player_season_stats"')) return { rows: [] };
     if (text.includes('COUNT(*)::int AS "roster_count"')) return { rows: [{ roster_count: 0 }] };
+    if (text.includes('FROM "player_ownership"')) return { rows: [] };
     throw new Error(`unexpected query: ${text}`);
   });
 }
