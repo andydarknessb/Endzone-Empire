@@ -77,7 +77,7 @@ function PublicHighlights() {
         spacing={1}
         sx={{ mb: 2 }}
       >
-        <Typography id="public-highlights-heading" variant="h5" sx={{ fontWeight: 700 }}>
+        <Typography id="public-highlights-heading" variant="h5" component="h2" sx={{ fontWeight: 700 }}>
           Around the League
         </Typography>
         <Stack direction="row" spacing={2} flexWrap="wrap">
@@ -92,7 +92,7 @@ function PublicHighlights() {
         <Grid xs={12} md={4}>
           <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
             <CardContent>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+              <Typography variant="h6" component="h3" sx={{ fontWeight: 700, mb: 1 }}>
                 Top Players
               </Typography>
               {loadingRankings ? (
@@ -134,7 +134,7 @@ function PublicHighlights() {
         <Grid xs={12} md={4}>
           <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
             <CardContent>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+              <Typography variant="h6" component="h3" sx={{ fontWeight: 700, mb: 1 }}>
                 Latest Game Recaps
               </Typography>
               {loadingRecaps ? (
@@ -181,7 +181,7 @@ function PublicHighlights() {
         <Grid xs={12} md={4}>
           <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
             <CardContent>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+              <Typography variant="h6" component="h3" sx={{ fontWeight: 700, mb: 1 }}>
                 Strategy Library
               </Typography>
               <List dense disablePadding>

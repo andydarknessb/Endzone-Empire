@@ -11,7 +11,7 @@ import Countdown from '../Countdown/Countdown';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 
-function LeagueCard({ league, onDelete, compact = false }) {
+function LeagueCard({ league, onDelete, compact = false, titleComponent = 'h6' }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   // The viewer's role arrives already decided, on the two per-viewer flags
@@ -31,7 +31,7 @@ function LeagueCard({ league, onDelete, compact = false }) {
     <CardContent sx={{ height: '100%' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
         <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }} noWrap>{league.name}</Typography>
+          <Typography variant="h6" component={titleComponent} sx={{ fontWeight: 700 }} noWrap>{league.name}</Typography>
           <Typography variant="body2" color="text.secondary">
             Team: {league.my_team_name || 'Team not assigned'}
           </Typography>
