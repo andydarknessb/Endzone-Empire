@@ -75,10 +75,13 @@ const VENUE_TABLE = {
   'Allianz Arena': null,
   'Deutsche Bank Park': null,
   'Santiago Bernabéu': null,
+  'Bernabeu': null, // games.csv's 2026 spelling (no accent)
+  'FC Bayern Munich Stadium': null, // Munich, 2026
   'Estadio Azteca': null,
   'Estadio Banorte': null,
   'Arena Corinthians': null,
   'Maracanã Stadium': null,
+  'Maracana Stadium': null, // games.csv's 2026 spelling (no tilde)
   'Melbourne Cricket Ground': null,
   'Stade de France': null,
   'Rogers Centre': null,
