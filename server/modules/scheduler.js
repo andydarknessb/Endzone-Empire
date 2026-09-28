@@ -1009,6 +1009,10 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
  * Gated by `cadence.due({ job: 'schedule-nflverse', every: 'utc-day' })`, the
  * job `runSyncJob` already writes a run row for on every run, so a worker
  * restart cannot double-fetch and a manual run today also satisfies the gate.
+ * The gate reads the job, not the season: a manual backfill of ANOTHER season
+ * (2024, 2025) that succeeded today also counts, so the current-season fill
+ * then waits for the next UTC day. Bounded to one day and self-correcting, so
+ * accepted rather than a second run-row read beside the gate.
  * A failed run is never `latestOk`, so a failing fill is due again next tick
  * (one games.csv fetch per 5-minute tick until it succeeds, the same retry
  * `runNflverseFinalization` has). The sync is COALESCE-only on the context
