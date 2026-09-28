@@ -353,8 +353,7 @@ test('buildSuggestions: the #1483 pair (starter mean 9.03/median 8.21, bench mea
   const dist = (mean, median) => ({ mean, median, p10: median - 6, p25: median - 3, p75: median + 3, p90: median + 6 });
 
   // A v3.2-stamped run: the DISPLAYED points (`pointsFor`, resolved off each
-  // entry's own `modelVersion` - the same thing `toLegacyProjectionMap` has
-  // always done) print the MEAN.
+  // entry's own `modelVersion`) print the MEAN.
   const v32Projections = projectionService.toWeeklyProjectionResult({
     projections: new Map([
       [1, { ...dist(9.03, 8.21), modelVersion: model.SUCCESSOR_MODEL_VERSION, factors: {} }],

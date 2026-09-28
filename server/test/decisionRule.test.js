@@ -19,7 +19,7 @@ const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
 const entry = (playerId, position, slot, name = `p${playerId}`) => ({ playerId, name, position, slot });
 const RB1 = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
 
-/** A projection entry shaped like toLegacyProjectionMap's output. */
+/** A legacy-shaped fixture entry, wrapped by `resultFromLegacyMap`. */
 const proj = (median, mean, extra = {}) => ({
   points: median,
   projection: { mean, median, p10: median - 6, p25: median - 3, p75: median + 3, p90: median + 6 },

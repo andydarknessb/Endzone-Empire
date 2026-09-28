@@ -119,7 +119,7 @@ function mockAdviceDependencies(t, {
   t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
     projectionCalls.push(options);
     // The result object (#1703), not a bare run: `startSitAdvice` reads it
-    // through its accessors (`toLegacyMap`, `pointsFor`, `factorsFor`,
+    // through its accessors (`pointsFor`, `factorsFor`,
     // `opponentAppliedFor`, `detailFor`) rather than the raw fields directly.
     return projectionService.toWeeklyProjectionResult({
       season: options.season,

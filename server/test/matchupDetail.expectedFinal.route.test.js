@@ -41,8 +41,7 @@ const authed = (userId) => `Bearer ${signToken({ id: userId, username: `u${userI
 /**
  * A minimal stand-in for the real Weekly projection result object (#1703):
  * just the one accessor `expectedFinalsForWeek` calls, `pointsFor`, reading
- * this file's legacy-shaped `{ points }` fixtures the same way
- * `toLegacyProjectionMap` used to hand them over.
+ * this file's legacy-shaped `{ points }` fixtures.
  */
 function fakeWeeklyResult(projections, extra = {}) {
   return {

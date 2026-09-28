@@ -154,9 +154,7 @@ test('a player with no history at all projects null, never zero', async (t) => {
   assert.equal(projected.unavailableReason, 'no evidence');
   assert.equal(projected.confidence, 'low');
 
-  const legacy = projection.toLegacyProjectionMap(result);
-  assert.equal(legacy.get(1).points, null, 'the legacy adapter must not invent a 0');
-  assert.equal(legacy.get(1).source, 'unavailable');
+  assert.equal(projection.toWeeklyProjectionResult(result).pointsFor(1), null, 'the accessor must not invent a 0');
 });
 
 // ---------------------------------------------------------------------------
@@ -1748,39 +1746,41 @@ test('getWeekProjections without a league keeps the original pool-wide behavior'
   );
 });
 
-test('toLegacyProjectionMap keeps the { points, source } contract and adds fields', () => {
-  const legacy = projection.toLegacyProjectionMap({
-    modelVersion: model.MODEL_VERSION,
-    generatedAt: '2026-10-08T00:00:00.000Z',
-    inputCutoff: '2026-10-11T17:00:00.000Z',
-    projections: new Map([
-      [1, { playerId: 1, mean: 12.2, median: 11.8, confidence: 'high', activeProbability: 1, factors: {} }],
-      [2, { playerId: 2, mean: null, median: null, confidence: 'low', activeProbability: null, factors: {} }],
-    ]),
+test('the legacy Weekly projection map is gone: no export, no toLegacyMap on the result, no league branch on getWeekProjections (#1704)', async (t) => {
+  assert.equal(projection.toLegacyProjectionMap, undefined);
+  const result = projection.toWeeklyProjectionResult({ projections: new Map() });
+  assert.equal(result.toLegacyMap, undefined);
+
+  // getWeekProjections is the pool-wide extrapolator only: a caller that still
+  // passes league + playerIds is served pool-wide, never routed to the engine.
+  const calls = [];
+  t.mock.method(pool, 'query', async (sql) => {
+    const text = String(sql);
+    calls.push({ text });
+    if (text.includes('FROM "player_projections"')) {
+      return { rows: [{ player_id: 5, projected_points: '12.34', source: 'extrapolated' }] };
+    }
+    throw new Error(`unexpected query: ${text}`);
   });
-  assert.equal(legacy.get(1).points, 11.8, 'the median is the headline number');
-  assert.equal(legacy.get(1).source, model.MODEL_VERSION);
-  assert.equal(legacy.get(1).confidence, 'high');
-  assert.equal(legacy.get(2).points, null);
-  assert.equal(legacy.get(2).source, 'unavailable');
+  const map = await projection.getWeekProjections({ season: SEASON, week: 5, league: league(), playerIds: [5] });
+  assert.deepEqual([...map], [[5, { points: 12.34, source: 'extrapolated' }]]);
+  assert.equal(calls.some((c) => c.text.includes('projection_runs')), false);
 });
 
 // ---------------------------------------------------------------------------
-// pointEstimateFor / toLegacyProjectionMap follow the RUN's constants, read
+// pointEstimateFor / the result's pointsFor follow the RUN's constants, read
 // back off the projection's own modelVersion (#1483's #1442 flip: v3.2's
 // deltas, including the ranking statistic, live outside the shipped
 // MODEL_CONSTANTS and only apply when a caller actually asks for them).
 // ---------------------------------------------------------------------------
 
-test('toLegacyProjectionMap prints the mean under a v3.2-stamped run and the median under a v3.1-stamped run (#1483 red-tell)', () => {
+test('pointsFor prints the mean under a v3.2-stamped run and the median under a v3.1-stamped run (#1483 red-tell)', () => {
   // The #1483 ticket's own red-tell fixture: a skewed residual pool pushed
   // this player's median (10.06) above his mean (7.37), so which statistic is
   // printed is not a rounding difference, it flips which of two players looks
   // better.
-  const buildRun = (modelVersion) => ({
+  const buildRun = (modelVersion) => projection.toWeeklyProjectionResult({
     modelVersion,
-    generatedAt: '2026-10-08T00:00:00.000Z',
-    inputCutoff: '2026-10-11T17:00:00.000Z',
     projections: new Map([
       [1, {
         playerId: 1, modelVersion, mean: 7.37, median: 10.06,
@@ -1789,13 +1789,8 @@ test('toLegacyProjectionMap prints the mean under a v3.2-stamped run and the med
     ]),
   });
 
-  const v32Legacy = projection.toLegacyProjectionMap(buildRun(model.SUCCESSOR_MODEL_VERSION));
-  assert.equal(v32Legacy.get(1).points, 7.37, 'v3.2 ranks and prints the mean');
-  assert.equal(v32Legacy.get(1).source, 'free_baseline_v3.2');
-
-  const v31Legacy = projection.toLegacyProjectionMap(buildRun(model.MODEL_VERSION));
-  assert.equal(v31Legacy.get(1).points, 10.06, 'v3.1 ranks and prints the median');
-  assert.equal(v31Legacy.get(1).source, 'free_baseline_v3.1');
+  assert.equal(buildRun(model.SUCCESSOR_MODEL_VERSION).pointsFor(1), 7.37, 'v3.2 ranks and prints the mean');
+  assert.equal(buildRun(model.MODEL_VERSION).pointsFor(1), 10.06, 'v3.1 ranks and prints the median');
 });
 
 test('generateProjections stamps every projection and the run itself with the requested successor version', async (t) => {
@@ -1812,18 +1807,6 @@ test('generateProjections stamps every projection and the run itself with the re
 
   assert.equal(result.modelVersion, 'free_baseline_v3.2');
   assert.equal(result.projections.get(1).modelVersion, 'free_baseline_v3.2');
-});
-
-test('toLegacyProjectionMap falls back to the median when the ranking statistic (mean) is null', () => {
-  const legacy = projection.toLegacyProjectionMap({
-    modelVersion: model.MODEL_VERSION,
-    generatedAt: '2026-10-08T00:00:00.000Z',
-    inputCutoff: '2026-10-11T17:00:00.000Z',
-    projections: new Map([
-      [1, { playerId: 1, mean: null, median: 5, confidence: 'low', activeProbability: 1, factors: {} }],
-    ]),
-  });
-  assert.equal(legacy.get(1).points, 5);
 });
 
 test('pointEstimateFor reads the median under MODEL_CONSTANTS (the shipped default) and the mean under MODEL_CONSTANTS_V3_2', () => {
@@ -1872,9 +1855,8 @@ test('pointEstimateFor reads its constants off the projection\'s own modelVersio
 // toWeeklyProjectionResult (#1702, unparked #1495): the Weekly projection
 // result's six accessors, each defined over the raw run entry the engine
 // emits - no producer emits a bare number, so there is no number branch to
-// test here. The legacy map (`toLegacyProjectionMap`) stays reachable via
-// `toLegacyMap()` for one release; #1703/#1704 are what migrate and then
-// remove the callers' own copies.
+// test here. The legacy map seam was removed by #1704 once #1703 migrated
+// every caller onto these accessors.
 // ---------------------------------------------------------------------------
 
 test('toWeeklyProjectionResult: pointsFor is the Point estimate and never coerces a missing one to 0', () => {
@@ -1961,21 +1943,6 @@ test('toWeeklyProjectionResult: detailFor is { mean, median, p10, p90, confidenc
     mean: 12.2, median: 11.8, p10: 4.1, p90: 20.6, confidence: 'high', activeProbability: 1,
   });
   assert.equal(result.detailFor(999), null, 'no entry for the player at all');
-});
-
-test('toWeeklyProjectionResult: the legacy map stays reachable via toLegacyMap for one release', () => {
-  const legacyRun = {
-    modelVersion: model.MODEL_VERSION,
-    generatedAt: '2026-10-08T00:00:00.000Z',
-    inputCutoff: '2026-10-11T17:00:00.000Z',
-    projections: new Map([
-      [1, { playerId: 1, mean: 12.2, median: 11.8, confidence: 'high', activeProbability: 1, factors: {} }],
-    ]),
-  };
-  const result = projection.toWeeklyProjectionResult(legacyRun);
-  const legacy = result.toLegacyMap();
-  assert.deepEqual(legacy, projection.toLegacyProjectionMap(legacyRun));
-  assert.equal(legacy.get(1).points, 11.8);
 });
 
 test('toWeeklyProjectionResult: every existing run field (.projections included) is still on the result', () => {
