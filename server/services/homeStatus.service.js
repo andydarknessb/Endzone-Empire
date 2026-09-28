@@ -583,7 +583,378 @@ async function leagueStatuses(db, { userId, leagues, now }) {
   }
 }
 
+/**
+ * The caller's leagues, one row per league they hold a team in: `leagues.*`
+ * plus their team's id, name, avatar and waiver standing, the league's team
+ * count, and their role. GET /api/league's own list query, shared so the
+ * to-do list reads exactly the rows the league list shows.
+ *
+ * `is_owner` and `is_commissioner` are the viewer's role on each league,
+ * answered here so no card has to rebuild it from `leagues.owner_id` and the
+ * signed-in account id (#188). `is_owner` is the creator-alone half, covering
+ * the powers leagueRole.service's header keeps owner-shaped (deleting the
+ * league, granting or revoking co-commissioners); `is_commissioner` is the
+ * half a co-commissioner holds too. Both are per-viewer, evaluated against
+ * $1, and this response is the list's only per-viewer channel, so they
+ * belong on the row.
+ */
+async function listMyLeagues(db, userId) {
+  const { commissionerPredicate } = require('./leagueRole.service');
+  const result = await db.query(
+    `SELECT "leagues".*, "teams"."id" AS "my_team_id", "teams"."name" AS "my_team_name",
+            "teams"."avatar_url" AS "my_team_avatar_url",
+            "teams"."avatar_static_url" AS "my_team_avatar_static_url",
+            "teams"."waiver_priority" AS "my_team_waiver_priority",
+            "teams"."faab_remaining" AS "my_team_faab_remaining",
+            (SELECT COUNT(*)::int FROM "teams" "t" WHERE "t"."league_id" = "leagues"."id") AS "team_count",
+            ("leagues"."owner_id" = $1) AS "is_owner",
+            ${commissionerPredicate(1)} AS "is_commissioner"
+     FROM "leagues"
+     JOIN "teams" ON "teams"."league_id" = "leagues"."id"
+     WHERE "teams"."owner_id" = $1
+     ORDER BY "leagues"."created_at" DESC`,
+    [userId]
+  );
+  return result.rows;
+}
+
+/* ------------------------------------------------------------------ *
+ * GET /api/user/action-items (Home v2, contract A)                     *
+ * ------------------------------------------------------------------ */
+
+const SEVERITY_RANK = { blocking: 0, timed: 1, untimed: 2, info: 3 };
+const ACTION_ITEM_CAP = 20;
+
+/**
+ * Pure: is this an IANA time zone the runtime knows? The client sends its
+ * own (the server never guesses a viewer's calendar). A try/catch on
+ * Intl.DateTimeFormat rather than Intl.supportedValuesOf, which omits
+ * aliases such as UTC on some runtimes.
+ */
+function isValidTimeZone(tz) {
+  if (typeof tz !== 'string' || tz === '' || tz.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Pure: the calendar date (YYYY-MM-DD) of an instant in a zone. */
+function calendarDate(value, tz) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(value));
+}
+
+/**
+ * Pure: the response body from every builder's items. Order: blocking,
+ * timed, untimed, info; within a tier deadlineAt ascending (no deadline
+ * last), then newest first (each builder's internal `createdAt`, stripped
+ * here so it never reaches the wire). `counts.total` and `counts.dueToday`
+ * (a deadline on today's date in `tz`) are over every item; `items` is
+ * capped.
+ */
+function assembleActionItems({ items, partial, now, tz, cap = ACTION_ITEM_CAP }) {
+  const deadline = (i) => (i.deadlineAt == null ? Infinity : timeOf(i.deadlineAt));
+  const recency = (i) => (i.createdAt == null ? -Infinity : timeOf(i.createdAt));
+  const ordered = [...items].sort((a, b) =>
+    SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+    || deadline(a) - deadline(b)
+    || recency(b) - recency(a)
+    || String(a.id).localeCompare(String(b.id)));
+  const today = calendarDate(now, tz);
+  return {
+    generatedAt: iso(now),
+    counts: {
+      total: ordered.length,
+      dueToday: ordered.filter((i) => i.deadlineAt != null && calendarDate(i.deadlineAt, tz) === today).length,
+    },
+    partial,
+    items: ordered.slice(0, cap).map(({ createdAt, ...wire }) => wire),
+  };
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** Pure: one action item in the wire shape (plus the internal `createdAt`). */
+function actionItem({ type, key, league, title, detail = null, severity, deadlineAt = null, cta, progress = null, createdAt = null }) {
+  return {
+    id: `${type}:${league.id}${key == null ? '' : `:${key}`}`,
+    type,
+    leagueId: league.id,
+    leagueName: league.name,
+    title,
+    detail,
+    severity,
+    deadlineAt: iso(deadlineAt),
+    cta,
+    progress,
+    createdAt,
+  };
+}
+
+/** Pure: the lineup_problem row for a lineup status, or null when it is clean. */
+function lineupProblemItem(league, status) {
+  if (!status || status.problems.length === 0) return null;
+  const empty = status.emptySlots || [];
+  let title = 'Fix your lineup before kickoff';
+  if (empty.length === 1) title = `Fill your empty ${empty[0]} slot`;
+  else if (empty.length > 1) title = `Fill ${empty.length} empty lineup slots`;
+  return actionItem({
+    type: 'lineup_problem',
+    key: `${league.current_season}-${league.current_week}`,
+    league,
+    title,
+    detail: status.problems.join(' · '),
+    severity: 'timed',
+    deadlineAt: status.nextLockAt,
+    cta: { label: 'Fix lineup', to: `/league/${league.id}/lineup` },
+  });
+}
+
+/** Pure: the picks_open row for a Pick'em week, or null when nothing is left to pick. */
+function picksOpenItem(league, status) {
+  if (!status || status.missing === 0) return null;
+  return actionItem({
+    type: 'picks_open',
+    key: `${league.current_season}-${league.current_week}`,
+    league,
+    title: `${plural(status.missing, 'pick')} still open`,
+    detail: `${status.made} of ${status.total} made for week ${league.current_week}`,
+    severity: 'timed',
+    deadlineAt: status.nextLockAt,
+    cta: { label: 'Make picks', to: `/league/${league.id}/pickem` },
+    progress: { done: status.made, total: status.total },
+  });
+}
+
+/**
+ * The eight builders, each `(ctx) => items[]`. `ctx` carries the caller's
+ * league rows, the clock and memoized batched reads, so two builders that
+ * share a read (the trade ones) run it once, and a builder that throws only
+ * takes its own type down.
+ */
+const ACTION_ITEM_BUILDERS = {
+  // A live draft: every member, pick'em-only leagues have no draft.
+  async draft_live({ leagues, now }) {
+    return leagues
+      .filter((l) => !isPickemOnly(l) && l.draft_status === 'active')
+      .map((league) => actionItem({
+        type: 'draft_live',
+        league,
+        title: 'Your draft is live',
+        detail: 'Head to the draft room so you are ready when you are on the clock',
+        severity: 'blocking',
+        deadlineAt: now,
+        cta: { label: 'Join draft', to: `/league/${league.id}/draft` },
+      }));
+  },
+
+  // The same lineupStatus the league card shows (best ball: IR problems only).
+  async lineup_problem(ctx) {
+    const fantasy = ctx.leagues.filter((l) => fantasyWeekApplies(l));
+    const statuses = await ctx.once('lineups', () => loadLineupStatuses(ctx.db, { userId: ctx.userId, leagues: fantasy, now: ctx.now }));
+    return fantasy.map((league) => lineupProblemItem(league, statuses.get(league.id))).filter(Boolean);
+  },
+
+  // The same pickemStatus the league card shows, while the season runs.
+  async picks_open(ctx) {
+    const running = ctx.leagues.filter((l) => deriveLeaguePhase(l) !== LEAGUE_PHASE.COMPLETE);
+    const on = await loadPickemLeagueIds(ctx.db, { userId: ctx.userId, leagues: running });
+    const leagues = running.filter((l) => on.has(l.id));
+    const weeks = await loadPickemWeeks(ctx.db, { userId: ctx.userId, leagues, now: ctx.now });
+    return leagues.map((league) => picksOpenItem(league, weeks.get(league.id))).filter(Boolean);
+  },
+
+  // An accepted trade in its veto window that the caller may still vote on.
+  async trade_review(ctx) {
+    const rows = await ctx.once('trades', () => loadActionTrades(ctx));
+    const byId = new Map(ctx.leagues.map((l) => [l.id, l]));
+    return rows.filter((t) => t.status === 'accepted' && byId.has(t.league_id)).map((trade) => actionItem({
+      type: 'trade_review',
+      key: trade.id,
+      league: byId.get(trade.league_id),
+      title: 'A trade in your league is up for review',
+      detail: `${trade.proposing_team_name} and ${trade.receiving_team_name} · vote before the window closes`,
+      severity: 'timed',
+      deadlineAt: trade.review_ends_at,
+      cta: { label: 'Review trade', to: `/league/${trade.league_id}/trades` },
+      createdAt: trade.created_at,
+    }));
+  },
+
+  // Open seats before the draft, for the league's commissioners.
+  async seats_open({ leagues }) {
+    return leagues
+      .filter((l) => l.is_commissioner && deriveLeaguePhase(l) === LEAGUE_PHASE.PRE_DRAFT
+        && l.draft_date != null && Number(l.team_count) < Number(l.max_teams))
+      .map((league) => {
+        const open = Number(league.max_teams) - Number(league.team_count);
+        return actionItem({
+          type: 'seats_open',
+          league,
+          title: `${plural(open, 'open seat')} before the draft`,
+          detail: `${league.team_count} of ${league.max_teams} teams have joined`,
+          severity: 'timed',
+          deadlineAt: league.draft_date,
+          cta: { label: 'Invite managers', to: `/league/${league.id}` },
+          progress: { done: Number(league.team_count), total: Number(league.max_teams) },
+        });
+      });
+  },
+
+  // A pending offer to the caller's team. Offers never expire (trades has
+  // no expiry column), so they are untimed and sort newest first.
+  async trade_offer(ctx) {
+    const rows = await ctx.once('trades', () => loadActionTrades(ctx));
+    const byId = new Map(ctx.leagues.map((l) => [l.id, l]));
+    return rows.filter((t) => t.status === 'pending' && byId.has(t.league_id)).map((trade) => actionItem({
+      type: 'trade_offer',
+      key: trade.id,
+      league: byId.get(trade.league_id),
+      title: `Trade offer from ${trade.proposing_team_name}`,
+      detail: 'Accept, counter or decline',
+      severity: 'untimed',
+      cta: { label: 'Review offer', to: `/league/${trade.league_id}/trades` },
+      createdAt: trade.created_at,
+    }));
+  },
+
+  // Pending join requests, for commissioners of leagues with join approval
+  // (discovery.service listJoinRequests' queue, counted for every such
+  // league in one read).
+  async join_requests(ctx) {
+    const run = ctx.leagues.filter((l) => l.is_commissioner && l.join_approval);
+    if (run.length === 0) return [];
+    const { commissionerPredicate } = require('./leagueRole.service');
+    const result = await ctx.db.query(
+      `SELECT "join_requests"."league_id", COUNT(*)::int AS "pending",
+              MAX("join_requests"."created_at") AS "newest_at",
+              array_agg("join_requests"."team_name" ORDER BY "join_requests"."created_at") AS "team_names"
+       FROM "join_requests"
+       JOIN "leagues" ON "leagues"."id" = "join_requests"."league_id"
+       WHERE "join_requests"."league_id" = ANY($2) AND "join_requests"."status" = 'pending'
+         AND "leagues"."join_approval" = true AND ${commissionerPredicate(1)}
+       GROUP BY "join_requests"."league_id"`,
+      [ctx.userId, run.map((l) => l.id)]
+    );
+    const byId = new Map(run.map((l) => [l.id, l]));
+    return result.rows.filter((row) => byId.has(row.league_id) && row.pending > 0).map((row) => actionItem({
+      type: 'join_requests',
+      league: byId.get(row.league_id),
+      title: `${plural(row.pending, 'join request')} waiting`,
+      detail: (row.team_names || []).slice(0, 3).join(' · ') || null,
+      severity: 'untimed',
+      cta: { label: 'Review requests', to: `/league/${row.league_id}` },
+      createdAt: row.newest_at,
+    }));
+  },
+
+  // The caller's pending waiver claims, by the earliest Clear time
+  // (waivers.router's clear_at, falling back to the post-draft blanket
+  // window the way waiver processing does).
+  async waiver_claims(ctx) {
+    const fantasy = ctx.leagues.filter((l) => !isPickemOnly(l));
+    if (fantasy.length === 0) return [];
+    const result = await ctx.db.query(
+      `SELECT "waiver_claims"."league_id", COUNT(*)::int AS "pending",
+              MIN(COALESCE("waiver_players"."available_at", "leagues"."waivers_clear_at")) AS "next_clear_at",
+              MAX("waiver_claims"."created_at") AS "newest_at"
+       FROM "waiver_claims"
+       JOIN "teams" ON "teams"."id" = "waiver_claims"."team_id"
+       JOIN "leagues" ON "leagues"."id" = "waiver_claims"."league_id"
+       LEFT JOIN "waiver_players" ON "waiver_players"."league_id" = "waiver_claims"."league_id"
+         AND "waiver_players"."player_id" = "waiver_claims"."player_id"
+       WHERE "teams"."owner_id" = $1 AND "waiver_claims"."league_id" = ANY($2)
+         AND "waiver_claims"."status" = 'pending'
+       GROUP BY "waiver_claims"."league_id"`,
+      [ctx.userId, fantasy.map((l) => l.id)]
+    );
+    const byId = new Map(fantasy.map((l) => [l.id, l]));
+    return result.rows.filter((row) => byId.has(row.league_id) && row.pending > 0).map((row) => actionItem({
+      type: 'waiver_claims',
+      league: byId.get(row.league_id),
+      title: `${plural(row.pending, 'waiver claim')} pending`,
+      detail: 'Claims process at their clear time',
+      severity: 'info',
+      deadlineAt: row.next_clear_at,
+      cta: { label: 'View claims', to: `/league/${row.league_id}/waivers` },
+      createdAt: row.newest_at,
+    }));
+  },
+};
+
+/**
+ * The trades the caller has something to do about, in one read for both
+ * trade builders: pending offers TO their team, and accepted trades in a
+ * veto window (leagues.trade_veto_votes > 0, review_ends_at still ahead)
+ * that their team is not party to and has not voted on (trade_votes).
+ */
+async function loadActionTrades(ctx) {
+  const fantasy = ctx.leagues.filter((l) => !isPickemOnly(l));
+  if (fantasy.length === 0) return [];
+  const result = await ctx.db.query(
+    `SELECT "trades"."id", "trades"."league_id", "trades"."status", "trades"."review_ends_at",
+            "trades"."created_at",
+            proposing."name" AS "proposing_team_name", receiving."name" AS "receiving_team_name"
+     FROM "trades"
+     JOIN "teams" "mine" ON "mine"."league_id" = "trades"."league_id" AND "mine"."owner_id" = $1
+     JOIN "leagues" ON "leagues"."id" = "trades"."league_id"
+     JOIN "teams" proposing ON proposing."id" = "trades"."proposing_team_id"
+     JOIN "teams" receiving ON receiving."id" = "trades"."receiving_team_id"
+     WHERE "trades"."league_id" = ANY($2)
+       AND (("trades"."status" = 'pending' AND "trades"."receiving_team_id" = "mine"."id")
+         OR ("trades"."status" = 'accepted' AND "leagues"."trade_veto_votes" > 0
+             AND "trades"."review_ends_at" > $3
+             AND "mine"."id" NOT IN ("trades"."proposing_team_id", "trades"."receiving_team_id")
+             AND NOT EXISTS (SELECT 1 FROM "trade_votes"
+                             WHERE "trade_votes"."trade_id" = "trades"."id"
+                               AND "trade_votes"."team_id" = "mine"."id")))`,
+    [ctx.userId, fantasy.map((l) => l.id), ctx.now]
+  );
+  return result.rows;
+}
+
+/**
+ * GET /api/user/action-items: every builder run in parallel over the
+ * caller's leagues; a builder that throws is logged with its type name and
+ * listed in `partial`, and the rest still return. `tz` must already be
+ * validated (isValidTimeZone).
+ */
+async function actionItems(db, { userId, now, tz }) {
+  const leagues = await listMyLeagues(db, userId);
+  const memo = new Map();
+  const ctx = {
+    db,
+    userId,
+    now,
+    leagues,
+    once(key, load) {
+      if (!memo.has(key)) memo.set(key, load());
+      return memo.get(key);
+    },
+  };
+  const partial = [];
+  const items = [];
+  const types = Object.keys(ACTION_ITEM_BUILDERS);
+  const results = await Promise.all(types.map((type) => settle(ACTION_ITEM_BUILDERS[type](ctx))));
+  results.forEach((result, index) => {
+    if (result.ok) items.push(...result.value);
+    else {
+      console.error(`action items: ${types[index]} builder failed`, result.error);
+      partial.push(types[index]);
+    }
+  });
+  return assembleActionItems({ items, partial, now, tz });
+}
+
 module.exports = {
+  listMyLeagues,
+  isValidTimeZone,
+  assembleActionItems,
+  actionItems,
+  ACTION_ITEM_BUILDERS,
   lineupProblems,
   lineupEntryFromRow,
   leagueLineupProblems,

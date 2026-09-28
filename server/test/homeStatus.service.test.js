@@ -222,3 +222,35 @@ test('matchupSummary reads the caller\'s side whichever side of the row they are
   assert.deepEqual(theirs.opponent, { teamId: 11, name: 'Cheese Curds' });
   assert.equal(theirs.my.expectedFinal, 104.1);
 });
+
+// --- action items: ordering, cap, dueToday ---------------------------------
+
+const item = (id, severity, deadlineAt, createdAt) => ({ id, severity, deadlineAt, createdAt });
+
+test('assembleActionItems orders by tier, then deadline (nulls last), then newest first, and caps', () => {
+  const items = [
+    item('info', 'info', '2026-10-04T18:00:00.000Z', null),
+    item('untimed-old', 'untimed', null, '2026-10-01T00:00:00.000Z'),
+    item('timed-late', 'timed', '2026-10-06T00:00:00.000Z', null),
+    item('timed-none', 'timed', null, '2026-10-04T00:00:00.000Z'),
+    item('untimed-new', 'untimed', null, '2026-10-04T00:00:00.000Z'),
+    item('timed-soon', 'timed', '2026-10-04T17:00:00.000Z', null),
+    item('blocking', 'blocking', '2026-10-04T16:00:00.000Z', null),
+  ];
+  const out = homeStatus.assembleActionItems({
+    items, partial: [], now: new Date('2026-10-04T16:00:00.000Z'), tz: 'UTC', cap: 5,
+  });
+  assert.deepEqual(out.items.map((i) => i.id), ['blocking', 'timed-soon', 'timed-late', 'timed-none', 'untimed-new']);
+  assert.deepEqual(out.counts, { total: 7, dueToday: 3 });
+  // The recency key is for ordering only; it never reaches the wire.
+  assert.equal('createdAt' in out.items[0], false);
+});
+
+test('isValidTimeZone accepts IANA zones and refuses anything else', () => {
+  assert.equal(homeStatus.isValidTimeZone('America/Chicago'), true);
+  assert.equal(homeStatus.isValidTimeZone('UTC'), true);
+  assert.equal(homeStatus.isValidTimeZone('Mars/Olympus_Mons'), false);
+  assert.equal(homeStatus.isValidTimeZone(''), false);
+  assert.equal(homeStatus.isValidTimeZone(undefined), false);
+  assert.equal(homeStatus.isValidTimeZone(['UTC']), false);
+});
