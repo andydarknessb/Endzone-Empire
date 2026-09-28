@@ -182,6 +182,15 @@ test('Ownership renders when present', async () => {
   expect(screen.getByRole('columnheader', { name: 'Ownership' })).toBeInTheDocument();
 });
 
+// The shape GET /api/players?view=cards actually sends (playersPage.service
+// ownershipForMany): the column shows once any row carries a share.
+test('Ownership renders the server row shape { share, change }', async () => {
+  setup({ players: [cardsPlayer({ ownership: { share: 64.2, change: -1.5 } })] });
+  renderPage();
+  expect(await screen.findByText('64.2%')).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Ownership' })).toBeInTheDocument();
+});
+
 test('the Ownership column is hidden while every share is null', async () => {
   setup({ players: [cardsPlayer({ ownership: null })] });
   renderPage();

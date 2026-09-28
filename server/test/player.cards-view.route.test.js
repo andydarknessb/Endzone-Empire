@@ -71,7 +71,7 @@ function makePlayers(n) {
   }));
 }
 
-function mockBasePool(t, { league, players, poolQueries = [] }) {
+function mockBasePool(t, { league, players, poolQueries = [], ownershipRows = [], ownershipQueries = [] }) {
   return t.mock.method(pool, 'query', async (sql) => {
     const text = String(sql);
     if (text.includes('FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2')) {
@@ -89,6 +89,11 @@ function mockBasePool(t, { league, players, poolQueries = [] }) {
     // default view's attachLeagueAvailability runs regardless of sort.
     if (text.includes('FROM "team_players"')) return { rows: [] };
     if (text.includes('FROM "waiver_players"')) return { rows: [] };
+    if (text.includes('FROM "player_ownership"')) {
+      ownershipQueries.push(text);
+      if (ownershipRows instanceof Error) throw ownershipRows;
+      return { rows: ownershipRows };
+    }
     throw new Error(`unexpected query: ${text}`);
   });
 }
@@ -157,6 +162,56 @@ test('view=cards: a rostered row carries availability.teamId and teamName', asyn
   assert.equal(res.body.players[0].availability.state, 'rostered');
   assert.equal(res.body.players[0].availability.teamId, 77);
   assert.equal(res.body.players[0].availability.teamName, 'Rival Team');
+});
+
+// The Players page's Ownership column (PlayerRow's OwnershipCell) reads
+// `ownership` off each row. The server hard-coded `ownership: null` on every
+// view=cards row even though the daily ESPN Ownership Sync (#1382) writes
+// `player_ownership`, so the column rendered empty for everyone.
+test('view=cards: a row carries its latest player_ownership share, null when ESPN has no row, in one read for the page', async (t) => {
+  const league = makeLeague();
+  const players = makePlayers(3);
+  const ownershipQueries = [];
+  mockBasePool(t, {
+    league,
+    players,
+    ownershipQueries,
+    ownershipRows: [
+      { player_id: 1, percent_owned: '64.23', percent_change: '-1.5' },
+      { player_id: 2, percent_owned: '0.4', percent_change: null },
+    ],
+  });
+  mockCardServices(t);
+
+  const res = await request(app)
+    .get('/api/players?view=cards&leagueId=1')
+    .set('Authorization', TOKEN());
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(
+    res.body.players.map(({ id, ownership }) => ({ id, ownership })),
+    [
+      { id: 1, ownership: { share: 64.2, change: -1.5 } },
+      { id: 2, ownership: { share: 0.4, change: null } },
+      { id: 3, ownership: null },
+    ],
+  );
+  assert.equal(ownershipQueries.length, 1);
+});
+
+test('view=cards: a failed ownership read degrades every row to ownership: null, never a page-level error', async (t) => {
+  const league = makeLeague();
+  const players = makePlayers(2);
+  mockBasePool(t, { league, players, ownershipRows: new Error('player_ownership unreachable') });
+  mockCardServices(t);
+  t.mock.method(console, 'error', () => {});
+
+  const res = await request(app)
+    .get('/api/players?view=cards&leagueId=1')
+    .set('Authorization', TOKEN());
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.players.map(({ ownership }) => ownership), [null, null]);
 });
 
 test('view=cards: an unavailable week (IR) carries projWeek: { reason: "ir" } and no points', async (t) => {
@@ -307,6 +362,7 @@ test('view=cards + sort=upgrade in a best_ball league: still never returns proje
       return { rows: [{ player_id: 1, season: 2025, games_played: 16, stats: { rushingYards: 50 } }] };
     }
     if (text.includes('COUNT(*)::int AS "roster_count"')) return { rows: [{ roster_count: 0 }] };
+    if (text.includes('FROM "player_ownership"')) return { rows: [] };
     throw new Error(`unexpected query: ${text}`);
   });
   mockCardServices(t, {
@@ -359,6 +415,8 @@ function realProducerHandlers({ league, players }) {
     // nobody rostered, nobody on waivers.
     [/^SELECT "team_players"\."team_id"/, () => ({ rows: [] })],
     [/FROM "waiver_players"/, () => ({ rows: [] })],
+    // view=cards ownership: one read per page, no ESPN snapshot here.
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
     // The default (non-cards) view's attachLeagueAvailability, reached by the
     // plain sort=upgrade case below.
     [/^SELECT "team_id", "player_id" FROM "team_players"/, () => ({ rows: [] })],
