@@ -445,9 +445,10 @@ async function loadSeasonMatchups(db, { userId, leagueIds }) {
 }
 
 /**
- * A failed batched read is remembered, not thrown: only the leagues that need
- * it fail (status null, statusError true), and `need` rethrows it inside that
- * league's own build.
+ * A failed batched read is remembered, not thrown: `need` rethrows it inside
+ * each league's own build, so only the leagues that need it fail (status
+ * null, statusError true; a pick'em read only costs a fantasy card its pickem
+ * key).
  */
 const settle = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
 const need = (settled) => {
@@ -487,9 +488,18 @@ async function loadLineupStatuses(db, { userId, leagues, now }) {
  * my_team_* and team_count columns). Keys appear only where they apply:
  * week, record, standing, matchup and lineup for a fantasy league in season
  * or playoffs (matchup null on a bye), pickem while Pick'em is on and the
- * season is not complete, draft before and during the draft. Each league is
- * built in its own try/catch, and this function never throws: the list never
- * fails because of status.
+ * season is not complete, draft before and during the draft.
+ *
+ * `pickem` is `{ made, total, missing, nextLockAt }`, `pickemStatus`' own
+ * answer: `missing` counts the viewer's unpicked OPEN games, the same number
+ * the picks_open to-do row carries, so a card never says "1 left" for a game
+ * that already locked while the to-do list says nothing is left.
+ *
+ * Each league is built in its own try/catch, and this function never throws:
+ * the list never fails because of status. A failed pick'em read (the settings,
+ * the slate or the picks) drops only the `pickem` key from a fantasy card whose
+ * other keys were built; a pick'em-only league, whose only content is its
+ * Pick'em week, reads status null and statusError true.
  */
 async function leagueStatuses(db, { userId, leagues, now }) {
   const out = new Map();
@@ -513,7 +523,8 @@ async function leagueStatuses(db, { userId, leagues, now }) {
       settle(loadLineupStatuses(db, { userId, leagues: fantasy, now })),
     ]);
     // A league's Pick'em is on for sure when it is pick'em-only; a fantasy
-    // league's answer needs the settings read, so a failed read fails it.
+    // league's answer needs the settings read, so a failed read throws here
+    // and the league's card drops its pickem key (below).
     const pickemOn = (league) => isPickemOnly(league) || need(pickemIds).has(league.id);
     const pickemLeagues = running.filter((l) => isPickemOnly(l) || (pickemIds.ok && pickemIds.value.has(l.id)));
     const pickemWeeks = await settle(loadPickemWeeks(db, { userId, leagues: pickemLeagues, now }));
@@ -559,9 +570,19 @@ async function leagueStatuses(db, { userId, leagues, now }) {
         } else if (isPickemOnly(league) && phase !== LEAGUE_PHASE.COMPLETE) {
           status.week = Number(league.current_week);
         }
-        if (phase !== LEAGUE_PHASE.COMPLETE && pickemOn(league)) {
-          const { made, total, nextLockAt } = need(pickemWeeks).get(league.id);
-          status.pickem = { made, total, nextLockAt };
+        if (phase !== LEAGUE_PHASE.COMPLETE) {
+          // Pick'em rides on a fantasy card as an add-on: a failed pick'em
+          // read (settings, slate or picks) drops only the pickem key there.
+          // A pick'em-only card has nothing else to show, so it fails whole.
+          try {
+            if (pickemOn(league)) {
+              const { made, total, missing, nextLockAt } = need(pickemWeeks).get(league.id);
+              status.pickem = { made, total, missing, nextLockAt };
+            }
+          } catch (error) {
+            if (isPickemOnly(league)) throw error;
+            console.error(`home status: league ${league.id} pick'em unavailable`, error);
+          }
         }
         if (phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING) {
           status.draft = {
