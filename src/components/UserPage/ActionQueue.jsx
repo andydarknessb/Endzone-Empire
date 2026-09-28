@@ -79,7 +79,7 @@ function deadlineParts(item, now) {
   if (remaining < RELATIVE_WINDOW_MS) {
     return { label, value: formatInstant(at, 'time'), sub: relativeText(at, now), urgent: remaining < URGENT_WINDOW_MS };
   }
-  return { label, value: formatInstant(at, 'day'), sub: formatInstant(at, 'kickoff'), urgent: false };
+  return { label, value: formatInstant(at, 'day'), sub: formatInstant(at, 'weekdayTime'), urgent: false };
 }
 
 // The urgent tone is `warning.main`, the app palette's warning. It is the

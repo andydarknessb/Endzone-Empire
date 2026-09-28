@@ -1,7 +1,7 @@
-// Named formats for showing an instant (spec #1737). The kickoff format began
-// as the island's shared "Sun 7:20 PM" (#1120, ADR 0031), promoted from three
-// private copies whose signatures had drifted; the other formats joined it for
-// the same reason, so a surface picks a name here instead of writing a seventh
+// Named formats for showing an instant (spec #1737). The weekday-and-time
+// format began as the island's shared Kickoff formatter, "Sun 7:20 PM" (#1120,
+// ADR 0031), promoted from three private copies whose signatures had drifted;
+// the other formats joined it for the same reason, so a surface picks a name here instead of writing a seventh
 // Intl.DateTimeFormat of its own.
 //
 // Every format follows the viewer's own locale and time zone. `timeZone` and
@@ -9,7 +9,7 @@
 // test can pin output; production callers otherwise omit them.
 
 const FORMATS = {
-  kickoff: { weekday: 'short', hour: 'numeric', minute: '2-digit' }, // Sun 7:20 PM
+  weekdayTime: { weekday: 'short', hour: 'numeric', minute: '2-digit' }, // Sun 7:20 PM
   time: { hour: 'numeric', minute: '2-digit' }, // 7:20 PM
   day: { month: 'short', day: 'numeric' }, // Oct 11
   schedule: { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }, // Sun, Oct 11, 7:20 PM CDT
@@ -28,7 +28,7 @@ function build(locale, options, timeZone) {
 }
 
 /**
- * An instant (ISO string or Date) in one of the named formats: 'kickoff',
+ * An instant (ISO string or Date) in one of the named formats: 'weekdayTime',
  * 'time', 'day', 'schedule' or 'zone'. Absent, empty or unparseable input, or
  * an unknown format name, reads as null, never "Invalid Date".
  */
@@ -45,7 +45,12 @@ export function formatInstant(dateLike, format, { timeZone, locale } = {}) {
   return formatter.format(date);
 }
 
-/** "Sun 7:20 PM" for an NFL Kickoff: the island's shared name for formatInstant(at, 'kickoff'). */
+/**
+ * "Sun 7:20 PM" for an NFL Kickoff (CONTEXT.md: the scheduled start of an NFL
+ * game), the island's shared name for it since ADR 0031. Any other instant in
+ * that shape (a Clear time, a lock, a deadline) is formatInstant(at,
+ * 'weekdayTime'), so the domain word is not borrowed for what is not one.
+ */
 export function formatKickoff(dateLike, options) {
-  return formatInstant(dateLike, 'kickoff', options);
+  return formatInstant(dateLike, 'weekdayTime', options);
 }

@@ -35,8 +35,12 @@ describe('formatInstant', () => {
   const at = '2026-10-11T05:00:00Z'; // Sun Oct 11 12:00 AM in Chicago, 1:00 AM in New York, Sat Oct 10 in Los Angeles
   const pinned = { timeZone: 'America/Chicago', locale: 'en-US' };
 
-  test('kickoff reads weekday and clock time', () => {
-    expect(formatInstant(at, 'kickoff', pinned)).toBe('Sun 12:00 AM');
+  test('weekdayTime reads weekday and clock time; an unknown name, even kickoff, is null', () => {
+    expect(formatInstant(at, 'weekdayTime', pinned)).toBe('Sun 12:00 AM');
+    // Kickoff is an NFL game's start (CONTEXT.md), so the format is not named
+    // for it; formatKickoff is the Kickoff-specific name.
+    expect(formatInstant(at, 'kickoff', pinned)).toBeNull();
+    expect(formatKickoff(at, pinned)).toBe('Sun 12:00 AM');
   });
 
   test('time, day, schedule and zone each read their own part', () => {

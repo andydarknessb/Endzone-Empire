@@ -603,7 +603,7 @@ function LeagueStatusCard({ league }) {
     // A status from before `missing` shipped falls back to made of total.
     const done = Number.isFinite(missing) ? missing === 0 : total > 0 && made >= total;
     const managers = league.team_count != null ? `${league.team_count} managers` : null;
-    const lock = nextLockAt ? formatInstant(nextLockAt, 'kickoff') : null;
+    const lock = nextLockAt ? formatInstant(nextLockAt, 'weekdayTime') : null;
     subline = [league.my_team_name, role, managers].filter(Boolean).join(' · ');
     chip = <StatusChip variant={done ? 'default' : 'pickem'} label={done ? 'Picks in' : 'Picks open'} />;
     body = <PickemBody status={status} />;

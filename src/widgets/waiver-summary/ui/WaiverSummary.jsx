@@ -95,8 +95,8 @@ export default function WaiverSummary({ nextClear, pendingCount = 0, faab, waive
   const nextNote = !nextClear
     ? 'No pending claims'
     : nextClear.kind === 'blanket'
-      ? `Waivers clear ${formatInstant(nextClear.at, 'kickoff')}`
-      : `${nextClear.playerName || 'Your next claim'} clears ${formatInstant(nextClear.at, 'kickoff')}`;
+      ? `Waivers clear ${formatInstant(nextClear.at, 'weekdayTime')}`
+      : `${nextClear.playerName || 'Your next claim'} clears ${formatInstant(nextClear.at, 'weekdayTime')}`;
 
   return (
     <Box
