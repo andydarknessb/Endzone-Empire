@@ -124,6 +124,18 @@ async function ownershipForMany(db, players) {
   return byPlayerId;
 }
 
+// Ownership is enrichment, the same tier as `watching`: a failed read leaves
+// every row's Ownership null (the Waivers page then hides the column) rather
+// than failing the whole page.
+async function ownershipForManySafe(db, players) {
+  try {
+    return await ownershipForMany(db, players);
+  } catch (error) {
+    console.error('Error reading player ownership', error);
+    return new Map();
+  }
+}
+
 async function attachLeagueAvailability(db, players, { leagueId, teamId, blanketWaiversOpen }) {
   const identityIds = [
     ...new Set(players.flatMap((player) => player.identity_ids || [player.id])),
@@ -655,7 +667,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
       // #1312 Ruling: `watching` rides the SAME view=cards row every other
       // caller-scoped field does, one batched read for the whole page.
       watchlistWatchingForManySafe({ teamId: memberTeam.id, playerIds: pagePlayers.map((p) => p.id) }),
-      ownershipForMany(db, pagePlayers),
+      ownershipForManySafe(db, pagePlayers),
     ]);
 
     for (const p of pagePlayers) {

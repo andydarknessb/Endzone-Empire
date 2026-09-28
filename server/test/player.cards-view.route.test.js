@@ -91,6 +91,7 @@ function mockBasePool(t, { league, players, poolQueries = [], ownershipRows = []
     if (text.includes('FROM "waiver_players"')) return { rows: [] };
     if (text.includes('FROM "player_ownership"')) {
       ownershipQueries.push(text);
+      if (ownershipRows instanceof Error) throw ownershipRows;
       return { rows: ownershipRows };
     }
     throw new Error(`unexpected query: ${text}`);
@@ -196,6 +197,21 @@ test('view=cards: a row carries its latest player_ownership share, null when ESP
     ],
   );
   assert.equal(ownershipQueries.length, 1);
+});
+
+test('view=cards: a failed ownership read degrades every row to ownership: null, never a page-level error', async (t) => {
+  const league = makeLeague();
+  const players = makePlayers(2);
+  mockBasePool(t, { league, players, ownershipRows: new Error('player_ownership unreachable') });
+  mockCardServices(t);
+  t.mock.method(console, 'error', () => {});
+
+  const res = await request(app)
+    .get('/api/players?view=cards&leagueId=1')
+    .set('Authorization', TOKEN());
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.players.map(({ ownership }) => ownership), [null, null]);
 });
 
 test('view=cards: an unavailable week (IR) carries projWeek: { reason: "ir" } and no points', async (t) => {
