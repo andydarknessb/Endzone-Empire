@@ -1,6 +1,6 @@
 # Home joins the island
 
-Status: proposed (2026-09-28)
+Status: accepted (2026-09-28)
 
 ADR 0020 scoped the `dash-*` token group, Barlow Condensed and Archivo to the
 League Dashboard island, and ADR 0031, ADR 0037, ADR 0038 and ADR 0049 brought
@@ -74,9 +74,10 @@ Rulings that shape the restyle:
   warning tint stays 12% in light (the boards draw 10%) and the home tint
   stays 16% in dark (the boards draw 14%). Both clear AA on every surface
   Home paints them on (the measurements below). The danger tint is the one
-  exception, proposed in the next ruling.
-- Proposed: the light `dash-danger-soft` drops from 10% to 6%, the value the
-  boards were drawn with. Home paints danger text on the danger tint over the
+  exception, ruled in the next bullet.
+- The light `dash-danger-soft` drops from 10% to 6%
+  (`rgba(198, 40, 40, 0.06)`), the value the boards were drawn with (ruled
+  2026-09-28). Home paints danger text on the danger tint over the
   page in two places: the LIVE chip in the greeting header, and the Join
   sheet's "No league uses that code" alert, which sits on the page because
   the sheet is full screen. At 10% that text is 4.29:1 over `dash-bg` in
@@ -91,11 +92,12 @@ Rulings that shape the restyle:
   a fainter fill: the `shared/ui` Badge's danger variant, the bye-cluster
   warning tile, the Pick'em game card's error row, and the Game Center
   scoring strip, whose border is the tint itself and nearly disappears on a
-  card at 6%. That border is decoration, not a WCAG boundary, but the restyle
-  pass should look at it in light. The alternative is to keep 10% and move
-  both Home placements onto a card, or paint the header chip without a fill
-  (danger text and border straight on `dash-bg`, 5.00:1). The lead rules
-  which.
+  card at 6%. That border is decoration, not a WCAG boundary; the restyle
+  pass checks it, and the other fainter light fills, in light mode. Keeping
+  10% was rejected: it would have moved both Home placements onto a card, or
+  painted the header chip without a fill (danger text and border straight on
+  `dash-bg`, 5.00:1). The restyle pass changes the value in `tokens.js`; this
+  ADR does not.
 
 ## Considered options
 
@@ -151,8 +153,8 @@ Rulings that shape the restyle:
   values, light then dark:
     - `dash-danger` on `dash-danger-soft` over `dash-bg`, AA_TEXT: the header
       LIVE chip and the Join not-found alert title. 4.29 (fails) / 5.78 at
-      10%; 4.57 in light at 6%. This row cannot be registered until the tint
-      ruling above is made.
+      10%; 4.57 in light at the ruled 6%. It is registered together with the
+      tint change.
     - `dash-ink` and `dash-dim` on `dash-danger-soft` over `dash-bg`, AA_TEXT:
       the failed-refresh alert's title and detail line, and the Join
       not-found alert's body. Ink 13.24 / 13.72; dim 4.72 / 6.28 (5.02 in
@@ -184,9 +186,9 @@ Rulings that shape the restyle:
     - `dash-field` on `dash-bg`, `dash-surface` and `dash-surface2`,
       AA_LARGE. 3.27 / 4.45, 3.67 / 4.04 and 3.42 / 3.65. Not on
       `dash-surface3`, which no input sits on.
-- If the light danger tint moves to 6%, the `tokens.js` comment and the
+- With the light danger tint at 6%, the `tokens.js` comment and the
   contrast test's comment that confine the danger pill to a card are
-  rewritten to confine it to the page, a card and a stat tile, and the Live
+  rewritten by the restyle pass to confine it to the page, a card and a stat tile, and the Live
   pill row gains its `dash-bg` and `dash-surface2` backdrops.
 - ADR 0020's import rules stay unaudited in the sense of ADR 0010, and this
   ADR adds nothing a lint rule reads. The one binding check it leans on is
