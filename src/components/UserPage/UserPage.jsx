@@ -1,26 +1,25 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useSelector } from 'react-redux';
-import { Link as RouterLink } from 'react-router-dom';
 import {
   Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl, Container, Box, Card, CardContent, Paper,
+  FormControl, Container, Box, Card, CardContent,
   Skeleton, Stack, List, ListItem, ListItemText, Link,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
-import { alpha } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import Countdown from '../Countdown/Countdown';
 import LeagueStatusGrid from './LeagueStatusGrid';
+import ActionQueue from './ActionQueue';
+import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import LeagueTypeFields from '../common/LeagueTypeFields';
 import DraftScheduleField from '../common/DraftScheduleField';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
 import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 import {
-  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnly, isPickemOnlyType, isValidTeamCount,
+  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
   leagueTypePayload,
 } from '../../shared/lib/leagueType';
 
@@ -29,53 +28,20 @@ import {
 // PublicHighlights.jsx.
 const PublicHighlights = lazy(() => import('./PublicHighlights'));
 
-function nextUpFor(leagues, activityItems) {
-  const actionItem = activityItems.find((item) => /trade|invite|join request/i.test(item.message || ''));
-  if (actionItem) {
-    const trade = /trade/i.test(actionItem.message || '');
-    return {
-      eyebrow: 'Action needed',
-      title: actionItem.message,
-      action: trade ? 'Review trades' : 'Review league',
-      to: actionItem.league_id
-        ? `/league/${actionItem.league_id}${trade ? '/trades' : ''}`
-        : '/league',
-    };
-  }
-
-  const drafting = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.DRAFTING);
-  if (drafting) {
-    return { eyebrow: 'Draft live', title: `${drafting.name} is on the clock.`, action: 'Open Draft Room', to: `/league/${drafting.id}/draft` };
-  }
-
-  const scheduled = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && league.draft_date);
-  if (scheduled) {
-    return {
-      eyebrow: 'Next up',
-      title: `Draft day for ${scheduled.name}`,
-      action: 'Draft Room',
-      to: `/league/${scheduled.id}/draft`,
-      draftDate: scheduled.draft_date,
-      draftTimeZone: scheduled.draft_timezone,
-    };
-  }
-
-  // A pick'em-only league is in season from day one and has no lineup to set:
-  // its next step is always this week's picks.
-  const picking = leagues.find((league) => isPickemOnly(league) && deriveLeaguePhase(league) === LEAGUE_PHASE.IN_SEASON);
-  if (picking) {
-    const week = picking.current_week ? `week ${picking.current_week} ` : '';
-    return { eyebrow: 'Action needed', title: `Make your ${week}picks for ${picking.name}.`, action: 'Make picks', to: `/league/${picking.id}/pickem` };
-  }
-
-  const active = leagues.find((league) => [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS].includes(deriveLeaguePhase(league)));
-  if (active) {
-    const week = active.current_week ? `Week ${active.current_week} ` : '';
-    return { eyebrow: 'Action needed', title: `Review your ${week}lineup for ${active.name}.`, action: 'Set Lineup', to: `/league/${active.id}/lineup` };
-  }
-
-  return { eyebrow: 'Next up', title: 'Create or join a league to start your season.', action: 'View leagues', to: '/league' };
+// The greeting's "Week 4 · Sunday, Oct 4" line: the NFL week the manager's
+// in-season leagues are in, or null when none is in season or they disagree
+// (then the line is left out rather than guessed).
+function sharedCurrentWeek(leagues) {
+  const weeks = new Set(
+    leagues
+      .filter((league) => [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS].includes(deriveLeaguePhase(league)))
+      .map((league) => Number(league.current_week))
+      .filter((week) => Number.isInteger(week) && week > 0)
+  );
+  return weeks.size === 1 ? [...weeks][0] : null;
 }
+
+const greetingDateFormat = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
 function UserPage() {
   const user = useSelector((store) => store.user);
@@ -134,10 +100,11 @@ function UserPage() {
   const [activityItems, setActivityItems] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [activityError, setActivityError] = useState(false);
-  const nextUp = nextUpFor(myLeagues, activityItems);
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
+  const nextDraft = nextScheduledDraft(myLeagues);
+  const currentWeek = sharedCurrentWeek(myLeagues);
 
   const fetchMyLeagues = async () => {
     try {
@@ -308,75 +275,53 @@ function UserPage() {
       sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}
     >
       <Container maxWidth="lg" sx={{ py: 3 }}>
-        {/* Unified hero: greeting + primary actions on the left, banner image
-            contained on the right. Replaces the old disconnected banner +
-            button row. */}
-        <Card
+        {/* Greeting header (Home v2): the page's one h1, with Create and Join
+            beside it (under it below md). */}
+        <Stack
+          component="header"
           data-testid="dashboard-hero"
-          elevation={0}
-          sx={{
-            mb: 4,
-            p: { xs: 3, sm: 4 },
-            borderRadius: 3,
-            bgcolor: 'background.paper',
-            border: '1px solid',
-            borderColor: 'divider',
-          }}
+          direction={{ xs: 'column', md: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'flex-start', md: 'flex-end' }}
+          spacing={2}
+          sx={{ mb: 3 }}
         >
-          <Grid container spacing={4} alignItems="center">
-            <Grid xs={12} md={7}>
+          <Box>
+            {currentWeek && (
               <Typography
-                variant="overline"
-                sx={{ color: 'primary.main', fontWeight: 700, letterSpacing: 1.2 }}
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1 }}
               >
-                Endzone Empire
+                {`Week ${currentWeek} · ${greetingDateFormat.format(new Date())}`}
               </Typography>
-              <Typography variant="h4" component="h1" id="user-page-heading" sx={{ fontWeight: 700, mt: 0.5, mb: 1, lineHeight: 1.15 }}>
-                Welcome, {user.username}!
-              </Typography>
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 460 }}>
-                Your command center for every league you manage: drafts, matchups,
-                waivers, trades, and weekly picks, all in one place.
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>
-                  Create League
-                </Button>
-                <Button variant="outlined" size="large" onClick={handleOpenJoinDialog}>
-                  Join League
-                </Button>
-              </Stack>
-            </Grid>
+            )}
+            <Typography variant="h4" component="h1" id="user-page-heading" sx={{ fontWeight: 700, lineHeight: 1.15 }}>
+              Welcome back, {user.username}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+            <Button variant="outlined" size="large" onClick={handleOpenJoinDialog}>
+              Join League
+            </Button>
+            <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>
+              Create League
+            </Button>
+          </Stack>
+        </Stack>
 
-            <Grid xs={12} md={5} sx={{ display: { xs: 'none', sm: 'block' } }}>
-              <Box
-                role="presentation"
-                sx={{
-                  position: 'relative',
-                  // Fixed, not keyed to myLeagues: that list is empty while loading,
-                  // so a keyed height shifted the page once leagues arrived.
-                  height: { sm: 140, md: 160 },
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  backgroundImage: 'url(/endzone.jpeg)',
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }}
-              >
-                {/* Gradient scrim keeps this readable as a hero image even
-                    though no text sits on top of it in this layout — kept
-                    subtle so the photo still reads clearly. */}
-                <Box
-                  sx={(theme) => ({
-                    position: 'absolute',
-                    inset: 0,
-                    background: `linear-gradient(135deg, ${alpha(theme.palette.common.black, 0.05)}, ${alpha(theme.palette.common.black, 0.45)})`,
-                  })}
-                />
-              </Box>
-            </Grid>
+        {/* The to-do list replaces the old hero and "Next up" nudge. It owns
+            its own fetch and states, so it never holds up My Leagues. */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid xs={12} lg={nextDraft ? 8 : 12}>
+            <ActionQueue />
           </Grid>
-        </Card>
+          {nextDraft && (
+            <Grid xs={12} lg={4}>
+              <NextDraftCard league={nextDraft} />
+            </Grid>
+          )}
+        </Grid>
 
 
         <Typography variant="h5" component="h2" sx={{ mb: 2, fontWeight: 700 }}>
@@ -435,34 +380,6 @@ function UserPage() {
           </Card>
         ) : (
           <LeagueStatusGrid leagues={myLeagues} />
-        )}
-
-        {/* Next Up is computed from the leagues list, so it waits for a good
-            one: while loading or after a failure it would fall back to
-            "Create or join a league", which is false for an existing manager. */}
-        {!awaitingFirstLeagues && !leaguesError && (
-        <Paper
-          variant="outlined"
-          component="section"
-          aria-labelledby="next-up-heading"
-          sx={{ mt: 4, p: { xs: 2, sm: 3 }, borderLeft: '4px solid', borderLeftColor: 'primary.main' }}
-        >
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', sm: 'center' }}
-            spacing={2}
-          >
-            <Box>
-              <Typography variant="overline" color="primary.main">{nextUp.eyebrow}</Typography>
-              <Typography id="next-up-heading" variant="h6" component="h2">{nextUp.title}</Typography>
-              {nextUp.draftDate && (
-                <Countdown variant="chip" date={nextUp.draftDate} timeZone={nextUp.draftTimeZone} />
-              )}
-            </Box>
-            <Button component={RouterLink} to={nextUp.to} variant="contained">{nextUp.action}</Button>
-          </Stack>
-        </Paper>
         )}
 
         {/* Below-the-fold dashboard real estate: real cross-app widgets. */}

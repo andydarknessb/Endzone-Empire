@@ -57,7 +57,7 @@ test('shows skeleton cards (not the empty state) while leagues are loading', asy
   expect(screen.queryByTestId('leagues-empty-state')).not.toBeInTheDocument();
 });
 
-test('renders the title and a welcome message with the username', async () => {
+test('renders a welcome message with the username', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
   // UserPage unconditionally mounts the news/activity widgets and the lazy
@@ -67,18 +67,7 @@ test('renders the title and a welcome message with the username', async () => {
   // state updates land after Jest has moved on to the next test.
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
 
-  expect(screen.getByText('Endzone Empire')).toBeInTheDocument();
-  expect(screen.getByText('Welcome, alice!')).toBeInTheDocument();
-});
-
-test("the hero names weekly picks alongside the fantasy features, so a pick'em-only manager is not promised rosters", async () => {
-  apiClient.get.mockResolvedValue({ data: [] });
-  renderWithProviders(<UserPage />, { state: baseState });
-  // See the comment above: let the always-present background fetches settle.
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
-
-  const hero = within(screen.getByTestId('dashboard-hero'));
-  expect(hero.getByText(/drafts, matchups, waivers, trades, and weekly picks, all in one place./)).toBeInTheDocument();
+  expect(screen.getByText('Welcome back, alice')).toBeInTheDocument();
 });
 
 test("fetches and renders the user's leagues on mount", async () => {
@@ -162,7 +151,8 @@ test('renders NFL news headlines and cross-league activity from their own endpoi
     'href',
     'https://example.com/news/1'
   );
-  expect(screen.getAllByText('Sunday Ballers completed a trade')).toHaveLength(2);
+  // Once only: the activity feed. The old "Next up" hero no longer repeats it.
+  expect(screen.getAllByText('Sunday Ballers completed a trade')).toHaveLength(1);
 });
 
 test('shows a friendly message when the news or activity widgets fail to load', async () => {
@@ -178,11 +168,8 @@ test('shows a friendly message when the news or activity widgets fail to load', 
   expect(screen.getByText("Couldn't load recent activity right now.")).toBeInTheDocument();
 });
 
-// --- "Next up" hero (nextUpFor) -------------------------------------------
-// The hero distills the user's leagues + recent activity into one prioritized
-// CTA. Priority: an actionable notification (trade/invite/join request) > a
-// live draft > a scheduled draft > an in-season/playoff lineup nudge > the
-// create/join fallback. The action renders as a link, so assert on its href.
+// The "Next up" hero (nextUpFor) and its tests are gone: the to-do list
+// replaced it (Home v2 slice 2, UserPage.actionQueue.test.jsx).
 const mockDashboard = ({ leagues = [], notifications = [] }) => {
   apiClient.get.mockImplementation((url) => {
     if (url === '/api/notifications') return Promise.resolve({ data: { notifications, unread: 0 } });
@@ -190,46 +177,6 @@ const mockDashboard = ({ leagues = [], notifications = [] }) => {
     return Promise.resolve({ data: leagues }); // /api/league
   });
 };
-
-test('Next up hero prioritizes an actionable trade notification over league phase', async () => {
-  mockDashboard({
-    leagues: [league({ id: 9, draft_status: 'active' })], // a live draft would otherwise win
-    notifications: [{ id: 1, message: 'Bob proposed a trade', league_id: 9 }],
-  });
-  renderWithProviders(<UserPage />, { state: baseState });
-
-  expect(await screen.findByRole('link', { name: 'Review trades' })).toHaveAttribute('href', '/league/9/trades');
-  expect(screen.getByText('Action needed')).toBeInTheDocument();
-});
-
-test('Next up hero surfaces a live draft when nothing needs action', async () => {
-  mockDashboard({
-    leagues: [league({ id: 1, draft_status: 'active' })],
-    notifications: [{ id: 1, message: 'Week 1 scores posted' }],
-  });
-  renderWithProviders(<UserPage />, { state: baseState });
-
-  expect(await screen.findByRole('link', { name: 'Open Draft Room' })).toHaveAttribute('href', '/league/1/draft');
-  // "Draft live" also appears in the league card's phase chip, so scope to the hero region.
-  const hero = screen.getByRole('region', { name: /is on the clock/i });
-  expect(within(hero).getByText('Draft live')).toBeInTheDocument();
-});
-
-test('Next up hero nudges the in-season lineup once the draft is complete', async () => {
-  mockDashboard({
-    leagues: [league({ id: 3, draft_status: 'complete', season_status: 'regular', current_week: 5 })],
-  });
-  renderWithProviders(<UserPage />, { state: baseState });
-
-  expect(await screen.findByRole('link', { name: 'Set Lineup' })).toHaveAttribute('href', '/league/3/lineup');
-});
-
-test('Next up hero points to browsing leagues when the user has none', async () => {
-  mockDashboard({ leagues: [] });
-  renderWithProviders(<UserPage />, { state: baseState });
-
-  expect(await screen.findByRole('link', { name: 'View leagues' })).toHaveAttribute('href', '/league');
-});
 
 test('creating a league posts the form data, shows a notice, and refetches leagues', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
@@ -542,16 +489,6 @@ test("choosing Both sends leagueType 'both' with the chosen confidence mode and 
   );
 });
 
-test("Next up hero sends a pick'em-only manager to make this week's picks", async () => {
-  mockDashboard({
-    leagues: [league({ id: 4, name: 'Office Pool', pickem_only: true, draft_status: 'pending', season_status: 'regular', current_week: 7 })],
-  });
-  renderWithProviders(<UserPage />, { state: baseState });
-
-  expect(await screen.findByRole('link', { name: 'Make picks' })).toHaveAttribute('href', '/league/4/pickem');
-  expect(screen.getByText('Make your week 7 picks for Office Pool.')).toBeInTheDocument();
-});
-
 test("the pick'em team count must be a whole number from 2 to 50 before Create is enabled", async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   renderWithProviders(<UserPage />, { state: baseState });
@@ -710,9 +647,9 @@ test('the page has one h1, an h2 per section and an h3 per league card', async (
   await screen.findByText('Sunday Ballers');
 
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, alice!');
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome back, alice');
   expect(screen.getByRole('heading', { level: 2, name: 'My Leagues' })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 2, name: /Review your Week 4 lineup/ })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { level: 2, name: 'Needs your attention' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'Latest NFL News' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 2, name: 'Global Activity' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { level: 3, name: 'Sunday Ballers' })).toBeInTheDocument();
