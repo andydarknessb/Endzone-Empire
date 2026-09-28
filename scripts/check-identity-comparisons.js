@@ -122,9 +122,9 @@ const ALLOWLIST = [
     rule: 'sanctioned-owner: deleting the league. The gate IS the WHERE clause - no row deleted means not the owner, answered as 403',
   },
   {
-    file: 'server/routes/league.router.js',
+    file: 'server/services/homeStatus.service.js',
     code: 'SQL ("leagues"."owner_id" = $1) AS "is_owner",',
-    rule: 'sanctioned-owner: the per-viewer is_owner flag on the leagues list, derived from the caller\'s own id ($1) so no card has to rebuild it (#188)',
+    rule: 'sanctioned-owner: the per-viewer is_owner flag on the leagues list (listMyLeagues, moved from league.router.js for Home v2), derived from the caller\'s own id ($1) so no card has to rebuild it (#188)',
   },
   {
     file: 'server/services/leagueRole.service.js',
