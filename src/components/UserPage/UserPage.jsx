@@ -1,9 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { useSelector } from 'react-redux';
 import {
-  Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl, Container, Box, Card, CardContent,
+  Typography, Button, Alert, Container, Box, Card, CardContent,
   Skeleton, Stack, List, ListItem, ListItemText, Link,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
@@ -13,16 +11,9 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
 import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
-import LeagueTypeFields from '../common/LeagueTypeFields';
-import DraftScheduleField from '../common/DraftScheduleField';
-import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import JoinLeagueDialog from './JoinLeagueDialog';
+import CreateLeagueStepper from './CreateLeagueStepper';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
-import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
-import {
-  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnlyType, isValidTeamCount,
-  leagueTypePayload,
-} from '../../shared/lib/leagueType';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
@@ -53,37 +44,9 @@ function UserPage() {
   // never fall through to the empty state (which tells a manager they have no
   // leagues) and opening Create or Join must not clear it.
   const [leaguesError, setLeaguesError] = useState(null);
-  // Each dialog owns its failure message: it renders inside the dialog, which
-  // stays open with the answers, and is the only place the error is announced.
-  const [createError, setCreateError] = useState(null);
-  // In-flight flags: POST /api/league is not idempotent, so a second click
-  // while the first request is pending would create a second league.
-  const [creating, setCreating] = useState(false);
-  const notify = useSnackbar();
 
-  // Create League dialog
+  // Create League stepper: its answers and request live in CreateLeagueStepper.
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
-  const [leagueName, setLeagueName] = useState('');
-  const [teamName, setTeamName] = useState('');
-  const [numTeams, setNumTeams] = useState(2);
-
-  // League type is always sent; the pick'em mode only when the type includes
-  // pick'em (see leagueTypePayload).
-  const [leagueType, setLeagueType] = useState(LEAGUE_TYPE.FANTASY);
-  const [pickemMode, setPickemMode] = useState('straight');
-
-  // New league-creation options — all optional, sent only when the user
-  // actually sets them (see handleCreateLeague).
-  const [isPublic, setIsPublic] = useState(false);
-  const [joinApproval, setJoinApproval] = useState(false);
-  const [bestBall, setBestBall] = useState(false);
-  // Half PPR is stored as the half_ppr preset rather than left NULL: the two
-  // score identically, but only a stored preset shows the league's scoring
-  // chip and matches Discover's scoring filter.
-  const [scoringPreset, setScoringPreset] = useState('half_ppr');
-  const [draftDate, setDraftDate] = useState('');
-  const [draftTimezone, setDraftTimezone] = useState(browserTimeZone);
-  const [draftAcknowledged, setDraftAcknowledged] = useState(false);
 
   // Join League dialog — leagues are private, so joining is always by invite
   // code. The dialog owns its answers, preview and in-flight state.
@@ -157,75 +120,6 @@ function UserPage() {
 
   const handleCloseCreateDialog = () => {
     setOpenCreateDialog(false);
-    setCreateError(null);
-  };
-
-  // Switching type re-caps the team count: a 30-manager pick'em pool cannot
-  // become a 30-team fantasy league.
-  const handleLeagueTypeChange = (nextType) => {
-    setLeagueType(nextType);
-    setNumTeams((current) => clampTeamCount(current, capForType(nextType)));
-  };
-
-  // The fantasy Select can only hold 2..20, but the pick'em number field is
-  // free text and this dialog is not a <form>, so native min/max never run:
-  // gate Create on the count instead of letting the server 400 it.
-  const teamCountValid = isValidTeamCount(numTeams, capForType(leagueType));
-  // A Team name is required on every join path (#111); this dialog's own
-  // gate mirrors the server's trimmed-non-blank rule so Create never fires
-  // a request the server would only reject.
-  const teamNameValid = teamName.trim().length > 0;
-  // A scheduled draft needs its zone explicitly acknowledged before Create
-  // can fire (#116 AC3); an empty draft date needs no acknowledgement, and
-  // neither does a pick'em league, which never sends draftDate at all (a
-  // date typed before switching away from fantasy is simply dropped).
-  const draftScheduleReady = !includesFantasy(leagueType) || !draftDate || draftAcknowledged;
-  // A disabled button alone doesn't say why (WCAG 3.3.2), so the first unmet
-  // gate is spelled out beside it and tied to it with aria-describedby.
-  let createBlocker = null;
-  if (!leagueName.trim() || !teamNameValid) createBlocker = 'Add a league name and your Team name to continue.';
-  else if (!teamCountValid) createBlocker = `Enter ${MIN_TEAMS} to ${capForType(leagueType)} teams to continue.`;
-  else if (!draftScheduleReady) createBlocker = 'Confirm the draft date and time zone to continue.';
-
-  const handleCreateLeague = async () => {
-    if (creating) return;
-    setCreateError(null);
-    setCreating(true);
-    try {
-      // maxTeams is always explicit: the server's default is the fantasy 10
-      // for every type, so a pick'em pool must never rely on it.
-      const draftDateUtc = draftDate ? zonedWallTimeToUtcIso(draftDate, draftTimezone) : null;
-      const payload = {
-        name: leagueName,
-        teamName: teamName.trim(),
-        maxTeams: Number(numTeams),
-        ...leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate: draftDateUtc, draftTimezone }),
-      };
-      if (isPublic) payload.isPublic = true;
-      if (isPublic && joinApproval) payload.joinApproval = true;
-
-      await apiClient.post('/api/league', payload);
-      // The snackbar is the one success announcement; the page adds none.
-      notify('League created!');
-      setLeagueName('');
-      setTeamName('');
-      setNumTeams(2);
-      setLeagueType(LEAGUE_TYPE.FANTASY);
-      setPickemMode('straight');
-      setIsPublic(false);
-      setJoinApproval(false);
-      setBestBall(false);
-      setScoringPreset('half_ppr');
-      setDraftDate('');
-      setDraftTimezone(browserTimeZone());
-      setDraftAcknowledged(false);
-      handleCloseCreateDialog();
-      fetchMyLeagues();
-    } catch (err) {
-      setCreateError(readHttpFailure(err).message || err.message);
-    } finally {
-      setCreating(false);
-    }
   };
 
   // Functions to handle join dialog
@@ -455,142 +349,11 @@ function UserPage() {
           <PublicHighlights />
         </Suspense>
 
-        <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
-          <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
-          <DialogContent>
-            {createError && <Alert severity="error" sx={{ mb: 1 }}>{createError}</Alert>}
-            <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" required fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
-            <TextField
-              className="dialogTextField"
-              margin="dense"
-              label="Team Name"
-              fullWidth
-              required
-              inputProps={{ maxLength: 120 }}
-              helperText="Your Team's identity in this league. Other managers never see your account email or username."
-              value={teamName}
-              onChange={(event) => setTeamName(event.target.value)}
-            />
-
-            <LeagueTypeFields
-              leagueType={leagueType}
-              onLeagueTypeChange={handleLeagueTypeChange}
-              pickemMode={pickemMode}
-              onPickemModeChange={setPickemMode}
-            />
-
-            {isPickemOnlyType(leagueType) ? (
-              // A pick'em pool takes up to 50 managers; a 49-item Select is
-              // unusable, so the cap is entered as a number instead.
-              <TextField
-                className="dialogTextField"
-                margin="dense"
-                label="Teams"
-                type="number"
-                fullWidth
-                inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
-                error={!teamCountValid}
-                helperText={`${MIN_TEAMS} to ${capForType(leagueType)} managers`}
-                value={numTeams}
-                onChange={(event) => setNumTeams(event.target.value)}
-              />
-            ) : (
-              <FormControl margin="dense" sx={{ minWidth: 120 }}>
-                <InputLabel id="numTeams-label">Teams</InputLabel>
-                <Select
-                  labelId="numTeams-label"
-                  id="numTeams-select"
-                  label="Teams"
-                  value={numTeams}
-                  onChange={(event) => setNumTeams(event.target.value)}
-                >
-                  {Array.from({ length: 19 }, (_, i) => i + 2).map((number) => (
-                    <MenuItem key={number} value={number}>{number}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={isPublic}
-                  onChange={(event) => setIsPublic(event.target.checked)}
-                />
-              }
-              label="Public league"
-            />
-            {isPublic && (
-              <FormControlLabel
-                sx={{ ml: 2 }}
-                control={
-                  <Switch
-                    checked={joinApproval}
-                    onChange={(event) => setJoinApproval(event.target.checked)}
-                  />
-                }
-                label="Require commissioner approval to join"
-              />
-            )}
-            {/* Fantasy-only settings: a pick'em league has no lineups, scoring
-                rules or draft, and the server rejects these fields for it. */}
-            {includesFantasy(leagueType) && (
-              <>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={bestBall}
-                  onChange={(event) => setBestBall(event.target.checked)}
-                />
-              }
-              label="Best ball mode"
-            />
-            {bestBall && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Best ball: an optimal lineup is set automatically each week, with no manual lineup edits.
-              </Typography>
-            )}
-
-            <FormControl fullWidth margin="dense" size="small">
-              <InputLabel id="scoring-preset-label">Scoring</InputLabel>
-              <Select
-                labelId="scoring-preset-label"
-                id="scoring-preset-select"
-                label="Scoring"
-                value={scoringPreset}
-                onChange={(event) => setScoringPreset(event.target.value)}
-              >
-                <MenuItem value="standard">Standard</MenuItem>
-                <MenuItem value="half_ppr">Half PPR</MenuItem>
-                <MenuItem value="ppr">PPR</MenuItem>
-              </Select>
-            </FormControl>
-
-            <DraftScheduleField
-              wallTime={draftDate}
-              onWallTimeChange={setDraftDate}
-              timeZone={draftTimezone}
-              onTimeZoneChange={setDraftTimezone}
-              acknowledged={draftAcknowledged}
-              onAcknowledgedChange={setDraftAcknowledged}
-            />
-              </>
-            )}
-            </DialogContent>
-            <DialogActions>
-            {createBlocker && (
-              <Typography id="create-league-blocker" variant="body2" color="text.secondary" sx={{ mr: 'auto', pl: 1 }}>
-                {createBlocker}
-              </Typography>
-            )}
-            <Button onClick={handleCloseCreateDialog} color="primary">
-             Cancel
-            </Button>
-            <Button onClick={handleCreateLeague} color="primary" aria-describedby={createBlocker ? 'create-league-blocker' : undefined} disabled={creating || Boolean(createBlocker)}>
-              {creating ? 'Creating…' : 'Create'}
-            </Button>
-            </DialogActions>
-            </Dialog>
+        <CreateLeagueStepper
+          open={openCreateDialog}
+          onClose={handleCloseCreateDialog}
+          onCreated={fetchMyLeagues}
+        />
         <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
       </Container>
     </Box>
