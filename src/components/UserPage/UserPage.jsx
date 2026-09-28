@@ -1,116 +1,99 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, {
+  useState, useEffect, useMemo, lazy, Suspense,
+} from 'react';
 import { useSelector } from 'react-redux';
-import { Link as RouterLink } from 'react-router-dom';
 import {
-  Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Select, MenuItem, InputLabel, Alert, Switch, FormControlLabel,
-  FormControl, Container, Box, Card, CardContent, Paper,
+  Typography, Button, Alert, Container, Box, Card, CardContent,
   Skeleton, Stack, List, ListItem, ListItemText, Link,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
-import { alpha } from '@mui/material/styles';
+import { ThemeProvider, useTheme } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import Countdown from '../Countdown/Countdown';
-import LeagueCard from '../common/LeagueCard';
-import LeagueTypeFields from '../common/LeagueTypeFields';
-import DraftScheduleField from '../common/DraftScheduleField';
-import { useSnackbar } from '../Snackbar/SnackbarProvider';
-import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
-import { browserTimeZone, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
+import LeagueStatusGrid from './LeagueStatusGrid';
+import ActionQueue from './ActionQueue';
+import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import {
-  LEAGUE_TYPE, MIN_TEAMS, capForType, clampTeamCount, includesFantasy, isPickemOnly, isPickemOnlyType, isValidTeamCount,
-  leagueTypePayload,
-} from '../../shared/lib/leagueType';
+  GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
+} from './GreetingHeader';
+import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
+import homeTheme from './homeTheme';
+import {
+  DISPLAY_FONT, alertActionSx, alertSx, dimSx, ghostButtonSx, homeRootSx, panelSx, panelTitleSx,
+  primaryButtonSx, sectionTitleSx, skeletonSx,
+} from '../common/homeIslandSx';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
 // PublicHighlights.jsx.
 const PublicHighlights = lazy(() => import('./PublicHighlights'));
 
-function nextUpFor(leagues, activityItems) {
-  const actionItem = activityItems.find((item) => /trade|invite|join request/i.test(item.message || ''));
-  if (actionItem) {
-    const trade = /trade/i.test(actionItem.message || '');
-    return {
-      eyebrow: 'Action needed',
-      title: actionItem.message,
-      action: trade ? 'Review trades' : 'Review league',
-      to: actionItem.league_id
-        ? `/league/${actionItem.league_id}${trade ? '/trades' : ''}`
-        : '/league',
-    };
-  }
-
-  const drafting = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.DRAFTING);
-  if (drafting) {
-    return { eyebrow: 'Draft live', title: `${drafting.name} is on the clock.`, action: 'Open Draft Room', to: `/league/${drafting.id}/draft` };
-  }
-
-  const scheduled = leagues.find((league) => deriveLeaguePhase(league) === LEAGUE_PHASE.PRE_DRAFT && league.draft_date);
-  if (scheduled) {
-    return {
-      eyebrow: 'Next up',
-      title: `Draft day for ${scheduled.name}`,
-      action: 'Draft Room',
-      to: `/league/${scheduled.id}/draft`,
-      draftDate: scheduled.draft_date,
-      draftTimeZone: scheduled.draft_timezone,
-    };
-  }
-
-  // A pick'em-only league is in season from day one and has no lineup to set:
-  // its next step is always this week's picks.
-  const picking = leagues.find((league) => isPickemOnly(league) && deriveLeaguePhase(league) === LEAGUE_PHASE.IN_SEASON);
-  if (picking) {
-    const week = picking.current_week ? `week ${picking.current_week} ` : '';
-    return { eyebrow: 'Action needed', title: `Make your ${week}picks for ${picking.name}.`, action: 'Make picks', to: `/league/${picking.id}/pickem` };
-  }
-
-  const active = leagues.find((league) => [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS].includes(deriveLeaguePhase(league)));
-  if (active) {
-    const week = active.current_week ? `Week ${active.current_week} ` : '';
-    return { eyebrow: 'Action needed', title: `Review your ${week}lineup for ${active.name}.`, action: 'Set Lineup', to: `/league/${active.id}/lineup` };
-  }
-
-  return { eyebrow: 'Next up', title: 'Create or join a league to start your season.', action: 'View leagues', to: '/league' };
+// The greeting's "Week 4 · Sunday, Oct 4" line: the NFL week the manager's
+// in-season leagues are in, or null when none is in season or they disagree
+// (then the line is left out rather than guessed).
+function sharedCurrentWeek(leagues) {
+  const weeks = new Set(
+    leagues
+      .filter((league) => [LEAGUE_PHASE.IN_SEASON, LEAGUE_PHASE.PLAYOFFS].includes(deriveLeaguePhase(league)))
+      .map((league) => Number(league.current_week))
+      .filter((week) => Number.isInteger(week) && week > 0)
+  );
+  return weeks.size === 1 ? [...weeks][0] : null;
 }
+
+const greetingDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+// The feed cards below the fold (News, Activity) on the island: a panel, a
+// display-face title, ink rows with dim secondary lines, all on a card.
+const feedCardSx = { ...panelSx, height: '100%' };
+const feedTitleSx = { ...panelTitleSx, fontSize: '18px', mb: 1.5 };
+const feedListSx = {
+  '& .MuiListItemText-primary': { color: 'var(--dash-ink)' },
+  '& .MuiListItemText-secondary': dimSx,
+};
+const feedStatusSx = { ...dimSx, fontSize: '14px' };
+const heroButtonSx = { minHeight: 48, px: 2.5, fontSize: '15px' };
+// Join sits on the page, so the ghost paints its own `dash-surface` fill (the
+// board's Join league button): ink on a card surface, a registered pairing.
+const heroGhostSx = {
+  ...ghostButtonSx,
+  ...heroButtonSx,
+  backgroundColor: 'var(--dash-surface)',
+  '&:hover': { ...ghostButtonSx['&:hover'], backgroundColor: 'var(--dash-surface)' },
+};
+
+// The create and join flows load when a Manager first opens them: Home is in
+// the initial bundle, and neither dialog is needed to paint it.
+const JoinLeagueDialog = lazy(() => import('./JoinLeagueDialog'));
+const CreateLeagueStepper = lazy(() => import('./CreateLeagueStepper'));
 
 function UserPage() {
   const user = useSelector((store) => store.user);
+  const outerTheme = useTheme();
+  const theme = useMemo(() => homeTheme(outerTheme), [outerTheme]);
 
   const [myLeagues, setMyLeagues] = useState([]);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
-  const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
-  const notify = useSnackbar();
+  // A failed leagues fetch is its own state, not the dialogs' `error`: it must
+  // never fall through to the empty state (which tells a manager they have no
+  // leagues) and opening Create or Join must not clear it.
+  const [leaguesError, setLeaguesError] = useState(null);
 
-  // Create League dialog
+  // Create League stepper: its answers and request live in CreateLeagueStepper.
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
-  const [leagueName, setLeagueName] = useState('');
-  const [teamName, setTeamName] = useState('');
-  const [numTeams, setNumTeams] = useState(2);
+  // Each dialog mounts on its first open and then stays mounted, so closing the
+  // stepper mid-way keeps its answers.
+  const [createOpened, setCreateOpened] = useState(false);
+  const [joinOpened, setJoinOpened] = useState(false);
 
-  // League type is always sent; the pick'em mode only when the type includes
-  // pick'em (see leagueTypePayload).
-  const [leagueType, setLeagueType] = useState(LEAGUE_TYPE.FANTASY);
-  const [pickemMode, setPickemMode] = useState('straight');
+  // The to-do list body ActionQueue fetched, lifted for the greeting's
+  // summary line (one request, not two). Null until it loads and on error.
+  const [actionItems, setActionItems] = useState(null);
 
-  // New league-creation options — all optional, sent only when the user
-  // actually sets them (see handleCreateLeague).
-  const [isPublic, setIsPublic] = useState(false);
-  const [joinApproval, setJoinApproval] = useState(false);
-  const [bestBall, setBestBall] = useState(false);
-  const [scoringPreset, setScoringPreset] = useState('');
-  const [draftDate, setDraftDate] = useState('');
-  const [draftTimezone, setDraftTimezone] = useState(browserTimeZone);
-  const [draftAcknowledged, setDraftAcknowledged] = useState(false);
-
-  // Join League dialog — leagues are private, so joining is always by invite code
+  // Join League dialog — leagues are private, so joining is always by invite
+  // code. The dialog owns its answers, preview and in-flight state.
   const [openJoinDialog, setOpenJoinDialog] = useState(false);
-  const [inviteCode, setInviteCode] = useState('');
-  const [joinTeamName, setJoinTeamName] = useState('');
 
   // Below-the-fold dashboard widgets — each fetches independently so a slow
   // or failed one never blocks the leagues list (or each other).
@@ -121,15 +104,22 @@ function UserPage() {
   const [activityItems, setActivityItems] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [activityError, setActivityError] = useState(false);
-  const nextUp = nextUpFor(myLeagues, activityItems);
+  // Skeletons only stand in for a list we don't have yet. A refetch (Try
+  // again, or the refresh after a create or join) keeps the good list up.
+  const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
+  const nextDraft = nextScheduledDraft(myLeagues);
+  const currentWeek = sharedCurrentWeek(myLeagues);
+  const liveMatchups = liveMatchupCount(myLeagues);
 
   const fetchMyLeagues = async () => {
     try {
       setLoadingLeagues(true);
-      const response = await apiClient.get('/api/league');
+      const response = await apiClient.get('/api/league', { params: { include: 'status' } });
       setMyLeagues(response.data);
+      setLeaguesError(null);
     } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
+      // Keep the last good list (if any) on screen under the alert.
+      setLeaguesError(readHttpFailure(err).message || err.message);
     } finally {
       setLoadingLeagues(false);
     }
@@ -170,518 +160,315 @@ function UserPage() {
   // Functions to handle create dialog
   const handleOpenCreateDialog = () => {
     setOpenCreateDialog(true);
+    setCreateOpened(true);
   };
 
   const handleCloseCreateDialog = () => {
     setOpenCreateDialog(false);
   };
 
-  // Switching type re-caps the team count: a 30-manager pick'em pool cannot
-  // become a 30-team fantasy league.
-  const handleLeagueTypeChange = (nextType) => {
-    setLeagueType(nextType);
-    setNumTeams((current) => clampTeamCount(current, capForType(nextType)));
-  };
-
-  // The fantasy Select can only hold 2..20, but the pick'em number field is
-  // free text and this dialog is not a <form>, so native min/max never run:
-  // gate Create on the count instead of letting the server 400 it.
-  const teamCountValid = isValidTeamCount(numTeams, capForType(leagueType));
-  // A Team name is required on every join path (#111); this dialog's own
-  // gate mirrors the server's trimmed-non-blank rule so Create never fires
-  // a request the server would only reject.
-  const teamNameValid = teamName.trim().length > 0;
-  // A scheduled draft needs its zone explicitly acknowledged before Create
-  // can fire (#116 AC3); an empty draft date needs no acknowledgement, and
-  // neither does a pick'em league, which never sends draftDate at all (a
-  // date typed before switching away from fantasy is simply dropped).
-  const draftScheduleReady = !includesFantasy(leagueType) || !draftDate || draftAcknowledged;
-
-  const handleCreateLeague = async () => {
-    setError(null);
-    try {
-      // maxTeams is always explicit: the server's default is the fantasy 10
-      // for every type, so a pick'em pool must never rely on it.
-      const draftDateUtc = draftDate ? zonedWallTimeToUtcIso(draftDate, draftTimezone) : null;
-      const payload = {
-        name: leagueName,
-        teamName: teamName.trim(),
-        maxTeams: Number(numTeams),
-        ...leagueTypePayload({ leagueType, pickemMode, bestBall, scoringPreset, draftDate: draftDateUtc, draftTimezone }),
-      };
-      if (isPublic) payload.isPublic = true;
-      if (isPublic && joinApproval) payload.joinApproval = true;
-
-      await apiClient.post('/api/league', payload);
-      setNotice('League created!');
-      notify('League created!');
-      setLeagueName('');
-      setTeamName('');
-      setNumTeams(2);
-      setLeagueType(LEAGUE_TYPE.FANTASY);
-      setPickemMode('straight');
-      setIsPublic(false);
-      setJoinApproval(false);
-      setBestBall(false);
-      setScoringPreset('');
-      setDraftDate('');
-      setDraftTimezone(browserTimeZone());
-      setDraftAcknowledged(false);
-      fetchMyLeagues();
-    } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
-    } finally {
-      handleCloseCreateDialog();
-    }
-  };
-
   // Functions to handle join dialog
   const handleOpenJoinDialog = () => {
     setOpenJoinDialog(true);
+    setJoinOpened(true);
   };
 
   const handleCloseJoinDialog = () => {
     setOpenJoinDialog(false);
   };
 
-  const handleJoinLeague = async () => {
-    setError(null);
-    try {
-      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
-      setNotice('Joined league!');
-      notify('Joined league!');
-      setInviteCode('');
-      setJoinTeamName('');
-      fetchMyLeagues();
-    } catch (err) {
-      setError(readHttpFailure(err).message || err.message);
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
-    } finally {
-      handleCloseJoinDialog();
-    }
-  };
-
   return (
-    // flexGrow cooperates with the flex column shell App.jsx sets up around
-    // <Nav />/<Routes />/<Footer /> so short pages still pin the footer to the
-    // bottom of the viewport, while tall pages scroll normally.
-    <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        {/* Unified hero: greeting + primary actions on the left, banner image
-            contained on the right. Replaces the old disconnected banner +
-            button row. */}
-        <Card
-          data-testid="dashboard-hero"
-          elevation={0}
-          sx={{
-            mb: 4,
-            p: { xs: 3, sm: 4 },
-            borderRadius: 3,
-            bgcolor: 'background.paper',
-            border: '1px solid',
-            borderColor: 'divider',
-          }}
-        >
-          <Grid container spacing={4} alignItems="center">
-            <Grid xs={12} md={7}>
+    // Home joins the island (ADR 0051): homeTheme sets every Typography,
+    // button and input in the island's body face, and the root paints its
+    // token context (`dash-bg`, `dash-ink`, the body face). Nav and Footer
+    // stay on the app tokens.
+    <ThemeProvider theme={theme}>
+      {/* flexGrow cooperates with the flex column shell App.jsx sets up
+          around <Nav />/<Routes />/<Footer /> so short pages still pin the
+          footer to the bottom of the viewport, while tall pages scroll
+          normally. The page's one main landmark, named by its h1; the shell's
+          skip link (App.jsx SKIP_LINK_TARGETS) focuses it by id, hence
+          tabIndex -1. */}
+      <Box
+        component="main"
+        id="user-main-content"
+        tabIndex={-1}
+        aria-labelledby="user-page-heading"
+        sx={{ ...homeRootSx, display: 'flex', flexDirection: 'column', flexGrow: 1 }}
+      >
+        <Container maxWidth="lg" sx={{ py: { xs: 3, md: 4.5 } }}>
+          {/* Greeting header (Home v2): the page's one h1, with Create and Join
+              beside it (under it below md). */}
+          <Stack
+            component="header"
+            data-testid="dashboard-hero"
+            direction={{ xs: 'column', md: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', md: 'flex-end' }}
+            spacing={2}
+            sx={{ mb: 4 }}
+          >
+            <Box>
+              {/* The eyebrow row: the week line and the live chip, each left
+                  out when it has nothing to say. */}
+              {(currentWeek || liveMatchups > 0) && (
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1.5}
+                  useFlexGap
+                  flexWrap="wrap"
+                  sx={{ ...dimSx, fontSize: '12px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', mb: 1.25 }}
+                >
+                  {currentWeek && (
+                    <span>{`Week ${currentWeek} · ${greetingDateFormat.format(new Date())}`}</span>
+                  )}
+                  <LiveMatchupsChip leagues={myLeagues} />
+                </Stack>
+              )}
               <Typography
-                variant="overline"
-                sx={{ color: 'primary.main', fontWeight: 700, letterSpacing: 1.2 }}
-              >
-                Endzone Empire
-              </Typography>
-              <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5, mb: 1, lineHeight: 1.15 }}>
-                Welcome, {user.username}!
-              </Typography>
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 460 }}>
-                Your command center for every league you manage: drafts, matchups,
-                waivers, trades, and weekly picks, all in one place.
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>
-                  Create League
-                </Button>
-                <Button variant="outlined" size="large" onClick={handleOpenJoinDialog}>
-                  Join League
-                </Button>
-              </Stack>
-            </Grid>
-
-            <Grid xs={12} md={5} sx={{ display: { xs: 'none', sm: 'block' } }}>
-              <Box
-                role="presentation"
+                variant="h4"
+                component="h1"
+                id="user-page-heading"
                 sx={{
-                  position: 'relative',
-                  height: myLeagues.length > 0 ? { sm: 120, md: 140 } : { sm: 160, md: 200 },
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  backgroundImage: 'url(/endzone.jpeg)',
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
+                  fontFamily: DISPLAY_FONT,
+                  fontSize: { xs: '36px', md: '48px' },
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  letterSpacing: '0.01em',
+                  textTransform: 'uppercase',
                 }}
               >
-                {/* Gradient scrim keeps this readable as a hero image even
-                    though no text sits on top of it in this layout — kept
-                    subtle so the photo still reads clearly. */}
-                <Box
-                  sx={(theme) => ({
-                    position: 'absolute',
-                    inset: 0,
-                    background: `linear-gradient(135deg, ${alpha(theme.palette.common.black, 0.05)}, ${alpha(theme.palette.common.black, 0.45)})`,
-                  })}
-                />
-              </Box>
+                Welcome back, {user.username}
+              </Typography>
+              <GreetingSummary actionItems={actionItems} />
+              <GreetingStats leagues={myLeagues} />
+            </Box>
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+              <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={heroGhostSx}>
+                Join league
+              </Button>
+              <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
+                Create league
+              </Button>
+            </Stack>
+          </Stack>
+
+          {/* The to-do list replaces the old hero and "Next up" nudge. It owns
+              its own fetch and states, so it never holds up My leagues. */}
+          <Grid container spacing={3} sx={{ mb: 5 }}>
+            <Grid xs={12} lg={nextDraft ? 8 : 12}>
+              <ActionQueue onLoaded={setActionItems} />
             </Grid>
+            {nextDraft && (
+              <Grid xs={12} lg={4}>
+                <NextDraftCard league={nextDraft} />
+              </Grid>
+            )}
           </Grid>
-        </Card>
 
-        {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
-        {notice && <Alert severity="success" onClose={() => setNotice(null)} sx={{ mb: 2 }}>{notice}</Alert>}
 
-        <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>
-          My Leagues
-        </Typography>
+          <Typography variant="h5" component="h2" sx={{ ...sectionTitleSx, mb: 2 }}>
+            My leagues
+          </Typography>
 
-        {loadingLeagues ? (
-          <Grid container spacing={2}>
-            {[0, 1, 2].map((i) => (
-              <Grid xs={12} sm={6} md={4} key={i}>
-                <Card variant="outlined" sx={{ height: '100%' }} data-testid="league-skeleton">
+          {/* On the page: ink on the danger tint over `dash-bg`, the danger
+              edge and icon, and the retry as a card-surface chip. */}
+          {leaguesError && !loadingLeagues && (
+            <Alert
+              severity="error"
+              sx={{ ...alertSx('danger'), mb: 2 }}
+              action={(
+                <Button color="inherit" size="small" onClick={fetchMyLeagues} sx={{ ...alertActionSx('danger'), minHeight: 44 }}>
+                  Try again
+                </Button>
+              )}
+            >
+              {leaguesError}
+            </Alert>
+          )}
+
+          {awaitingFirstLeagues ? (
+            <Grid container spacing={2}>
+              {[0, 1, 2].map((i) => (
+                <Grid xs={12} sm={6} md={4} key={i}>
+                  <Card variant="outlined" sx={{ ...panelSx, height: '100%' }} data-testid="league-skeleton">
+                    <CardContent>
+                      <Skeleton variant="text" width="60%" height={32} sx={skeletonSx} />
+                      <Skeleton variant="text" width="45%" sx={skeletonSx} />
+                      <Skeleton variant="text" width="30%" sx={skeletonSx} />
+                      <Skeleton variant="rounded" width={80} height={24} sx={{ ...skeletonSx, mt: 1 }} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          ) : myLeagues.length === 0 && leaguesError ? null : myLeagues.length === 0 ? (
+            <Card
+              data-testid="leagues-empty-state"
+              variant="outlined"
+              sx={{ ...panelSx, py: 6, px: 3 }}
+            >
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <Box
+                  aria-hidden="true"
+                  sx={{
+                    width: 72,
+                    height: 72,
+                    mb: 2,
+                    borderRadius: '50%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    backgroundColor: 'var(--dash-accent-soft)',
+                    color: 'var(--dash-accent)',
+                  }}
+                >
+                  <SportsFootballIcon sx={{ fontSize: 40 }} />
+                </Box>
+                <Typography
+                  variant="h6"
+                  component="h3"
+                  gutterBottom
+                  sx={{
+                    fontFamily: DISPLAY_FONT,
+                    fontSize: { xs: '26px', md: '32px' },
+                    fontWeight: 700,
+                    lineHeight: 1.05,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  You aren&apos;t managing any teams yet.
+                </Typography>
+                <Typography sx={{ ...dimSx, mb: 3, maxWidth: 380 }}>
+                  Start a brand-new league with your friends, or jump into one
+                  you&apos;ve already been invited to.
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <Button variant="contained" size="large" onClick={handleOpenCreateDialog} sx={{ ...primaryButtonSx, ...heroButtonSx }}>
+                    Create league
+                  </Button>
+                  <Button variant="outlined" size="large" onClick={handleOpenJoinDialog} sx={{ ...ghostButtonSx, ...heroButtonSx }}>
+                    Join league
+                  </Button>
+                </Stack>
+              </Box>
+            </Card>
+          ) : (
+            <LeagueStatusGrid leagues={myLeagues} />
+          )}
+
+          {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
+          <Box sx={{ mt: 5 }}>
+            <Grid container spacing={2}>
+              <Grid xs={12} md={6}>
+                <Card variant="outlined" sx={feedCardSx}>
                   <CardContent>
-                    <Skeleton variant="text" width="60%" height={32} />
-                    <Skeleton variant="text" width="45%" />
-                    <Skeleton variant="text" width="30%" />
-                    <Skeleton variant="rounded" width={80} height={24} sx={{ mt: 1 }} />
+                    <Typography variant="h6" component="h2" sx={feedTitleSx}>
+                      Latest NFL News
+                    </Typography>
+                    {loadingNews ? (
+                      <Stack spacing={1}>
+                        {[0, 1, 2].map((i) => (
+                          <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
+                        ))}
+                      </Stack>
+                    ) : newsError ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        Couldn&apos;t load the latest news right now.
+                      </Typography>
+                    ) : newsItems.length === 0 ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        No news to show right now.
+                      </Typography>
+                    ) : (
+                      <List dense disablePadding sx={feedListSx}>
+                        {/* The feed can carry two headlines pointing at the same
+                            URL, so the link alone isn't a unique key. */}
+                        {newsItems.map((item, index) => (
+                          <ListItem key={`${item.link}-${index}`} disableGutters>
+                            <ListItemText
+                              primary={
+                                <Link
+                                  href={item.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  underline="hover"
+                                  sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}
+                                >
+                                  {item.title}
+                                </Link>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>
-            ))}
-          </Grid>
-        ) : myLeagues.length === 0 ? (
-          <Card
-            data-testid="leagues-empty-state"
-            variant="outlined"
-            sx={{ py: 6, px: 3, bgcolor: 'background.paper' }}
-          >
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-              <SportsFootballIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h6" gutterBottom>
-                You aren&apos;t managing any teams yet.
-              </Typography>
-              <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 380 }}>
-                Start a brand-new league with your friends, or jump into one
-                you&apos;ve already been invited to.
-              </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                <Button variant="contained" size="large" onClick={handleOpenCreateDialog}>
-                  Create League
-                </Button>
-                <Button variant="outlined" size="large" onClick={handleOpenJoinDialog}>
-                  Join League
-                </Button>
-              </Stack>
-            </Box>
-          </Card>
-        ) : (
-          <Grid container spacing={2}>
-            {myLeagues.map((league) => (
-              <Grid xs={12} sm={6} md={4} key={league.id}>
-                <LeagueCard league={league} compact />
+              <Grid xs={12} md={6}>
+                <Card variant="outlined" sx={feedCardSx}>
+                  <CardContent>
+                    <Typography variant="h6" component="h2" sx={feedTitleSx}>
+                      Global Activity
+                    </Typography>
+                    {loadingActivity ? (
+                      <Stack spacing={1}>
+                        {[0, 1, 2].map((i) => (
+                          <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
+                        ))}
+                      </Stack>
+                    ) : activityError ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        Couldn&apos;t load recent activity right now.
+                      </Typography>
+                    ) : activityItems.length === 0 ? (
+                      <Typography variant="body2" sx={feedStatusSx}>
+                        No recent activity across your leagues yet.
+                      </Typography>
+                    ) : (
+                      <List dense disablePadding sx={feedListSx}>
+                        {activityItems.map((item) => (
+                          <ListItem key={item.id} disableGutters>
+                            <ListItemText
+                              primary={item.message}
+                              secondary={
+                                item.league_name
+                                  ? `${item.league_name} · ${new Date(item.created_at).toLocaleDateString()}`
+                                  : new Date(item.created_at).toLocaleDateString()
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
+                  </CardContent>
+                </Card>
               </Grid>
-            ))}
-          </Grid>
-        )}
-
-        <Paper
-          variant="outlined"
-          component="section"
-          aria-labelledby="next-up-heading"
-          sx={{ mt: 4, p: { xs: 2, sm: 3 }, borderLeft: '4px solid', borderLeftColor: 'primary.main' }}
-        >
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', sm: 'center' }}
-            spacing={2}
-          >
-            <Box>
-              <Typography variant="overline" color="primary.main">{nextUp.eyebrow}</Typography>
-              <Typography id="next-up-heading" variant="h6">{nextUp.title}</Typography>
-              {nextUp.draftDate && (
-                <Countdown variant="chip" date={nextUp.draftDate} timeZone={nextUp.draftTimeZone} />
-              )}
-            </Box>
-            <Button component={RouterLink} to={nextUp.to} variant="contained">{nextUp.action}</Button>
-          </Stack>
-        </Paper>
-
-        {/* Below-the-fold dashboard real estate: real cross-app widgets. */}
-        <Box sx={{ mt: 5 }}>
-          <Grid container spacing={2}>
-            <Grid xs={12} md={6}>
-              <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
-                <CardContent>
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                    Latest NFL News
-                  </Typography>
-                  {loadingNews ? (
-                    <Stack spacing={1}>
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} />
-                      ))}
-                    </Stack>
-                  ) : newsError ? (
-                    <Typography variant="body2" color="text.secondary">
-                      Couldn&apos;t load the latest news right now.
-                    </Typography>
-                  ) : newsItems.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No news to show right now.
-                    </Typography>
-                  ) : (
-                    <List dense disablePadding>
-                      {/* The feed can carry two headlines pointing at the same
-                          URL, so the link alone isn't a unique key. */}
-                      {newsItems.map((item, index) => (
-                        <ListItem key={`${item.link}-${index}`} disableGutters>
-                          <ListItemText
-                            primary={
-                              <Link
-                                href={item.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                underline="hover"
-                                color="text.primary"
-                              >
-                                {item.title}
-                              </Link>
-                            }
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  )}
-                </CardContent>
-              </Card>
             </Grid>
-            <Grid xs={12} md={6}>
-              <Card variant="outlined" sx={{ height: '100%', bgcolor: 'background.paper' }}>
-                <CardContent>
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-                    Global Activity
-                  </Typography>
-                  {loadingActivity ? (
-                    <Stack spacing={1}>
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} />
-                      ))}
-                    </Stack>
-                  ) : activityError ? (
-                    <Typography variant="body2" color="text.secondary">
-                      Couldn&apos;t load recent activity right now.
-                    </Typography>
-                  ) : activityItems.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No recent activity across your leagues yet.
-                    </Typography>
-                  ) : (
-                    <List dense disablePadding>
-                      {activityItems.map((item) => (
-                        <ListItem key={item.id} disableGutters>
-                          <ListItemText
-                            primary={item.message}
-                            secondary={
-                              item.league_name
-                                ? `${item.league_name} · ${new Date(item.created_at).toLocaleDateString()}`
-                                : new Date(item.created_at).toLocaleDateString()
-                            }
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Box>
+          </Box>
 
-        {/* Public-layer content (rankings, recaps, strategy) surfaced for
-            logged-in users; links cross into the public site. */}
-        <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ mt: 5 }} />}>
-          <PublicHighlights />
-        </Suspense>
+          {/* Public-layer content (rankings, recaps, strategy) surfaced for
+              logged-in users; links cross into the public site. */}
+          <Suspense fallback={<Skeleton variant="rounded" height={220} sx={{ ...skeletonSx, mt: 5, borderRadius: 'var(--dash-radius)' }} />}>
+            <PublicHighlights />
+          </Suspense>
 
-        <Dialog open={openCreateDialog} onClose={handleCloseCreateDialog} className="dialogContainer">
-          <DialogTitle className="dialogTitle">Create a New League</DialogTitle>
-          <DialogContent>
-            <TextField className="dialogTextField" autoFocus margin="dense" label="League Name" fullWidth value={leagueName} onChange={(event) => setLeagueName(event.target.value)} />
-            <TextField
-              className="dialogTextField"
-              margin="dense"
-              label="Team Name"
-              fullWidth
-              required
-              inputProps={{ maxLength: 120 }}
-              helperText="Your Team's identity in this league. Other managers never see your account email or username."
-              value={teamName}
-              onChange={(event) => setTeamName(event.target.value)}
-            />
-
-            <LeagueTypeFields
-              leagueType={leagueType}
-              onLeagueTypeChange={handleLeagueTypeChange}
-              pickemMode={pickemMode}
-              onPickemModeChange={setPickemMode}
-            />
-
-            {isPickemOnlyType(leagueType) ? (
-              // A pick'em pool takes up to 50 managers; a 49-item Select is
-              // unusable, so the cap is entered as a number instead.
-              <TextField
-                className="dialogTextField"
-                margin="dense"
-                label="Teams"
-                type="number"
-                fullWidth
-                inputProps={{ min: MIN_TEAMS, max: capForType(leagueType) }}
-                error={!teamCountValid}
-                helperText={`${MIN_TEAMS} to ${capForType(leagueType)} managers`}
-                value={numTeams}
-                onChange={(event) => setNumTeams(event.target.value)}
-              />
-            ) : (
-              <>
-            <InputLabel id="numTeams-label"></InputLabel>
-            <div style={{display: 'flex', alignItems: 'center', marginTop: '1em'}}>
-            <Typography variant="body1" style={{marginRight: '1em', color: 'var(--text-primary)', fontWeight: 'bold', fontSize: '1.2em'}}>Teams:</Typography>
-          <Select
-              labelId="numTeams-label"
-              value={numTeams}
-              onChange={(event) => setNumTeams(event.target.value)}
-              style={{minWidth: 120}}
-          >
-              {Array.from({length: 19}, (_, i) => i+2).map((number) => (
-              <MenuItem key={number} value={number}>{number}</MenuItem>
-              ))}
-          </Select>
-        </div>
-              </>
-            )}
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={isPublic}
-                  onChange={(event) => setIsPublic(event.target.checked)}
-                />
-              }
-              label="Public league"
-            />
-            {isPublic && (
-              <FormControlLabel
-                sx={{ ml: 2 }}
-                control={
-                  <Switch
-                    checked={joinApproval}
-                    onChange={(event) => setJoinApproval(event.target.checked)}
-                  />
-                }
-                label="Require commissioner approval to join"
+          <Suspense fallback={null}>
+            {createOpened && (
+              <CreateLeagueStepper
+                open={openCreateDialog}
+                onClose={handleCloseCreateDialog}
+                onCreated={fetchMyLeagues}
               />
             )}
-            {/* Fantasy-only settings: a pick'em league has no lineups, scoring
-                rules or draft, and the server rejects these fields for it. */}
-            {includesFantasy(leagueType) && (
-              <>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={bestBall}
-                  onChange={(event) => setBestBall(event.target.checked)}
-                />
-              }
-              label="Best ball mode"
-            />
-            {bestBall && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Best ball: an optimal lineup is set automatically each week, with no manual lineup edits.
-              </Typography>
+            {joinOpened && (
+              <JoinLeagueDialog open={openJoinDialog} onClose={handleCloseJoinDialog} onJoined={fetchMyLeagues} />
             )}
-
-            <FormControl fullWidth margin="dense" size="small">
-              <InputLabel id="scoring-preset-label">Scoring</InputLabel>
-              <Select
-                labelId="scoring-preset-label"
-                id="scoring-preset-select"
-                label="Scoring"
-                value={scoringPreset}
-                onChange={(event) => setScoringPreset(event.target.value)}
-              >
-                {/* No preset sent = the built-in default rules, which are half-PPR */}
-                <MenuItem value="">League default (Half PPR)</MenuItem>
-                <MenuItem value="standard">Standard</MenuItem>
-                <MenuItem value="half_ppr">Half PPR</MenuItem>
-                <MenuItem value="ppr">PPR</MenuItem>
-              </Select>
-            </FormControl>
-
-            <DraftScheduleField
-              wallTime={draftDate}
-              onWallTimeChange={setDraftDate}
-              timeZone={draftTimezone}
-              onTimeZoneChange={setDraftTimezone}
-              acknowledged={draftAcknowledged}
-              onAcknowledgedChange={setDraftAcknowledged}
-            />
-              </>
-            )}
-            </DialogContent>
-            <DialogActions>
-            <Button onClick={handleCloseCreateDialog} color="primary">
-             Cancel
-            </Button>
-            <Button onClick={handleCreateLeague} color="primary" disabled={!leagueName.trim() || !teamNameValid || !teamCountValid || !draftScheduleReady}>
-             Create
-            </Button>
-            </DialogActions>
-            </Dialog>
-        <Dialog open={openJoinDialog} onClose={handleCloseJoinDialog} className="dialogContainer">
-          <DialogTitle className="dialogTitle">Join an Existing League</DialogTitle>
-          <DialogContent>
-            <TextField
-              className="dialogTextField"
-              autoFocus
-              margin="dense"
-              label="Invite Code"
-              fullWidth
-              value={inviteCode}
-              onChange={(event) => setInviteCode(event.target.value)}
-            />
-            <TextField
-              className="dialogTextField"
-              margin="dense"
-              label="Team Name"
-              fullWidth
-              required
-              inputProps={{ maxLength: 120 }}
-              helperText="Your Team's identity in this league. Other managers never see your account email or username."
-              value={joinTeamName}
-              onChange={(event) => setJoinTeamName(event.target.value)}
-            />
-          </DialogContent>
-                  <DialogActions>
-                    <Button onClick={handleCloseJoinDialog} color="primary">
-                      Cancel
-                    </Button>
-                    <Button onClick={handleJoinLeague} color="primary" disabled={!inviteCode.trim() || !joinTeamName.trim()}>
-                      Join
-                    </Button>
-                  </DialogActions>
-                </Dialog>
-      </Container>
-    </Box>
+          </Suspense>
+        </Container>
+      </Box>
+    </ThemeProvider>
   );
 }
 

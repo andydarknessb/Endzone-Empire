@@ -230,17 +230,71 @@ function resolveCandidateConstants(overrides) {
   return resolved;
 }
 
+/** Challenger (Shadow) arms live under this prefix, outside the sealed `candidate:*` namespace. */
+const CHALLENGER_KIND_PREFIX = 'challenger:';
+/** `projection_snapshots.capture_kind` is string(20); a longer kind is rejected by the column. */
+const CAPTURE_KIND_MAX_LENGTH = 20;
+
 /**
- * Every arm one capture transaction writes, in fixed order, scheduled first.
+ * Resolve the opt-in Challenger (Shadow) arm requests of ADR 0050 into arms.
+ *
+ * A Challenger is NEVER a module constant: it exists only when a caller asks
+ * for one, so the scheduled entry point (which asks for none) writes exactly
+ * the arms it always wrote. Its kind lives outside the sealed `candidate:*`
+ * namespace (requirement 1), its constants come from the version-keyed
+ * registry (requirement 7) and its header carries that version (requirement 3).
+ *
+ * The kind is a caller-supplied short tag `challenger:<tag>` of at most 20
+ * characters (the column width); the full version lives only in
+ * `model_version`, which is part of the ledger's unique key. A bad request
+ * throws HERE, and `snapshotWeek` calls this before it touches the database,
+ * so a bad kind never opens a transaction.
+ */
+function resolveChallengerArms(challengers = []) {
+  if (!Array.isArray(challengers)) throw new Error('challengers must be an array');
+  const seen = new Set();
+  return challengers.map((request) => {
+    const kind = request && request.kind;
+    if (typeof kind !== 'string' || !kind.startsWith(CHALLENGER_KIND_PREFIX)) {
+      throw new TypeError(
+        `challenger arm kind "${kind}" must start with "${CHALLENGER_KIND_PREFIX}" - ` +
+        'scheduled and the candidate:* namespace are sealed by holdout-confirm-2026'
+      );
+    }
+    if (kind.length > CAPTURE_KIND_MAX_LENGTH) {
+      throw new TypeError(
+        `challenger arm kind "${kind}" is ${kind.length} characters; capture_kind holds at most ` +
+        `${CAPTURE_KIND_MAX_LENGTH} - use a short tag such as "challenger:v3.2" and keep the version in modelVersion`
+      );
+    }
+    const modelVersion = request.modelVersion;
+    if (typeof modelVersion !== 'string' || modelVersion === '') {
+      throw new TypeError(`challenger arm "${kind}" requires a modelVersion`);
+    }
+    if (seen.has(kind)) throw new TypeError(`duplicate challenger arm kind "${kind}"`);
+    seen.add(kind);
+    const constants = model.constantsForVersion(modelVersion);
+    if (!constants) {
+      throw new Error(`challenger arm "${kind}": this checkout cannot run model version "${modelVersion}"`);
+    }
+    return { kind, constants, hash: constantsHash(constants), modelVersion, challenger: true };
+  });
+}
+
+/**
+ * Every arm one capture transaction writes, in fixed order: scheduled, then
+ * the sealed candidates, then any requested Challengers. Every arm carries its
+ * own `modelVersion` (the served version for scheduled and candidates).
  * Resolved fresh per call so a test that mocks MODEL_CONSTANTS sees its mock.
  */
-function captureArms() {
+function captureArms(challengers = []) {
   return [
-    { kind: 'scheduled', constants: model.MODEL_CONSTANTS, hash: constantsHash() },
+    { kind: 'scheduled', constants: model.MODEL_CONSTANTS, hash: constantsHash(), modelVersion: model.MODEL_VERSION },
     ...CANDIDATE_ARMS.map((arm) => {
       const constants = resolveCandidateConstants(arm.overrides);
-      return { kind: arm.kind, constants, hash: constantsHash(constants) };
+      return { kind: arm.kind, constants, hash: constantsHash(constants), modelVersion: model.MODEL_VERSION };
     }),
+    ...resolveChallengerArms(challengers),
   ];
 }
 
@@ -437,8 +491,20 @@ const CHILD_COLS = 18;
  * Returns `{ skipped: 'already complete' }` ONLY for an exact provenance
  * match; any other conflict, validation failure, or missed deadline throws
  * and leaves the ledger untouched.
+ *
+ * `challengers` (ADR 0050, default none) opts Shadow arms in, each
+ * `{ kind, modelVersion }` with a short kind `challenger:<tag>` (at most 20
+ * characters; see resolveChallengerArms). The
+ * scheduled entry point passes none, so the live capture is unchanged. A
+ * Challenger is optional evidence: it runs after every required arm is written
+ * and deadline-checked, inside its own SAVEPOINT, and any failure of it rolls
+ * back that arm alone and is reported in `challengerFailures`.
  */
-async function snapshotWeek({ season, week, profileName, rules, client = pool }) {
+async function snapshotWeek({ season, week, profileName, rules, client = pool, challengers = [] }) {
+  // Resolved first, before any read or write: a malformed request or a version
+  // this checkout cannot run is a caller error, not a Challenger failure to be
+  // isolated, and it must never open a transaction.
+  const challengerArms = resolveChallengerArms(challengers);
   const releaseSha = requireReleaseSha();
   const manifestGames = manifestGamesForWeek(season, week);
   if (!manifestGames || manifestGames.length === 0) {
@@ -521,13 +587,28 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     // there): same cohort, same schedule, same deadline, same transaction -
     // they differ from the scheduled arm ONLY in the two simulation leaves
     // their constants_hash fingerprints.
-    const arms = captureArms();
+    const arms = captureArms(challengers);
+    const requiredArms = arms.filter((arm) => !arm.challenger);
 
     // Conflict handling under the identity lock: an existing capture is
     // honored ONLY as an exact, complete provenance match across EVERY arm.
     // Anything else is an anomaly the ledger must not paper over - completing
     // any part of it with a NEW projection run would put rows from two
     // different computations under one week's evidence.
+    //
+    // Matching is per (capture_kind, model_version) pair: the required arms
+    // share the served version ($4/$5, the text this query has always had); a
+    // Challenger is a different version by definition, so each requested one
+    // adds its own pair. With no Challenger requested the SQL and parameters
+    // are exactly what they were before Shadow arms existed.
+    const armMatch = challengerArms.length === 0
+      ? '"s"."model_version" = $4 AND "s"."capture_kind" = ANY($5::text[])'
+      : '("s"."model_version" = $4 AND "s"."capture_kind" = ANY($5::text[])) ' +
+        'OR ("s"."model_version", "s"."capture_kind") IN (SELECT * FROM unnest($6::text[], $7::text[]))';
+    const armMatchParams = [modelVersion, requiredArms.map((a) => a.kind)];
+    if (challengerArms.length > 0) {
+      armMatchParams.push(challengerArms.map((a) => a.modelVersion), challengerArms.map((a) => a.kind));
+    }
     const existing = await conn.query(
       `SELECT "s"."id", "s"."capture_kind", "s"."cohort_size", "s"."cohort_hash",
               "s"."constants_hash", "s"."schedule_hash", "s"."release_sha",
@@ -535,9 +616,9 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
        FROM "projection_snapshots" "s"
        LEFT JOIN "projection_snapshot_players" "p" ON "p"."snapshot_id" = "s"."id"
        WHERE "s"."season" = $1 AND "s"."week" = $2 AND "s"."scoring_hash" = $3
-         AND "s"."model_version" = $4 AND "s"."capture_kind" = ANY($5::text[])
+         AND (${armMatch})
        GROUP BY "s"."id"`,
-      [season, week, scoringHash, modelVersion, arms.map((a) => a.kind)]
+      [season, week, scoringHash, ...armMatchParams]
     );
     if (existing.rows.length > 0) {
       const foundByKind = new Map(existing.rows.map((r) => [r.capture_kind, r]));
@@ -595,7 +676,11 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
           );
         }
       }
-      const missing = arms.filter((a) => !foundByKind.has(a.kind)).map((a) => a.kind);
+      // Only REQUIRED arms can be missing. A Challenger is optional evidence:
+      // one that failed (or was never requested) on the original capture is
+      // not appended now - that would be a different day's computation under
+      // one week - and it does not make the week incomplete either.
+      const missing = requiredArms.filter((a) => !foundByKind.has(a.kind)).map((a) => a.kind);
       if (missing.length > 0) {
         // Some arms exist and check out; others were never written. Appending
         // the missing ones NOW would come from a different computation on a
@@ -614,7 +699,9 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
       return {
         season, week, profileName,
         snapshotId: foundByKind.get('scheduled').id,
-        armSnapshotIds: Object.fromEntries(arms.map((a) => [a.kind, foundByKind.get(a.kind).id])),
+        armSnapshotIds: Object.fromEntries(
+          arms.filter((a) => foundByKind.has(a.kind)).map((a) => [a.kind, foundByKind.get(a.kind).id])
+        ),
         skipped: releaseDiffers === null
           ? 'already complete'
           : `already complete (captured at release ${String(releaseDiffers).slice(0, 12)}, ` +
@@ -630,10 +717,11 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     // its snapshot store reads through the global pool - all three violate
     // the one-transaction, one-snapshot contract this capture certifies.
     //
-    // One run per arm, every run inside THIS transaction, so all three read
-    // the identical REPEATABLE READ snapshot; only modelConstants varies.
+    // One run per arm, every run inside THIS transaction, so all of them read
+    // the identical REPEATABLE READ snapshot; only modelConstants varies. The
+    // required arms run here; Challengers run later, isolated (below).
     const runsByKind = new Map();
-    for (const arm of arms) {
+    for (const arm of requiredArms) {
       runsByKind.set(arm.kind, await projection.generateProjections({
         season, week, rules, playerIds, hashValue: scoringHash, client: conn,
         weatherService: false, modelConstants: arm.constants,
@@ -649,9 +737,14 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     // the candidate kernels touch dispersion only, so a diverging mean means
     // the arms did not compute from one snapshot, and the capture must die
     // here rather than write a week the study will void anyway.
+    //
+    // Scoped to the sealed `candidate:*` arms (ADR 0050 requirement 2). A
+    // Challenger is MEANT to move the mean, so it is never held to this check
+    // and can never roll back the scheduled arm through it.
     const controlRun = runsByKind.get('scheduled');
-    for (const arm of arms) {
-      if (arm.kind === 'scheduled') continue;
+    const candidateKinds = new Set(CANDIDATE_ARMS.map((a) => a.kind));
+    for (const arm of requiredArms) {
+      if (!candidateKinds.has(arm.kind)) continue;
       const candidateRun = runsByKind.get(arm.kind);
       for (const playerId of playerIds) {
         const controlMean = (controlRun.projections.get(playerId) || {}).mean ?? null;
@@ -667,8 +760,9 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
     }
 
     const armSnapshotIds = {};
-    for (const arm of arms) {
-      const run = runsByKind.get(arm.kind);
+    // Write one arm's header and child rows; returns the header id. Used for
+    // the required arms below and, unchanged, for each Challenger.
+    const writeArm = async (arm, run) => {
       const header = await conn.query(
         `INSERT INTO "projection_snapshots"
            ("season", "week", "scoring_profile", "scoring_hash", "model_version",
@@ -678,14 +772,13 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
          RETURNING "id"`,
         [
-          season, week, profileName, scoringHash, modelVersion,
+          season, week, profileName, scoringHash, arm.modelVersion,
           arm.hash, releaseSha, cohortHash, cohort.length,
           schedule.scheduleGames, schedule.scheduleHash, HOLDOUT_PROTOCOL_VERSION,
           arm.kind, cutoff, run.inputCutoff || null, JSON.stringify(run.sourceCoverage || {}),
         ]
       );
       const snapshotId = header.rows[0].id;
-      armSnapshotIds[arm.kind] = snapshotId;
 
       for (let offset = 0; offset < cohort.length; offset += CHUNK) {
         const chunk = cohort.slice(offset, offset + CHUNK);
@@ -721,6 +814,10 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
           params
         );
       }
+      return snapshotId;
+    };
+    for (const arm of requiredArms) {
+      armSnapshotIds[arm.kind] = await writeArm(arm, runsByKind.get(arm.kind));
     }
 
     // The deadline, rechecked at the last possible moment: computation took
@@ -733,12 +830,42 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool })
       );
     }
 
+    // Challenger (Shadow) arms, ADR 0050 requirement 6. Everything required is
+    // now written and deadline-checked, so what happens below can only ADD
+    // evidence: each Challenger runs inside its own SAVEPOINT, and a throw in
+    // its projection run, a run that finishes past the cutoff, or the ledger
+    // trigger's rejection rolls back that arm alone. The transaction still
+    // commits the required arms. (A failure of the SAVEPOINT statements
+    // themselves is a broken connection and does propagate.)
+    const challengerFailures = [];
+    for (const arm of challengerArms) {
+      await conn.query('SAVEPOINT holdout_challenger');
+      try {
+        const run = await projection.generateProjections({
+          season, week, rules, playerIds, hashValue: scoringHash, client: conn,
+          weatherService: false, modelConstants: arm.constants, modelVersion: arm.modelVersion,
+          oddsObservedAtOrBefore: cutoff,
+        });
+        const snapshotId = await writeArm(arm, run);
+        const clockChallenger = await conn.query('SELECT clock_timestamp() AS "now"');
+        if (new Date(clockChallenger.rows[0].now) >= cutoff) {
+          throw new Error(`challenger arm ${arm.kind} missed the capture deadline during computation`);
+        }
+        await conn.query('RELEASE SAVEPOINT holdout_challenger');
+        armSnapshotIds[arm.kind] = snapshotId;
+      } catch (err) {
+        await conn.query('ROLLBACK TO SAVEPOINT holdout_challenger');
+        challengerFailures.push({ kind: arm.kind, message: String(err && err.message ? err.message : err) });
+      }
+    }
+
     return {
       season, week, profileName,
       snapshotId: armSnapshotIds.scheduled,
       armSnapshotIds,
       cohortSize: cohort.length,
       inserted: cohort.length,
+      ...(challengerArms.length > 0 ? { challengerFailures } : {}),
     };
     },
     { label: 'snapshotWeek' }
@@ -1090,9 +1217,11 @@ module.exports = {
   HOLDOUT_POSITIONS,
   HOLDOUT_SCORING_PROFILES,
   CANDIDATE_ARMS,
+  CHALLENGER_KIND_PREFIX,
   constantsHash,
   resolveCandidateConstants,
   captureArms,
+  resolveChallengerArms,
   registerSeasonManifest,
   manifestGamesForWeek,
   captureNotAfterFor,

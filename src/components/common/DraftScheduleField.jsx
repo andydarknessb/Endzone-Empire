@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useId } from 'react';
 import PropTypes from 'prop-types';
-import { Autocomplete, Checkbox, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
+import {
+  Autocomplete, Checkbox, FormControlLabel, FormHelperText, Stack, TextField, Typography,
+} from '@mui/material';
 import { listIanaTimeZones, zonedWallTimeToUtcIso } from '../../lib/draftTimezone';
 
 const ZONE_OPTIONS = listIanaTimeZones();
@@ -17,11 +19,20 @@ const ZONE_OPTIONS = listIanaTimeZones();
  * a prior acknowledgement (AC3 — acknowledgement covers the value being
  * saved, not a stale one), so onWallTimeChange/onTimeZoneChange are wrapped
  * here rather than left for every caller to remember.
+ *
+ * `error` sits under the date field and `acknowledgeError` under the
+ * acknowledgement checkbox, each tied to its control (aria-invalid plus
+ * aria-describedby), for callers that validate on submit instead of
+ * disabling their submit button (the stepped create flow).
  */
 export default function DraftScheduleField({
   wallTime, onWallTimeChange, timeZone, onTimeZoneChange,
-  acknowledged, onAcknowledgedChange, disabled, minWallTime, error,
+  acknowledged, onAcknowledgedChange, disabled, minWallTime, error, acknowledgeError,
 }) {
+  // An id on the date TextField is what makes MUI link its helper text (the
+  // `error`) to the input via aria-describedby.
+  const fieldId = useId();
+  const acknowledgeErrorId = `${fieldId}-acknowledge-error`;
   const handleWallTimeChange = (event) => {
     onAcknowledgedChange(false);
     onWallTimeChange(event.target.value);
@@ -39,6 +50,7 @@ export default function DraftScheduleField({
   return (
     <Stack spacing={1}>
       <TextField
+        id={`${fieldId}-date`}
         label="Draft date"
         type="datetime-local"
         InputLabelProps={{ shrink: true }}
@@ -68,10 +80,16 @@ export default function DraftScheduleField({
                 checked={acknowledged}
                 disabled={disabled}
                 onChange={(event) => onAcknowledgedChange(event.target.checked)}
+                inputProps={acknowledgeError
+                  ? { 'aria-invalid': 'true', 'aria-describedby': acknowledgeErrorId }
+                  : undefined}
               />
             }
             label="I confirm this draft date and time are correct in the time zone shown above."
           />
+          {acknowledgeError && (
+            <FormHelperText id={acknowledgeErrorId} error sx={{ mt: 0 }}>{acknowledgeError}</FormHelperText>
+          )}
         </>
       )}
     </Stack>
@@ -88,4 +106,5 @@ DraftScheduleField.propTypes = {
   disabled: PropTypes.bool,
   minWallTime: PropTypes.string,
   error: PropTypes.string,
+  acknowledgeError: PropTypes.string,
 };

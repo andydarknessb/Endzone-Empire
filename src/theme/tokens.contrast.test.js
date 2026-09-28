@@ -313,13 +313,17 @@ const PAIRINGS = [
   pairing('text-inverse', 'dash-away', AA_TEXT, 'away end-zone label on the away fill'),
   pairing('dash-led', 'dash-board', AA_TEXT, 'LED digits on the scoreboard face'),
   // The scoring strip's Live pill (widgets/scoring-feed, #895): the canvas's
-  // `.chip.live` is danger text on the danger tint, and the strip it sits in
-  // is a card, so the pairing is registered over `dash-surface` ONLY. That is
-  // a real boundary, not an omission: measured 4.81 light / 5.16 dark over a
-  // card, but 4.47 light over a stat tile, 4.29 light over the page and
-  // 4.05 / 4.09 over the raised tile. A danger pill on any other surface is
-  // not guarded here.
-  pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a card (the only guarded danger backdrop)', 'dash-surface'),
+  // `.chip.live` is danger text on the danger tint. ADR 0051 dropped the light
+  // tint from 10% to 6% so the pill clears the page too (Home paints it in the
+  // greeting header, and the Join sheet's not-found alert sits on the page),
+  // so the pairing is registered over the page, a card and a stat tile: 4.57
+  // light over `dash-bg`, 5.12 over `dash-surface`, 4.78 over `dash-surface2`
+  // (dark keeps its 14%: 5.78 / 5.16 / 4.64). The raised tile is still a real
+  // boundary, not an omission: 4.31 light there, so a danger pill on
+  // `dash-surface3` is not guarded here.
+  pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over the page (Home header LIVE chip, Join not-found alert title)', 'dash-bg'),
+  pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a card', 'dash-surface'),
+  pairing('dash-danger', 'dash-danger-soft', AA_TEXT, 'the Live pill on the danger tint over a stat tile', 'dash-surface2'),
   // The Final status chip on the hero and the matchup cards (#897): the
   // canvas's `.chip.final` is success text on the success tint, and the
   // island's success pair is `dash-away` / `dash-away-soft` (tokens.js). The
@@ -457,6 +461,59 @@ const PAIRINGS = [
   // token value and neither had a text-on-surface pairing guarded before this
   // - this is that measurement, not an assumption.
   pairing('secondary', 'surface', AA_TEXT, 'Misery Meter stage label on the Draft assistant panel'),
+
+  // ---- Home, `/user` (ADR 0051). Home joins the island's visual generation
+  // and paints from the `dash-*` tokens; the pairings it shares with the
+  // island are registered above. These are the ones it adds, each named for
+  // where Home paints it. Measured values (light / dark) are in ADR 0051.
+  //
+  // Danger tint over the page and a card: the failed-refresh alert on the
+  // page (ink title, dim detail), the Join not-found alert's body, and the
+  // Create failure alert's body inside the dialog (a card).
+  pairing('dash-ink', 'dash-danger-soft', AA_TEXT, 'Home failed-refresh alert title and Join not-found body on the danger tint over the page', 'dash-bg'),
+  pairing('dash-dim', 'dash-danger-soft', AA_TEXT, 'Home failed-refresh alert detail line on the danger tint over the page', 'dash-bg'),
+  pairing('dash-ink', 'dash-danger-soft', AA_TEXT, 'Create failure alert body on the danger tint over a card', 'dash-surface'),
+  // The blue chips (the Next draft format chip, a pre-draft card's draft date
+  // chip) and the picked cell's outline, over a card.
+  pairing('dash-home', 'dash-home-soft', AA_TEXT, 'Home blue chip text on the home tint over a card', 'dash-surface'),
+  // Create's draft-time acknowledgement and its error line on the warning
+  // tint, inside the dialog (a card). Danger here is the thinnest new row.
+  pairing('dash-ink', 'dash-warning-soft', AA_TEXT, 'Create draft-time acknowledgement on the warning tint over a card', 'dash-surface'),
+  pairing('dash-danger', 'dash-warning-soft', AA_TEXT, 'Create draft-time acknowledgement error on the warning tint over a card', 'dash-surface'),
+  // Plain accent text links: on a card (All notifications, Browse the waiver
+  // wire), in a footer well (Show all in the to-do footer), and on the page.
+  // The greeting header keeps no text link, but two do sit on `dash-bg`: the
+  // Around the League header's quick links, and the Join sheet's Cancel when
+  // the sheet is full screen (it is then the page).
+  pairing('dash-accent', 'dash-surface', AA_TEXT, 'Home accent text link on a card'),
+  pairing('dash-accent', 'dash-surface2', AA_TEXT, 'Home accent text link in a footer well'),
+  pairing('dash-accent', 'dash-bg', AA_TEXT, 'Home accent text link on the page (Around the League links, full-screen Join Cancel)'),
+  // An error under its field: in the Create dialog (a card) and on the Join
+  // sheet, which is full screen on a phone and so sits on the page.
+  pairing('dash-danger', 'dash-surface', AA_TEXT, 'field error text in the Create dialog'),
+  pairing('dash-danger', 'dash-bg', AA_TEXT, 'field error text on the full-screen Join sheet'),
+  // A to-do row's deadline under two hours, 13px text. The bench what-if row
+  // above holds this pairing only at AA_LARGE, for a border.
+  pairing('dash-warning', 'dash-surface', AA_TEXT, 'to-do row deadline under two hours on a card'),
+  // The to-do footer and the card footers are wells, so a focused link there
+  // rings over `dash-surface2`.
+  pairing('focus-ring', 'dash-surface2', AA_LARGE, 'focus ring in a Home footer well'),
+  // Not in ADR 0051's list, found by the restyle: a focused control whose
+  // ring lands on a tint. The radio in a selected choice card (Create), and
+  // the Try again inside the page's failed-refresh alert, the to-do list's
+  // failed alert and its partial-results warning.
+  pairing('focus-ring', 'dash-accent-soft', AA_LARGE, 'focus ring on a selected Create choice card', 'dash-surface'),
+  pairing('focus-ring', 'dash-danger-soft', AA_LARGE, 'focus ring on the danger alert over the page', 'dash-bg'),
+  pairing('focus-ring', 'dash-danger-soft', AA_LARGE, 'focus ring on the danger alert over a card', 'dash-surface'),
+  pairing('focus-ring', 'dash-warning-soft', AA_LARGE, 'focus ring on the warning alert over a card', 'dash-surface'),
+  // The win probability bar's fill against its track, a graphical object.
+  pairing('dash-accent', 'dash-surface3', AA_LARGE, 'win probability bar fill on its track'),
+  // `dash-field`: the edge of a text input or select (Create and Join), the
+  // Teams stepper and an unselected choice card (Create), WCAG 1.4.11 at 3:1.
+  // Not on `dash-surface3`, which no input sits on.
+  pairing('dash-field', 'dash-bg', AA_LARGE, 'input edge on the full-screen Join sheet'),
+  pairing('dash-field', 'dash-surface', AA_LARGE, 'input edge in the Create and Join dialogs'),
+  pairing('dash-field', 'dash-surface2', AA_LARGE, 'input edge on a filled field and the Teams stepper'),
 ];
 
 // Kept out of PAIRINGS, with their own test title below, so a pass here can

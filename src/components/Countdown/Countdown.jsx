@@ -5,10 +5,9 @@ import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { buildDraftIcs, draftTimezoneDetail, formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { timeUntil } from '../../shared/lib/timeUntil';
 
 const MINUTE_MS = 60 * 1000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
 
 function slugify(text) {
   return String(text).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
@@ -31,73 +30,36 @@ function downloadTextFile(text, mimeType, filename) {
   URL.revokeObjectURL(url);
 }
 
-// The four-tier cadence (#117): a countdown days out only needs to be right
-// to the minute and repaints once a minute; one under an hour needs to be
-// right to the second and repaints every second.
-//
-// `>=`, not `>`: toParts() derives each field by cascading modulo off the
-// full remaining time, so a remainder that lands on an exact multiple of a
-// tier's own span (remainingMs === HOUR_MS or === DAY_MS) wraps that span's
-// count to zero - e.g. exactly 3,600,000ms classified into the "seconds"
-// tier renders as "0m 00s" (the whole hour vanishes) instead of the "hours"
-// tier's correct "1h 00m". Folding the boundary into the coarser tier keeps
-// every field a true, non-wrapped count.
-function tierFor(remainingMs) {
-  if (remainingMs >= DAY_MS) return 'days';
-  if (remainingMs >= HOUR_MS) return 'hours';
-  return 'seconds';
-}
-
-function cadenceFor(tier) {
-  return tier === 'seconds' ? 1000 : 60000;
-}
-
-function pad(n) {
-  return String(n).padStart(2, '0');
-}
-
-function toParts(remainingMs) {
-  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
-  return {
-    days: Math.floor(totalSeconds / 86400),
-    hours: Math.floor((totalSeconds % 86400) / 3600),
-    minutes: Math.floor((totalSeconds % 3600) / 60),
-    seconds: totalSeconds % 60,
-  };
-}
-
-// >24h: "2d 03h" · 1-24h: "3h 05m" · <1h: "14m 09s" (#117: tiered cadence).
-function formatByTier(remainingMs, tier) {
-  const parts = toParts(remainingMs);
-  if (tier === 'days') return `${parts.days}d ${pad(parts.hours)}h`;
-  if (tier === 'hours') return `${parts.hours}h ${pad(parts.minutes)}m`;
-  return `${parts.minutes}m ${pad(parts.seconds)}s`;
+// The tiered display (#117) is the shared house style at second precision:
+// "2d 03h" days out, "3h 05m" within a day, "14m 09s" inside the last hour
+// and "30s" in the last minute (spec #1737). The same module says when the
+// text next changes, so the ticker needs no cadence rule of its own.
+function untilText(targetTime, remainingMs) {
+  return timeUntil(targetTime, targetTime - remainingMs, { precision: 'second' });
 }
 
 // The ticking state itself lives in the shared hook (src/hooks/useCountdownTicking,
-// lifted out of here by #754 so the Draft room's pick clock shares it). It
-// repaints at the tier-appropriate cadence via a self-rescheduling timeout
-// (not a fixed interval), so a countdown that starts in the "hours" tier
-// automatically picks up per-second updates once it notices it has crossed
-// into the "seconds" tier - each tick chooses its own next delay from its own
-// remaining time, so that notice lands on the next scheduled tick rather than
-// the tier's fixed multi-minute cadence otherwise repeating past the crossing.
-// That next tick is still up to one minute-cadence step (not more) behind the
-// real-world crossing instant - the value it then displays is correct, only
-// the switch to per-second cadence is delayed by up to that one step.
-// CountdownTicker is the only piece of Countdown that re-renders every tick -
-// the isolation the shell around it depends on (#117: ticking state isolated
-// from the page tree).
-function tieredCadence(remainingMs) {
-  return cadenceFor(tierFor(remainingMs));
+// lifted out of here by #754 so the Draft room's pick clock shares it). Each
+// tick schedules the next for the instant the text next changes, so a
+// countdown days out repaints at most once a minute and one inside the last
+// hour once a second, and the switch between them lands exactly on the
+// crossing. CountdownTicker is the only piece of Countdown that re-renders
+// every tick, the isolation the shell around it depends on (#117: ticking
+// state isolated from the page tree).
+function nextChangeDelay(targetTime) {
+  return (remainingMs) => {
+    const until = untilText(targetTime, remainingMs);
+    return until && !until.passed ? until.changesAt - (targetTime - remainingMs) : 1000;
+  };
 }
 
 function CountdownTicker({ targetTime, prefix = undefined, variant, detail = '', onExpire }) {
-  const remainingMs = useCountdownTicking(targetTime, { onExpire, nextDelay: tieredCadence });
+  const nextDelay = useMemo(() => nextChangeDelay(targetTime), [targetTime]);
+  const remainingMs = useCountdownTicking(targetTime, { onExpire, nextDelay });
 
   if (remainingMs <= 0) return null;
 
-  const text = formatByTier(remainingMs, tierFor(remainingMs));
+  const { text } = untilText(targetTime, remainingMs);
 
   if (variant === 'chip') {
     const chip = <Chip size="small" label={`⏱ ${text}`} />;

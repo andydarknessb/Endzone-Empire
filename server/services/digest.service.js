@@ -4,7 +4,17 @@ const { deliverEmail } = require('./account.service');
 const { notify } = require('./activity.service');
 const { usersWanting } = require('./prefs.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
+// The lineup-problem and Pick'em-missing builders live in homeStatus.service
+// so the Home to-do list and league cards read the same answers the digest
+// sends (Home v2); `lineupProblems` is re-exported below for its callers.
+const {
+  lineupProblems,
+  lineupEntryFromRow,
+  leagueLineupProblems,
+  openGameKeys,
+  picksMadeByUser,
+  missingPicks,
+} = require('./homeStatus.service');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -16,44 +26,6 @@ const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 
 function appOrigin() {
   return process.env.APP_ORIGIN || 'http://localhost:3000';
-}
-
-/**
- * Pure: problems in a lineup that should trigger a pre-lockout reminder.
- * entries: [{ slot, name, onBye, injury_status, ir_attested }] (starter
- * availability and unresolved IR stashes are flagged; BENCH is ignored and a
- * commissioner-attested stash never nags). rosterSlots:
- * [{key,count,...}] detects unfilled slots.
- * Returns human-readable problem strings (empty = lineup looks fine).
- */
-function lineupProblems(entries, rosterSlots = []) {
-  const problems = [];
-  const starters = entries.filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR');
-
-  const filled = {};
-  for (const s of starters) filled[s.slot] = (filled[s.slot] || 0) + 1;
-  for (const { key: slot, count } of rosterSlots) {
-    const have = filled[slot] || 0;
-    if (have < count) {
-      problems.push(`${count - have} empty ${slot} slot${count - have === 1 ? '' : 's'}`);
-    }
-  }
-
-  for (const s of starters) {
-    if (s.onBye) problems.push(`${s.name} (${s.slot}) is on bye`);
-    else if (s.injury_status === 'O' || s.injury_status === 'IR') {
-      problems.push(`${s.name} (${s.slot}) is ${s.injury_status === 'O' ? 'Out' : 'on IR'}`);
-    }
-  }
-  for (const stash of entries.filter((entry) => entry.slot === 'IR')) {
-    // A commissioner-attested stash is valid by fiat (#100) - never nagged.
-    if (!isValidStash(stash)) {
-      problems.push(
-        `${stash.name} (IR) is no longer IR-eligible (${injuryDesignationName(stash.injury_status)})`
-      );
-    }
-  }
-  return problems;
 }
 
 /** Email the stored weekly recap to league members who want it. */
@@ -260,16 +232,8 @@ async function sendLineupReminders() {
         },
         { label: 'reminders' }
       );
-      const entries = entriesResult.rows.map((r) => ({
-        slot: r.slot,
-        name: r.name,
-        onBye: r.on_bye,
-        injury_status: r.injury_status,
-        ir_attested: r.ir_attested,
-      }));
-      const problems = league.best_ball
-        ? lineupProblems(entries.filter((entry) => entry.slot === 'IR'), [])
-        : lineupProblems(entries, rosterSlots);
+      const entries = entriesResult.rows.map(lineupEntryFromRow);
+      const problems = leagueLineupProblems({ entries, rosterSlots, bestBall: league.best_ball });
       if (problems.length === 0) {
         remindedTeamWeeks.add(key); // lineup is fine — don't re-check this week
         continue;
@@ -367,9 +331,7 @@ async function sendPickemReminders() {
     const pickem = require('./pickem.service');
     const slate = await pickem.getWeekSlate({ season: league.season, week: league.week });
     const now = new Date();
-    const openKeys = slate
-      .filter((game) => !pickem.isGameLocked(game, now))
-      .map((game) => game.gameKey);
+    const openKeys = openGameKeys(slate, now);
     if (openKeys.length === 0) continue;
 
     const members = await pool.query(
@@ -383,11 +345,7 @@ async function sendPickemReminders() {
         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
       [league.id, league.season, league.week]
     );
-    const madeByUser = new Map();
-    for (const row of stored.rows) {
-      if (!madeByUser.has(row.user_id)) madeByUser.set(row.user_id, new Set());
-      madeByUser.get(row.user_id).add(row.team_pair);
-    }
+    const madeByUser = picksMadeByUser(stored.rows);
     const wanted = new Set(
       await usersWanting(members.rows.map((m) => m.owner_id), 'pickemReminder')
     );
@@ -396,8 +354,7 @@ async function sendPickemReminders() {
       const key = `${league.id}:${member.owner_id}:${league.season}:${league.week}`;
       if (pickemRemindedUserWeeks.has(key) || !wanted.has(member.owner_id)) continue;
 
-      const made = madeByUser.get(member.owner_id) || new Set();
-      const missing = openKeys.filter((gameKey) => !made.has(gameKey));
+      const missing = missingPicks(openKeys, madeByUser.get(member.owner_id));
       pickemRemindedUserWeeks.add(key);
       if (missing.length === 0) continue; // fully picked — don't re-check this week
 

@@ -178,6 +178,14 @@ test('a transaction statement is caught in any quote style and as a template lit
   assert.equal(spaced[0].kind, 'BEGIN');
 });
 
+test('ROLLBACK TO SAVEPOINT is not a transaction close; a bare ROLLBACK still is (#1723)', () => {
+  const savepoint = findHits('async function f(c){ await c.query(\'ROLLBACK TO SAVEPOINT s\'); }');
+  assert.deepEqual(savepoint, [], 'it closes nothing - the transaction stays open around it');
+  const bare = findHits('async function f(c){ await c.query(\'ROLLBACK\'); }');
+  assert.equal(bare.length, 1, 'the real close must still be caught');
+  assert.equal(bare[0].kind, 'ROLLBACK');
+});
+
 test('a control statement built from a non-literal is out of scope', () => {
   // The guard reads source literals, not runtime values; `query(BEGIN_SQL)` is
   // not what a copy-pasted hand-rolled site writes.

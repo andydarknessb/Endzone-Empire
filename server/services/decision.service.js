@@ -173,8 +173,8 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     return {
       points,
       // The full raw entry, for `probabilityBetter` and the `distribution`
-      // field on the wire - the exact object `toLegacyMap()`'s `.projection`
-      // key has always carried, never a second producer.
+      // field on the wire - the run's own raw entry, never a second
+      // producer.
       projection: projections.projections.get(playerId) || null,
       confidence,
       factors,
@@ -411,8 +411,8 @@ async function startSitAdvice({ leagueId, userId, week }) {
     // Read straight off the result object (#1703): `pointsFor`/`factorsFor`
     // for the two accessor-backed fields, `detailFor` for confidence/active
     // probability, and the run's own `projections` map for the full
-    // distribution the client charts - the exact raw entry `toLegacyMap()`'s
-    // `.projection` field has always carried, never a second producer.
+    // distribution the client charts - the run's own raw entry, never a second
+    // producer.
     // A player PRESENT in the run with no usable Point estimate reads 0
     // (the legacy map's own "missing -> 0" contract); a player genuinely
     // ABSENT from the run reads null, same as `pointsFor` itself.

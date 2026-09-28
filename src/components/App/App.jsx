@@ -73,15 +73,23 @@ const DraftSimScreen = lazy(() => import('../DraftSim/DraftSimScreen'));
 // would mount DraftBoard while this regex silently failed to match it.
 const DRAFT_ROUTE_PATTERN = /^\/league\/[^/]+\/draft\/?$/;
 
+// Routes whose page renders its own <main> with a known id, so the skip link
+// has a real target. Still route-scoped (a site-wide skip link is parent-spec
+// #108): /user joined in the Home v2 quick fixes.
+const SKIP_LINK_TARGETS = [
+  { pattern: DRAFT_ROUTE_PATTERN, targetId: 'draft-main-content' },
+  { pattern: /^\/user\/?$/, targetId: 'user-main-content' },
+];
+
 // HashRouter reads the URL's #fragment as the app's OWN route, so a plain
 // `href="#draft-main-content"` skip link would make the browser's native
 // same-page anchor navigation look like a route change to `/draft-main-
 // content` instead of scrolling/focusing the landmark. Handle the click
 // ourselves - focus the target directly - and never let that hash reach
 // the router.
-function skipToMainContent(event) {
+function skipToMainContent(event, targetId) {
   event.preventDefault();
-  const target = document.getElementById('draft-main-content');
+  const target = document.getElementById(targetId);
   if (!target) return;
   target.focus();
   target.scrollIntoView();
@@ -92,6 +100,7 @@ function AppLayout({ children }) {
   const muiTheme = useTheme();
   const isPresenter = pathname.startsWith('/present/');
   const isDraftRoute = DRAFT_ROUTE_PATTERN.test(pathname);
+  const skipTargetId = SKIP_LINK_TARGETS.find(({ pattern }) => pattern.test(pathname))?.targetId;
   // Desktop's Draft room gets its own viewport-height shell (issue #122):
   // a fixed-height flex column so DraftBoard's two internal scroll regions
   // are the only things that ever scroll there - the page itself doesn't.
@@ -114,10 +123,10 @@ function AppLayout({ children }) {
 
   return (
     <Box sx={outerSx}>
-      {isDraftRoute && (
+      {skipTargetId && (
         <Link
-          href="#draft-main-content"
-          onClick={skipToMainContent}
+          href={`#${skipTargetId}`}
+          onClick={(event) => skipToMainContent(event, skipTargetId)}
           sx={{
             position: 'fixed',
             top: 8,

@@ -47,12 +47,6 @@ class ProjectionError extends Error {
  *    scoring hash AND the model version, so one league's numbers can never be
  *    served to a league that scores the same stat line differently.
  *
- * `getWeekProjections({ league, playerIds })` is the bridge: given both, it
- * routes through the v2 engine and returns the SAME `Map<playerId,
- * { points, source }>` shape, with the richer fields carried alongside. That
- * is what lets the start/sit path upgrade without touching a single other
- * caller.
- *
  * Rest of season is a third, separate horizon, and it too has two
  * producers: `getRestOfSeasonProjections` stays on the original pool-wide
  * extrapolator (a flat weekly value x remaining weeks), and `getRestOfSeason`
@@ -117,21 +111,21 @@ async function getPoolWideProjections({ season, week, refresh = false }) {
 }
 
 /**
- * Projections for (season, week) as a Map playerId -> { points, source }.
- *
- * Called with no `league`/`playerIds` (every pre-existing caller) this is the
- * original pool-wide extrapolator, byte-for-byte. Called WITH both, it runs
- * `free_baseline_v2` for exactly those players under that league's scoring
- * rules and returns the same map shape plus the richer per-player fields
- * (`projection`, `confidence`, `factors`, ...), so a consumer can opt in
- * field-by-field instead of all at once.
+ * Pool projections for (season, week) as a Map playerId -> { points, source }:
+ * the original pool-wide extrapolator, byte-for-byte. A Weekly projection
+ * (the engine's per-league run) is read through `getWeeklyProjections` and its
+ * result object's accessors, never through this map (#1704 removed the
+ * league-scoped branch that used to hand back a legacy map of a run).
+ * Passing `league` or `playerIds` throws rather than silently returning
+ * default-scoring pool numbers to a caller that expected a league's.
  */
-async function getWeekProjections({ season, week, refresh = false, league = null, playerIds = null }) {
-  const ids = Array.isArray(playerIds) ? playerIds : null;
-  if (!league || !ids) return getPoolWideProjections({ season, week, refresh });
-
-  const run = await getWeeklyProjections({ season, week, league, playerIds: ids, refresh });
-  return toLegacyProjectionMap(run);
+async function getWeekProjections({ season, week, refresh = false, ...rest }) {
+  if ('league' in rest || 'playerIds' in rest) {
+    throw new TypeError(
+      'getWeekProjections is pool-wide only: read a Weekly projection through getWeeklyProjections'
+    );
+  }
+  return getPoolWideProjections({ season, week, refresh });
 }
 
 /**
@@ -1191,36 +1185,6 @@ function pointEstimateFor(
 }
 
 /**
- * Adapter: a v2 run -> the legacy `Map<playerId, { points, source }>` every
- * existing consumer expects, with the new fields carried alongside so callers
- * can adopt them one at a time.
- *
- * `points` is the RANKING statistic (`pointEstimateFor`, #1483) - the mean
- * under the shipped v3.2 constants, so the row, the Edge line, the card and
- * the optimizer all read the same number the lineup rule ranked on. A player
- * with no projection at all reports `points: null` and `source: 'unavailable'`
- * — never a fabricated 0.
- */
-function toLegacyProjectionMap(run) {
-  const out = new Map();
-  for (const [playerId, projection] of run.projections) {
-    const point = pointEstimateFor(projection);
-    out.set(playerId, {
-      points: point == null ? null : Number(point),
-      source: point == null ? 'unavailable' : (run.modelVersion || model.MODEL_VERSION),
-      projection,
-      confidence: projection.confidence,
-      activeProbability: projection.activeProbability,
-      factors: projection.factors,
-      modelVersion: run.modelVersion,
-      generatedAt: run.generatedAt,
-      inputCutoff: run.inputCutoff,
-    });
-  }
-  return out;
-}
-
-/**
  * Pure: classifies one raw run entry for one week — unavailable plus a
  * reason code ('bye' | 'out' | 'ir' | 'no_team'), or the Point estimate
  * (`pointEstimateFor`) — exactly what the Decision card module's own copy
@@ -1256,11 +1220,10 @@ function classifyProjectionEntry(projection) {
  * `run`'s own fields (`season`, `week`, `modelVersion`, `scoringHash`,
  * `generatedAt`, `inputCutoff`, `sourceCoverage`, `projections`) are carried
  * through unchanged, so every existing reader of a `getWeeklyProjections` /
- * `getWeeklyProjectionsForWeeks` run — none of which are touched by this
- * ticket — keeps working untouched. `toLegacyMap()` is the migration seam:
- * the `{ points, source, ... }` shape `toLegacyProjectionMap` has always
- * built, reachable from the result for one release (the contract ticket,
- * #1704, removes it) while callers migrate onto the accessors (#1703).
+ * `getWeeklyProjectionsForWeeks` run keeps working untouched. The legacy
+ * `{ points, source, ... }` map that used to be reachable from the result
+ * (`toLegacyMap()`) was removed by the contract ticket (#1704) once the
+ * migrate ticket (#1703) had moved every caller onto the accessors.
  */
 function toWeeklyProjectionResult(run) {
   const entryFor = (playerId) => run.projections.get(playerId) || null;
@@ -1319,11 +1282,6 @@ function toWeeklyProjectionResult(run) {
       const { mean, median, p10, p90, confidence, activeProbability } = entry;
       return { mean, median, p10, p90, confidence, activeProbability };
     },
-
-    /** `toLegacyProjectionMap(run)` — the map this result supersedes, reachable for one release. */
-    toLegacyMap() {
-      return toLegacyProjectionMap(run);
-    },
   };
 }
 
@@ -1350,7 +1308,6 @@ module.exports = {
   playerResidualsFrom,
   buildSourceCoverage,
   distinctGamesFor,
-  toLegacyProjectionMap,
   pointEstimateFor,
   toWeeklyProjectionResult,
 };

@@ -10,4 +10,4 @@
  * can assert the shape a tile is built from without rendering the strip.
  */
 export { default, default as NflGameStrip } from './ui/NflGameStrip';
-export { gameTileView, formatKickoffTime } from './model/gameTileView';
+export { gameTileView } from './model/gameTileView';

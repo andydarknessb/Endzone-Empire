@@ -12,7 +12,6 @@ import {
   gameState,
   gameLine,
   gameClock,
-  formatKickoff,
   liveCount,
 } from './scoreboardModel';
 
@@ -125,9 +124,3 @@ test('a game row reads as live, final or scheduled with the matching line and cl
   expect(liveCount(null)).toBe(0);
 });
 
-test('formatKickoff renders a clock time in the given zone and null for nothing usable', () => {
-  expect(formatKickoff('2026-09-20T23:20:00Z', 'America/New_York')).toBe('7:20 PM');
-  expect(formatKickoff('2026-09-20T23:20:00Z')).toMatch(/\d{1,2}:\d{2}/);
-  expect(formatKickoff(null)).toBeNull();
-  expect(formatKickoff('not a date')).toBeNull();
-});

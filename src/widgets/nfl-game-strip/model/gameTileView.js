@@ -1,3 +1,5 @@
+import { formatInstant } from '../../../shared/lib';
+
 /**
  * The per-tile read of one `live_game_states` row (ticket #901): a pure
  * function from the row the Matchup entity hands down (`model.games`, #885)
@@ -32,22 +34,6 @@
  * row as `select('*')`, so that is the name a real row arrives under). Either
  * is an ISO timestamp; the tile shows it as a clock time in the viewer's zone.
  */
-
-const TIME_FORMAT_OPTIONS = { hour: 'numeric', minute: '2-digit' };
-
-/**
- * A kickoff instant as a clock time in the viewer's own zone ("7:20 PM"), or
- * null when the value is absent or not a date. `timeZone` is optional and
- * exists so a test can pin a zone; production callers omit it and get the
- * browser's own zone via Intl's runtime default.
- */
-export function formatKickoffTime(dateLike, timeZone) {
-  if (dateLike == null || dateLike === '') return null;
-  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
-  if (Number.isNaN(date.getTime())) return null;
-  const options = timeZone ? { ...TIME_FORMAT_OPTIONS, timeZone } : TIME_FORMAT_OPTIONS;
-  return new Intl.DateTimeFormat(undefined, options).format(date);
-}
 
 function tileState(gameStatus) {
   if (gameStatus === 'in_progress') return 'live';
@@ -89,7 +75,7 @@ export function gameTileView(row, { timeZone } = {}) {
   } else if (state === 'final') {
     trailing = 'FINAL';
   } else {
-    trailing = formatKickoffTime(kickoffAt, timeZone);
+    trailing = formatInstant(kickoffAt, 'time', { timeZone });
   }
 
   const showScores = state !== 'scheduled';

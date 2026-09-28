@@ -30,13 +30,14 @@ import {
  * Composes `shared/ui` (ADR 0020) and paints only `dash-*` tokens. Every
  * ink-on-surface pairing here is registered in tokens.contrast.test.js: ink /
  * dim / faint on the card surface, the Live pill's danger on the danger tint
- * over a card (the strip is a card, and that is the only backdrop the pill is
- * guarded on), and the points figure's `dash-away` on the card surface ("away
- * side percentage on a card"). The canvas paints the points in its
- * `--success`, which is the same hex as `dash-away` in both modes, so the
- * points read `dash-away`; its Live pill and the strip's border are its
- * `--danger` / `--danger-soft`, which are `dash-danger` / `dash-danger-soft`
- * (Badge `danger`, the canvas's `.chip.live`).
+ * over a card (the strip is a card), and the points figure's `dash-away` on
+ * the card surface ("away side percentage on a card"). The canvas paints the
+ * points in its `--success`, which is the same hex as `dash-away` in both
+ * modes, so the points read `dash-away`; its Live pill and the strip's border
+ * are its `--danger` / `--danger-soft`, which are `dash-danger` /
+ * `dash-danger-soft` (Badge `danger`, the canvas's `.chip.live`). In light
+ * mode the border is drawn differently (see ScoringStrip): the 6% tint
+ * vanishes against a card (ADR 0051).
  *
  * Copy is house style: middot separators, hyphens in scores, no em dashes and
  * no emoji (the legacy ticker's football emoji is gone; the strip's test
@@ -179,6 +180,15 @@ export function ScoringStrip({ items, now, desktopLimit = 4, sx, ...rest }) {
   const mobile = useMediaQuery(theme.breakpoints.down('sm'));
   const list = Array.isArray(items) ? items.filter(Boolean) : [];
 
+  // The strip's edge is the canvas's danger tint. ADR 0051 took the light
+  // tint to 6%, where it measures 1.10 against a card and all but vanishes,
+  // so light mode draws the edge in a registered pairing instead: solid
+  // `dash-danger` while plays are live (5.00 on `dash-bg`, 5.62 on
+  // `dash-surface`), and the Card's own `dash-line` hairline when idle, since
+  // a red edge on "nothing is live yet" would say the opposite. Dark keeps
+  // the canvas's 14% tint.
+  let edge = 'var(--dash-danger-soft)';
+  if (theme.palette.mode === 'light') edge = list.length > 0 ? 'var(--dash-danger)' : 'var(--dash-line)';
   const stripSx = {
     display: 'flex',
     alignItems: 'center',
@@ -186,7 +196,7 @@ export function ScoringStrip({ items, now, desktopLimit = 4, sx, ...rest }) {
     px: '12px',
     py: '8px',
     overflow: 'hidden',
-    borderColor: 'var(--dash-danger-soft)',
+    borderColor: edge,
     ...sx,
   };
 

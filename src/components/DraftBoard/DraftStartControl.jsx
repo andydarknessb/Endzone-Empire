@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { formatRelative } from '../../utils/formatRelative';
+import { formatTimeSince } from '../../shared/lib/formatTimeSince';
 import { readHttpFailure } from '../../lib/httpFailure';
 
 /**
@@ -57,7 +57,7 @@ export default function DraftStartControl({
   // `market.stale` (getMarketStatus, #748) is true for two different facts:
   // the last sync is old, OR there has never been a recorded sync at all -
   // and only the first has a timestamp worth showing. `lastSyncAt` is null
-  // for the second, and formatRelative(null) reads as the Unix epoch ("Dec
+  // for the second, and formatTimeSince(null) reads as the Unix epoch ("Dec
   // 31, 1969") rather than failing visibly (758-f1), so `marketStale` still
   // requires `lastSyncAt != null` and must never be loosened to admit the
   // null case: doing so would print a date nobody measured.
@@ -142,7 +142,7 @@ export default function DraftStartControl({
       )}
       {showMarketStatus && marketStale && (
         <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
-          {`Player market last updated ${formatRelative(market.lastSyncAt)}. Autopicks will use that market.`}
+          {`Player market last updated ${formatTimeSince(market.lastSyncAt)}. Autopicks will use that market.`}
         </Typography>
       )}
       {showMarketStatus && marketNeverSynced && (

@@ -6,7 +6,7 @@ import { PlayerNameLink } from '../../entities/player';
 // 0031's #1146 amendment) - the index would pull the whole kit, and
 // shared/lib's useEndpoint through it, into this bundle.
 import TeamAvatar from '../../shared/ui/TeamAvatar';
-import { formatRelative } from '../../utils/formatRelative';
+import { formatTimeSince } from '../../shared/lib/formatTimeSince';
 
 const STATUS_COLOR = {
   pending: 'warning',
@@ -97,7 +97,7 @@ function TradeProposalCard({
             {trade.created_at && (
               <Tooltip title={new Date(trade.created_at).toLocaleString()}>
                 <Typography variant="caption" component="span" sx={{ color: 'text.secondary' }}>
-                  {formatRelative(trade.created_at)}
+                  {formatTimeSince(trade.created_at)}
                 </Typography>
               </Tooltip>
             )}

@@ -116,8 +116,7 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
     if (projections instanceof Error) throw projections;
     // A minimal stand-in for the real result object (#1703): just the one
     // accessor `expectedFinalsForWeek` actually calls, `pointsFor`, reading
-    // this file's legacy-shaped `{ points }` fixtures the same way
-    // `toLegacyProjectionMap` used to hand them over.
+    // this file's legacy-shaped `{ points }` fixtures.
     return {
       modelVersion: 'test',
       projections,
@@ -126,6 +125,13 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
         if (entry == null) return null;
         const raw = typeof entry === 'object' ? entry.points : entry;
         return Number.isFinite(Number(raw)) ? Number(raw) : null;
+      },
+      // The distribution accessor win probability v2 reads; fixtures without
+      // a band answer none, as a run entry without one would.
+      detailFor(id) {
+        const entry = projections.get(id);
+        if (entry == null || typeof entry !== 'object' || entry.p10 == null) return null;
+        return { mean: entry.points, median: entry.points, p10: entry.p10, p90: entry.p90 };
       },
     };
   });
@@ -144,6 +150,50 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
     [/FROM "nfl_games" WHERE/, () => ({ rows: schedule })],
   ]);
 }
+
+// Win probability v2 (shadow): each team carries the variance its starters
+// still have to play, sigma_i^2 (from the p10..p90 band) times the fraction of
+// his game left. Final, bye and unavailable starters add none.
+test('a team carries its remaining variance: band sigma squared times game time left, starter by starter', async (t) => {
+  const band = (points) => ({ points, p10: points - 9, p90: points + 9 }); // 18-point band
+  const projections = new Map([[1, band(19)], [2, band(14)], [3, band(11.3)], [4, band(9)], [5, band(8)]]);
+  const live = [
+    { home_team: 'KC', away_team: 'LV', game_status: 'final', quarter: 'Final', time_remaining: null },
+    { home_team: 'BUF', away_team: 'MIA', game_status: 'in_progress', quarter: 'Q3', time_remaining: '7:30' },
+    { home_team: 'DAL', away_team: 'NYG', game_status: 'in_progress', quarter: 'Q2', time_remaining: '1:00' },
+  ];
+  const fake = weekPool(t, { projections, live });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  const sigmaSquared = (18 / 2.5631) ** 2;
+  // QB final (0) + RB with Q3 7:30 left (22.5 of 60 minutes) + WR not started (all of it).
+  const expected = sigmaSquared * (22.5 / 60) + sigmaSquared;
+  assert.ok(Math.abs(byTeam.get(10).varianceRemaining - expected) < 1e-9, `home variance ${byTeam.get(10).varianceRemaining}`);
+  // Bye starter is final; the Out kicker is unavailable: neither can move the score.
+  assert.equal(byTeam.get(20).varianceRemaining, 0);
+});
+
+test('an available starter with game time left but no projection interval is counted, not silently treated as certain', async (t) => {
+  // Player 3 (WR, not kicked off) has a point estimate but no p10/p90; the
+  // final QB without one is not counted (nothing left to play), nor are the
+  // bye RB and the Out kicker on team 20.
+  const projections = new Map([[1, { points: 19 }], [2, { points: 14, p10: 5, p90: 23 }], [3, { points: 11.3 }], [4, { points: 9 }], [5, { points: 8 }]]);
+  const fake = weekPool(t, { projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  assert.equal(byTeam.get(10).uncertainStartersWithoutInterval, 1);
+  assert.equal(byTeam.get(20).uncertainStartersWithoutInterval, 0);
+});
+
+test('with no projection run a team carries no remaining variance', async (t) => {
+  const fake = weekPool(t, { projections: new Error('projection store down') });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  assert.equal(byTeam.get(10).varianceRemaining, null);
+});
 
 test('a team is the sum of its starters across all three phases, with players remaining counted', async (t) => {
   const fake = weekPool(t);

@@ -1,9 +1,8 @@
 import React, { useEffect } from 'react';
 import { Box, Button, Typography } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, formatPoints } from '../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, formatPoints, timeUntil } from '../../shared/lib';
 import { NewsList } from '../../entities/player';
 import { SwapPreview } from '../../features/claim-player';
-import { formatRelative } from '../../utils/formatRelative';
 
 const LABEL_SX = { fontSize: 12, color: 'var(--dash-dim)', mb: 0.25 };
 
@@ -17,10 +16,14 @@ const LABEL_SX = { fontSize: 12, color: 'var(--dash-dim)', mb: 0.25 };
  * page's `useCardReads`) keeps the attempt, in flight, loaded or failed, per
  * player for the page view, so re-expanding never reads again. A read that
  * fails leaves the link to the Decision card in News's place.
- *
- * BELOW-ISLAND EDGE (ADR 0031 amendment): `utils/formatRelative`, the same
- * plumbing edge `player-row`'s Status column already names.
  */
+// How far off a Clear time is, in the shared house style ("in 14h 40m").
+function untilText(availableAt) {
+  const until = timeUntil(availableAt, Date.now());
+  if (!until || until.passed) return 'clearing now';
+  return until.imminent ? 'in under a minute' : `in ${until.text}`;
+}
+
 export default function WaiverRowDetail({ id, player, roster, isFaab, reads, onOpen }) {
   useEffect(() => {
     reads.start(player.id);
@@ -53,7 +56,7 @@ export default function WaiverRowDetail({ id, player, roster, isFaab, reads, onO
         <Typography sx={LABEL_SX}>Clear time</Typography>
         {availableAt ? (
           <Typography>
-            {`Claims on ${player.name} resolve at ${new Date(availableAt).toLocaleString()} (${formatRelative(availableAt)}); ${rule}.`}
+            {`Claims on ${player.name} resolve at ${new Date(availableAt).toLocaleString()} (${untilText(availableAt)}); ${rule}.`}
           </Typography>
         ) : (
           <Typography>Clear time not available.</Typography>

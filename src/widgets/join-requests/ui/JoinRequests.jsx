@@ -3,8 +3,7 @@ import { Avatar, Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, Skeleton } from '../../../shared/ui';
 import DecideJoinRequest from '../../../features/decide-join-request';
-import { initialsFor, teamNameLabel } from '../../../shared/lib';
-import formatRelative from '../../../utils/formatRelative';
+import { formatTimeSince, initialsFor, teamNameLabel } from '../../../shared/lib';
 import useJoinRequests from '../model/useJoinRequests';
 
 /**
@@ -144,7 +143,7 @@ export default function JoinRequests({ leagueId }) {
                       color: 'var(--dash-ink)',
                     }}
                   >
-                    {`${name} · requested ${formatRelative(row.created_at)}`}
+                    {`${name} · requested ${formatTimeSince(row.created_at)}`}
                   </Typography>
                   <DecideJoinRequest
                     leagueId={leagueId}

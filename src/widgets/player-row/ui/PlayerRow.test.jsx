@@ -50,7 +50,7 @@ test('a free-agent row renders Add', () => {
 
 test('a waivers row renders Claim', () => {
   renderRow({
-    player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: '2026-09-17T07:00:00.000Z' } }),
+    player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: new Date(Date.now() + 3 * 3600000).toISOString() } }),
     action: { kind: 'button', label: 'Claim', onClick: jest.fn() },
   });
 
@@ -123,13 +123,23 @@ test('card variant: tapping anywhere in the identity block opens the Decision ca
 
 test("a waivers row's Clears tooltip keeps the visible relative time as its accessible name, not the absolute timestamp", () => {
   renderRow({
-    player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: '2026-09-17T07:00:00.000Z' } }),
+    player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: new Date(Date.now() + 3 * 3600000).toISOString() } }),
     action: { kind: 'button', label: 'Claim', onClick: jest.fn() },
   });
 
   const detail = screen.getByTestId('player-row-status-detail');
   expect(detail).not.toHaveAttribute('aria-label');
   expect(detail).toHaveTextContent(/Clears/);
+});
+
+// The same Clear time reads the same here as on the waiver strip and the to-do
+// list: rounded down, never rounded up to the next hour (spec #1737).
+test('a waivers row counts down to its Clear time in the house style', () => {
+  renderRow({
+    player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: new Date(Date.now() + (14 * 60 + 40) * 60000 + 30000).toISOString() } }),
+    action: { kind: 'button', label: 'Claim', onClick: jest.fn() },
+  });
+  expect(screen.getByTestId('player-row-status-detail')).toHaveTextContent('Clears in 14h 40m');
 });
 
 test("an action's helper tooltip keeps the button's own label as its accessible name", () => {

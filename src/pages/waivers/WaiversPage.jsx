@@ -47,8 +47,6 @@ const TABS = [
  *   - `lib/httpFailure`: the refusal text of the `claim-target` read (the entity's `readClaimTarget`) behind
  *     the Player Browser's `?playerId=` deep link (and, through `useCardReads`,
  *     the expanded row's Decision-card read).
- *   - `utils/formatRelative`: the Clear time's relative wording in the expanded
- *     row (`WaiverRowDetail`), the same plumbing edge `player-row` names.
  */
 export default function WaiversPage() {
   const { leagueId } = useParams();

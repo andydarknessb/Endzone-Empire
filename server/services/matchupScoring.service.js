@@ -300,8 +300,9 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   // open (a final one's result is its score), and best-effort: a miss leaves
   // the fields null. Required lazily: expectedFinal.service reads this
   // module's rules.
-  const { attachScoredExpectedFinals } = require('./expectedFinal.service');
-  await attachScoredExpectedFinals(scored, { openMatchups, league, now: clock.now() });
+  const { attachScoredExpectedFinals, decorateOpenMatchups } = require('./expectedFinal.service');
+  const decorations = await decorateOpenMatchups(openMatchups, { league, now: clock.now() });
+  await attachScoredExpectedFinals(scored, { openMatchups, league, decorations });
   // Live scoring: push fresh scores to anyone watching this league, through the
   // one Draft room broadcast adapter (#765). In the API it rides `io`; in the
   // worker it rides the Redis emitter to every API instance, so the scheduled
@@ -314,6 +315,15 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   // scores. It's populated only on the live sync path — the stat-correction
   // path passes none — so a cutscene can never fire from a correction.
   await getDraftRoomBroadcast().scoresUpdated(leagueId, { leagueId, season, week, scored, plays });
+  // Win probability v2 shadow mode: record v2 for the open matchups from the
+  // decorations the emit already used. Fire-and-forget and after the emit:
+  // the scheduler scores leagues one after another, so an awaited write that
+  // stalled on a connection would delay the next league's scores. Best-effort:
+  // a failure (the table not yet migrated, say) is logged, never thrown.
+  // Nothing here reaches any surface.
+  const { recordWinProbabilityShadow } = require('./winProbabilityShadow.service');
+  recordWinProbabilityShadow({ leagueId, season, week, scored, decorations, now: clock.now() })
+    .catch((err) => console.error('win probability shadow: record failed', err.message));
   return { scored };
 }
 

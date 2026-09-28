@@ -3,6 +3,8 @@ const pool = require('../modules/pool');
 const { requireAuth, requireRecentAuth, isPlatformAdmin } = require('../modules/auth');
 const { clearRefreshCookie, requireTrustedOrigin } = require('../modules/refreshCookie');
 const privacy = require('../services/privacy.service');
+const clock = require('../modules/clock');
+const homeStatus = require('../services/homeStatus.service');
 
 const router = express.Router();
 
@@ -20,6 +22,27 @@ router.get('/', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error getting user:', error);
     res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// GET /api/user/action-items?tz=America/Chicago — the caller's Home to-do
+// list across every league they belong to (Home v2, contract A): live
+// drafts, lineup problems, open picks, trade reviews and offers, open seats,
+// join requests and pending waiver claims. `tz` is the viewer's IANA zone,
+// required because dueToday is a calendar question and the server never
+// guesses one. The builders and their batched, owner-scoped reads live in
+// homeStatus.service; a builder that fails is named in `partial` and the
+// rest still answer.
+router.get('/action-items', requireAuth, async (req, res) => {
+  const { tz } = req.query;
+  if (!homeStatus.isValidTimeZone(tz)) {
+    return res.status(400).json({ error: 'tz must be a valid IANA time zone' });
+  }
+  try {
+    res.json(await homeStatus.actionItems(pool, { userId: req.user.id, now: clock.now(), tz }));
+  } catch (error) {
+    console.error('Error building action items:', error);
+    res.status(500).json({ error: 'failed to build action items' });
   }
 });
 

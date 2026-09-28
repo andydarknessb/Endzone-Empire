@@ -28,6 +28,7 @@
  *     without it every dot is neutral.
  */
 import { formatSignedPoints } from '../../../entities/matchup';
+import { formatInstant } from '../../../shared/lib';
 
 /** The idle line both surfaces render before the first play of the week lands. */
 export const IDLE_LINE = 'Live scoring plays will appear here once games kick off.';
@@ -61,7 +62,7 @@ export function formatPoints(pointsDelta) {
 export function formatPlayTime(at, locale) {
   const ms = toMs(at);
   if (ms == null) return '';
-  return new Date(ms).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  return formatInstant(ms, 'time', { locale }) || '';
 }
 
 /**

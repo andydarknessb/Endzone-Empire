@@ -265,6 +265,181 @@ if (!ENABLED) {
     }
   });
 
+  // ---- Shadow-arm (Challenger) capture prototype, ADR 0050 -----------------
+  // Test database only: nothing here attaches to a live capture. Each test
+  // takes its own far-future season, because ledger rows can never be deleted.
+  const CHALLENGER = Object.freeze({ kind: 'challenger:v3.2', modelVersion: 'free_baseline_v3.2' });
+  const SERVED_VERSION = 'free_baseline_v3.1';
+
+  function shadowCapture(season, challengers) {
+    const holdout = require('../services/holdout.service');
+    return holdout.snapshotWeek({
+      season, week: 1, profileName: 'standard',
+      rules: require('../services/scoringRules').SCORING_PRESETS.standard,
+      client: pool,
+      ...(challengers === undefined ? {} : { challengers }),
+    });
+  }
+
+  async function ledgerHeaders(season) {
+    const res = await pool.query(
+      `SELECT "id", "capture_kind", "model_version" FROM "projection_snapshots"
+       WHERE "season" = $1 AND "week" = 1 ORDER BY "capture_kind"`,
+      [season]
+    );
+    return res.rows;
+  }
+
+  /**
+   * Wrap the REAL generateProjections; `alter(args, run)` may replace the run
+   * for one arm (identified by its constants), so every other arm stays real.
+   */
+  function alterRuns(t, alter) {
+    const projection = require('../services/projection.service');
+    const real = projection.generateProjections;
+    t.mock.method(projection, 'generateProjections', async (args) => {
+      const run = await real(args);
+      return alter(args, run);
+    });
+  }
+
+  const isChallengerRun = (args) => args.modelVersion === CHALLENGER.modelVersion;
+  const shiftMeans = (run, delta) => ({
+    ...run,
+    projections: new Map([...run.projections].map(([id, p]) => [id, { ...p, mean: (p.mean ?? 0) + delta }])),
+  });
+
+  function shadowSetup(t, season, firstKickoffInMs) {
+    process.env.APP_RELEASE = 'pg-test-sha';
+    t.after(() => { delete process.env.APP_RELEASE; });
+    return seedSeason({ season, firstKickoffInMs });
+  }
+
+  test('a Challenger arm writes a fourth header under its own kind and model version', async (t) => {
+    await shadowSetup(t, 2090);
+    const result = await shadowCapture(2090, [CHALLENGER]);
+    assert.deepEqual(result.challengerFailures, [], 'the Challenger must not have been isolated away');
+    const headers = await ledgerHeaders(2090);
+    assert.deepEqual(
+      headers.map((h) => [h.capture_kind, h.model_version]),
+      [
+        ['candidate:bw-15', SERVED_VERSION],
+        ['candidate:bw-20', SERVED_VERSION],
+        [CHALLENGER.kind, CHALLENGER.modelVersion],
+        ['scheduled', SERVED_VERSION],
+      ]
+    );
+    assert.equal(result.armSnapshotIds[CHALLENGER.kind], headers.find((h) => h.capture_kind === CHALLENGER.kind).id);
+    assert.deepEqual(result.challengerFailures, []);
+  });
+
+  test('a Challenger whose means differ commits; the scheduled arm is untouched', async (t) => {
+    await shadowSetup(t, 2091);
+    alterRuns(t, (args, run) => (isChallengerRun(args) ? shiftMeans(run, 1) : run));
+    await shadowCapture(2091, [CHALLENGER]);
+    const headers = await ledgerHeaders(2091);
+    assert.equal(headers.length, 4);
+    const means = await pool.query(
+      `SELECT "s"."capture_kind", "p"."player_id", "p"."mean"
+       FROM "projection_snapshots" "s" JOIN "projection_snapshot_players" "p" ON "p"."snapshot_id" = "s"."id"
+       WHERE "s"."season" = 2091 AND "s"."capture_kind" IN ('scheduled', $1)`,
+      [CHALLENGER.kind]
+    );
+    const byKind = (kind) => new Map(means.rows.filter((r) => r.capture_kind === kind).map((r) => [r.player_id, Number(r.mean)]));
+    const control = byKind('scheduled');
+    const challenger = byKind(CHALLENGER.kind);
+    assert.ok(control.size > 0);
+    for (const [id, mean] of control) assert.equal(challenger.get(id), mean + 1);
+  });
+
+  test('a candidate:* arm whose means differ still rolls the whole capture back', async (t) => {
+    await shadowSetup(t, 2092);
+    alterRuns(t, (args, run) => (
+      !isChallengerRun(args) && args.modelConstants.simulation.smoothingBandwidth === 0.2 ? shiftMeans(run, 1) : run
+    ));
+    await assert.rejects(shadowCapture(2092, [CHALLENGER]), /candidate:bw-20 mean diverged/);
+    assert.equal((await ledgerHeaders(2092)).length, 0, 'the mean-equality abort is unchanged for candidate arms');
+  });
+
+  test('a Challenger that throws is isolated: three headers commit, no Challenger, retry skips', async (t) => {
+    await shadowSetup(t, 2093);
+    alterRuns(t, (args, run) => {
+      if (isChallengerRun(args)) throw new Error('challenger engine exploded');
+      return run;
+    });
+    const result = await shadowCapture(2093, [CHALLENGER]);
+    const headers = await ledgerHeaders(2093);
+    assert.deepEqual(headers.map((h) => h.capture_kind), ['candidate:bw-15', 'candidate:bw-20', 'scheduled']);
+    assert.equal(result.challengerFailures.length, 1);
+    assert.equal(result.challengerFailures[0].kind, CHALLENGER.kind);
+    assert.match(result.challengerFailures[0].message, /challenger engine exploded/);
+
+    // The week is complete for its required arms: asking again neither throws
+    // nor appends a Challenger from a different day's computation.
+    const again = await shadowCapture(2093, [CHALLENGER]);
+    assert.equal(again.skipped, 'already complete');
+    assert.equal((await ledgerHeaders(2093)).length, 3);
+
+    // /api/health's obligation reader counts only REQUIRED_ARMS, so the
+    // missing Challenger does not make the week incomplete.
+    const holdout = require('../services/holdout.service');
+    const reconciled = await holdout.reconcileObligations({ client: pool });
+    const week = reconciled.obligations.find((o) => o.season === 2093 && o.week === 1 && o.profile === 'standard');
+    assert.equal(week.state, 'captured');
+    assert.equal(week.missingArms, undefined);
+  });
+
+  test('a Challenger that finishes after the cutoff is rolled back alone', async (t) => {
+    await shadowSetup(t, 2094, 9000);
+    const holdout = require('../services/holdout.service');
+    const cutoff = holdout.captureNotAfterFor(2094, 1);
+    alterRuns(t, async (args, run) => {
+      if (isChallengerRun(args)) {
+        const wait = new Date(cutoff).getTime() - Date.now() + 250;
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      return run;
+    });
+    const result = await shadowCapture(2094, [CHALLENGER]);
+    const headers = await ledgerHeaders(2094);
+    assert.deepEqual(headers.map((h) => h.capture_kind), ['candidate:bw-15', 'candidate:bw-20', 'scheduled']);
+    assert.equal(result.challengerFailures.length, 1);
+    assert.equal(result.challengerFailures[0].kind, CHALLENGER.kind);
+    assert.match(
+      result.challengerFailures[0].message,
+      /deadline|pre_deadline_check|past its capture deadline/,
+      'it failed BECAUSE of the cutoff, not for an unrelated reason'
+    );
+  });
+
+  test('a second call after a complete four-arm capture skips as already complete', async (t) => {
+    await shadowSetup(t, 2095);
+    const first = await shadowCapture(2095, [CHALLENGER]);
+    const again = await shadowCapture(2095, [CHALLENGER]);
+    assert.equal(again.skipped, 'already complete');
+    assert.deepEqual(again.armSnapshotIds, first.armSnapshotIds);
+    assert.equal((await ledgerHeaders(2095)).length, 4);
+    // Calling without the opt-in (the scheduled path) is equally a skip.
+    assert.equal((await shadowCapture(2095)).skipped, 'already complete');
+  });
+
+  test('a Challenger request that names a version this checkout cannot run fails before any write', async (t) => {
+    await shadowSetup(t, 2096);
+    await assert.rejects(
+      shadowCapture(2096, [{ kind: 'challenger:nope', modelVersion: 'no_such_version' }]),
+      /no_such_version/
+    );
+    await assert.rejects(
+      shadowCapture(2096, [{ kind: 'candidate:sneaky', modelVersion: CHALLENGER.modelVersion }]),
+      TypeError
+    );
+    await assert.rejects(
+      shadowCapture(2096, [{ kind: 'challenger:free_baseline_v3.2', modelVersion: CHALLENGER.modelVersion }]),
+      TypeError
+    );
+    assert.equal((await ledgerHeaders(2096)).length, 0);
+  });
+
   test('rolling back a NONEMPTY ledger refuses destructively', async () => {
     const count = await pool.query('SELECT COUNT(*)::int AS "n" FROM "projection_snapshots"');
     assert.ok(count.rows[0].n > 0, 'earlier tests left captured rows — the guard must see them');
