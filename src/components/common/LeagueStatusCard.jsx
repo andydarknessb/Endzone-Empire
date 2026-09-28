@@ -12,6 +12,7 @@ import LeagueCard from './LeagueCard';
 import { useSnackbar } from '../Snackbar/SnackbarProvider';
 import { formatViewerLocalSchedule } from '../../lib/draftTimeFormat';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { formatInstant } from '../../shared/lib/instantFormat';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 import { matchupWinProbability } from '../../shared/lib/winProbability';
@@ -109,20 +110,6 @@ function roleLabel(league) {
   if (league.is_owner === true) return 'Commissioner';
   if (league.is_commissioner === true) return 'Co-commissioner';
   return null;
-}
-
-function formatLockTime(iso) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(date);
-}
-
-// The day in the viewer's own zone, matching the schedule line beside it
-// (CONTEXT.md, Draft timezone: local time first, the league's zone second).
-function formatDraftDay(iso) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
 }
 
 /** 0..1 chance the viewer's side wins: the server's figure once v2 ships, else v1. */
@@ -616,7 +603,7 @@ function LeagueStatusCard({ league }) {
     // A status from before `missing` shipped falls back to made of total.
     const done = Number.isFinite(missing) ? missing === 0 : total > 0 && made >= total;
     const managers = league.team_count != null ? `${league.team_count} managers` : null;
-    const lock = nextLockAt ? formatLockTime(nextLockAt) : null;
+    const lock = nextLockAt ? formatInstant(nextLockAt, 'kickoff') : null;
     subline = [league.my_team_name, role, managers].filter(Boolean).join(' · ');
     chip = <StatusChip variant={done ? 'default' : 'pickem'} label={done ? 'Picks in' : 'Picks open'} />;
     body = <PickemBody status={status} />;
@@ -631,7 +618,7 @@ function LeagueStatusCard({ league }) {
     );
   } else if (variant === 'draft') {
     const drafting = leaguePhaseOf(league) === LEAGUE_PHASE.DRAFTING;
-    const day = status.draft.date ? formatDraftDay(status.draft.date) : null;
+    const day = status.draft.date ? formatInstant(status.draft.date, 'day') : null;
     subline = [league.my_team_name, role, SCORING_LABELS[league.scoring_preset]].filter(Boolean).join(' · ');
     let chipLabel = 'Pre-draft';
     if (drafting) chipLabel = 'Draft live';

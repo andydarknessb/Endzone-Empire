@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { teamStandingFromRow } from '../../entities/standings';
 import { ordinal } from '../../shared/lib/ordinal';
 import { isPickemOnly } from '../../shared/lib/leagueType';
+import { formatInstant } from '../../shared/lib/instantFormat';
 import { hasStatus } from '../common/LeagueStatusCard';
 import {
   DISPLAY_FONT, HAIRLINE, dimSx, microLabelSx,
@@ -19,8 +20,6 @@ import {
  * and `dash-ink` values; the live chip is `dash-danger` on the danger tint
  * over the page (4.57 light at the ruled 6% tint), its border decoration.
  */
-
-const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
 const sameLocalDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 
@@ -57,7 +56,7 @@ export function greetingSummary(body, now = Date.now()) {
   const due = dueToday === 1 ? '1 is due today' : `${dueToday} are due today`;
   const first = firstLockToday(items, now);
   if (first === null) return `${head} ${due}.`;
-  return `${head} ${due}, and ${dueToday === 1 ? 'it' : 'the first'} locks at ${timeFormat.format(first)}.`;
+  return `${head} ${due}, and ${dueToday === 1 ? 'it' : 'the first'} locks at ${formatInstant(first, 'time')}.`;
 }
 
 export function GreetingSummary({ actionItems }) {

@@ -7,6 +7,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import { visuallyHidden } from '@mui/utils';
 import apiClient from '../../api/apiClient';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { formatInstant } from '../../shared/lib/instantFormat';
 import {
   DISPLAY_FONT, HAIRLINE, alertActionSx, alertSx, dimSx, ghostButtonSx, microLabelSx, panelHeaderSx, panelSx,
   panelTitleSx, primaryButtonSx, progressSx, quietButtonSx, skeletonSx, textLinkSx,
@@ -31,19 +32,6 @@ const URGENT_WINDOW_MS = 2 * HOUR_MS;
 function viewerTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
-
-// The short name of the viewer's zone ("CDT"), so the list can say once which
-// zone every time in it is in.
-function zoneAbbreviation(now) {
-  const part = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
-    .formatToParts(new Date(now))
-    .find((p) => p.type === 'timeZoneName');
-  return part ? part.value : '';
-}
-
-const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
-const dateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
-const weekdayTimeFormat = new Intl.DateTimeFormat('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
 // "in 1h 12m", "in 5h 07m", "in 45m".
 function formatRelative(remainingMs) {
@@ -74,9 +62,9 @@ function deadlineParts(item, now) {
   const remaining = at - now;
   if (remaining <= 0) return { label, value: 'Now', sub: null, urgent: true };
   if (remaining < RELATIVE_WINDOW_MS) {
-    return { label, value: timeFormat.format(at), sub: formatRelative(remaining), urgent: remaining < URGENT_WINDOW_MS };
+    return { label, value: formatInstant(at, 'time'), sub: formatRelative(remaining), urgent: remaining < URGENT_WINDOW_MS };
   }
-  return { label, value: dateFormat.format(at), sub: weekdayTimeFormat.format(at), urgent: false };
+  return { label, value: formatInstant(at, 'day'), sub: formatInstant(at, 'kickoff'), urgent: false };
 }
 
 // The urgent tone is `warning.main`, the app palette's warning. It is the
@@ -359,7 +347,7 @@ function ActionQueue({ onLoaded }) {
         )}
         {items.length > 0 && (
           <Typography variant="body2" sx={{ ...dimSx, fontSize: '13px', ml: 'auto', textAlign: 'right' }}>
-            {`Deadlines first · times in ${zoneAbbreviation(now)}`}
+            {`Deadlines first · times in ${formatInstant(now, 'zone') || 'your time zone'}`}
           </Typography>
         )}
       </Stack>

@@ -1,5 +1,6 @@
 import { matchupStatusView } from '../../../entities/matchup';
 import { unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
+import { formatInstant } from '../../../shared/lib/instantFormat';
 
 /**
  * Pure presentation arithmetic for the retro-scoreboard widget (ADR 0031,
@@ -162,20 +163,6 @@ export function gameLine(game) {
 }
 
 /**
- * A kickoff instant as a clock time in the viewer's own zone ("7:20 PM", the
- * design's Games tile and the nfl-game-strip widget's format); null when the
- * row carries no usable start time. `timeZone` exists so a test can pin a zone.
- */
-export function formatKickoff(iso, timeZone) {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  const options = { hour: 'numeric', minute: '2-digit' };
-  if (timeZone) options.timeZone = timeZone;
-  return new Intl.DateTimeFormat(undefined, options).format(date);
-}
-
-/**
  * The clock cell for one game row: quarter and time while in progress ("Q3
  * 6:42", or LIVE before the feed has a clock), FINAL once over, and the
  * kickoff time before it starts (the row's `kickoff_at`, else the table's own
@@ -187,7 +174,7 @@ export function gameClock(game) {
     return `${game.quarter || ''} ${game.time_remaining || ''}`.trim() || 'LIVE';
   }
   if (state === 'final') return 'FINAL';
-  return formatKickoff(game.kickoff_at ?? game.start_time) || 'TBD';
+  return formatInstant(game.kickoff_at ?? game.start_time, 'time') || 'TBD';
 }
 
 /** How many of the rows are in progress, for the Games tile's count. */

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { countdownText } from '../lib/countdown';
+import { formatInstant } from '../../../shared/lib/instantFormat';
 
 const TICK_MS = 30 * 1000;
 
@@ -14,13 +15,6 @@ function useNow(pinned) {
     return () => clearInterval(handle);
   }, [pinned]);
   return pinned || now;
-}
-
-function clearMoment(at) {
-  const d = new Date(at);
-  const day = d.toLocaleDateString(undefined, { weekday: 'short' });
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${day} ${time}`;
 }
 
 function Tile({ label, value, unit, note, flag, warn, testId }) {
@@ -112,8 +106,8 @@ export default function WaiverSummary({ nextClear, pendingCount = 0, faab, waive
   const nextNote = !nextClear
     ? 'No pending claims'
     : nextClear.kind === 'blanket'
-      ? `Waivers clear ${clearMoment(nextClear.at)}`
-      : `${nextClear.playerName || 'Your next claim'} clears ${clearMoment(nextClear.at)}`;
+      ? `Waivers clear ${formatInstant(nextClear.at, 'kickoff')}`
+      : `${nextClear.playerName || 'Your next claim'} clears ${formatInstant(nextClear.at, 'kickoff')}`;
 
   return (
     <Box
