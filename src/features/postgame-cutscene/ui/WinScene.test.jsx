@@ -4,6 +4,7 @@ import React from 'react';
 import {
   render, screen, act, within,
 } from '@testing-library/react';
+import Marquee from './Marquee';
 import WinScene, {
   SCROLL_MS, ENDZONE_MS, SPIKE_MS, SLAM_MS, DANCE_MS, DONE_MS, FRAME_MS, FLASH_MS,
 } from './WinScene';
@@ -205,29 +206,80 @@ describe('slam, Record and marquee', () => {
       .toBe('THE EXTRAORDINARILY LONG TEAM NAME OF DOOM DEFEATS ALSO RATHER LONG OPPOSITION FC');
   });
 
-  test('the marquee moves 8 px a step, 10 steps a second, as a transform', () => {
-    // jsdom lays nothing out: give the box and the track widths so a lap exists.
-    const widths = { clientWidth: 300, scrollWidth: 500 };
+  // jsdom lays nothing out: give the box and the track widths so a lap exists.
+  function withLayout({ box, track }, fn) {
+    const widths = { clientWidth: box, scrollWidth: track };
     const saved = Object.keys(widths).map((key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)]);
     Object.entries(widths).forEach(([key, value]) => {
       Object.defineProperty(HTMLElement.prototype, key, { configurable: true, get: () => value });
     });
     try {
-      mount();
-      advance(DANCE_MS);
-      const track = () => screen.getByTestId('win-marquee-track').style.transform;
-      const x = () => Number(track().match(/translateX\((-?[\d.]+)px\)/)[1]);
-      const start = x();
-      advance(100);
-      expect(start - x()).toBe(8);
-      advance(1000);
-      expect(start - x()).toBe(88);
+      fn();
     } finally {
       saved.forEach(([key, descriptor]) => {
         if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
         else delete HTMLElement.prototype[key];
       });
     }
+  }
+  const trackX = () => Number(
+    screen.getByTestId('win-marquee-track').style.transform.match(/translateX\((-?[\d.]+)px\)/)[1]
+  );
+
+  test('the marquee moves 8 px a step, 10 steps a second, as a transform', () => {
+    withLayout({ box: 300, track: 500 }, () => {
+      mount();
+      advance(DANCE_MS);
+      const start = trackX();
+      advance(100);
+      expect(start - trackX()).toBe(8);
+      advance(1000);
+      expect(start - trackX()).toBe(88);
+    });
+  });
+
+  // Press Start 2P is 1 em a character: a 40-character text plus the 32 px avatar
+  // and 12 px gap. The dance beat leaves 53 whole steps (424 px) before onDone.
+  test.each([
+    ['14 px on a 1280 px stage', { box: 1280, track: 32 + 12 + 40 * 14 }],
+    ['11 px on a 375 px stage', { box: 375, track: 32 + 12 + 40 * 11 }],
+  ])('the whole 40-character track is on screen at least once before onDone: %s', (label, layout) => {
+    withLayout(layout, () => {
+      mount();
+      advance(DANCE_MS);
+      const rightEdges = [trackX() + layout.track];
+      for (let stepNo = 1; stepNo < (DONE_MS - DANCE_MS) / 100; stepNo += 1) {
+        advance(100);
+        rightEdges.push(trackX() + layout.track);
+      }
+      expect(rightEdges).toHaveLength(54);
+      expect(Math.min(...rightEdges)).toBeLessThanOrEqual(layout.box);
+      // The head is on screen from the first step, and 8 px a step is kept.
+      expect(rightEdges[0] - rightEdges[1]).toBe(8);
+    });
+  });
+
+  test('positive control: with no visibleByMs the lap starts off the right edge and never shows these tracks whole', () => {
+    [{ box: 1280, track: 604 }, { box: 375, track: 484 }].forEach((layout) => {
+      withLayout(layout, () => {
+        const { unmount } = render(<Marquee text="X" name="X" />);
+        const rightEdges = [trackX() + layout.track];
+        for (let stepNo = 1; stepNo < 54; stepNo += 1) {
+          advance(100);
+          rightEdges.push(trackX() + layout.track);
+        }
+        expect(Math.min(...rightEdges)).toBeGreaterThan(layout.box);
+        unmount();
+      });
+    });
+  });
+
+  test('a short track still enters from just off the right edge', () => {
+    withLayout({ box: 375, track: 200 }, () => {
+      mount();
+      advance(DANCE_MS);
+      expect(trackX()).toBe(375);
+    });
   });
 
   test('the avatar leads the marquee: initials with no image, the still image with one', () => {

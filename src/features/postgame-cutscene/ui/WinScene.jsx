@@ -165,6 +165,7 @@ function WinScene({ cutscene, sfx, onDone }) {
                 text={`${(me.name || 'TEAM').toUpperCase()} DEFEATS ${(opponent.name || 'TEAM').toUpperCase()}`}
                 name={me.name || ''}
                 avatarUrl={me.avatarStaticUrl || me.avatarUrl || undefined}
+                visibleByMs={DONE_MS - DANCE_MS}
               />
             </>
           )}
