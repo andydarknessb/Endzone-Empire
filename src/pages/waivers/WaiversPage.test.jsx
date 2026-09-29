@@ -1044,3 +1044,20 @@ test('the live region announces the loaded headlines', async () => {
   await within(panel).findByText('One');
   expect(within(panel).getByRole('status')).toHaveTextContent('2 news items');
 });
+
+test('a Position-baseline row reads "no history" in the Proj Wk column, no number (#1778)', async () => {
+  setup({
+    players: [
+      cardsPlayer({ id: 7, name: 'Carson Beck', verdictReason: 'no_history', projWeek: { week: 4, points: 15.37 } }),
+      cardsPlayer({ id: 8, name: 'Real Starter', projWeek: { week: 4, points: 17.2 } }),
+    ],
+  });
+  renderPage();
+  await screen.findByText('Carson Beck');
+  const rows = await screen.findAllByTestId('player-row');
+  const beck = rows.find((row) => row.textContent.includes('Carson Beck'));
+  const starter = rows.find((row) => row.textContent.includes('Real Starter'));
+  expect(within(beck).getByText('no history')).toBeInTheDocument();
+  expect(beck.textContent).not.toMatch(/15.4|15.37/);
+  expect(within(starter).getByText('17.2')).toBeInTheDocument();
+});

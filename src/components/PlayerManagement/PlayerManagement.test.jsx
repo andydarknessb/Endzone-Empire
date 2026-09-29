@@ -1172,3 +1172,22 @@ describe("position chips derived from the roster template (#1419)", () => {
     ).toBe(callsAfterInitialLoad);
   });
 });
+
+// #1778 (spec #1774): the Players page's Proj Wk column reads the server's
+// verdict, "no history" with no number for a Position-baseline projection.
+test("a Position-baseline row reads \"no history\" in Proj Wk, no number; an evidenced row keeps its number (#1778)", async () => {
+  mockBrowser({
+    players: [
+      player({ id: 1, name: "Carson Beck", verdictReason: "no_history", projWeek: { week: 4, points: 15.37 }, weeks: [] }),
+      player({ id: 2, name: "Real Starter", projWeek: { week: 4, points: 17.2 }, weeks: [] }),
+    ],
+  });
+  renderWithProviders(<PlayerManagement />);
+
+  const rows = await screen.findAllByTestId("player-row");
+  const beck = rows.find((row) => row.textContent.includes("Carson Beck"));
+  const starter = rows.find((row) => row.textContent.includes("Real Starter"));
+  expect(within(beck).getByText("no history")).toBeInTheDocument();
+  expect(beck.textContent).not.toMatch(/15\.4|15\.37/);
+  expect(within(starter).getByText("17.2")).toBeInTheDocument();
+});

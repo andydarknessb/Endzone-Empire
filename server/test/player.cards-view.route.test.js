@@ -591,3 +591,30 @@ test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is
   assert.equal(upgrades.get(1), null, 'player 1 is already on the caller\'s roster via its duplicate identity row 101');
   assert.notEqual(upgrades.get(2), null, 'an unrelated candidate still gets a real Upgrade value');
 });
+
+// #1778 (spec #1774): the Proj Wk column's "no history" is the server's verdict,
+// read off the current-week run the page already took.
+test('view=cards: a Position-baseline row carries verdictReason no_history, an evidenced or Unavailable row does not', async (t) => {
+  const league = makeLeague({ currentWeek: 3 });
+  const players = makePlayers(3);
+  mockBasePool(t, { league, players });
+  mockCardServices(t, {
+    weeklyProjection: (week, id) => ({
+      median: 15.37,
+      factors: {
+        availability: id === 3 ? { available: false, reason: 'out' } : { available: true },
+        dataQuality: { reasons: id === 1 ? [] : ['position baseline'] },
+      },
+    }),
+  });
+
+  const res = await request(app)
+    .get('/api/players?view=cards&leagueId=1')
+    .set('Authorization', TOKEN());
+
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const [evidenced, baseline, out] = res.body.players;
+  assert.equal('verdictReason' in evidenced, false);
+  assert.equal(baseline.verdictReason, 'no_history');
+  assert.equal('verdictReason' in out, false, 'Out wins over no history');
+});

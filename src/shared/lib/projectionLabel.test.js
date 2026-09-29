@@ -45,4 +45,11 @@ describe('hasNoHistory', () => {
     expect(hasNoHistory({ positionBaseline: 'true' })).toBe(false);
     expect(hasNoHistory({})).toBe(false);
   });
+
+  it('reads the Players page wire (#1778): verdictReason no_history is a no-history row', () => {
+    expect(hasNoHistory({ verdictReason: 'no_history', projectedPoints: 15.37 })).toBe(true);
+    expect(projectionLabel({ verdictReason: 'no_history', projectedPoints: 15.37 })).toBe('no history');
+    expect(hasNoHistory({ verdictReason: 'bye' })).toBe(false);
+    expect(hasNoHistory({ verdictReason: null, projectedPoints: 12 })).toBe(false);
+  });
 });
