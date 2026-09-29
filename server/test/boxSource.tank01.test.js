@@ -50,11 +50,10 @@ test('tank01BoxSource: the adapter output applied through applyGameBoxScore matc
   const out = await scoring.applyGameBoxScore({ liveBox, season: 2026, week: 2, maps: mapsFromFixture() });
 
   assert.equal(out.updated, golden.expected.updated);
-  // stats jsonb byte-identical: compare the serialised form, in write order.
-  assert.deepEqual(
-    upserts.map((u) => [u[0], u[1], u[2], JSON.stringify(u[3]), u[4]]),
-    golden.expected.upserts.map((u) => [u[0], u[1], u[2], JSON.stringify(u[3]), u[4]])
-  );
+  // stats jsonb identical, in write order. Compared as objects, not as strings:
+  // Postgres jsonb keeps no key order, and the carried keys' order follows the
+  // stored line now that the write module owns the carry (#1760).
+  assert.deepEqual(upserts, golden.expected.upserts);
   assert.deepEqual(out.plays, golden.expected.plays);
 
   // #1545 self-check, independent of the golden file: a multi-play player's

@@ -72,7 +72,7 @@ if (!ENABLED) {
     assert.equal(status.ok, false);
     assert.ok(status.open >= 1);
 
-    await upsertPlayerStats(pool, { playerId, season: SEASON, week: 1, stats: FIXTURE });
+    await upsertPlayerStats(pool, { playerId, season: SEASON, week: 1, source: 'box', fresh: FIXTURE, prior: null });
     const stored = await pool.query(
       `SELECT "fantasy_points"::float AS "points" FROM "player_stats" WHERE "player_id" = $1 AND "season" = $2 AND "week" = 1`,
       [playerId, SEASON]

@@ -155,11 +155,10 @@ async function syncWeekWithRetry({ season, week, pauseMs, expectedGames }) {
  * games present in nflverse's team file against our schedule count, the
  * same completeness signal the Tank01 path uses.
  *
- * preserveKeys is NOT optional here: re-running this over a season Tank01
- * already filled (which is exactly what an enrichment re-run is) would
- * otherwise drop the pbp-derived TD-length arrays, zeroing TD-length bonuses
- * for the leagues that opted into them. The same goes for the snap keys the
- * snap_counts feed wrote (SNAP_STAT_KEYS).
+ * Re-running this over a season Tank01 already filled (which is exactly what
+ * an enrichment re-run is) keeps the pbp-derived TD-length arrays and the snap
+ * keys: the write module's ownership table carries every key the nflverse
+ * correction does not own, so nothing is passed here to keep them.
  */
 async function runNflverseSeason({ season, weeks, crosswalk, summary }) {
   const [playerRows, teamRows, scoresByGameId] = [
@@ -172,7 +171,6 @@ async function runNflverseSeason({ season, weeks, crosswalk, summary }) {
     try {
       const out = await nflverse.syncNflverseCorrection({
         season, week: wk, playerRows, teamRows, scoresByGameId, crosswalk,
-        preserveKeys: [...nflverse.PBP_ONLY_STAT_KEYS, ...nflverse.SNAP_STAT_KEYS],
       });
       const ok = expectedGames == null || out.gamesInFile >= expectedGames;
       summary.push({

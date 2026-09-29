@@ -7,7 +7,6 @@ const {
   filterRowsForWeek,
   buildStatUpdates,
   buildSnapUpdates,
-  SNAP_STAT_KEYS,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
   optionalTeamAbbr,
@@ -178,18 +177,6 @@ test('buildStatUpdates keeps a blank target_share/wopr/EPA column null, never 0'
     'epaPassing', 'epaRushing', 'epaReceiving',
   ]) {
     assert.equal(updates[0].patch[key], null, key);
-  }
-});
-
-test('buildStatUpdates: the new target_share/air_yards_share/wopr/EPA keys are on NFLVERSE_ONLY_STAT_KEYS', () => {
-  const defRows = [{ player_id: '00-0039924', target_share: '0.2' }];
-  const updates = buildStatUpdates({
-    defRows,
-    crosswalk: new Map([['00-0039924', '4429795']]),
-    knownPlayersByExternalId: new Map([['4429795', 42]]),
-  });
-  for (const key of Object.keys(updates[0].patch)) {
-    assert.ok(scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key), `${key} not protected from the Tank01 upsert`);
   }
 });
 
@@ -387,7 +374,7 @@ test('normalizeNflversePlayerStats: per-week usage columns stay null when the fi
 
 test('normalizeNflversePlayerStats emits target_share, air_yards_share, wopr and EPA fresh from the row (#1706 f2)', () => {
   // The full-week rewrite (syncNflverseCorrection/backfill) reads this row
-  // directly rather than carrying these six keys forward via preserveKeys,
+  // directly rather than carrying these six keys forward,
   // so it must never be the one nflverse-only key group a wholesale rewrite
   // silently erases.
   const stats = normalizeNflversePlayerStats({
@@ -453,34 +440,6 @@ test('optionalTeamAbbr is null-preserving where nflverseTeamToOurAbbr answers a 
 });
 
 // --- nflverse-only keys are the ones the Tank01 path carries forward ---------
-
-test('every unscored key nflverse adds is on scoring.NFLVERSE_ONLY_STAT_KEYS', () => {
-  // Without this, adding a key here and forgetting the carry list would let the
-  // next Tank01 sync of an enriched week silently erase it.
-  const stats = normalizeNflversePlayerStats({ team: 'KC', opponent_team: 'BUF' });
-  for (const key of ['gameTeam', 'gameOpponent', 'usagePassAttempts', 'usageCompletions',
-    'usageCarries', 'usageTargets', 'usageAirYards']) {
-    assert.ok(key in stats);
-    assert.ok(
-      scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key),
-      `${key} is written by nflverse but not protected from the Tank01 upsert`
-    );
-  }
-});
-
-test('the IDP finalization patch keys are all protected from the Tank01 upsert', () => {
-  const updates = buildStatUpdates({
-    defRows: [{ player_id: '00-0039924', def_sack_yards: '11' }],
-    crosswalk: new Map([['00-0039924', '4429795']]),
-    knownPlayersByExternalId: new Map([['4429795', 42]]),
-  });
-  for (const key of Object.keys(updates[0].patch)) {
-    assert.ok(
-      scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key),
-      `${key} is patched by the finalization pass but not protected`
-    );
-  }
-});
 
 test('buildFullStatUpdates joins via the crosswalk and skips unknown players', () => {
   const rows = [
@@ -580,15 +539,6 @@ test('isNflverseFinalizationDay is false Friday through Sunday', () => {
 
 const nflverseSync = require('../services/nflverseSync.service');
 
-test('PBP_ONLY_STAT_KEYS covers the TD-length arrays and not FG distances', () => {
-  assert.deepEqual(nflverseSync.PBP_ONLY_STAT_KEYS, [
-    'passingTDLengths', 'rushingTDLengths', 'receivingTDLengths',
-  ]);
-  // nflverse DOES publish exact FG distances (fg_made_list), so that key is
-  // rebuilt rather than preserved.
-  assert.ok(!nflverseSync.PBP_ONLY_STAT_KEYS.includes('fieldGoalDistances'));
-});
-
 /** The fake pool the nflverse-correction run needs: the two fetch-side reads on
  * the pool, the carry-forward read and the stat upserts on each unit's client,
  * and the one run row on the pool. */
@@ -611,57 +561,13 @@ const CORRECTION_TEAM_ROWS = [
   { season: '2025', week: '3', season_type: 'REG', game_id: '2025_03_BUF_KC', team: 'BUF', opponent_team: 'KC' },
 ];
 
-test('syncNflverseCorrection carries forward preserved keys over the fresh stats', async (t) => {
-  const upserts = [];
-  fakeCorrectionPool(t, {
-    upserts,
-    // What Tank01 wrote live: pbp arrays plus a now-corrected yardage figure.
-    existing: [{ player_id: 42, stats: { passingYards: 288, passingTDLengths: [42, 7], receivingTDLengths: [] } }],
-  });
-
-  await nflverseSync.syncNflverseCorrection({
-    season: 2025,
-    week: 3,
-    playerRows: [CORRECTION_PLAYER_ROW],
-    teamRows: CORRECTION_TEAM_ROWS,
-    scoresByGameId: new Map(),
-    crosswalk: new Map([['00-0039924', '4429795']]),
-    preserveKeys: nflverseSync.PBP_ONLY_STAT_KEYS,
-  });
-
-  assert.equal(upserts.length, 1);
-  const stats = JSON.parse(upserts[0][3]);
-  assert.equal(stats.passingYards, 300, 'nflverse corrected number wins');
-  assert.deepEqual(stats.passingTDLengths, [42, 7], 'the pbp-only array survived');
-  assert.deepEqual(stats.receivingTDLengths, []);
-});
-
-test('syncNflverseCorrection preserves nothing by default (backfill behavior)', async (t) => {
-  const upserts = [];
-  const fake = fakeCorrectionPool(t, { upserts });
-
-  await nflverseSync.syncNflverseCorrection({
-    season: 2025,
-    week: 3,
-    playerRows: [CORRECTION_PLAYER_ROW],
-    teamRows: CORRECTION_TEAM_ROWS,
-    scoresByGameId: new Map(),
-    crosswalk: new Map([['00-0039924', '4429795']]),
-  });
-
-  assert.equal(fake.matching(/^SELECT "player_id", "stats"/).length, 0, 'no extra read when nothing needs preserving');
-  assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
-});
-
-test('syncNflverseCorrection emits target_share/air_yards_share/wopr/EPA fresh from nflverse, not erased by the wholesale rewrite and not dependent on preserveKeys (#1706 f2)', async (t) => {
+test('syncNflverseCorrection emits target_share/air_yards_share/wopr/EPA fresh from nflverse, not erased by the wholesale rewrite (#1706 f2)', async (t) => {
   const upserts = [];
   fakeCorrectionPool(t, {
     upserts,
     // A stale value a prior nightly finalization pass wrote for two of the
-    // six keys. preserveKeys below does NOT name them, so if the rewrite
-    // depended on carry-forward for these keys (like it does for the
-    // pbp-only arrays) they would either vanish or stay stale; instead
-    // normalizeNflversePlayerStats must emit its own fresh values.
+    // six keys. The correction owns them, so its fresh values replace the
+    // stale ones instead of the prior line's surviving.
     existing: [{ player_id: 42, stats: { usageTargetShare: 0.10, epaPassing: -9 } }],
   });
 
@@ -675,7 +581,6 @@ test('syncNflverseCorrection emits target_share/air_yards_share/wopr/EPA fresh f
     teamRows: CORRECTION_TEAM_ROWS,
     scoresByGameId: new Map(),
     crosswalk: new Map([['00-0039924', '4429795']]),
-    preserveKeys: nflverseSync.PBP_ONLY_STAT_KEYS, // deliberately not the six new keys
   });
 
   const stats = JSON.parse(upserts[0][3]);
@@ -763,62 +668,6 @@ test('syncNflverseCorrection: one transaction per game, one run row', async (t) 
   assert.equal(runRows.length, 1, 'exactly one run row');
   assert.equal(fake.matching(/^BEGIN$/).length, 2, 'each game in its own transaction');
   fake.assertClean();
-});
-
-// The whole path: correctWeekFromNflverse fetches the season files itself.
-function stubCorrectionFeed(t) {
-  t.mock.method(axios, 'get', async (url) => {
-    if (url.includes('stats_player_week')) {
-      return {
-        data: [
-          'season,week,season_type,player_id,passing_yards,team,opponent_team',
-          '2025,3,REG,00-0039924,300,KC,BUF',
-        ].join('\n'),
-      };
-    }
-    if (url.includes('players.csv')) return { data: 'gsis_id,espn_id\n00-0039924,4429795\n' };
-    if (url.includes('stats_team_week')) {
-      return {
-        data: [
-          'season,week,season_type,game_id,team,opponent_team',
-          '2025,3,REG,2025_03_BUF_KC,KC,BUF',
-          '2025,3,REG,2025_03_BUF_KC,BUF,KC',
-        ].join('\n'),
-      };
-    }
-    return { data: 'game_id,season,game_type,week\n' }; // games.csv
-  });
-}
-
-test('correctWeekFromNflverse preserves the pbp-only keys without the caller asking', async (t) => {
-  // This path always runs over weeks Tank01 already filled, so the default has
-  // to live in the function rather than in each caller (correction.service
-  // passes only season/week/rescoreLeagues).
-  stubCorrectionFeed(t);
-  const upserts = [];
-  fakeCorrectionPool(t, {
-    upserts,
-    existing: [{ player_id: 42, stats: { passingYards: 288, passingTDLengths: [42, 7] } }],
-  });
-  await nflverseSync.correctWeekFromNflverse({ season: 2025, week: 3, rescoreLeagues: false });
-
-  const stats = JSON.parse(upserts[0][3]);
-  assert.equal(stats.passingYards, 300, 'the corrected nflverse number still wins');
-  assert.deepEqual(
-    stats.passingTDLengths,
-    [42, 7],
-    'kills the "caller must remember preserveKeys" mutant: TD-length bonuses would zero out'
-  );
-});
-
-test('correctWeekFromNflverse still honors an explicit preserveKeys', async (t) => {
-  stubCorrectionFeed(t);
-  const upserts = [];
-  fakeCorrectionPool(t, { upserts, existing: [{ player_id: 42, stats: { passingTDLengths: [42, 7] } }] });
-  await nflverseSync.correctWeekFromNflverse({
-    season: 2025, week: 3, rescoreLeagues: false, preserveKeys: [],
-  });
-  assert.equal(JSON.parse(upserts[0][3]).passingTDLengths, undefined);
 });
 
 // --- syncNflverseWeek as its own Sync run (#1204, ADR 0036) -----------------
@@ -954,6 +803,60 @@ test('syncNflverseWeek: a share/EPA-only row with no idp yardage never creates a
   const out = await syncNflverseWeek({ season: 2025, week: 3 });
   assert.equal(out.playersUpdated, 0, 'no row existed, and share/EPA data alone must not create one');
   assert.equal(upserts.length, 0, 'no INSERT/upsert call was made at all');
+});
+
+test('syncNflverseWeek: a non-zero per-defender yardage value creates the line when none exists, and is counted', async (t) => {
+  stubNflverseWeekFeed(t);
+  const upserts = [];
+  createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }] }), 'client'],
+    [/^SELECT "stats" FROM "player_stats"/, () => ({ rows: [] }), 'client'],
+    [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+    [select('leagues'), () => ({ rows: [] })],
+  ]).install(t);
+  t.mock.method(correction, 'correctLeagueWeek', async () => ({ changes: [] }));
+
+  const out = await syncNflverseWeek({ season: 2025, week: 3 });
+  assert.equal(out.playersUpdated, 1);
+  assert.equal(upserts.length, 1);
+  const stored = JSON.parse(upserts[0][3]);
+  assert.equal(stored.idpSackYards, 9);
+  assert.equal(stored.idpSafety, 1);
+});
+
+test('syncNflverseSnaps: a player with no stored line is not created and not counted; one with a line is patched', async (t) => {
+  t.mock.method(axios, 'get', async (url) => {
+    if (url.includes('snap_counts_')) {
+      return {
+        data: [
+          'season,week,game_type,pfr_player_id,team,offense_snaps,offense_pct,defense_snaps,defense_pct',
+          '2025,1,REG,BankKe01,KC,75,1,0,0',
+          '2025,1,REG,NoLine01,KC,20,0.3,0,0',
+        ].join('\n'),
+      };
+    }
+    return { data: '' };
+  });
+  const upserts = [];
+  createFakePool([
+    [/^SELECT "id", "external_id" FROM "players"/, () => ({ rows: [{ id: 42, external_id: '4429795' }, { id: 43, external_id: '4429796' }] }), 'client'],
+    [/^SELECT "player_id", "stats" FROM "player_stats"/, () => ({ rows: [{ player_id: 42, stats: { receptions: 5, gameTeam: 'KC' } }] }), 'client'],
+    [insert('player_stats'), (text, params) => { upserts.push(params); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const out = await nflverseSync.syncNflverseSnaps({
+    season: 2025,
+    week: 1,
+    pfrCrosswalk: new Map([['BankKe01', '4429795'], ['NoLine01', '4429796']]),
+  });
+  assert.equal(out.playersUpdated, 1, 'only the player with a stored line is written');
+  assert.equal(upserts.length, 1);
+  assert.equal(upserts[0][0], 42);
+  const stored = JSON.parse(upserts[0][3]);
+  assert.equal(stored.receptions, 5, 'the stored line survives');
+  assert.equal(stored.usageOffenseSnaps, 75);
 });
 
 // --- patchCurrentWeeks: the current-week pass --------------------------------
@@ -1449,15 +1352,6 @@ test('buildSnapUpdates resolves two rows for one player to the one matching game
   const first = buildSnapUpdates(snapArgs(rows));
   assert.equal(first.updates.length, 1);
   assert.equal(first.updates[0].patch.usageOffenseSnaps, 10);
-});
-
-test('every snap key is protected from the box replace and the Tue/Wed rebuild', () => {
-  const { updates } = buildSnapUpdates(snapArgs([SNAP_ROW]));
-  for (const key of Object.keys(updates[0].patch)) {
-    assert.ok(scoring.NFLVERSE_ONLY_STAT_KEYS.includes(key), `${key} not on NFLVERSE_ONLY_STAT_KEYS`);
-    assert.ok(SNAP_STAT_KEYS.includes(key), `${key} not on SNAP_STAT_KEYS`);
-  }
-  assert.deepEqual([...SNAP_STAT_KEYS].sort(), Object.keys(updates[0].patch).sort());
 });
 
 // --- finalizePriorWeeks: one players.csv per pass, snap failure isolated (#1649) --
