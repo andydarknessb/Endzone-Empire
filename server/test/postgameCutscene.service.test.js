@@ -189,6 +189,16 @@ test("a league advanced past the schedule's weeks still expires 7 days after the
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
 });
 
+test('a playoff week past the schedule (no Kickoffs) is not left due once the league is two weeks on', async () => {
+  const world = baseWorld();
+  world.seen = [{ matchup_id: 901 }, { matchup_id: 902 }, { matchup_id: 903 }, { matchup_id: 904 }];
+  world.matchups.push(matchup(919, 19, 248, 488, '100.00', '90.00', { is_playoff: true }));
+  world.leagues[0].current_week = 20; // the final is next: the semifinal result is still the latest
+  assert.deepEqual((await listDue(world)).cutscenes.map((c) => c.week), [19]);
+  world.leagues[0].current_week = 21; // the final was played too
+  assert.deepEqual((await listDue(world)).cutscenes, []);
+});
+
 test('a playoff Matchup carries playoff: true and no record or standing', async () => {
   const world = baseWorld();
   world.matchups[3] = matchup(904, 4, 248, 488, '114.50', '98.20', { is_playoff: true });

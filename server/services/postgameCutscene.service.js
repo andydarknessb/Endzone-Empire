@@ -47,7 +47,10 @@ function earliestKickoff(entry) {
  * this is the league's current week's first Kickoff. When the season is
  * complete, or that next week has no Kickoff on the schedule (it holds NFL
  * weeks 1-18 only), the bound is the Matchup week's last Kickoff + 7 days. With
- * no Kickoff known for either, null: the cutscene stays due until it is seen.
+ * no Kickoff known for either (playoff weeks past the schedule's 18), it is due
+ * while current_week is at most one week on, and expired once the league is two
+ * or more weeks past it, so an old playoff result cannot linger; only the newest
+ * result of a finished season stays due until seen.
  * The instant itself is expired: a Kickoff locks inclusively everywhere else.
  */
 function expiryOf({ league, matchup, kickoffs }) {
@@ -56,7 +59,8 @@ function expiryOf({ league, matchup, kickoffs }) {
     if (next !== null) return next;
   }
   const last = kickoffs.get(weekKey(matchup.season, matchup.week))?.last;
-  return last == null ? null : new Date(last).getTime() + SEVEN_DAYS_MS;
+  if (last != null) return new Date(last).getTime() + SEVEN_DAYS_MS;
+  return Number(league.current_week) >= Number(matchup.week) + 2 ? -Infinity : null;
 }
 
 /** Pure: win | loss | tie for the viewer's side, by computeStandings' comparison. */
