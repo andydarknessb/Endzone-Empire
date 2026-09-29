@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const homeStatus = require('../services/homeStatus.service');
+const expectedFinalService = require('../services/expectedFinal.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 /**
  * homeStatus.service: the statuses the reminders, the Home to-do list and the
@@ -232,6 +234,91 @@ test('pickemStatus: fully picked (or all locked) has nothing missing and no lock
   assert.deepEqual(done, { made: 4, total: 4, missing: 0, nextLockAt: null });
   const over = homeStatus.pickemStatus({ slate: SLATE, made: new Set(), now: at('2026-10-06T00:00:00.000Z') });
   assert.deepEqual(over, { made: 0, total: 4, missing: 0, nextLockAt: null });
+});
+
+// --- leagueStatuses / actionItems over a fake pool -------------------------
+//
+// The matchup summary and the action-item ordering are internal now; these
+// two cases (dropped with their direct unit tests) are reached through the
+// exported reads, over the same query shapes the route suites use.
+
+const HOME_NOW = new Date('2026-10-04T16:00:00.000Z');
+const HOME_LEAGUE = {
+  id: 71, name: 'Winsconsota', pickem_only: false, best_ball: false,
+  draft_status: 'complete', season_status: 'regular',
+  current_season: 2026, current_week: 4,
+  roster_slots: [{ key: 'QB', count: 1 }, { key: 'FLEX', count: 1 }],
+  max_teams: 12, draft_date: null, draft_timezone: null, join_approval: false,
+  my_team_id: 11, my_team_name: 'Cheese Curds', team_count: 2,
+  is_owner: false, is_commissioner: false,
+};
+
+function homeWorld(t, { matchups = [], kickoffs = [], trades = [] } = {}) {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map([
+    [11, { expectedFinal: 118.6, playersRemaining: 4, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
+    [12, { expectedFinal: 104.1, playersRemaining: 3, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
+  ]));
+  return createFakePool([
+    [/AS "is_commissioner" FROM "leagues"/, () => ({ rows: [{ ...HOME_LEAGUE }] })],
+    [/^SELECT "teams"\."id", "teams"\."league_id", "teams"\."name" FROM "teams"/, () => ({ rows: [
+      { id: 11, league_id: 71, name: 'Cheese Curds' },
+      { id: 12, league_id: 71, name: 'Frozen Tundra FC' },
+    ] })],
+    [/FROM "matchups"/, () => ({ rows: matchups })],
+    // One KC quarterback and no FLEX: a lineup with a problem.
+    [/FROM "source"/, () => ({ rows: [
+      { team_id: 11, slot: 'QB', name: 'Quarterback', injury_status: null, ir_attested: false, nfl_team: 'KC', on_bye: false },
+    ] })],
+    [/FROM "nfl_games" JOIN unnest/, () => ({ rows: kickoffs })],
+    [/FROM "pickem_settings"/, () => ({ rows: [] })],
+    [/FROM "live_game_states"/, () => ({ rows: [] })],
+    [/FROM "trades"/, () => ({ rows: trades })],
+    [/FROM "join_requests"/, () => ({ rows: [] })],
+    [/FROM "waiver_claims"/, () => ({ rows: [] })],
+  ]).install(t);
+}
+
+test('leagueStatuses reads the matchup from the home side, and a null score stays null', async (t) => {
+  const fake = homeWorld(t, {
+    // The caller (team 11) is the HOME team and has no score yet.
+    matchups: [{
+      id: 921, league_id: 71, season: 2026, week: 4, home_team_id: 11, away_team_id: 12,
+      home_score: null, away_score: '71.20', final: false, is_playoff: false,
+    }],
+  });
+
+  const statuses = await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+
+  const { status, statusError } = statuses.get(71);
+  assert.equal(statusError, false);
+  assert.deepEqual(status.matchup, {
+    id: 921,
+    status: 'live',
+    opponent: { teamId: 12, name: 'Frozen Tundra FC' },
+    my: { score: null, expectedFinal: 118.6, playersRemaining: 4 },
+    opp: { score: 71.2, expectedFinal: 104.1, playersRemaining: 3 },
+    winProbability: null,
+  });
+});
+
+test('actionItems orders a timed item with no deadline after the dated timed items', async (t) => {
+  const fake = homeWorld(t, {
+    // No kickoffs for the week: the lineup problem has no lock, so no deadline.
+    kickoffs: [],
+    trades: [{
+      id: 502, league_id: 71, status: 'accepted', review_ends_at: '2026-10-05T12:00:00.000Z',
+      created_at: '2026-10-03T12:00:00.000Z',
+      proposing_team_name: 'Lake Effect', receiving_team_name: 'Supper Club',
+    }],
+  });
+
+  const out = await homeStatus.actionItems(fake, { userId: 7, now: HOME_NOW, tz: 'UTC' });
+
+  assert.deepEqual(out.partial, []);
+  assert.deepEqual(out.items.map((i) => [i.id, i.severity, i.deadlineAt]), [
+    ['trade_review:71:502', 'timed', '2026-10-05T12:00:00.000Z'],
+    ['lineup_problem:71:2026-4', 'timed', null],
+  ]);
 });
 
 test('isValidTimeZone accepts IANA zones and refuses anything else', () => {

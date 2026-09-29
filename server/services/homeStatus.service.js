@@ -970,7 +970,8 @@ async function actionItems(db, { userId, now, tz }) {
   return assembleActionItems({ items, partial, now, tz });
 }
 
-// Only names with a consumer: the rest is internal to this module.
+// The names a consumer imports, plus the two loaders the spec (#1759) names
+// (loadLeagueTeams, loadSeasonMatchups); everything else is internal.
 module.exports = {
   listMyLeagues,
   isValidTimeZone,
