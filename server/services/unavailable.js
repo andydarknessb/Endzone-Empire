@@ -19,6 +19,7 @@
  */
 function unavailableFor({
   injuryStatus = null, onBye = false, noTeam = false, locked = false, lockedSlot = null,
+  positionBaseline = false,
 } = {}) {
   const status = injuryStatus ? String(injuryStatus).toUpperCase() : null;
   if (onBye) {
@@ -34,6 +35,24 @@ function unavailableFor({
   }
   if (status === 'IR') {
     return { available: false, activeProbability: 0, reason: 'ir', status, locked, lockedSlot };
+  }
+  if (positionBaseline) {
+    // A Position-baseline projection (#1775): the number is the position's
+    // average, not this player's own evidence. Startable if a manager insists,
+    // never AUTO-recommended (Start/sit advice never moves him onto the
+    // lineup). Reads only AFTER a Weekly projection exists, so the engine's
+    // pre-projection call never passes it and no stored field changes. Bye,
+    // no team, Out and IR (above) still win; this wins over Doubtful,
+    // Questionable and no designation.
+    return {
+      available: true,
+      autoRecommend: false,
+      activeProbability: status === 'D' || status === 'Q' ? null : 1,
+      reason: 'no_history',
+      status,
+      locked,
+      lockedSlot,
+    };
   }
   if (status === 'D') {
     // Doubtful players are startable if a manager insists, but never

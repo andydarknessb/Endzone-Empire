@@ -133,6 +133,11 @@ function weekPool(t, { starters = STARTERS, live = LIVE, schedule = SCHEDULE, pr
         if (entry == null || typeof entry !== 'object' || entry.p10 == null) return null;
         return { mean: entry.points, median: entry.points, p10: entry.p10, p90: entry.p90 };
       },
+      // #1775: the read-path marker for a Position-baseline row (fixture flag).
+      positionBaselineFor(id) {
+        const entry = projections.get(id);
+        return !!(entry && typeof entry === 'object' && entry.positionBaseline);
+      },
     };
   });
   return createFakePool([
@@ -217,6 +222,25 @@ test('a team is the sum of its starters across all three phases, with players re
     [4, 'final', 0],
     [5, 'in_progress', 0],
   ]);
+});
+
+// #1775: a Position-baseline projection is never auto-recommended by Start/sit
+// advice, but a manager who started him gets his number in the Expected final:
+// the verdict is not "unavailable", so nothing zeroes him.
+test('a started Position-baseline player counts at his number in the Expected final', async (t) => {
+  const projections = new Map(PROJECTIONS);
+  projections.set(3, { points: 11.3, positionBaseline: true });
+  const fake = weekPool(t, { projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  assert.equal(home.expectedFinal, 47.8, 'same total as the run without the marker');
+  const wr = home.starters.find((s) => s.playerId === 3);
+  assert.equal(wr.expectedFinal, 11.3);
+  assert.equal(wr.projection, 11.3);
+  assert.equal(wr.availability.available, true);
+  assert.equal(wr.availability.reason, null);
 });
 
 // #883: bench rows are priced by the same rule as starters and ride on the

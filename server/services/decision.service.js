@@ -121,6 +121,9 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       noTeam: entry.nflTeam === null,
       locked: entry.locked,
       lockedSlot: entry.slot,
+      // A Position-baseline projection is never auto-recommended (#1775),
+      // through the same branch Doubtful uses below.
+      positionBaseline: projections.positionBaselineFor(entry.playerId),
     });
     availabilityById.set(entry.playerId, availability);
     if (entry.slot === IR) continue; // IR is never a lineup candidate

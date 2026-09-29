@@ -1225,6 +1225,10 @@ function classifyProjectionEntry(projection) {
  * (`toLegacyMap()`) was removed by the contract ticket (#1704) once the
  * migrate ticket (#1703) had moved every caller onto the accessors.
  */
+// The data-quality reason the engine (projectionModel.confidenceFor) attaches to
+// a Position-baseline projection. Named once so the read path and its tests agree.
+const POSITION_BASELINE_REASON = 'position baseline';
+
 function toWeeklyProjectionResult(run) {
   const entryFor = (playerId) => run.projections.get(playerId) || null;
 
@@ -1273,6 +1277,21 @@ function toWeeklyProjectionResult(run) {
     factorsFor(playerId) {
       const entry = entryFor(playerId);
       return entry ? entry.factors : null;
+    },
+
+    /**
+     * True when the stored row is a Position-baseline projection: its
+     * data-quality reasons contain `position baseline` (#1775), which the
+     * engine adds for every row built on the position average alone (no games,
+     * no prior season). Read-path only: feed it to `unavailableFor` as
+     * `positionBaseline`. The stored row and the engine are untouched.
+     */
+    positionBaselineFor(playerId) {
+      const entry = entryFor(playerId);
+      const dataQuality = entry && entry.factors ? entry.factors.dataQuality : null;
+      return !!(dataQuality
+        && Array.isArray(dataQuality.reasons)
+        && dataQuality.reasons.includes(POSITION_BASELINE_REASON));
     },
 
     /** `{ mean, median, p10, p90, confidence, activeProbability } | null`. */
