@@ -1,4 +1,5 @@
 import { teamStandingFromRow } from '../../../entities/standings';
+import { ordinal } from '../../../shared/lib';
 
 /** Scenes that play; the rest collapse into one summary snackbar. */
 export const MAX_SCENES = 3;
@@ -27,14 +28,6 @@ export function planQueue(cutscenes) {
   return { scenes, overflowText: `${rest.length} MORE RESULTS: ${tally}` };
 }
 
-/** 1 -> "1ST", 2 -> "2ND", 11 -> "11TH", 23 -> "23RD". */
-export function ordinal(n) {
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${n}TH`;
-  const suffix = { 1: 'ST', 2: 'ND', 3: 'RD' }[n % 10] || 'TH';
-  return `${n}${suffix}`;
-}
-
 /**
  * The Record line under the score: "RECORD 3-1 · 4TH OF 12" (the Record string is
  * the standings entity's), "PLAYOFF WEEK" in a playoff week, or null when the
@@ -44,7 +37,9 @@ export function recordLine(item) {
   if (item.playoff) return 'PLAYOFF WEEK';
   if (!item.record) return null;
   const { record } = teamStandingFromRow(item.record);
-  const place = item.standing ? ` · ${ordinal(item.standing.rank)} OF ${item.standing.of}` : '';
+  // The shared ordinal is null for a rank it cannot spell; then no place shows.
+  const rank = item.standing ? ordinal(item.standing.rank) : null;
+  const place = rank ? ` · ${rank.toUpperCase()} OF ${item.standing.of}` : '';
   return `RECORD ${record}${place}`;
 }
 

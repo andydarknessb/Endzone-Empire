@@ -91,6 +91,14 @@ describe('title card', () => {
     });
   });
 
+  test('the intro footer sits above the bottom-right SKIP so they never overlap at 360px', () => {
+    const css = fs.readFileSync(path.join(__dirname, 'PostgameCutscenes.css'), 'utf8');
+    const skip = css.match(/\.postgame-chrome--skip \{([^}]*)\}/)[1];
+    const footer = css.match(/\.postgame-intro \{([^}]*)\}/)[1];
+    const skipTop = Number(skip.match(/bottom:\s*(\d+)px/)[1]) + 44; // its edge offset plus its 44px height
+    expect(Number(footer.match(/bottom:\s*(\d+)px/)[1])).toBeGreaterThanOrEqual(skipTop);
+  });
+
   test('the footer shows only while the intro key is unset, then sets it', async () => {
     const first = await show([item(1)]);
     expect(screen.getByText('NEW · TURN OFF IN SETTINGS')).toBeInTheDocument();
@@ -381,6 +389,9 @@ describe('static result card', () => {
       .toBe('RECORD 3-1-2 · 2ND OF 12');
     expect(recordLine(item(1, { standing: { rank: 11, of: 12 } }))).toBe('RECORD 3-1 · 11TH OF 12');
     expect(recordLine(item(1, { standing: { rank: 23, of: 30 } }))).toBe('RECORD 3-1 · 23RD OF 30');
+    // A rank the shared ordinal cannot spell renders no place.
+    expect(recordLine(item(1, { standing: { rank: 0, of: 12 } }))).toBe('RECORD 3-1');
+    expect(recordLine(item(1, { standing: null }))).toBe('RECORD 3-1');
   });
 
   test('an avatar with no image falls back to initials', async () => {

@@ -104,7 +104,10 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 24px;
+  /* Above the bottom-right [B] SKIP (44px tall, 12px from the edge) so the two
+     never overlap at 360px, where the centred footer runs under it. */
+  bottom: 72px;
+  padding: 0 16px;
   font-size: 10px;
   color: #ffffff; /* clears AA on the field green even under the vignette */
 }
