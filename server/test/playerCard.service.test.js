@@ -255,6 +255,45 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   assert.equal(card.decision.projWeek.points, 14.5);
 });
 
+// The Waiver Wire's Upgrade sort reads the same Upgrade: an Unavailable free
+// agent cannot improve this week's lineup, so he is no Upgrade at all, even
+// though the engine still carries his full estimate (ADR 0044). The player
+// row carries a real nfl_team so the No NFL team refusal cannot mask this.
+function upgradeHandlers() {
+  return [
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: PLAYER.id, position: PLAYER.position, nfl_team: PLAYER.nfl_team }],
+    })],
+    ...buildHandlers({ starterRows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter' }] }),
+  ];
+}
+
+function upgradeProjection(availability) {
+  return (week, id) => (id === 999
+    ? { mean: 5, median: 5, factors: { availability: { available: true } } }
+    : { mean: 14, median: 14, factors: { availability } });
+}
+
+for (const reason of ['out', 'ir', 'bye']) {
+  test(`getPlayerCard: an Unavailable (${reason}) free agent is no Upgrade over a healthy starter`, async (t) => {
+    createFakePool(upgradeHandlers()).install(t);
+    mockServices(t, { weeklyProjection: upgradeProjection({ available: false, reason }) });
+
+    const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+    assert.equal(card.decision.upgrade, null);
+  });
+}
+
+test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate over the weakest eligible starter', async (t) => {
+  createFakePool(upgradeHandlers()).install(t);
+  mockServices(t, { weeklyProjection: upgradeProjection({ available: true }) });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.upgrade, { points: 9, overPlayer: { id: 999, name: 'Weak Starter' }, slot: 'WR' });
+});
+
 // ---------------------------------------------------------------------------
 // #1342: decision.projWeek.opponentRankVsPosition (the opponent Factor is the
 // one producer, ranked - see projection.service.js's rankOpponentDefense)

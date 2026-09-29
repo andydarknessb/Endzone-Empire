@@ -215,6 +215,14 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       upgrades.set(id, null);
       continue;
     }
+    // Unavailable this week (bye, Out, IR): the engine keeps his full
+    // estimate (ADR 0044), but he adds nothing to this week's lineup, so he
+    // is no Upgrade either - otherwise the Waiver Wire's Upgrade sort ranks
+    // injured stars first.
+    if (projections.classify(id).unavailable) {
+      upgrades.set(id, null);
+      continue;
+    }
     const candidate = { position: positionById.get(id) ?? null, projection: projections.pointsFor(id) };
     upgrades.set(id, decisionService.upgradeFor(candidate, currentStarters, settings.rosterSlots));
   }
