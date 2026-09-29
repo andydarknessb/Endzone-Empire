@@ -3,6 +3,7 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import { TeamAvatar } from '../../../shared/ui';
+import './Marquee.css';
 
 // Timing ledger: the marquee moves in whole steps, MARQUEE_STEP_PX every
 // MARQUEE_STEP_MS (~8 px, 10 steps a second), never a smooth slide.
@@ -63,17 +64,17 @@ function Marquee({
   const x = widths.box - ((step * MARQUEE_STEP_PX + head) % lap);
 
   return (
-    <div className="win-marquee" ref={boxRef} data-testid="win-marquee" aria-hidden="true">
+    <div className="postgame-marquee" ref={boxRef} data-testid="postgame-marquee" aria-hidden="true">
       <div
-        className="win-marquee-track"
-        data-testid="win-marquee-track"
+        className="postgame-marquee-track"
+        data-testid="postgame-marquee-track"
         ref={trackRef}
         style={{ transform: `translateX(${x}px)` }}
       >
-        <span className="win-marquee-avatar" data-testid="win-marquee-avatar">
+        <span className="postgame-marquee-avatar" data-testid="postgame-marquee-avatar">
           <TeamAvatar name={name} avatarUrl={avatarUrl} avatarStaticUrl={avatarUrl} size={MARQUEE_AVATAR_PX} />
         </span>
-        <span className="win-marquee-text" data-testid="win-marquee-text">{text}</span>
+        <span className="postgame-marquee-text" data-testid="postgame-marquee-text">{text}</span>
       </div>
     </div>
   );

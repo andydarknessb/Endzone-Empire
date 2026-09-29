@@ -13,6 +13,8 @@ import {
 } from './sprites';
 
 const css = fs.readFileSync(path.join(__dirname, 'WinScene.css'), 'utf8');
+const transitionCss = fs.readFileSync(path.join(__dirname, 'Transition.css'), 'utf8');
+const marqueeCss = fs.readFileSync(path.join(__dirname, 'Marquee.css'), 'utf8');
 
 const cutscene = (over = {}) => ({
   matchupId: 1,
@@ -99,12 +101,12 @@ describe('timeline', () => {
 
   test('the opening is the two line sweeps and the typed line', () => {
     mount();
-    expect(screen.getByTestId('win-transition')).toBeInTheDocument();
-    expect(screen.getByTestId('win-typed')).toHaveTextContent('');
+    expect(screen.getByTestId('postgame-transition')).toBeInTheDocument();
+    expect(screen.getByTestId('postgame-typed')).toHaveTextContent('');
     advance(SCROLL_MS - 1);
-    expect(screen.getByTestId('win-typed')).toHaveTextContent('WEEK 5 FINAL... TALLYING SCORES...');
+    expect(screen.getByTestId('postgame-typed')).toHaveTextContent('WEEK 5 FINAL... TALLYING SCORES...');
     advance(1);
-    expect(screen.queryByTestId('win-transition')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-transition')).not.toBeInTheDocument();
   });
 });
 
@@ -200,9 +202,9 @@ describe('slam, Record and marquee', () => {
       opponent: { teamId: 2, name: 'Also Rather Long Opposition FC', score: 0 },
     });
     advance(DANCE_MS - 1);
-    expect(screen.queryByTestId('win-marquee')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-marquee')).not.toBeInTheDocument();
     advance(1);
-    expect(screen.getByTestId('win-marquee-text').textContent)
+    expect(screen.getByTestId('postgame-marquee-text').textContent)
       .toBe('THE EXTRAORDINARILY LONG TEAM NAME OF DOOM DEFEATS ALSO RATHER LONG OPPOSITION FC');
   });
 
@@ -223,7 +225,7 @@ describe('slam, Record and marquee', () => {
     }
   }
   const trackX = () => Number(
-    screen.getByTestId('win-marquee-track').style.transform.match(/translateX\((-?[\d.]+)px\)/)[1]
+    screen.getByTestId('postgame-marquee-track').style.transform.match(/translateX\((-?[\d.]+)px\)/)[1]
   );
 
   test('the marquee moves 8 px a step, 10 steps a second, as a transform', () => {
@@ -286,18 +288,18 @@ describe('slam, Record and marquee', () => {
   test('the avatar leads the marquee: initials with no image, the still image with one', () => {
     const first = mount();
     advance(DANCE_MS);
-    expect(screen.getByTestId('win-marquee-avatar')).toHaveTextContent('M1');
+    expect(screen.getByTestId('postgame-marquee-avatar')).toHaveTextContent('M1');
     first.unmount();
     mount({ me: { ...cutscene().me, avatarStaticUrl: 'https://img.example/still.png' } });
     advance(DANCE_MS);
-    expect(within(screen.getByTestId('win-marquee-avatar')).getByRole('img', { hidden: true })).toHaveAttribute('src', 'https://img.example/still.png');
-    expect(css).toMatch(/\.win-marquee-avatar img \{[^}]*image-rendering:\s*pixelated/);
+    expect(within(screen.getByTestId('postgame-marquee-avatar')).getByRole('img', { hidden: true })).toHaveAttribute('src', 'https://img.example/still.png');
+    expect(marqueeCss).toMatch(/\.postgame-marquee-avatar img \{[^}]*image-rendering:\s*pixelated/);
   });
 
   test('a Team with only a still logo (no animated GIF) shows it in the marquee', () => {
     mount({ me: { ...cutscene().me, avatarUrl: 'https://img.example/logo.png', avatarStaticUrl: null } });
     advance(DANCE_MS);
-    expect(within(screen.getByTestId('win-marquee-avatar')).getByRole('img', { hidden: true }))
+    expect(within(screen.getByTestId('postgame-marquee-avatar')).getByRole('img', { hidden: true }))
       .toHaveAttribute('src', 'https://img.example/logo.png');
   });
 
@@ -374,15 +376,22 @@ describe('the stylesheet', () => {
     // Only the opening sweeps and the one flash are keyframed flashes.
     expect(css.match(/@keyframes [\w-]+/g).sort()).toEqual([
       '@keyframes win-ball-bounce', '@keyframes win-bob', '@keyframes win-dive', '@keyframes win-endzone-in',
-      '@keyframes win-flash', '@keyframes win-scroll', '@keyframes win-slam', '@keyframes win-sweep',
+      '@keyframes win-flash', '@keyframes win-scroll', '@keyframes win-slam',
     ]);
   });
 
   test('the sweep lines are 2px pink then green', () => {
-    expect(css.match(/\.win-sweep \{([^}]*)\}/)[1]).toMatch(/border-bottom:\s*2px/);
-    expect(css.match(/\.win-sweep--pink \{([^}]*)\}/)[1]).toMatch(/#ff3fa4/);
-    expect(css.match(/\.win-sweep--green \{([^}]*)\}/)[1]).toMatch(/#39ff88/);
-    expect(css).toMatch(/win-sweep 500ms steps\(8\) forwards/);
+    expect(transitionCss.match(/\.postgame-sweep \{([^}]*)\}/)[1]).toMatch(/border-bottom:\s*2px/);
+    expect(transitionCss.match(/\.postgame-sweep--pink \{([^}]*)\}/)[1]).toMatch(/#ff3fa4/);
+    expect(transitionCss.match(/\.postgame-sweep--green \{([^}]*)\}/)[1]).toMatch(/#39ff88/);
+    expect(transitionCss).toMatch(/postgame-sweep 500ms steps\(8\) forwards/);
+    expect(transitionCss.match(/@keyframes [\w-]+/g)).toEqual(['@keyframes postgame-sweep']);
+  });
+
+  test('the shared pieces read no WIN variable: the marquee has its own height', () => {
+    expect(transitionCss).not.toMatch(/var\(--win/);
+    expect(marqueeCss).not.toMatch(/var\(--win/);
+    expect(marqueeCss.match(/\.postgame-marquee \{([^}]*)\}/)[1]).toMatch(/height:\s*48px/);
   });
 
   test('sprites are 64px, 48px under a 420px viewport', () => {
@@ -393,6 +402,8 @@ describe('the stylesheet', () => {
   test('every new color literal is allowlisted for the color guard', () => {
     const guard = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'scripts', 'check-color-literals.js'), 'utf8');
     expect(guard).toContain("'src/features/postgame-cutscene/ui/WinScene.css'");
+    expect(guard).toContain("'src/features/postgame-cutscene/ui/Transition.css'");
+    expect(guard).toContain("'src/features/postgame-cutscene/ui/Marquee.css'");
     expect(guard).toContain("'src/features/postgame-cutscene/ui/sprites.js'");
   });
 });

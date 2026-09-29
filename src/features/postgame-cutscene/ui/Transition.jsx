@@ -1,12 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
+import './Transition.css';
 
-// Timing ledger for the opening beat, shared with WinScene.css (`win-sweep`
+// Timing ledger for the opening beat, shared with Transition.css (`postgame-sweep`
 // lasts SWEEP_MS, the green line starts SWEEP_MS after the pink one).
 export const SWEEP_MS = 500;
 export const SWEEP_STEPS = 8;
 /** One character of the typed line every this many ms. */
 export const TYPE_STEP_MS = 25;
+
+/** The line the WIN and TIE scenes type: the one place the words live. */
+export function tallyLine(week) {
+  return `WEEK ${week} FINAL... TALLYING SCORES...`;
+}
 
 /**
  * The opening beat every Postgame scene can share: black, a pink and then a
@@ -31,10 +37,10 @@ function Transition({ text }) {
   }, [text]);
 
   return (
-    <div className="win-transition" data-testid="win-transition" aria-hidden="true">
-      <div className="win-sweep win-sweep--pink" />
-      <div className="win-sweep win-sweep--green" />
-      <div className="win-typed" data-testid="win-typed">{text.slice(0, shown)}</div>
+    <div className="postgame-transition" data-testid="postgame-transition" aria-hidden="true">
+      <div className="postgame-sweep postgame-sweep--pink" />
+      <div className="postgame-sweep postgame-sweep--green" />
+      <div className="postgame-typed" data-testid="postgame-typed">{text.slice(0, shown)}</div>
     </div>
   );
 }

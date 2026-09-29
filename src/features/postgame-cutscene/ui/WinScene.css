@@ -2,7 +2,8 @@
    in scripts/check-color-literals.js). Every animated property is transform or
    opacity, and everything moves on steps(): a value that ends in a step count is
    a frame rate, not an easing. Timings mirror the ledger at the top of
-   WinScene.jsx (FLASH_MS, the slam) and Transition.jsx (SWEEP_MS, SWEEP_STEPS).
+   WinScene.jsx (FLASH_MS, the slam). The opening beat (Transition.css) and the
+   marquee (Marquee.css) are shared with the TIE scene and live in their own files.
 
    Nothing flashes more than three times a second: one two-frame white flash
    (`win-flash`, 220 ms, once) and the opening pink and green line sweeps, one
@@ -10,7 +11,7 @@
 
 .win-scene {
   --win-sprite: 64px;
-  --win-marquee-h: 48px;
+  --win-marquee-h: 48px; /* the height of Marquee.css's box, for what stacks above it */
   --win-record-h: 28px;
   --win-ground: calc(var(--win-marquee-h) + var(--win-record-h) + 8px);
   --win-field-cycle: 400ms; /* one 80 px lap of the field */
@@ -23,46 +24,6 @@
 
 @media (max-width: 419px) {
   .win-scene { --win-sprite: 48px; }
-}
-
-/* ---- Opening beat: black, two line sweeps, typed text ---- */
-
-.win-transition {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  background: #000000;
-}
-
-/* A stage-tall box whose bottom border is the 2 px line: sliding the box down
-   sweeps the line from the top edge to the bottom one. */
-.win-sweep {
-  position: absolute;
-  inset: 0;
-  border-bottom: 2px solid transparent;
-  transform: translateY(-100%);
-  opacity: 0;
-}
-.win-sweep--pink {
-  border-bottom-color: #ff3fa4;
-  animation: win-sweep 500ms steps(8) forwards;
-}
-.win-sweep--green {
-  border-bottom-color: #39ff88;
-  animation: win-sweep 500ms steps(8) 500ms forwards;
-}
-
-.win-typed {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  padding: 0 16px;
-  text-align: center;
-  font-size: clamp(8px, 2.8vw, 14px);
-  line-height: 1.6;
-  color: #39ff88;
-  overflow-wrap: anywhere;
 }
 
 /* ---- Field, sky and crowd: separate layers, scrolled on steps() ---- */
@@ -245,43 +206,8 @@
   color: #cfd4e0;
 }
 
-.win-marquee {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--win-marquee-h);
-  overflow: hidden;
-  background: #000000;
-  border-top: 2px solid #ffd23f;
-  box-sizing: border-box;
-}
-.win-marquee-track {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  white-space: nowrap;
-  will-change: transform;
-}
-.win-marquee-avatar img {
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-}
-.win-marquee-text {
-  font-size: clamp(10px, 3vw, 14px);
-  color: #ffffff;
-}
-
 /* ---- Keyframes ---- */
 
-@keyframes win-sweep {
-  0% { transform: translateY(-100%); opacity: 1; }
-  100% { transform: translateY(0); opacity: 1; }
-}
 @keyframes win-scroll {
   from { transform: translateX(0); }
   to { transform: translateX(-80px); }

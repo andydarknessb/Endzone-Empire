@@ -29,6 +29,8 @@ const ALLOWLIST = [
   'src/features/postgame-cutscene/ui/PostgameCutscenes.css', // retro CRT scanline/gradient FX (not themeable)
   'src/features/postgame-cutscene/model/teamKit.js', // NES-palette team kits (fixed pixel-art data encoding)
   'src/features/postgame-cutscene/ui/WinScene.css', // the WIN scene's fixed night-game palette, sweep lines and flash (not themeable)
+  'src/features/postgame-cutscene/ui/Transition.css', // the shared opening beat's fixed pink and green sweep lines on black (not themeable)
+  'src/features/postgame-cutscene/ui/Marquee.css', // the shared marquee's fixed black box, gold rule and white text (not themeable)
   'src/features/postgame-cutscene/ui/LossScene.css', // the LOSS scene's fixed storm-night palette, rain, lightning and amber scoreboard (not themeable)
   'src/features/postgame-cutscene/ui/sprites.js', // the football's two pixel-art colors (fixed data encoding)
   'src/shared/ui/TecmoSprite.jsx', // fixed pixel-art sprite palette (data encoding)
