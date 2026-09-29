@@ -554,10 +554,12 @@ describe('a Position-baseline projection (#1777)', () => {
     const projection = screen.getByTestId('decision-card-projection');
     expect(projection).toHaveTextContent('Proj no history');
     expect(projection).not.toHaveTextContent('9.4');
-    expect(screen.getByTestId('decision-card-range-bar')).not.toHaveAttribute(
+    // The bar keeps its name (Floor and Ceiling only) and paints no tick.
+    expect(screen.getByTestId('decision-card-range-bar')).toHaveAttribute(
       'aria-label',
-      expect.stringContaining('Projection')
+      'Rookie Back, Floor 4.0, Ceiling 15.0'
     );
+    expect(screen.queryByTestId('decision-card-range-bar-tick')).not.toBeInTheDocument();
   });
 
   test('the card shows the same label the Ledger row headlines for the same player', async () => {
