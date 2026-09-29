@@ -3,10 +3,12 @@ const model = require('./projectionModel');
 // The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
 const { poolPointsFor, poolPointsMap } = require('./poolProjection');
 const { unavailableFor } = require('./unavailable');
-const { loadNflRosterStatusById } = require('./nflRosterStatus');
+const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
+const { computeByeWeeks } = require('./bye.service');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
 const { lastPlayoffWeek } = require('./season.service');
+const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
 const { expertCoverage, getExpertProvider } = require('./expertProjection.provider');
 const {
   vegasCoverage, getVegasOddsProvider, impliedTeamPoints,
@@ -892,6 +894,320 @@ async function invalidateWeeklyProjectionRuns({
 }
 
 /**
+ * Recompute the ONE availability verdict (`unavailableFor`, unavailable.js)
+ * against the player facts as they stand right now, and patch ONLY
+ * `factors.availability`, `active_probability` and `updated_at` on the cached
+ * `player_week_projections` rows whose verdict has drifted from the one they
+ * were generated with (#1789). Never named here, on purpose: `mean`,
+ * `median`, `p10`, `p25`, `p75`, `p90`, `confidence`, `sample_size`. The
+ * verdict is read-only context for `projectPlayer` (projectionModel.js), not
+ * an input any of those numbers derive from, so rewriting it on a stored row
+ * moves no number (ADR 0044 holds by construction) - this is the sibling of
+ * `invalidateWeeklyProjectionRuns` above for exactly the one fact that can be
+ * patched in place instead of thrown away and regenerated.
+ *
+ * `confidence` keeps its generation-time value on purpose (#1789 ruling item
+ * 2): `projectPlayer` demotes confidence one level for an
+ * `activeProbability === null` (Questionable/Doubtful) player at generation
+ * time, and a later Q -> healthy flip leaves that demotion in place rather
+ * than promoting the label back up. It is a label, not a number, the
+ * Start/sit surface already reads it beside its own live verdict, and
+ * un-demoting it here would mean regenerating the row (option (b), rejected
+ * by the triage) rather than patching it.
+ *
+ * `onBye` is `false` for every player here EXCEPT the one case a week-
+ * agnostic verdict cannot express: a No NFL team player's cached rows are
+ * generated with `onBye: false` for EVERY week (`byeByTeam.get(null)` at
+ * generation time resolves nothing), so none carries `reason: 'bye'` even
+ * for what will become his new team's bye week. `reconcileByeAwareSignings`
+ * below is the one place `onBye` is ever recomputed - it runs a SECOND,
+ * narrowly-scoped pass over exactly the players who are stored `no_team` but
+ * now have a real team, looks up that team's bye week
+ * (`bye.service.computeByeWeeks`, the same source `projectFromBundle` reads),
+ * and writes a genuinely per-week verdict: `bye` on that one week, the
+ * ordinary verdict everywhere else (QA f4). A stored `reason: 'bye'` row from
+ * ANY other player is left exactly as generated - the WHERE guard below
+ * skips it outright - and a mid-season team CHANGE (not a signing) moving an
+ * already-rostered player onto a different bye week stays out of scope
+ * (triage #1789, "Other stale things", filed separately if wanted): only a
+ * player whose stored verdict was actually `no_team` gets the bye-aware
+ * treatment, since only that stored value proves the row predates his
+ * current team. The other direction (a team clears to null, so a row newly
+ * BECOMES `no_team`) is unaffected either way: nothing here ever guards a
+ * row FROM turning into `no_team`, only a `no_team` row from turning into
+ * anything else without knowing its new team's real bye week.
+ *
+ * `playerIds: null` sweeps every player (needed for the roster-status 48h
+ * expiry and a cleared No NFL team, neither of which has a "who changed" id
+ * list); a non-empty list scopes the read to exactly those ids (an injury
+ * sync's changed + departed ids). Callers must guard an id-scoped call on a
+ * non-empty list themselves - an empty array here is read as "nothing to do"
+ * rather than silently widening to a full sweep.
+ *
+ * One SELECT (players + `nflRosterStatusColumn()`'s correlated roster-status
+ * read, never a query per player) and exactly ONE UPDATE for the common case,
+ * whatever the player count: the UPDATE's own `IS DISTINCT FROM` guard makes
+ * an unchanged verdict a no-op write rather than something decided in JS
+ * ahead of time, so a full sweep costs one comparison scan, not a per-player
+ * round trip. `reconcileByeAwareSignings` adds ONE more read whenever there is
+ * at least one on-team player among the ones just read (almost every sweep) -
+ * the only way to learn whether any of them is a signing is to check storage
+ * for a stale `no_team` row - but its own further `computeByeWeeks` read and
+ * its second UPDATE run only when that check actually finds one; an ordinary
+ * sweep with no mid-week signing in scope pays for the one extra read and
+ * nothing else.
+ *
+ * @param {object} args
+ * @param {number} args.season
+ * @param {number} args.fromWeek        first live week - this one and every
+ *                                       later week of the season are checked
+ * @param {number[]|null} [args.playerIds] a specific id set, or `null` for
+ *                                       every player
+ * @param {string} [args.modelVersion]  defaults to the shipped model
+ * @param {object} [args.client]        injectable for tests / transactions
+ * @param {Date} [args.now]             injectable clock, read by the
+ *                                       verdict's own 48h freshness check and
+ *                                       stamped as every patched row's
+ *                                       `updated_at`
+ * @returns {Promise<{ checked: number, updated: number }>}
+ */
+async function reconcileAvailability({
+  season,
+  fromWeek,
+  playerIds = null,
+  modelVersion = model.MODEL_VERSION,
+  client = pool,
+  now = new Date(),
+} = {}) {
+  const ids = playerIds ? [...new Set(playerIds.map(Number).filter(Number.isInteger))] : null;
+  if (ids && ids.length === 0) return { checked: 0, updated: 0 };
+
+  const playersResult = await client.query(
+    `SELECT "id", "injury_status", "nfl_team", ${nflRosterStatusColumn()}
+       FROM "players"${ids ? ` WHERE "id" = ANY($1::int[])` : ''}`,
+    ids ? [ids] : []
+  );
+  if (playersResult.rows.length === 0) return { checked: 0, updated: 0 };
+
+  const patchedIds = [];
+  const availabilityJson = [];
+  const activeProbabilities = [];
+  // Players currently on a real team, keyed by id - the candidate pool
+  // `reconcileByeAwareSignings` narrows to "stored no_team" below. A player
+  // with no team can never be a signing, so he is never in this map.
+  const onTeamById = new Map();
+  for (const row of playersResult.rows) {
+    const verdict = unavailableFor({
+      injuryStatus: row.injury_status,
+      onBye: false,
+      noTeam: row.nfl_team == null,
+      nflRosterStatus: row.nfl_roster_status,
+      now,
+    });
+    patchedIds.push(row.id);
+    availabilityJson.push(JSON.stringify(verdict));
+    activeProbabilities.push(verdict.activeProbability);
+    if (row.nfl_team != null) onTeamById.set(row.id, { row, verdict });
+  }
+
+  // A subquery against `projection_runs` for the run scope, rather than a
+  // JOIN alongside the unnest set: a JOIN's ON clause cannot reach back to
+  // the UPDATE target (`p`) from inside the FROM list, so the run filter has
+  // to land in the WHERE clause instead. Still one statement, one scan.
+  const result = await client.query(
+    `UPDATE "player_week_projections" p
+        SET "factors" = p."factors" || jsonb_build_object('availability', v."availability"),
+            "active_probability" = v."active_probability",
+            "updated_at" = $7
+       FROM (SELECT * FROM unnest($1::int[], $2::jsonb[], $3::numeric[])
+               AS v("player_id", "availability", "active_probability")) v
+      WHERE p."player_id" = v."player_id"
+        AND p."run_id" IN (
+          SELECT "id" FROM "projection_runs"
+           WHERE "season" = $4 AND "week" >= $5 AND "model_version" = $6
+        )
+        AND p."factors"->'availability'->>'reason' IS DISTINCT FROM 'bye'
+        -- QA f1 (was NULL-unsafe): a healthy stored row has reason NULL, and
+        -- NULL = 'no_team' is SQL NULL, not FALSE - NOT (NULL AND x) is
+        -- itself NULL, and a NULL WHERE term drops the row exactly like
+        -- FALSE would, so the old NOT (a = 'no_team' AND b IS DISTINCT
+        -- FROM 'no_team') form silently excluded EVERY healthy row, not
+        -- just the no_team ones it meant to guard. Rewritten by De Morgan
+        -- into an OR whose second arm uses IS NOT DISTINCT FROM (itself
+        -- NULL-safe, never NULL) instead of negating an IS DISTINCT FROM:
+        -- true when the stored reason was never no_team (ordinary rows,
+        -- unaffected either way), or when the freshly computed reason IS
+        -- STILL no_team (still no team - the guard is a no-op, and the
+        -- change-detection term below already skips it as unchanged). False,
+        -- correctly, ONLY for a stored no_team row whose new verdict is no
+        -- longer no_team - deferred to reconcileByeAwareSignings below
+        -- rather than written here without knowing the new team's bye week.
+        AND (
+          p."factors"->'availability'->>'reason' IS DISTINCT FROM 'no_team'
+          OR v."availability"->>'reason' IS NOT DISTINCT FROM 'no_team'
+        )
+        AND p."factors"->'availability' IS DISTINCT FROM v."availability"`,
+    [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now]
+  );
+
+  const byeAware = await reconcileByeAwareSignings({
+    client, season, fromWeek, modelVersion, now, onTeamById,
+  });
+
+  return {
+    checked: playersResult.rows.length,
+    updated: (Number(result && result.rowCount) || 0) + byeAware.updated,
+  };
+}
+
+/**
+ * QA f4: the bye-aware half of `reconcileAvailability`, for players whose
+ * cached rows predate a signing. Returns `{ updated: 0 }` immediately, no
+ * query at all, when `onTeamById` is empty (no player in this call currently
+ * has a team). Otherwise ONE query checks `onTeamById`'s candidates (players
+ * `reconcileAvailability` just read who currently have a real team) for
+ * whoever ALSO has at least one stored `no_team` row in this exact (season,
+ * fromWeek, modelVersion) window - that stored value is the only proof a row
+ * predates the player's current team, since `onTeamById` alone would also
+ * match every player who has simply always been rostered. With no such row
+ * found, this returns `{ updated: 0 }` right there - `computeByeWeeks` and
+ * the second UPDATE below run only when that check actually finds a
+ * candidate.
+ *
+ * For each one, `bye.service.computeByeWeeks` resolves his CURRENT team's
+ * bye week for `season` - the same source `projectFromBundle`
+ * (projection.service.js, generation time) reads via `bundle.byeByTeam`, so
+ * this can never disagree with what a fresh generation would compute. A
+ * team with no resolvable bye (`computeByeWeeks` returns `null` - no
+ * schedule synced yet, or an incomplete/ambiguous one) is logged and left
+ * alone: his rows stay exactly as `reconcileAvailability`'s main UPDATE left
+ * them (deferred, the safe direction) rather than guessing.
+ *
+ * The write is a SECOND UPDATE, not folded into the first: every OTHER
+ * player gets one week-agnostic verdict applied to every one of his rows,
+ * but a signing needs two DIFFERENT verdicts (bye week vs. every other
+ * week) picked per row by that row's own `week` - which only exists once
+ * `player_week_projections` is joined to `projection_runs`, so this
+ * statement carries that join itself (as a comma-joined FROM item, not a
+ * `JOIN ... ON` clause - the same target-table-visibility reason the first
+ * UPDATE above uses a subquery instead of a join).
+ */
+async function reconcileByeAwareSignings({ client, season, fromWeek, modelVersion, now, onTeamById }) {
+  if (onTeamById.size === 0) return { updated: 0 };
+
+  const candidateIds = [...onTeamById.keys()];
+  const staleResult = await client.query(
+    `SELECT DISTINCT "p"."player_id" FROM "player_week_projections" "p"
+       JOIN "projection_runs" "r" ON "r"."id" = "p"."run_id"
+      WHERE "r"."season" = $1 AND "r"."week" >= $2 AND "r"."model_version" = $3
+        AND "p"."player_id" = ANY($4::int[])
+        AND "p"."factors"->'availability'->>'reason' = 'no_team'`,
+    [season, fromWeek, modelVersion, candidateIds]
+  );
+  if (staleResult.rows.length === 0) return { updated: 0 };
+
+  const teams = [...new Set(staleResult.rows.map((r) => onTeamById.get(r.player_id).row.nfl_team))];
+  const byeByTeam = await computeByeWeeks(teams, season, { client });
+
+  const outPlayerIds = [];
+  const outByeWeeks = [];
+  const outByeAvailability = [];
+  const outByeActiveProbability = [];
+  const outOtherAvailability = [];
+  const outOtherActiveProbability = [];
+  for (const { player_id: playerId } of staleResult.rows) {
+    const { row, verdict } = onTeamById.get(playerId);
+    const byeWeek = byeByTeam.get(row.nfl_team);
+    if (byeWeek == null) {
+      console.error(
+        'projections: availability reconcile could not resolve a bye week for player %s\'s team %s ' +
+        '(no synced schedule, or an incomplete one) - his no_team rows stay deferred to regeneration',
+        playerId, row.nfl_team
+      );
+      continue;
+    }
+    const byeVerdict = unavailableFor({
+      injuryStatus: row.injury_status,
+      onBye: true,
+      noTeam: false,
+      nflRosterStatus: row.nfl_roster_status,
+      now,
+    });
+    outPlayerIds.push(playerId);
+    outByeWeeks.push(byeWeek);
+    outByeAvailability.push(JSON.stringify(byeVerdict));
+    outByeActiveProbability.push(byeVerdict.activeProbability);
+    // The SAME week-agnostic verdict `reconcileAvailability` already
+    // computed for this player (onBye: false) - recomputing it here would
+    // just repeat that call for an identical result.
+    outOtherAvailability.push(JSON.stringify(verdict));
+    outOtherActiveProbability.push(verdict.activeProbability);
+  }
+  if (outPlayerIds.length === 0) return { updated: 0 };
+
+  const result = await client.query(
+    `UPDATE "player_week_projections" p
+        SET "factors" = p."factors" || jsonb_build_object('availability',
+              CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END),
+            "active_probability" =
+              CASE WHEN r."week" = v."bye_week" THEN v."bye_active_probability" ELSE v."other_active_probability" END,
+            "updated_at" = $10
+       FROM (SELECT * FROM unnest($1::int[], $2::int[], $3::jsonb[], $4::numeric[], $5::jsonb[], $6::numeric[])
+               AS v("player_id", "bye_week", "bye_availability", "bye_active_probability",
+                    "other_availability", "other_active_probability")) v,
+            "projection_runs" r
+      WHERE p."player_id" = v."player_id"
+        AND p."run_id" = r."id"
+        AND r."season" = $7 AND r."week" >= $8 AND r."model_version" = $9
+        AND p."factors"->'availability' IS DISTINCT FROM (
+          CASE WHEN r."week" = v."bye_week" THEN v."bye_availability" ELSE v."other_availability" END
+        )`,
+    [
+      outPlayerIds, outByeWeeks, outByeAvailability, outByeActiveProbability,
+      outOtherAvailability, outOtherActiveProbability, season, fromWeek, modelVersion, now,
+    ]
+  );
+  return { updated: Number(result && result.rowCount) || 0 };
+}
+
+/**
+ * `{ season, fromWeek } | null` for a full-sweep `reconcileAvailability`
+ * call: the (current_season, current_week) of whichever live fantasy league
+ * (`fantasySeasonLiveWhereSql`, leaguePhase.js) sits on the LOWEST current
+ * week right now, one query - `null` when no league is live, since there is
+ * then no live week to reconcile from. Mirrors `invalidateWeeklyProjectionRuns`'s
+ * own callers' "min live current_week" query (correction.service.js,
+ * scheduler.js) so the #1789 ruling's scope rule ("fromWeek = lowest live
+ * league current_week, season likewise") is decided once rather than at each
+ * of the three trigger sites.
+ *
+ * `ORDER BY "current_season" DESC, "current_week" ASC` (QA f5): season is
+ * decided FIRST, week second, both explicit - never an arbitrary row off a
+ * week-only sort. A rollover overlap (an old season's league still live
+ * alongside a new season's) is the case this guards: without the season
+ * tiebreak, which of the two seasons won was whichever row Postgres
+ * happened to return first for a tied or lower current_week, an ordering
+ * this query never actually promised. `DESC` on season picks the NEWEST
+ * live season on purpose - the one every later reconcile call should be
+ * reasoning about - and `fromWeek` is read off that SAME winning row, so the
+ * two can never disagree about which season they describe. Two leagues
+ * tied on both columns are interchangeable by construction: `season` and
+ * `fromWeek` are identical either way, so no further tiebreak is needed.
+ * Production carries only one live season today, so this has no observable
+ * effect yet - it is here so a rollover overlap resolves the same way on
+ * day one rather than being found live.
+ */
+async function liveReconcileScope(client = pool) {
+  const result = await client.query(
+    `SELECT "current_season", "current_week" FROM "leagues"
+      WHERE ${fantasySeasonLiveWhereSql()}
+      ORDER BY "current_season" DESC, "current_week" ASC LIMIT 1`
+  );
+  const row = result.rows[0];
+  return row ? { season: row.current_season, fromWeek: row.current_week } : null;
+}
+
+/**
  * `free_baseline_v2` projections for a specific player set under a specific
  * league's scoring rules.
  *
@@ -1398,6 +1714,9 @@ module.exports = {
   // and `seasonEnd` are both the league's last playoff week.
   lastPlayoffWeek,
   invalidateWeeklyProjectionRuns,
+  // #1789: cached availability reconcile
+  reconcileAvailability,
+  liveReconcileScope,
   generateProjections,
   projectFromBundle,
   priorSeasonPerGame,

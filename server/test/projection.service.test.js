@@ -2731,3 +2731,342 @@ test('poolPointsMap is playerId -> points for every entry that has a value', () 
   ]);
   assert.deepEqual([...poolProjection.poolPointsMap(poolMap)], [[1, 12.5], [2, 0]]);
 });
+
+// ---------------------------------------------------------------------------
+// reconcileAvailability / liveReconcileScope (#1789): the cached engine's
+// availability verdict goes stale between generations (an injury sync, a
+// roster-status move, the practice-squad 48h expiry), and this is the one
+// place that patches it back onto a live run's rows WITHOUT moving any
+// projected number. A dedicated mock, not `mockPool` above: the queries this
+// pair issues (a plain "players" read, a "leagues" scope read, an UPDATE) are
+// a different shape than the engine's own generation-time reads.
+// ---------------------------------------------------------------------------
+
+function mockReconcilePool(t, {
+  players = [],
+  leagueRows = null,
+  updateHandler = null,
+  // QA f4: reconcileByeAwareSignings runs whenever the players read above
+  // includes at least one on-team player (almost every test) - `staleRows`
+  // defaults empty, so it resolves { updated: 0 } after this one extra query
+  // without ever reaching computeByeWeeks or the second UPDATE, unless a
+  // test opts in with real rows.
+  staleRows = [],
+  scheduleRows = [],
+  byeUpdateHandler = null,
+  onQuery = null,
+} = {}) {
+  const calls = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    calls.push({ text, params });
+    if (onQuery) onQuery(text, params);
+    if (text.startsWith('SELECT "current_season", "current_week" FROM "leagues"')) {
+      return { rows: leagueRows || [] };
+    }
+    if (text.startsWith('SELECT "id", "injury_status", "nfl_team"')) {
+      return { rows: players };
+    }
+    if (text.startsWith('SELECT DISTINCT "p"."player_id" FROM "player_week_projections"')) {
+      return { rows: staleRows };
+    }
+    if (text.startsWith('SELECT "t"."nfl_team", "ng"."week"')) {
+      return { rows: scheduleRows };
+    }
+    if (text.startsWith('UPDATE "player_week_projections"') && text.includes('v."bye_week"')) {
+      return byeUpdateHandler ? byeUpdateHandler(text, params) : { rowCount: 0 };
+    }
+    if (text.startsWith('UPDATE "player_week_projections"')) {
+      return updateHandler ? updateHandler(text, params) : { rowCount: 0 };
+    }
+    throw new Error(`unexpected query: ${text.slice(0, 160)}`);
+  });
+  return calls;
+}
+
+test('reconcileAvailability recomputes the verdict and patches only factors/active_probability/updated_at', async (t) => {
+  let updateCall = null;
+  const calls = mockReconcilePool(t, {
+    players: [{ id: 1, injury_status: 'O', nfl_team: 'BUF', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 1 }; },
+  });
+
+  const result = await projection.reconcileAvailability({
+    season: 2026, fromWeek: 5, playerIds: [1], client: pool, now: new Date('2026-09-29T00:00:00Z'),
+  });
+
+  assert.deepEqual(result, { checked: 1, updated: 1 });
+  assert.ok(updateCall, 'one UPDATE issued');
+  assert.match(updateCall.text, /SET "factors" = p\."factors" \|\| jsonb_build_object\('availability', v\."availability"\)/);
+  assert.match(updateCall.text, /"active_probability" = v\."active_probability"/);
+  assert.match(updateCall.text, /"updated_at" = \$7/);
+  // Green-for-the-wrong-reason guard: seed a changed verdict, then assert the
+  // statement never names a projected number or the model's own fields.
+  for (const column of ['"mean"', '"median"', '"p10"', '"p25"', '"p75"', '"p90"', '"confidence"', '"sample_size"']) {
+    assert.ok(!updateCall.text.includes(column), `the SET list never names ${column}`);
+  }
+  const [ids, availabilityJson, activeProbabilities, season, fromWeek, modelVersion] = updateCall.params;
+  assert.deepEqual(ids, [1]);
+  assert.deepEqual(JSON.parse(availabilityJson[0]), {
+    available: false, activeProbability: 0, reason: 'out', status: 'O', locked: false, lockedSlot: null,
+  });
+  assert.deepEqual(activeProbabilities, [0]);
+  assert.equal(season, 2026);
+  assert.equal(fromWeek, 5);
+  assert.equal(modelVersion, model.MODEL_VERSION);
+  assert.equal(calls.filter((c) => c.text.includes('FROM "players"')).length, 1, 'one players read');
+  assert.equal(calls.filter((c) => c.text.startsWith('UPDATE')).length, 1, 'one UPDATE');
+});
+
+test("reconcileAvailability's UPDATE guards a stored bye verdict in SQL - it never recomputes bye itself", async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 1, injury_status: 'O', nfl_team: 'BUF', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 0 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [1], client: pool });
+
+  assert.match(updateCall.text, /"factors"->'availability'->>'reason' IS DISTINCT FROM 'bye'/);
+  assert.match(updateCall.text, /"factors"->'availability' IS DISTINCT FROM v\."availability"/);
+  // reconcileAvailability sends the non-bye verdict for an 'O' player (reason
+  // 'out') regardless - it is this SQL guard, not JS, that keeps a stored
+  // bye row untouched.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, 'out');
+});
+
+test("QA f1: reconcileAvailability's UPDATE also guards a stored no_team row once the player has a team again (undetectable bye-week risk)", async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    // Signed mid-week: he now has a team, so the freshly computed verdict is
+    // no longer no_team - but his cached rows (byeByTeam.get(null) at
+    // generation time) carry no bye marker to tell his new team's bye week
+    // apart from any other week.
+    players: [{ id: 1, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 0 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [1], client: pool });
+
+  // The re-QA fix (was `NOT (a = 'no_team' AND b IS DISTINCT FROM
+  // 'no_team')`, NULL-unsafe: a healthy stored row's NULL reason made the
+  // whole term NULL, dropping every healthy row from the WHERE, not just
+  // no_team ones - #1802 CI's own red). The OR form below is NULL-safe on
+  // both arms (IS DISTINCT FROM and IS NOT DISTINCT FROM never themselves
+  // evaluate to NULL).
+  assert.match(
+    updateCall.text,
+    /\(\s*p\."factors"->'availability'->>'reason' IS DISTINCT FROM 'no_team'\s*OR v\."availability"->>'reason' IS NOT DISTINCT FROM 'no_team'\s*\)/,
+  );
+  // The freshly computed verdict really is non-no_team (healthy) - it is the
+  // SQL guard, not JS, that defers a stored no_team row to regeneration.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, null);
+});
+
+test('QA f1: the no_team guard never blocks the OTHER direction - a stored non-no_team row still reconciles to no_team when the team clears', async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 2, injury_status: null, nfl_team: null, nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 1 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [2], client: pool });
+
+  // The guard's predicate only fires when the STORED reason is already
+  // no_team; a departure (nfl_team newly null) is free to write no_team.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, 'no_team');
+});
+
+test('reconcileAvailability with playerIds: null sweeps every player - one read, no id filter, one UPDATE (no per-player loop)', async (t) => {
+  let selectText = null;
+  const calls = mockReconcilePool(t, {
+    players: [
+      { id: 1, injury_status: null, nfl_team: 'BUF', nfl_roster_status: null },
+      { id: 2, injury_status: null, nfl_team: null, nfl_roster_status: null },
+    ],
+    onQuery: (text) => { if (text.startsWith('SELECT "id", "injury_status"')) selectText = text; },
+    updateHandler: () => ({ rowCount: 1 }),
+  });
+
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, client: pool });
+
+  assert.equal(result.checked, 2);
+  // The correlated roster-status subquery carries its own WHERE clause
+  // regardless (nflRosterStatusColumn), so the guard is against the OUTER id
+  // filter specifically, not "WHERE" anywhere in the statement.
+  assert.ok(!/FROM "players" WHERE "id" = ANY/.test(selectText), 'a full sweep carries no id filter');
+  assert.equal(calls.filter((c) => c.text.includes('FROM "players"')).length, 1, 'the player facts are read once, never per player');
+  assert.equal(calls.filter((c) => c.text.startsWith('UPDATE')).length, 1, 'one UPDATE covers every player');
+});
+
+test('reconcileAvailability scoped to an id list filters the read to exactly those ids', async (t) => {
+  let selectCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 7, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    onQuery: (text, params) => { if (text.startsWith('SELECT "id", "injury_status"')) selectCall = { text, params }; },
+    updateHandler: () => ({ rowCount: 0 }),
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [7, 7, '7'], client: pool });
+
+  assert.match(selectCall.text, /WHERE "id" = ANY\(\$1::int\[\]\)/);
+  assert.deepEqual(selectCall.params, [[7]], 'the id list is de-duplicated and coerced to numbers');
+});
+
+test('reconcileAvailability with an empty playerIds array is a no-op: no queries issued', async (t) => {
+  const calls = mockReconcilePool(t, {});
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [], client: pool });
+  assert.deepEqual(result, { checked: 0, updated: 0 });
+  assert.equal(calls.length, 0);
+});
+
+test('a 49h-stale practice_squad roster status reconciles to Active under an injected now', async (t) => {
+  // Deliberately far from any real wall-clock date (2020, not "today"): the
+  // point of this test is that `now` is INJECTED, not defaulted, so picking
+  // dates nowhere near the actual system clock is what keeps a dropped `now`
+  // default from passing by coincidence.
+  const capturedAt = new Date('2020-01-01T00:00:00Z');
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{
+      id: 9, injury_status: null, nfl_team: 'SEA',
+      nfl_roster_status: { status: 'practice_squad', capturedAt: capturedAt.toISOString() },
+    }],
+    updateHandler: (text, params) => { updateCall = params; return { rowCount: 1 }; },
+  });
+
+  // 49h after the roster-status row's capturedAt: stale under the 48h rule.
+  const now = new Date(capturedAt.getTime() + 49 * 60 * 60 * 1000);
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [9], client: pool, now });
+
+  const verdict = JSON.parse(updateCall[1][0]);
+  assert.equal(verdict.reason, null, 'a stale practice_squad row reads Active, not practice_squad');
+  assert.equal(verdict.available, true);
+  assert.equal(verdict.activeProbability, 1);
+});
+
+test('a 47h-old practice_squad roster status is still fresh under the same injected now', async (t) => {
+  const capturedAt = new Date('2020-01-01T00:00:00Z');
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{
+      id: 9, injury_status: null, nfl_team: 'SEA',
+      nfl_roster_status: { status: 'practice_squad', capturedAt: capturedAt.toISOString() },
+    }],
+    updateHandler: (text, params) => { updateCall = params; return { rowCount: 1 }; },
+  });
+
+  const now = new Date(capturedAt.getTime() + 47 * 60 * 60 * 1000); // still inside the 48h window
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [9], client: pool, now });
+
+  const verdict = JSON.parse(updateCall[1][0]);
+  assert.equal(verdict.reason, 'practice_squad', 'still fresh, one hour short of the 48h expiry');
+  assert.equal(verdict.available, false);
+  assert.equal(verdict.activeProbability, 0);
+});
+
+// ---------------------------------------------------------------------------
+// QA f4: reconcileByeAwareSignings - an ex-no_team player who has signed
+// with a real team gets a PER-WEEK verdict (his new team's bye week stays
+// unavailable; every other week reconciles normally), rather than every
+// week being deferred to regeneration.
+// ---------------------------------------------------------------------------
+
+/** Weeks 1..18 minus `byeWeek`, as `{ nfl_team, week }` rows - what
+ * `computeByeWeeks`' own nfl_games query returns for a team with a single,
+ * resolvable bye. */
+function scheduleRowsFor(team, byeWeek) {
+  const rows = [];
+  for (let week = 1; week <= 18; week++) {
+    if (week !== byeWeek) rows.push({ nfl_team: team, week });
+  }
+  return rows;
+}
+
+test('QA f4: an ex-no_team player who has signed gets a per-week verdict - his new team\'s bye week becomes bye, every other week reconciles normally', async (t) => {
+  let byeUpdateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 5, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    staleRows: [{ player_id: 5 }], // his cached rows still say no_team
+    scheduleRows: scheduleRowsFor('KC', 6), // KC's bye is week 6
+    updateHandler: () => ({ rowCount: 0 }), // the main UPDATE defers him (unchanged this pass)
+    byeUpdateHandler: (text, params) => { byeUpdateCall = { text, params }; return { rowCount: 4 }; },
+  });
+
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [5], client: pool });
+
+  assert.ok(byeUpdateCall, 'the second, bye-aware UPDATE was issued');
+  assert.match(byeUpdateCall.text, /CASE WHEN r\."week" = v\."bye_week" THEN v\."bye_availability" ELSE v\."other_availability" END/);
+  const [playerIds, byeWeeks, byeAvailability, byeActiveProbability, otherAvailability, otherActiveProbability] = byeUpdateCall.params;
+  assert.deepEqual(playerIds, [5]);
+  assert.deepEqual(byeWeeks, [6], 'KC\'s resolved bye week');
+  const bye = JSON.parse(byeAvailability[0]);
+  assert.equal(bye.reason, 'bye');
+  assert.equal(bye.available, false);
+  assert.equal(byeActiveProbability[0], 0);
+  const other = JSON.parse(otherAvailability[0]);
+  assert.equal(other.reason, null, 'a healthy player, off the bye week, reads Active');
+  assert.equal(other.available, true);
+  assert.equal(otherActiveProbability[0], 1);
+  assert.equal(result.updated, 4, 'the bye-aware UPDATE\'s rowCount is folded into the total');
+});
+
+test('QA f4: a bye lookup failure (no synced schedule) defers the player instead of guessing - no second UPDATE is issued', async (t) => {
+  let byeUpdateCalled = false;
+  mockReconcilePool(t, {
+    players: [{ id: 6, injury_status: null, nfl_team: 'ZZZ', nfl_roster_status: null }],
+    staleRows: [{ player_id: 6 }],
+    scheduleRows: [], // no schedule synced for 'ZZZ' - computeByeWeeks resolves null
+    updateHandler: () => ({ rowCount: 0 }),
+    byeUpdateHandler: () => { byeUpdateCalled = true; return { rowCount: 0 }; },
+  });
+  const originalError = console.error;
+  let loggedFor = null;
+  console.error = (...args) => { loggedFor = args; };
+  try {
+    const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [6], client: pool });
+    assert.equal(result.updated, 0);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(byeUpdateCalled, false, 'no second UPDATE runs when the bye week cannot be resolved');
+  assert.ok(loggedFor && String(loggedFor[0]).includes('could not resolve a bye week'), 'the failure is logged');
+});
+
+test('QA f4: a player with no stored no_team row is never treated as a signing - no computeByeWeeks read, no second UPDATE', async (t) => {
+  const calls = mockReconcilePool(t, {
+    players: [{ id: 7, injury_status: null, nfl_team: 'DAL', nfl_roster_status: null }],
+    staleRows: [], // nothing stale - this player was never no_team
+    updateHandler: () => ({ rowCount: 1 }),
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [7], client: pool });
+
+  assert.equal(calls.some((c) => c.text.startsWith('SELECT "t"."nfl_team"')), false, 'computeByeWeeks never runs');
+  assert.equal(calls.some((c) => c.text.includes('v."bye_week"')), false, 'the second UPDATE never runs');
+});
+
+test('liveReconcileScope reads the lowest live league current_week, and the season off that same row', async (t) => {
+  let queryText = null;
+  mockReconcilePool(t, {
+    leagueRows: [{ current_season: 2026, current_week: 4 }],
+    onQuery: (text) => { queryText = text; },
+  });
+
+  const scope = await projection.liveReconcileScope(pool);
+  assert.deepEqual(scope, { season: 2026, fromWeek: 4 });
+  assert.match(queryText, /ORDER BY "current_season" DESC, "current_week" ASC LIMIT 1/);
+});
+
+// QA f5's rollover-overlap behavior (does Postgres actually return the
+// newest season under this ORDER BY, not just "does the function trust
+// row 0") is a real-Postgres claim, not a mockPool one - a fake trusts
+// whatever rows the test hands it back, so it cannot tell a correct ORDER BY
+// clause apart from an absent one the way a real sort can. See the pg test
+// 'QA f5: liveReconcileScope picks the newest live season on a rollover
+// overlap' in reconcileAvailability.pg.test.js.
+
+test('liveReconcileScope returns null when no fantasy league is live', async (t) => {
+  mockReconcilePool(t, { leagueRows: [] });
+  assert.equal(await projection.liveReconcileScope(pool), null);
+});
