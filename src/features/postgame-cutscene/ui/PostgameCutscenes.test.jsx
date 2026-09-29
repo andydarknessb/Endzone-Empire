@@ -86,7 +86,7 @@ describe('title card', () => {
     const rule = css.match(/\.postgame-chrome \{([^}]*)\}/)[1];
     expect(rule).toMatch(/min-width:\s*44px/);
     expect(rule).toMatch(/min-height:\s*44px/);
-    ['[B] SKIP', 'Turn sound off'].forEach((name) => {
+    ['Skip', 'Sound'].forEach((name) => {
       expect(screen.getByRole('button', { name }).className).toContain('postgame-chrome');
     });
   });
@@ -102,9 +102,12 @@ describe('title card', () => {
 
   test('the speaker toggle writes the per-device sound key', async () => {
     await show([item(1)]);
-    fireEvent.click(screen.getByRole('button', { name: 'Turn sound off' }));
+    const toggle = screen.getByRole('button', { name: 'Sound' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(toggle);
     expect(window.localStorage.getItem('endzone_postgame_sound')).toBe('0');
-    fireEvent.click(screen.getByRole('button', { name: 'Turn sound on' }));
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(toggle);
     expect(window.localStorage.getItem('endzone_postgame_sound')).toBe('1');
     // Clicking the toggle is not a tap on the card: still on the title card.
     expect(screen.getByText('PRESS START')).toBeInTheDocument();
@@ -113,7 +116,7 @@ describe('title card', () => {
   test('starts muted when the stored preference is "0"', async () => {
     window.localStorage.setItem('endzone_postgame_sound', '0');
     await show([item(1)]);
-    expect(screen.getByRole('button', { name: 'Turn sound on' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sound' })).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
@@ -132,7 +135,7 @@ describe('seen POSTs and the session guard', () => {
 
   test('SKIP does the same and ends the queue', async () => {
     await show(all);
-    fireEvent.click(screen.getByRole('button', { name: '[B] SKIP' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
     expect(apiClient.post).toHaveBeenCalledTimes(5);
     expect(JSON.parse(window.sessionStorage.getItem(POSTGAME_STARTED_KEY))).toEqual([1, 2, 3, 4, 5]);
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
@@ -204,7 +207,7 @@ describe('queue', () => {
     startFromTitle();
     press('Escape');
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   test('four and beyond collapse into one snackbar after the last scene', async () => {
@@ -217,12 +220,12 @@ describe('queue', () => {
     startFromTitle();
     fireEvent.click(dialog());
     fireEvent.click(dialog());
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
     fireEvent.click(dialog());
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('2 MORE RESULTS: 0-1-1');
     act(() => { jest.advanceTimersByTime(6000); });
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   test('a scene advances on its own timer', async () => {
@@ -249,10 +252,10 @@ describe('keyboard and focus', () => {
     expect(dialog()).toHaveFocus();
   });
 
-  test('Tab wraps between the two title card buttons', async () => {
+  test('Tab wraps between the title card buttons', async () => {
     await show([item(1)]);
-    const sound = screen.getByRole('button', { name: 'Turn sound off' });
-    const skip = screen.getByRole('button', { name: '[B] SKIP' });
+    const sound = screen.getByRole('button', { name: 'Sound' });
+    const skip = screen.getByRole('button', { name: 'Skip' });
     skip.focus();
     expect(fireEvent.keyDown(skip, { key: 'Tab' })).toBe(false);
     expect(sound).toHaveFocus();
@@ -260,9 +263,47 @@ describe('keyboard and focus', () => {
     expect(skip).toHaveFocus();
   });
 
+  test('a keyboard user who has Tabbed into the title card can still start the scenes', async () => {
+    await show([item(1)]);
+    const start = screen.getByRole('button', { name: 'PRESS START' });
+    start.focus();
+    // Enter on a button is its native click; the overlay must not also treat it as a tap.
+    fireEvent.keyDown(start, { key: 'Enter' });
+    fireEvent.click(start);
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    // The button that held focus is gone; the overlay took focus back.
+    expect(dialog()).toHaveFocus();
+    press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  test('focus is not stranded on body when a focused loss link is replaced by the next card', async () => {
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' }), item(2)]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' }).focus();
+    act(() => { jest.advanceTimersByTime(3500); });
+    expect(screen.getByText('Mine 2')).toBeInTheDocument();
+    expect(dialog()).toHaveFocus();
+    // A key pressed now reaches the overlay, so Escape still ends the queue.
+    press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  test('each scene is announced through a live region', async () => {
+    await show([item(1), item(2)]);
+    startFromTitle();
+    const live = screen.getByTestId('postgame-live');
+    expect(live).toHaveTextContent('Mine 1 beat Theirs 1, 120 to 100');
+    fireEvent.click(dialog());
+    expect(live).toHaveTextContent('Mine 2 beat Theirs 2, 120 to 100');
+  });
+
   test('Enter on a focused button is not also a tap on the card', async () => {
     await show([item(1)]);
-    const sound = screen.getByRole('button', { name: 'Turn sound off' });
+    const sound = screen.getByRole('button', { name: 'Sound' });
     sound.focus();
     fireEvent.keyDown(sound, { key: 'Enter' });
     expect(screen.getByText('PRESS START')).toBeInTheDocument();

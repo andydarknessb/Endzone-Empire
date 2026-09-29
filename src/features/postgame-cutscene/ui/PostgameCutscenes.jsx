@@ -31,15 +31,20 @@ function PostgameCutscenes({ cutscenes }) {
   }, [overflowText]);
 
   if (!cutscenes || cutscenes.length === 0) return null;
-  if (finished) {
-    return overflowText ? (
-      <div className="postgame-snackbar" role="status">{overflowText}</div>
-    ) : null;
-  }
+  // The live region is mounted from the start and only its text changes, which
+  // is what screen readers announce reliably; a region inserted already holding
+  // its text often is not.
   return (
-    <Suspense fallback={null}>
-      <PostgameStage cutscenes={cutscenes} onFinish={handleFinish} />
-    </Suspense>
+    <>
+      {!finished && (
+        <Suspense fallback={null}>
+          <PostgameStage cutscenes={cutscenes} onFinish={handleFinish} />
+        </Suspense>
+      )}
+      <div role="status" className="postgame-status">
+        {overflowText && <div className="postgame-snackbar">{overflowText}</div>}
+      </div>
+    </>
   );
 }
 
