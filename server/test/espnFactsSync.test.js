@@ -291,7 +291,17 @@ function rosterTransport(overrides = {}) {
   };
 }
 
-/** A fake pool that knows every athlete id as player id = athlete id + 1000. */
+/**
+ * A fake pool that knows every athlete id as player id = athlete id + 1000.
+ * QA f2: every OK run past this PR reaches the #1789 availability sweep,
+ * which calls the REAL `liveReconcileScope` unless a test stubs it - so
+ * every pre-existing test here needs a `FROM "leagues"` answer or it goes
+ * down the sweep's own swallowed-failure path (a real query the fake has no
+ * handler for, caught and logged, `reconcileAvailability` never reached).
+ * `[]` (no live league) is enough to make that path a clean, silent no-op:
+ * `liveReconcileScope` resolves `null` and the sweep skips `reconcileAvailability`
+ * without ever touching the pool again.
+ */
 function rosterPool(t, { onInsert } = {}) {
   return createFakePool([
     [PLAYERS_BY_EXTERNAL_ID, (text, params) => ({ rows: params[0].map((id) => ({ id: id + 1000, external_id: id })) })],
@@ -300,6 +310,7 @@ function rosterPool(t, { onInsert } = {}) {
       return { rowCount: params[0].length };
     }],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    [/FROM "leagues"/, () => ({ rows: [] })],
   ]).install(t);
 }
 
@@ -393,6 +404,16 @@ test('runRosterStatusSync: sweeps availability once after an ok run, scoped to t
 test('runRosterStatusSync: never sweeps when every team failing fails the run (fetch_failed)', async (t) => {
   const projection = require('../services/projection.service');
   let reconcileCalls = 0;
+  // QA f2: `liveReconcileScope` is stubbed to resolve a REAL scope, same as
+  // the positive sweep test above - if the sweep call were ever reached on
+  // this failure path (moved into a `finally`, say), `reconcileAvailability`
+  // below is guaranteed to fire and this test's own assertion would catch
+  // it. Left unstubbed, a reached sweep would call the real
+  // `liveReconcileScope`, which would either find no live league or (before
+  // the `rosterPool` fix above) throw inside the fake pool - either way
+  // silently skipping `reconcileAvailability` and passing for the wrong
+  // reason regardless of whether the guard on failure is actually there.
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
   t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
   rosterPool(t);
 

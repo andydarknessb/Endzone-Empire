@@ -2660,6 +2660,42 @@ test("reconcileAvailability's UPDATE guards a stored bye verdict in SQL - it nev
   assert.equal(JSON.parse(updateCall.params[1][0]).reason, 'out');
 });
 
+test("QA f1: reconcileAvailability's UPDATE also guards a stored no_team row once the player has a team again (undetectable bye-week risk)", async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    // Signed mid-week: he now has a team, so the freshly computed verdict is
+    // no longer no_team - but his cached rows (byeByTeam.get(null) at
+    // generation time) carry no bye marker to tell his new team's bye week
+    // apart from any other week.
+    players: [{ id: 1, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 0 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [1], client: pool });
+
+  assert.match(
+    updateCall.text,
+    /NOT \(\s*p\."factors"->'availability'->>'reason' = 'no_team'\s*AND v\."availability"->>'reason' IS DISTINCT FROM 'no_team'\s*\)/,
+  );
+  // The freshly computed verdict really is non-no_team (healthy) - it is the
+  // SQL guard, not JS, that defers a stored no_team row to regeneration.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, null);
+});
+
+test('QA f1: the no_team guard never blocks the OTHER direction - a stored non-no_team row still reconciles to no_team when the team clears', async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 2, injury_status: null, nfl_team: null, nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 1 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [2], client: pool });
+
+  // The guard's predicate only fires when the STORED reason is already
+  // no_team; a departure (nfl_team newly null) is free to write no_team.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, 'no_team');
+});
+
 test('reconcileAvailability with playerIds: null sweeps every player - one read, no id filter, one UPDATE (no per-player loop)', async (t) => {
   let selectText = null;
   const calls = mockReconcilePool(t, {
@@ -2757,8 +2793,16 @@ test('liveReconcileScope reads the lowest live league current_week, and the seas
 
   const scope = await projection.liveReconcileScope(pool);
   assert.deepEqual(scope, { season: 2026, fromWeek: 4 });
-  assert.match(queryText, /ORDER BY "current_week" ASC LIMIT 1/);
+  assert.match(queryText, /ORDER BY "current_season" DESC, "current_week" ASC LIMIT 1/);
 });
+
+// QA f5's rollover-overlap behavior (does Postgres actually return the
+// newest season under this ORDER BY, not just "does the function trust
+// row 0") is a real-Postgres claim, not a mockPool one - a fake trusts
+// whatever rows the test hands it back, so it cannot tell a correct ORDER BY
+// clause apart from an absent one the way a real sort can. See the pg test
+// 'QA f5: liveReconcileScope picks the newest live season on a rollover
+// overlap' in reconcileAvailability.pg.test.js.
 
 test('liveReconcileScope returns null when no fantasy league is live', async (t) => {
   mockReconcilePool(t, { leagueRows: [] });

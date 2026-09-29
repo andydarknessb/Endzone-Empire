@@ -462,6 +462,15 @@ test('runNightlyProjectionFill never sweeps when the fill itself fails', async (
   const cadence = require('../modules/cadence');
   t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
   let reconcileCalls = 0;
+  // QA f2: `liveReconcileScope` is stubbed to resolve a REAL scope, same as
+  // the positive sweep test above - the fake pool's OWN `FROM "leagues"`
+  // handler below throws for a different reason (it is what makes the
+  // FILL's own fetch fail), and if left unstubbed a reached sweep would hit
+  // that SAME throwing handler, get swallowed by the sweep's own catch, and
+  // pass this test whether or not the guard on failure actually exists.
+  // Stubbing the function directly (not the pool) means a sweep reached on
+  // this failure path is guaranteed to call `reconcileAvailability` below.
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
   t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
   createFakePool([
     [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],

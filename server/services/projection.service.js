@@ -919,7 +919,23 @@ async function invalidateWeeklyProjectionRuns({
  * outright - and a non-bye row can never newly become bye through this path.
  * A mid-season NFL team change moving a player onto a different bye week is
  * out of scope (triage #1789, "Other stale things", filed separately if
- * wanted).
+ * wanted) - WITH ONE EXCEPTION the WHERE guard also carries (QA f1): a
+ * No NFL team player's cached rows are generated with `onBye: false` for
+ * EVERY week (`byeByTeam.get(null)` at generation time resolves nothing), so
+ * none of them carries `reason: 'bye'` even for what will become his new
+ * team's bye week. If he signs mid-week and this reconcile were to recompute
+ * a `no_team` row the ordinary way, the one week that is actually his new
+ * team's bye would wrongly flip to `available: true` instead of staying
+ * unavailable for a different, and undetectable-here, reason - the read
+ * would then serve a player as startable for a game he has none. So a stored
+ * `reason: 'no_team'` row is ALSO skipped whenever the freshly computed
+ * verdict is no longer `no_team` (the player now has a team): every one of
+ * his cached weeks stays exactly as generated - stale, but never wrong in
+ * the dangerous direction - until the Tuesday wipe (or an on-demand cache
+ * miss) regenerates them with his real team's real bye week. The other
+ * direction (a team clears to null, so the row newly BECOMES `no_team`) is
+ * unaffected: nothing here ever guards a row FROM turning into `no_team`,
+ * only a row already `no_team` from turning into anything else.
  *
  * `playerIds: null` sweeps every player (needed for the roster-status 48h
  * expiry and a cleared No NFL team, neither of which has a "who changed" id
@@ -999,6 +1015,13 @@ async function reconcileAvailability({
            WHERE "season" = $4 AND "week" >= $5 AND "model_version" = $6
         )
         AND p."factors"->'availability'->>'reason' IS DISTINCT FROM 'bye'
+        -- QA f1: a stored no_team row never reconciles once the player has a
+        -- team again - it might be his new team's undetectable-here bye week
+        -- (see the docblock above) - deferred to regeneration instead.
+        AND NOT (
+          p."factors"->'availability'->>'reason' = 'no_team'
+          AND v."availability"->>'reason' IS DISTINCT FROM 'no_team'
+        )
         AND p."factors"->'availability' IS DISTINCT FROM v."availability"`,
     [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now]
   );
@@ -1015,12 +1038,28 @@ async function reconcileAvailability({
  * scheduler.js) so the #1789 ruling's scope rule ("fromWeek = lowest live
  * league current_week, season likewise") is decided once rather than at each
  * of the three trigger sites.
+ *
+ * `ORDER BY "current_season" DESC, "current_week" ASC` (QA f5): season is
+ * decided FIRST, week second, both explicit - never an arbitrary row off a
+ * week-only sort. A rollover overlap (an old season's league still live
+ * alongside a new season's) is the case this guards: without the season
+ * tiebreak, which of the two seasons won was whichever row Postgres
+ * happened to return first for a tied or lower current_week, an ordering
+ * this query never actually promised. `DESC` on season picks the NEWEST
+ * live season on purpose - the one every later reconcile call should be
+ * reasoning about - and `fromWeek` is read off that SAME winning row, so the
+ * two can never disagree about which season they describe. Two leagues
+ * tied on both columns are interchangeable by construction: `season` and
+ * `fromWeek` are identical either way, so no further tiebreak is needed.
+ * Production carries only one live season today, so this has no observable
+ * effect yet - it is here so a rollover overlap resolves the same way on
+ * day one rather than being found live.
  */
 async function liveReconcileScope(client = pool) {
   const result = await client.query(
     `SELECT "current_season", "current_week" FROM "leagues"
       WHERE ${fantasySeasonLiveWhereSql()}
-      ORDER BY "current_week" ASC LIMIT 1`
+      ORDER BY "current_season" DESC, "current_week" ASC LIMIT 1`
   );
   const row = result.rows[0];
   return row ? { season: row.current_season, fromWeek: row.current_week } : null;

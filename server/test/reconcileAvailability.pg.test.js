@@ -47,12 +47,14 @@ if (!ENABLED) {
   });
 } else {
   const pool = require('../modules/pool');
-  const { reconcileAvailability, MODEL_VERSION } = require('../services/projection.service');
+  const { reconcileAvailability, liveReconcileScope, MODEL_VERSION } = require('../services/projection.service');
 
   const SEASON = 2099; // out of any real season's range, so a stray leak is obvious
   const SCORING_HASH = 'reconcileavailability-pgtest-hash';
   const seededPlayers = [];
   const seededRuns = [];
+  const seededLeagues = [];
+  let seededUserId = null;
 
   test.after(async () => {
     try {
@@ -62,10 +64,38 @@ if (!ENABLED) {
       for (const id of seededPlayers) {
         await pool.query(`DELETE FROM "players" WHERE "id" = $1`, [id]);
       }
+      if (seededLeagues.length > 0) {
+        await pool.query(`DELETE FROM "leagues" WHERE "id" = ANY($1::int[])`, [seededLeagues]);
+      }
+      if (seededUserId != null) {
+        await pool.query(`DELETE FROM "users" WHERE "id" = $1`, [seededUserId]);
+      }
     } finally {
       await pool.end();
     }
   });
+
+  /** Inserts one live (draft-complete, season-not-complete) fantasy league
+   * and returns its id, tracked for cleanup. Lazily seeds the one owning
+   * user this file needs. */
+  async function seedLiveLeague({ season, week }) {
+    if (seededUserId == null) {
+      const user = await pool.query(
+        `INSERT INTO "users" ("username", "email", "password")
+         VALUES ($1, $2, 'x') RETURNING "id"`,
+        [`reconcileavailability-pgtest-${Date.now()}`, `reconcileavailability-pgtest-${Date.now()}@example.invalid`]
+      );
+      seededUserId = user.rows[0].id;
+    }
+    const res = await pool.query(
+      `INSERT INTO "leagues" ("name", "owner_id", "invite_code", "draft_status", "current_season", "current_week")
+       VALUES ($1, $2, $3, 'complete', $4, $5) RETURNING "id"`,
+      [`reconcileavailability-pgtest-${season}`, seededUserId, `ra${season}${Math.floor(Math.random() * 1e4)}`, season, week]
+    );
+    const id = res.rows[0].id;
+    seededLeagues.push(id);
+    return id;
+  }
 
   /** Inserts one player and returns its id, tracked for cleanup. */
   async function seedPlayer(overrides = {}) {
@@ -194,5 +224,75 @@ if (!ENABLED) {
     assert.equal(Number(after.active_probability), 1);
 
     await pool.query(`DELETE FROM "player_nfl_roster_status" WHERE "player_id" = $1`, [playerId]);
+  });
+
+  test('QA f1: a stored no_team row is never overwritten once the player has a team again (an undetectable bye-week risk)', async () => {
+    // Signed mid-week: he now has a real team, so the freshly computed
+    // verdict is no longer no_team - but his cached rows were generated with
+    // onBye always false (byeByTeam.get(null) resolved nothing), so nothing
+    // here can tell his new team's bye week apart from any other week.
+    // Reconciling this row the ordinary way would wrongly flip it to
+    // available. The guard defers it to regeneration instead.
+    const playerId = await seedPlayer({ injuryStatus: null, nflTeam: 'KC' });
+    const runId = await seedRun(8);
+    await seedRow(runId, playerId, {
+      available: false, activeProbability: 0, reason: 'no_team', status: null, locked: false, lockedSlot: null,
+    });
+    const before = await readRow(runId, playerId);
+
+    const result = await reconcileAvailability({ season: SEASON, fromWeek: 8, playerIds: [playerId], client: pool });
+    assert.equal(result.updated, 0, 'the no_team row is guarded out of the write entirely');
+
+    const after = await readRow(runId, playerId);
+    assert.deepEqual(after.factors, before.factors, 'the stale no_team verdict is untouched, not flipped to available');
+    assert.equal(after.updated_at.getTime(), before.updated_at.getTime());
+  });
+
+  test("QA f1: the no_team guard does not block the OTHER direction - a departed player's row still reconciles to no_team", async () => {
+    const playerId = await seedPlayer({ injuryStatus: null, nflTeam: null }); // already departed
+    const runId = await seedRun(9);
+    // Stored as though generated before he left - a healthy, available row.
+    await seedRow(runId, playerId, {
+      available: true, activeProbability: 1, reason: null, status: null, locked: false, lockedSlot: null,
+    });
+
+    const result = await reconcileAvailability({ season: SEASON, fromWeek: 9, playerIds: [playerId], client: pool });
+    assert.equal(result.updated, 1, 'the departure reconciles normally');
+
+    const after = await readRow(runId, playerId);
+    assert.equal(after.factors.availability.reason, 'no_team');
+    assert.equal(after.factors.availability.available, false);
+    assert.equal(Number(after.active_probability), 0);
+  });
+
+  test('QA f3: a verdict that has not changed writes 0 rows - the no-op guard that keeps a full sweep cheap', async () => {
+    // The stored verdict is EXACTLY what reconcile will recompute for a
+    // healthy, on-team, non-practice-squad player: nothing should be written.
+    const playerId = await seedPlayer({ injuryStatus: null, nflTeam: 'DAL' });
+    const runId = await seedRun(10);
+    const unchanged = { available: true, activeProbability: 1, reason: null, status: null, locked: false, lockedSlot: null };
+    await seedRow(runId, playerId, unchanged);
+    const before = await readRow(runId, playerId);
+
+    const result = await reconcileAvailability({ season: SEASON, fromWeek: 10, playerIds: [playerId], client: pool });
+    assert.equal(result.checked, 1, 'the player was read');
+    assert.equal(result.updated, 0, 'an unchanged verdict is a no-op write, not a rewrite of the same value');
+
+    const after = await readRow(runId, playerId);
+    assert.deepEqual(after.factors, before.factors);
+    assert.equal(after.updated_at.getTime(), before.updated_at.getTime(), 'updated_at only moves on an actual write');
+  });
+
+  test('QA f5: liveReconcileScope picks the newest live season on a rollover overlap, not the lowest week across seasons', async () => {
+    // An old season's league is still live (week 15, never advanced past its
+    // own last week) alongside a brand-new season's league on week 1 - a
+    // week-only sort would wrongly pick the OLD season here.
+    const oldSeason = SEASON; // 2099
+    const newSeason = SEASON + 1; // 2100
+    await seedLiveLeague({ season: oldSeason, week: 15 });
+    await seedLiveLeague({ season: newSeason, week: 1 });
+
+    const scope = await liveReconcileScope(pool);
+    assert.deepEqual(scope, { season: newSeason, fromWeek: 1 }, 'the newest live season wins, its own lowest current_week');
   });
 }
