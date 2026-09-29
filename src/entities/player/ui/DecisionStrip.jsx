@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { finite, formatPoints } from '../../../shared/lib';
+import { finite, formatPoints, unavailableLabel } from '../../../shared/lib';
 
 /**
  * The decision strip (#1307, ADR 0040: "Every context adds the decision
@@ -24,7 +24,11 @@ export default function DecisionStrip({ decision, usage, ownership, depth }) {
   if (decision?.projWeek && decision.projWeek.points != null) {
     tiles.push(
       <Tile key="proj" label={`Week ${decision.projWeek.week} projection`} testId="decision-strip-proj-week">
-        {formatPoints(decision.projWeek.points)}
+        {decision.projWeek.reason
+          // #1765: an Unavailable week shows the reason, never a number
+          // (CONTEXT.md, Unavailable) - the same label map the weekly bars use.
+          ? (unavailableLabel(decision.projWeek.reason) || decision.projWeek.reason)
+          : formatPoints(decision.projWeek.points)}
       </Tile>
     );
   }

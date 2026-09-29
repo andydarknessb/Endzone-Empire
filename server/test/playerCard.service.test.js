@@ -255,6 +255,38 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   assert.equal(card.decision.projWeek.points, 14.5);
 });
 
+// #1765: the Decision strip reads the same Unavailable verdict as the weekly
+// bars - 0 plus the reason, never the engine's Point estimate for the week.
+for (const reason of ['no_team', 'out', 'ir']) {
+  test(`getPlayerCard (#1765): an Unavailable (${reason}) player's projWeek is 0 with the weekly bar's reason`, async (t) => {
+    createFakePool(buildHandlers()).install(t);
+    mockServices(t, {
+      // The engine still carries a full estimate for the week; the strip must not print it.
+      weeklyProjection: () => ({
+        mean: 14, median: 14, factors: { availability: { available: false, reason } },
+      }),
+    });
+
+    const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+    const bar = card.weeks.find((w) => w.week === LEAGUE.current_week);
+    assert.equal(bar.kind, 'unavailable');
+    assert.equal(card.decision.projWeek.points, 0);
+    assert.equal(card.decision.projWeek.reason, reason);
+    assert.equal(card.decision.projWeek.reason, bar.reason);
+  });
+}
+
+test('getPlayerCard (#1765): an available player\'s projWeek keeps the Point estimate and carries no reason', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.decision.projWeek.points, 14.5);
+  assert.equal('reason' in card.decision.projWeek, false);
+});
+
 // ---------------------------------------------------------------------------
 // #1342: decision.projWeek.opponentRankVsPosition (the opponent Factor is the
 // one producer, ranked - see projection.service.js's rankOpponentDefense)

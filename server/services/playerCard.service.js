@@ -804,6 +804,10 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     });
   }
 
+  // The effective week's own bar: `kind: 'bye' | 'unavailable'` carries a
+  // `reason`; a projected bar never does (#1765).
+  const projWeekBar = weeks.find((w) => w.week === Number(effectiveWeek));
+
   return {
     player: {
       id: player.id,
@@ -835,7 +839,11 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         // `pointsFor` never coerces a missing estimate to 0 (unlike the old
         // `pointsOf` this replaces) - restated here so the wire field keeps
         // its documented "missing -> 0" contract, never a bare `null` (#1703).
-        points: projections.pointsFor(player.id) || 0,
+        // #1765: an Unavailable week (CONTEXT.md) shows the reason instead of
+        // a number - 0 plus the SAME reason the weekly bar for that week
+        // carries, read off `weeks` rather than re-classified here.
+        points: projWeekBar && projWeekBar.reason ? 0 : (projections.pointsFor(player.id) || 0),
+        ...(projWeekBar && projWeekBar.reason ? { reason: projWeekBar.reason } : {}),
         opponent: opponentByWeek.get(Number(effectiveWeek)) ?? null,
         // #1342 Ruling: the opponent Factor is the producer, ranked. Read off
         // the same result object's `opponentRankFor` - no second query, no
