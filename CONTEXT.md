@@ -1107,11 +1107,17 @@ _Avoid_: owner line, who has him, league status
 
 **Upgrade**:
 The Weekly projection a player would add this week over the weakest starter
-at a slot he is eligible for. Undefined in a best ball league, where the
-column and tile are hidden, and for a player who is Unavailable this week
-(bye, Out, IR or No NFL team), whose pill and tile are hidden and who sorts
-last under the Upgrade sort. The same number for a free agent, a waiver
-candidate or another team's player, so it doubles as a trade-target score.
+at a slot he is eligible for. An Unavailable starter counts as zero in that
+comparison, so the Upgrade is measured over him and reads the candidate's
+full projection; the bench is not consulted, so a healthy bench player who
+could fill that slot is not netted out. The starter the Upgrade is measured
+over is the swap preview's other side; he is the claim sheet's suggested
+drop only when he is available this week. Undefined in a best ball league,
+where the column and tile are hidden, and for a player who is Unavailable
+this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
+who sorts last under the Upgrade sort. The same number for a free agent, a
+waiver candidate or another team's player, so it doubles as a trade-target
+score.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
 
 **News**:
