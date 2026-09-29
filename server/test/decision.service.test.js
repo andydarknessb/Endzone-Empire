@@ -558,7 +558,7 @@ test('tradeFairnessSummary: safely defaults missing and non-finite totals to zer
 // directly.
 // ---------------------------------------------------------------------------
 
-test('upgradeFor: sorted-by-points math holds across several candidates at the same slot', () => {
+test('upgradeFor: points is the candidate projection minus the weakest starter projection, per candidate', () => {
   const currentStarters = [{ playerId: 99, slot: 'RB', name: 'Starter RB', projection: 10 }];
   const points = [12, 20, 8].map(
     (projection) => upgradeFor({ position: 'RB', projection }, currentStarters, DEFAULT_ROSTER_SLOTS).points
@@ -566,9 +566,9 @@ test('upgradeFor: sorted-by-points math holds across several candidates at the s
   assert.deepEqual(points, [2, 10, -2]);
 });
 
-test('upgradeFor: compares against the weakest starter in ELIGIBLE slots only, and names it as overPlayer', () => {
+test('upgradeFor: a starter in a non-eligible slot is ignored, even one weaker than the eligible starters', () => {
   const currentStarters = [
-    { playerId: 10, slot: 'RB', name: 'Starter RB', projection: 1 }, // not TE-eligible, ignored
+    { playerId: 10, slot: 'RB', name: 'Starter RB', projection: 1 }, // not TE-eligible, ignored despite being weakest overall
     { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
     { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 }, // TE-eligible via FLEX, weaker
   ];

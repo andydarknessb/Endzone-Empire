@@ -945,7 +945,7 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 }
 
 // ---------------------------------------------------------------------------
-// 4. Waiver suggestions
+// 4. Upgrade (player card)
 // ---------------------------------------------------------------------------
 
 /**
