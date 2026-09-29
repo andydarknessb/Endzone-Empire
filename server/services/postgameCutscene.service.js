@@ -28,23 +28,12 @@ const weekKey = (season, week) => `${season}:${week}`;
 
 const num = (value) => (value == null ? null : Number(value));
 
-/** Pure: the earliest Kickoff (ms) of a week's `{ byTeam }` entry, null with none. */
-function earliestKickoff(entry) {
-  if (!entry) return null;
-  let earliest = null;
-  for (const kickoff of entry.byTeam.values()) {
-    const at = new Date(kickoff).getTime();
-    if (earliest === null || at < earliest) earliest = at;
-  }
-  return earliest;
-}
-
 /**
  * Pure: when this Matchup's cutscene stops being due (ms). It is only ever the
- * result that just happened (ADR 0052): it expires at the first Kickoff of the
+ * result that just happened (ADR 0052): it expires at the last Kickoff of the
  * week AFTER the Matchup's own, however far current_week has run on, so a
  * result two weeks old carries nothing over. Whenever current_week = week + 1
- * this is the league's current week's first Kickoff. When the season is
+ * this is the league's current week's last Kickoff. When the season is
  * complete, or that next week has no Kickoff on the schedule (it holds NFL
  * weeks 1-18 only), the bound is the Matchup week's last Kickoff + 7 days. With
  * no Kickoff known for either (playoff weeks past the schedule's 18), it is due
@@ -55,8 +44,8 @@ function earliestKickoff(entry) {
  */
 function expiryOf({ league, matchup, kickoffs }) {
   if (league.season_status !== 'complete') {
-    const next = earliestKickoff(kickoffs.get(weekKey(matchup.season, Number(matchup.week) + 1)));
-    if (next !== null) return next;
+    const next = kickoffs.get(weekKey(matchup.season, Number(matchup.week) + 1))?.last;
+    if (next != null) return new Date(next).getTime();
   }
   const last = kickoffs.get(weekKey(matchup.season, matchup.week))?.last;
   if (last != null) return new Date(last).getTime() + SEVEN_DAYS_MS;
