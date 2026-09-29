@@ -70,10 +70,29 @@ if (!ENABLED) {
       if (seededUserId != null) {
         await pool.query(`DELETE FROM "users" WHERE "id" = $1`, [seededUserId]);
       }
+      // QA f4's schedule fixture: every nfl_games row this file ever writes
+      // is under the out-of-range SEASON constant, so one delete by season
+      // sweeps all of them regardless of which test seeded which team/week.
+      await pool.query(`DELETE FROM "nfl_games" WHERE "season" = $1`, [SEASON]);
     } finally {
       await pool.end();
     }
   });
+
+  /** Inserts a team's regular-season schedule (weeks 1..18) for `season`,
+   * skipping `byeWeek` - exactly the shape `bye.service.computeByeWeeks`
+   * expects to derive that one gap back out of. */
+  async function seedTeamSchedule(team, season, byeWeek) {
+    const weeks = [];
+    for (let week = 1; week <= 18; week++) {
+      if (week !== byeWeek) weeks.push(week);
+    }
+    await pool.query(
+      `INSERT INTO "nfl_games" ("season", "week", "nfl_team", "kickoff_at")
+       SELECT $1, "w", $2, now() FROM unnest($3::int[]) AS "w"`,
+      [season, team, weeks]
+    );
+  }
 
   /** Inserts one live (draft-complete, season-not-complete) fantasy league
    * and returns its id, tracked for cleanup. Lazily seeds the one owning
@@ -248,6 +267,33 @@ if (!ENABLED) {
     assert.equal(after.updated_at.getTime(), before.updated_at.getTime());
   });
 
+  test('QA f4: a signed ex-no_team player with a resolvable schedule gets a real per-week verdict - his new team\'s bye week becomes bye, every other week reconciles', async () => {
+    const team = 'HOU'; // distinct from the other no-schedule cases in this file
+    const byeWeek = 12; // weeks 5-11 are already claimed by earlier tests' seedRun() calls
+    await seedTeamSchedule(team, SEASON, byeWeek);
+    const playerId = await seedPlayer({ injuryStatus: null, nflTeam: team });
+    const byeRunId = await seedRun(byeWeek);
+    const otherRunId = await seedRun(byeWeek + 1);
+    for (const runId of [byeRunId, otherRunId]) {
+      await seedRow(runId, playerId, {
+        available: false, activeProbability: 0, reason: 'no_team', status: null, locked: false, lockedSlot: null,
+      });
+    }
+
+    const result = await reconcileAvailability({ season: SEASON, fromWeek: byeWeek, playerIds: [playerId], client: pool });
+    assert.equal(result.updated, 2, 'both rows (his bye week and the week after) reconcile');
+
+    const byeRow = await readRow(byeRunId, playerId);
+    assert.equal(byeRow.factors.availability.reason, 'bye', 'his new team\'s real bye week stays unavailable');
+    assert.equal(byeRow.factors.availability.available, false);
+    assert.equal(Number(byeRow.active_probability), 0);
+
+    const otherRow = await readRow(otherRunId, playerId);
+    assert.equal(otherRow.factors.availability.reason, null, 'every other week reconciles to his real, healthy verdict');
+    assert.equal(otherRow.factors.availability.available, true);
+    assert.equal(Number(otherRow.active_probability), 1);
+  });
+
   test("QA f1: the no_team guard does not block the OTHER direction - a departed player's row still reconciles to no_team", async () => {
     const playerId = await seedPlayer({ injuryStatus: null, nflTeam: null }); // already departed
     const runId = await seedRun(9);
@@ -267,10 +313,18 @@ if (!ENABLED) {
 
   test('QA f3: a verdict that has not changed writes 0 rows - the no-op guard that keeps a full sweep cheap', async () => {
     // The stored verdict is EXACTLY what reconcile will recompute for a
-    // healthy, on-team, non-practice-squad player: nothing should be written.
+    // healthy, on-team, non-practice-squad player: nothing should be
+    // written. `autoRecommend: true` is part of that exact shape -
+    // unavailableFor's healthy branch (unavailable.js) sets it, and
+    // omitting it here (an earlier draft of this fixture did) makes the
+    // stored and recomputed jsonb objects genuinely UNEQUAL, so the row
+    // legitimately gets rewritten - caught by a real-Postgres run, not the
+    // mockPool suite (jsonb structural equality is a real-Postgres claim).
     const playerId = await seedPlayer({ injuryStatus: null, nflTeam: 'DAL' });
     const runId = await seedRun(10);
-    const unchanged = { available: true, activeProbability: 1, reason: null, status: null, locked: false, lockedSlot: null };
+    const unchanged = {
+      available: true, autoRecommend: true, activeProbability: 1, reason: null, status: null, locked: false, lockedSlot: null,
+    };
     await seedRow(runId, playerId, unchanged);
     const before = await readRow(runId, playerId);
 
@@ -283,16 +337,44 @@ if (!ENABLED) {
     assert.equal(after.updated_at.getTime(), before.updated_at.getTime(), 'updated_at only moves on an actual write');
   });
 
+  test('QA f2: a verdict that has not changed writes 0 rows even with a NON-null stored reason (an O player stored as out)', async () => {
+    // The f3 case above seeds reason: null (healthy) - and at the pre-fix
+    // head that test PASSED for the wrong reason, because the f1 NULL-logic
+    // bug made every healthy-stored row a no-op regardless of the real
+    // IS DISTINCT FROM guard (CI's own red). This case pins the guard
+    // independently of that bug: a NON-null unchanged reason must still be
+    // a no-op write.
+    const playerId = await seedPlayer({ injuryStatus: 'O', nflTeam: 'DAL' });
+    const runId = await seedRun(11);
+    const unchanged = { available: false, activeProbability: 0, reason: 'out', status: 'O', locked: false, lockedSlot: null };
+    await seedRow(runId, playerId, unchanged);
+    const before = await readRow(runId, playerId);
+
+    const result = await reconcileAvailability({ season: SEASON, fromWeek: 11, playerIds: [playerId], client: pool });
+    assert.equal(result.checked, 1);
+    assert.equal(result.updated, 0, 'the O -> out verdict already matches what is stored');
+
+    const after = await readRow(runId, playerId);
+    assert.deepEqual(after.factors, before.factors);
+    assert.equal(after.updated_at.getTime(), before.updated_at.getTime());
+  });
+
   test('QA f5: liveReconcileScope picks the newest live season on a rollover overlap, not the lowest week across seasons', async () => {
-    // An old season's league is still live (week 15, never advanced past its
-    // own last week) alongside a brand-new season's league on week 1 - a
-    // week-only sort would wrongly pick the OLD season here.
+    // The old season's league sits on the LOWER week (1) and the new
+    // season's on a HIGHER one (3) - deliberately, so a week-only
+    // `ORDER BY current_week ASC` (1 < 3) would ALSO return the old season
+    // here, and this test could not tell that ordering apart from the
+    // season-first one it actually pins (re-QA f3: the original version of
+    // this test - old week 15, new week 1 - passed under EITHER ordering,
+    // since week-only already preferred week 1 too). Only `ORDER BY
+    // current_season DESC, current_week ASC` picks the new season despite
+    // its higher week.
     const oldSeason = SEASON; // 2099
     const newSeason = SEASON + 1; // 2100
-    await seedLiveLeague({ season: oldSeason, week: 15 });
-    await seedLiveLeague({ season: newSeason, week: 1 });
+    await seedLiveLeague({ season: oldSeason, week: 1 });
+    await seedLiveLeague({ season: newSeason, week: 3 });
 
     const scope = await liveReconcileScope(pool);
-    assert.deepEqual(scope, { season: newSeason, fromWeek: 1 }, 'the newest live season wins, its own lowest current_week');
+    assert.deepEqual(scope, { season: newSeason, fromWeek: 3 }, 'the newest live season wins even though its own current_week is HIGHER');
   });
 }
