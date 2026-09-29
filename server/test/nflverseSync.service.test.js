@@ -439,8 +439,6 @@ test('optionalTeamAbbr is null-preserving where nflverseTeamToOurAbbr answers a 
   assert.equal(optionalTeamAbbr('kc'), 'KC');
 });
 
-// --- nflverse-only keys are the ones the Tank01 path carries forward ---------
-
 test('buildFullStatUpdates joins via the crosswalk and skips unknown players', () => {
   const rows = [
     { player_id: '00-0039924', passing_yards: '300' },

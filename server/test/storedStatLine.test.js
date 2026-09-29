@@ -179,6 +179,13 @@ test('week patch against a mixed prior leaves every key it does not own alone', 
   assert.equal(out.usageTargets, 9);
 });
 
+test('week patch against an nflverse-only prior replaces its own keys and keeps the rest', () => {
+  const out = stats(storedStatLine({
+    source: 'nflverse-week', fresh: { idpSackYards: 11, usageTargetShare: 0.5, epaReceiving: null }, prior: NFLVERSE_ONLY_PRIOR,
+  }));
+  assert.deepEqual(out, { ...NFLVERSE_ONLY_PRIOR, idpSackYards: 11, usageTargetShare: 0.5, epaReceiving: null });
+});
+
 test('week patch ignores a fresh key it does not own', () => {
   const out = stats(storedStatLine({ source: 'nflverse-week', fresh: { idpSackYards: 1, passingYards: 999 }, prior: BOX_ONLY_PRIOR }));
   assert.equal(out.passingYards, 100);
@@ -201,6 +208,11 @@ test('snap patch applied onto a prior line, box-only and mixed', () => {
   assert.equal(mixed.usageDefenseSnaps, null);
   assert.equal(mixed.usageTargets, 9);
   assert.deepEqual(mixed.passingTDLengths, [40]);
+});
+
+test('snap patch against an nflverse-only prior replaces the snap keys and keeps the rest', () => {
+  const out = stats(storedStatLine({ source: 'nflverse-snaps', fresh: SNAP_FRESH, prior: NFLVERSE_ONLY_PRIOR }));
+  assert.deepEqual(out, { ...NFLVERSE_ONLY_PRIOR, ...SNAP_FRESH });
 });
 
 test('snap patch onto an empty-object prior still patches (a row exists)', () => {

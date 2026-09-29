@@ -1001,10 +1001,10 @@ function buildCorrectionUnits({ weekPlayerRows, weekTeamRows }) {
  * apply(db, unit) for the 'nflverse-correction' Sync run: one game's COMPLETE
  * player_stats rows from already-fetched nflverse data - full stat lines for
  * every crosswalk-matched player plus the game's DST rows - on the unit's own
- * transaction client (ADR 0036). Same wholesale-jsonb upsert the Tank01 path
- * uses, so the write module carries forward the stat keys nflverse has no
- * equivalent for (prior lines read here, on the same client, for just this
- * unit's rows).
+ * transaction client (ADR 0036). The write module (source
+ * 'nflverse-correction') replaces the keys nflverse owns and carries forward
+ * every key it does not (the play-by-play TD-length arrays, the snap keys),
+ * from prior lines read here on the same client for just this unit's rows.
  * No league re-score, no play events.
  */
 async function applyNflverseFullWeek(db, unit) {

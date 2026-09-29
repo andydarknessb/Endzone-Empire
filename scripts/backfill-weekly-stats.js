@@ -5,10 +5,10 @@
  * For each target season: ensures the nfl_games schedule exists (syncing it
  * if the season has none), pulls every week's box scores via
  * scoring.syncWeekStats (idempotent upserts on player_id/season/week), then
- * re-applies the nflverse IDP finalization patch — mandatory ordering,
- * because the Tank01 upsert replaces the stats jsonb wholesale and would
- * otherwise wipe the nflverse-only keys (idpSackYards etc.) from any
- * previously finalized week.
+ * re-applies the nflverse IDP finalization patch — mandatory ordering:
+ * the Tank01 box replaces only the keys it owns, so the patch that adds the
+ * nflverse-only keys (idpSackYards etc.) goes last, and a week whose patch
+ * was never applied gets it.
  *
  * A week whose box-score calls partially fail is detected by comparing
  * gamesProcessed against the schedule's game count and retried whole —
@@ -38,10 +38,10 @@
  * --source nflverse builds COMPLETE weeks (offense + IDP + kicking with
  * exact FG distances + team DST) from nflverse's free release CSVs instead
  * of Tank01 — zero RapidAPI calls, no rate limits. Only run it for weeks
- * Tank01 didn't fill: its wholesale upsert would drop the pbp-derived
- * TD-length arrays from a Tank01-sourced week (0-point under default rules,
- * but the Tank01 shape is canonical). A later Tank01 re-sync of an
- * nflverse-filled week safely converges it. The separate nflverse IDP patch
+ * Tank01 didn't fill, or accept that the nflverse values replace the ones it
+ * owns (the write module's ownership table): the pbp-derived TD-length arrays
+ * and the snap keys from a Tank01-sourced week are carried, not dropped. A
+ * later Tank01 re-sync of an nflverse-filled week converges it. The separate nflverse IDP patch
  * pass is skipped in this mode — the full rows already carry those keys.
  */
 require('dotenv').config();

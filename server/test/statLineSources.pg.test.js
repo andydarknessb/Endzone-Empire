@@ -109,6 +109,7 @@ if (!ENABLED) {
     await boxApply({ passingYards: 250, passingTDs: 2, passingTDLengths: [30, 10], receptions: 0 });
     const afterBox = await stored();
     assert.equal(afterBox.stats.passingYards, 250);
+    assert.equal(afterBox.points, 18, '250 yards at 0.04 plus two touchdowns at 4');
     assert.deepEqual(afterBox.stats.passingTDLengths, [30, 10]);
 
     // 2. the nflverse week unit patches its owned keys onto that line.
@@ -122,6 +123,7 @@ if (!ENABLED) {
     assert.equal(afterWeek.stats.passingYards, 250, 'the box keys survive the patch');
     assert.deepEqual(afterWeek.stats.passingTDLengths, [30, 10]);
     assert.equal(afterWeek.stats.idpSackYards, 5);
+    assert.equal(afterWeek.points, 18, 'the unscored patch keys move no points');
     assert.equal(afterWeek.stats.usageTargetShare, 0.3);
     assert.equal(afterWeek.stats.epaReceiving, 1.5);
 
@@ -147,6 +149,7 @@ if (!ENABLED) {
     assert.equal(afterSnaps.stats.usageOffenseSnapPct, 0.93);
     assert.equal(afterSnaps.stats.usageTargetShare, 0.3, 'the week keys survive the snap patch');
     assert.equal(afterSnaps.stats.passingYards, 250);
+    assert.equal(afterSnaps.points, 18, 'snap keys are unscored');
 
     // 4. the correction replaces the value it owns and carries what it does not.
     const correction = await syncNflverseCorrection({
@@ -168,6 +171,7 @@ if (!ENABLED) {
     const afterCorrection = await stored();
     assert.equal(afterCorrection.stats.passingYards, 260, 'the correction value replaces the box value');
     assert.equal(afterCorrection.stats.passingTDs, 3);
+    assert.equal(afterCorrection.points, 22.4, '260 yards at 0.04 plus three touchdowns at 4');
     assert.notEqual(afterCorrection.points, afterBox.points, 'the corrected line is scored again');
     assert.deepEqual(afterCorrection.stats.passingTDLengths, [30, 10], 'touchdown-length lists survive the correction');
     assert.equal(afterCorrection.stats.usageOffenseSnaps, 61, 'snap keys survive the correction');
@@ -180,6 +184,7 @@ if (!ENABLED) {
     const afterSecondBox = await stored();
     assert.equal(afterSecondBox.stats.passingYards, 255, 'the box value replaces the correction value');
     assert.deepEqual(afterSecondBox.stats.passingTDLengths, [30, 10, 5]);
+    assert.equal(afterSecondBox.points, 22.2, '255 yards at 0.04 plus three touchdowns at 4');
     assert.equal(afterSecondBox.stats.usageOffenseSnaps, 61, 'snap keys survive the second box apply');
     assert.equal(afterSecondBox.stats.usageTargetShare, 0.35);
     assert.equal(afterSecondBox.stats.idpSackYards, 5);

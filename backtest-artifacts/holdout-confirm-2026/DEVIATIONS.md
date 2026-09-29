@@ -74,10 +74,9 @@ as six new `player_stats.stats` keys (`usageTargetShare`,
 `usageAirYardsShare`, `usageWopr`, `epaPassing`, `epaRushing`,
 `epaReceiving`), read null-preserving the same as the existing `usage*`
 columns (a blank column stays unknown, never a fabricated 0). All six are
-kept out of the box path's way (then by the box path's carry list, since #1760 by
-the ownership table in `server/services/playerStatsWrite.service.js`, where they
-are not `box` keys) so a later Tank01 box-score re-apply carries them forward
-instead of erasing them, and none is added to `STAT_KEY_PATHS`
+added to `NFLVERSE_ONLY_STAT_KEYS` (`server/services/boxScoreApply.service.js`)
+so a later Tank01 box-score re-apply carries them forward instead of erasing
+them, and none is added to `STAT_KEY_PATHS`
 (`server/services/scoringRules.js`): they are not scored and never change
 `fantasy_points`. No existing `player_stats.stats` key is rewritten and no
 new `player_stats` row is inserted as a side effect — the write is the same
