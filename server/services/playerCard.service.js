@@ -123,10 +123,10 @@ async function loadIdentityIds(playerId) {
 
 /**
  * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
- * the caller's lineup exactly as `decision.service.waiverSuggestions` does,
+ * the caller's lineup inside a transaction (withTransaction + materializeLineup,
+ * same pattern commissioner.service.js's forceSetLineup uses at :150-165),
  * then makes ONE `getWeeklyProjections` call covering both the caller's
- * current starters and every requested `playerIds`, so the Weekly projection
- * behind
+ * current starters and every requested `playerIds`, so the Weekly projection behind
  * `decision.projWeek.points` and the one behind `decision.upgrade` are the
  * same producer call (Ruling item 2). `upgrades` is `null` for a player on
  * the caller's own roster (checked over the FULL identity set `loadIdentityIds`
@@ -155,9 +155,8 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       );
       return result.rows;
     },
-    // Distinct from decision.service.js's own 'decision' label - the guard
-    // (scripts/handRolledTransactionGuard.test.js) requires every
-    // withTransaction call site to carry a unique label.
+    // A unique label - the guard (scripts/handRolledTransactionGuard.test.js)
+    // requires every withTransaction call site to carry one.
     { label: 'player-card' }
   );
 

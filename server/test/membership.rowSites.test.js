@@ -77,10 +77,10 @@ function fakeDb(t, { member = null, overrides = [] } = {}) {
     // entry does not register the READS that sit between a gate and its first
     // write, and several services have some. Fully load-bearing today are
     // PUT /queue and the dropPlayer locked-team case, where nothing
-    // unregistered sits in between. At submitClaim, undoDrop, setLineup and
-    // waiverSuggestions a moved gate still dies on an unregistered SELECT
-    // first, so those FOUR keep partial incidental protection and their counts
-    // are a floor rather than the whole proof. setLineup's is
+    // unregistered sits in between. At submitClaim, undoDrop and setLineup a
+    // moved gate still dies on an unregistered SELECT first, so those THREE
+    // keep partial incidental protection and their counts are a floor rather
+    // than the whole proof. setLineup's is
     // `SELECT 1 FROM "matchups" ... "final" = true`, which materializeLineup
     // reaches through isFinalWeekForTeam and which only the MEMBER half of
     // that test registers as an override. Registering these reads is the
@@ -147,20 +147,13 @@ const rejectsAsNonMember = (promise) => assert.rejects(promise, (error) => {
 /**
  * #274: a membership refusal must prove the row site never wrote.
  *
- * Seven of the eight sites refuse INSIDE an open transaction, several of them
- * only after a league read and a lock check, so "nothing has happened yet" is
+ * All seven sites refuse INSIDE an open transaction, several of them only
+ * after a league read and a lock check, so "nothing has happened yet" is
  * not a defence: a requireMember moved below the write would write, roll back,
  * and rethrow the identical 403.
  *
- * waiverSuggestions is the exception and is worth knowing about rather than
- * glossing: its requireMember runs on the POOL (decision.service.js:867),
- * before pool.connect() and BEGIN. Its write still needs proving - the
- * materializeLineup INSERT lives in a transaction it opens later - but the
- * gate itself is not inside one, so do not reason about it from the rule
- * above.
- *
  * The count is over every write verb rather than one table because these are
- * eight different services with eight different write sets, and the property
+ * seven different services with seven different write sets, and the property
  * being asserted is the same for all of them: a refused caller changes
  * nothing.
  *
@@ -364,16 +357,6 @@ test('lineup service: getLineup refuses a non-member; setLineup locks the member
     /stop after gate/
   );
   assert.match(teamLookups(calls)[0].text, /FOR UPDATE$/);
-});
-
-test('decision service: waiverSuggestions refuses a non-member with the standard 403', async (t) => {
-  const decisions = require('../services/decision.service');
-  const calls = fakeDb(t);
-  await rejectsAsNonMember(decisions.waiverSuggestions({ leagueId: 3, userId: CALLER }));
-  // Easy to mistake for read-only: waiverSuggestions reads like a query but
-  // calls materializeLineup inside its own BEGIN/COMMIT, so it really does
-  // INSERT lineup_entries rows.
-  assertNoWrites(calls, 'waiverSuggestions');
 });
 
 // --- waivers router ---------------------------------------------------------

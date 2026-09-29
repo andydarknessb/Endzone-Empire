@@ -487,6 +487,22 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(byId(6).availability).toEqual({ available: true, reason: null });
   });
 
+  test('positionBaseline is the wire boolean passed through, false when absent, and never makes him Unavailable (#1776)', () => {
+    const entries = lineupEntries(
+      [
+        row({ id: 1, slot: 'QB', positionBaseline: true, unavailable: null }),
+        row({ id: 2, name: 'Evidenced', slot: 'TE', positionBaseline: false, unavailable: null }),
+        row({ id: 3, name: 'Absent', slot: 'FLEX', position: 'WR' }),
+      ],
+      league
+    );
+    const byId = (id) => entries.find((e) => e.playerId === id);
+    expect(byId(1).positionBaseline).toBe(true);
+    expect(byId(1).availability).toEqual({ available: true, reason: null });
+    expect(byId(2).positionBaseline).toBe(false);
+    expect(byId(3).positionBaseline).toBe(false);
+  });
+
   // #1502: eligibleSlots is no longer this module's own fact - it is built by
   // the Roster template entity's `slotsFor(rosterSlots, entry)`
   // (rosterTemplateModel.js), fed the same league.roster_slots this function

@@ -4,8 +4,10 @@ import { visuallyHidden } from '@mui/utils';
 import { GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
 import {
   formatPoints,
+  hasNoHistory,
   initialsFor,
   monogramInk,
+  projectionLabel,
   unavailableLabel,
   MIN_TOUCH_TARGET_SX,
   NFL_TEAM_COLORS,
@@ -138,8 +140,12 @@ function GameCell({ view }) {
 // a live-to-final transition the Realtime channel already knows about,
 // even though the server's own `edge.text` only refreshes on the next
 // lineup fetch.
-function EdgeLine({ edge, gameCellKind }) {
+function EdgeLine({ edge, gameCellKind, noHistory }) {
   if (!edge || edge.kind === 'none' || !edge.text) return null;
+  // No "Outprojects" comparison with a Position-baseline projection (#1776).
+  // The server already declines to build one for either side; this row-side
+  // guard keeps a stale or hand-built edge from printing one on this row.
+  if (noHistory && edge.kind === 'bench-above-starter') return null;
   const kind = displayEdgeKind(edge.kind, gameCellKind);
   return (
     <Box
@@ -251,7 +257,7 @@ export default function LedgerRow({
     ? null
     : unavailable
       ? unavailableLabel(entry.availability.reason) || 'unavailable'
-      : formatPoints(entry.projectedPoints);
+      : projectionLabel(entry);
   // The points cell (AC2/AC3): the entry's actual/live fantasy points once
   // his game is live or final, a dash reserved for an Unavailable row (never
   // plays) and for a pre-kickoff row (nothing scored yet) alike -
@@ -418,7 +424,7 @@ export default function LedgerRow({
                     from the glossary's Free agent (league availability). */}
                 {`${entry.position ?? ''} · ${entry.nflTeam || 'FA'}`}
               </Typography>
-              <EdgeLine edge={entry.edge} gameCellKind={view?.kind} />
+              <EdgeLine edge={entry.edge} gameCellKind={view?.kind} noHistory={hasNoHistory(entry)} />
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

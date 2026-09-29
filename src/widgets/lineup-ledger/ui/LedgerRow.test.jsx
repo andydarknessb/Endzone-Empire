@@ -191,6 +191,96 @@ test('a bench row headlines projectedPoints and carries the bench-above-starter 
   expect(line).toHaveTextContent('Outprojects DK Metcalf at FLEX');
 });
 
+// #1776 (spec #1774): a Position-baseline projection is the position's
+// average, not this player's evidence, so the headline reads "no history" and
+// no number. His Game status tag keeps showing; an Unavailable reason wins.
+test('a Position-baseline row headlines "no history" and no number (#1776)', () => {
+  render(
+    <LedgerRow
+      slotLabel="BENCH"
+      entry={entry({ name: 'Carson Beck', slot: 'BENCH', projectedPoints: 15.37, positionBaseline: true })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  const projection = screen.getByTestId('ledger-projection');
+  expect(projection).toHaveTextContent('no history');
+  expect(projection).not.toHaveTextContent(/\d/);
+});
+
+test('a Questionable or Doubtful Position-baseline row shows "no history" plus his Game status tag (#1776)', () => {
+  const { rerender } = render(
+    <LedgerRow
+      slotLabel="BENCH"
+      entry={entry({ slot: 'BENCH', positionBaseline: true, projectedPoints: 15.37, injuryStatus: 'Q' })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no history');
+  expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'pre');
+
+  rerender(
+    <LedgerRow
+      slotLabel="BENCH"
+      entry={entry({ slot: 'BENCH', positionBaseline: true, projectedPoints: 15.37, injuryStatus: 'D' })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no history');
+  expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'D');
+  expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'pre');
+});
+
+test.each([
+  ['bye', 'on bye'],
+  ['out', 'out'],
+  ['ir', 'on IR'],
+  ['no_team', 'no team'],
+])('an Unavailable %s row shows its reason, not "no history" (#1776)', (reason, label) => {
+  render(
+    <LedgerRow
+      slotLabel="BENCH"
+      entry={entry({ slot: 'BENCH', positionBaseline: true, availability: { available: false, reason } })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent(label);
+  expect(screen.getByTestId('ledger-projection')).not.toHaveTextContent('no history');
+});
+
+test('a wire Position-baseline entry headlines "no history" through the entity model (#1776)', () => {
+  const league = { roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  const [wireEntry] = lineupEntries([{
+    id: 9, name: 'Backup QB', position: 'QB', nfl_team: 'ARI', slot: 'BENCH', projected_points: 15.37,
+    injury_status: null, opponent: null, bye_week: null, locked: false, onBye: false,
+    valid_stash: false, unavailable: null, positionBaseline: true,
+  }], league);
+  render(<LedgerRow slotLabel="BENCH" entry={wireEntry} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no history');
+});
+
+test('the Edge line shows no "Outprojects" text on a Position-baseline row (#1776)', () => {
+  render(
+    <LedgerRow
+      slotLabel="BENCH"
+      entry={entry({
+        slot: 'BENCH',
+        positionBaseline: true,
+        projectedPoints: 15.37,
+        edge: { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' },
+      })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.queryByTestId('ledger-edge-line')).toBeNull();
+  expect(screen.queryByText(/Outprojects/)).toBeNull();
+});
+
 test('an available row with actual points (live or final) shows them in the points cell', () => {
   render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('12.4');

@@ -245,8 +245,8 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   assert.equal(combinedIdsCalls.length, 1, 'loadUpgradeContext makes exactly ONE combined-ids call');
   assert.equal(combinedIdsCalls[0].season, LEAGUE.current_season);
   assert.equal(combinedIdsCalls[0].week, LEAGUE.current_week);
-  // formal review f2: the ticket exists because waiverSuggestions calls
-  // getWeekProjections with no `league` (routes to default-scoring pool
+  // formal review f2: the ticket exists because the legacy pool-projection
+  // path called getWeekProjections with no `league` (default-scoring pool
   // extrapolation) - assert the actual call carries the league object and
   // the player, not just that A call happened, so dropping `league` here
   // goes red.

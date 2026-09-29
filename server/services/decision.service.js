@@ -1,16 +1,12 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
 // The two service objects are kept whole (rather than destructured) where the
 // call is a seam a test needs to replace: a destructured binding is captured at
 // require time and cannot be mocked afterwards.
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
-const { requireMember } = require('./leagueMembership.service');
 const {
-  getWeekProjections,
   getTradeProjectionMetrics,
 } = require('./projection.service');
-const { poolPointsFor } = require('./poolProjection');
 const {
   optimalLineup,
   parseLineupSettings,
@@ -82,15 +78,16 @@ function finiteNumber(value) {
  * Availability is applied BEFORE optimization, not as a haircut afterwards:
  * a player on a bye, ruled Out, or on IR is not a candidate at all; a locked
  * starter is pinned to his slot; a locked bench player can never be started;
- * and a Doubtful bench player is never auto-promoted over a healthy starter,
- * because there is no reliable active-probability data to make that trade
- * against (see unavailableFor).
+ * and a Doubtful bench player, or a Position-baseline one (#1775: his number
+ * is the position's average, not his own evidence), is never auto-promoted
+ * over a healthy starter, because there is no reliable data to make that
+ * trade against (see unavailableFor).
  *
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
- * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor` accessors and its
- * own `projections` map (the raw run entries, for the full distribution and
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`
+ * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
@@ -122,6 +119,9 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       nflRosterStatus: entry.nflRosterStatus ?? null,
       locked: entry.locked,
       lockedSlot: entry.slot,
+      // A Position-baseline projection is never auto-recommended (#1775),
+      // through the same branch Doubtful uses below.
+      positionBaseline: projections.positionBaselineFor(entry.playerId),
     });
     availabilityById.set(entry.playerId, availability);
     if (entry.slot === IR) continue; // IR is never a lineup candidate
@@ -131,7 +131,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       continue;
     }
     if (!availability.available) continue; // bye / Out / IR designation
-    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful on the bench
+    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful or Position-baseline on the bench
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
@@ -949,7 +949,7 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 }
 
 // ---------------------------------------------------------------------------
-// 4. Waiver suggestions
+// 4. Upgrade (player card)
 // ---------------------------------------------------------------------------
 
 /**
@@ -977,20 +977,17 @@ function weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots) {
 /**
  * Pure: how much `candidate` (`{ position, projection }`) upgrades the
  * caller's weakest current starter at a slot he is eligible for (FLEX
- * included). `points` is the exact `upgradeDelta` math `rankWaiverCandidates`
- * uses below, so the two never disagree. When no starter sits at an eligible
- * slot the weakest is treated as 0 and `overPlayer`/`slot` are both null
- * (issue #1306 Ruling item 1).
+ * included). When no starter sits at an eligible slot the weakest is
+ * treated as 0 and `overPlayer`/`slot` are both null (issue #1306 Ruling
+ * item 1).
  *
  * `overPlayer.points` (Ruling on #1793, option B) is the SAME effective
  * projection `weakestEligibleStarter` compared against - his zeroed value
  * when `currentStarters` marked him Unavailable, never his raw estimate - so
  * a client reading it alongside the candidate's own Weekly projection gets
  * two numbers that add up to `points`. `overPlayer.unavailable` carries the
- * reason (or null), straight from `currentStarters` when the caller
- * populated it (`playerCard.service.js`'s `loadUpgradeContext` does;
- * `rankWaiverCandidates`/`waiverSuggestions` below do not, and read `null`
- * here in that case, unrelated to this ticket).
+ * reason (or null), straight from `currentStarters` (`playerCard.service.js`'s
+ * `loadUpgradeContext` populates it).
  */
 function upgradeFor(candidate, currentStarters, rosterSlots) {
   const eligibleSlots = eligibleSlotsFor(candidate.position, rosterSlots);
@@ -1011,94 +1008,6 @@ function upgradeFor(candidate, currentStarters, rosterSlots) {
   };
 }
 
-/**
- * Pure: rank free-agent candidates by how much they'd upgrade the weakest
- * current starter among the slots they're eligible for (FLEX included).
- * candidates: [{ playerId, name, position, nflTeam, projection }].
- * currentStarters: [{ playerId, slot, projection }] (starting slots only).
- * Returns the top 25, each annotated with weakestStarterProjection and
- * upgradeDelta, sorted by upgradeDelta descending. `upgradeDelta` is always
- * `upgradeFor(candidate, currentStarters, rosterSlots).points` for the same
- * row - both read the same `weakestEligibleStarter` helper.
- */
-function rankWaiverCandidates(candidates, currentStarters, rosterSlots) {
-  const eligibleSlotsByPosition = new Map();
-
-  const ranked = candidates.map((candidate) => {
-    if (!eligibleSlotsByPosition.has(candidate.position)) {
-      eligibleSlotsByPosition.set(candidate.position, eligibleSlotsFor(candidate.position, rosterSlots));
-    }
-    const eligibleSlots = eligibleSlotsByPosition.get(candidate.position);
-    const weakest = weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots);
-    const weakestStarterProjection = weakest ? (Number(weakest.projection) || 0) : 0;
-    const upgradeDelta = round2((Number(candidate.projection) || 0) - weakestStarterProjection);
-    return { ...candidate, weakestStarterProjection: round2(weakestStarterProjection), upgradeDelta };
-  });
-
-  ranked.sort((a, b) => b.upgradeDelta - a.upgradeDelta);
-  return ranked.slice(0, 25);
-}
-
-/** Waiver-wire suggestions for the caller's team: unrostered players ranked as upgrades. */
-async function waiverSuggestions({ leagueId, userId, season, week }) {
-  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-  const league = leagueResult.rows[0];
-  if (!league) throw new DecisionError(404, 'league not found');
-  const team = await requireMember(pool, { leagueId, userId });
-
-  const effectiveSeason = season || league.current_season;
-  const effectiveWeek = week || league.current_week;
-  const settings = parseLineupSettings(league);
-  const projections = await getWeekProjections({ season: effectiveSeason, week: effectiveWeek });
-
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The pre-transaction reads and the 404 refusal
-  // above run on the ambient pool, before the transaction exists. This
-  // transaction only materializes the lineup and reads it back; no early
-  // return and no catch-side mapping.
-  const starterRows = await withTransaction(
-    pool,
-    async (client) => {
-      await materializeLineup(client, {
-        leagueId, teamId: team.id, season: effectiveSeason, week: effectiveWeek, league,
-      });
-      const result = await client.query(
-        `SELECT "player_id", "slot" FROM "lineup_entries"
-         WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3 AND "slot" NOT IN ('BENCH', 'IR')`,
-        [team.id, effectiveSeason, effectiveWeek]
-      );
-      return result.rows;
-    },
-    { label: 'decision' }
-  );
-
-  const currentStarters = starterRows.map((r) => ({
-    playerId: r.player_id,
-    slot: r.slot,
-    projection: poolPointsFor(projections, r.player_id) || 0,
-  }));
-
-  const availableResult = await pool.query(
-    `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team"
-     FROM "players"
-     WHERE NOT EXISTS (
-       SELECT 1 FROM "team_players"
-       WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = "players"."id"
-     )`,
-    [leagueId]
-  );
-  const candidates = availableResult.rows.map((p) => ({
-    playerId: p.id,
-    name: p.name,
-    position: p.position,
-    nflTeam: p.nfl_team,
-    projection: poolPointsFor(projections, p.id) || 0,
-  }));
-
-  const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.rosterSlots);
-  return { suggestions };
-}
-
 module.exports = {
   DecisionError,
   buildSuggestions,
@@ -1110,7 +1019,5 @@ module.exports = {
   tradeVerdict,
   tradeFairnessSummary,
   analyzeTrade,
-  rankWaiverCandidates,
   upgradeFor,
-  waiverSuggestions,
 };

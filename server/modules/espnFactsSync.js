@@ -210,11 +210,26 @@ function applyRosterStatusUnit(capturedDate) {
  * never fails the run; every team failing (or the consecutive-failure breaker
  * tripping) fails it, as the depth-chart run does. `now` is handled exactly as
  * `runDepthChartSync` handles it (`capturedDate` local day, `detail.day` UTC).
+ *
+ * #1789: a full `reconcileAvailability` sweep follows an OK run - a moved-to-
+ * or -off-practice-squad row (or the 48h staleness expiry, #1767) is exactly
+ * this job's own kind of fact change, and `applyRosterStatusUnit` only knows
+ * each team's row count, not which players actually moved, so there is no id
+ * list to scope a targeted reconcile to the way the injury sync's changed
+ * ids do (#1789 ruling item 1). The sweep runs AFTER `runSyncJob` resolves,
+ * on the pool - every unit's own transaction has already committed by then,
+ * so there is no ambient transaction to protect with a SAVEPOINT the way
+ * `syncInjuries` protects its in-transaction call; a reconcile failure here
+ * simply starts and ends its own connection and is logged, never thrown,
+ * matching every other trigger's "log and continue" rule. `runSyncJob`
+ * rejects on a failed or fetch_failed run (this job has no refusal path), so
+ * throwing out of the `await` below already skips the sweep - it needs no
+ * ok-check of its own.
  */
 async function runRosterStatusSync({ now = new Date(), transport } = {}) {
   const capturedDate = today(now);
   const day = cadence.utcDateKey(now);
-  return runSyncJob({
+  const result = await runSyncJob({
     job: 'espn-roster-status',
     fetch: async () => ({
       units: await sweepTeams({
@@ -225,6 +240,14 @@ async function runRosterStatusSync({ now = new Date(), transport } = {}) {
     }),
     apply: applyRosterStatusUnit(capturedDate),
   });
+  try {
+    const { reconcileAvailability, liveReconcileScope } = require('../services/projection.service');
+    const scope = await liveReconcileScope();
+    if (scope) await reconcileAvailability({ ...scope, now });
+  } catch (err) {
+    console.error('roster status sync: availability reconcile failed, continuing:', err.message);
+  }
+  return result;
 }
 
 /** fetch() for the Ownership job: one bulk call for the whole pool, outside

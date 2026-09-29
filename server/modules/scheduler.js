@@ -1053,6 +1053,23 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   }
 
   lastProjectionFillDay = today;
+  // #1789: belt and braces after the fill itself - a day both the injury
+  // sync and the roster-status sync fail still owes a fresh verdict for the
+  // 48h practice-squad expiry and a No NFL team clear, and this job runs
+  // regardless of either. A full sweep (no id list: the fill just touched
+  // every live league's players, not a "who changed" set) on the pool, after
+  // `runSyncJob` has already committed every unit's own transaction above -
+  // same reasoning as the roster-status sync's sweep, no ambient transaction
+  // to protect with a SAVEPOINT. Logged and swallowed, never thrown: a
+  // reconcile failure must not turn a real fill into a failed run the
+  // cadence gate retries.
+  try {
+    const projection = require('../services/projection.service');
+    const scope = await projection.liveReconcileScope();
+    if (scope) await projection.reconcileAvailability({ ...scope, now });
+  } catch (err) {
+    console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
+  }
   // `runSyncJob` resolves to the single unit's own return value when exactly
   // one unit ran, or `{ results: [...] }` for zero or more than one (never
   // a refusal: `fetch` above has no refusal path).
