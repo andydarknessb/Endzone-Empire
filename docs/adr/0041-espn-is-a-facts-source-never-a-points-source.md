@@ -67,3 +67,22 @@ nothing on the card blocks on ESPN.
   `player_depth_chart` and `player_ownership`, and the card reads the latest
   `captured_date` row. The six-hour and one-day durations above stand; only
   the store they named changes.
+- 2026-09-29 (#1766, spec #1764). A third ESPN Sync run: NFL roster status.
+  The Consequences above name two runs; this makes three. Once a day, one
+  request per team to ESPN's site API team roster
+  (`.../apis/site/v2/sports/football/nfl/teams/{id}/roster`, read on the
+  `site.web.api.espn.com` host because `site.api.espn.com` answers a
+  server-side request 403), each athlete resolved through
+  `players.external_id` (ADR 0035, unmatched athletes skipped). The roster's
+  groups map to a status: offense, defense and specialTeam are Active,
+  injuredReserveOrOut and suspended are Reserve, practiceSquad is Practice
+  squad. Rows go to `player_nfl_roster_status` (player, captured date, team,
+  status), one per player per day, and a second run the same day updates the
+  row only when the status changed, since the Saturday run after the 4pm ET
+  elevation deadline exists to record a change the morning run did not see.
+  Cadence: daily and ordered before the depth-chart run, the Saturday run,
+  and a run as each week's holdout capture window opens. A failed team fetch
+  writes nothing for that team; every team failing fails the run, as the depth
+  chart does. This is a fact and never a point: the card shows "Practice squad"
+  or "Reserve" as context, Active shows nothing, and no projected number moves
+  and nothing reads the status for availability yet.

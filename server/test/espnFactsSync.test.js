@@ -261,3 +261,107 @@ test('runOwnershipSync: stamps the run\'s UTC day into detail.day, computed once
   const detail = JSON.parse(runs[0].params[3]);
   assert.equal(detail.day, '2026-08-21', 'the UTC day, not the local en-CA day (2026-08-20)');
 });
+
+// ---------------------------------------------------------------------------
+// runRosterStatusSync (#1766)
+// ---------------------------------------------------------------------------
+
+const teamRosterNygFixture = require('./fixtures/espn/team-roster-nyg.json');
+const { runRosterStatusSync } = require('../modules/espnFactsSync');
+
+const NYG_ROSTER_URL = /\/teams\/19\/roster$/;
+const emptyRoster = { data: { athletes: [] } };
+const forbidden = () => {
+  const err = new Error('Request failed with status code 403');
+  err.response = { status: 403 };
+  return err;
+};
+
+/** A transport answering every team with an empty roster except NYG (the recorded fixture). */
+function rosterTransport(overrides = {}) {
+  return {
+    get: async (url) => {
+      if (NYG_ROSTER_URL.test(url)) {
+        if (overrides.nyg) return overrides.nyg();
+        return { data: teamRosterNygFixture };
+      }
+      if (overrides.others) return overrides.others();
+      return emptyRoster;
+    },
+  };
+}
+
+/** A fake pool that knows every athlete id as player id = athlete id + 1000. */
+function rosterPool(t, { onInsert } = {}) {
+  return createFakePool([
+    [PLAYERS_BY_EXTERNAL_ID, (text, params) => ({ rows: params[0].map((id) => ({ id: id + 1000, external_id: id })) })],
+    [insert('player_nfl_roster_status'), (text, params) => {
+      if (onInsert) onInsert(text, params);
+      return { rowCount: params[0].length };
+    }],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+}
+
+test('runRosterStatusSync: the recorded NYG roster stores Mafah as practice_squad, the offense/defense/specialTeam athletes as active and injuredReserveOrOut as reserve', async (t) => {
+  let written;
+  const fake = rosterPool(t, { onInsert: (text, params) => { written = params; } });
+
+  const result = await runRosterStatusSync({ now: new Date('2026-09-29T12:00:00Z'), transport: rosterTransport() });
+
+  assert.equal(result.teamCode, 'NYG');
+  const [playerIds, teamCodes, statuses, dates] = written;
+  const statusOf = (athleteId) => statuses[playerIds.indexOf(athleteId + 1000)];
+  assert.equal(statusOf(4431562), 'practice_squad');
+  const groups = new Map(teamRosterNygFixture.athletes.map((g) => [g.position, g.items.map((i) => Number(i.id))]));
+  for (const group of ['offense', 'defense', 'specialTeam']) {
+    for (const id of groups.get(group)) assert.equal(statusOf(id), 'active', `${group} ${id}`);
+  }
+  for (const id of groups.get('injuredReserveOrOut')) assert.equal(statusOf(id), 'reserve', `reserve ${id}`);
+  assert.ok(teamCodes.every((c) => c === 'NYG'));
+  assert.ok(dates.every((d) => d === '2026-09-29'));
+  assert.match(fake.matching(insert('player_nfl_roster_status'))[0].text, /ON CONFLICT \("player_id", "captured_date"\) DO UPDATE/);
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true);
+  fake.assertClean();
+});
+
+test('runRosterStatusSync: an athlete ESPN reports that we do not roster is skipped, not inserted', async (t) => {
+  const fake = createFakePool([
+    [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [] })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport() });
+  assert.deepEqual(result, { teamCode: 'NYG', written: 0 });
+  assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0);
+});
+
+test('runRosterStatusSync: one team failing writes no rows for that team and does not fail the run', async (t) => {
+  // NYG (the only team with athletes) fails alone; every other team answers empty.
+  const fake = rosterPool(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); } }) });
+
+  assert.deepEqual(result, { results: [] });
+  assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0, 'the failed team wrote nothing');
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'the run still records ok');
+});
+
+test('runRosterStatusSync: every team failing fails the run (fetch_failed), so the gate stays open', async (t) => {
+  const fake = rosterPool(t);
+
+  await assert.rejects(runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); }, others: () => { throw forbidden(); } }) }));
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].params[2], false);
+  assert.equal(JSON.parse(runs[0].params[3]).reason, 'fetch_failed');
+  assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0);
+});
+
+test('runRosterStatusSync: stamps the UTC day into detail.day and takes no advisory lock', async (t) => {
+  const fake = rosterPool(t);
+  await runRosterStatusSync({ now: new Date('2026-08-20T23:30:00-05:00'), transport: rosterTransport() });
+  assert.equal(JSON.parse(dataSyncRuns(fake.calls)[0].params[3]).day, '2026-08-21');
+  assert.equal(fake.matching(/pg_advisory_xact_lock/).length, 0);
+});

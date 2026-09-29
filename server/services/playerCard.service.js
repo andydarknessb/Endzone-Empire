@@ -541,21 +541,29 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
   return { rank, groupSize: scored.length };
 }
 
+// The card shows only the roster statuses that are news; Active shows nothing (#1766).
+const ROSTER_STATUS_LABEL = Object.freeze({ practice_squad: 'Practice squad', reserve: 'Reserve' });
+
 /**
- * `{ bio, news, injuryFacts, depth, ownership }` (#1308, ADR 0041): every
- * field null (news `[]`) when `player.external_id` is null - never fetches
+ * `{ bio, news, injuryFacts, depth, ownership, rosterStatus }` (#1308, #1766,
+ * ADR 0041): every field null (news `[]`) when `player.external_id` is null - never fetches
  * ESPN or reads either table in that case, so a player we've never matched
  * to an ESPN athlete costs this call nothing. `profile`/`overview` are
  * `espnAthleteClient`'s own in-process-cached reads (six hours / five
  * minutes on failure); `depth`/`ownership` read the latest `captured_date`
  * row the daily Sync runs wrote (#1382) - never a live ESPN call, per the
- * Ruling (item 1).
+ * Ruling (item 1). `rosterStatus` (#1766) is the card's NFL roster status
+ * label from the latest `player_nfl_roster_status` row: "Practice squad" or
+ * "Reserve", and null for Active or no row - a fact shown as context, never read
+ * for availability or any projected number. Only a capture from the last three
+ * days counts: the sweep writes a row for whoever is on a roster today, so a
+ * released player writes none and his last row must age out, not show forever.
  */
 async function loadEspnFacts(player) {
   if (!player.external_id) {
-    return { bio: null, news: [], injuryFacts: null, depth: null, ownership: null };
+    return { bio: null, news: [], injuryFacts: null, depth: null, ownership: null, rosterStatus: null };
   }
-  const [bio, overview, depthResult, ownershipResult] = await Promise.all([
+  const [bio, overview, depthResult, ownershipResult, rosterResult] = await Promise.all([
     espnAthleteClient.profile(player.external_id),
     espnAthleteClient.overview(player.external_id),
     pool.query(
@@ -568,9 +576,16 @@ async function loadEspnFacts(player) {
        FROM "player_ownership" WHERE "player_id" = $1 ORDER BY "captured_date" DESC LIMIT 1`,
       [player.id]
     ),
+    pool.query(
+      `SELECT "roster_status", "captured_date"
+       FROM "player_nfl_roster_status" WHERE "player_id" = $1 AND "captured_date" >= CURRENT_DATE - 3
+       ORDER BY "captured_date" DESC LIMIT 1`,
+      [player.id]
+    ),
   ]);
   const depthRow = depthResult.rows[0];
   const ownershipRow = ownershipResult.rows[0];
+  const rosterRow = rosterResult.rows[0];
   return {
     bio: bio || null,
     news: (overview && overview.news) || [],
@@ -587,6 +602,7 @@ async function loadEspnFacts(player) {
       change: ownershipRow.percent_change != null ? Number(ownershipRow.percent_change) : null,
       capturedDate: ownershipRow.captured_date,
     } : null,
+    rosterStatus: (rosterRow && ROSTER_STATUS_LABEL[rosterRow.roster_status]) || null,
   };
 }
 
@@ -879,6 +895,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     bio: espnFacts.bio,
     depth: espnFacts.depth,
     ownership: espnFacts.ownership,
+    rosterStatus: espnFacts.rosterStatus,
   };
 }
 
