@@ -258,7 +258,7 @@ function UserPage() {
               its own fetch and states, so it never holds up My leagues. */}
           <Grid container spacing={3} sx={{ mb: 5 }}>
             <Grid xs={12} lg={nextDraft ? 8 : 12}>
-              <ActionQueue onLoaded={setActionItems} />
+              <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
             </Grid>
             {nextDraft && (
               <Grid xs={12} lg={4}>
