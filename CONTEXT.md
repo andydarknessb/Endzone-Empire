@@ -1000,6 +1000,14 @@ does not apply in best ball, where BENCH participates in scoring; every other
 move remains locked. Locks are per player, not per week.
 _Avoid_: roster lock
 
+**Lineup problem**:
+A reason a Team's lineup will not score as its Manager intends that the
+Manager can still act on: an empty starting slot, a starter on bye or Out, an
+IR stash that no longer qualifies. A starter whose game has kicked off is not
+a problem, and after the week's last kickoff there are none; the lineup
+reminder, the league card and the to-do list state the same set.
+_Avoid_: lineup issue, lineup warning, invalid lineup
+
 **Roster lock**:
 A commissioner freeze on one team's roster moves, or on the whole league's.
 Stops every roster write: a free agent add, a drop, an undo-drop, a waiver
@@ -1176,6 +1184,17 @@ Distinct from the Score of record, which is a week's settled total, not a
 game's stats.
 _Avoid_: score of record (for a game's stats), official box, box of record
 
+**Stat line**:
+One Player's recorded statistics for one week, assembled from several feeds,
+each the owner of some of its keys: the box (Live, then Final) owns the
+scoring stats and the touchdown-length and field-goal-distance lists its plays
+supply; nflverse owns usage, share and EPA and the per-defender yardage
+patches; the snap file owns snap counts. A feed writes only the keys it owns
+and never erases another feed's, and no feed creates a Stat line from
+unscored keys alone.
+_Avoid_: stat row, stats jsonb, box (a box is one game's feed; a Stat line is
+what is stored)
+
 **Score summary line**:
 One entry in an NFL game's scoring summary as the feed states it: the kind of
 score, its period and clock, and the scorer and yardage in text. The live sync
@@ -1268,6 +1287,13 @@ _Avoid_: live projection, pace, projected total (once games have started)
 The count of a team's starters whose NFL games have not finished this week. A
 starter whose game has not kicked off counts.
 _Avoid_: PMR (in prose), players left, yet to play
+
+**Win probability**:
+A Team's chance of winning its Matchup as best known now, from both sides'
+Expected finals and the scores so far, sharpening as games finish. Distinct
+from the home side's win probability inside an NFL game's Situation, which is
+ESPN's.
+_Avoid_: odds (the odds bar is its display), win chance, WP
 
 **Matchup status**:
 Where a Matchup sits in its week, read from its starters' NFL games: scheduled
