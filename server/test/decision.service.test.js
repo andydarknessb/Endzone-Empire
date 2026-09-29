@@ -636,7 +636,7 @@ test('upgradeFor: a starter in a non-eligible slot is ignored, even one weaker t
   const candidate = { position: 'TE', projection: 10 };
   const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.equal(upgrade.points, 6);
-  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX' });
+  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX', points: 4, unavailable: null });
   assert.equal(slotEligible(upgrade.slot, candidate.position, DEFAULT_ROSTER_SLOTS), true);
 });
 
