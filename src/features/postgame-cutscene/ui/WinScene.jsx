@@ -164,7 +164,7 @@ function WinScene({ cutscene, sfx, onDone }) {
               <Marquee
                 text={`${(me.name || 'TEAM').toUpperCase()} DEFEATS ${(opponent.name || 'TEAM').toUpperCase()}`}
                 name={me.name || ''}
-                avatarStaticUrl={me.avatarStaticUrl || undefined}
+                avatarUrl={me.avatarStaticUrl || me.avatarUrl || undefined}
               />
             </>
           )}
@@ -181,6 +181,7 @@ WinScene.propTypes = {
     me: PropTypes.shape({
       teamId: PropTypes.number,
       name: PropTypes.string,
+      avatarUrl: PropTypes.string,
       avatarStaticUrl: PropTypes.string,
       score: PropTypes.number,
     }).isRequired,

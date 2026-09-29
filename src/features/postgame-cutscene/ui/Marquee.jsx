@@ -15,7 +15,7 @@ export const MARQUEE_AVATAR_PX = 32;
  * pair enters at the right edge, crosses and wraps. The text is whole (never
  * truncated or ellipsized); only the track's transform moves.
  */
-function Marquee({ text, name, avatarStaticUrl }) {
+function Marquee({ text, name, avatarUrl }) {
   const [step, setStep] = useState(0);
   const [widths, setWidths] = useState({ box: 0, track: 0 });
   const boxRef = useRef(null);
@@ -46,7 +46,7 @@ function Marquee({ text, name, avatarStaticUrl }) {
         style={{ transform: `translateX(${x}px)` }}
       >
         <span className="win-marquee-avatar" data-testid="win-marquee-avatar">
-          <TeamAvatar name={name} avatarUrl={avatarStaticUrl} avatarStaticUrl={avatarStaticUrl} size={MARQUEE_AVATAR_PX} />
+          <TeamAvatar name={name} avatarUrl={avatarUrl} avatarStaticUrl={avatarUrl} size={MARQUEE_AVATAR_PX} />
         </span>
         <span className="win-marquee-text" data-testid="win-marquee-text">{text}</span>
       </div>
@@ -57,7 +57,7 @@ function Marquee({ text, name, avatarStaticUrl }) {
 Marquee.propTypes = {
   text: PropTypes.string.isRequired,
   name: PropTypes.string,
-  avatarStaticUrl: PropTypes.string,
+  avatarUrl: PropTypes.string,
 };
 
 export default Marquee;

@@ -148,6 +148,12 @@ function PostgameStage({ cutscenes, onFinish }) {
     sfx.setMuted(muted);
   }, [muted]);
 
+  // Leaving the page (browser Back) unmounts the overlay without a dismissal:
+  // silence the loops the title card and the scenes started.
+  useEffect(() => () => {
+    if (!finishedRef.current) sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
+  }, []);
+
   useEffect(() => {
     if (reduced) markStarted();
   }, [reduced, markStarted]);

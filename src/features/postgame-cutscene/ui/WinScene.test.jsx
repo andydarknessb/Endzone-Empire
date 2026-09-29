@@ -241,6 +241,13 @@ describe('slam, Record and marquee', () => {
     expect(css).toMatch(/\.win-marquee-avatar img \{[^}]*image-rendering:\s*pixelated/);
   });
 
+  test('a Team with only a still logo (no animated GIF) shows it in the marquee', () => {
+    mount({ me: { ...cutscene().me, avatarUrl: 'https://img.example/logo.png', avatarStaticUrl: null } });
+    advance(DANCE_MS);
+    expect(within(screen.getByTestId('win-marquee-avatar')).getByRole('img', { hidden: true }))
+      .toHaveAttribute('src', 'https://img.example/logo.png');
+  });
+
   test('the Record line comes from the standings formatter', () => {
     mount();
     advance(DANCE_MS - 1);

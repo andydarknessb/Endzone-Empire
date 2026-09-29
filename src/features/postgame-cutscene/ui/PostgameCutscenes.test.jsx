@@ -542,6 +542,28 @@ describe('scene registry', () => {
     expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
   });
 
+  test('leaving the page mid-scene (unmount without a dismissal) stops the loops', async () => {
+    jest.useFakeTimers();
+    const { unmount } = render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'win' })]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    act(() => { jest.advanceTimersByTime(4600); });
+    calls.length = 0;
+    unmount();
+    expect(calls).toEqual(['stopAll:100']);
+  });
+
+  test('a dismissal already stopped the sound: unmounting after it adds no second stop', async () => {
+    jest.useFakeTimers();
+    const { unmount } = render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'win' })]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    press('Escape');
+    calls.length = 0;
+    unmount();
+    expect(calls).toEqual([]);
+  });
+
   test('the dialog keeps its result-sentence name while the scene plays', async () => {
     await startAt([item(1, { outcome: 'win' })]);
     expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
