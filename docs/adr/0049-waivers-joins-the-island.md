@@ -83,7 +83,7 @@ transaction log line that names the Winning bid.
 comparison above, so he can now be the weakest eligible starter, and
 therefore the swap preview's other side, while himself unable to play this
 week. The claim sheet's drop choices ("the replaced starter preselected",
-above) preselect him only when the Upgrade he was measured over carries no
-Unavailable reason; over an Unavailable starter the sheet preselects no
-drop. At roster capacity this changes nothing: a drop is still required and
-Submit stays disabled until one is chosen.
+above) preselect him only when he carries no Unavailable reason; over an
+Unavailable starter the sheet preselects no drop. At roster capacity this
+changes nothing: a drop is still required and Submit stays disabled until
+one is chosen.

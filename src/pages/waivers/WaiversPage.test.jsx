@@ -553,13 +553,15 @@ test('drops sort weakest first with projections and the replaced starter is pres
 // Weekly points from overPlayer itself (the same producer as the gain), and
 // when he is Unavailable his reason replaces the number so the line reads
 // honestly instead of implying he still projects it.
-test('the swap preview shows the Unavailable reason in place of the number, and still shows the gain', async () => {
+// QA f2: the fixture's two numbers and the gain must actually agree - an
+// Unavailable starter reads 0 (his reason, not a number), so mine (Proj Wk)
+// minus his 0 must equal the gain: 3.5 - 0 = 3.5.
+test('the swap preview shows the Unavailable reason in place of the number, and the gain still equals Proj Wk minus his (zeroed) points', async () => {
   const over = { id: 2, name: 'Starter Two', points: 0, unavailable: 'bye' };
-  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over) })], roster: SHEET_ROSTER });
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over, 3.5), projWeek: { week: 4, points: 3.5 } })], roster: SHEET_ROSTER });
   renderPage();
   const swap = within(await openSheet()).getByTestId('claim-sheet-swap');
-  expect(swap).toHaveTextContent('Breece Hall');
-  expect(swap).toHaveTextContent('12.1');
+  expect(swap).toHaveTextContent('Breece Hall 3.5');
   expect(swap).toHaveTextContent('Starter Two on bye');
   expect(swap).toHaveTextContent('+3.5 this week');
 });
@@ -577,13 +579,41 @@ test('an Unavailable replaced starter is on the roster but is NOT preselected; "
   expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).not.toBeChecked();
 });
 
-// The healthy-starter fixture (the default `upgradeFor()`) keeps its
-// preselection unchanged, carrying `overPlayer.points` rather than a roster
-// lookup - the control case for the two tests above.
-test('a healthy replaced starter still IS preselected as the drop, reading overPlayer.points', async () => {
-  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+// The healthy-starter fixture keeps its preselection unchanged, carrying
+// `overPlayer.points` rather than a roster lookup - the control case for the
+// two tests above. QA f2: `over.points` (5.4) is deliberately NOT the
+// roster's Pool value for Starter Two (SHEET_ROSTER's 8.6), so a regression
+// back to the old roster lookup would fail the swap-preview assertion below
+// even though the radio assertions alone could not tell the two apart.
+test('a healthy replaced starter still IS preselected as the drop, and the swap preview reads overPlayer.points, not the roster Pool number', async () => {
+  const over = { id: 2, name: 'Starter Two', points: 5.4, unavailable: null };
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over) })], roster: SHEET_ROSTER });
   renderPage();
   const sheet = await openSheet();
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).not.toBeChecked();
+  const swap = within(sheet).getByTestId('claim-sheet-swap');
+  expect(swap).toHaveTextContent('Starter Two 5.4');
+  expect(swap).not.toHaveTextContent('8.6');
+});
+
+// QA f1 (deploy skew): the client (Netlify) and API (Render) release
+// separately, so a client build can run ahead of an API that has not shipped
+// `overPlayer.points`/`.unavailable` yet (the old wire shape: `{ id, name }`
+// only). The swap preview must still show a number (the exact
+// `mine - upgrade.points` fallback, not the roster's stale Pool number), and
+// the drop preselect must treat the missing `unavailable` field exactly as
+// today: preselected when he is on the roster.
+test('an old-shape overPlayer (no points/unavailable, a client ahead of the API) still shows a number and still preselects', async () => {
+  const over = { id: 2, name: 'Starter Two' };
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over, 4.0) })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  const swap = within(sheet).getByTestId('claim-sheet-swap');
+  // mine (12.1) - upgrade.points (4.0) = 8.1, the exact fallback math - not
+  // the roster's Pool value (8.6) and not "-" (a missing fallback).
+  expect(swap).toHaveTextContent('Starter Two 8.1');
+  expect(swap).not.toHaveTextContent('8.6');
   expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
   expect(within(sheet).getByRole('radio', { name: /No drop/ })).not.toBeChecked();
 });

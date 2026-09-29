@@ -30,6 +30,12 @@ const TOUCH = { minHeight: 44, minWidth: 44 };
  * Pool number for the drop list below, not this preview). When he is
  * Unavailable, his reason replaces his number ("Stud Starter on bye"), so
  * the line reads honestly instead of implying he still projects it.
+ *
+ * QA f1 (deploy skew): the client (Netlify) and API (Render) release
+ * separately, so a client build can run ahead of an API that has not shipped
+ * `overPlayer.points` yet. `mine - upgrade.points` is the exact fallback
+ * (that IS the math `points` came from server-side), never the roster's
+ * stale Pool number, which is what regressed f1/f2 in the first place.
  */
 export function SwapPreview({ player }) {
   const upgrade = player.upgrade;
@@ -37,6 +43,7 @@ export function SwapPreview({ player }) {
   const mine = player.projWeek?.points ?? null;
   const { overPlayer } = upgrade;
   const reason = overPlayer.unavailable ? unavailableLabel(overPlayer.unavailable) : null;
+  const theirs = overPlayer.points ?? (mine != null ? mine - upgrade.points : null);
   const gain = Number(upgrade.points);
   return (
     <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
@@ -44,7 +51,7 @@ export function SwapPreview({ player }) {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{ minWidth: 0 }}>{`${player.name} ${fmt(mine)}`}</Typography>
         <Typography sx={{ minWidth: 0, textAlign: 'right' }}>
-          {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(overPlayer.points)}`}
+          {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}
         </Typography>
       </Box>
       <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
