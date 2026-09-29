@@ -15,6 +15,7 @@ const {
   picksMadeByUser,
   pickemStatus,
 } = require('./homeStatus.service');
+const { nflRosterStatusColumn } = require('./nflRosterStatus');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -221,7 +222,8 @@ async function sendLineupReminders() {
         return lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
                   "players"."name", "players"."injury_status", "players"."nfl_team",
-                  ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
+                  ("nfl_games"."nfl_team" IS NULL) AS "on_bye",
+                  ${nflRosterStatusColumn()}
            FROM "lineup_entries"
            JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
              AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -236,7 +238,9 @@ async function sendLineupReminders() {
         },
         { label: 'reminders' }
       );
-      const entries = entriesResult.rows.map((row) => ({ ...lineupEntryFromRow(row), nflTeam: row.nfl_team }));
+      const entries = entriesResult.rows.map((row) => ({
+        ...lineupEntryFromRow(row), nflTeam: row.nfl_team, nflRosterStatus: row.nfl_roster_status ?? null,
+      }));
       const { problems } = lineupStatus({
         entries,
         rosterSlots,

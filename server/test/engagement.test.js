@@ -300,6 +300,27 @@ test('sendLineupReminders does not name a starter who is Out once his game has k
   fake.assertClean();
 });
 
+test('sendLineupReminders names a Practice squad starter and a No NFL team starter (#1791)', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    entries: [
+      lineupRow('QB', 'PS Quarterback', 'KC', {
+        nfl_roster_status: { status: 'practice_squad', capturedAt: new Date().toISOString() },
+      }),
+      lineupRow('WR', 'Free Agent WR', null),
+    ],
+    kickoffRows: [kickoff('KC', hoursFromNow(2))], // not kicked off yet
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 1 });
+  assert.equal(
+    pushes[0].payload.body,
+    'Lineup check for week 9: PS Quarterback (QB) is on the practice squad; Free Agent WR (WR) has no NFL team'
+  );
+  fake.assertClean();
+});
+
 test('sendLineupReminders sends nothing when the only problem is a starter whose game has kicked off', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
     entries: [

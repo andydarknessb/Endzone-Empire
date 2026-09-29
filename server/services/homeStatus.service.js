@@ -2,6 +2,8 @@ const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { deriveLeaguePhase, LEAGUE_PHASE } = require('./leaguePhase');
 const { isPickemOnly } = require('./leagueType');
+const { unavailableFor } = require('./unavailable');
+const { nflRosterStatusColumn } = require('./nflRosterStatus');
 
 /**
  * Home status: the answers the pre-lockout digests, the Home to-do list
@@ -18,14 +20,39 @@ const { isPickemOnly } = require('./leagueType');
  */
 
 /**
+ * Pure: the `lineupProblems` phrase for a starter carrying `unavailableFor`'s
+ * reason ('bye' | 'no_team' | 'practice_squad' | 'out' | 'ir'), or null for
+ * every other verdict (available, doubtful, questionable - none of those are
+ * a problem here). The wording matches this module's existing tone (`is on
+ * bye`, `is Out`, `is on IR`) and the client's own reason labels
+ * (src/shared/lib/unavailableLabel.js: 'no team', 'practice squad').
+ */
+function starterProblemPhrase(reason) {
+  switch (reason) {
+    case 'bye': return 'is on bye';
+    case 'out': return 'is Out';
+    case 'ir': return 'is on IR';
+    case 'practice_squad': return 'is on the practice squad';
+    case 'no_team': return 'has no NFL team';
+    default: return null;
+  }
+}
+
+/**
  * Pure: problems in a lineup that should trigger a pre-lockout reminder.
- * entries: [{ slot, name, onBye, injury_status, ir_attested }] (starter
- * availability and unresolved IR stashes are flagged; BENCH is ignored and a
- * commissioner-attested stash never nags). rosterSlots:
- * [{key,count,...}] detects unfilled slots.
+ * entries: [{ slot, name, onBye, injury_status, ir_attested, nflTeam,
+ * nflRosterStatus }] (starter availability and unresolved IR stashes are
+ * flagged; BENCH is ignored and a commissioner-attested stash never nags).
+ * Starter availability is the one `unavailableFor` verdict (CONTEXT.md,
+ * Unavailable; #1767, #1791): the same bye, no NFL team (`nflTeam == null`),
+ * Practice squad (`nflRosterStatus`), Out and IR facts every other reader
+ * checks, so a Practice squad or a No NFL team starter raises a problem here
+ * exactly as the Lineup and Start/sit pages mark him Unavailable. rosterSlots:
+ * [{key,count,...}] detects unfilled slots. `now` is injectable for tests
+ * (Practice squad's 48-hour freshness window).
  * Returns human-readable problem strings (empty = lineup looks fine).
  */
-function lineupProblems(entries, rosterSlots = []) {
+function lineupProblems(entries, rosterSlots = [], now = new Date()) {
   const problems = [];
   const starters = entries.filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR');
 
@@ -39,10 +66,15 @@ function lineupProblems(entries, rosterSlots = []) {
   }
 
   for (const s of starters) {
-    if (s.onBye) problems.push(`${s.name} (${s.slot}) is on bye`);
-    else if (s.injury_status === 'O' || s.injury_status === 'IR') {
-      problems.push(`${s.name} (${s.slot}) is ${s.injury_status === 'O' ? 'Out' : 'on IR'}`);
-    }
+    const verdict = unavailableFor({
+      injuryStatus: s.injury_status,
+      onBye: s.onBye,
+      noTeam: s.nflTeam === null,
+      nflRosterStatus: s.nflRosterStatus ?? null,
+      now,
+    });
+    const phrase = starterProblemPhrase(verdict.reason);
+    if (phrase) problems.push(`${s.name} (${s.slot}) ${phrase}`);
   }
   for (const stash of entries.filter((entry) => entry.slot === 'IR')) {
     // A commissioner-attested stash is valid by fiat (#100) - never nagged.
@@ -76,10 +108,10 @@ function lineupEntryFromRow(row) {
  * stashes are the manager's to fix; every other league is checked in full
  * against its roster slots.
  */
-function leagueLineupProblems({ entries, rosterSlots, bestBall }) {
+function leagueLineupProblems({ entries, rosterSlots, bestBall, now }) {
   return bestBall
-    ? lineupProblems(entries.filter((entry) => entry.slot === 'IR'), [])
-    : lineupProblems(entries, rosterSlots);
+    ? lineupProblems(entries.filter((entry) => entry.slot === 'IR'), [], now)
+    : lineupProblems(entries, rosterSlots, now);
 }
 
 /**
@@ -134,7 +166,7 @@ const timeOf = (value) => (value == null ? NaN : new Date(value).getTime());
  * optimizer fills the seats; only IR problems are the manager's), matching the
  * digest.
  *
- * entries: [{ slot, name, onBye, injury_status, ir_attested, nflTeam }];
+ * entries: [{ slot, name, onBye, injury_status, ir_attested, nflTeam, nflRosterStatus }];
  * kickoffByTeam: Map<normalized team code, kickoff>; weekLastKickoff: the
  * week's last kickoff or null when the week has no schedule.
  */
@@ -157,11 +189,13 @@ function lineupStatus({ entries, rosterSlots, bestBall, kickoffByTeam, weekLastK
     if (!locked(e)) actionable.push(e);
     else if (e.slot !== 'IR') {
       // Locked starter (or bench): keeps his seat, sheds what he can no
-      // longer be moved for.
-      actionable.push({ ...e, onBye: false, injury_status: null });
+      // longer be moved for (bye, injury, and Practice squad alike - a
+      // locked player's own game has already kicked off, so there is no
+      // NFL team fact left to lock on: `noTeam` never fires here).
+      actionable.push({ ...e, onBye: false, injury_status: null, nflRosterStatus: null });
     }
   }
-  const problems = leagueLineupProblems({ entries: actionable, rosterSlots, bestBall });
+  const problems = leagueLineupProblems({ entries: actionable, rosterSlots, bestBall, now });
 
   const emptySlots = [];
   if (!bestBall) {
@@ -266,7 +300,8 @@ function currentWeeks(leagues) {
 
 /**
  * The viewer's lineup entries for each of their teams' current week, as
- * Map<teamId, entries[]> in `lineupStatus`'s shape (with `nflTeam`).
+ * Map<teamId, entries[]> in `lineupStatus`'s shape (with `nflTeam` and
+ * `nflRosterStatus`, nflRosterStatus.js's column, #1791).
  *
  * Read-only, so unlike the digest it does not materialize the week first.
  * Instead it reads each team's latest week at or before the current one:
@@ -293,7 +328,8 @@ async function loadLineups(db, { userId, teamIds }) {
      )
      SELECT "lineup_entries"."team_id", "lineup_entries"."slot", "lineup_entries"."ir_attested",
             "players"."name", "players"."injury_status", "players"."nfl_team",
-            ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
+            ("nfl_games"."nfl_team" IS NULL) AS "on_bye",
+            ${nflRosterStatusColumn()}
      FROM "source"
      JOIN "teams" ON "teams"."id" = "source"."team_id"
      JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
@@ -311,7 +347,9 @@ async function loadLineups(db, { userId, teamIds }) {
   );
   for (const row of result.rows) {
     if (!byTeam.has(row.team_id)) byTeam.set(row.team_id, []);
-    byTeam.get(row.team_id).push({ ...lineupEntryFromRow(row), nflTeam: row.nfl_team });
+    byTeam.get(row.team_id).push({
+      ...lineupEntryFromRow(row), nflTeam: row.nfl_team, nflRosterStatus: row.nfl_roster_status ?? null,
+    });
   }
   return byTeam;
 }
