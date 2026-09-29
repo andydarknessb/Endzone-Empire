@@ -1249,7 +1249,10 @@ function standardNormal(rand) {
  * DATA (the lowest points any player of the position group scored over the
  * prior season and current season to date, computed by the feature loader), never a constant, so this
  * function only applies it; it does not decide what it is. Clamping runs
- * AFTER the smoothing drift correction and BEFORE the quantiles are read, so
+ * AFTER the drift re-centring (the translation that pins the draw median to
+ * `mean + median(residuals)`, which runs when smoothing is on, and under v3.2
+ * also for an even pool with smoothing off via `centerEvenPoolMedian`, #1769)
+ * and BEFORE the quantiles are read, so
  * it can only ever raise the bottom of the sorted draw set, never shift its
  * center: `mean` is reported from the input either way, and `median` moves
  * only in the fixture that must not occur in practice - more than half the

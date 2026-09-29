@@ -6,7 +6,7 @@ const poolProjection = require('../services/poolProjection');
 const features = require('../services/projectionFeatures');
 const model = require('../services/projectionModel');
 const { unavailableFor } = require('../services/unavailable');
-const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoringRules');
+const { SCORING_PRESETS, SCORING_RULES, calculateFantasyPoints } = require('../services/scoringRules');
 
 /**
  * These tests drive the real engine against a mocked `pool`, so the SQL the
@@ -810,6 +810,46 @@ test('a week-1 run truncates p10 at the prior-season position floor (#1483)', as
   const shippedProjection = shipped.projections.get(1);
   assert.ok(shippedProjection.p10 < -4, 'the shipped v3.1 constants have no truncateAtPositionFloor key, so the floor never applies');
   assert.equal('positionFloor' in shippedProjection.factors.dataQuality, false);
+});
+
+test('an even own-residual pool is re-centred on its median residual, then truncated at the position floor (#1769, #1782)', async (t) => {
+  // Player 30's 100 rushing yards is the WR group minimum, so the floor sits
+  // well ABOVE where the widened, re-centred p10 lands: the truncation still
+  // fires after the re-centring, which is the order this pins end to end.
+  const priorSeasonScan = [
+    { player_id: 30, week: 1, position: 'WR', defense: 'NE', stats: { rushingYards: 100, gameOpponent: 'NE' } },
+    { player_id: 31, week: 1, position: 'WR', defense: 'MIA', stats: { rushingYards: 200, gameOpponent: 'MIA' } },
+  ];
+  const priorDefenseGames = [{ team: 'NE', prior_games: 1 }, { team: 'MIA', prior_games: 1 }];
+  const floor = calculateFantasyPoints({ rushingYards: 100 }, SCORING_RULES);
+
+  // FOUR own games: an EVEN pool whose two middle values differ, so the two
+  // middle support points sit far apart and re-centring is observable.
+  const yards = [300, 20, 250, 100];
+  const weeklyStats = yards.map((y, i) => weeklyRow(1, i + 1, { rushingYards: y }, SEASON - 1));
+  const points = yards.map((y) => calculateFantasyPoints({ rushingYards: y }, SCORING_RULES));
+  // playerResidualsFrom: per-game points around their unweighted mean.
+  const pointsMean = points.reduce((s, p) => s + p, 0) / points.length;
+  const sortedResiduals = points.map((p) => p - pointsMean).sort((a, b) => a - b);
+  const medianResidual = (sortedResiduals[1] + sortedResiduals[2]) / 2;
+  assert.ok(sortedResiduals[2] - sortedResiduals[1] > 1, 'the two middle residuals differ');
+
+  mockPool(t, {
+    players: [player(1, 'WR')], weeklyStats, priorSeasonScan, priorDefenseGames,
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 1, rules: SCORING_RULES, playerIds: [1],
+    hashValue: 'h', weatherService: false, modelConstants: model.MODEL_CONSTANTS_V3_2,
+  });
+  const result = generated.projections.get(1);
+  assert.equal(result.factors.dataQuality.positionFloor, floor);
+  assert.equal(result.p10, floor, 'p10 is still pinned to the floor after re-centring');
+  assert.equal(result.factors.dataQuality.floorTruncated, true);
+  // 0.011: both `mean` and `median` are rounded to two places.
+  assert.ok(
+    Math.abs(result.median - (result.mean + medianResidual)) <= 0.011,
+    `median ${result.median} sits at mean ${result.mean} + median residual ${medianResidual}`
+  );
 });
 
 // ---------------------------------------------------------------------------
