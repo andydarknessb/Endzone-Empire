@@ -561,23 +561,25 @@ test.each([
   clearLeagueCache();
 });
 
-// The public Waiver Wire page lives on the public router (RootRouter decides
-// from the real pathname), so a link to it from the signed-in app must leave
-// the hash app. A router link here rendered href="#/waiver-wire", which the hash
-// app has no route for: clicking "Browse the waiver wire" on an all-clear Home
-// landed on its 404. A page test in a MemoryRouter cannot see this (a router
-// link renders a plain path there); only the real shell does.
-test('Browse the waiver wire on an all-clear Home links out of the hash app to the public Waiver Wire', async () => {
+// "Browse the waiver wire" on an all-clear Home goes to the Manager's own
+// league Waivers page, a route of this hash app. It once pointed at
+// /waiver-wire, a public page this app has no route for, and landed on the
+// 404; a page test in a MemoryRouter could not see that (a router link
+// renders a plain path there), only the real shell does.
+test('Browse the waiver wire on an all-clear Home opens the league Waivers page in the app', async () => {
   renderApp('#/user', { user: loggedIn }, () => {
     apiClient.get.mockImplementation((url) => {
       if (url === '/api/user/action-items') {
         return Promise.resolve({ data: { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] } });
+      }
+      if (url === '/api/league') {
+        return Promise.resolve({ data: [{ id: 7, name: 'Sunday Ballers', my_team_id: 10, my_team_name: "alice's Team", draft_status: 'complete', owner_id: 1 }] });
       }
       return Promise.resolve({ data: [] });
     });
   });
   const link = await screen.findByRole('link', { name: 'Browse the waiver wire' });
   const href = link.getAttribute('href');
-  expect(href).toBe('/waiver-wire');
-  expect(isPublicPath(href)).toBe(true);
+  expect(href).toBe('#/league/7/waivers');
+  expect(isPublicPath(href)).toBe(false);
 });

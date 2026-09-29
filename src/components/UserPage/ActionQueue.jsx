@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
-  Alert, Box, Button, LinearProgress, Link, Paper, Skeleton, Stack, Typography,
+  Alert, Box, Button, LinearProgress, Link, Menu, MenuItem, Paper, Skeleton, Stack, Typography,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { visuallyHidden } from '@mui/utils';
 import apiClient from '../../api/apiClient';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import { isPickemOnly } from '../../shared/lib/leagueType';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { timeUntil, useNow } from '../../shared/lib/timeUntil';
 import {
@@ -239,7 +241,61 @@ function ActionQueueSkeleton() {
   );
 }
 
-function CaughtUp() {
+const waiverLinkSx = { ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontSize: '14px' };
+const waiversPath = (league) => `/league/${league.id}/waivers`;
+
+// Waivers belong to one league (its Waivers page), and Home spans all of the
+// Manager's leagues: one fantasy league links straight to its Waivers page,
+// several open a menu of them, and pick'em-only leagues have no waivers.
+function WaiverWireLink({ leagues }) {
+  const menuId = useId();
+  const buttonId = useId();
+  const [anchor, setAnchor] = useState(null);
+  const fantasy = (leagues || []).filter((league) => league && league.id != null && !isPickemOnly(league));
+  if (fantasy.length === 0) return null;
+  if (fantasy.length === 1) {
+    return (
+      <Link component={RouterLink} to={waiversPath(fantasy[0])} sx={waiverLinkSx}>
+        Browse the waiver wire
+      </Link>
+    );
+  }
+  const open = Boolean(anchor);
+  const close = () => setAnchor(null);
+  return (
+    <>
+      <Link
+        component="button"
+        type="button"
+        id={buttonId}
+        aria-haspopup="menu"
+        aria-expanded={open ? 'true' : 'false'}
+        aria-controls={open ? menuId : undefined}
+        onClick={(event) => setAnchor(event.currentTarget)}
+        sx={{ ...waiverLinkSx, gap: 0.5, border: 0, background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+      >
+        Browse the waiver wire
+        <ExpandMoreIcon fontSize="small" aria-hidden="true" />
+      </Link>
+      <Menu
+        id={menuId}
+        anchorEl={anchor}
+        open={open}
+        onClose={close}
+        MenuListProps={{ 'aria-labelledby': buttonId }}
+        PaperProps={{ sx: { backgroundColor: 'var(--dash-surface)', color: 'var(--dash-ink)', border: `1px solid ${HAIRLINE}` } }}
+      >
+        {fantasy.map((league) => (
+          <MenuItem key={league.id} component={RouterLink} to={waiversPath(league)} onClick={close} sx={{ minHeight: 44 }}>
+            {league.name}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
+  );
+}
+
+function CaughtUp({ leagues }) {
   return (
     <Stack alignItems="center" spacing={1.25} sx={{ flexGrow: 1, p: 4, textAlign: 'center' }}>
       <Box
@@ -261,12 +317,7 @@ function CaughtUp() {
       <Typography sx={{ ...dimSx, maxWidth: 380 }}>
         Every lineup is set and every pick is in.
       </Typography>
-      {/* The Waiver Wire is a public page on the public router (RootRouter), so
-          this is a plain link that leaves the hash app, not a router link
-          (which would resolve to #/waiver-wire and the app's 404). */}
-      <Link href="/waiver-wire" sx={{ ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontSize: '14px' }}>
-        Browse the waiver wire
-      </Link>
+      <WaiverWireLink leagues={leagues} />
     </Stack>
   );
 }
@@ -274,7 +325,7 @@ function CaughtUp() {
 // `onLoaded(body)` hands the page the response body after each successful
 // fetch, and null after a failed one, so the greeting header can summarize
 // the list without a second request.
-function ActionQueue({ onLoaded }) {
+function ActionQueue({ onLoaded, leagues = [] }) {
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
   const [data, setData] = useState(null);
@@ -384,7 +435,7 @@ function ActionQueue({ onLoaded }) {
           Some of your to-do list couldn&apos;t be checked right now.
         </Alert>
       )}
-      {data && items.length === 0 && !incomplete && <CaughtUp />}
+      {data && items.length === 0 && !incomplete && <CaughtUp leagues={leagues} />}
       {items.length > 0 && (
       <Box component="ol" id="action-queue-list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
         {visible.map((entry, index) => (

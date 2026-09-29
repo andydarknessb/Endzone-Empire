@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -192,7 +192,52 @@ test('an empty to-do list says the manager is all caught up', async () => {
   const queue = await findQueue();
   expect(await within(queue).findByRole('heading', { level: 3, name: "You're all caught up" })).toBeInTheDocument();
   expect(within(queue).queryByRole('list')).not.toBeInTheDocument();
-  expect(within(queue).getByRole('link', { name: 'Browse the waiver wire' })).toHaveAttribute('href', '/waiver-wire');
+  // One fantasy league: straight to its Waivers page, no menu.
+  expect(within(queue).getByRole('link', { name: 'Browse the waiver wire' })).toHaveAttribute('href', '/league/1/waivers');
+});
+
+// Waivers belong to one league, and Home spans all of them: with several
+// fantasy leagues the link opens a menu of their Waivers pages; pick'em-only
+// leagues have no waivers and are left out.
+test('with several fantasy leagues, Browse the waiver wire opens a menu of their Waivers pages', async () => {
+  const user = userEvent.setup();
+  mockApi({
+    leagues: [
+      league({ id: 1, name: 'Sunday Ballers' }),
+      league({ id: 2, name: 'Office Pool', pickem_only: true }),
+      league({ id: 3, name: 'Dynasty Startup' }),
+    ],
+    actionItems: actionItemsBody([]),
+  });
+  renderPage();
+
+  const queue = await findQueue();
+  const trigger = await within(queue).findByRole('button', { name: 'Browse the waiver wire' });
+  expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+  expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  expect(within(queue).queryByRole('link', { name: 'Browse the waiver wire' })).not.toBeInTheDocument();
+
+  await user.click(trigger);
+  const menu = await screen.findByRole('menu', { name: 'Browse the waiver wire' });
+  expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  const items = within(menu).getAllByRole('menuitem');
+  expect(items.map((el) => el.textContent)).toEqual(['Sunday Ballers', 'Dynasty Startup']);
+  expect(within(menu).getByRole('menuitem', { name: 'Sunday Ballers' })).toHaveAttribute('href', '/league/1/waivers');
+  expect(within(menu).getByRole('menuitem', { name: 'Dynasty Startup' })).toHaveAttribute('href', '/league/3/waivers');
+
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+  expect(trigger).toHaveFocus();
+});
+
+test('with only pick\'em leagues there is no waiver wire to browse', async () => {
+  mockApi({ leagues: [league({ id: 2, name: 'Office Pool', pickem_only: true })], actionItems: actionItemsBody([]) });
+  renderPage();
+
+  const queue = await findQueue();
+  expect(await within(queue).findByRole('heading', { level: 3, name: "You're all caught up" })).toBeInTheDocument();
+  expect(within(queue).queryByRole('link', { name: 'Browse the waiver wire' })).not.toBeInTheDocument();
+  expect(within(queue).queryByRole('button', { name: 'Browse the waiver wire' })).not.toBeInTheDocument();
 });
 
 test('shows a skeleton while the to-do list loads, and never the caught-up state', async () => {
