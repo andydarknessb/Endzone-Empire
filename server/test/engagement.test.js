@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createFakePool, insert } = require('./helpers/fakePool');
 const { longestWinStreak, comebackTeam } = require('../services/trophy.service');
 const { gradeTeams } = require('../services/draftgrade.service');
-const { lineupProblems, sendLineupReminders } = require('../services/digest.service');
+const { sendLineupReminders, sendPickemReminders } = require('../services/digest.service');
 const { mergePrefs, validatePrefs, DEFAULT_PREFS } = require('../services/prefs.service');
 const push = require('../services/push.service');
 
@@ -66,65 +66,7 @@ test('gradeTeams: identical values grade everyone B; empty input is empty', () =
   assert.deepEqual(gradeTeams([]), []);
 });
 
-// --- digest: lineupProblems --------------------------------------------------
-
-const entry = (slot, name, overrides = {}) => ({
-  slot, name, onBye: false, injury_status: null, ...overrides,
-});
-
-const slots = (counts) => Object.entries(counts).map(([key, count]) => ({ key, count, eligiblePositions: [key] }));
-
-test('lineupProblems flags empty starting slots against the league config', () => {
-  const problems = lineupProblems([entry('QB', 'QB1')], slots({ QB: 1, RB: 2 }));
-  assert.deepEqual(problems, ['2 empty RB slots']);
-});
-
-test('lineupProblems flags bye and Out/IR starters but ignores the bench', () => {
-  const problems = lineupProblems(
-    [
-      entry('QB', 'Healthy QB'),
-      entry('RB', 'Bye RB', { onBye: true }),
-      entry('WR', 'Hurt WR', { injury_status: 'O' }),
-      entry('BENCH', 'Hurt Bench Guy', { injury_status: 'IR' }),
-    ],
-    slots({ QB: 1, RB: 1, WR: 1 })
-  );
-  assert.deepEqual(problems, ['Bye RB (RB) is on bye', 'Hurt WR (WR) is Out']);
-});
-
-test('lineupProblems: questionable players do not trigger, clean lineup is empty', () => {
-  const problems = lineupProblems(
-    [entry('QB', 'Q Guy', { injury_status: 'Q' })],
-    slots({ QB: 1 })
-  );
-  assert.deepEqual(problems, []);
-});
-
-test('lineupProblems resurfaces an unresolved ineligible IR stash before kickoff', () => {
-  const problems = lineupProblems(
-    [
-      entry('QB', 'Healthy QB'),
-      entry('IR', 'Test Runner', { injury_status: 'Q' }),
-    ],
-    slots({ QB: 1 })
-  );
-
-  assert.deepEqual(problems, [
-    'Test Runner (IR) is no longer IR-eligible (questionable)',
-  ]);
-});
-
-test('lineupProblems never resurfaces a commissioner-attested stash (#100)', () => {
-  const problems = lineupProblems(
-    [
-      entry('QB', 'Healthy QB'),
-      entry('IR', 'Attested Runner', { injury_status: 'Q', ir_attested: true }),
-    ],
-    slots({ QB: 1 })
-  );
-
-  assert.deepEqual(problems, []);
-});
+// --- digest: the pre-lockout reminders -----------------------------------------
 
 test('sendLineupReminders carries forward an unresolved IR stash before checking it', async (t) => {
   let materialized = false;
@@ -141,6 +83,7 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
       ir_slots: 1,
     }] })],
     [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "nfl_games"\."season"/, () => ({ rows: [] })], // the week's kickoffs: none locked
     [/^SELECT "teams"\."id"/, () => ({ rows: [{
       id: 601,
       name: 'Carry Forward',
@@ -201,6 +144,7 @@ test('sendLineupReminders ignores a dropped player left in lineup history', asyn
       ir_slots: 1,
     }] })],
     [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "nfl_games"\."season"/, () => ({ rows: [] })], // the week's kickoffs: none locked
     [/^SELECT "teams"\."id"/, () => ({ rows: [{
       id: 602,
       name: 'Drop Resolved',
@@ -248,6 +192,7 @@ test('sendLineupReminders sends best-ball teams only the unresolved IR warning',
       rows: text.includes('"best_ball" = false') ? [] : [bestBallLeague],
     })],
     [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "nfl_games"\."season"/, () => ({ rows: [] })], // the week's kickoffs: none locked
     [/^SELECT "teams"\."id"/, () => ({ rows: [{
       id: 603,
       name: 'Best Ball Recovery',
@@ -281,6 +226,162 @@ test('sendLineupReminders sends best-ball teams only the unresolved IR warning',
   assert.deepEqual(pushes.map(({ payload }) => payload.body), [
     'Lineup check for week 9: Recovered Best Ball Player (IR) is no longer IR-eligible (questionable)',
   ]);
+  fake.assertClean();
+});
+
+// --- reminders read the Home statuses (#1761) ---------------------------------
+
+const HOUR = 60 * 60 * 1000;
+const hoursFromNow = (h) => new Date(Date.now() + h * HOUR).toISOString();
+
+// One live league, its teams, and a lineup that is already materialized. The
+// week's kickoffs answer `kickoffRows`; `kickoffReads` records each read.
+// remindedTeamWeeks is module-level, so every world takes its own Team ids.
+let nextTeamId = 6100;
+function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1 }) {
+  const kickoffReads = [];
+  const teams = Array.from({ length: teamCount }, (_, i) => ({
+    id: nextTeamId + i, name: `Team ${i}`, owner_id: nextTeamId + 1000 + i, email: `manager${i}@example.test`,
+  }));
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
+      id: 510,
+      current_season: 2026,
+      current_week: 9,
+      best_ball: false,
+      roster_slots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }, { key: 'WR', count: 1, eligiblePositions: ['WR'] }],
+      bench_slots: 1,
+      ir_slots: 1,
+    }] })],
+    [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "nfl_games"\."season"/, (text, params) => {
+      kickoffReads.push(params);
+      return { rows: kickoffRows };
+    }],
+    [/^SELECT "teams"\."id"/, () => ({ rows: teams })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map((e, i) => ({ player_id: 900 + i, position: e.slot })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map((e, i) => ({ player_id: 900 + i })),
+    })],
+    [/^SELECT "lineup_entries"\."slot"/, () => ({ rows: entries })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  const pushes = [];
+  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
+    pushes.push({ userIds, payload });
+    return { sent: 1 };
+  });
+  nextTeamId += 10;
+  return { fake, pushes, kickoffReads };
+}
+
+const lineupRow = (slot, name, nflTeam, extra = {}) => ({
+  slot, name, nfl_team: nflTeam, injury_status: null, ir_attested: false, on_bye: false, ...extra,
+});
+const kickoff = (nflTeam, at) => ({ season: 2026, week: 9, nfl_team: nflTeam, kickoff_at: at });
+
+test('sendLineupReminders does not name a starter who is Out once his game has kicked off', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    entries: [
+      lineupRow('QB', 'Locked Out QB', 'KC', { injury_status: 'O' }),
+      lineupRow('WR', 'Open Out WR', 'GB', { injury_status: 'O' }),
+    ],
+    kickoffRows: [kickoff('KC', hoursFromNow(-1)), kickoff('GB', hoursFromNow(1))],
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 1 });
+  assert.equal(pushes[0].payload.body, 'Lineup check for week 9: Open Out WR (WR) is Out');
+  fake.assertClean();
+});
+
+test('sendLineupReminders sends nothing when the only problem is a starter whose game has kicked off', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    entries: [
+      lineupRow('QB', 'Locked Out QB', 'KC', { injury_status: 'O' }),
+      lineupRow('WR', 'Fine WR', 'GB'),
+    ],
+    kickoffRows: [kickoff('KC', hoursFromNow(-1)), kickoff('GB', hoursFromNow(1))],
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 0 });
+  assert.deepEqual(pushes, []);
+  fake.assertClean();
+});
+
+test('sendLineupReminders sends nothing once the week\'s last kickoff has passed', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    // An empty WR seat and an Out QB: both problems before the last kickoff,
+    // neither after it.
+    entries: [lineupRow('QB', 'Out QB', 'KC', { injury_status: 'O' })],
+    kickoffRows: [kickoff('KC', hoursFromNow(-3)), kickoff('GB', hoursFromNow(-1))],
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 0 });
+  assert.deepEqual(pushes, []);
+  fake.assertClean();
+});
+
+test('sendLineupReminders reads the week\'s kickoffs once per league and week, not per Team', async (t) => {
+  const { fake, pushes, kickoffReads } = lineupReminderWorld(t, {
+    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
+    kickoffRows: [kickoff('GB', hoursFromNow(1))],
+    teamCount: 3,
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 3 });
+  assert.equal(pushes.length, 3);
+  assert.equal(kickoffReads.length, 1);
+  assert.deepEqual(kickoffReads[0], [[2026], [9]]);
+  fake.assertClean();
+});
+
+test('sendPickemReminders reminds a member about the open games they missed, not the locked ones', async (t) => {
+  const pickem = require('../services/pickem.service');
+  const slate = [
+    { gameKey: 'BUF|MIA', kickoffAt: hoursFromNow(-1) }, // locked
+    { gameKey: 'KC|LV', kickoffAt: hoursFromNow(1) },
+    { gameKey: 'GB|MIN', kickoffAt: hoursFromNow(2) },
+  ];
+  t.mock.method(pickem, 'getWeekSlate', async () => slate);
+  const fake = createFakePool([
+    [/^SELECT "leagues"\."id", "leagues"\."name"/, () => ({ rows: [{ id: 520, name: 'Pick League', season: 2026, week: 9 }] })],
+    [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    [/^SELECT "teams"\."owner_id", "users"\."email"/, () => ({ rows: [
+      { owner_id: 721, email: 'missing@example.test' },
+      { owner_id: 722, email: 'done@example.test' },
+    ] })],
+    [/^SELECT "user_id", "team_pair" FROM "pickem_picks"/, () => ({ rows: [
+      // 721 picked one open game (and none of the locked one); 722 picked both open games.
+      { user_id: 721, team_pair: 'KC|LV' },
+      { user_id: 722, team_pair: 'KC|LV' },
+      { user_id: 722, team_pair: 'GB|MIN' },
+    ] })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [insert('notifications'), () => ({ rows: [] })],
+  ]).install(t);
+  const pushes = [];
+  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
+    pushes.push({ userIds, payload });
+    return { sent: 1 };
+  });
+
+  const result = await sendPickemReminders();
+
+  assert.deepEqual(result, { remindersSent: 1 });
+  assert.deepEqual(pushes.map((p) => p.userIds), [[721]]);
+  assert.equal(pushes[0].payload.body, "Week 9 Pick'em: 1 game still unpicked before kickoff.");
   fake.assertClean();
 });
 

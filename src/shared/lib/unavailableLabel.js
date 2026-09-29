@@ -4,11 +4,14 @@
 // model and the slot-comparison widget model each carried the identical
 // `{ bye: 'on bye', out: 'out', ir: 'on IR' }` object; this is the one copy.
 
-const UNAVAILABLE_LABELS = { bye: 'on bye', out: 'out', ir: 'on IR', no_team: 'no team' };
+const UNAVAILABLE_LABELS = {
+  bye: 'on bye', out: 'out', ir: 'on IR', no_team: 'no team', practice_squad: 'practice squad',
+};
 
 /**
  * The CONTEXT.md **Unavailable** label for a reason a player cannot play this
- * week: "on bye", "out", "on IR", "no team" for `bye | out | ir | no_team`. `null` for an unknown
+ * week: "on bye", "out", "on IR", "no team", "practice squad" for
+ * `bye | out | ir | no_team | practice_squad`. `null` for an unknown
  * or missing reason - never throws.
  *
  * Applies no fallback of its own: each caller keeps whatever fallback it

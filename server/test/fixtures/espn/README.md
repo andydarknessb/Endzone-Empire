@@ -61,3 +61,20 @@ real active NFL athlete as of capture time). Team: NE (ESPN numeric team id
   sync's source. `players[0].player.draftRanksByRankType` and the
   `rankings` block are ESPN's own projection/ranking data and are never read
   onto the card (ADR 0041).
+
+## team-roster-nyg.json
+
+- URL: `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/19/roster`
+  (`site.api.espn.com` answers a server-side request 403, captured 2026-09-29;
+  `site.web.api.espn.com` answers 200. Team id 19 = New York Giants.)
+- Captured: 2026-09-29T13:40Z (researcher-reported, UTC), for #1766
+- HTTP status: 200
+- Bytes: 371936
+- sha256: `8193c084f22de2914a3a64ea51be08e6c63ae69a2a8a12310e2c07d7a4e3c18e`
+  (compared against the committed copy by the IC)
+- Team: NYG (numeric id 19)
+- No trim. `athletes` is an array of groups (`offense` 25, `defense` 27,
+  `specialTeam` 3, `injuredReserveOrOut` 10, `suspended` 0, `practiceSquad` 14),
+  each `{ position, items[] }`. Phil Mafah (ESPN athlete id `4431562`) is in
+  `practiceSquad`; the roster status Sync run maps the group, not the
+  athlete's own `status` object.

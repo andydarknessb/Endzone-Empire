@@ -20,6 +20,28 @@ test('a null Upgrade renders no Upgrade tile and no empty label', () => {
   expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument();
 });
 
+test('an Unavailable week shows its reason in the Week N tile, not a number (#1765)', () => {
+  render(
+    <DecisionStrip
+      decision={{ projWeek: { week: 4, points: 0, reason: 'out' }, ros: { points: 140 }, upgrade: null }}
+      usage={null}
+    />
+  );
+  const tile = screen.getByTestId('decision-strip-proj-week');
+  expect(tile).toHaveTextContent('out');
+  expect(tile).not.toHaveTextContent('0.0');
+});
+
+test('the Week N tile labels the reason code through the shared map (#1765)', () => {
+  render(
+    <DecisionStrip
+      decision={{ projWeek: { week: 4, points: 0, reason: 'no_team' }, ros: null, upgrade: null }}
+      usage={null}
+    />
+  );
+  expect(screen.getByTestId('decision-strip-proj-week')).toHaveTextContent('no team');
+});
+
 test('a positive Upgrade renders as a pill naming its slot', () => {
   render(
     <DecisionStrip
@@ -83,4 +105,17 @@ test('Ownership reads percent and trend through finite(): blank and non-numeric 
   rerender(<DecisionStrip ownership={{ percentOwned: 0, change: 0 }} />);
   expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('0.0%');
   expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('+0.0 7d');
+});
+
+test('NFL roster shows "Practice squad" or "Reserve" from the card, and hides for Active/null (#1766)', () => {
+  const { container, rerender } = render(<DecisionStrip rosterStatus="Practice squad" />);
+  expect(screen.getByTestId('decision-strip-roster-status')).toHaveTextContent('Practice squad');
+
+  rerender(<DecisionStrip rosterStatus="Reserve" />);
+  expect(screen.getByTestId('decision-strip-roster-status')).toHaveTextContent('Reserve');
+
+  rerender(<DecisionStrip rosterStatus={null} />);
+  expect(container).toBeEmptyDOMElement();
+  rerender(<DecisionStrip rosterStatus="" />);
+  expect(container).toBeEmptyDOMElement();
 });

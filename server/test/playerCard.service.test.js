@@ -255,6 +255,28 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   assert.equal(card.decision.projWeek.points, 14.5);
 });
 
+// #1765: the Decision strip reads the same Unavailable verdict as the weekly
+// bars - 0 plus the reason, never the engine's Point estimate for the week.
+for (const reason of ['no_team', 'out', 'ir', 'practice_squad']) {
+  test(`getPlayerCard (#1765): an Unavailable (${reason}) player's projWeek is 0 with the weekly bar's reason`, async (t) => {
+    createFakePool(buildHandlers()).install(t);
+    mockServices(t, {
+      // The engine still carries a full estimate for the week; the strip must not print it.
+      weeklyProjection: () => ({
+        mean: 14, median: 14, factors: { availability: { available: false, reason } },
+      }),
+    });
+
+    const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+    const bar = card.weeks.find((w) => w.week === LEAGUE.current_week);
+    assert.equal(bar.kind, 'unavailable');
+    assert.equal(card.decision.projWeek.points, 0);
+    assert.equal(card.decision.projWeek.reason, reason);
+    assert.equal(card.decision.projWeek.reason, bar.reason);
+  });
+}
+
 // The Waiver Wire's Upgrade sort reads the same Upgrade: an Unavailable free
 // agent cannot improve this week's lineup, so he is no Upgrade at all, even
 // though the engine still carries his full estimate (ADR 0044). The player
@@ -274,7 +296,7 @@ function upgradeProjection(availability) {
     : { mean: 14, median: 14, factors: { availability } });
 }
 
-for (const reason of ['out', 'ir', 'bye']) {
+for (const reason of ['out', 'ir', 'bye', 'practice_squad']) {
   test(`getPlayerCard: an Unavailable (${reason}) free agent is no Upgrade over a healthy starter`, async (t) => {
     createFakePool(upgradeHandlers()).install(t);
     mockServices(t, { weeklyProjection: upgradeProjection({ available: false, reason }) });
@@ -292,6 +314,16 @@ test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate ov
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
   assert.deepEqual(card.decision.upgrade, { points: 9, overPlayer: { id: 999, name: 'Weak Starter' }, slot: 'WR' });
+});
+
+test('getPlayerCard (#1765): an available player\'s projWeek keeps the Point estimate and carries no reason', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.equal(card.decision.projWeek.points, 14.5);
+  assert.equal('reason' in card.decision.projWeek, false);
 });
 
 // ---------------------------------------------------------------------------

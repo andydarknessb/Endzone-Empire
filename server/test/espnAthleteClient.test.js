@@ -435,7 +435,7 @@ function cardPlayer(overrides) {
  * (no `external_id`) never triggers. `ownershipRow`/`depthRow` default to
  * "no row yet" but can be supplied so a test actually exercises the mapping
  * rather than trivially passing on a null field. */
-function cardPoolHandlers(player, { ownershipRow = null, depthRow = null } = {}) {
+function cardPoolHandlers(player, { ownershipRow = null, depthRow = null, rosterRow = null } = {}) {
   return [
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [CARD_LEAGUE] })],
     [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2$/, () => ({ rows: [CARD_TEAM] })],
@@ -456,6 +456,7 @@ function cardPoolHandlers(player, { ownershipRow = null, depthRow = null } = {})
     [/^SELECT "pss"\."player_id"/, () => ({ rows: [] })],
     [/^SELECT "team_code", "position_group", "rank", "captured_date" FROM "player_depth_chart"/, () => ({ rows: depthRow ? [depthRow] : [] })],
     [/^SELECT "percent_owned", "percent_started", "percent_change", "captured_date" FROM "player_ownership"/, () => ({ rows: ownershipRow ? [ownershipRow] : [] })],
+    [/^SELECT "roster_status", "captured_date" FROM "player_nfl_roster_status"/, () => ({ rows: rosterRow ? [rosterRow] : [] })],
   ];
 }
 
@@ -565,4 +566,103 @@ test('getPlayerCard: no key of the fantasy fixture\'s projection/ranking blocks 
   for (const key of forbiddenKeys) {
     assert.equal(cardKeys.has(key), false, `card payload must never carry fantasy-fixture key "${key}"`);
   }
+});
+
+// --- NFL roster status (#1766): team roster groups -> Active/Practice squad/Reserve ----
+
+const teamRosterNygFixture = require('./fixtures/espn/team-roster-nyg.json');
+const { normalizeTeamRoster, teamRoster } = require('../modules/espnAthleteClient');
+
+test('normalizeTeamRoster: the recorded NYG roster stores Mafah (4431562) as practice_squad, offense/defense/specialTeam as active, injuredReserveOrOut as reserve', () => {
+  const rows = normalizeTeamRoster(teamRosterNygFixture, 'NYG');
+  const byId = new Map(rows.map((r) => [r.athleteId, r]));
+  assert.equal(byId.get('4431562').rosterStatus, 'practice_squad');
+  assert.equal(byId.get('4431562').teamCode, 'NYG');
+
+  const groups = new Map(teamRosterNygFixture.athletes.map((g) => [g.position, g.items.map((i) => String(i.id))]));
+  for (const group of ['offense', 'defense', 'specialTeam']) {
+    assert.ok(groups.get(group).length > 0, `${group} has athletes in the fixture`);
+    for (const id of groups.get(group)) assert.equal(byId.get(id).rosterStatus, 'active', `${group} ${id}`);
+  }
+  assert.ok(groups.get('injuredReserveOrOut').length > 0);
+  for (const id of groups.get('injuredReserveOrOut')) assert.equal(byId.get(id).rosterStatus, 'reserve', `reserve ${id}`);
+  for (const id of groups.get('practiceSquad')) assert.equal(byId.get(id).rosterStatus, 'practice_squad', `ps ${id}`);
+});
+
+test('normalizeTeamRoster: suspended is Reserve; an unknown group and an athlete without an id are skipped; a repeated athlete keeps the first group', () => {
+  const rows = normalizeTeamRoster({
+    athletes: [
+      { position: 'suspended', items: [{ id: '1' }] },
+      { position: 'mystery', items: [{ id: '2' }] },
+      { position: 'offense', items: [{ id: '3' }, {}, { id: '1' }] },
+    ],
+  }, 'NYG');
+  assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus]), [['1', 'reserve'], ['3', 'active']]);
+});
+
+test('normalizeTeamRoster: a reshaped or empty payload is an empty array, never a throw', () => {
+  assert.deepEqual(normalizeTeamRoster(null, 'NYG'), []);
+  assert.deepEqual(normalizeTeamRoster({ athletes: 'x' }, 'NYG'), []);
+});
+
+test('teamRoster: NYG hits the site.web.api roster URL for ESPN team id 19 and is never cached', async () => {
+  const transport = fakeTransport(() => okResponse(teamRosterNygFixture));
+  const first = await teamRoster('NYG', { transport });
+  const second = await teamRoster('nyg', { transport });
+  assert.ok(first.length > 0);
+  assert.deepEqual(first, second);
+  assert.equal(transport.calls.length, 2);
+  assert.match(transport.calls[0].url, /site\.web\.api\.espn\.com\/apis\/site\/v2\/sports\/football\/nfl\/teams\/19\/roster$/);
+});
+
+test('teamRoster: an unknown team code resolves null with no call; a failed fetch resolves null', async () => {
+  const transport = fakeTransport(() => okResponse(teamRosterNygFixture));
+  assert.equal(await teamRoster('ZZ', { transport }), null);
+  assert.equal(transport.calls.length, 0);
+  const failing = fakeTransport(() => { throw httpError(403); });
+  assert.equal(await teamRoster('NYG', { transport: failing }), null);
+});
+
+// --- NFL roster status on the card (#1766) ----------------------------------
+
+async function cardWithRosterRow(t, rosterRow) {
+  createFakePool(cardPoolHandlers(cardPlayer(), { rosterRow })).install(t);
+  mockCardServices(t);
+  t.mock.method(espnAthleteClient, 'profile', async () => null);
+  t.mock.method(espnAthleteClient, 'overview', async () => null);
+  return getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+}
+
+test('getPlayerCard: a player whose latest roster row says practice_squad carries rosterStatus "Practice squad"; reserve carries "Reserve"', async (t) => {
+  const ps = await cardWithRosterRow(t, { roster_status: 'practice_squad', captured_date: '2026-09-29' });
+  assert.equal(ps.rosterStatus, 'Practice squad');
+  t.mock.restoreAll();
+  const reserve = await cardWithRosterRow(t, { roster_status: 'reserve', captured_date: '2026-09-29' });
+  assert.equal(reserve.rosterStatus, 'Reserve');
+});
+
+test('getPlayerCard: an Active latest row and a player with no row at all carry no rosterStatus (null)', async (t) => {
+  const active = await cardWithRosterRow(t, { roster_status: 'active', captured_date: '2026-09-29' });
+  assert.equal(active.rosterStatus, null);
+  t.mock.restoreAll();
+  const none = await cardWithRosterRow(t, null);
+  assert.equal(none.rosterStatus, null);
+});
+
+test('getPlayerCard: a player with no ESPN id never reads the roster-status table', async (t) => {
+  const fake = createFakePool(cardPoolHandlers(cardPlayer({ external_id: null }))).install(t);
+  mockCardServices(t);
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+  assert.equal(card.rosterStatus, null);
+  assert.equal(fake.matching(/player_nfl_roster_status/).length, 0);
+});
+
+test('getPlayerCard: the roster-status read is bounded to the verdict 48 hours, so a released player last row ages out instead of showing forever (#1766 risk review, #1767)', async (t) => {
+  const fake = createFakePool(cardPoolHandlers(cardPlayer())).install(t);
+  mockCardServices(t);
+  t.mock.method(espnAthleteClient, 'profile', async () => null);
+  t.mock.method(espnAthleteClient, 'overview', async () => null);
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+  const [read] = fake.matching(/player_nfl_roster_status/);
+  assert.ok(read.text.includes(`"updated_at" > now() - interval '48 hours'`), read.text);
 });

@@ -77,6 +77,7 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const model = require('./projectionModel');
 const projection = require('./projection.service');
+const { loadNflRosterStatusById } = require('./nflRosterStatus');
 const { normalizeTeamKey } = require('./projectionFeatures');
 const { SCORING_PRESETS } = require('./scoringRules');
 const {
@@ -720,11 +721,18 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool, c
     // One run per arm, every run inside THIS transaction, so all of them read
     // the identical REPEATABLE READ snapshot; only modelConstants varies. The
     // required arms run here; Challengers run later, isolated (below).
+    //
+    // The NFL roster status (#1767) is read once, on THIS connection, so every
+    // arm captures the Practice squad verdict managers saw at this snapshot
+    // (DEVIATIONS entry 4). Unguarded on purpose: a failed read aborts the
+    // transaction, and the capture fails loudly rather than certifying a
+    // snapshot that silently read every player Active.
+    const nflRosterStatusById = await loadNflRosterStatusById(conn, playerIds);
     const runsByKind = new Map();
     for (const arm of requiredArms) {
       runsByKind.set(arm.kind, await projection.generateProjections({
         season, week, rules, playerIds, hashValue: scoringHash, client: conn,
-        weatherService: false, modelConstants: arm.constants,
+        weatherService: false, modelConstants: arm.constants, nflRosterStatusById,
         // The odds read is bounded by this capture's own effective cutoff
         // (never `input_cutoff`), so a snapshot cannot read a quote observed
         // after the moment it certifies as pre-kickoff (#1268, ADR 0039).
@@ -844,7 +852,7 @@ async function snapshotWeek({ season, week, profileName, rules, client = pool, c
         const run = await projection.generateProjections({
           season, week, rules, playerIds, hashValue: scoringHash, client: conn,
           weatherService: false, modelConstants: arm.constants, modelVersion: arm.modelVersion,
-          oddsObservedAtOrBefore: cutoff,
+          oddsObservedAtOrBefore: cutoff, nflRosterStatusById,
         });
         const snapshotId = await writeArm(arm, run);
         const clockChallenger = await conn.query('SELECT clock_timestamp() AS "now"');

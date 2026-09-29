@@ -997,6 +997,7 @@ export default function PlayerDecisionCard(props) {
                 usage={card?.decision?.usage}
                 ownership={card?.ownership}
                 depth={card?.depth}
+                rosterStatus={card?.rosterStatus}
               />
               {/* #1358: Season summary and Season pick, between the strip and
                   the bars (the body's own section order). The bars and the
@@ -1298,18 +1299,19 @@ function UsageSection({ usage, opponents, position, level, showTable = true }) {
 // `hasContent` restates `DecisionStrip`'s own per-tile null checks (the
 // same duplicated-on-purpose shape `GameLogSection` below already uses)
 // rather than rendering an empty, still-titled Section around nothing.
-function DecisionStripSection({ decision, usage, ownership, depth }) {
+function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus }) {
   const hasContent =
     (decision?.projWeek && decision.projWeek.points != null) ||
     (decision?.ros && decision.ros.points != null) ||
     (decision?.upgrade != null && decision.upgrade.points != null) ||
     (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null) ||
     (ownership && ownership.percentOwned != null) ||
-    (depth && depth.positionGroup && depth.rank != null);
+    (depth && depth.positionGroup && depth.rank != null) ||
+    Boolean(rosterStatus);
   if (!hasContent) return null;
   return (
     <Section title="Decision strip" testId="decision-card-strip-section">
-      <DecisionStrip decision={decision} usage={usage} ownership={ownership} depth={depth} />
+      <DecisionStrip decision={decision} usage={usage} ownership={ownership} depth={depth} rosterStatus={rosterStatus} />
     </Section>
   );
 }
