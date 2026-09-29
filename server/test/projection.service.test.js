@@ -578,6 +578,10 @@ test('a week-1 run truncates p10 at the prior-season position floor (#1483)', as
     weeklyRow(1, 2, { rushingYards: 20 }, SEASON - 1),
     weeklyRow(1, 3, { rushingYards: 250 }, SEASON - 1),
     weeklyRow(1, 4, { rushingYards: 100 }, SEASON - 1),
+    // A fifth game keeps the pool ODD: under v3.2 an even pool is re-centred on
+    // its median residual (#1769), which lifts this fixture's p10 clear of the
+    // floor and stops it proving the truncation fires.
+    weeklyRow(1, 5, { rushingYards: 0 }, SEASON - 1),
   ];
 
   mockPool(t, {
