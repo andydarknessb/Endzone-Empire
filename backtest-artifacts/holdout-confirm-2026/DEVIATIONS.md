@@ -98,3 +98,33 @@ an input-class addition, not a correction: it adds columns the evaluator has
 never read, touching no `player_stats` row's existing keys, no `usage*` key,
 no `receptions`, `gameTeam` or `gameOpponent`, and no row count. Recorded as
 purely mechanical; it voids nothing.
+
+## 4. 2026-09-29: availability correction, Practice squad players project hard-unavailable on the live path (#1767)
+
+**What changed.** `unavailableFor` gains the `practice_squad` branch: a player
+whose latest NFL roster status row (`player_nfl_roster_status`, #1766) says
+Practice squad and was captured within 48 hours reads `available: false,
+activeProbability: 0`. Precedence is bye, No NFL team, Practice squad, then
+Out and IR. A missing or stale status reads as Active, and Reserve gates
+nothing. The projection engine receives the fact only on the live cache path
+(`completeRun`, the Weekly projection runs every product surface reads),
+through a separate read, because the engine's own player read is pinned by
+the backtest snapshot surface (`scripts/backtest/lib/sqlSurface.js`) and is
+left byte-identical. `MODEL_VERSION`, `MODEL_CONSTANTS` and the pinned hash
+are byte-identical, and no projected number moves: mean, median and the
+interval are computed exactly as before.
+
+**Why.** The 2026-09-29 diagnosis (spec #1764) found practice-squad players
+(Phil Mafah NYG, Jawhar Jordan HOU) with `activeProbability` 1 ranking as
+Waiver Wire upgrades and startable options.
+
+**Which claims it touches.** None of the gates. Every direct
+`generateProjections` caller passes no roster status, so every player reads
+Active there exactly as before: the holdout capture (`holdout.service.js`
+`snapshotWeek`, required and Challenger arms), backtest snapshot replays and
+the successor evaluator (`scripts/holdout/lib/successorEval.js`). Captured
+`active_probability` values, section 5 and 7 coverage denominators and
+section 6 lineups are therefore unchanged, and no section 9 void condition
+fires. The live Weekly projection runs, which no gate reads, are where the
+correction lands. Recorded as purely mechanical for the sealed protocol; it
+voids nothing, and no ledger row, snapshot or release_sha is rewritten.

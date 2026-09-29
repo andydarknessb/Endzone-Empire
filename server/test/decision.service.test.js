@@ -263,6 +263,34 @@ test('buildSuggestions: Out and IR designations make a player unavailable', () =
   }
 });
 
+// #1767: a fresh Practice squad row is Unavailable - worth 0 as a starter
+// (and replaced), never proposed from the bench.
+const PRACTICE_SQUAD = () => ({ status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() });
+
+test('buildSuggestions: a Practice squad starter is worth zero, reads practice_squad and gets replaced', () => {
+  const lineup = [
+    { ...entry(1, 'RB', 'RB'), nflRosterStatus: PRACTICE_SQUAD() },
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 20 }], [2, { points: 8 }]]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.projectedTotal, 0);
+  assert.equal(result.optimalTotal, 8);
+  assert.equal(result.suggestions[0].suggested.playerId, 2);
+  assert.deepEqual(result.unavailable, [{ playerId: 1, name: 'p1', slot: 'RB', reason: 'practice_squad' }]);
+});
+
+test('buildSuggestions: a Practice squad bench player with the highest projection is never proposed as a start', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    { ...entry(2, 'RB', 'BENCH'), nflRosterStatus: PRACTICE_SQUAD() },
+  ];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 30 }]]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+  assert.equal(result.optimalTotal, 10);
+});
+
 test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
