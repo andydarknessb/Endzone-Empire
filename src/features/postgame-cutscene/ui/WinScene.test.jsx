@@ -239,11 +239,11 @@ describe('slam, Record and marquee', () => {
   });
 
   // Press Start 2P is 1 em a character: a 40-character text plus the 32 px avatar
-  // and 12 px gap. The dance beat leaves 53 whole steps (424 px) before onDone.
+  // and 12 px gap. The dance beat has 54 steps; two are held back as slack.
   test.each([
     ['14 px on a 1280 px stage', { box: 1280, track: 32 + 12 + 40 * 14 }],
     ['11 px on a 375 px stage', { box: 375, track: 32 + 12 + 40 * 11 }],
-  ])('the whole 40-character track is on screen at least once before onDone: %s', (label, layout) => {
+  ])('the track right edge reaches the box right edge before onDone: %s', (label, layout) => {
     withLayout(layout, () => {
       mount();
       advance(DANCE_MS);
@@ -254,7 +254,8 @@ describe('slam, Record and marquee', () => {
       }
       expect(rightEdges).toHaveLength(54);
       expect(Math.min(...rightEdges)).toBeLessThanOrEqual(layout.box);
-      // The head is on screen from the first step, and 8 px a step is kept.
+      // The avatar is on screen from the first step, and 8 px a step is kept.
+      expect(rightEdges[0] - layout.track).toBeGreaterThanOrEqual(0);
       expect(rightEdges[0] - rightEdges[1]).toBe(8);
     });
   });

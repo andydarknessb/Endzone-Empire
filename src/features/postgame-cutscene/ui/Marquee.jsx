@@ -9,6 +9,9 @@ import { TeamAvatar } from '../../../shared/ui';
 export const MARQUEE_STEP_PX = 8;
 export const MARQUEE_STEP_MS = 100;
 export const MARQUEE_AVATAR_PX = 32;
+// Steps held back from the budget: the marquee mounts a render after the beat
+// starts and interval ticks can lag, so the last step or two may land after onDone.
+export const MARQUEE_SLACK_STEPS = 2;
 
 /**
  * A one-line stepped ticker: the viewer's 32 px avatar leads `text`, and the
@@ -17,9 +20,11 @@ export const MARQUEE_AVATAR_PX = 32;
  *
  * The step rate is fixed, so a track wider than the distance the marquee can
  * travel in `visibleByMs` would never be seen whole. Such a track starts part
- * of the way in (the avatar and the head of the text already on screen), timed
- * so its right edge reaches the box's right edge on the last step before
- * `visibleByMs`. A shorter track still enters from just off the right edge.
+ * of the way in, timed so its right edge reaches the box's right edge
+ * MARQUEE_SLACK_STEPS before `visibleByMs`. A track wider than the box plus
+ * that travel starts with its head already past the left edge: at a fixed step
+ * rate the head is what gives way, and the tail (the opponent) is always seen.
+ * A shorter track still enters from just off the right edge.
  */
 function Marquee({
   text, name, avatarUrl, visibleByMs,
@@ -47,10 +52,10 @@ function Marquee({
     return () => clearInterval(id);
   }, []);
 
-  // One lap: from just off the right edge to just past the left one. The last
-  // step is counted out of the budget so a step landing on `visibleByMs` itself
-  // cannot be the one that reveals the tail.
-  const lastStep = visibleByMs ? Math.max(0, Math.floor(visibleByMs / MARQUEE_STEP_MS) - 1) : Infinity;
+  // One lap: from just off the right edge to just past the left one. The slack
+  // steps are counted out of the budget so a late tick cannot be the one that
+  // reveals the tail.
+  const lastStep = visibleByMs ? Math.max(0, Math.floor(visibleByMs / MARQUEE_STEP_MS) - MARQUEE_SLACK_STEPS) : Infinity;
   const head = Number.isFinite(lastStep)
     ? Math.max(0, widths.track - lastStep * MARQUEE_STEP_PX)
     : 0;
