@@ -32,7 +32,7 @@ const item = (id, over = {}) => ({
   leagueName: 'Sunday League',
   week: 5,
   playoff: false,
-  outcome: 'win',
+  outcome: 'tie',
   me: { teamId: 100 + id, name: `Mine ${id}`, avatarStaticUrl: null, score: 120 },
   opponent: { teamId: 200 + id, name: `Theirs ${id}`, avatarStaticUrl: null, score: 100 },
   record: { wins: 3, losses: 1, ties: 0 },
@@ -208,7 +208,7 @@ describe('queue', () => {
   test('the overlay is an alertdialog named by the result sentence', async () => {
     await show([item(1)]);
     startFromTitle();
-    expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
+    expect(dialog()).toHaveAccessibleName('Mine 1 tied Theirs 1, 120 to 100');
   });
 
   test('Escape mid-queue ends it with no overflow line', async () => {
@@ -362,9 +362,9 @@ describe('keyboard and focus', () => {
     await show([item(1), item(2)]);
     startFromTitle();
     const live = screen.getByTestId('postgame-live');
-    expect(live).toHaveTextContent('Mine 1 beat Theirs 1, 120 to 100');
+    expect(live).toHaveTextContent('Mine 1 tied Theirs 1, 120 to 100');
     fireEvent.click(dialog());
-    expect(live).toHaveTextContent('Mine 2 beat Theirs 2, 120 to 100');
+    expect(live).toHaveTextContent('Mine 2 tied Theirs 2, 120 to 100');
   });
 
   test('Enter on a focused button is not also a tap on the card', async () => {
@@ -398,9 +398,9 @@ describe('keyboard and focus', () => {
 });
 
 describe('static result card', () => {
-  test('a win shows the outcome, both Teams and scores, the Record line and no link', async () => {
-    await show([item(1)]);
-    startFromTitle();
+  test('a win, under reduced motion, shows the outcome, both Teams and scores, the Record line and no link', async () => {
+    setReducedMotion(true);
+    await show([item(1, { outcome: 'win' })]);
     const card = screen.getByTestId('postgame-result-card');
     expect(within(card).getByText('YOU WIN!')).toBeInTheDocument();
     expect(within(card).getByText('Mine 1')).toBeInTheDocument();
@@ -468,6 +468,100 @@ describe('static result card', () => {
   });
 });
 
+describe('scene registry', () => {
+  let calls;
+  beforeEach(() => {
+    calls = [];
+    setSfx({
+      unlock: jest.fn(),
+      play: jest.fn((name) => calls.push(`play:${name}`)),
+      startLoop: jest.fn((name) => calls.push(`startLoop:${name}`)),
+      stopAll: jest.fn((options) => calls.push(`stopAll:${options.fadeMs}`)),
+      setMuted: jest.fn(),
+    });
+  });
+  afterEach(() => setSfx(null));
+
+  async function startAt(cutscenes) {
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={cutscenes} />);
+    await screen.findByRole('alertdialog');
+    calls.length = 0;
+    // PRESS START fades the title theme (stopAll:100), then the scene mounts.
+    startFromTitle();
+  }
+  const fades = () => calls.filter((c) => c.startsWith('stopAll'));
+
+  test('a win mounts the WIN scene, not the result card', async () => {
+    await startAt([item(1, { outcome: 'win' })]);
+    expect(screen.getByTestId('win-scene')).toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-result-card')).not.toBeInTheDocument();
+  });
+
+  test('a loss (no registered scene) shows the result card', async () => {
+    await startAt([item(1, { outcome: 'loss' })]);
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+  });
+
+  test('the scene gets the queue sfx and the queue advances on its onDone, not on SCENE_MS', async () => {
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'loss' })]);
+    // The scene played its sound through the sfx the stage installed.
+    expect(calls).toEqual(['stopAll:100', 'play:slide']);
+    act(() => { jest.advanceTimersByTime(3500); });
+    expect(screen.getByTestId('win-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(9999 - 3500); });
+    expect(screen.getByTestId('win-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    // Moving on from a scene fades its loops out over 100 ms.
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('the last scene ending finishes the queue and fades the sound', async () => {
+    await startAt([item(1, { outcome: 'win' })]);
+    act(() => { jest.advanceTimersByTime(10000); });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('a tap during a scene moves on and stops its sound', async () => {
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'loss' })]);
+    act(() => { jest.advanceTimersByTime(5000); });
+    fireEvent.click(dialog());
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('Escape during a scene ends the queue and stops the sound over 100 ms', async () => {
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'win' })]);
+    act(() => { jest.advanceTimersByTime(5000); });
+    press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('the dialog keeps its result-sentence name while the scene plays', async () => {
+    await startAt([item(1, { outcome: 'win' })]);
+    expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
+    expect(screen.getByTestId('postgame-live')).toHaveTextContent('Mine 1 beat Theirs 1, 120 to 100');
+  });
+
+  test('under reduced motion a win keeps the result card as the only card', async () => {
+    setReducedMotion(true);
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'win' }), item(2, { outcome: 'win' })]} />);
+    await screen.findByRole('alertdialog');
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    // The card runs on the 2 s reduced-motion timer, as before.
+    act(() => { jest.advanceTimersByTime(2000); });
+    expect(screen.getByText('Mine 2')).toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+  });
+});
+
 describe('reduced motion', () => {
   beforeEach(() => setReducedMotion(true));
 
@@ -477,7 +571,7 @@ describe('reduced motion', () => {
     expect(screen.queryByTestId('postgame-title-card')).not.toBeInTheDocument();
     expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledTimes(2);
-    expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
+    expect(dialog()).toHaveAccessibleName('Mine 1 tied Theirs 1, 120 to 100');
   });
 
   test('each card holds for 2 s', async () => {

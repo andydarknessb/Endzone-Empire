@@ -1,0 +1,326 @@
+/* The Postgame WIN scene. Fixed night-game colors in both app themes (allowlisted
+   in scripts/check-color-literals.js). Every animated property is transform or
+   opacity, and everything moves on steps(): a value that ends in a step count is
+   a frame rate, not an easing. Timings mirror the ledger at the top of
+   WinScene.jsx (FLASH_MS, the slam) and Transition.jsx (SWEEP_MS, SWEEP_STEPS).
+
+   Nothing flashes more than three times a second: one two-frame white flash
+   (`win-flash`, 220 ms, once) and the opening pink and green line sweeps, one
+   line at a time. "YOU WIN!" slams in once and never blinks. */
+
+.win-scene {
+  --win-sprite: 64px;
+  --win-marquee-h: 48px;
+  --win-record-h: 28px;
+  --win-ground: calc(var(--win-marquee-h) + var(--win-record-h) + 8px);
+  --win-field-cycle: 400ms; /* one 80 px lap of the field */
+  --win-sky-cycle: 800ms; /* the sky and crowd take twice as long: half the rate */
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000000;
+}
+
+@media (max-width: 419px) {
+  .win-scene { --win-sprite: 48px; }
+}
+
+/* ---- Opening beat: black, two line sweeps, typed text ---- */
+
+.win-transition {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000000;
+}
+
+/* A stage-tall box whose bottom border is the 2 px line: sliding the box down
+   sweeps the line from the top edge to the bottom one. */
+.win-sweep {
+  position: absolute;
+  inset: 0;
+  border-bottom: 2px solid transparent;
+  transform: translateY(-100%);
+  opacity: 0;
+}
+.win-sweep--pink {
+  border-bottom-color: #ff3fa4;
+  animation: win-sweep 500ms steps(8) forwards;
+}
+.win-sweep--green {
+  border-bottom-color: #39ff88;
+  animation: win-sweep 500ms steps(8) 500ms forwards;
+}
+
+.win-typed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  padding: 0 16px;
+  text-align: center;
+  font-size: clamp(8px, 2.8vw, 14px);
+  line-height: 1.6;
+  color: #39ff88;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Field, sky and crowd: separate layers, scrolled on steps() ---- */
+
+.win-sky,
+.win-crowd,
+.win-field {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}
+.win-sky { top: 0; bottom: 42%; }
+.win-crowd { top: 38%; bottom: 42%; }
+.win-field { top: 58%; bottom: 0; box-shadow: inset 0 6px 0 #ffffff33; }
+
+/* Each layer is one lap (80 px) wider than its window, so a lap of translateX
+   never shows an edge. The patterns all repeat every 80 px. */
+.win-layer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: -80px;
+  animation-timing-function: steps(8);
+  animation-iteration-count: infinite;
+  animation-play-state: paused;
+}
+.win-layer--field {
+  background: repeating-linear-gradient(90deg, #1f7a3d 0 40px, #1b6d37 40px 80px);
+  animation-name: win-scroll;
+  animation-duration: var(--win-field-cycle);
+}
+.win-layer--sky {
+  background:
+    radial-gradient(1px 1px at 15% 30%, #cfd4e0 99%, transparent),
+    radial-gradient(1px 1px at 45% 60%, #aeb4c4 99%, transparent),
+    radial-gradient(1px 1px at 72% 22%, #e8ecf5 99%, transparent),
+    radial-gradient(1px 1px at 90% 50%, #aeb4c4 99%, transparent),
+    repeating-linear-gradient(90deg, #10131c 0 40px, #141826 40px 80px);
+  background-size: 80px 100%, 80px 100%, 80px 100%, 80px 100%, auto;
+  animation-name: win-scroll;
+  animation-duration: var(--win-sky-cycle);
+}
+.win-layer--crowd {
+  background:
+    repeating-linear-gradient(90deg, #d4a373cc 0 3px, transparent 3px 8px),
+    repeating-linear-gradient(90deg, #7a5c9ecc 2px 5px, transparent 5px 10px),
+    repeating-linear-gradient(0deg, #2f3550 0 4px, #3d4468 4px 8px);
+  animation-name: win-scroll;
+  animation-duration: var(--win-sky-cycle);
+}
+
+/* The layers run only while the runner runs; after that they hold their place. */
+.win-field[data-scrolling='true'] .win-layer,
+.win-scene[data-beat='scroll'] .win-sky .win-layer,
+.win-scene[data-beat='scroll'] .win-crowd .win-layer {
+  animation-play-state: running;
+}
+
+/* ---- End zone ---- */
+
+.win-endzone {
+  position: absolute;
+  top: 58%;
+  right: 0;
+  bottom: 0;
+  width: 30%;
+  background: repeating-linear-gradient(90deg, #b3251f 0 40px, #a11f1a 40px 80px);
+  box-shadow: inset 6px 0 0 #ffffff55;
+  transform: translateX(100%);
+  animation: win-endzone-in 400ms steps(6) forwards;
+}
+
+.win-goalpost {
+  position: absolute;
+  right: 12%;
+  bottom: var(--win-ground);
+  width: calc(var(--win-sprite) * 1.6);
+  height: calc(var(--win-sprite) * 1.6);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ---- Players ---- */
+
+.win-sprite {
+  display: block;
+  width: var(--win-sprite);
+  height: var(--win-sprite);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* The runner high-steps in place at 35% of the stage; the defender trails at 20%. */
+.win-runner-group {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.win-runner {
+  position: absolute;
+  left: 35%;
+  bottom: var(--win-ground);
+}
+.win-defender {
+  position: absolute;
+  left: 20%;
+  bottom: var(--win-ground);
+}
+
+/* The 2 px bob rides the two-frame leg cycle (110 ms a frame). */
+.win-sprite--bob { animation: win-bob 220ms steps(1) infinite; }
+
+/* The dive crosses the goal line (36% of the stage), then holds there. */
+.win-scene[data-beat='endzone'] .win-runner-group { animation: win-dive 400ms steps(4) forwards; }
+.win-scene[data-beat='slam'] .win-runner-group,
+.win-scene[data-beat='dance'] .win-runner-group { transform: translateX(36%); }
+
+.win-ball {
+  position: absolute;
+  left: calc(var(--win-sprite) * 0.9);
+  bottom: 0;
+  width: calc(var(--win-sprite) * 0.375);
+  height: calc(var(--win-sprite) * 0.25);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  animation: win-ball-bounce 330ms steps(3) forwards;
+}
+
+/* The spike's white flash: two 110 ms frames, once, then gone. */
+.win-flash {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  pointer-events: none;
+  opacity: 0;
+  animation: win-flash 220ms steps(1) 1;
+}
+
+/* ---- Title, Record, marquee ---- */
+
+.win-title {
+  position: absolute;
+  top: 10%;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.win-title-text {
+  font-size: clamp(28px, 11vw, 64px);
+  color: #ffd23f;
+  text-shadow: 4px 4px 0 #00000099;
+  transform: scale(0);
+  opacity: 0;
+  animation: win-slam 420ms steps(6) forwards;
+}
+.win-title-score {
+  font-size: clamp(14px, 5vw, 26px);
+  color: #ffffff;
+  text-shadow: 3px 3px 0 #00000099;
+}
+
+.win-record {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--win-marquee-h);
+  height: var(--win-record-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  text-align: center;
+  font-size: clamp(8px, 2.6vw, 12px);
+  color: #cfd4e0;
+}
+
+.win-marquee {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--win-marquee-h);
+  overflow: hidden;
+  background: #000000;
+  border-top: 2px solid #ffd23f;
+  box-sizing: border-box;
+}
+.win-marquee-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  will-change: transform;
+}
+.win-marquee-avatar img {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.win-marquee-text {
+  font-size: clamp(10px, 3vw, 14px);
+  color: #ffffff;
+}
+
+/* ---- Keyframes ---- */
+
+@keyframes win-sweep {
+  0% { transform: translateY(-100%); opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes win-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-80px); }
+}
+@keyframes win-endzone-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes win-dive {
+  from { transform: translateX(0); }
+  to { transform: translateX(36%); }
+}
+@keyframes win-bob {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@keyframes win-ball-bounce {
+  0% { transform: translateY(-24px); }
+  60% { transform: translateY(0); }
+  80% { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
+@keyframes win-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes win-slam {
+  0% { transform: scale(3.2); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* The scene is not mounted under reduced motion (the queue shows the still
+   result card); this only guards a scene mounted some other way. */
+@media (prefers-reduced-motion: reduce) {
+  .win-scene *,
+  .win-scene *::before,
+  .win-scene *::after {
+    animation: none !important;
+  }
+  .win-title-text { transform: none; opacity: 1; }
+}
