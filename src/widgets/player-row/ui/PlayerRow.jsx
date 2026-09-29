@@ -19,7 +19,7 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX, formatPoints, timeUntil, unavailableLabel } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, NO_HISTORY_LABEL, formatPoints, hasNoHistory, timeUntil, unavailableLabel } from '../../../shared/lib';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';
 import { weeksForSparkline } from '../model/weeksAdapter';
 
@@ -105,9 +105,14 @@ function StatusCell({ player }) {
 /** Proj Wk / ROS: a points figure, or - for a week the player can't play -
  * the reason itself, never a fabricated number (ADR 0040: "Unavailable
  * players show the reason, never a number, in the list and on the bars"). */
-function ProjWeekCell({ projWeek }) {
+function ProjWeekCell({ projWeek, noHistory = false }) {
   if (!projWeek) return <span>-</span>;
   if (projWeek.reason) return <span>{unavailableLabel(projWeek.reason) || projWeek.reason}</span>;
+  // #1778 (spec #1774): a Position-baseline projection is the position's
+  // average, so the column reads "no history" in place of its number. The
+  // verdict is the server's (`verdictReason`); an Unavailable reason above
+  // already won.
+  if (noHistory) return <span>{NO_HISTORY_LABEL}</span>;
   return <span>{formatPoints(projWeek.points)}</span>;
 }
 
@@ -339,7 +344,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
                 Proj Wk
               </Typography>
               <Typography sx={{ fontWeight: 700 }}>
-                <ProjWeekCell projWeek={player.projWeek} />
+                <ProjWeekCell projWeek={player.projWeek} noHistory={hasNoHistory(player)} />
               </Typography>
             </Box>
             <Box>
@@ -376,7 +381,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
         <PlayerIdentity player={player} onOpenPlayer={onOpenPlayer} />
       </TableCell>
       <TableCell align="right">
-        <ProjWeekCell projWeek={player.projWeek} />
+        <ProjWeekCell projWeek={player.projWeek} noHistory={hasNoHistory(player)} />
       </TableCell>
       <TableCell align="right">{formatPoints(player.ros?.points)}</TableCell>
       {!hideOwnership && (

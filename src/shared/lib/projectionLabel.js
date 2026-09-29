@@ -15,13 +15,21 @@ import { formatPoints } from './numeric';
 
 export const NO_HISTORY_LABEL = 'no history';
 
+// The Lineup wire spells the verdict `positionBaseline: true` (#1776); the
+// Players page wire (Players and Waivers, #1778) carries the server's verdict
+// reason, `verdictReason: 'no_history'`, on those rows only. Both are the
+// server's answer to one question, read here, never derived.
+function isPositionBaselineRow(entry) {
+  return entry.positionBaseline === true || entry.verdictReason === 'no_history';
+}
+
 /**
  * True when `entry` is a Position-baseline projection the surface must not
- * present as a number: `positionBaseline` is exactly `true` and the player is
+ * present as a number: `positionBaseline` is exactly `true` (or `verdictReason` is `no_history`) and the player is
  * not Unavailable. Never throws on a missing row.
  */
 export function hasNoHistory(entry) {
-  if (!entry || entry.positionBaseline !== true) return false;
+  if (!entry || !isPositionBaselineRow(entry)) return false;
   return !(entry.availability && entry.availability.available === false);
 }
 

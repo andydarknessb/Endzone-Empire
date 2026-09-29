@@ -17,6 +17,10 @@ const { LEAGUE_SCOPED_SORT_FIELDS } = require('./playerSort');
 const playerCardService = require('./playerCard.service');
 const playerWatchlistService = require('./playerWatchlist');
 
+// The verdict reason `unavailableFor` returns for a Position-baseline
+// projection (#1775); the Weekly projection read's `availabilityFor` carries it.
+const NO_HISTORY_REASON = 'no_history';
+
 /**
  * The Players page's one read (CONTEXT.md's Players page; parent spec #1490):
  * for one manager, in one league or none, the paginated, sorted, filtered
@@ -228,6 +232,17 @@ const nullsLastComparator = (getValue, direction) => (a, b) => {
   if (!aMissing && av !== bv) return direction * (av - bv);
   return a.id - b.id;
 };
+
+// Adds to `into` the id of every player in `list` whose Weekly projection is a
+// Position-baseline projection with no Unavailable verdict over it: the read's
+// own verdict (`availabilityFor`, #1775) has reason `no_history`. The one
+// place the page asks; it holds no copy of the marker.
+function collectNoHistory(weekly, list, into) {
+  for (const p of list) {
+    const verdict = weekly.availabilityFor(p.id);
+    if (verdict && verdict.reason === NO_HISTORY_REASON) into.add(p.id);
+  }
+}
 
 /**
  * The Players page's whole read. `query` is the typed request the route
@@ -578,14 +593,36 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // the season-stats query and the math both cost per player, so deferring
   // this until after the page is known keeps that cost proportional to what's
   // rendered, not to the whole eligible pool.
+  //
+  // #1778 (spec #1774): a Position-baseline projection is the position's
+  // average, not this player's own evidence, so it sorts after EVERY evidenced
+  // row whatever its hidden number and whichever way the evidenced rows run.
+  // The verdict is the Weekly projection read's (`availabilityFor`, reason
+  // `no_history`), taken once for the whole matching pool; a player whose
+  // Unavailable verdict applies (bye, Out, IR, ...) never carries it and sorts
+  // as before. The baseline rows keep a stable id order.
+  const noHistoryIds = new Set();
   if (projectionSort) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
-    settled.sort(
-      nullsLastComparator(
-        (p) => Number(p.projected_points),
-        dir === 'DESC' ? -1 : 1,
-      ),
+    if (league && league.current_week != null) {
+      const weekly = await projectionService.getWeeklyProjections({
+        season: currentSeasonYear,
+        week: Number(league.current_week),
+        league,
+        playerIds: settled.map((p) => p.id),
+      });
+      collectNoHistory(weekly, settled, noHistoryIds);
+    }
+    const evidencedFirst = nullsLastComparator(
+      (p) => Number(p.projected_points),
+      dir === 'DESC' ? -1 : 1,
     );
+    settled.sort((a, b) => {
+      const aBaseline = noHistoryIds.has(a.id);
+      const bBaseline = noHistoryIds.has(b.id);
+      if (aBaseline !== bBaseline) return aBaseline ? 1 : -1;
+      return aBaseline ? a.id - b.id : evidencedFirst(a, b);
+    });
   }
 
   // sort=upgrade (Ruling item 2): a best-ball league has no Upgrade concept
@@ -670,6 +707,13 @@ async function readPlayersPage(query, { db = pool } = {}) {
       ownershipForManySafe(db, pagePlayers),
     ]);
 
+    // #1778: the page's Proj Wk column reads the verdict off the current-week
+    // run already read above; a projection sort took it for the whole pool.
+    if (!projectionSort) {
+      const currentRun = runsByWeek.get(league.current_week);
+      if (currentRun) collectNoHistory(currentRun, pagePlayers, noHistoryIds);
+    }
+
     for (const p of pagePlayers) {
       p.availability = availabilityMap.get(p.id)
         || { state: 'free_agent', teamId: null, teamName: null, availableAt: null };
@@ -702,6 +746,9 @@ async function readPlayersPage(query, { db = pool } = {}) {
   }
 
   const responsePlayers = pagePlayers.map(({ identity_ids, ...player }) => {
+    // #1778: the verdict reason rides only the Position-baseline rows; the
+    // client maps it to "no history" and never re-derives it.
+    if (noHistoryIds.has(player.id)) player.verdictReason = NO_HISTORY_REASON;
     // Pool projection never appears under view=cards (item 7, ADR 0040) -
     // even when computed above for the best-ball upgrade-sort fallback.
     // Outside view=cards, `upgrade` is a sort-computation side effect, not
