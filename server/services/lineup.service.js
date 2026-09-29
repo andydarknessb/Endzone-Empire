@@ -1224,9 +1224,13 @@ function factorEdgeText(factors) {
  */
 function findBenchAboveStarter(entry, entries, rosterSlots) {
   if (entry.slot !== BENCH || entry.projected_points == null) return null;
+  // A Position-baseline projection (#1776) is the position's average, not this
+  // player's own evidence: no "Outprojects" comparison is made with one on
+  // either side.
+  if (entry.positionBaseline) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null) continue;
+    if (other.projected_points == null || other.positionBaseline) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1451,6 +1455,14 @@ async function getLineup({ leagueId, userId, week }) {
       // record is not a seat he could actually take.
       const now = new Date();
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
+      // #1776: a Position-baseline projection (CONTEXT.md; `positionBaselineFor`,
+      // #1775) rides the wire as a boolean, false whenever an Unavailable reason
+      // applies (bye, No NFL team, Practice squad, Out, IR always win). Set for
+      // every row BEFORE any Edge line, since `findBenchAboveStarter` reads it
+      // off the other entries too.
+      for (const row of annotated) {
+        row.positionBaseline = row.unavailable == null && weeklyResult.positionBaselineFor(row.id);
+      }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
         // The full factors object exactly as the engine produced it (#1703),
