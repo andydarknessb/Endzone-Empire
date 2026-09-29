@@ -61,6 +61,94 @@ test('lineupStatus flags bye and Out/IR starters, ignores the bench, and lets a 
   assert.deepEqual(problems, ['Bye RB (RB) is on bye', 'Hurt WR (WR) is Out']);
 });
 
+// #1791: lineupProblems used to decide starter availability by hand from
+// onBye and injury_status O/IR, so a Practice squad or a No NFL team starter
+// raised no problem while the Lineup and Start/sit pages marked him
+// Unavailable. It now routes through `unavailableFor` (unavailable.js), the
+// one verdict every other reader uses, so these two reasons raise a problem
+// here too.
+test('lineupStatus flags a Practice squad starter and a No NFL team starter (#1791)', () => {
+  const problems = unlockedProblems({
+    entries: [
+      entry('QB', 'Healthy QB'),
+      entry('RB', 'PS Runner', {
+        nflTeam: 'GB',
+        nflRosterStatus: { status: 'practice_squad', capturedAt: '2026-10-03T12:00:00.000Z' },
+      }),
+      entry('WR', 'Free Agent WR', { nflTeam: null }),
+    ],
+    rosterSlots: slots({ QB: 1, RB: 1, WR: 1 }),
+    bestBall: false,
+  });
+  assert.deepEqual(problems, ['PS Runner (RB) is on the practice squad', 'Free Agent WR (WR) has no NFL team']);
+});
+
+test('lineupStatus reads the same 48-hour Practice squad freshness window as unavailableFor (#1767), probed at the boundary through its own now', () => {
+  const capturedAt = '2026-10-02T12:00:00.000Z';
+  const psRunner = (now) => homeStatus.lineupStatus({
+    entries: [entry('RB', 'Boundary PS Runner', {
+      nflTeam: 'GB',
+      nflRosterStatus: { status: 'practice_squad', capturedAt },
+    })],
+    rosterSlots: slots({ RB: 1 }),
+    bestBall: false,
+    kickoffByTeam: new Map(),
+    weekLastKickoff: null,
+    now,
+  }).problems;
+  // 47 hours after capture: still fresh, still a problem.
+  assert.deepEqual(psRunner(new Date('2026-10-04T11:00:00.000Z')), ['Boundary PS Runner (RB) is on the practice squad']);
+  // 49 hours after capture: stale, no longer a problem.
+  assert.deepEqual(psRunner(new Date('2026-10-04T13:00:00.000Z')), []);
+});
+
+test('lineupStatus: a locked Practice squad starter sheds his problem too, like a locked bye or injury', () => {
+  const status = homeStatus.lineupStatus({
+    entries: [entry('QB', 'Locked PS Quarterback', {
+      nflTeam: 'KC',
+      nflRosterStatus: { status: 'practice_squad', capturedAt: '2026-10-04T10:00:00.000Z' },
+    })],
+    rosterSlots: slots({ QB: 1 }),
+    bestBall: false,
+    kickoffByTeam: KICKOFFS,
+    weekLastKickoff: LAST_KICKOFF,
+    now: at('2026-10-04T18:00:00.000Z'), // after KC's 17:00 kickoff
+  });
+  assert.deepEqual(status.problems, []);
+});
+
+// unavailableFor's precedence is bye, then No NFL team (unavailable.js): if a
+// row's onBye fact is ever true alongside a null nflTeam - the shape the SQL
+// bug below used to hand every No NFL team starter before it guarded
+// `players.nfl_team IS NOT NULL` - bye wins the wording, never "has no NFL
+// team". Documented here at the pure-function level so the precedence stays
+// pinned regardless of what the SQL reads carry.
+test('lineupStatus: bye takes precedence over No NFL team when a row somehow carries both (unavailableFor precedence)', () => {
+  const problems = unlockedProblems({
+    entries: [entry('WR', 'Both Facts WR', { nflTeam: null, onBye: true })],
+    rosterSlots: slots({ WR: 1 }),
+    bestBall: false,
+  });
+  assert.deepEqual(problems, ['Both Facts WR (WR) is on bye']);
+});
+
+// #1791 QA: loadLineups' `on_bye` LEFT JOIN keys on
+// fn_normalize_nfl_team(players.nfl_team) = fn_normalize_nfl_team(nfl_games.nfl_team).
+// fn_normalize_nfl_team(NULL) is NULL, so a No NFL team row's join never
+// matches and on_bye would read true (bye, wrongly) without the
+// `players.nfl_team IS NOT NULL` guard added alongside it - asserted here so
+// reverting the guard goes red.
+test("loadLineups' on_bye guards a No NFL team row from reading as on bye (#1791)", async (t) => {
+  const fake = homeWorld(t);
+  await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+  const [sourceQuery] = fake.matching(/FROM "source"/);
+  assert.ok(sourceQuery, 'loadLineups\' query never ran');
+  assert.match(
+    sourceQuery.text,
+    /\("players"\."nfl_team" IS NOT NULL AND "nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/
+  );
+});
+
 test('lineupStatus resurfaces an unresolved ineligible IR stash but never a commissioner-attested one (#100)', () => {
   const stash = (extra) => unlockedProblems({
     entries: [entry('QB', 'Healthy QB'), entry('IR', 'Test Runner', { injury_status: 'Q', ...extra })],
