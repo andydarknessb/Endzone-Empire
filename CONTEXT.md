@@ -1313,6 +1313,23 @@ Awarding is idempotent by design.
 
 **Recap**:
 A generated narrative summary of one league week.
+_Avoid_: weekly recap animation, postgame cutscene (one Team's result, not the
+league's week)
+
+**Postgame cutscene**:
+A full-screen Tecmo cutscene that reveals one Team's final Matchup result, win,
+loss or tie, to its Manager, once per Matchup. It is due the moment the Matchup
+is final, shown on the Manager's next visit to Home whatever the day, and
+expires at the league's next first Kickoff (for a season's last week, one week
+after that week's last Kickoff). It is seen once across every device the
+Manager uses, counted from the moment it starts, skipped or not; a later stat
+correction never replays or reverses it. It carries the Team identity of both
+sides, the scores and, for a regular-season Matchup, the Record; a playoff
+Matchup carries no Record. A Manager with several Teams is owed one per Team.
+Distinct from the touchdown cutscene (one Scoring play, live) and from the
+Recap (one league week, narrative).
+_Avoid_: recap, weekly recap, result animation, celebration (the touchdown
+cutscene's word), Tuesday recap (finality is Advance week, not a weekday)
 
 **Season archive**:
 A League's completed seasons as they finished: each season's final standings,
