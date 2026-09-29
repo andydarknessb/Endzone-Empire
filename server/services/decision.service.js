@@ -981,6 +981,16 @@ function weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots) {
  * uses below, so the two never disagree. When no starter sits at an eligible
  * slot the weakest is treated as 0 and `overPlayer`/`slot` are both null
  * (issue #1306 Ruling item 1).
+ *
+ * `overPlayer.points` (Ruling on #1793, option B) is the SAME effective
+ * projection `weakestEligibleStarter` compared against - his zeroed value
+ * when `currentStarters` marked him Unavailable, never his raw estimate - so
+ * a client reading it alongside the candidate's own Weekly projection gets
+ * two numbers that add up to `points`. `overPlayer.unavailable` carries the
+ * reason (or null), straight from `currentStarters` when the caller
+ * populated it (`playerCard.service.js`'s `loadUpgradeContext` does;
+ * `rankWaiverCandidates`/`waiverSuggestions` below do not, and read `null`
+ * here in that case, unrelated to this ticket).
  */
 function upgradeFor(candidate, currentStarters, rosterSlots) {
   const eligibleSlots = eligibleSlotsFor(candidate.position, rosterSlots);
@@ -989,7 +999,14 @@ function upgradeFor(candidate, currentStarters, rosterSlots) {
   const points = round2((Number(candidate.projection) || 0) - weakestProjection);
   return {
     points,
-    overPlayer: weakest ? { id: weakest.playerId, name: weakest.name ?? null } : null,
+    overPlayer: weakest
+      ? {
+        id: weakest.playerId,
+        name: weakest.name ?? null,
+        points: round2(weakestProjection),
+        unavailable: weakest.unavailable ?? null,
+      }
+      : null,
     slot: weakest ? weakest.slot : null,
   };
 }

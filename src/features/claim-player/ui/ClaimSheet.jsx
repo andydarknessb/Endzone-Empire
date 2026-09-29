@@ -14,32 +14,38 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop, unavailableLabel } from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
 
 const fmt = (n) => (n == null || Number.isNaN(Number(n)) ? '-' : Number(n).toFixed(1));
 const TOUCH = { minHeight: 44, minWidth: 44 };
 
-/** The swap preview: this player's Proj Wk against the starter he replaces. */
-export function SwapPreview({ player, roster }) {
+/**
+ * The swap preview: this player's Proj Wk against the starter he replaces.
+ * The replaced starter's number is `overPlayer.points` (Ruling on #1793,
+ * option B) - the same Weekly producer `upgrade.points` itself came from,
+ * zeroed already if he is Unavailable, never the roster's Pool projection
+ * (`projected_weekly_points`), which never agreed with it (ADR 0040 left the
+ * Pool number for the drop list below, not this preview). When he is
+ * Unavailable, his reason replaces his number ("Stud Starter on bye"), so
+ * the line reads honestly instead of implying he still projects it.
+ */
+export function SwapPreview({ player }) {
   const upgrade = player.upgrade;
   if (upgrade == null || upgrade.points == null || upgrade.overPlayer == null) return null;
   const mine = player.projWeek?.points ?? null;
-  const onRoster = roster.find((p) => p.id === upgrade.overPlayer.id);
-  const theirs =
-    onRoster?.projected_weekly_points != null
-      ? Number(onRoster.projected_weekly_points)
-      : mine != null
-        ? mine - upgrade.points
-        : null;
+  const { overPlayer } = upgrade;
+  const reason = overPlayer.unavailable ? unavailableLabel(overPlayer.unavailable) : null;
   const gain = Number(upgrade.points);
   return (
     <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
       <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>This week&apos;s swap</Typography>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{ minWidth: 0 }}>{`${player.name} ${fmt(mine)}`}</Typography>
-        <Typography sx={{ minWidth: 0, textAlign: 'right' }}>{`${upgrade.overPlayer.name} ${fmt(theirs)}`}</Typography>
+        <Typography sx={{ minWidth: 0, textAlign: 'right' }}>
+          {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(overPlayer.points)}`}
+        </Typography>
       </Box>
       <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
     </Box>
@@ -48,8 +54,14 @@ export function SwapPreview({ player, roster }) {
 
 function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, onClose, onClaimed }) {
   const sortedRoster = sortRosterForDrop(roster);
-  const overId = player.upgrade?.overPlayer?.id;
-  const preselect = overId != null && sortedRoster.some((p) => p.id === overId) ? String(overId) : '';
+  // The replaced starter preselects as the drop only when he is available
+  // this week (Ruling on #1793, option B, amending ADR 0049): dropping a
+  // healthy stud who merely has a bye is not a better default than none.
+  const overPlayer = player.upgrade?.overPlayer;
+  const preselect =
+    overPlayer != null && !overPlayer.unavailable && sortedRoster.some((p) => p.id === overPlayer.id)
+      ? String(overPlayer.id)
+      : '';
   const editing = claim != null;
   const [dropId, setDropId] = useState(editing ? String(claim.dropPlayerId ?? '') : preselect);
   const [bid, setBid] = useState(editing ? String(claim.bid ?? 0) : '0');
@@ -89,7 +101,7 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
     <>
       <DialogTitle id="claim-sheet-title">{editing ? `Edit claim: ${player.name}` : `Claim ${player.name}`}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <SwapPreview player={player} roster={sortedRoster} />
+        <SwapPreview player={player} />
         <Box>
           <Typography id="claim-sheet-drop-label" sx={{ fontWeight: 700, mb: 0.5 }}>
             {atCapacity ? 'Drop a player' : 'Drop a player (optional)'}

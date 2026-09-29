@@ -644,8 +644,35 @@ test('upgradeFor: names the weakest eligible starter as overPlayer', () => {
   ];
   const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
   assert.equal(upgrade.points, 6);
-  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX' });
+  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX', points: 4, unavailable: null });
   assert.equal(upgrade.slot, 'FLEX');
+});
+
+// Ruling on #1793 (option B): overPlayer carries his own effective points
+// (the same zeroed-if-Unavailable value `weakestEligibleStarter` compared
+// against) and the Unavailable reason or null, so a client can tell "zero
+// because Unavailable" from "zero because he genuinely projects 0" without
+// re-deriving it.
+test('upgradeFor: overPlayer.points is the starter\'s own effective projection, not the candidate\'s', () => {
+  const candidate = { position: 'WR', projection: 10 };
+  const currentStarters = [{ playerId: 20, slot: 'WR', name: 'Starter WR', projection: 6 }];
+  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+  assert.deepEqual(upgrade.overPlayer, { id: 20, name: 'Starter WR', points: 6, unavailable: null });
+});
+
+test('upgradeFor: overPlayer.unavailable carries the reason straight from currentStarters (already zeroed there)', () => {
+  const candidate = { position: 'WR', projection: 10 };
+  const currentStarters = [{ playerId: 21, slot: 'WR', name: 'Bye Starter', projection: 0, unavailable: 'bye' }];
+  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+  assert.equal(upgrade.points, 10);
+  assert.deepEqual(upgrade.overPlayer, { id: 21, name: 'Bye Starter', points: 0, unavailable: 'bye' });
+});
+
+test('upgradeFor: a currentStarters row with no unavailable field reads overPlayer.unavailable as null', () => {
+  const candidate = { position: 'WR', projection: 10 };
+  const currentStarters = [{ playerId: 22, slot: 'WR', name: 'Plain Starter', projection: 3 }];
+  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+  assert.equal(upgrade.overPlayer.unavailable, null);
 });
 
 // #1668: a released player (nfl_team null) is Unavailable and never proposed.

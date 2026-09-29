@@ -76,3 +76,14 @@ Archivo; the Players page's list moves into the island a step ahead of the
 page itself, which stays under `src/components` for now; two nullable columns
 on `waiver_claims` and a larger `myClaims` shape on `GET /api/waivers`; and a
 transaction log line that names the Winning bid.
+
+## Amendment (2026-09-29): the replaced starter is preselected only when available this week
+
+#1793 zeroed an Unavailable starter's Weekly projection in the Upgrade
+comparison above, so he can now be the weakest eligible starter, and
+therefore the swap preview's other side, while himself unable to play this
+week. The claim sheet's drop choices ("the replaced starter preselected",
+above) preselect him only when the Upgrade he was measured over carries no
+Unavailable reason; over an Unavailable starter the sheet preselects no
+drop. At roster capacity this changes nothing: a drop is still required and
+Submit stays disabled until one is chosen.
