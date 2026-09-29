@@ -38,9 +38,9 @@
 
 // Per-player keys the Live box and the Final box produce (tank01BoxSource and
 // espnBoxSource, zeros included) and the team-defense aggregate keys. The last
-// two before the lists are ESPN-only (its return-yardage columns); the Tank01
-// box has no field for them, so a Final box removes them until nflverse's
-// finalization patch and correction write them again.
+// two are ESPN-only (its return-yardage columns); the Tank01 box has no field
+// for them. kickReturnYards is removed by a box that lacks it (the old carry
+// list never held it); idpInterceptionReturnYards is on BOX_KEEP_IF_ABSENT.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
@@ -50,6 +50,10 @@ const BOX_PLAYER_KEYS = [
   'fieldGoalDistances', 'passingTDLengths', 'rushingTDLengths', 'receivingTDLengths',
   'kickReturnYards', 'idpInterceptionReturnYards',
 ];
+// Owned by the box (ESPN writes it) but also patched by nflverse's finalization
+// pass, and the old carry list kept it: a box line without it (any Tank01 box)
+// leaves the stored value alone instead of removing it.
+const BOX_KEEP_IF_ABSENT = ['idpInterceptionReturnYards'];
 const BOX_TEAM_DEFENSE_KEYS = [
   'sack', 'interceptionReturn', 'fumbleRecovery', 'defensiveTD', 'safety', 'blockedKick',
   'pointsAllowed', 'yardsAllowed',
@@ -99,7 +103,12 @@ const unique = (list) => [...new Set(list)];
  * writing just the owned keys not in `stripOnCreate`).
  */
 const STAT_KEY_OWNERSHIP = {
-  box: { kind: 'replace', keys: unique([...BOX_PLAYER_KEYS, ...BOX_TEAM_DEFENSE_KEYS]), creates: 'always' },
+  box: {
+    kind: 'replace',
+    keys: unique([...BOX_PLAYER_KEYS, ...BOX_TEAM_DEFENSE_KEYS]),
+    creates: 'always',
+    keepIfAbsent: BOX_KEEP_IF_ABSENT,
+  },
   'nflverse-correction': { kind: 'replace', keys: unique(CORRECTION_KEYS), creates: 'always' },
   'nflverse-week': {
     kind: 'patch',
@@ -141,7 +150,12 @@ function storedStatLine({ source, fresh, prior }) {
     }
     // Fresh keys first, carried keys after: the same key order the stored line
     // has always had (the carried and owned sets never overlap).
-    return { stats: { ...pickOwned(fresh, rule.keys), ...carried } };
+    const stats = { ...pickOwned(fresh, rule.keys), ...carried };
+    // Owned keys the source may leave out without removing them (keepIfAbsent).
+    for (const key of rule.keepIfAbsent || []) {
+      if (stats[key] === undefined && hasPrior && prior[key] !== undefined) stats[key] = prior[key];
+    }
+    return { stats };
   }
 
   // patch

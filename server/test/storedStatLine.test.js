@@ -63,6 +63,15 @@ test('box against a mixed prior keeps every nflverse key and replaces every box 
   assert.equal('receivingTDLengths' in out, false);
 });
 
+test('box keeps a stored idpInterceptionReturnYards a Tank01 box has no field for, but a fresh value wins', () => {
+  const prior = { idpInterception: 1, idpInterceptionReturnYards: 27, kickReturnYards: 9 };
+  const kept = stats(storedStatLine({ source: 'box', fresh: { idpInterception: 1 }, prior }));
+  assert.equal(kept.idpInterceptionReturnYards, 27);
+  assert.equal('kickReturnYards' in kept, false, 'the old carry list never held kickReturnYards');
+  const fresh = stats(storedStatLine({ source: 'box', fresh: { idpInterception: 1, idpInterceptionReturnYards: 31 }, prior }));
+  assert.equal(fresh.idpInterceptionReturnYards, 31);
+});
+
 test('box: a fresh key with value undefined counts as absent', () => {
   const out = stats(storedStatLine({ source: 'box', fresh: { passingYards: undefined, receptions: 3 }, prior: BOX_ONLY_PRIOR }));
   assert.equal('passingYards' in out, false);

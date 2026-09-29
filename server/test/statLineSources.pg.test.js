@@ -54,7 +54,7 @@ if (!ENABLED) {
   const SEASON = 900431;
   const WEEK = 1;
   const GAME = `${SEASON}_01_BUF_KC`;
-  const JOBS = ['nflverse-correction', 'nflverse-snaps', 'nflverse-week'];
+  const JOBS = ['nflverse-correction', 'nflverse-snaps'];
 
   const fileStartedAt = new Date();
   let player = null;
@@ -97,7 +97,7 @@ if (!ENABLED) {
   };
 
   test('one Player-week through box, week unit, snap unit, correction and a second box apply', async (t) => {
-    const externalId = SEASON;
+    const externalId = SEASON + 100; // clear of the sibling nflverseCorrection file's range
     const row = (await pool.query(
       `INSERT INTO "players" ("external_id", "name", "position", "nfl_team") VALUES ($1, 'Disposable Line QB', 'QB', 'KC') RETURNING "id"`,
       [externalId]
