@@ -33,6 +33,11 @@ function fakeDb({
   existingPlayers = [],
   due = [],
   failOn = null,
+  // #1792 f13: `{ player_id, nfl_roster_status }` rows for the capture's own
+  // NFL roster status read (loadNflRosterStatusById, #1767), served the same
+  // shape Postgres returns (nfl_roster_status already the built object, not
+  // raw columns).
+  rosterStatusRows = [],
 } = {}) {
   const matrix = seasonMatrix;
   const committed = {
@@ -80,6 +85,7 @@ function fakeDb({
           return { rows: schedule };
         }
         if (text.includes('MIN("kickoff_at")')) return { rows: due };
+        if (text.includes('FROM "player_nfl_roster_status"')) return { rows: rosterStatusRows };
         if (text.includes('FROM "players"')) return { rows: cohort };
         if (text.includes('SELECT "player_id" FROM "projection_snapshot_players"')) {
           const [snapshotId] = params;
@@ -144,6 +150,10 @@ function fakeDb({
             target.push({
               snapshot_id: snapshotId, player_id: playerId,
               mean: params[i + 2], median: params[i + 3],
+              // #1792 f13: active_probability (column index 8 of the 18) -
+              // proves a captured Practice squad row lands at 0, not just
+              // that the row was written.
+              active_probability: params[i + 8],
               position: params[i + 12], nfl_team: params[i + 13], injury_status: params[i + 14],
               opponent: params[i + 15], home_away: params[i + 16], game_kickoff_at: params[i + 17],
             });
@@ -537,6 +547,78 @@ test('a capture reads the NFL roster status inside its transaction and passes it
   assert.equal(seen.length, 3);
   assert.ok(seen[0].nflRosterStatusById instanceof Map);
   assert.ok(seen.every((args) => args.nflRosterStatusById === seen[0].nflRosterStatusById), 'one read, every arm');
+});
+
+// #1792 f13: the Challenger arm runs AFTER the required arms, inside its own
+// SAVEPOINT loop (see snapshotWeek), a different call site from the one the
+// test above pins - this proves that loop was handed the SAME Map too,
+// rather than a fresh (or missing) one.
+test('the Challenger SAVEPOINT loop receives the same nflRosterStatusById map as the required arms (#1792 f13)', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  const db = fakeDb(dbArgs());
+  const CHALLENGER = { kind: 'challenger:v3.2', modelVersion: 'free_baseline_v3.2' };
+
+  const out = await holdout.snapshotWeek({ ...captureArgs(db), challengers: [CHALLENGER] });
+
+  assert.deepEqual(out.challengerFailures, [], 'the Challenger must not have been isolated away');
+  assert.equal(seen.length, 4, 'three required arms plus the Challenger');
+  const challengerCall = seen[3];
+  assert.equal(challengerCall.modelVersion, CHALLENGER.modelVersion);
+  assert.ok(challengerCall.nflRosterStatusById instanceof Map);
+  assert.ok(
+    challengerCall.nflRosterStatusById === seen[0].nflRosterStatusById,
+    'the Challenger reads the exact same Map instance the required arms did, not a second read'
+  );
+});
+
+// #1792 f13: `mockGenerate` (above) ignores `nflRosterStatusById` entirely,
+// which is fine for tests that only care THAT the Map was passed. Proving
+// what a fresh Practice squad row actually does to the captured child row
+// needs a mock that reads it, the way the real engine does (unavailable.js's
+// onPracticeSquad -> activeProbability 0). The real generateProjections was
+// ruled out: fakeDb answers every unmatched query with `{ rows: [] }` rather
+// than throwing (see its docblock), so a real run through loadFeatureBundle
+// would silently see an empty players/stats/schedule world and read "no
+// evidence" for every player - a false green that would pass whether or not
+// the Map ever reached generateProjections. A mock that honours the map is
+// the seam that actually depends on the plumbing under test.
+function mockGenerateHonoringRosterStatus(t) {
+  t.mock.method(projectionSvc, 'generateProjections', async (args) => ({
+    projections: new Map(args.playerIds.map((id) => {
+      const status = args.nflRosterStatusById && args.nflRosterStatusById.get(id);
+      const onPracticeSquad = Boolean(status && status.status === 'practice_squad');
+      return [id, {
+        mean: id + 0.5, median: id + 0.25, p10: 1, p25: 2, p75: 8, p90: 9,
+        activeProbability: onPracticeSquad ? 0 : 1, confidence: 'high', sampleSize: 4, factors: { note: 'test' },
+      }];
+    })),
+    inputCutoff: new Date('2077-09-09T11:00:00Z'),
+    sourceCoverage: { stats: 'ok' },
+  }));
+}
+
+test('a captured fresh Practice squad row lands with active_probability 0 in the child row (#1792 f13)', async (t) => {
+  withReleaseSha(t);
+  mockGenerateHonoringRosterStatus(t);
+  const db = fakeDb(dbArgs({
+    rosterStatusRows: [{
+      player_id: 9, // BUF RB in COHORT
+      nfl_roster_status: { status: 'practice_squad', capturedAt: new Date('2077-09-09T10:00:00Z').toISOString() },
+    }],
+  }));
+
+  await holdout.snapshotWeek(captureArgs(db));
+
+  const scheduled = db.committed.snapshots.find((s) => s.capture_kind === 'scheduled');
+  const practiceSquadRow = db.committed.players.find(
+    (p) => p.snapshot_id === scheduled.id && p.player_id === 9
+  );
+  const activePlayerRow = db.committed.players.find(
+    (p) => p.snapshot_id === scheduled.id && p.player_id === 7
+  );
+  assert.equal(practiceSquadRow.active_probability, 0, 'the fresh Practice squad row reads inactive');
+  assert.equal(activePlayerRow.active_probability, 1, 'an unaffected player is untouched');
 });
 
 test('a capture writes the two candidate arms with exactly the preregistered constants', async (t) => {

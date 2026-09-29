@@ -963,12 +963,24 @@ async function completeRun({
 }) {
   // The NFL roster status is optional context on the same terms as weather:
   // a failed read degrades to "every player Active" rather than failing the
-  // request (#1767).
+  // request (#1767). On a TRANSACTION client (the pool has none) a failed
+  // query aborts it - Postgres refuses every later statement with 25P02 until
+  // the transaction ends - so the degrade above is not real there unless the
+  // read is wrapped in its own SAVEPOINT: rolling back to it clears the abort
+  // and leaves the caller's transaction, and every query after this one,
+  // usable (#1790) - the same SAVEPOINT/ROLLBACK TO SAVEPOINT isolation
+  // holdout.service.js's Challenger loop uses to isolate one arm's failure.
+  // `client !== pool` (identity, not `instanceof`) is the test: the pool has
+  // no transaction to protect and never needs the bracket.
   let nflRosterStatusById = null;
+  const onTransactionClient = client !== pool;
+  if (onTransactionClient) await client.query('SAVEPOINT nfl_roster_status');
   try {
     nflRosterStatusById = await loadNflRosterStatusById(client, playerIds);
+    if (onTransactionClient) await client.query('RELEASE SAVEPOINT nfl_roster_status');
   } catch (err) {
     console.error('projections: NFL roster status read failed, continuing without it:', err.message);
+    if (onTransactionClient) await client.query('ROLLBACK TO SAVEPOINT nfl_roster_status');
   }
   const generated = await generateProjections({
     season, week, rules, playerIds, hashValue, client, now, weatherService, nflRosterStatusById,
