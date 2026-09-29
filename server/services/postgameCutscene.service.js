@@ -8,7 +8,7 @@ const homeStatus = require('./homeStatus.service');
  * expired. Seen is a fact of the account, not of a browser, so it plays once
  * across every device.
  *
- * Expiry needs no column (see expiryOf): the first Kickoff of the week after
+ * Expiry needs no column (see expiryOf): the last Kickoff of the week after
  * the Matchup's, else its last Kickoff plus 7 days. Scores are read live: a later stat correction
  * changes the score shown to a Manager who has not looked yet and never
  * re-opens a Matchup that was seen.

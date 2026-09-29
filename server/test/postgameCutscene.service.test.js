@@ -164,7 +164,7 @@ test("when the schedule has no week after the Matchup's it expires 7 days after 
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
 });
 
-test('a Matchup two weeks behind current_week is not due while the current week has not kicked off (nothing carries over)', async () => {
+test('a Matchup two weeks behind current_week is not due after the next week\'s last Kickoff (nothing carries over)', async () => {
   const world = baseWorld();
   world.leagues[0].current_week = 6; // week 4's result is a week old; week 5 has finished
   world.seen = []; // weeks 1-4 all final and unseen
