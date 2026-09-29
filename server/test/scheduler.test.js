@@ -1794,6 +1794,10 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
     calls.push({ leagueId: league.id, week, args });
     return { projections: new Map(playerIds.map((id) => [id, { median: 10, cached: false }])) };
   });
+  // #1789: the post-fill availability sweep is a SEPARATE players read from
+  // the #1403 shared-pool read this test pins; stubbed out (no live scope) so
+  // it stays out of this test's own "read once per pass" invariant below.
+  t.mock.method(projection, 'liveReconcileScope', async () => null);
   const fake = createFakePool([
     [/FROM "leagues"/, () => ({
       rows: [

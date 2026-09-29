@@ -43,6 +43,29 @@ test('GET claim-target returns the server-approved blanket-waiver player', async
   assert.deepEqual(calls, [{ leagueId: 1, userId: 7, playerId: 8 }]);
 });
 
+// #1794: the legacy Pool-projection suggestions endpoint is retired (no
+// caller since #1310/#1365; ADR 0040 says Pool projection leaves waivers).
+// requireAuth still runs for every request the router sees, so an
+// authenticated caller reaches the "no route matched" 404, not a 401.
+//
+// Pinned to EXPRESS'S OWN no-route 404, not just any 404: if the route were
+// ever restored and hit a reachable Postgres with no league 1,
+// waiverSuggestions would throw DecisionError(404, 'league not found') and a
+// bare status check would stay green for the wrong reason. That refusal is a
+// JSON body ({ error: '...' }); the unmatched-route 404 below has no parsed
+// body and its text names the missing route, so asserting both catches a
+// restored route even when nothing else in this suite would.
+test('GET /api/waivers/suggestions is retired: an authenticated caller gets Express\'s no-route 404', async (t) => {
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/waivers/suggestions?leagueId=1')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 404, JSON.stringify(response.body));
+  assert.deepEqual(response.body, {}, 'no parsed JSON error body - a restored route\'s DecisionError(404) would have one');
+  assert.match(response.text, /Cannot GET/, 'the no-route-matched page, not a route-handler refusal');
+});
+
 // --- GET /api/waivers myClaims carries the Winning bid (#1611, ADR 0049) -----
 // The fake pool answers what the route asks; the assertions are on what it
 // asks (whose claims, which columns) and on what it hands back.

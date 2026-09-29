@@ -2,7 +2,6 @@ const express = require('express');
 const pool = require('../modules/pool');
 const { requireAuth } = require('../modules/auth');
 const waivers = require('../services/waiver.service');
-const { waiverSuggestions } = require('../services/decision.service');
 const { isLeagueCommissioner } = require('../services/leagueRole.service');
 const { requireMember } = require('../services/leagueMembership.service');
 const { deriveNflWeek, getSeasonWeekBounds } = require('../services/pickemSeason.service');
@@ -93,29 +92,6 @@ router.get('/claim-target', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching waiver claim target', error);
     res.status(500).json({ error: 'failed to fetch waiver claim target' });
-  }
-});
-
-// GET /api/waivers/suggestions?leagueId=N&season=S&week=W — ranked upgrade
-// candidates for the caller's team (season/week optional — league defaults)
-router.get('/suggestions', async (req, res) => {
-  const leagueId = intOrNull(req.query.leagueId);
-  if (!leagueId) return res.status(400).json({ error: 'leagueId query param (integer) is required' });
-  const season = req.query.season === undefined ? undefined : intOrNull(req.query.season);
-  if (req.query.season !== undefined && !season) {
-    return res.status(400).json({ error: 'season must be a positive integer' });
-  }
-  const week = req.query.week === undefined ? undefined : intOrNull(req.query.week);
-  if (req.query.week !== undefined && !week) {
-    return res.status(400).json({ error: 'week must be a positive integer' });
-  }
-  try {
-    const result = await waiverSuggestions({ leagueId, userId: req.user.id, season, week });
-    res.json(result);
-  } catch (error) {
-    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-    console.error('Error fetching waiver suggestions', error);
-    res.status(500).json({ error: 'failed to fetch waiver suggestions' });
   }
 });
 

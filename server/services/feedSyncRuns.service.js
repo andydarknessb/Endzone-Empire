@@ -544,7 +544,7 @@ async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchInjuryUnits(api, day),
-    apply: (client, unit) => applyInjuryUnit(client, unit, (flags) => { irFlagsForPush = flags; }),
+    apply: (client, unit) => applyInjuryUnit(client, unit, (flags) => { irFlagsForPush = flags; }, now),
   });
   try {
     const { sendIrFlagPushes } = require('./irPolicy.service');
@@ -618,12 +618,16 @@ async function fetchInjuryUnits(api, day) {
  * on this client. `onIrFlags` hands the committed IR-flag rows back to
  * syncInjuries by closure, since the push they drive must fire only once this
  * transaction has committed - after runSyncJob resolves, not inside apply.
+ * `now` is `syncInjuries`'s own already-computed clock, threaded through only
+ * so the #1789 availability reconcile below can inject it (the practice-squad
+ * 48h freshness check and the patched rows' `updated_at`); nothing else here
+ * reads it.
  *
  * Returns exactly the shape recorded as this run's data_sync_runs detail on
  * success, and returned to syncInjuries's own caller: `{ playersUpdated,
  * irFlags, teamChanges, teamsCleared, teamsDeferred }`.
  */
-async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, onIrFlags) {
+async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, onIrFlags, now = new Date()) {
   // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
   // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
   // different order across its wipe and bulk set. Both writers take one
@@ -755,8 +759,13 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   // three columns unchanged), so an unchanged row costs no write and the FOR
   // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
   // on a non-empty id list the way syncAdp guards its own bulk set.
+  //
+  // #1789: RETURNING carries back exactly the ids the predicate actually
+  // wrote - a real designation/team change, never a no-op match - which is
+  // the "changed ids" the availability reconcile below scopes to.
+  let changedIds = [];
   if (ids.length > 0) {
-    await client.query(
+    const updateResult = await client.query(
       `UPDATE "players" p
           SET "injury_status" = v."status", "injury_detail" = v."detail",
               "nfl_team" = v."team"
@@ -767,9 +776,11 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
         WHERE p."id" = v."id"
           AND (p."injury_status" IS DISTINCT FROM v."status"
                OR p."injury_detail" IS DISTINCT FROM v."detail"
-               OR p."nfl_team" IS DISTINCT FROM v."team")`,
+               OR p."nfl_team" IS DISTINCT FROM v."team")
+        RETURNING p."id"`,
       [ids, statuses, details, teams]
     );
+    changedIds = updateResult.rows.map((row) => row.id);
   }
   // #1385: the departure clear is its own bulk statement, touching only
   // nfl_team - a player the feed does not list at all has no status/detail
@@ -779,6 +790,42 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
       `UPDATE "players" SET "nfl_team" = NULL WHERE "id" = ANY($1::int[])`,
       [departedIds]
     );
+  }
+  // #1789: the cached engine's availability verdict goes stale the instant a
+  // designation, a team clear, or (through the roster-status sync/nightly
+  // sweep below) a roster move changes the facts it was computed from -
+  // `reconcileAvailability` (projection.service.js) is the one place that
+  // recompute lives. Scoped to exactly `changedIds` (a real designation/team
+  // move) plus `departedIds` (a cleared No NFL team, its own verdict input) -
+  // never the untouched no-op matches in `ids`. Runs on THIS transaction's
+  // client, deliberately, rather than after commit: the reconcile's own read
+  // must see the write above (a departure this run just cleared, say)
+  // without a race window against a concurrent reader between commit and a
+  // later, separate connection. A SAVEPOINT (not `withTransaction`/a second
+  // unit) isolates it: `SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO
+  // SAVEPOINT` never close the pooled transaction (#1723, the hand-rolled-
+  // transaction guard's own carve-out), so a reconcile failure rolls back
+  // only its own work and never poisons or aborts the designation write this
+  // unit already committed to writing - matching the "log and continue"
+  // rule every trigger of this reconcile follows.
+  const reconcileIds = [...changedIds, ...departedIds];
+  if (reconcileIds.length > 0) {
+    try {
+      const { reconcileAvailability, liveReconcileScope } = require('./projection.service');
+      await client.query('SAVEPOINT reconcile_availability');
+      const scope = await liveReconcileScope(client);
+      if (scope) {
+        await reconcileAvailability({ ...scope, playerIds: reconcileIds, client, now });
+      }
+      await client.query('RELEASE SAVEPOINT reconcile_availability');
+    } catch (err) {
+      console.error('injury sync: availability reconcile failed, continuing:', err.message);
+      try {
+        await client.query('ROLLBACK TO SAVEPOINT reconcile_availability');
+      } catch (rollbackErr) {
+        console.error('injury sync: reconcile savepoint rollback failed:', rollbackErr.message);
+      }
+    }
   }
   const { flagRecoveredIrStashes } = require('./irPolicy.service');
   const irFlags = await flagRecoveredIrStashes(client, transitions);

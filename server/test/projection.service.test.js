@@ -5,6 +5,7 @@ const projection = require('../services/projection.service');
 const poolProjection = require('../services/poolProjection');
 const features = require('../services/projectionFeatures');
 const model = require('../services/projectionModel');
+const { unavailableFor } = require('../services/unavailable');
 const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoringRules');
 
 /**
@@ -64,6 +65,10 @@ function mockPool(t, {
   // #1767: `{ player_id, nfl_roster_status }` rows for the live cache path's
   // NFL roster status read.
   rosterStatusRows = [],
+  // #1790: when set, the roster status query throws this instead of
+  // returning `rosterStatusRows`, so a test can drive completeRun's degrade
+  // path without faking a whole failing table.
+  rosterStatusError = null,
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -90,7 +95,10 @@ function mockPool(t, {
     }
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
-    if (text.includes('FROM "player_nfl_roster_status"')) return { rows: rosterStatusRows };
+    if (text.includes('FROM "player_nfl_roster_status"')) {
+      if (rosterStatusError) throw rosterStatusError;
+      return { rows: rosterStatusRows };
+    }
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -168,6 +176,157 @@ test('generateProjections called directly issues no NFL roster status read and r
   });
   assert.equal(calls.some((call) => call.text.includes('"player_nfl_roster_status"')), false);
   assert.equal(generated.projections.get(1).factors.availability.available, true);
+});
+
+// #1790: completeRun's roster-status read degrades to "every player Active"
+// on failure, the same shape the weather/odds reads degrade to "no context"
+// - but ONLY on the POOL is that degrade actually safe with no bracket: the
+// pool has no transaction for a failed statement to abort. (The weather and
+// odds reads carry the same 25P02 hazard the roster read used to, on a
+// TRANSACTION client; #1790 fixes only the roster read - see the PR body for
+// that as a follow-up.)
+test('completeRun degrades to every player Active when the roster status read fails on the pool, issuing no SAVEPOINT', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    rosterStatusError: new Error('roster status table unavailable'),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'a failed read reads every player Active');
+  assert.equal(calls.some((call) => call.text.includes('SAVEPOINT')), false, 'the pool needs no savepoint bracket');
+});
+
+/**
+ * #1790: a client that behaves like a real Postgres connection mid
+ * transaction - any failed query aborts it (25P02), and every later query on
+ * it keeps failing until a `ROLLBACK TO SAVEPOINT` clears the abort. Built
+ * on top of `mockPool`'s dispatch so every OTHER query completeRun issues
+ * (the player read, the run upsert, the cache write...) is served exactly as
+ * it is on the pool; only the roster-status query and the transaction-control
+ * statements are handled here. A distinct object from `pool` itself, which is
+ * what completeRun's SAVEPOINT bracket keys its decision on.
+ */
+function txAbortClient(t, options) {
+  mockPool(t, options);
+  let aborted = false;
+  const statements = [];
+  return {
+    statements,
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text)) return { rows: [] };
+      if (/^RELEASE SAVEPOINT\b/.test(text)) return { rows: [] };
+      if (/^ROLLBACK TO SAVEPOINT\b/.test(text)) {
+        aborted = false;
+        return { rows: [] };
+      }
+      if (aborted) {
+        const err = new Error('current transaction is aborted, commands ignored until end of transaction block');
+        err.code = '25P02';
+        throw err;
+      }
+      try {
+        return await pool.query(sql, params);
+      } catch (err) {
+        aborted = true;
+        throw err;
+      }
+    },
+  };
+}
+
+test('completeRun on a transaction client leaves the transaction usable and generates the run after a failed roster status read (#1790)', async (t) => {
+  const client = txAbortClient(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    rosterStatusError: new Error('roster status table unavailable'),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'the failed read still degrades to Active');
+  assert.ok(client.statements.includes('SAVEPOINT nfl_roster_status'), 'the read is wrapped in a savepoint');
+  assert.ok(
+    client.statements.includes('ROLLBACK TO SAVEPOINT nfl_roster_status'),
+    'the failed read rolls back to it, clearing the 25P02 abort'
+  );
+  // The run upsert is a LATER query on this same client; without the
+  // savepoint bracket it would fail with 25P02 (the transaction stays
+  // aborted) and this whole call would reject instead of returning a result.
+  assert.ok(
+    client.statements.some((s) => s.includes('INSERT INTO "projection_runs"')),
+    'a later query on the same client still ran'
+  );
+});
+
+// #1790 f2: `client !== pool` only says the caller did not hand us the pool
+// itself - a checked-out `pool.connect()` client used in AUTOCOMMIT (no
+// BEGIN) is exactly that shape, and Postgres refuses a bare SAVEPOINT
+// outside a transaction block with 25P01. completeRun must not let THAT
+// failure reject the whole call (worse than the pre-#1790 behaviour); it
+// reads 25P01 as "no transaction to protect" and proceeds with no bracket at
+// all, which is exactly as safe as the pool path since autocommit cannot be
+// left aborted by one failed statement.
+test('completeRun still generates projections when SAVEPOINT itself fails with 25P01 (a checked-out client not in a transaction) (#1790 f2)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+  });
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('SAVEPOINT can only be used in transaction blocks');
+        err.code = '25P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'the read still ran and reads Active');
+  assert.equal(statements.filter((s) => /^SAVEPOINT\b/.test(s)).length, 1, 'the savepoint was attempted once');
+  assert.equal(
+    statements.some((s) => /^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(s)),
+    false,
+    'no close is attempted for a savepoint that never opened'
+  );
+});
+
+// #1790 f2 nit: a SAVEPOINT failure that is NOT 25P01 is a broken connection,
+// not "no transaction here" - it must propagate rather than be swallowed the
+// way 25P01 is, exactly as holdout.service.js's own SAVEPOINT loop treats a
+// failed transaction-control statement as unrecoverable. Silently proceeding
+// would run the rest of completeRun (the player/stats reads, the run upsert)
+// against a client that may already be dead.
+test('completeRun rejects when SAVEPOINT fails with a code other than 25P01 (#1790 f2)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+  });
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('connection terminated unexpectedly');
+        err.code = '57P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+
+  await assert.rejects(
+    run({ season: SEASON, week: 5, league: league(), playerIds: [1], client }),
+    /connection terminated unexpectedly/
+  );
 });
 
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
@@ -1975,6 +2134,134 @@ test('toWeeklyProjectionResult: factorsFor is the factors object as the engine p
   assert.equal(result.factorsFor(999), null, 'no entry for the player at all');
 });
 
+test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored reasons contain `position baseline`', () => {
+  const dq = (reasons) => ({ dataQuality: { level: 'low', reasons } });
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, { playerId: 1, mean: 15, median: 15, factors: dq(['small sample', 'position baseline']) }],
+      // Prior-season-only with sample size 0: gets 'prior season', never the marker.
+      [2, { playerId: 2, mean: 9, median: 9, sampleSize: 0, factors: dq(['small sample', 'prior season']) }],
+      [3, { playerId: 3, mean: 9, median: 9, factors: {} }],
+      [4, { playerId: 4, mean: 9, median: 9, factors: { dataQuality: { level: 'none', reason: 'no prior games, prior season, or position baseline' } } }],
+    ]),
+  });
+  assert.equal(result.positionBaselineFor(1), true);
+  assert.equal(result.positionBaselineFor(2), false, 'a prior-season-only row is not a Position-baseline projection');
+  assert.equal(result.positionBaselineFor(3), false, 'no dataQuality at all');
+  assert.equal(result.positionBaselineFor(4), false, 'the no-evidence row has `reason`, not `reasons`');
+  assert.equal(result.positionBaselineFor(999), false, 'no entry for the player at all');
+});
+
+// #1775: the read attaches the Position-baseline verdict to a marked row; any
+// stored Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) wins.
+test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict for a marked row, over its own stored facts', () => {
+  const marked = (availability) => ({
+    playerId: 0, mean: 15, median: 15,
+    factors: { availability, dataQuality: { level: 'low', reasons: ['small sample', 'position baseline'] } },
+  });
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, marked({ available: true, autoRecommend: true, status: null, reason: null })],
+      [2, marked({ available: true, autoRecommend: false, status: 'D', reason: 'doubtful' })],
+      [3, marked({ available: true, autoRecommend: true, status: 'Q', reason: 'questionable' })],
+      [4, marked({ available: false, status: null, reason: 'bye' })],
+      [5, marked({ available: false, status: null, reason: 'no_team' })],
+      [6, marked({ available: false, status: 'O', reason: 'out' })],
+      [7, marked({ available: false, status: 'IR', reason: 'ir' })],
+      [9, marked({ available: false, status: null, reason: 'practice_squad' })],
+      [10, marked({ available: false, status: 'O', reason: 'practice_squad' })],
+      // Prior-season-only, sample size 0: no marker, no verdict from the read.
+      [8, { playerId: 8, mean: 9, median: 9, sampleSize: 0, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { level: 'low', reasons: ['small sample', 'prior season'] } } }],
+    ]),
+  });
+  for (const id of [1, 2, 3]) {
+    const verdict = result.availabilityFor(id);
+    assert.equal(verdict.reason, 'no_history', `player ${id}`);
+    assert.equal(verdict.available, true);
+    assert.equal(verdict.autoRecommend, false);
+  }
+  assert.equal(result.availabilityFor(2).status, 'D', 'the stored designation rides along');
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).reason), ['bye', 'no_team', 'out', 'ir']);
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).available), [false, false, false, false]);
+  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).reason), ['practice_squad', 'practice_squad'],
+    'a stored Practice squad verdict wins over no_history (and over a stored Out)');
+  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).available), [false, false]);
+  assert.equal(result.availabilityFor(8), null, 'a prior-season-only row with sample size 0 gets no verdict');
+  assert.equal(result.availabilityFor(999), null, 'no entry for the player at all');
+  assert.equal(result.projections.get(1).factors.availability.reason, null, 'derived on read, never written back to the row');
+});
+
+// #1775: the Position-baseline verdict is a READ-path verdict. The engine's own
+// pre-projection unavailableFor call never receives `positionBaseline`, so a
+// stored row's availability (and the active_probability derived from it) is
+// exactly what it was before: Doubtful stays 'doubtful', a healthy player stays
+// active_probability 1, and no row is ever stored with reason 'no_history'.
+test('the engine never stores the Position-baseline verdict: availability and activeProbability are unchanged', async (t) => {
+  mockPool(t, {
+    players: [
+      player(1, 'RB', { injury_status: 'D' }),
+      player(2, 'RB'),
+      player(3, 'RB', { injury_status: 'Q' }),
+    ],
+    weeklyStats: [],
+    leagueScan: Array.from({ length: 5 }, (_, i) => ({
+      player_id: 9, week: i + 1, position: 'RB',
+      stats: { rushingYards: 100, rushingTDs: 1 },
+      defense: 'MIA', home_away: 'away',
+    })),
+    defenseGames: [{ team: 'MIA', games: 5 }],
+  });
+  const result = await projection.generateProjections({
+    season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1, 2, 3], hashValue: 'h', weatherService: false,
+  });
+  const rows = [1, 2, 3].map((id) => result.projections.get(id));
+  for (const row of rows) {
+    assert.ok(row.factors.dataQuality.reasons.includes('position baseline'), 'the fixture is a Position-baseline projection');
+    assert.ok(row.mean > 0);
+    assert.notEqual(row.factors.availability.reason, 'no_history');
+  }
+  assert.deepEqual(
+    rows.map((r) => [r.factors.availability.reason, r.factors.availability.autoRecommend, r.activeProbability]),
+    [['doubtful', false, null], [null, true, 1], ['questionable', true, null]]
+  );
+  // ... while the read path marks every one of them.
+  const read = projection.toWeeklyProjectionResult(result);
+  for (const id of [1, 2, 3]) assert.equal(read.positionBaselineFor(id), true, `player ${id}`);
+});
+
+test('the engine: every row built on the position baseline alone carries the `position baseline` reason', () => {
+  // usedPositionFallback = baseline used, sampleSize 0, no prior season. With no
+  // games the recency weight sum is 0, so effectiveGames (0) is always below
+  // mediumEffectiveGames and the reason is never skipped.
+  const positions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+  const perGame = [0.5, 3, 9.75, 15.37, 30];
+  for (const position of positions) {
+    for (const positionBaselinePerGame of perGame) {
+      for (const injury of [null, 'Q', 'D']) {
+        const row = model.projectPlayer({
+          playerId: 1, position, season: SEASON, week: 5, priorGames: [],
+          priorSeasonPerGame: null, positionBaselinePerGame,
+          availability: unavailableFor({ injuryStatus: injury }),
+        });
+        assert.equal(row.sampleSize, 0);
+        assert.ok(
+          row.factors.dataQuality.reasons.includes('position baseline'),
+          `${position} ${positionBaselinePerGame} ${injury}: ${JSON.stringify(row.factors.dataQuality)}`
+        );
+      }
+    }
+  }
+  // Prior-season-only with sample size 0 never gets it.
+  const priorOnly = model.projectPlayer({
+    playerId: 2, position: 'RB', season: SEASON, week: 5, priorGames: [],
+    priorSeasonPerGame: 11, positionBaselinePerGame: null,
+    availability: unavailableFor({}),
+  });
+  assert.ok(!priorOnly.factors.dataQuality.reasons.includes('position baseline'));
+});
+
 test('toWeeklyProjectionResult: detailFor is { mean, median, p10, p90, confidence, activeProbability }', () => {
   const result = projection.toWeeklyProjectionResult({
     modelVersion: model.MODEL_VERSION,
@@ -2443,4 +2730,343 @@ test('poolPointsMap is playerId -> points for every entry that has a value', () 
     [3, { points: null, source: 'unavailable' }],
   ]);
   assert.deepEqual([...poolProjection.poolPointsMap(poolMap)], [[1, 12.5], [2, 0]]);
+});
+
+// ---------------------------------------------------------------------------
+// reconcileAvailability / liveReconcileScope (#1789): the cached engine's
+// availability verdict goes stale between generations (an injury sync, a
+// roster-status move, the practice-squad 48h expiry), and this is the one
+// place that patches it back onto a live run's rows WITHOUT moving any
+// projected number. A dedicated mock, not `mockPool` above: the queries this
+// pair issues (a plain "players" read, a "leagues" scope read, an UPDATE) are
+// a different shape than the engine's own generation-time reads.
+// ---------------------------------------------------------------------------
+
+function mockReconcilePool(t, {
+  players = [],
+  leagueRows = null,
+  updateHandler = null,
+  // QA f4: reconcileByeAwareSignings runs whenever the players read above
+  // includes at least one on-team player (almost every test) - `staleRows`
+  // defaults empty, so it resolves { updated: 0 } after this one extra query
+  // without ever reaching computeByeWeeks or the second UPDATE, unless a
+  // test opts in with real rows.
+  staleRows = [],
+  scheduleRows = [],
+  byeUpdateHandler = null,
+  onQuery = null,
+} = {}) {
+  const calls = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    calls.push({ text, params });
+    if (onQuery) onQuery(text, params);
+    if (text.startsWith('SELECT "current_season", "current_week" FROM "leagues"')) {
+      return { rows: leagueRows || [] };
+    }
+    if (text.startsWith('SELECT "id", "injury_status", "nfl_team"')) {
+      return { rows: players };
+    }
+    if (text.startsWith('SELECT DISTINCT "p"."player_id" FROM "player_week_projections"')) {
+      return { rows: staleRows };
+    }
+    if (text.startsWith('SELECT "t"."nfl_team", "ng"."week"')) {
+      return { rows: scheduleRows };
+    }
+    if (text.startsWith('UPDATE "player_week_projections"') && text.includes('v."bye_week"')) {
+      return byeUpdateHandler ? byeUpdateHandler(text, params) : { rowCount: 0 };
+    }
+    if (text.startsWith('UPDATE "player_week_projections"')) {
+      return updateHandler ? updateHandler(text, params) : { rowCount: 0 };
+    }
+    throw new Error(`unexpected query: ${text.slice(0, 160)}`);
+  });
+  return calls;
+}
+
+test('reconcileAvailability recomputes the verdict and patches only factors/active_probability/updated_at', async (t) => {
+  let updateCall = null;
+  const calls = mockReconcilePool(t, {
+    players: [{ id: 1, injury_status: 'O', nfl_team: 'BUF', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 1 }; },
+  });
+
+  const result = await projection.reconcileAvailability({
+    season: 2026, fromWeek: 5, playerIds: [1], client: pool, now: new Date('2026-09-29T00:00:00Z'),
+  });
+
+  assert.deepEqual(result, { checked: 1, updated: 1 });
+  assert.ok(updateCall, 'one UPDATE issued');
+  assert.match(updateCall.text, /SET "factors" = p\."factors" \|\| jsonb_build_object\('availability', v\."availability"\)/);
+  assert.match(updateCall.text, /"active_probability" = v\."active_probability"/);
+  assert.match(updateCall.text, /"updated_at" = \$7/);
+  // Green-for-the-wrong-reason guard: seed a changed verdict, then assert the
+  // statement never names a projected number or the model's own fields.
+  for (const column of ['"mean"', '"median"', '"p10"', '"p25"', '"p75"', '"p90"', '"confidence"', '"sample_size"']) {
+    assert.ok(!updateCall.text.includes(column), `the SET list never names ${column}`);
+  }
+  const [ids, availabilityJson, activeProbabilities, season, fromWeek, modelVersion] = updateCall.params;
+  assert.deepEqual(ids, [1]);
+  assert.deepEqual(JSON.parse(availabilityJson[0]), {
+    available: false, activeProbability: 0, reason: 'out', status: 'O', locked: false, lockedSlot: null,
+  });
+  assert.deepEqual(activeProbabilities, [0]);
+  assert.equal(season, 2026);
+  assert.equal(fromWeek, 5);
+  assert.equal(modelVersion, model.MODEL_VERSION);
+  assert.equal(calls.filter((c) => c.text.includes('FROM "players"')).length, 1, 'one players read');
+  assert.equal(calls.filter((c) => c.text.startsWith('UPDATE')).length, 1, 'one UPDATE');
+});
+
+test("reconcileAvailability's UPDATE guards a stored bye verdict in SQL - it never recomputes bye itself", async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 1, injury_status: 'O', nfl_team: 'BUF', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 0 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [1], client: pool });
+
+  assert.match(updateCall.text, /"factors"->'availability'->>'reason' IS DISTINCT FROM 'bye'/);
+  assert.match(updateCall.text, /"factors"->'availability' IS DISTINCT FROM v\."availability"/);
+  // reconcileAvailability sends the non-bye verdict for an 'O' player (reason
+  // 'out') regardless - it is this SQL guard, not JS, that keeps a stored
+  // bye row untouched.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, 'out');
+});
+
+test("QA f1: reconcileAvailability's UPDATE also guards a stored no_team row once the player has a team again (undetectable bye-week risk)", async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    // Signed mid-week: he now has a team, so the freshly computed verdict is
+    // no longer no_team - but his cached rows (byeByTeam.get(null) at
+    // generation time) carry no bye marker to tell his new team's bye week
+    // apart from any other week.
+    players: [{ id: 1, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 0 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [1], client: pool });
+
+  // The re-QA fix (was `NOT (a = 'no_team' AND b IS DISTINCT FROM
+  // 'no_team')`, NULL-unsafe: a healthy stored row's NULL reason made the
+  // whole term NULL, dropping every healthy row from the WHERE, not just
+  // no_team ones - #1802 CI's own red). The OR form below is NULL-safe on
+  // both arms (IS DISTINCT FROM and IS NOT DISTINCT FROM never themselves
+  // evaluate to NULL).
+  assert.match(
+    updateCall.text,
+    /\(\s*p\."factors"->'availability'->>'reason' IS DISTINCT FROM 'no_team'\s*OR v\."availability"->>'reason' IS NOT DISTINCT FROM 'no_team'\s*\)/,
+  );
+  // The freshly computed verdict really is non-no_team (healthy) - it is the
+  // SQL guard, not JS, that defers a stored no_team row to regeneration.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, null);
+});
+
+test('QA f1: the no_team guard never blocks the OTHER direction - a stored non-no_team row still reconciles to no_team when the team clears', async (t) => {
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 2, injury_status: null, nfl_team: null, nfl_roster_status: null }],
+    updateHandler: (text, params) => { updateCall = { text, params }; return { rowCount: 1 }; },
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [2], client: pool });
+
+  // The guard's predicate only fires when the STORED reason is already
+  // no_team; a departure (nfl_team newly null) is free to write no_team.
+  assert.equal(JSON.parse(updateCall.params[1][0]).reason, 'no_team');
+});
+
+test('reconcileAvailability with playerIds: null sweeps every player - one read, no id filter, one UPDATE (no per-player loop)', async (t) => {
+  let selectText = null;
+  const calls = mockReconcilePool(t, {
+    players: [
+      { id: 1, injury_status: null, nfl_team: 'BUF', nfl_roster_status: null },
+      { id: 2, injury_status: null, nfl_team: null, nfl_roster_status: null },
+    ],
+    onQuery: (text) => { if (text.startsWith('SELECT "id", "injury_status"')) selectText = text; },
+    updateHandler: () => ({ rowCount: 1 }),
+  });
+
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, client: pool });
+
+  assert.equal(result.checked, 2);
+  // The correlated roster-status subquery carries its own WHERE clause
+  // regardless (nflRosterStatusColumn), so the guard is against the OUTER id
+  // filter specifically, not "WHERE" anywhere in the statement.
+  assert.ok(!/FROM "players" WHERE "id" = ANY/.test(selectText), 'a full sweep carries no id filter');
+  assert.equal(calls.filter((c) => c.text.includes('FROM "players"')).length, 1, 'the player facts are read once, never per player');
+  assert.equal(calls.filter((c) => c.text.startsWith('UPDATE')).length, 1, 'one UPDATE covers every player');
+});
+
+test('reconcileAvailability scoped to an id list filters the read to exactly those ids', async (t) => {
+  let selectCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 7, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    onQuery: (text, params) => { if (text.startsWith('SELECT "id", "injury_status"')) selectCall = { text, params }; },
+    updateHandler: () => ({ rowCount: 0 }),
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [7, 7, '7'], client: pool });
+
+  assert.match(selectCall.text, /WHERE "id" = ANY\(\$1::int\[\]\)/);
+  assert.deepEqual(selectCall.params, [[7]], 'the id list is de-duplicated and coerced to numbers');
+});
+
+test('reconcileAvailability with an empty playerIds array is a no-op: no queries issued', async (t) => {
+  const calls = mockReconcilePool(t, {});
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [], client: pool });
+  assert.deepEqual(result, { checked: 0, updated: 0 });
+  assert.equal(calls.length, 0);
+});
+
+test('a 49h-stale practice_squad roster status reconciles to Active under an injected now', async (t) => {
+  // Deliberately far from any real wall-clock date (2020, not "today"): the
+  // point of this test is that `now` is INJECTED, not defaulted, so picking
+  // dates nowhere near the actual system clock is what keeps a dropped `now`
+  // default from passing by coincidence.
+  const capturedAt = new Date('2020-01-01T00:00:00Z');
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{
+      id: 9, injury_status: null, nfl_team: 'SEA',
+      nfl_roster_status: { status: 'practice_squad', capturedAt: capturedAt.toISOString() },
+    }],
+    updateHandler: (text, params) => { updateCall = params; return { rowCount: 1 }; },
+  });
+
+  // 49h after the roster-status row's capturedAt: stale under the 48h rule.
+  const now = new Date(capturedAt.getTime() + 49 * 60 * 60 * 1000);
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [9], client: pool, now });
+
+  const verdict = JSON.parse(updateCall[1][0]);
+  assert.equal(verdict.reason, null, 'a stale practice_squad row reads Active, not practice_squad');
+  assert.equal(verdict.available, true);
+  assert.equal(verdict.activeProbability, 1);
+});
+
+test('a 47h-old practice_squad roster status is still fresh under the same injected now', async (t) => {
+  const capturedAt = new Date('2020-01-01T00:00:00Z');
+  let updateCall = null;
+  mockReconcilePool(t, {
+    players: [{
+      id: 9, injury_status: null, nfl_team: 'SEA',
+      nfl_roster_status: { status: 'practice_squad', capturedAt: capturedAt.toISOString() },
+    }],
+    updateHandler: (text, params) => { updateCall = params; return { rowCount: 1 }; },
+  });
+
+  const now = new Date(capturedAt.getTime() + 47 * 60 * 60 * 1000); // still inside the 48h window
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [9], client: pool, now });
+
+  const verdict = JSON.parse(updateCall[1][0]);
+  assert.equal(verdict.reason, 'practice_squad', 'still fresh, one hour short of the 48h expiry');
+  assert.equal(verdict.available, false);
+  assert.equal(verdict.activeProbability, 0);
+});
+
+// ---------------------------------------------------------------------------
+// QA f4: reconcileByeAwareSignings - an ex-no_team player who has signed
+// with a real team gets a PER-WEEK verdict (his new team's bye week stays
+// unavailable; every other week reconciles normally), rather than every
+// week being deferred to regeneration.
+// ---------------------------------------------------------------------------
+
+/** Weeks 1..18 minus `byeWeek`, as `{ nfl_team, week }` rows - what
+ * `computeByeWeeks`' own nfl_games query returns for a team with a single,
+ * resolvable bye. */
+function scheduleRowsFor(team, byeWeek) {
+  const rows = [];
+  for (let week = 1; week <= 18; week++) {
+    if (week !== byeWeek) rows.push({ nfl_team: team, week });
+  }
+  return rows;
+}
+
+test('QA f4: an ex-no_team player who has signed gets a per-week verdict - his new team\'s bye week becomes bye, every other week reconciles normally', async (t) => {
+  let byeUpdateCall = null;
+  mockReconcilePool(t, {
+    players: [{ id: 5, injury_status: null, nfl_team: 'KC', nfl_roster_status: null }],
+    staleRows: [{ player_id: 5 }], // his cached rows still say no_team
+    scheduleRows: scheduleRowsFor('KC', 6), // KC's bye is week 6
+    updateHandler: () => ({ rowCount: 0 }), // the main UPDATE defers him (unchanged this pass)
+    byeUpdateHandler: (text, params) => { byeUpdateCall = { text, params }; return { rowCount: 4 }; },
+  });
+
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [5], client: pool });
+
+  assert.ok(byeUpdateCall, 'the second, bye-aware UPDATE was issued');
+  assert.match(byeUpdateCall.text, /CASE WHEN r\."week" = v\."bye_week" THEN v\."bye_availability" ELSE v\."other_availability" END/);
+  const [playerIds, byeWeeks, byeAvailability, byeActiveProbability, otherAvailability, otherActiveProbability] = byeUpdateCall.params;
+  assert.deepEqual(playerIds, [5]);
+  assert.deepEqual(byeWeeks, [6], 'KC\'s resolved bye week');
+  const bye = JSON.parse(byeAvailability[0]);
+  assert.equal(bye.reason, 'bye');
+  assert.equal(bye.available, false);
+  assert.equal(byeActiveProbability[0], 0);
+  const other = JSON.parse(otherAvailability[0]);
+  assert.equal(other.reason, null, 'a healthy player, off the bye week, reads Active');
+  assert.equal(other.available, true);
+  assert.equal(otherActiveProbability[0], 1);
+  assert.equal(result.updated, 4, 'the bye-aware UPDATE\'s rowCount is folded into the total');
+});
+
+test('QA f4: a bye lookup failure (no synced schedule) defers the player instead of guessing - no second UPDATE is issued', async (t) => {
+  let byeUpdateCalled = false;
+  mockReconcilePool(t, {
+    players: [{ id: 6, injury_status: null, nfl_team: 'ZZZ', nfl_roster_status: null }],
+    staleRows: [{ player_id: 6 }],
+    scheduleRows: [], // no schedule synced for 'ZZZ' - computeByeWeeks resolves null
+    updateHandler: () => ({ rowCount: 0 }),
+    byeUpdateHandler: () => { byeUpdateCalled = true; return { rowCount: 0 }; },
+  });
+  const originalError = console.error;
+  let loggedFor = null;
+  console.error = (...args) => { loggedFor = args; };
+  try {
+    const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [6], client: pool });
+    assert.equal(result.updated, 0);
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(byeUpdateCalled, false, 'no second UPDATE runs when the bye week cannot be resolved');
+  assert.ok(loggedFor && String(loggedFor[0]).includes('could not resolve a bye week'), 'the failure is logged');
+});
+
+test('QA f4: a player with no stored no_team row is never treated as a signing - no computeByeWeeks read, no second UPDATE', async (t) => {
+  const calls = mockReconcilePool(t, {
+    players: [{ id: 7, injury_status: null, nfl_team: 'DAL', nfl_roster_status: null }],
+    staleRows: [], // nothing stale - this player was never no_team
+    updateHandler: () => ({ rowCount: 1 }),
+  });
+
+  await projection.reconcileAvailability({ season: 2026, fromWeek: 3, playerIds: [7], client: pool });
+
+  assert.equal(calls.some((c) => c.text.startsWith('SELECT "t"."nfl_team"')), false, 'computeByeWeeks never runs');
+  assert.equal(calls.some((c) => c.text.includes('v."bye_week"')), false, 'the second UPDATE never runs');
+});
+
+test('liveReconcileScope reads the lowest live league current_week, and the season off that same row', async (t) => {
+  let queryText = null;
+  mockReconcilePool(t, {
+    leagueRows: [{ current_season: 2026, current_week: 4 }],
+    onQuery: (text) => { queryText = text; },
+  });
+
+  const scope = await projection.liveReconcileScope(pool);
+  assert.deepEqual(scope, { season: 2026, fromWeek: 4 });
+  assert.match(queryText, /ORDER BY "current_season" DESC, "current_week" ASC LIMIT 1/);
+});
+
+// QA f5's rollover-overlap behavior (does Postgres actually return the
+// newest season under this ORDER BY, not just "does the function trust
+// row 0") is a real-Postgres claim, not a mockPool one - a fake trusts
+// whatever rows the test hands it back, so it cannot tell a correct ORDER BY
+// clause apart from an absent one the way a real sort can. See the pg test
+// 'QA f5: liveReconcileScope picks the newest live season on a rollover
+// overlap' in reconcileAvailability.pg.test.js.
+
+test('liveReconcileScope returns null when no fantasy league is live', async (t) => {
+  mockReconcilePool(t, { leagueRows: [] });
+  assert.equal(await projection.liveReconcileScope(pool), null);
 });

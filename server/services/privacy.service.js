@@ -180,8 +180,9 @@ async function deleteUserAccount({ userId, confirmation }) {
     await client.query('DELETE FROM "push_subscriptions" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "auth_tokens" WHERE "user_id" = $1', [userId]);
     await client.query('DELETE FROM "refresh_tokens" WHERE "user_id" = $1', [userId]);
+    await client.query('DELETE FROM "postgame_cutscene_views" WHERE "user_id" = $1', [userId]);
 
-    // The eight above are the account's own content. This one is not: a
+    // The nine above are the account's own content. This one is not: a
     // co-commissioner grant is a relationship the LEAGUE also has an interest
     // in. Revoking the authorization the account currently holds is not the
     // same act as erasing league history, so the Team, the completed seasons

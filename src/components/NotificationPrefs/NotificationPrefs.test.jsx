@@ -207,3 +207,52 @@ describe('push notifications section', () => {
     await waitFor(() => expect(pushSwitch).not.toBeChecked());
   });
 });
+
+describe('postgame cutscenes preference', () => {
+  test('shows the toggle with its helper text, bound to postgameCutscenes', async () => {
+    apiClient.get.mockResolvedValue({ data: { ...defaultPrefs, postgameCutscenes: true } });
+
+    renderWithProviders(<NotificationPrefs />);
+
+    const toggle = await screen.findByLabelText('Postgame cutscenes');
+    expect(toggle).toBeChecked();
+    expect(
+      screen.getByText('A full-screen result the first time you open Home after a week is final.')
+    ).toBeInTheDocument();
+    expect(toggle).toHaveAccessibleDescription(
+      'A full-screen result the first time you open Home after a week is final.'
+    );
+  });
+
+  test('toggling it off PUTs the key and the switch stays off', async () => {
+    apiClient.get.mockResolvedValue({ data: { ...defaultPrefs, postgameCutscenes: true } });
+    apiClient.put.mockResolvedValue({ data: { ...defaultPrefs, postgameCutscenes: false } });
+
+    renderWithProviders(<NotificationPrefs />);
+    const toggle = await screen.findByLabelText('Postgame cutscenes');
+
+    await userEvent.click(toggle);
+
+    expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/prefs', {
+      prefs: { postgameCutscenes: false },
+    });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    expect(toggle).not.toBeChecked();
+  });
+
+  test('toggling it back on PUTs true', async () => {
+    apiClient.get.mockResolvedValue({ data: { ...defaultPrefs, postgameCutscenes: false } });
+    apiClient.put.mockResolvedValue({ data: { ...defaultPrefs, postgameCutscenes: true } });
+
+    renderWithProviders(<NotificationPrefs />);
+    const toggle = await screen.findByLabelText('Postgame cutscenes');
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(toggle);
+
+    expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/prefs', {
+      prefs: { postgameCutscenes: true },
+    });
+    await waitFor(() => expect(toggle).toBeChecked());
+  });
+});

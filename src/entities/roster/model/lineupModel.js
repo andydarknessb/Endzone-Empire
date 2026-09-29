@@ -392,6 +392,11 @@ export function lineupEntries(rosterWire, league) {
       // The server's own Unavailable reason (#1235), passed through
       // unchanged; `availability` above is mapped from this same code.
       unavailable: r.unavailable ?? null,
+      // A Position-baseline projection (CONTEXT.md; #1776): the server's own
+      // boolean, already false when an Unavailable reason wins, passed through
+      // unchanged. It is NOT an Unavailable reason, so `availability` above is
+      // untouched by it.
+      positionBaseline: r.positionBaseline === true,
       // The Edge line (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
       // `{ kind, text }`, computed on the server (`lineup.service.js`'s
       // `computeEdgeLine`) and passed through verbatim - this entity draws no

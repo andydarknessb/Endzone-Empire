@@ -24,7 +24,7 @@ function untilText(availableAt) {
   return until.imminent ? 'in under a minute' : `in ${until.text}`;
 }
 
-export default function WaiverRowDetail({ id, player, roster, isFaab, reads, onOpen }) {
+export default function WaiverRowDetail({ id, player, isFaab, reads, onOpen }) {
   useEffect(() => {
     reads.start(player.id);
   }, [reads, player.id]);
@@ -40,7 +40,7 @@ export default function WaiverRowDetail({ id, player, roster, isFaab, reads, onO
 
   return (
     <Box id={id} data-testid="waiver-row-detail" sx={{ display: 'grid', gap: 1.5, minWidth: 0, pt: 1 }}>
-      <SwapPreview player={player} roster={Array.isArray(roster) ? roster : []} />
+      <SwapPreview player={player} />
       <Box>
         <Typography sx={LABEL_SX}>Rest of season</Typography>
         <Typography sx={{ fontWeight: 700 }}>
