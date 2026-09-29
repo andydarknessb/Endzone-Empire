@@ -43,6 +43,19 @@ test('GET claim-target returns the server-approved blanket-waiver player', async
   assert.deepEqual(calls, [{ leagueId: 1, userId: 7, playerId: 8 }]);
 });
 
+// #1794: the legacy Pool-projection suggestions endpoint is retired (no
+// caller since #1310/#1365; ADR 0040 says Pool projection leaves waivers).
+// requireAuth still runs for every request the router sees, so an
+// authenticated caller reaches the "no route matched" 404, not a 401.
+test('GET /api/waivers/suggestions is retired: an authenticated caller gets a 404, not 200 or 400', async (t) => {
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/waivers/suggestions?leagueId=1')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 404, JSON.stringify(response.body));
+});
+
 // --- GET /api/waivers myClaims carries the Winning bid (#1611, ADR 0049) -----
 // The fake pool answers what the route asks; the assertions are on what it
 // asks (whose claims, which columns) and on what it hands back.
