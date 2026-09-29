@@ -177,10 +177,13 @@ test('generateProjections called directly issues no NFL roster status read and r
   assert.equal(generated.projections.get(1).factors.availability.available, true);
 });
 
-// #1790: completeRun's roster-status read degrades the same way the weather
-// and odds reads do - a failure reads every player Active rather than
-// failing the request - and the pool has no transaction to protect, so the
-// degrade needs no SAVEPOINT bracket around it.
+// #1790: completeRun's roster-status read degrades to "every player Active"
+// on failure, the same shape the weather/odds reads degrade to "no context"
+// - but ONLY on the POOL is that degrade actually safe with no bracket: the
+// pool has no transaction for a failed statement to abort. (The weather and
+// odds reads carry the same 25P02 hazard the roster read used to, on a
+// TRANSACTION client; #1790 fixes only the roster read - see the PR body for
+// that as a follow-up.)
 test('completeRun degrades to every player Active when the roster status read fails on the pool, issuing no SAVEPOINT', async (t) => {
   const calls = mockPool(t, {
     players: [player(1, 'RB')],
@@ -255,6 +258,44 @@ test('completeRun on a transaction client leaves the transaction usable and gene
   assert.ok(
     client.statements.some((s) => s.includes('INSERT INTO "projection_runs"')),
     'a later query on the same client still ran'
+  );
+});
+
+// #1790 f2: `client !== pool` only says the caller did not hand us the pool
+// itself - a checked-out `pool.connect()` client used in AUTOCOMMIT (no
+// BEGIN) is exactly that shape, and Postgres refuses a bare SAVEPOINT
+// outside a transaction block with 25P01. completeRun must not let THAT
+// failure reject the whole call (worse than the pre-#1790 behaviour); it
+// reads 25P01 as "no transaction to protect" and proceeds with no bracket at
+// all, which is exactly as safe as the pool path since autocommit cannot be
+// left aborted by one failed statement.
+test('completeRun still generates projections when SAVEPOINT itself fails with 25P01 (a checked-out client not in a transaction) (#1790 f2)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+  });
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('SAVEPOINT can only be used in transaction blocks');
+        err.code = '25P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'the read still ran and reads Active');
+  assert.equal(statements.filter((s) => /^SAVEPOINT\b/.test(s)).length, 1, 'the savepoint was attempted once');
+  assert.equal(
+    statements.some((s) => /^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(s)),
+    false,
+    'no close is attempted for a savepoint that never opened'
   );
 });
 

@@ -970,17 +970,34 @@ async function completeRun({
   // and leaves the caller's transaction, and every query after this one,
   // usable (#1790) - the same SAVEPOINT/ROLLBACK TO SAVEPOINT isolation
   // holdout.service.js's Challenger loop uses to isolate one arm's failure.
-  // `client !== pool` (identity, not `instanceof`) is the test: the pool has
-  // no transaction to protect and never needs the bracket.
+  //
+  // `client !== pool` (identity, not `instanceof`) only says the caller did
+  // not hand us the pool - it does NOT prove a transaction is open. A
+  // pool.connect() client used in autocommit (no BEGIN) is exactly this
+  // shape, and Postgres refuses a bare SAVEPOINT outside a transaction block
+  // with 25P01. So the SAVEPOINT itself is issued INSIDE the guarded path,
+  // not before it: a 25P01 there means there is no transaction to protect
+  // (autocommit cannot be left aborted by one failed statement, so the plain
+  // catch below is already the correct degrade with no bracket at all) and
+  // capture proceeds with `savepointOpen` false; any OTHER failure to open
+  // the savepoint is a broken connection and propagates, exactly as
+  // holdout.service.js's own SAVEPOINT loop treats that case.
   let nflRosterStatusById = null;
-  const onTransactionClient = client !== pool;
-  if (onTransactionClient) await client.query('SAVEPOINT nfl_roster_status');
+  let savepointOpen = false;
+  if (client !== pool) {
+    try {
+      await client.query('SAVEPOINT nfl_roster_status');
+      savepointOpen = true;
+    } catch (err) {
+      if (err.code !== '25P01') throw err;
+    }
+  }
   try {
     nflRosterStatusById = await loadNflRosterStatusById(client, playerIds);
-    if (onTransactionClient) await client.query('RELEASE SAVEPOINT nfl_roster_status');
+    if (savepointOpen) await client.query('RELEASE SAVEPOINT nfl_roster_status');
   } catch (err) {
     console.error('projections: NFL roster status read failed, continuing without it:', err.message);
-    if (onTransactionClient) await client.query('ROLLBACK TO SAVEPOINT nfl_roster_status');
+    if (savepointOpen) await client.query('ROLLBACK TO SAVEPOINT nfl_roster_status');
   }
   const generated = await generateProjections({
     season, week, rules, playerIds, hashValue, client, now, weatherService, nflRosterStatusById,

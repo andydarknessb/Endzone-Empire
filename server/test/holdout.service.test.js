@@ -572,53 +572,54 @@ test('the Challenger SAVEPOINT loop receives the same nflRosterStatusById map as
   );
 });
 
-// #1792 f13: `mockGenerate` (above) ignores `nflRosterStatusById` entirely,
-// which is fine for tests that only care THAT the Map was passed. Proving
-// what a fresh Practice squad row actually does to the captured child row
-// needs a mock that reads it, the way the real engine does (unavailable.js's
-// onPracticeSquad -> activeProbability 0). The real generateProjections was
-// ruled out: fakeDb answers every unmatched query with `{ rows: [] }` rather
-// than throwing (see its docblock), so a real run through loadFeatureBundle
-// would silently see an empty players/stats/schedule world and read "no
-// evidence" for every player - a false green that would pass whether or not
-// the Map ever reached generateProjections. A mock that honours the map is
-// the seam that actually depends on the plumbing under test.
-function mockGenerateHonoringRosterStatus(t) {
-  t.mock.method(projectionSvc, 'generateProjections', async (args) => ({
-    projections: new Map(args.playerIds.map((id) => {
-      const status = args.nflRosterStatusById && args.nflRosterStatusById.get(id);
-      const onPracticeSquad = Boolean(status && status.status === 'practice_squad');
-      return [id, {
-        mean: id + 0.5, median: id + 0.25, p10: 1, p25: 2, p75: 8, p90: 9,
-        activeProbability: onPracticeSquad ? 0 : 1, confidence: 'high', sampleSize: 4, factors: { note: 'test' },
-      }];
-    })),
-    inputCutoff: new Date('2077-09-09T11:00:00Z'),
-    sourceCoverage: { stats: 'ok' },
-  }));
-}
-
+// #1792 f13: proving what a fresh Practice squad row does to the captured
+// child row uses the REAL generateProjections, not a mock: fakeDb's own
+// "FROM players" branch already serves the real COHORT rows (id 7/8/9), and
+// unavailable.js's Practice squad gate runs off player identity and the
+// roster status map alone - it is checked BEFORE any stats-derived number,
+// so it fires the same whether or not fakeDb has weekly/season stats to
+// serve (it does not; every other table falls through to its `{ rows: [] }`
+// default). The real engine is therefore both a stronger and a simpler seam
+// here than a hand-written mock: it also exercises onPracticeSquad's own
+// 48-hour freshness rule (unavailable.js), which a mock would have to
+// reimplement to be worth anything - see the staleness case below.
 test('a captured fresh Practice squad row lands with active_probability 0 in the child row (#1792 f13)', async (t) => {
   withReleaseSha(t);
-  mockGenerateHonoringRosterStatus(t);
+  // mockGenerate (above) is intentionally NOT called here: this test wants
+  // the real engine, not the "activeProbability always 1" fixture.
   const db = fakeDb(dbArgs({
     rosterStatusRows: [{
       player_id: 9, // BUF RB in COHORT
-      nfl_roster_status: { status: 'practice_squad', capturedAt: new Date('2077-09-09T10:00:00Z').toISOString() },
+      nfl_roster_status: { status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() },
     }],
   }));
 
   await holdout.snapshotWeek(captureArgs(db));
 
   const scheduled = db.committed.snapshots.find((s) => s.capture_kind === 'scheduled');
-  const practiceSquadRow = db.committed.players.find(
-    (p) => p.snapshot_id === scheduled.id && p.player_id === 9
-  );
-  const activePlayerRow = db.committed.players.find(
-    (p) => p.snapshot_id === scheduled.id && p.player_id === 7
-  );
-  assert.equal(practiceSquadRow.active_probability, 0, 'the fresh Practice squad row reads inactive');
-  assert.equal(activePlayerRow.active_probability, 1, 'an unaffected player is untouched');
+  const byPlayer = (id) => db.committed.players.find((p) => p.snapshot_id === scheduled.id && p.player_id === id);
+  assert.equal(byPlayer(9).active_probability, 0, 'the fresh Practice squad row reads inactive');
+  assert.equal(byPlayer(7).active_probability, 1, 'an unaffected player is untouched');
+});
+
+// #1792 f13: the 48-hour freshness rule (unavailable.js's
+// NFL_ROSTER_STATUS_FRESH_MS) lives in the verdict, not in nflRosterStatus.js
+// - a stale row still comes back from the read, and it is THIS check that
+// must read it as Active. 49 hours is comfortably past the 48-hour line.
+test('a Practice squad row captured more than 48 hours ago reads Active, not Practice squad (#1792 f13)', async (t) => {
+  withReleaseSha(t);
+  const db = fakeDb(dbArgs({
+    rosterStatusRows: [{
+      player_id: 9,
+      nfl_roster_status: { status: 'practice_squad', capturedAt: new Date(Date.now() - 49 * 3600 * 1000).toISOString() },
+    }],
+  }));
+
+  await holdout.snapshotWeek(captureArgs(db));
+
+  const scheduled = db.committed.snapshots.find((s) => s.capture_kind === 'scheduled');
+  const row = db.committed.players.find((p) => p.snapshot_id === scheduled.id && p.player_id === 9);
+  assert.equal(row.active_probability, 1, 'a stale (>48h) Practice squad row reads Active');
 });
 
 test('a capture writes the two candidate arms with exactly the preregistered constants', async (t) => {
