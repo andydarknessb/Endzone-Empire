@@ -22,8 +22,8 @@ function HeroBanner() {
     { x: 150, h: 150, label: 'ALLEN', fill: '#2fd97b' },
     { x: 262, h: 132, label: 'GORDON', fill: '#2fd97b' },
     { x: 374, h: 104, label: 'SADIQ', fill: '#ff8c42' },
-    { x: 486, h: 62, label: 'K. ALLEN', fill: '#7eaaff' },
-    { x: 598, h: 58, label: 'KAMARA', fill: '#7eaaff' },
+    { x: 486, h: 62, label: 'KAMARA', fill: '#7eaaff' },
+    { x: 598, h: 54, label: 'K. ALLEN', fill: '#7eaaff' },
   ];
   return (
     <Box
@@ -37,7 +37,7 @@ function HeroBanner() {
       <title id="wk4ww-hero-title">Week 4 Waiver Wire: The Darkness Report</title>
       <desc id="wk4ww-hero-desc">
         A night field under a floodlight with five glowing bid bars rising from the turf, tallest
-        first: Braelon Allen, Ollie Gordon II, Kenyon Sadiq, Keenan Allen and Alvin Kamara, over the
+        first: Braelon Allen, Ollie Gordon II, Kenyon Sadiq, Alvin Kamara and Keenan Allen, over the
         headline Week 4 Waiver Wire.
       </desc>
       <defs>
@@ -300,8 +300,8 @@ const Body = () => (
 
     <H2>The FAAB Ladder</H2>
     <P>
-      The whole priced board on one scale. Highlighted bars are the Big Three. Everything under 3% is
-      a free square: bid $1 and don&apos;t lose sleep.
+      The whole priced board on one scale. Highlighted bars are the Big Three. Anything that tops out
+      at 3% or less is a cheap bid: pick a number in the range and don&apos;t lose sleep.
     </P>
     <FaabLadder />
 
