@@ -6,6 +6,7 @@ import apiClient from '../../../api/apiClient';
 import { Sprite } from '../../../shared/ui';
 import ResultCard from './ResultCard';
 import WinScene from './WinScene';
+import LossScene from './LossScene';
 import useOverlayFocus from './useOverlayFocus';
 import { planQueue, resultSentence } from '../model/plan';
 import { kitForTeam } from '../model/teamKit';
@@ -17,9 +18,11 @@ import './PostgameCutscenes.css';
 
 // The scene registry: an outcome with a component here plays it; every other
 // outcome (and every outcome under reduced motion) shows the still ResultCard.
-// A scene is mounted with { cutscene, sfx, onDone } and owns its own length: the
-// queue advances on its `onDone`, not on SCENE_MS. Later scenes register here.
-const SCENES = { win: WinScene };
+// A scene is mounted with { cutscene, sfx, onDone, onLeave } and owns its own
+// length: the queue advances on its `onDone`, not on SCENE_MS. `onLeave` ends the
+// whole queue (the loss scene's waiver link); a scene with no link ignores it.
+// Later scenes register here.
+const SCENES = { win: WinScene, loss: LossScene };
 
 // Timing ledger. A card is on screen for SCENE_MS (2 s each under reduced motion).
 const SCENE_MS = 3500;
@@ -167,6 +170,9 @@ function PostgameStage({ cutscenes, onFinish }) {
   const item = plan.scenes[index];
   const Scene = reduced ? null : SCENES[item.outcome];
 
+  // Following a link (a loss's waiver wire) ends the queue behind the navigation.
+  const leave = useCallback(() => { finish(false); }, [finish]);
+
   const nextScene = useCallback(() => {
     if (index + 1 < plan.scenes.length) {
       // A scene leaves its loops running when a tap or its own end moves on.
@@ -260,9 +266,9 @@ function PostgameStage({ cutscenes, onFinish }) {
             showIntro={showIntro}
           />
         ) : Scene ? (
-          <Scene key={item.matchupId} cutscene={item} sfx={sfx} onDone={nextScene} />
+          <Scene key={item.matchupId} cutscene={item} sfx={sfx} onDone={nextScene} onLeave={leave} />
         ) : (
-          <ResultCard key={item.matchupId} item={item} onLeave={() => { finish(false); }} />
+          <ResultCard key={item.matchupId} item={item} onLeave={leave} />
         )}
         {/* Announces each scene: the overlay keeps focus across scenes, so its
             aria-label changing in place is not reliably read out. */}

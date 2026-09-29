@@ -349,8 +349,10 @@ describe('keyboard and focus', () => {
     render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' }), item(2)]} />);
     await screen.findByRole('alertdialog');
     startFromTitle();
+    // The loss scene's link appears with its panel at 5.5 s; the scene ends at 10 s.
+    act(() => { jest.advanceTimersByTime(5500); });
     screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' }).focus();
-    act(() => { jest.advanceTimersByTime(3500); });
+    act(() => { jest.advanceTimersByTime(4500); });
     expect(screen.getByText('Mine 2')).toBeInTheDocument();
     expect(dialog()).toHaveFocus();
     // A key pressed now reaches the overlay, so Escape still ends the queue.
@@ -411,19 +413,19 @@ describe('static result card', () => {
     expect(within(card).queryByRole('link')).not.toBeInTheDocument();
   });
 
-  test('a loss reads GAME OVER. and links to the league Waiver wire', async () => {
+  test('a loss, under reduced motion, reads GAME OVER. and links to the league Waiver wire', async () => {
+    setReducedMotion(true);
     await show([item(1, {
       outcome: 'loss', leagueId: 77, me: { ...item(1).me, score: 90 },
     })]);
-    startFromTitle();
     expect(screen.getByText('GAME OVER.')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
     expect(link).toHaveAttribute('href', '#/league/77/waivers');
   });
 
-  test('following the loss link ends the queue', async () => {
+  test('following the loss link, under reduced motion, ends the queue', async () => {
+    setReducedMotion(true);
     await show([item(1, { outcome: 'loss' }), item(2)]);
-    startFromTitle();
     fireEvent.click(screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
@@ -498,14 +500,53 @@ describe('scene registry', () => {
     expect(screen.queryByTestId('postgame-result-card')).not.toBeInTheDocument();
   });
 
-  test('a loss (no registered scene) shows the result card', async () => {
+  test('a loss mounts the LOSS scene, not the result card', async () => {
     await startAt([item(1, { outcome: 'loss' })]);
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-result-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    expect(calls).toEqual(['stopAll:100', 'play:lossChord', 'startLoop:rain']);
+  });
+
+  test('a tie (no registered scene) shows the result card', async () => {
+    await startAt([item(1, { outcome: 'tie' })]);
     expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
     expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+  });
+
+  test('the loss link ends the whole queue, not just the scene: onLeave, not onDone', async () => {
+    await startAt([item(1, { outcome: 'loss', leagueId: 77 }), item(2, { outcome: 'loss' })]);
+    act(() => { jest.advanceTimersByTime(5500); });
+    const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
+    expect(link).toHaveAttribute('href', '#/league/77/waivers');
+    fireEvent.click(link);
+    // The queue is over: the second loss never mounts, and the sound fades once.
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('a loss that is not the last scene advances on its onDone at 10 s', async () => {
+    await startAt([item(1, { outcome: 'loss' }), item(2, { outcome: 'tie' })]);
+    act(() => { jest.advanceTimersByTime(9999); });
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+  });
+
+  test('a loss under reduced motion keeps the result card, with its own link', async () => {
+    setReducedMotion(true);
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' })]} />);
+    await screen.findByRole('alertdialog');
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' })).toBeInTheDocument();
   });
 
   test('the scene gets the queue sfx and the queue advances on its onDone, not on SCENE_MS', async () => {
-    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'loss' })]);
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'tie' })]);
     // The scene played its sound through the sfx the stage installed.
     expect(calls).toEqual(['stopAll:100', 'play:slide']);
     act(() => { jest.advanceTimersByTime(3500); });
@@ -527,7 +568,7 @@ describe('scene registry', () => {
   });
 
   test('a tap during a scene moves on and stops its sound', async () => {
-    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'loss' })]);
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'tie' })]);
     act(() => { jest.advanceTimersByTime(5000); });
     fireEvent.click(dialog());
     expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();

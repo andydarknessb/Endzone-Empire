@@ -1,0 +1,293 @@
+/* The Postgame LOSS scene. Fixed storm-night colors in both app themes
+   (allowlisted in scripts/check-color-literals.js). Every animated property is
+   transform or opacity, and everything moves on steps(): a value that ends in a
+   step count is a frame rate, not an easing. Timings mirror the ledger at the
+   top of LossScene.jsx (BLINK_MS and BLINK_COUNT, FLASH_MS, WALK_FRAME_MS, the
+   pan's PAN_STEPS over PANEL_MS - PAN_MS, STADIUM_MS for the fade).
+
+   WCAG 2.3.1: exactly one lightning flash of two frames (`loss-flash`, 220 ms,
+   once) and one 2 Hz blink for 1 s ("GAME OVER."); nothing else flashes. The
+   rain is thin lines scrolled a few steps a second, never a full-field change. */
+
+.loss-scene {
+  --loss-sprite: 64px;
+  --loss-ground: 12%;
+  --loss-rain-tile: 24px;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000000;
+}
+
+@media (max-width: 419px) {
+  .loss-scene { --loss-sprite: 48px; }
+}
+
+/* The slide is two scene-heights tall: the stage above, the black panel below.
+   The pan moves the slide up one scene-height, in steps. */
+.loss-slide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 200%;
+}
+.loss-scene[data-beat='pan'] .loss-slide {
+  animation: loss-pan 500ms steps(4) forwards;
+}
+.loss-scene[data-beat='panel'] .loss-slide {
+  transform: translateY(-50%);
+}
+
+.loss-stage,
+.loss-panel {
+  position: relative;
+  height: 50%;
+  overflow: hidden;
+}
+.loss-stage { background: #0b1020; }
+
+/* ---- Opening: black fades to storm navy ---- */
+
+.loss-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: #000000;
+  pointer-events: none;
+  animation: loss-fade 1000ms steps(8) forwards;
+}
+
+/* ---- The dark stadium: sky with two cloud bands, darkened crowd, wet field ---- */
+
+.loss-sky,
+.loss-crowd,
+.loss-field {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.loss-sky { top: 0; bottom: 42%; background: #080b16; }
+.loss-cloud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 12%;
+  background: #1a2038;
+}
+.loss-cloud--high { top: 8%; }
+.loss-cloud--low { top: 44%; background: #151a2e; }
+.loss-crowd {
+  top: 38%;
+  bottom: 42%;
+  background:
+    repeating-linear-gradient(90deg, #6b523a99 0 3px, transparent 3px 8px),
+    repeating-linear-gradient(90deg, #3a2f52aa 2px 5px, transparent 5px 10px),
+    repeating-linear-gradient(0deg, #12151f 0 4px, #191d2e 4px 8px);
+}
+.loss-field {
+  top: 58%;
+  bottom: 0;
+  background: repeating-linear-gradient(90deg, #0f3a1d 0 40px, #0d3219 40px 80px);
+  box-shadow: inset 0 6px 0 #ffffff1f;
+}
+
+/* ---- The walk: right to left, 4 fps, the helmet dragging a step behind ---- */
+
+.loss-walker-track {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: loss-walk 4000ms steps(16) forwards;
+}
+.loss-walker {
+  position: absolute;
+  right: 0;
+  bottom: var(--loss-ground);
+  display: flex;
+  align-items: flex-end;
+}
+.loss-sprite,
+.loss-helmet {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.loss-sprite {
+  width: var(--loss-sprite);
+  height: var(--loss-sprite);
+}
+/* Drawn facing right; mirrored to walk left. */
+.loss-sprite--player {
+  transform: scaleX(-1);
+  animation: loss-bob 500ms steps(1) infinite;
+}
+.loss-helmet {
+  width: calc(var(--loss-sprite) / 2);
+  height: calc(var(--loss-sprite) / 2);
+  transform: scaleX(-1);
+  animation: loss-helmet-bob 500ms steps(1) 250ms infinite;
+}
+
+/* ---- Scoreboard: amber, opponent above, names wrap and are never cut ---- */
+
+.loss-board {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: min(92%, 420px);
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #000000cc;
+  border: 2px solid #ffb000;
+  color: #ffb000;
+  font-size: clamp(9px, 2.8vw, 13px);
+  line-height: 1.5;
+}
+.loss-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.loss-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.loss-points {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: right;
+}
+
+/* ---- GAME OVER.: a 2 Hz blink for 1 s, then it holds ---- */
+
+.loss-gameover {
+  position: absolute;
+  top: 34%;
+  left: 0;
+  right: 0;
+  padding: 0 8px;
+  text-align: center;
+  font-size: clamp(20px, 8vw, 44px);
+  color: #d2232a;
+  text-shadow: 3px 3px 0 #00000099;
+  animation: loss-blink 500ms steps(1) 2;
+}
+
+/* ---- Lightning: two frames of white at 70%, once ---- */
+
+.loss-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: #ffffff;
+  pointer-events: none;
+  opacity: 0;
+  animation: loss-flash 220ms steps(1) 1;
+}
+
+/* ---- Rain: one layer over the whole scene, to the end ---- */
+
+/* A 24 px tile with one 1 px diagonal, so one 24 px step down is a full lap. */
+.loss-rain {
+  position: absolute;
+  top: calc(var(--loss-rain-tile) * -1);
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to bottom right,
+    transparent calc(50% - 0.5px),
+    #ffffff8c calc(50% - 0.5px) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+  background-size: var(--loss-rain-tile) var(--loss-rain-tile);
+  animation: loss-rain 240ms steps(4) infinite;
+}
+
+/* ---- The black panel: Record and the waiver link ---- */
+
+.loss-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 16px;
+  text-align: center;
+  background: #000000;
+}
+.loss-record {
+  font-size: clamp(9px, 3vw, 14px);
+  line-height: 1.6;
+  color: #cfd4e0;
+}
+.loss-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
+  font-size: clamp(9px, 2.8vw, 12px);
+  color: #ffd23f;
+  border: 2px solid #ffd23f;
+}
+.loss-link:focus-visible {
+  outline: 3px solid #ffd23f;
+  outline-offset: 3px;
+}
+
+/* ---- Keyframes ---- */
+
+@keyframes loss-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes loss-blink {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes loss-flash {
+  from { opacity: 0.7; }
+  to { opacity: 0; }
+}
+@keyframes loss-rain {
+  from { transform: translateY(0); }
+  to { transform: translateY(24px); }
+}
+@keyframes loss-walk {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+@keyframes loss-bob {
+  0% { transform: scaleX(-1) translateY(0); }
+  50% { transform: scaleX(-1) translateY(-2px); }
+}
+@keyframes loss-helmet-bob {
+  0% { transform: scaleX(-1) translateY(0); }
+  50% { transform: scaleX(-1) translateY(-2px); }
+}
+@keyframes loss-pan {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
+}
+
+/* The scene is not mounted under reduced motion (the queue shows the still
+   result card); this only guards a scene mounted some other way. */
+@media (prefers-reduced-motion: reduce) {
+  .loss-scene *,
+  .loss-scene *::before,
+  .loss-scene *::after {
+    animation: none !important;
+  }
+}
