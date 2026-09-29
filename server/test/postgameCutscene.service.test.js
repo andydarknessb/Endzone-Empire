@@ -47,7 +47,13 @@ const baseWorld = () => ({
   avatars: [{ id: 248, avatar_url: null, avatar_static_url: null }, { id: 488, avatar_url: null, avatar_static_url: null }],
   matchups: baseMatchups(),
   seen: [{ matchup_id: 901 }, { matchup_id: 902 }, { matchup_id: 903 }], // only week 4 is unseen
-  nflGames: [game(5, 'KC', W5_FIRST), game(5, 'GB', W5_LAST), game(4, 'KC', '2026-10-04T17:00:00.000Z'), game(4, 'GB', W4_LAST)],
+  nflGames: [
+    game(1, 'KC', '2026-09-13T17:00:00.000Z'), game(1, 'GB', '2026-09-15T00:15:00.000Z'),
+    game(2, 'KC', '2026-09-20T17:00:00.000Z'), game(2, 'GB', '2026-09-22T00:15:00.000Z'),
+    game(3, 'KC', '2026-09-27T17:00:00.000Z'), game(3, 'GB', '2026-09-29T00:15:00.000Z'),
+    game(4, 'KC', '2026-10-04T17:00:00.000Z'), game(4, 'GB', W4_LAST),
+    game(5, 'KC', W5_FIRST), game(5, 'GB', W5_LAST),
+  ],
 });
 
 function fakeFor(world) {
@@ -143,12 +149,27 @@ test('it expires at the first Kickoff of the league\'s current week (inclusive)'
   assert.deepEqual((await listDue(baseWorld(), new Date(new Date(W5_FIRST).getTime() + DAY))).cutscenes, []);
 });
 
-test('in the season\'s last week it expires 7 days after that week\'s last Kickoff', async () => {
+test("when the schedule has no week after the Matchup's it expires 7 days after that week's last Kickoff", async () => {
   const world = baseWorld();
-  world.leagues[0].current_week = 4; // no later week
+  world.nflGames = world.nflGames.filter((g) => g.week !== 5);
   const expiry = new Date(W4_LAST).getTime() + 7 * DAY;
   assert.equal((await listDue(world, new Date(expiry - 1))).cutscenes.length, 1);
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
+});
+
+test('a Matchup two weeks behind current_week is not due while the current week has not kicked off (nothing carries over)', async () => {
+  const world = baseWorld();
+  world.leagues[0].current_week = 6; // week 4's result is a week old; week 5 has kicked off
+  world.seen = []; // weeks 1-4 all final and unseen
+  world.nflGames.push(game(6, 'KC', '2026-10-16T00:20:00.000Z'), game(6, 'GB', '2026-10-20T00:15:00.000Z'));
+  const afterWeek5Kickoff = new Date(new Date(W5_FIRST).getTime() + DAY);
+  assert.deepEqual((await listDue(world, afterWeek5Kickoff)).cutscenes, []);
+});
+
+test('with weeks 1-3 unseen, only the result that just happened is due before the next Kickoff', async () => {
+  const world = baseWorld();
+  world.seen = [];
+  assert.deepEqual((await listDue(world)).cutscenes.map((c) => c.week), [4]);
 });
 
 test('a completed season expires 7 days after the Matchup week\'s last Kickoff even though current_week moved on', async () => {
@@ -159,9 +180,10 @@ test('a completed season expires 7 days after the Matchup week\'s last Kickoff e
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
 });
 
-test('a next week with no Kickoffs on the schedule falls back to the Matchup week\'s last Kickoff + 7 days', async () => {
+test("a league advanced past the schedule's weeks still expires 7 days after the Matchup week's last Kickoff", async () => {
   const world = baseWorld();
-  world.leagues[0].current_week = 19; // past the schedule's weeks: no nfl_games rows
+  world.leagues[0].current_week = 19;
+  world.nflGames = world.nflGames.filter((g) => g.week !== 5);
   const expiry = new Date(W4_LAST).getTime() + 7 * DAY;
   assert.equal((await listDue(world, new Date(expiry - 1))).cutscenes.length, 1);
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
@@ -252,6 +274,14 @@ test('markSeen is idempotent: a second call is stored the same way', async () =>
   const db = fakeFor(baseWorld());
   assert.equal(await postgameCutscene.markSeen({ userId: 7, matchupId: 904, db }), true);
   assert.equal(await postgameCutscene.markSeen({ userId: 7, matchupId: 904, db }), true);
+});
+
+test('markSeen refuses a Matchup that is not final yet, and writes nothing', async () => {
+  const world = baseWorld();
+  world.matchups[3] = matchup(904, 4, 248, 488, '80.00', '70.00', { final: false });
+  const db = fakeFor(world);
+  assert.equal(await postgameCutscene.markSeen({ userId: 7, matchupId: 904, db }), false);
+  assert.equal(db.matching(/^INSERT INTO/).length, 0);
 });
 
 test('markSeen refuses a Matchup the viewer holds no Team in, and writes nothing', async () => {

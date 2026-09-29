@@ -5,8 +5,10 @@
  * Teams with no row here that has not expired"; expiry is derived from the
  * NFL schedule, so there is no timestamp column beyond `seen_at`.
  *
- * Both foreign keys cascade: deleting an account or a league (and its
- * Matchups) takes the rows with it, and the rows hold nothing else.
+ * Both foreign keys cascade, but account deletion here is soft (the users row
+ * survives, privacy.service.js), so only deleting a league (and its Matchups)
+ * takes rows with it; rows of a deleted account remain until erasure covers
+ * this table (follow-up). The rows hold nothing but the pair and a timestamp.
  *
  * down() is a plain drop: the rows are a convenience ("do not replay"), not
  * league history.

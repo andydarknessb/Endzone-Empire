@@ -8,10 +8,8 @@ const homeStatus = require('./homeStatus.service');
  * expired. Seen is a fact of the account, not of a browser, so it plays once
  * across every device.
  *
- * Expiry needs no column. It is the earliest Kickoff of the league's
- * `current_week` when that week is later than the Matchup's (the next week is
- * about to lock), and the Matchup week's last Kickoff plus 7 days when it is
- * not (the season is complete). Scores are read live: a later stat correction
+ * Expiry needs no column (see expiryOf): the first Kickoff of the week after
+ * the Matchup's, else its last Kickoff plus 7 days. Scores are read live: a later stat correction
  * changes the score shown to a Manager who has not looked yet and never
  * re-opens a Matchup that was seen.
  *
@@ -42,18 +40,19 @@ function earliestKickoff(entry) {
 }
 
 /**
- * Pure: when this Matchup's cutscene stops being due (ms), null when the
- * schedule names no Kickoff to expire against. The instant itself is expired:
- * a Kickoff locks inclusively everywhere else.
+ * Pure: when this Matchup's cutscene stops being due (ms). It is only ever the
+ * result that just happened (ADR 0052): it expires at the first Kickoff of the
+ * week AFTER the Matchup's own, however far current_week has run on, so a
+ * result two weeks old carries nothing over. Whenever current_week = week + 1
+ * this is the league's current week's first Kickoff. When the season is
+ * complete, or that next week has no Kickoff on the schedule (it holds NFL
+ * weeks 1-18 only), the bound is the Matchup week's last Kickoff + 7 days. With
+ * no Kickoff known for either, null: the cutscene stays due until it is seen.
+ * The instant itself is expired: a Kickoff locks inclusively everywhere else.
  */
 function expiryOf({ league, matchup, kickoffs }) {
-  // finalizeWeekAndAdvance always moves current_week on (even when the season
-  // completes), so "no later week" is read from the league being complete, or
-  // from the next week having no Kickoff to lock against (the schedule holds
-  // NFL weeks 1-18 only). Either way the Matchup week's last Kickoff + 7 days
-  // is the bound, so a cutscene can never stay due for the rest of the season.
-  if (league.season_status !== 'complete' && Number(league.current_week) > Number(matchup.week)) {
-    const next = earliestKickoff(kickoffs.get(weekKey(league.current_season, league.current_week)));
+  if (league.season_status !== 'complete') {
+    const next = earliestKickoff(kickoffs.get(weekKey(matchup.season, Number(matchup.week) + 1)));
     if (next !== null) return next;
   }
   const last = kickoffs.get(weekKey(matchup.season, matchup.week))?.last;
@@ -104,8 +103,8 @@ async function listDue({ userId, now, db }) {
   const dueLeagueIds = [...new Set(candidates.map((c) => Number(c.league.id)))];
   const teamIds = [...new Set(candidates.flatMap((c) => [Number(c.row.home_team_id), Number(c.row.away_team_id)]))];
   const weeks = new Map();
-  for (const { row, league } of candidates) {
-    for (const [season, week] of [[league.current_season, league.current_week], [row.season, row.week]]) {
+  for (const { row } of candidates) {
+    for (const [season, week] of [[row.season, Number(row.week) + 1], [row.season, row.week]]) {
       weeks.set(weekKey(season, week), { season: Number(season), week: Number(week) });
     }
   }
@@ -181,15 +180,15 @@ async function listDue({ userId, now, db }) {
 /**
  * Mark a Matchup's cutscene seen for the viewer. Idempotent (ON CONFLICT DO
  * NOTHING). Returns false, writing nothing, when the viewer holds no Team in
- * that Matchup (or it does not exist); true once it is recorded.
+ * that Matchup, or it does not exist or is not final yet; true once it is recorded.
  */
 async function markSeen({ userId, matchupId, db }) {
   const found = await db.query(
-    `SELECT "id", "league_id", "home_team_id", "away_team_id" FROM "matchups" WHERE "id" = $1`,
+    `SELECT "id", "league_id", "home_team_id", "away_team_id", "final" FROM "matchups" WHERE "id" = $1`,
     [matchupId]
   );
   const matchup = found.rows[0];
-  if (!matchup) return false;
+  if (!matchup || !matchup.final) return false; // an open Matchup has no cutscene to have seen
   const leagues = await homeStatus.listMyLeagues(db, userId);
   const league = leagues.find((l) => Number(l.id) === Number(matchup.league_id));
   const inIt = league

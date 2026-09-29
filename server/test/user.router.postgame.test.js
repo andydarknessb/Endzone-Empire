@@ -69,9 +69,12 @@ test('GET /api/user/postgame-cutscenes answers { cutscenes } with the viewer\'s 
 });
 
 test('the routes require authentication', async (t) => {
-  mockPool(t);
+  const fake = mockPool(t);
   assert.equal((await request(app).get('/api/user/postgame-cutscenes')).status, 401);
   assert.equal((await request(app).post('/api/user/postgame-cutscenes/904/seen')).status, 401);
+  // A refusal that protects a mutation proves it wrote nothing (refusal-tests.md).
+  assert.equal(fake.matching(/^INSERT INTO "postgame_cutscene_views"/).length, 0);
+  assert.equal(fake.calls.length, 0);
 });
 
 test('POST .../:matchupId/seen answers 204 twice for the same Matchup (idempotent)', async (t) => {
