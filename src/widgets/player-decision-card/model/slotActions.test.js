@@ -52,6 +52,27 @@ describe('benchOptionsForSlot', () => {
     expect(result.map((r) => r.entry.playerId)).toEqual([3, 2]);
   });
 
+  test('a Position-baseline candidate sorts after every evidenced option, even a lower or unknown one (#1777)', () => {
+    const baseline = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 30, positionBaseline: true });
+    const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 4 });
+    const unknown = entry({ playerId: 4, eligibleSlots: ['BENCH', 'RB'], projectedPoints: null });
+    const baselineToo = entry({ playerId: 5, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 31, positionBaseline: true });
+    const result = benchOptionsForSlot([baseline, low, unknown, baselineToo], 'RB');
+    // Evidenced first (points descending, unknown last among them), then the
+    // Position-baseline pair in the order given (their hidden numbers tie).
+    expect(result.map((r) => r.entry.playerId)).toEqual([3, 4, 2, 5]);
+  });
+
+  test('an Unavailable player is never treated as no history: the reason wins (#1777)', () => {
+    const out = entry({
+      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, positionBaseline: true,
+      availability: { available: false, reason: 'out' },
+    });
+    const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: -1 });
+    const result = benchOptionsForSlot([out, low], 'RB');
+    expect(result.map((r) => r.entry.playerId)).toEqual([2, 3]);
+  });
+
   test('marks a locked candidate', () => {
     const candidate = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], locked: true });
     const [result] = benchOptionsForSlot([candidate], 'RB');
