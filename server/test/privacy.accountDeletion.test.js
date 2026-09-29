@@ -2,7 +2,7 @@
  * Account deletion: what a successful delete revokes, and what a failed one
  * must leave standing (#275).
  *
- * Deletion is a SOFT delete - eight user-owned tables are hard-deleted and
+ * Deletion is a SOFT delete - nine user-owned tables are hard-deleted and
  * the `users` row is anonymized with an UPDATE - so no foreign-key cascade
  * ever fires. Anything that has to end when the account ends has to be
  * written down in the service, inside the same transaction.
@@ -197,6 +197,44 @@ test('a league creator is still refused, and the message names the leagues they 
   assert.deepEqual(fake.calls.filter((call) => /^(DELETE|UPDATE|INSERT)/.test(call.text)), []);
   assert.equal(world.grantsFor(USER).length, 2);
   assert.ok(fake.calls.some((call) => call.text === 'ROLLBACK'));
+  fake.assertClean();
+});
+
+test('deletion removes all postgame_cutscene_views rows owned by the account', async (t) => {
+  const fake = createFakePool(deletionHandlers()).install(t);
+
+  await privacy.deleteUserAccount({ userId: USER, confirmation: 'me' });
+
+  const postgameDelete = fake.matching(remove('postgame_cutscene_views'));
+  assert.equal(postgameDelete.length, 1, 'postgame_cutscene_views has exactly one delete statement');
+  assert.equal(postgameDelete[0].via, 'client', 'the delete is issued on the transactional client');
+  assert.deepEqual(postgameDelete[0].params, [USER], 'the delete filters by the correct user_id');
+  assert.match(
+    postgameDelete[0].text,
+    /^DELETE FROM "postgame_cutscene_views" WHERE "user_id" = \$1$/,
+    'the statement deletes only by user_id, no other conditions'
+  );
+  fake.assertClean();
+});
+
+test('a failure rolls back postgame_cutscene_views deletion with the rest of the deletion', async (t) => {
+  const fake = createFakePool([
+    [update('users'), () => { throw new Error('deadlock detected'); }],
+    ...deletionHandlers(),
+  ]).install(t);
+
+  await assert.rejects(
+    () => privacy.deleteUserAccount({ userId: USER, confirmation: 'me' }),
+    /deadlock detected/
+  );
+
+  assert.equal(
+    fake.matching(remove('postgame_cutscene_views')).length,
+    1,
+    'the statement was issued inside the transaction'
+  );
+  assert.ok(!fake.calls.some((call) => call.text === 'COMMIT'), 'nothing was committed');
+  assert.ok(fake.calls.some((call) => call.text === 'ROLLBACK'), 'the transaction was rolled back');
   fake.assertClean();
 });
 
