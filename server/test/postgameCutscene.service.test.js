@@ -142,11 +142,18 @@ test('a later stat correction changes the score shown but never re-opens a seen 
   assert.deepEqual((await listDue(world)).cutscenes, []);
 });
 
-test('it expires at the first Kickoff of the league\'s current week (inclusive)', async () => {
-  const before = new Date(new Date(W5_FIRST).getTime() - 1);
+test('an advance after week N+1\'s first Kickoff but before last still shows the cutscene', async () => {
+  const middle = new Date((new Date(W5_FIRST).getTime() + new Date(W5_LAST).getTime()) / 2);
+  const { cutscenes } = await listDue(baseWorld(), middle);
+  assert.equal(cutscenes.length, 1);
+  assert.equal(cutscenes[0].week, 4);
+});
+
+test('it expires at the last Kickoff of the league\'s current week (inclusive)', async () => {
+  const before = new Date(new Date(W5_LAST).getTime() - 1);
   assert.equal((await listDue(baseWorld(), before)).cutscenes.length, 1);
-  assert.deepEqual((await listDue(baseWorld(), new Date(W5_FIRST))).cutscenes, []);
-  assert.deepEqual((await listDue(baseWorld(), new Date(new Date(W5_FIRST).getTime() + DAY))).cutscenes, []);
+  assert.deepEqual((await listDue(baseWorld(), new Date(W5_LAST))).cutscenes, []);
+  assert.deepEqual((await listDue(baseWorld(), new Date(new Date(W5_LAST).getTime() + DAY))).cutscenes, []);
 });
 
 test("when the schedule has no week after the Matchup's it expires 7 days after that week's last Kickoff", async () => {
@@ -157,13 +164,13 @@ test("when the schedule has no week after the Matchup's it expires 7 days after 
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
 });
 
-test('a Matchup two weeks behind current_week is not due while the current week has not kicked off (nothing carries over)', async () => {
+test('a Matchup two weeks behind current_week is not due after the next week\'s last Kickoff (nothing carries over)', async () => {
   const world = baseWorld();
-  world.leagues[0].current_week = 6; // week 4's result is a week old; week 5 has kicked off
+  world.leagues[0].current_week = 6; // week 4's result is a week old; week 5 has finished
   world.seen = []; // weeks 1-4 all final and unseen
   world.nflGames.push(game(6, 'KC', '2026-10-16T00:20:00.000Z'), game(6, 'GB', '2026-10-20T00:15:00.000Z'));
-  const afterWeek5Kickoff = new Date(new Date(W5_FIRST).getTime() + DAY);
-  assert.deepEqual((await listDue(world, afterWeek5Kickoff)).cutscenes, []);
+  const afterWeek5LastKickoff = new Date(new Date(W5_LAST).getTime() + DAY);
+  assert.deepEqual((await listDue(world, afterWeek5LastKickoff)).cutscenes, []);
 });
 
 test('with weeks 1-3 unseen, only the result that just happened is due before the next Kickoff', async () => {
