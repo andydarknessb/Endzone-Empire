@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const homeStatus = require('../services/homeStatus.service');
 
 /**
- * homeStatus.service: the builders the digest, the Home to-do list and the
+ * homeStatus.service: the statuses the reminders, the Home to-do list and the
  * league status cards share. Pure over rows, so every case here is a fixture
  * in and an answer out; the routes that batch the reads have their own
  * supertest suites.
@@ -12,10 +12,19 @@ const homeStatus = require('../services/homeStatus.service');
 const slots = (spec) => Object.entries(spec).map(([key, count]) => ({ key, count }));
 const entry = (slot, name, extra = {}) => ({ slot, name, onBye: false, injury_status: null, ...extra });
 
-// --- extracted from the digest (behaviour pinned before anything is added) --
+// --- the lineup problems, read through lineupStatus (nothing locked) --------
 
-test('leagueLineupProblems checks a standard league in full against its roster slots', () => {
-  const problems = homeStatus.leagueLineupProblems({
+// A week with no schedule and no clock pressure: nothing has kicked off, so
+// the status' problems are the whole lineup's.
+const unlockedProblems = (args) => homeStatus.lineupStatus({
+  kickoffByTeam: new Map(),
+  weekLastKickoff: null,
+  now: new Date('2026-10-04T12:00:00.000Z'),
+  ...args,
+}).problems;
+
+test('lineupStatus checks a standard league in full against its roster slots', () => {
+  const problems = unlockedProblems({
     entries: [entry('QB', 'Quarterback', { onBye: true })],
     rosterSlots: slots({ QB: 1, RB: 1 }),
     bestBall: false,
@@ -23,8 +32,8 @@ test('leagueLineupProblems checks a standard league in full against its roster s
   assert.deepEqual(problems, ['1 empty RB slot', 'Quarterback (QB) is on bye']);
 });
 
-test('leagueLineupProblems gives a best-ball league only its unresolved IR stashes', () => {
-  const problems = homeStatus.leagueLineupProblems({
+test('lineupStatus gives a best-ball league only its unresolved IR stashes', () => {
+  const problems = unlockedProblems({
     entries: [
       entry('QB', 'Benched By Optimizer', { injury_status: 'O' }),
       entry('IR', 'Healthy Stash', { injury_status: 'Q', ir_attested: false }),
@@ -35,14 +44,39 @@ test('leagueLineupProblems gives a best-ball league only its unresolved IR stash
   assert.deepEqual(problems, ['Healthy Stash (IR) is no longer IR-eligible (questionable)']);
 });
 
-test('lineupEntryFromRow reads the digest query row into the builder shape', () => {
+test('lineupStatus flags bye and Out/IR starters, ignores the bench, and lets a questionable starter be', () => {
+  const problems = unlockedProblems({
+    entries: [
+      entry('QB', 'Healthy QB'),
+      entry('RB', 'Bye RB', { onBye: true }),
+      entry('WR', 'Hurt WR', { injury_status: 'O' }),
+      entry('TE', 'Q Guy', { injury_status: 'Q' }),
+      entry('BENCH', 'Hurt Bench Guy', { injury_status: 'IR' }),
+    ],
+    rosterSlots: slots({ QB: 1, RB: 1, WR: 1, TE: 1 }),
+    bestBall: false,
+  });
+  assert.deepEqual(problems, ['Bye RB (RB) is on bye', 'Hurt WR (WR) is Out']);
+});
+
+test('lineupStatus resurfaces an unresolved ineligible IR stash but never a commissioner-attested one (#100)', () => {
+  const stash = (extra) => unlockedProblems({
+    entries: [entry('QB', 'Healthy QB'), entry('IR', 'Test Runner', { injury_status: 'Q', ...extra })],
+    rosterSlots: slots({ QB: 1 }),
+    bestBall: false,
+  });
+  assert.deepEqual(stash({}), ['Test Runner (IR) is no longer IR-eligible (questionable)']);
+  assert.deepEqual(stash({ ir_attested: true }), []);
+});
+
+test('lineupEntryFromRow reads the lineup query row into the builder shape', () => {
   assert.deepEqual(
     homeStatus.lineupEntryFromRow({ slot: 'RB', name: 'Runner', on_bye: true, injury_status: 'Q', ir_attested: false, extra: 1 }),
     { slot: 'RB', name: 'Runner', onBye: true, injury_status: 'Q', ir_attested: false }
   );
 });
 
-test('openGameKeys drops games at or past kickoff; missingPicks drops the ones already picked', () => {
+test('pickemStatus drops games at or past kickoff and the ones already picked (picksMadeByUser rows)', () => {
   const now = new Date('2026-10-04T17:00:00.000Z');
   const slate = [
     { gameKey: 'BUF|MIA', kickoffAt: '2026-10-04T16:59:00.000Z' },
@@ -50,15 +84,13 @@ test('openGameKeys drops games at or past kickoff; missingPicks drops the ones a
     { gameKey: 'KC|LV', kickoffAt: '2026-10-04T20:25:00.000Z' },
     { gameKey: 'GB|MIN', kickoffAt: '2026-10-05T00:20:00.000Z' },
   ];
-  const open = homeStatus.openGameKeys(slate, now);
-  assert.deepEqual(open, ['KC|LV', 'GB|MIN']);
   const made = homeStatus.picksMadeByUser([
     { user_id: 7, team_pair: 'KC|LV' },
     { user_id: 7, team_pair: 'BUF|MIA' },
     { user_id: 8, team_pair: 'GB|MIN' },
   ]);
-  assert.deepEqual(homeStatus.missingPicks(open, made.get(7)), ['GB|MIN']);
-  assert.deepEqual(homeStatus.missingPicks(open, made.get(9)), ['KC|LV', 'GB|MIN']);
+  assert.equal(homeStatus.pickemStatus({ slate, made: made.get(7), now }).missing, 1); // GB|MIN
+  assert.equal(homeStatus.pickemStatus({ slate, made: made.get(9), now }).missing, 2); // KC|LV, GB|MIN
 });
 
 // --- lineupStatus: the lineup card and the lineup_problem to-do row ---------
@@ -200,50 +232,6 @@ test('pickemStatus: fully picked (or all locked) has nothing missing and no lock
   assert.deepEqual(done, { made: 4, total: 4, missing: 0, nextLockAt: null });
   const over = homeStatus.pickemStatus({ slate: SLATE, made: new Set(), now: at('2026-10-06T00:00:00.000Z') });
   assert.deepEqual(over, { made: 0, total: 4, missing: 0, nextLockAt: null });
-});
-
-// --- matchupSummary: the card's matchup from the caller's side --------------
-
-test('matchupSummary reads the caller\'s side whichever side of the row they are on', () => {
-  const matchup = { id: 912, home_team_id: 11, away_team_id: 12, home_score: '87.40', away_score: null };
-  const decoration = {
-    status: 'live', homeExpectedFinal: 118.6, awayExpectedFinal: 104.1, homePlayersRemaining: 4, awayPlayersRemaining: 3,
-  };
-  const teamNameById = new Map([[11, 'Cheese Curds'], [12, 'Frozen Tundra FC']]);
-  assert.deepEqual(homeStatus.matchupSummary({ matchup, decoration, myTeamId: 11, teamNameById }), {
-    id: 912,
-    status: 'live',
-    opponent: { teamId: 12, name: 'Frozen Tundra FC' },
-    my: { score: 87.4, expectedFinal: 118.6, playersRemaining: 4 },
-    opp: { score: null, expectedFinal: 104.1, playersRemaining: 3 },
-    winProbability: null,
-  });
-  const theirs = homeStatus.matchupSummary({ matchup, decoration, myTeamId: 12, teamNameById });
-  assert.deepEqual(theirs.opponent, { teamId: 11, name: 'Cheese Curds' });
-  assert.equal(theirs.my.expectedFinal, 104.1);
-});
-
-// --- action items: ordering, cap, dueToday ---------------------------------
-
-const item = (id, severity, deadlineAt, createdAt) => ({ id, severity, deadlineAt, createdAt });
-
-test('assembleActionItems orders by tier, then deadline (nulls last), then newest first, and caps', () => {
-  const items = [
-    item('info', 'info', '2026-10-04T18:00:00.000Z', null),
-    item('untimed-old', 'untimed', null, '2026-10-01T00:00:00.000Z'),
-    item('timed-late', 'timed', '2026-10-06T00:00:00.000Z', null),
-    item('timed-none', 'timed', null, '2026-10-04T00:00:00.000Z'),
-    item('untimed-new', 'untimed', null, '2026-10-04T00:00:00.000Z'),
-    item('timed-soon', 'timed', '2026-10-04T17:00:00.000Z', null),
-    item('blocking', 'blocking', '2026-10-04T16:00:00.000Z', null),
-  ];
-  const out = homeStatus.assembleActionItems({
-    items, partial: [], now: new Date('2026-10-04T16:00:00.000Z'), tz: 'UTC', cap: 5,
-  });
-  assert.deepEqual(out.items.map((i) => i.id), ['blocking', 'timed-soon', 'timed-late', 'timed-none', 'untimed-new']);
-  assert.deepEqual(out.counts, { total: 7, dueToday: 3 });
-  // The recency key is for ordering only; it never reaches the wire.
-  assert.equal('createdAt' in out.items[0], false);
 });
 
 test('isValidTimeZone accepts IANA zones and refuses anything else', () => {
