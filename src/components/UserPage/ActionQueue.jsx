@@ -261,7 +261,10 @@ function CaughtUp() {
       <Typography sx={{ ...dimSx, maxWidth: 380 }}>
         Every lineup is set and every pick is in.
       </Typography>
-      <Link component={RouterLink} to="/waiver-wire" sx={{ ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontSize: '14px' }}>
+      {/* The Waiver Wire is a public page on the public router (RootRouter), so
+          this is a plain link that leaves the hash app, not a router link
+          (which would resolve to #/waiver-wire and the app's 404). */}
+      <Link href="/waiver-wire" sx={{ ...textLinkSx, ...MIN_TOUCH_TARGET_SX, display: 'flex', alignItems: 'center', fontSize: '14px' }}>
         Browse the waiver wire
       </Link>
     </Stack>

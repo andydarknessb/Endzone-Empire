@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { isPublicPath } from '../public/publicPaths';
 import { Provider } from 'react-redux';
 import configureMockStore from 'redux-mock-store';
 import App from './App';
@@ -558,4 +559,25 @@ test.each([
   // before clearing so the teardown makes no request.
   unmount();
   clearLeagueCache();
+});
+
+// The public Waiver Wire page lives on the public router (RootRouter decides
+// from the real pathname), so a link to it from the signed-in app must leave
+// the hash app. A router link here rendered href="#/waiver-wire", which the hash
+// app has no route for: clicking "Browse the waiver wire" on an all-clear Home
+// landed on its 404. A page test in a MemoryRouter cannot see this (a router
+// link renders a plain path there); only the real shell does.
+test('Browse the waiver wire on an all-clear Home links out of the hash app to the public Waiver Wire', async () => {
+  renderApp('#/user', { user: loggedIn }, () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url === '/api/user/action-items') {
+        return Promise.resolve({ data: { generatedAt: new Date().toISOString(), counts: { total: 0, dueToday: 0 }, partial: [], items: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  });
+  const link = await screen.findByRole('link', { name: 'Browse the waiver wire' });
+  const href = link.getAttribute('href');
+  expect(href).toBe('/waiver-wire');
+  expect(isPublicPath(href)).toBe(true);
 });
