@@ -14,7 +14,14 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material';
-import { MIN_TOUCH_TARGET_SX, isRosterAtCapacity, sortRosterForDrop, unavailableLabel } from '../../../shared/lib';
+import {
+  MIN_TOUCH_TARGET_SX,
+  NO_HISTORY_LABEL,
+  hasNoHistory,
+  isRosterAtCapacity,
+  sortRosterForDrop,
+  unavailableLabel,
+} from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
 
@@ -45,16 +52,22 @@ export function SwapPreview({ player }) {
   const reason = overPlayer.unavailable ? unavailableLabel(overPlayer.unavailable) : null;
   const theirs = overPlayer.points ?? (mine != null ? mine - upgrade.points : null);
   const gain = Number(upgrade.points);
+  // A Position-baseline row prints "no history" for his number and no gain
+  // line (#1808): the gain is built from the hidden number. The verdict is the
+  // server's, read through `hasNoHistory`, never re-derived here.
+  const noHistory = hasNoHistory(player);
   return (
     <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
       <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>This week&apos;s swap</Typography>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-        <Typography sx={{ minWidth: 0 }}>{`${player.name} ${fmt(mine)}`}</Typography>
+        <Typography sx={{ minWidth: 0 }}>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</Typography>
         <Typography sx={{ minWidth: 0, textAlign: 'right' }}>
           {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}
         </Typography>
       </Box>
-      <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
+      {!noHistory && (
+        <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
+      )}
     </Box>
   );
 }
