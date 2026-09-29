@@ -18,6 +18,8 @@ import './PostgameCutscenes.css';
 const SCENE_MS = 3500;
 const REDUCED_SCENE_MS = 2000;
 const IDLE_FRAME_MS = 500;
+// Every dismissal (PRESS START, SKIP, Escape, the last scene) fades the sound out over this.
+const DISMISS_FADE_MS = 100;
 
 function prefersReducedMotion() {
   return typeof window !== 'undefined'
@@ -131,7 +133,7 @@ function PostgameStage({ cutscenes, onFinish }) {
   const finish = useCallback((reachedEnd) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
-    sfx.stopAll({ fadeMs: 200 });
+    sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
     finishRef.current({ overflowText: reachedEnd ? plan.overflowText : null });
   }, [plan]);
 
@@ -176,7 +178,10 @@ function PostgameStage({ cutscenes, onFinish }) {
   const advance = () => {
     if (phase === 'title') {
       markStarted();
-      sfx.stopAll({ fadeMs: 200 });
+      // PRESS START is the user gesture browsers wait for before they let an
+      // AudioContext run: unlock here, before the title card ends.
+      sfx.unlock();
+      sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
       setPhase('scenes');
     } else {
       nextScene();

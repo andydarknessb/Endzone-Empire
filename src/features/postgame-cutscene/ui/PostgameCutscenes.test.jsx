@@ -8,6 +8,7 @@ import apiClient from '../../../api/apiClient';
 import PostgameCutscenes from './PostgameCutscenes';
 import { planQueue, recordLine } from '../model/plan';
 import { POSTGAME_STARTED_KEY } from '../model/sessionGuard';
+import { setSfx } from '../model/sfx';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -246,6 +247,63 @@ describe('queue', () => {
     expect(screen.getByText('Mine 2')).toBeInTheDocument();
     act(() => { jest.advanceTimersByTime(3500); });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('sound', () => {
+  let calls;
+  beforeEach(() => {
+    calls = [];
+    setSfx({
+      unlock: jest.fn(() => calls.push('unlock')),
+      startLoop: jest.fn((name) => calls.push(`startLoop:${name}`)),
+      stopAll: jest.fn((options) => calls.push(`stopAll:${options.fadeMs}`)),
+      setMuted: jest.fn(),
+    });
+  });
+  afterEach(() => setSfx(null));
+
+  test('the title theme starts on the title card', async () => {
+    await show([item(1)]);
+    expect(calls).toEqual(['startLoop:title']);
+  });
+
+  test('PRESS START unlocks the audio, then fades the theme over 100 ms', async () => {
+    await show([item(1)]);
+    fireEvent.click(screen.getByRole('button', { name: 'PRESS START' }));
+    expect(calls).toEqual(['startLoop:title', 'unlock', 'stopAll:100']);
+  });
+
+  test('a tap on the card and Enter unlock just the same', async () => {
+    const first = await show([item(1)]);
+    startFromTitle();
+    expect(calls).toContain('unlock');
+    first.unmount();
+    calls.length = 0;
+    await show([item(1)]);
+    press('Enter');
+    expect(calls).toContain('unlock');
+  });
+
+  test('the speaker toggle and SKIP are not the start gesture', async () => {
+    await show([item(1)]);
+    fireEvent.click(screen.getByRole('button', { name: 'Sound' }));
+    expect(calls).not.toContain('unlock');
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    expect(calls).not.toContain('unlock');
+  });
+
+  test('every dismissal fades over 100 ms: SKIP, Escape and the last scene', async () => {
+    const skipped = await show([item(1)]);
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    expect(calls.filter((c) => c.startsWith('stopAll'))).toEqual(['stopAll:100']);
+    skipped.unmount();
+
+    calls.length = 0;
+    await show([item(1)]);
+    startFromTitle();
+    press('Escape');
+    expect(calls.filter((c) => c.startsWith('stopAll'))).toEqual(['stopAll:100', 'stopAll:100']);
   });
 });
 
