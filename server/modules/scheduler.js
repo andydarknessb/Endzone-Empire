@@ -437,6 +437,7 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
 }
 
 const ROSTER_STATUS_JOB = 'espn-roster-status';
+const PRE_HOLDOUT_RETRY_MS = 30 * 60 * 1000;
 const ELEVATION_DEADLINE_HOUR_ET = 16;
 const ET_PARTS = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -516,8 +517,15 @@ function holdoutWindowOpenedAt(now) {
 async function runPreHoldoutEspnRosterStatusSync({ now = new Date() } = {}) {
   const openedAt = holdoutWindowOpenedAt(now);
   if (!openedAt) return null;
-  const { latestOk } = await require('./syncRun').lastRun(ROSTER_STATUS_JOB);
+  const { latest, latestOk } = await require('./syncRun').lastRun(ROSTER_STATUS_JOB);
   if (latestOk && latestOk.finishedAt.getTime() >= openedAt.getTime()) return null;
+  // A failed attempt holds this trigger off for PRE_HOLDOUT_RETRY_MS: the gate
+  // reads latestOk only, so without this a dead ESPN host would put its
+  // timeouts ahead of the capture on every five-minute tick for the whole
+  // window (#1766 risk review). The daily and Saturday runs keep their own
+  // retry-next-tick behaviour at the end of the tick, where they delay nothing.
+  if (latest && latest.ok === false && latest.finishedAt &&
+      now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
   return require('./espnFactsSync').runRosterStatusSync({ now });
 }
 

@@ -656,3 +656,13 @@ test('getPlayerCard: a player with no ESPN id never reads the roster-status tabl
   assert.equal(card.rosterStatus, null);
   assert.equal(fake.matching(/player_nfl_roster_status/).length, 0);
 });
+
+test('getPlayerCard: the roster-status read is bounded to recent captures, so a released player last row ages out instead of showing forever (#1766 risk review)', async (t) => {
+  const fake = createFakePool(cardPoolHandlers(cardPlayer())).install(t);
+  mockCardServices(t);
+  t.mock.method(espnAthleteClient, 'profile', async () => null);
+  t.mock.method(espnAthleteClient, 'overview', async () => null);
+  await getPlayerCard({ leagueId: 3, userId: 7, playerId: 55 });
+  const [read] = fake.matching(/player_nfl_roster_status/);
+  assert.match(read.text, /"captured_date" >= CURRENT_DATE - 3/);
+});

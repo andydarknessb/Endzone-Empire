@@ -2173,3 +2173,20 @@ test('tickUnlocked orders the roster-status runs before the depth-chart run, eac
 test('SYNC_RUN_JOBS lists the roster-status Sync run beside the other ESPN facts runs', () => {
   assert.ok(scheduler.SYNC_RUN_JOBS.includes('espn-roster-status'));
 });
+
+test('runPreHoldoutEspnRosterStatusSync does not re-run every tick behind a recent failed run: a failure inside the last 30 minutes holds it, an older one does not (#1766 risk review)', async (t) => {
+  const holdout = require('../services/holdout.service');
+  const deadline = holdout.captureNotAfterFor(2026, 5);
+  const windowOpen = new Date(deadline.getTime() - holdout.CAPTURE_WINDOW_HOURS * HOUR_MS);
+  const now = new Date(windowOpen.getTime() + 2 * HOUR_MS);
+  const before = { finishedAt: new Date(windowOpen.getTime() - HOUR_MS), detail: {} };
+
+  let calls = stubRosterRun(t, { latest: { ok: false, finishedAt: new Date(now.getTime() - 10 * 60 * 1000) }, latestOk: before });
+  assert.equal(await scheduler.runPreHoldoutEspnRosterStatusSync({ now }), null, 'ESPN failed 10 minutes ago: hold the capture path off the dead host');
+  assert.equal(calls.length, 0);
+  t.mock.restoreAll();
+
+  calls = stubRosterRun(t, { latest: { ok: false, finishedAt: new Date(now.getTime() - 45 * 60 * 1000) }, latestOk: before });
+  assert.deepEqual(await scheduler.runPreHoldoutEspnRosterStatusSync({ now }), { results: [] }, 'the failure is old enough to retry');
+  assert.equal(calls.length, 1);
+});
