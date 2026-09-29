@@ -520,6 +520,25 @@ test('a GENUINE protocol-1 legacy row names the protocol transition, not corrupt
 // Candidate arms (holdout-confirm-2026)
 // ---------------------------------------------------------------------------
 
+// #1767 (DEVIATIONS entry 4): the capture reads the NFL roster status on its
+// own REPEATABLE READ connection and hands every arm the same Map, so each
+// arm captures the Practice squad verdict managers saw.
+test('a capture reads the NFL roster status inside its transaction and passes it to every arm', async (t) => {
+  withReleaseSha(t);
+  const seen = mockGenerate(t);
+  const db = fakeDb(dbArgs());
+
+  await holdout.snapshotWeek(captureArgs(db));
+
+  const texts = db.statements.map((s) => s.text);
+  const rosterIdx = texts.findIndex((s) => s.includes('FROM "player_nfl_roster_status"'));
+  assert.ok(rosterIdx > texts.findIndex((s) => s.startsWith('SET TRANSACTION')), 'read after the snapshot is fixed');
+  assert.ok(rosterIdx < texts.findIndex((s) => s === 'COMMIT'), 'read inside the capture transaction');
+  assert.equal(seen.length, 3);
+  assert.ok(seen[0].nflRosterStatusById instanceof Map);
+  assert.ok(seen.every((args) => args.nflRosterStatusById === seen[0].nflRosterStatusById), 'one read, every arm');
+});
+
 test('a capture writes the two candidate arms with exactly the preregistered constants', async (t) => {
   withReleaseSha(t);
   const seen = mockGenerate(t);

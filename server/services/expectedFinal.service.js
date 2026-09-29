@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const projectionService = require('./projection.service');
 const { unavailableFor } = require('./unavailable');
+const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
@@ -112,7 +113,8 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   const candidateRows = await db.query(
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
-            "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats"
+            "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats",
+            ${nflRosterStatusColumn()}
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -201,7 +203,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const team = normalizeNflTeam(row.nfl_team);
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
     const noTeam = row.nfl_team == null;
-    const availability = unavailableFor({ injuryStatus: row.injury_status, onBye, noTeam });
+    const availability = unavailableFor({
+      injuryStatus: row.injury_status, onBye, noTeam, nflRosterStatus: row.nfl_roster_status ?? null, now,
+    });
     const point = priced && availability.available ? projections.result.pointsFor(row.player_id) : null;
     const projection = point != null && Number.isFinite(Number(point))
       ? round2(Number(point))

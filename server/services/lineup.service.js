@@ -11,6 +11,7 @@ const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
 const { unavailableFor } = require('./unavailable');
+const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame } = require('./nwsWeather.service');
 
@@ -472,7 +473,8 @@ async function spentStartingSlots(client, { teamId, season, week }) {
     `SELECT "players"."position", "lineup_entries"."player_id" AS "spent_player_id",
             "players"."name", "players"."nfl_team",
             "players"."injury_status", "players"."injury_detail", "players"."photo_url",
-            "lineup_entries"."slot", "player_stats"."stats" AS "week_stats"
+            "lineup_entries"."slot", "player_stats"."stats" AS "week_stats",
+            ${nflRosterStatusColumn()}
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -500,6 +502,7 @@ async function spentStartingSlots(client, { teamId, season, week }) {
     nfl_team: row.nfl_team,
     injury_status: row.injury_status,
     injury_detail: row.injury_detail,
+    nfl_roster_status: row.nfl_roster_status ?? null,
     photo_url: row.photo_url ?? null,
     slot: row.slot,
     spent: true,
@@ -1119,14 +1122,20 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  *
  * `unavailable` (CONTEXT.md, Unavailable; #1235) is derived here, once, from
  * the same `onBye` this function already computes plus the row's own
- * `injury_status`: 'bye' | 'no_team' | 'out' | 'ir' | null. It is a server-side mirror of
+ * `injury_status` and `nfl_roster_status` (#1767):
+ * 'bye' | 'no_team' | 'practice_squad' | 'out' | 'ir' | null. It is a server-side mirror of
  * the client entity's own `availabilityFor` (src/entities/roster/model/
  * lineupModel.js) - both read the identical two facts, so they can never
  * disagree, but the wire carries the answer directly rather than asking every
  * consumer to re-derive it.
  */
 function unavailableReason(row, onBye) {
-  const verdict = unavailableFor({ injuryStatus: row.injury_status, onBye, noTeam: row.nfl_team == null });
+  const verdict = unavailableFor({
+    injuryStatus: row.injury_status,
+    onBye,
+    noTeam: row.nfl_team == null,
+    nflRosterStatus: row.nfl_roster_status ?? null,
+  });
   return verdict.available ? null : verdict.reason;
 }
 
@@ -1319,7 +1328,8 @@ async function getLineup({ leagueId, userId, week }) {
         `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
                 "players"."injury_status", "players"."injury_detail", "players"."photo_url",
                 "lineup_entries"."slot", "lineup_entries"."ir_attested",
-                "player_stats"."stats" AS "week_stats"${asPlayedColumn}
+                "player_stats"."stats" AS "week_stats",
+                ${nflRosterStatusColumn()}${asPlayedColumn}
          FROM "lineup_entries"
          ${rosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"

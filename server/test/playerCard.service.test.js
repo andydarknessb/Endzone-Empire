@@ -257,7 +257,7 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
 
 // #1765: the Decision strip reads the same Unavailable verdict as the weekly
 // bars - 0 plus the reason, never the engine's Point estimate for the week.
-for (const reason of ['no_team', 'out', 'ir']) {
+for (const reason of ['no_team', 'out', 'ir', 'practice_squad']) {
   test(`getPlayerCard (#1765): an Unavailable (${reason}) player's projWeek is 0 with the weekly bar's reason`, async (t) => {
     createFakePool(buildHandlers()).install(t);
     mockServices(t, {
@@ -296,7 +296,7 @@ function upgradeProjection(availability) {
     : { mean: 14, median: 14, factors: { availability } });
 }
 
-for (const reason of ['out', 'ir', 'bye']) {
+for (const reason of ['out', 'ir', 'bye', 'practice_squad']) {
   test(`getPlayerCard: an Unavailable (${reason}) free agent is no Upgrade over a healthy starter`, async (t) => {
     createFakePool(upgradeHandlers()).install(t);
     mockServices(t, { weeklyProjection: upgradeProjection({ available: false, reason }) });
