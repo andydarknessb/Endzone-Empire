@@ -242,7 +242,7 @@ export function createChiptune({ context } = {}) {
     seqGain.connect(master);
 
     const voices = new Set();
-    const sentinels = new Set();
+    const sentinels = new Map(); // loop sentinel -> the zero gain it is wired through
     const handle = { stop() {} };
     let stopped = false;
 
@@ -287,15 +287,24 @@ export function createChiptune({ context } = {}) {
       if (!loop) return;
       // Silent sentinel: its `ended` fires when this pass ends, i.e. when the
       // next one begins, and that is the cue to schedule the pass after it.
+      // An unconnected source is not guaranteed to fire `ended`, so it is wired
+      // to `seqGain` through a gain held at 0 (the Oscillator fallback has no
+      // `offset` to zero and would otherwise play a tone).
       const sentinel = (context.createConstantSource || context.createOscillator).call(context);
       if (sentinel.offset) sentinel.offset.value = 0;
+      const mute = context.createGain();
+      mute.gain.value = 0;
+      sentinel.connect(mute);
+      mute.connect(seqGain);
       sentinel.onended = () => {
         sentinels.delete(sentinel);
+        safeDisconnect(sentinel);
+        safeDisconnect(mute);
         if (!stopped) armPass();
       };
       sentinel.start(passStart);
       safeStop(sentinel, passStart + loopLength);
-      sentinels.add(sentinel);
+      sentinels.set(sentinel, mute);
     };
     armPass();
     if (loop) armPass();
@@ -309,9 +318,11 @@ export function createChiptune({ context } = {}) {
       seqGain.gain.setValueAtTime(seqGain.gain.value, now);
       seqGain.gain.linearRampToValueAtTime(0, end);
       voices.forEach((voice) => safeStop(voice.source, end));
-      sentinels.forEach((sentinel) => {
+      sentinels.forEach((mute, sentinel) => {
         sentinel.onended = null;
         safeStop(sentinel, end);
+        safeDisconnect(sentinel);
+        safeDisconnect(mute);
       });
       sentinels.clear();
       if (voices.size === 0) retire();

@@ -1,6 +1,6 @@
 /**
  * The Postgame cutscene's songs, as data only (spec #1747). Each is a note
- * table for `shared/lib/chiptune`'s sequencer: rows of `{ ch, note, ms }` where
+ * table for the `shared/lib` chiptune sequencer: rows of `{ ch, note, ms }` where
  * `ch` is 'pulse1' | 'pulse2' | 'triangle' | 'noise', `note` is a MIDI number
  * or null for a rest, and `ms` is the row's length at the 120 BPM reference
  * tempo (500 ms a beat). `sfx.js` picks the BPM each is played at: march 130,
