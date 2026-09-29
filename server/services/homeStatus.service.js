@@ -970,24 +970,18 @@ async function actionItems(db, { userId, now, tz }) {
   return assembleActionItems({ items, partial, now, tz });
 }
 
+// The names a consumer imports, plus the two loaders the spec (#1759) names
+// (loadLeagueTeams, loadSeasonMatchups); everything else is internal.
 module.exports = {
   listMyLeagues,
   isValidTimeZone,
-  assembleActionItems,
   actionItems,
-  ACTION_ITEM_BUILDERS,
-  lineupProblems,
-  lineupEntryFromRow,
-  leagueLineupProblems,
-  openGameKeys,
-  picksMadeByUser,
-  missingPicks,
+  leagueStatuses,
   lineupStatus,
   pickemStatus,
-  matchupSummary,
-  fantasyWeekApplies,
-  loadLineupStatuses,
-  loadPickemLeagueIds,
-  loadPickemWeeks,
-  leagueStatuses,
+  lineupEntryFromRow,
+  picksMadeByUser,
+  loadWeekKickoffs,
+  loadLeagueTeams,
+  loadSeasonMatchups,
 };

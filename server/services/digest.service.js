@@ -4,16 +4,16 @@ const { deliverEmail } = require('./account.service');
 const { notify } = require('./activity.service');
 const { usersWanting } = require('./prefs.service');
 const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-// The lineup-problem and Pick'em-missing builders live in homeStatus.service
-// so the Home to-do list and league cards read the same answers the digest
-// sends (Home v2); `lineupProblems` is re-exported below for its callers.
+// The lineup and Pick'em verdicts live in homeStatus.service so the Home
+// to-do list, the league cards and the reminders read the same answers
+// (Home v2): a reminder goes out only when the status Home reads has
+// something to fix.
 const {
-  lineupProblems,
   lineupEntryFromRow,
-  leagueLineupProblems,
-  openGameKeys,
+  lineupStatus,
+  loadWeekKickoffs,
   picksMadeByUser,
-  missingPicks,
+  pickemStatus,
 } = require('./homeStatus.service');
 
 /**
@@ -175,6 +175,10 @@ async function sendLineupReminders() {
 
     const { materializeLineup, parseLineupSettings } = require('./lineup.service');
     const { rosterSlots } = parseLineupSettings(league);
+    // The week's kickoffs, read once for the league and week (not per Team):
+    // the status drops what a kicked-off game has locked, as Home does.
+    const kickoffs = await loadWeekKickoffs(pool, { weeks: [{ season, week }] });
+    const weekKickoffs = kickoffs.values().next().value;
 
     const teams = await pool.query(
       `SELECT "teams"."id", "teams"."name", "teams"."owner_id", "users"."email"
@@ -216,7 +220,7 @@ async function sendLineupReminders() {
         // this query has to survive.
         return lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
-                  "players"."name", "players"."injury_status",
+                  "players"."name", "players"."injury_status", "players"."nfl_team",
                   ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
            FROM "lineup_entries"
            JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -232,8 +236,15 @@ async function sendLineupReminders() {
         },
         { label: 'reminders' }
       );
-      const entries = entriesResult.rows.map(lineupEntryFromRow);
-      const problems = leagueLineupProblems({ entries, rosterSlots, bestBall: league.best_ball });
+      const entries = entriesResult.rows.map((row) => ({ ...lineupEntryFromRow(row), nflTeam: row.nfl_team }));
+      const { problems } = lineupStatus({
+        entries,
+        rosterSlots,
+        bestBall: Boolean(league.best_ball),
+        kickoffByTeam: weekKickoffs.byTeam,
+        weekLastKickoff: weekKickoffs.last,
+        now: new Date(),
+      });
       if (problems.length === 0) {
         remindedTeamWeeks.add(key); // lineup is fine — don't re-check this week
         continue;
@@ -331,8 +342,8 @@ async function sendPickemReminders() {
     const pickem = require('./pickem.service');
     const slate = await pickem.getWeekSlate({ season: league.season, week: league.week });
     const now = new Date();
-    const openKeys = openGameKeys(slate, now);
-    if (openKeys.length === 0) continue;
+    // Nothing open in the slate (every game at or past kickoff): nothing to nudge.
+    if (pickemStatus({ slate, now }).missing === 0) continue;
 
     const members = await pool.query(
       `SELECT "teams"."owner_id", "users"."email"
@@ -354,14 +365,14 @@ async function sendPickemReminders() {
       const key = `${league.id}:${member.owner_id}:${league.season}:${league.week}`;
       if (pickemRemindedUserWeeks.has(key) || !wanted.has(member.owner_id)) continue;
 
-      const missing = missingPicks(openKeys, madeByUser.get(member.owner_id));
+      const { missing } = pickemStatus({ slate, made: madeByUser.get(member.owner_id), now });
       pickemRemindedUserWeeks.add(key);
-      if (missing.length === 0) continue; // fully picked — don't re-check this week
+      if (missing === 0) continue; // fully picked — don't re-check this week
 
       remindersSent += 1;
       const message =
-        `Week ${league.week} Pick'em: ${missing.length} game` +
-        `${missing.length === 1 ? '' : 's'} still unpicked before kickoff.`;
+        `Week ${league.week} Pick'em: ${missing} game` +
+        `${missing === 1 ? '' : 's'} still unpicked before kickoff.`;
       try {
         const push = require('./push.service');
         await push.sendPushToUsers([member.owner_id], {
@@ -405,7 +416,6 @@ async function sendPickemReminders() {
 }
 
 module.exports = {
-  lineupProblems,
   sendWeeklyRecapDigest,
   sendWaiverResultsDigest,
   sendLineupReminders,

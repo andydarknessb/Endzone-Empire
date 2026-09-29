@@ -518,6 +518,9 @@ if (!ENABLED) {
         // player has an injury_detail value or a player_stats row seeded
         // above, so both are null.
         injury_detail: null,
+        // #1767: the latest NFL roster status row, for the Unavailable
+        // verdict; none is seeded, so null.
+        nfl_roster_status: null,
         photo_url: null,
         slot: 'RB',
         spent: true,

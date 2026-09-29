@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { finite, formatPoints } from '../../../shared/lib';
+import { finite, formatPoints, unavailableLabel } from '../../../shared/lib';
 
 /**
  * The decision strip (#1307, ADR 0040: "Every context adds the decision
@@ -18,13 +18,17 @@ import { finite, formatPoints } from '../../../shared/lib';
  * (best ball, or the caller's own player, ADR 0040) hides the tile outright
  * rather than showing an empty label (the issue's own acceptance criterion).
  */
-export default function DecisionStrip({ decision, usage, ownership, depth }) {
+export default function DecisionStrip({ decision, usage, ownership, depth, rosterStatus }) {
   const tiles = [];
 
   if (decision?.projWeek && decision.projWeek.points != null) {
     tiles.push(
       <Tile key="proj" label={`Week ${decision.projWeek.week} projection`} testId="decision-strip-proj-week">
-        {formatPoints(decision.projWeek.points)}
+        {decision.projWeek.reason
+          // #1765: an Unavailable week shows the reason, never a number
+          // (CONTEXT.md, Unavailable) - the same label map the weekly bars use.
+          ? (unavailableLabel(decision.projWeek.reason) || decision.projWeek.reason)
+          : formatPoints(decision.projWeek.points)}
       </Tile>
     );
   }
@@ -62,6 +66,16 @@ export default function DecisionStrip({ decision, usage, ownership, depth }) {
     tiles.push(
       <Tile key="depth" label="Depth chart" testId="decision-strip-depth">
         {`${depth.positionGroup}${depth.rank}`}
+      </Tile>
+    );
+  }
+
+  // #1766: the NFL roster status is context, shown only when it is news
+  // ("Practice squad" / "Reserve", ESPN facts, ADR 0041); Active is null.
+  if (rosterStatus) {
+    tiles.push(
+      <Tile key="roster-status" label="NFL roster" testId="decision-strip-roster-status">
+        {rosterStatus}
       </Tile>
     );
   }

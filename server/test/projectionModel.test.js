@@ -1516,9 +1516,10 @@ test('MODEL_CONSTANTS hashes to the holdout study captured v3.1 constants exactl
   assert.equal(model.MODEL_CONSTANTS.decision.lineupRanking, 'median');
   assert.equal(model.MODEL_CONSTANTS.opponent.priorSeasonPseudoGames, undefined);
   assert.equal(model.MODEL_CONSTANTS.simulation.truncateAtPositionFloor, undefined);
+  assert.equal(model.MODEL_CONSTANTS.simulation.centerEvenPoolMedian, undefined);
 });
 
-test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the three ticketed keys', () => {
+test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the four ticketed keys', () => {
   const v31 = model.MODEL_CONSTANTS;
   const v32 = model.MODEL_CONSTANTS_V3_2;
   assert.equal(model.MODEL_VERSION, 'free_baseline_v3.1');
@@ -1526,11 +1527,13 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the three tic
   assert.equal(v32.decision.lineupRanking, 'mean');
   assert.equal(v32.opponent.priorSeasonPseudoGames, 4);
   assert.equal(v32.simulation.truncateAtPositionFloor, true);
-  // Everything else is byte-identical: strip the three deltas from a v3.2
+  assert.equal(v32.simulation.centerEvenPoolMedian, true);
+  // Everything else is byte-identical: strip the four deltas from a v3.2
   // clone and the two objects must serialize the same.
   const stripped = JSON.parse(JSON.stringify(v32));
   delete stripped.opponent.priorSeasonPseudoGames;
   delete stripped.simulation.truncateAtPositionFloor;
+  delete stripped.simulation.centerEvenPoolMedian;
   stripped.decision.lineupRanking = 'median';
   assert.equal(JSON.stringify(stripped), JSON.stringify(v31));
 
@@ -1549,4 +1552,66 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the three tic
   assert.ok(Object.isFrozen(v32.decision), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
   assert.ok(Object.isFrozen(v32.opponent), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
   assert.ok(Object.isFrozen(v32.simulation), 'MODEL_CONSTANTS_V3_2 must be deep-frozen');
+});
+
+// ---------------------------------------------------------------------------
+// #1769: the simulated median follows mean + median residual on EVEN pools
+// under v3.2. With smoothing off, an even pool's draw median snaps to one of
+// the two middle support points (chosen by the seed); the v3.2 key re-centres
+// the draws on mean + median(residuals). v3.1 must not move.
+// ---------------------------------------------------------------------------
+
+function centeredResiduals(points) {
+  const mu = points.reduce((a, b) => a + b, 0) / points.length;
+  return points.map((p) => p - mu);
+}
+
+function sweepSeeds(args, constants, from = 0, to = 199) {
+  const out = [];
+  for (let seed = from; seed <= to; seed++) {
+    out.push(model.simulateDistribution({ ...args, seed, constants }));
+  }
+  return out;
+}
+
+const JORDAN_POOL = centeredResiduals([14.8, 12.0, 3.6, 0.3]);
+const V31_SIM = model.MODEL_CONSTANTS.simulation;
+const V32_SIM = model.MODEL_CONSTANTS_V3_2.simulation;
+
+test('v3.2: an even residual pool puts every seed\'s median on mean + median residual (#1769)', () => {
+  const results = sweepSeeds({ mean: 7.5, playerResiduals: JORDAN_POOL }, V32_SIM);
+  for (const r of results) assert.ok(Math.abs(r.median - 7.62) <= 0.05, `median ${r.median}`);
+});
+
+test('v3.2: dropping the key turns the even-pool sweep back to the seed-dependent snap (#1769)', () => {
+  const { centerEvenPoolMedian, ...withoutKey } = V32_SIM;
+  assert.equal(centerEvenPoolMedian, true);
+  const results = sweepSeeds({ mean: 7.5, playerResiduals: JORDAN_POOL }, withoutKey);
+  assert.equal(results.filter((r) => r.median === 1.53).length, 99);
+  assert.equal(results.filter((r) => r.median === 13.72).length, 87);
+});
+
+test('v3.1: the even-pool sweep reproduces today\'s medians byte-for-byte (#1769)', () => {
+  const results = sweepSeeds({ mean: 7.5, playerResiduals: JORDAN_POOL }, V31_SIM);
+  assert.equal(results.filter((r) => r.median === 1.53).length, 99);
+  assert.equal(results.filter((r) => r.median === 13.72).length, 87);
+  assert.equal(results.filter((r) => r.median === 7.62).length, 14);
+});
+
+test('the key changes nothing for odd pools of 3 and 5 residuals (#1769)', () => {
+  const { centerEvenPoolMedian, ...withoutKey } = V32_SIM;
+  for (const points of [[14.8, 12.0, 0.3], [14.8, 12.0, 3.6, 0.3, 9.1]]) {
+    const args = { mean: 7.5, playerResiduals: centeredResiduals(points) };
+    assert.deepEqual(sweepSeeds(args, V32_SIM), sweepSeeds(args, withoutKey));
+  }
+});
+
+test('the key moves the even-pool interval\'s position, never its width (#1769)', () => {
+  const { centerEvenPoolMedian, ...withoutKey } = V32_SIM;
+  const args = { mean: 7.5, playerResiduals: JORDAN_POOL };
+  const on = sweepSeeds(args, V32_SIM);
+  const off = sweepSeeds(args, withoutKey);
+  for (let i = 0; i < on.length; i++) {
+    assert.ok(Math.abs((on[i].p90 - on[i].p10) - (off[i].p90 - off[i].p10)) <= 0.011, `seed ${i}`);
+  }
 });

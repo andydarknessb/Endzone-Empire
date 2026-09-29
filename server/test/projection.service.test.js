@@ -61,6 +61,9 @@ function mockPool(t, {
   runWeeks = null,
   cachedRows = [],
   leagueRow = null,
+  // #1767: `{ player_id, nfl_roster_status }` rows for the live cache path's
+  // NFL roster status read.
+  rosterStatusRows = [],
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -87,6 +90,7 @@ function mockPool(t, {
     }
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
+    if (text.includes('FROM "player_nfl_roster_status"')) return { rows: rosterStatusRows };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -123,6 +127,47 @@ test('a No NFL team player projects a number but reads hard-unavailable (no_team
   assert.equal(projected.factors.availability.available, false);
   assert.equal(projected.factors.availability.activeProbability, 0);
   assert.ok(projected.median > 0, 'the pace still reads');
+});
+
+// #1767: the live cache path reads the NFL roster status and a fresh Practice
+// squad row makes the player hard-unavailable without moving any projected
+// number (the #1589 precedent).
+test('a Practice squad player reads hard-unavailable (practice_squad) with the same mean and median as without the status', async (t) => {
+  const stats = Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70, rushingTDs: 1 }));
+  mockPool(t, { players: [player(1, 'RB')], weeklyStats: stats });
+  const baseline = (await run({ season: SEASON, week: 5, league: league(), playerIds: [1] })).projections.get(1);
+  t.mock.restoreAll();
+
+  const nflRosterStatus = { status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() };
+  mockPool(t, {
+    players: [player(1, 'RB')], weeklyStats: stats, rosterStatusRows: [{ player_id: 1, nfl_roster_status: nflRosterStatus }],
+  });
+  const projected = (await run({ season: SEASON, week: 5, league: league(), playerIds: [1] })).projections.get(1);
+
+  assert.equal(projected.factors.availability.reason, 'practice_squad');
+  assert.equal(projected.factors.availability.available, false);
+  assert.equal(projected.activeProbability, 0);
+  assert.equal(baseline.activeProbability, 1);
+  assert.equal(projected.mean, baseline.mean);
+  assert.equal(projected.median, baseline.median);
+  assert.equal(projected.p10, baseline.p10);
+  assert.equal(projected.p90, baseline.p90);
+});
+
+// DEVIATIONS entry 4: only the live cache path reads it. A direct
+// generateProjections call (the holdout capture, backtest replays, the
+// successor evaluator) issues no roster-status query and reads Active.
+test('generateProjections called directly issues no NFL roster status read and reads every player Active', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    rosterStatusRows: [{ player_id: 1, nfl_roster_status: { status: 'practice_squad', capturedAt: new Date().toISOString() } }],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+  });
+  assert.equal(calls.some((call) => call.text.includes('"player_nfl_roster_status"')), false);
+  assert.equal(generated.projections.get(1).factors.availability.available, true);
 });
 
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
@@ -578,6 +623,10 @@ test('a week-1 run truncates p10 at the prior-season position floor (#1483)', as
     weeklyRow(1, 2, { rushingYards: 20 }, SEASON - 1),
     weeklyRow(1, 3, { rushingYards: 250 }, SEASON - 1),
     weeklyRow(1, 4, { rushingYards: 100 }, SEASON - 1),
+    // A fifth game keeps the pool ODD: under v3.2 an even pool is re-centred on
+    // its median residual (#1769), which lifts this fixture's p10 clear of the
+    // floor and stops it proving the truncation fires.
+    weeklyRow(1, 5, { rushingYards: 0 }, SEASON - 1),
   ];
 
   mockPool(t, {
