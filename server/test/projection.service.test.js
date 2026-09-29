@@ -181,10 +181,9 @@ test('generateProjections called directly issues no NFL roster status read and r
 // #1790: completeRun's roster-status read degrades to "every player Active"
 // on failure, the same shape the weather/odds reads degrade to "no context"
 // - but ONLY on the POOL is that degrade actually safe with no bracket: the
-// pool has no transaction for a failed statement to abort. (The weather and
-// odds reads carry the same 25P02 hazard the roster read used to, on a
-// TRANSACTION client; #1790 fixes only the roster read - see the PR body for
-// that as a follow-up.)
+// pool has no transaction for a failed statement to abort. (The weather, odds
+// and expert reads carry the same 25P02 hazard on a TRANSACTION client;
+// #1813 brackets them in their own savepoints too, tested below.)
 test('completeRun degrades to every player Active when the roster status read fails on the pool, issuing no SAVEPOINT', async (t) => {
   const calls = mockPool(t, {
     players: [player(1, 'RB')],
@@ -327,6 +326,95 @@ test('completeRun rejects when SAVEPOINT fails with a code other than 25P01 (#17
     run({ season: SEASON, week: 5, league: league(), playerIds: [1], client }),
     /connection terminated unexpectedly/
   );
+});
+
+// #1813: the weather, odds and expert-consensus reads in generateProjections
+// degrade to "no context" on failure, but on a TRANSACTION client a failed
+// read aborts the transaction (25P02) unless it runs inside its own SAVEPOINT.
+// Each read is driven through a client whose failing query aborts it, and the
+// proof the transaction is still usable is a LATER query on the same client.
+const vegasProvider = require('../services/vegasOdds.provider');
+const expertProviderModule = require('../services/expertProjection.provider');
+
+const tx1813Options = () => ({
+  players: [player(1, 'RB')],
+  weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+});
+
+const generateOnTx = (client, extra = {}) => projection.generateProjections({
+  season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', client, weatherService: false, ...extra,
+});
+
+async function assertTxUsable(client, name) {
+  assert.ok(client.statements.includes(`SAVEPOINT ${name}`), `the ${name} read is wrapped in a savepoint`);
+  assert.ok(client.statements.includes(`ROLLBACK TO SAVEPOINT ${name}`), 'the failed read rolls back to it');
+  // Without the rollback this is the 25P02 the transaction would be left in.
+  await client.query('SELECT 1 FROM "player_season_stats"');
+}
+
+test('a failing weather read on a transaction client leaves the transaction usable (#1813)', async (t) => {
+  const client = txAbortClient(t, tx1813Options());
+  const weatherService = {
+    getForecastsForGames: async ({ client: c }) => { await c.query('SELECT weather_boom'); },
+  };
+  const generated = await generateOnTx(client, { weatherService });
+  assert.equal(generated.projections.get(1).factors.availability.available, true, 'weather degrades to none');
+  await assertTxUsable(client, 'projection_weather');
+});
+
+test('a failing odds read on a transaction client leaves the transaction usable (#1813)', async (t) => {
+  const client = txAbortClient(t, tx1813Options());
+  try {
+    vegasProvider.setVegasOddsProvider({
+      name: 'boom-book',
+      available: true,
+      getWeeklyOdds: async ({ client: c }) => { await c.query('SELECT odds_boom'); },
+    });
+    const generated = await generateOnTx(client);
+    assert.equal(generated.projections.get(1).factors.availability.available, true, 'odds degrade to none');
+    await assertTxUsable(client, 'projection_odds');
+  } finally {
+    vegasProvider.setVegasOddsProvider();
+  }
+});
+
+test('a failing expert-consensus read on a transaction client leaves the transaction usable (#1813)', async (t) => {
+  const client = txAbortClient(t, tx1813Options());
+  try {
+    expertProviderModule.setExpertProvider({
+      name: 'boom-expert',
+      available: true,
+      getWeeklyProjections: async ({ client: c }) => { await c.query('SELECT expert_boom'); },
+    });
+    const generated = await generateOnTx(client);
+    assert.equal(generated.projections.get(1).factors.availability.available, true, 'expert degrades to none');
+    await assertTxUsable(client, 'projection_expert');
+  } finally {
+    expertProviderModule.setExpertProvider();
+  }
+});
+
+test('a successful weather/odds/expert read releases its savepoint and a 25P01 SAVEPOINT failure is tolerated (#1813)', async (t) => {
+  mockPool(t, tx1813Options());
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('SAVEPOINT can only be used in transaction blocks');
+        err.code = '25P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+  const weatherService = {
+    getForecastsForGames: async () => { throw new Error('weather down'); },
+  };
+  const generated = await generateOnTx(client, { weatherService });
+  assert.equal(generated.projections.get(1).factors.availability.available, true);
+  assert.equal(statements.some((s) => /^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(s)), false);
 });
 
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
@@ -2823,6 +2911,98 @@ function mockReconcilePool(t, {
   });
   return calls;
 }
+
+/**
+ * #1813: a transaction-shaped client over `mockReconcilePool`'s pool mock - a
+ * failed query aborts it (25P02) until a ROLLBACK TO SAVEPOINT, like a real
+ * connection inside injury sync's `SAVEPOINT reconcile_availability`.
+ */
+function reconcileTxClient() {
+  let aborted = false;
+  const statements = [];
+  return {
+    statements,
+    query: async (sql, params) => {
+      const text = String(sql).replace(/\s+/g, ' ').trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text) || /^RELEASE SAVEPOINT\b/.test(text)) {
+        if (aborted && /^RELEASE/.test(text)) {
+          const err = new Error('current transaction is aborted');
+          err.code = '25P02';
+          throw err;
+        }
+        return { rows: [] };
+      }
+      if (/^ROLLBACK TO SAVEPOINT\b/.test(text)) { aborted = false; return { rows: [] }; }
+      if (aborted) {
+        const err = new Error('current transaction is aborted, commands ignored until end of transaction block');
+        err.code = '25P02';
+        throw err;
+      }
+      try {
+        return await pool.query(sql, params);
+      } catch (err) {
+        aborted = true;
+        throw err;
+      }
+    },
+  };
+}
+
+// #1813: the bye-aware second pass is isolated from the main pass. A throw in
+// either of its queries (the schedule read behind computeByeWeeks, or its
+// UPDATE) is logged and swallowed inside reconcileAvailability, and on a
+// transaction client it runs in its own SAVEPOINT so the abort cannot
+// take the main pass's already-applied patches with it.
+for (const [label, failing] of [
+  ['the bye-week schedule read', 'lookup'],
+  ['the bye-aware UPDATE', 'update'],
+]) {
+  test(`#1813: a second-pass failure in ${label} keeps the main pass's updates (transaction client)`, async (t) => {
+    t.mock.method(console, 'error', () => {});
+    mockReconcilePool(t, {
+      players: [{ id: 5, injury_status: 'O', nfl_team: 'KC', nfl_roster_status: null }],
+      updateHandler: () => ({ rowCount: 3 }),
+      staleRows: [{ player_id: 5 }],
+      scheduleRows: Array.from({ length: 17 }, (_, i) => ({ nfl_team: 'KC', week: i + (i >= 8 ? 2 : 1) })),
+      byeUpdateHandler: () => { throw new Error('bye update failed'); },
+      onQuery: (text) => {
+        if (failing === 'lookup' && text.startsWith('SELECT "t"."nfl_team", "ng"."week"')) {
+          throw new Error('schedule read failed');
+        }
+      },
+    });
+    const client = reconcileTxClient();
+
+    const result = await projection.reconcileAvailability({
+      season: 2026, fromWeek: 5, playerIds: [5], client, now: new Date('2026-09-29T00:00:00Z'),
+    });
+
+    assert.deepEqual(result, { checked: 1, updated: 3 }, "the main pass's rowCount survives");
+    assert.ok(client.statements.some((s) => /^SAVEPOINT\b/.test(s)), 'the second pass runs in its own savepoint');
+    assert.ok(client.statements.some((s) => /^ROLLBACK TO SAVEPOINT\b/.test(s)), 'the failed second pass rolls back to it');
+    // The caller's outer savepoint is still releasable: the transaction is not aborted.
+    await client.query('RELEASE SAVEPOINT reconcile_availability');
+  });
+}
+
+test('#1813: a second-pass failure on the pool is logged and keeps the main pass result', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args.join(' ')));
+  mockReconcilePool(t, {
+    players: [{ id: 5, injury_status: 'O', nfl_team: 'KC', nfl_roster_status: null }],
+    updateHandler: () => ({ rowCount: 2 }),
+    staleRows: [{ player_id: 5 }],
+    onQuery: (text) => {
+      if (text.startsWith('SELECT "t"."nfl_team", "ng"."week"')) throw new Error('schedule read failed');
+    },
+  });
+
+  const result = await projection.reconcileAvailability({ season: 2026, fromWeek: 5, playerIds: [5], client: pool });
+
+  assert.deepEqual(result, { checked: 1, updated: 2 });
+  assert.ok(errors.some((e) => e.includes('schedule read failed')), 'the failure is logged');
+});
 
 test('reconcileAvailability recomputes the verdict and patches only factors/active_probability/updated_at', async (t) => {
   let updateCall = null;

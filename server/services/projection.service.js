@@ -546,6 +546,43 @@ function distinctGamesFor(bundle, playerIds) {
   return [...games.values()];
 }
 
+/**
+ * #1813: run an OPTIONAL read (weather, odds, expert consensus) so its failure
+ * can never leave the caller's transaction aborted. `fn` is awaited and its
+ * value returned; a throw is rolled back to the savepoint and RETHROWN for the
+ * caller's own degrade-to-nothing catch.
+ *
+ * On a transaction client a failed query aborts it (25P02 for every later
+ * statement) unless the read ran inside its own SAVEPOINT. `client !== pool`
+ * (identity) only says the caller did not hand us the pool, not that a
+ * transaction is open: an autocommit pool.connect() client refuses a bare
+ * SAVEPOINT with 25P01, which means there is no transaction to protect, so the
+ * read runs unbracketed (one failed statement cannot abort autocommit). Any
+ * other SAVEPOINT failure is a broken connection and is thrown from here like
+ * any `fn` failure (each caller's degrade-to-nothing catch then logs it; the
+ * next query on the dead connection fails loudly on its own).
+ */
+async function withOptionalSavepoint(client, name, fn) {
+  let savepointOpen = false;
+  if (client !== pool) {
+    try {
+      await client.query(`SAVEPOINT ${name}`);
+      savepointOpen = true;
+    } catch (err) {
+      if (err.code !== '25P01') throw err;
+    }
+  }
+  let value;
+  try {
+    value = await fn();
+  } catch (err) {
+    if (savepointOpen) await client.query(`ROLLBACK TO SAVEPOINT ${name}`);
+    throw err;
+  }
+  if (savepointOpen) await client.query(`RELEASE SAVEPOINT ${name}`);
+  return value;
+}
+
 /** Generate (not cache) projections for a player set. Exported for the backtest script. */
 async function generateProjections({
   season,
@@ -614,13 +651,14 @@ async function generateProjections({
   const weather = weatherService === null ? require('./nwsWeather.service') : weatherService;
   if (weather) {
     try {
-      const result = await weather.getForecastsForGames({
-        season,
-        week,
-        games: distinctGamesFor(bundle, playerIds),
-        now,
-        client,
-      });
+      const result = await withOptionalSavepoint(client, 'projection_weather', () =>
+        weather.getForecastsForGames({
+          season,
+          week,
+          games: distinctGamesFor(bundle, playerIds),
+          now,
+          client,
+        }));
       weatherByGameKey = result.byGame;
       weatherCoverage = result.coverage;
     } catch (err) {
@@ -638,9 +676,10 @@ async function generateProjections({
   try {
     const oddsProvider = getVegasOddsProvider();
     if (oddsProvider.available) {
-      oddsByGameKey = await oddsProvider.getWeeklyOdds({
-        season, week, client, observedAtOrBefore: oddsObservedAtOrBefore,
-      });
+      oddsByGameKey = await withOptionalSavepoint(client, 'projection_odds', () =>
+        oddsProvider.getWeeklyOdds({
+          season, week, client, observedAtOrBefore: oddsObservedAtOrBefore,
+        }));
     }
   } catch (err) {
     console.error('projections: odds lookup failed, continuing without it:', err.message);
@@ -656,9 +695,10 @@ async function generateProjections({
     try {
       const expertProvider = getExpertProvider();
       if (expertProvider.available) {
-        expertByPlayerId = await expertProvider.getWeeklyProjections({
-          season, week, playerIds, client,
-        });
+        expertByPlayerId = await withOptionalSavepoint(client, 'projection_expert', () =>
+          expertProvider.getWeeklyProjections({
+            season, week, playerIds, client,
+          }));
       }
     } catch (err) {
       console.error('projections: expert lookup failed, continuing without it:', err.message);
@@ -1050,9 +1090,22 @@ async function reconcileAvailability({
     [patchedIds, availabilityJson, activeProbabilities, season, fromWeek, modelVersion, now]
   );
 
-  const byeAware = await reconcileByeAwareSignings({
-    client, season, fromWeek, modelVersion, now, onTeamById,
-  });
+  // #1813: the second pass is a refinement of the main pass, never a
+  // precondition of it. Injury sync brackets this whole function in
+  // `SAVEPOINT reconcile_availability`, so a throw escaping here would roll
+  // back the main pass's correct patches too. It therefore runs in its own
+  // nested savepoint (a failed query on a transaction client aborts it, and
+  // only a rollback to a savepoint opened AFTER the main UPDATE clears that
+  // without losing it), and its failure is logged and degraded to "no
+  // signings reconciled" - those rows stay deferred to regeneration, the
+  // same safe direction an unresolvable bye week already takes.
+  let byeAware = { updated: 0 };
+  try {
+    byeAware = await withOptionalSavepoint(client, 'reconcile_bye_aware', () =>
+      reconcileByeAwareSignings({ client, season, fromWeek, modelVersion, now, onTeamById }));
+  } catch (err) {
+    console.error('projections: bye-aware availability reconcile failed, keeping the main pass result:', err.message);
+  }
 
   return {
     checked: playersResult.rows.length,
