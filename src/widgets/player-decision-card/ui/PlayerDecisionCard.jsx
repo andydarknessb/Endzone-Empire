@@ -33,6 +33,8 @@ import {
   NFL_TEAM_COLORS,
   FALLBACK_KIT,
   ordinal,
+  hasNoHistory,
+  projectionLabel,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import {
@@ -1208,6 +1210,11 @@ function GameSection({ entry, line, weather, level }) {
 // the issue's own contradiction one tap after the row is fixed. Floor and
 // Ceiling stay `entry.floor`/`entry.ceiling` (p10/p90): untouched by this
 // ticket.
+//
+// #1777 (spec #1774): a Position-baseline projection reads "no history" here
+// exactly as it does on the Ledger row that opened the card - `projectionLabel`
+// and `hasNoHistory` (`shared/lib`) are the one helper both surfaces call - and
+// the RangeBar marker is withheld (a null projection paints no tick).
 function ProjectionSection({ entry, level }) {
   const factorText = entry.factorExplanation || null;
   return (
@@ -1215,13 +1222,13 @@ function ProjectionSection({ entry, level }) {
       <RangeBar
         floor={entry.floor}
         ceiling={entry.ceiling}
-        projection={entry.projectedPoints}
+        projection={hasNoHistory(entry) ? null : entry.projectedPoints}
         label={entry.name}
         data-testid="decision-card-range-bar"
       />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5, fontSize: 12, color: 'var(--dash-faint)' }}>
         <span>{`Floor ${formatPoints(entry.floor)}`}</span>
-        <span>{`Proj ${formatPoints(entry.projectedPoints)}`}</span>
+        <span>{`Proj ${projectionLabel(entry)}`}</span>
         <span>{`Ceiling ${formatPoints(entry.ceiling)}`}</span>
       </Box>
       {factorText && (
@@ -1507,7 +1514,7 @@ function BenchOptionsSection({ entry, entries, onSwap, level, hidden, bestBall, 
               {/* #1482, formal-002-f1: projectedPoints (the Point estimate),
                   never projection (the mean) - the same number the candidate's
                   own Ledger row headlines and the sort below orders by. */}
-              <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{formatPoints(candidate.projectedPoints)}</Typography>
+              <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{projectionLabel(candidate)}</Typography>
               {candidateLocked && (
                 <Typography
                   component="span"

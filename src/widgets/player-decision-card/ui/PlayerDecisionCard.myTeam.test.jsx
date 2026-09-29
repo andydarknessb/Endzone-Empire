@@ -537,6 +537,61 @@ test('the Proj text, RangeBar marker and Bench options read projectedPoints, nev
   expect(within(section).queryByText('7.4')).not.toBeInTheDocument();
 });
 
+// #1777 (spec #1774): the card agrees with the Ledger row that opened it. A
+// Position-baseline projection is the position's average, not evidence about
+// the player, so Proj reads "no history", no RangeBar marker renders, and the
+// Bench options show the same label and sort him after evidenced options.
+describe('a Position-baseline projection (#1777)', () => {
+  const baselineStarter = (over = {}) =>
+    entry({ playerId: 1, name: 'Rookie Back', slot: 'RB', position: 'RB', projectedPoints: 9.4, projection: 9.4,
+      floor: 4, ceiling: 15, eligibleSlots: ['BENCH', 'RB'], positionBaseline: true, ...over });
+
+  test('Proj text reads "no history", no number and no RangeBar marker', async () => {
+    const rookie = baselineStarter();
+    renderCard({ entry: rookie, entries: [rookie] });
+
+    await screen.findByRole('heading', { name: 'Rookie Back' });
+    const projection = screen.getByTestId('decision-card-projection');
+    expect(projection).toHaveTextContent('Proj no history');
+    expect(projection).not.toHaveTextContent('9.4');
+    expect(screen.getByTestId('decision-card-range-bar')).not.toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Projection')
+    );
+  });
+
+  test('the card shows the same label the Ledger row headlines for the same player', async () => {
+    const { projectionLabel } = require('../../../shared/lib');
+    const rookie = baselineStarter();
+    renderCard({ entry: rookie, entries: [rookie] });
+
+    await screen.findByRole('heading', { name: 'Rookie Back' });
+    expect(screen.getByTestId('decision-card-projection')).toHaveTextContent(`Proj ${projectionLabel(rookie)}`);
+  });
+
+  test('Bench options show "no history" for a baseline candidate and list him after evidenced options', async () => {
+    const starter = entry();
+    const baseline = entry({ playerId: 2, name: 'Baseline Bench', slot: 'BENCH', projectedPoints: 30, projection: 30, positionBaseline: true });
+    const evidenced = entry({ playerId: 3, name: 'Evidenced Bench', slot: 'BENCH', projectedPoints: 6, projection: 6 });
+    renderCard({ entry: starter, entries: [starter, baseline, evidenced] });
+
+    const section = await screen.findByTestId('decision-card-bench-options');
+    const names = within(section).getAllByText(/(Baseline|Evidenced) Bench/).map((n) => n.textContent);
+    expect(names).toEqual(['Evidenced Bench', 'Baseline Bench']);
+    expect(within(section).getByText('no history')).toBeInTheDocument();
+    expect(within(section).queryByText('30.0')).not.toBeInTheDocument();
+    expect(within(section).getByText('6.0')).toBeInTheDocument();
+  });
+
+  test('an Unavailable player is not "no history": his number is not replaced by the label', async () => {
+    const out = baselineStarter({ availability: { available: false, reason: 'out' } });
+    renderCard({ entry: out, entries: [out] });
+
+    await screen.findByRole('heading', { name: 'Rookie Back' });
+    expect(screen.getByTestId('decision-card-projection')).not.toHaveTextContent('no history');
+  });
+});
+
 test('a locked bench option is disabled with the lock shown, never swappable', async () => {
   const onSwap = jest.fn();
   const starter = entry();
