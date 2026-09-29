@@ -136,3 +136,7 @@ export { isRosterAtCapacity } from './rosterCapacity';
 // table (#1420) needed the identical derivation - "no third copy" of the
 // chip vocabulary or position-group table.
 export { chipsForRosterSlots } from './positionChips';
+// The chiptune synth (#1747, #1814): the Postgame cutscene's `sfx` imports it
+// from here like every other island consumer (#1815). `fakeAudioContext` is
+// test support and stays out of this index.
+export { createChiptune, MAX_MASTER_GAIN } from './chiptune';

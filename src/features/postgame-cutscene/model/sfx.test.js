@@ -174,6 +174,26 @@ describe('unlock', () => {
     const impl = createChiptuneSfx({ createContext: () => { throw new Error('blocked'); } });
     await expect(impl.unlock()).resolves.toBeUndefined();
   });
+
+  test('a resume() that rejects is silence, not an unhandled rejection', async () => {
+    const { ctx, impl } = unlocked({ state: 'suspended' });
+    ctx.resume = jest.fn(() => Promise.reject(new Error('closed')));
+    await expect(impl.unlock()).resolves.toBeUndefined();
+  });
+
+  test('a resume() that throws synchronously is silence too', async () => {
+    const { ctx, impl } = unlocked({ state: 'suspended' });
+    ctx.resume = jest.fn(() => { throw new Error('closed'); });
+    await expect(impl.unlock()).resolves.toBeUndefined();
+  });
+
+  test('a loop asked for before unlock is not remembered as playing', async () => {
+    const { ctx, impl } = unlocked();
+    impl.startLoop('title');
+    await impl.unlock();
+    impl.startLoop('march'); // no stopAll in between
+    expect(sourcesOf(ctx).length).toBeGreaterThan(0);
+  });
 });
 
 describe('mute', () => {

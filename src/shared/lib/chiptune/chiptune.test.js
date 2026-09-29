@@ -239,6 +239,57 @@ describe('sequencer', () => {
     near(after[8] - first[0], 4.0);
   });
 
+  describe('the loop sentinel is connected, through a gain held at 0', () => {
+    const connectedGains = (source) => source.connect.mock.calls.map(([node]) => node);
+
+    test('each ConstantSource sentinel feeds a silent gain that feeds the sequence gain', () => {
+      const ctx = makeContext();
+      const chip = createChiptune({ context: ctx });
+      const gainsBefore = ctx.gains.length;
+      chip.sequence(song, { bpm: 120, loop: true });
+      const seqGain = ctx.gains[gainsBefore];
+      expect(ctx.constantSources).toHaveLength(2);
+      ctx.constantSources.forEach((sentinel) => {
+        const targets = connectedGains(sentinel);
+        expect(targets).toHaveLength(1);
+        expect(targets[0].kind).toBe('gain');
+        expect(targets[0].gain.value).toBe(0);
+        expect(targets[0].connect).toHaveBeenCalledWith(seqGain);
+      });
+    });
+
+    test('the Oscillator fallback is connected only through a silent gain', () => {
+      const ctx = makeContext();
+      delete ctx.createConstantSource;
+      createChiptune({ context: ctx }).sequence(song, { bpm: 120, loop: true });
+      // Sentinels are the oscillators that are neither a pulse nor a triangle voice.
+      const sentinels = ctx.oscillators.filter(
+        (o) => o.type === 'sine' && o.setPeriodicWave.mock.calls.length === 0,
+      );
+      expect(sentinels).toHaveLength(2);
+      sentinels.forEach((sentinel) => {
+        const targets = connectedGains(sentinel);
+        expect(targets).toHaveLength(1);
+        expect(targets[0].gain.value).toBe(0);
+        expect(targets[0].connect).toHaveBeenCalled();
+      });
+    });
+
+    test('a sentinel disconnects when it ends and when the loop is stopped', () => {
+      const ctx = makeContext();
+      const handle = createChiptune({ context: ctx }).sequence(song, { bpm: 120, loop: true });
+      const [first, second] = ctx.constantSources;
+      const [firstGain] = connectedGains(first);
+      const [secondGain] = connectedGains(second);
+      first.onended();
+      expect(first.disconnect).toHaveBeenCalled();
+      expect(firstGain.disconnect).toHaveBeenCalled();
+      handle.stop({ fadeMs: 10 });
+      expect(second.disconnect).toHaveBeenCalled();
+      expect(secondGain.disconnect).toHaveBeenCalled();
+    });
+  });
+
   test('a song that is not looped schedules one pass only', () => {
     const ctx = makeContext();
     createChiptune({ context: ctx }).sequence(song, { bpm: 120, loop: false });

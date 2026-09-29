@@ -14,10 +14,10 @@
  *                         master gain and leaves the loops running
  *
  * Every sound is DATA in `SOUNDS` below (layers of single voices) or a note
- * table in `songs.js`; `shared/lib/chiptune` turns either into audio. No audio
+ * table in `songs.js`; the `shared/lib` chiptune kit turns either into audio. No audio
  * files, no samples. The `AudioContext` is created here, once, on `unlock`.
  */
-import { createChiptune, MAX_MASTER_GAIN } from '../../../shared/lib/chiptune';
+import { createChiptune, MAX_MASTER_GAIN } from '../../../shared/lib';
 import { readPostgameSoundOn, writePostgameSoundOn } from './soundPreference';
 import { march, dirge, fanfare } from './songs';
 
@@ -104,6 +104,7 @@ function defaultCreateContext() {
 export function createChiptuneSfx({ createContext = defaultCreateContext } = {}) {
   let chip = createChiptune({});
   let unlockTried = false;
+  let live = false; // false while `chip` is the inert one, before a context exists
   let muted = !readPostgameSoundOn();
   const loops = new Set();
 
@@ -120,6 +121,9 @@ export function createChiptuneSfx({ createContext = defaultCreateContext } = {})
     const name = ALIASES[rawName] || rawName;
     const sound = Object.prototype.hasOwnProperty.call(SOUNDS, name) ? SOUNDS[name] : null;
     if (!sound) return;
+    // The inert chip plays nothing, so a loop asked for now must not be
+    // remembered as playing: a later real startLoop would return early.
+    if (!live) return;
     if (sound.loop) {
       if (loops.has(name)) return;
       loops.add(name);
@@ -162,13 +166,19 @@ export function createChiptuneSfx({ createContext = defaultCreateContext } = {})
           const context = createContext();
           if (context) {
             chip = createChiptune({ context });
+            live = true;
             applyMute();
           }
         } catch {
           // No Web Audio, or the browser refused a context: stay silent.
         }
       }
-      return chip.resume();
+      try {
+        // A refused or closed context is silence, the same rule as above.
+        return Promise.resolve(chip.resume()).catch(() => undefined);
+      } catch {
+        return Promise.resolve();
+      }
     },
   };
 }
