@@ -18,7 +18,7 @@ function captureDb() {
 
 test('upsertPlayerStats stores fantasy_points computed from the stats it writes', async () => {
   const db = captureDb();
-  const result = await upsertPlayerStats(db, { playerId: 7, season: 2025, week: 1, stats: FOUR_FORTY_ONE });
+  const result = await upsertPlayerStats(db, { playerId: 7, season: 2025, week: 1, source: 'box', fresh: FOUR_FORTY_ONE, prior: null });
 
   assert.equal(db.calls.length, 1);
   const { sql, params } = db.calls[0];
@@ -32,13 +32,41 @@ test('upsertPlayerStats stores fantasy_points computed from the stats it writes'
 
 test('upsertPlayerStats ignores a caller-supplied fantasy_points', async () => {
   const db = captureDb();
-  await upsertPlayerStats(db, { playerId: 7, season: 2025, week: 1, stats: FOUR_FORTY_ONE, fantasyPoints: 0 });
+  await upsertPlayerStats(db, { playerId: 7, season: 2025, week: 1, source: 'box', fresh: FOUR_FORTY_ONE, prior: null, fantasyPoints: 0 });
   assert.equal(db.calls[0].params[4], 12, 'a points value the stats do not support is never written');
 });
 
 test('upsertPlayerStats writes 0 for an all-zero stat line', async () => {
   const db = captureDb();
-  const result = await upsertPlayerStats(db, { playerId: 7, season: 2025, week: 3, stats: { receptions: 0, rushingYards: 0 } });
+  const result = await upsertPlayerStats(db, { playerId: 7, season: 2025, week: 3, source: 'box', fresh: { receptions: 0, rushingYards: 0 }, prior: null });
   assert.equal(result.fantasyPoints, 0);
   assert.equal(db.calls[0].params[4], 0);
+});
+
+test('upsertPlayerStats returns the stored line and scores it, not the fresh one', async () => {
+  const db = captureDb();
+  const result = await upsertPlayerStats(db, {
+    playerId: 7, season: 2025, week: 1, source: 'box', fresh: FOUR_FORTY_ONE, prior: { gameTeam: 'KC', usageTargets: 6 },
+  });
+  assert.deepEqual(result.stats, { ...FOUR_FORTY_ONE, gameTeam: 'KC', usageTargets: 6 });
+  assert.deepEqual(JSON.parse(db.calls[0].params[3]), result.stats);
+  assert.equal(result.fantasyPoints, 12);
+});
+
+test('upsertPlayerStats writes nothing and returns null when the policy says so', async () => {
+  const db = captureDb();
+  const result = await upsertPlayerStats(db, {
+    playerId: 7, season: 2025, week: 1, source: 'nflverse-snaps', fresh: { usageOffenseSnaps: 40 }, prior: null,
+  });
+  assert.equal(result, null);
+  assert.equal(db.calls.length, 0, 'no statement is issued for a write the policy refuses');
+});
+
+test('upsertPlayerStats refuses a call with no source', async () => {
+  const db = captureDb();
+  await assert.rejects(
+    () => upsertPlayerStats(db, { playerId: 7, season: 2025, week: 1, fresh: FOUR_FORTY_ONE, prior: null }),
+    /unknown stat line source/i
+  );
+  assert.equal(db.calls.length, 0);
 });
