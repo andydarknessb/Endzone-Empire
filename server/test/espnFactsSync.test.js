@@ -365,3 +365,51 @@ test('runRosterStatusSync: stamps the UTC day into detail.day and takes no advis
   assert.equal(JSON.parse(dataSyncRuns(fake.calls)[0].params[3]).day, '2026-08-21');
   assert.equal(fake.matching(/pg_advisory_xact_lock/).length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// #1789: a full availability reconcile sweep follows an OK roster-status run
+// - this job only knows each team's row count, never which players moved, so
+// there is no id list to scope a targeted reconcile to.
+// ---------------------------------------------------------------------------
+
+test('runRosterStatusSync: sweeps availability once after an ok run, scoped to the lowest live current_week', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileArgs = null;
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
+  t.mock.method(projection, 'reconcileAvailability', async (args) => {
+    reconcileArgs = args;
+    return { checked: 10, updated: 1 };
+  });
+  rosterPool(t);
+
+  await runRosterStatusSync({ transport: rosterTransport() });
+
+  assert.ok(reconcileArgs, 'reconcileAvailability was called once');
+  assert.equal(reconcileArgs.season, 2026);
+  assert.equal(reconcileArgs.fromWeek, 3);
+  assert.equal(reconcileArgs.playerIds, undefined, 'a full sweep - no id list, this job cannot know which players moved');
+});
+
+test('runRosterStatusSync: never sweeps when every team failing fails the run (fetch_failed)', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileCalls = 0;
+  t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
+  rosterPool(t);
+
+  await assert.rejects(
+    runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); }, others: () => { throw forbidden(); } }) })
+  );
+
+  assert.equal(reconcileCalls, 0, 'a failed run never reaches the sweep');
+});
+
+test('runRosterStatusSync: a reconcile failure is logged and never fails the run', async (t) => {
+  const projection = require('../services/projection.service');
+  t.mock.method(projection, 'liveReconcileScope', async () => { throw new Error('scope read blew up'); });
+  const fake = rosterPool(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport() });
+
+  assert.equal(result.teamCode, 'NYG', 'the run itself still succeeds');
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'still recorded ok');
+});

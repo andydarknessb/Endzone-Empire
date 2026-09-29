@@ -419,3 +419,74 @@ test('runNightlyProjectionFill stays inside its window when the last successful 
   assert.equal(calls, 0);
   assert.equal(fake.calls.filter((c) => /FROM "leagues"/.test(c.text)).length, 0, 'no eligibility read when nothing is owed outside the window');
 });
+
+// ---------------------------------------------------------------------------
+// #1789: a full availability reconcile sweep follows the fill itself - belt
+// and braces for a day the injury sync and the roster-status sync both miss
+// the 48h practice-squad expiry or a cleared No NFL team. No id list: the
+// fill has no "who changed" set, only the players it just generated for.
+// ---------------------------------------------------------------------------
+
+test('runNightlyProjectionFill sweeps availability once after the fill, scoped to the lowest live current_week', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
+    { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
+  ));
+  let reconcileArgs = null;
+  let reconcileCalls = 0;
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 2 }));
+  t.mock.method(projection, 'reconcileAvailability', async (args) => {
+    reconcileCalls += 1;
+    reconcileArgs = args;
+    return { checked: 3702, updated: 12 };
+  });
+  createFakePool([
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }, { id: 202 }] })],
+  ]).install(t);
+
+  const now = new Date('2026-09-18T17:10:00Z');
+  const result = await scheduler.runNightlyProjectionFill({ now });
+
+  assert.ok(result && result.weeksGenerated > 0, 'the fill ran');
+  assert.equal(reconcileCalls, 1, 'the sweep runs exactly once, not per league or per week');
+  assert.equal(reconcileArgs.season, 2026);
+  assert.equal(reconcileArgs.fromWeek, 2);
+  assert.equal(reconcileArgs.playerIds, undefined, 'a full sweep - no id list');
+  assert.equal(reconcileArgs.now, now);
+});
+
+test('runNightlyProjectionFill never sweeps when the fill itself fails', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  let reconcileCalls = 0;
+  t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
+  createFakePool([
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => { throw new Error('leagues read blew up'); }],
+  ]).install(t);
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-18T17:10:00Z') });
+
+  assert.equal(result, null, 'the fill records its own failure and returns null');
+  assert.equal(reconcileCalls, 0, 'a failed fill never reaches the sweep');
+});
+
+test('runNightlyProjectionFill: a reconcile failure is logged and never fails the fill', async (t) => {
+  const cadence = require('../modules/cadence');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
+    { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
+  ));
+  t.mock.method(projection, 'liveReconcileScope', async () => { throw new Error('scope read blew up'); });
+  createFakePool([
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-18T17:10:00Z') });
+  assert.ok(result && result.weeksGenerated > 0, 'the fill itself still succeeds');
+});
