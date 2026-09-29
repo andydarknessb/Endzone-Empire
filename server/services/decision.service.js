@@ -1,16 +1,12 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
 // The two service objects are kept whole (rather than destructured) where the
 // call is a seam a test needs to replace: a destructured binding is captured at
 // require time and cannot be mocked afterwards.
 const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
-const { requireMember } = require('./leagueMembership.service');
 const {
-  getWeekProjections,
   getTradeProjectionMetrics,
 } = require('./projection.service');
-const { poolPointsFor } = require('./poolProjection');
 const {
   optimalLineup,
   parseLineupSettings,
@@ -953,7 +949,7 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 }
 
 // ---------------------------------------------------------------------------
-// 4. Waiver suggestions
+// 4. Upgrade (player card)
 // ---------------------------------------------------------------------------
 
 /**
@@ -981,10 +977,9 @@ function weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots) {
 /**
  * Pure: how much `candidate` (`{ position, projection }`) upgrades the
  * caller's weakest current starter at a slot he is eligible for (FLEX
- * included). `points` is the exact `upgradeDelta` math `rankWaiverCandidates`
- * uses below, so the two never disagree. When no starter sits at an eligible
- * slot the weakest is treated as 0 and `overPlayer`/`slot` are both null
- * (issue #1306 Ruling item 1).
+ * included). When no starter sits at an eligible slot the weakest is
+ * treated as 0 and `overPlayer`/`slot` are both null (issue #1306 Ruling
+ * item 1).
  */
 function upgradeFor(candidate, currentStarters, rosterSlots) {
   const eligibleSlots = eligibleSlotsFor(candidate.position, rosterSlots);
@@ -998,94 +993,6 @@ function upgradeFor(candidate, currentStarters, rosterSlots) {
   };
 }
 
-/**
- * Pure: rank free-agent candidates by how much they'd upgrade the weakest
- * current starter among the slots they're eligible for (FLEX included).
- * candidates: [{ playerId, name, position, nflTeam, projection }].
- * currentStarters: [{ playerId, slot, projection }] (starting slots only).
- * Returns the top 25, each annotated with weakestStarterProjection and
- * upgradeDelta, sorted by upgradeDelta descending. `upgradeDelta` is always
- * `upgradeFor(candidate, currentStarters, rosterSlots).points` for the same
- * row - both read the same `weakestEligibleStarter` helper.
- */
-function rankWaiverCandidates(candidates, currentStarters, rosterSlots) {
-  const eligibleSlotsByPosition = new Map();
-
-  const ranked = candidates.map((candidate) => {
-    if (!eligibleSlotsByPosition.has(candidate.position)) {
-      eligibleSlotsByPosition.set(candidate.position, eligibleSlotsFor(candidate.position, rosterSlots));
-    }
-    const eligibleSlots = eligibleSlotsByPosition.get(candidate.position);
-    const weakest = weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots);
-    const weakestStarterProjection = weakest ? (Number(weakest.projection) || 0) : 0;
-    const upgradeDelta = round2((Number(candidate.projection) || 0) - weakestStarterProjection);
-    return { ...candidate, weakestStarterProjection: round2(weakestStarterProjection), upgradeDelta };
-  });
-
-  ranked.sort((a, b) => b.upgradeDelta - a.upgradeDelta);
-  return ranked.slice(0, 25);
-}
-
-/** Waiver-wire suggestions for the caller's team: unrostered players ranked as upgrades. */
-async function waiverSuggestions({ leagueId, userId, season, week }) {
-  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
-  const league = leagueResult.rows[0];
-  if (!league) throw new DecisionError(404, 'league not found');
-  const team = await requireMember(pool, { leagueId, userId });
-
-  const effectiveSeason = season || league.current_season;
-  const effectiveWeek = week || league.current_week;
-  const settings = parseLineupSettings(league);
-  const projections = await getWeekProjections({ season: effectiveSeason, week: effectiveWeek });
-
-  // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
-  // release rule (ADR 0033). The pre-transaction reads and the 404 refusal
-  // above run on the ambient pool, before the transaction exists. This
-  // transaction only materializes the lineup and reads it back; no early
-  // return and no catch-side mapping.
-  const starterRows = await withTransaction(
-    pool,
-    async (client) => {
-      await materializeLineup(client, {
-        leagueId, teamId: team.id, season: effectiveSeason, week: effectiveWeek, league,
-      });
-      const result = await client.query(
-        `SELECT "player_id", "slot" FROM "lineup_entries"
-         WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3 AND "slot" NOT IN ('BENCH', 'IR')`,
-        [team.id, effectiveSeason, effectiveWeek]
-      );
-      return result.rows;
-    },
-    { label: 'decision' }
-  );
-
-  const currentStarters = starterRows.map((r) => ({
-    playerId: r.player_id,
-    slot: r.slot,
-    projection: poolPointsFor(projections, r.player_id) || 0,
-  }));
-
-  const availableResult = await pool.query(
-    `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team"
-     FROM "players"
-     WHERE NOT EXISTS (
-       SELECT 1 FROM "team_players"
-       WHERE "team_players"."league_id" = $1 AND "team_players"."player_id" = "players"."id"
-     )`,
-    [leagueId]
-  );
-  const candidates = availableResult.rows.map((p) => ({
-    playerId: p.id,
-    name: p.name,
-    position: p.position,
-    nflTeam: p.nfl_team,
-    projection: poolPointsFor(projections, p.id) || 0,
-  }));
-
-  const suggestions = rankWaiverCandidates(candidates, currentStarters, settings.rosterSlots);
-  return { suggestions };
-}
-
 module.exports = {
   DecisionError,
   buildSuggestions,
@@ -1097,7 +1004,5 @@ module.exports = {
   tradeVerdict,
   tradeFairnessSummary,
   analyzeTrade,
-  rankWaiverCandidates,
   upgradeFor,
-  waiverSuggestions,
 };
