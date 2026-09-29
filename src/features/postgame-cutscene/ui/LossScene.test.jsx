@@ -259,7 +259,10 @@ describe('the stadium and the walk', () => {
 describe('the animation CSS', () => {
   test('the scene fades to storm navy over the first second', () => {
     expect(css).toMatch(/\.loss-stage\s*\{[^}]*background:\s*#0b1020/);
-    expect(css).toMatch(/animation:\s*loss-fade\s+1000ms\s+steps\(8\)/);
+    expect(css).toMatch(/animation:\s*loss-fade\s+1000ms\s+steps\(8\);/);
+    // No forwards fill: the cover rests clear, so it is never pinned hidden.
+    expect(css).toMatch(/\.loss-fade\s*\{[^}]*opacity:\s*0;/);
+    expect(css).not.toMatch(/animation:\s*loss-fade[^;]*forwards/);
     expect(STADIUM_MS).toBe(1000);
   });
 
@@ -280,8 +283,12 @@ describe('the animation CSS', () => {
   });
 
   test('"GAME OVER." stacks above the opening fade so its blink is seen', () => {
-    const z = (selector) => Number(css.match(new RegExp(`${selector}\\s*\\{[^}]*z-index:\\s*(\\d+)`))[1]);
-    expect(z('\\.loss-gameover')).toBeGreaterThan(z('\\.loss-fade'));
+    const z = (selector) => {
+      const start = css.indexOf(`${selector} {`);
+      const block = css.slice(start, css.indexOf('}', start));
+      return Number(block.match(/z-index:\s*(\d+)/)[1]);
+    };
+    expect(z('.loss-gameover')).toBeGreaterThan(z('.loss-fade'));
   });
 
   test('the lightning is two frames of white at 70%, once', () => {
