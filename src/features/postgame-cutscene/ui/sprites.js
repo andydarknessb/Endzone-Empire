@@ -162,6 +162,31 @@ export const HELMET = [
   '.HHHHH..',
 ];
 
+// The tie referee: striped shirt, white knickers, both arms out flat (the safe
+// signal). Fixed colors only (S skin, W white, B black), so no kit is needed.
+// B is A one pixel higher: the two frames are the bounce.
+export const REF_FLAT_A = [
+  '................',
+  '................',
+  '......BBBB......',
+  '.....BBBBBB.....',
+  '......SSSS......',
+  '......SSSS......',
+  '.......SS.......',
+  'SSSWBWBWBWBWBSSS',
+  '....WBWBWBWB....',
+  '....WBWBWBWB....',
+  '.....BBBBBB.....',
+  '.....WWWWWW.....',
+  '....WWW..WWW....',
+  '....BB....BB....',
+  '....BB....BB....',
+  '...BBB....BBB...',
+];
+export const REF_FLAT_B = [...REF_FLAT_A.slice(1), '................'];
+/** The bounce loops A, B. */
+export const REF_FLAT = [REF_FLAT_A, REF_FLAT_B];
+
 // The football, 6 columns by 4 rows: O leather, L lace.
 export const BALL = [
   '.OOOO.',
