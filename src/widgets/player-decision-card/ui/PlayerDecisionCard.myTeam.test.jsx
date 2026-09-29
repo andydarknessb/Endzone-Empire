@@ -585,11 +585,24 @@ describe('a Position-baseline projection (#1777)', () => {
     expect(within(section).getByText('6.0')).toBeInTheDocument();
   });
 
-  test('an Unavailable player is not "no history": his number is not replaced by the label', async () => {
+  test('the Decision strip Week N tile reads "no history" too, never the hidden number', async () => {
+    const rookie = baselineStarter();
+    mockCardRoute({ decision: { projWeek: { week: 4, points: 9.4 } } });
+    renderCard({ entry: rookie, entries: [rookie] });
+
+    const tile = await screen.findByTestId('decision-strip-proj-week');
+    expect(tile).toHaveTextContent('no history');
+    expect(tile).not.toHaveTextContent('9.4');
+  });
+
+  test('an Unavailable reason wins over "no history": the strip shows the reason, no section says no history', async () => {
     const out = baselineStarter({ availability: { available: false, reason: 'out' } });
+    mockCardRoute({ decision: { projWeek: { week: 4, points: 0, reason: 'out' } } });
     renderCard({ entry: out, entries: [out] });
 
-    await screen.findByRole('heading', { name: 'Rookie Back' });
+    const tile = await screen.findByTestId('decision-strip-proj-week');
+    expect(tile).toHaveTextContent('out');
+    expect(tile).not.toHaveTextContent('no history');
     expect(screen.getByTestId('decision-card-projection')).not.toHaveTextContent('no history');
   });
 });

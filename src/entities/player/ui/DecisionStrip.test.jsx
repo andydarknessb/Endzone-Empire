@@ -119,3 +119,33 @@ test('NFL roster shows "Practice squad" or "Reserve" from the card, and hides fo
   rerender(<DecisionStrip rosterStatus="" />);
   expect(container).toBeEmptyDOMElement();
 });
+
+// #1777: a Position-baseline projection is the position's average, not
+// evidence, so the Week N tile reads "no history" like every other surface.
+test('the Week N tile reads "no history", not the number, for a Position-baseline player (#1777)', () => {
+  render(
+    <DecisionStrip
+      decision={{ projWeek: { week: 4, points: 9.4 }, ros: { points: 140 }, upgrade: null }}
+      usage={null}
+      noHistory
+    />
+  );
+  const tile = screen.getByTestId('decision-strip-proj-week');
+  expect(tile).toHaveTextContent('no history');
+  expect(tile).not.toHaveTextContent('9.4');
+  // Rest of season is not part of this change.
+  expect(screen.getByTestId('decision-strip-ros')).toHaveTextContent('140.0');
+});
+
+test('an Unavailable reason still wins over "no history" in the Week N tile (#1777)', () => {
+  render(
+    <DecisionStrip
+      decision={{ projWeek: { week: 4, points: 0, reason: 'out' }, ros: null, upgrade: null }}
+      usage={null}
+      noHistory
+    />
+  );
+  const tile = screen.getByTestId('decision-strip-proj-week');
+  expect(tile).toHaveTextContent('out');
+  expect(tile).not.toHaveTextContent('no history');
+});
