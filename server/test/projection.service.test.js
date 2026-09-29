@@ -300,6 +300,35 @@ test('completeRun still generates projections when SAVEPOINT itself fails with 2
   );
 });
 
+// #1790 f2 nit: a SAVEPOINT failure that is NOT 25P01 is a broken connection,
+// not "no transaction here" - it must propagate rather than be swallowed the
+// way 25P01 is, exactly as holdout.service.js's own SAVEPOINT loop treats a
+// failed transaction-control statement as unrecoverable. Silently proceeding
+// would run the rest of completeRun (the player/stats reads, the run upsert)
+// against a client that may already be dead.
+test('completeRun rejects when SAVEPOINT fails with a code other than 25P01 (#1790 f2)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+  });
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('connection terminated unexpectedly');
+        err.code = '57P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+
+  await assert.rejects(
+    run({ season: SEASON, week: 5, league: league(), playerIds: [1], client }),
+    /connection terminated unexpectedly/
+  );
+});
+
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
   mockPool(t, {
     players: [player(1, 'RB')],
