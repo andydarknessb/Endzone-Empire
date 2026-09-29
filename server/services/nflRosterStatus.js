@@ -10,8 +10,12 @@
  * 'practice_squad' or 'reserve'; `capturedAt` is the row's `updated_at`. The
  * 48-hour staleness rule lives in the verdict, not here, so a stale row still
  * comes back and `unavailableFor` reads it as Active. Both reads skip rows
- * captured before CURRENT_DATE - 2, which can never be fresh, so neither
- * scans a player's whole history.
+ * captured before CURRENT_DATE - 3, which can never be fresh even so: 48
+ * hours of staleness plus a day of slack because espnFactsSync stamps
+ * `captured_date` with the syncing node's LOCAL date (#1792 f12), which can
+ * read a calendar day earlier than the read's own CURRENT_DATE (UTC) - a
+ * CURRENT_DATE - 2 bound could cut off a row that is still within the 48-hour
+ * rule. Neither read scans a player's whole history.
  */
 
 const LATEST_ROW = `json_build_object('status', "nrs"."roster_status", 'capturedAt', "nrs"."updated_at")`;
@@ -24,7 +28,7 @@ const LATEST_ROW = `json_build_object('status', "nrs"."roster_status", 'captured
 function nflRosterStatusColumn(playersRef = '"players"') {
   return `(SELECT ${LATEST_ROW}
            FROM "player_nfl_roster_status" "nrs"
-           WHERE "nrs"."player_id" = ${playersRef}."id" AND "nrs"."captured_date" >= CURRENT_DATE - 2
+           WHERE "nrs"."player_id" = ${playersRef}."id" AND "nrs"."captured_date" >= CURRENT_DATE - 3
            ORDER BY "nrs"."captured_date" DESC LIMIT 1) AS "nfl_roster_status"`;
 }
 
@@ -40,7 +44,7 @@ async function loadNflRosterStatusById(client, playerIds) {
   const result = await client.query(
     `SELECT DISTINCT ON ("nrs"."player_id") "nrs"."player_id", ${LATEST_ROW} AS "nfl_roster_status"
      FROM "player_nfl_roster_status" "nrs"
-     WHERE "nrs"."player_id" = ANY($1::int[]) AND "nrs"."captured_date" >= CURRENT_DATE - 2
+     WHERE "nrs"."player_id" = ANY($1::int[]) AND "nrs"."captured_date" >= CURRENT_DATE - 3
      ORDER BY "nrs"."player_id", "nrs"."captured_date" DESC`,
     [ids]
   );

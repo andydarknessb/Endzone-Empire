@@ -65,6 +65,10 @@ function mockPool(t, {
   // #1767: `{ player_id, nfl_roster_status }` rows for the live cache path's
   // NFL roster status read.
   rosterStatusRows = [],
+  // #1790: when set, the roster status query throws this instead of
+  // returning `rosterStatusRows`, so a test can drive completeRun's degrade
+  // path without faking a whole failing table.
+  rosterStatusError = null,
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -91,7 +95,10 @@ function mockPool(t, {
     }
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
-    if (text.includes('FROM "player_nfl_roster_status"')) return { rows: rosterStatusRows };
+    if (text.includes('FROM "player_nfl_roster_status"')) {
+      if (rosterStatusError) throw rosterStatusError;
+      return { rows: rosterStatusRows };
+    }
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -169,6 +176,157 @@ test('generateProjections called directly issues no NFL roster status read and r
   });
   assert.equal(calls.some((call) => call.text.includes('"player_nfl_roster_status"')), false);
   assert.equal(generated.projections.get(1).factors.availability.available, true);
+});
+
+// #1790: completeRun's roster-status read degrades to "every player Active"
+// on failure, the same shape the weather/odds reads degrade to "no context"
+// - but ONLY on the POOL is that degrade actually safe with no bracket: the
+// pool has no transaction for a failed statement to abort. (The weather and
+// odds reads carry the same 25P02 hazard the roster read used to, on a
+// TRANSACTION client; #1790 fixes only the roster read - see the PR body for
+// that as a follow-up.)
+test('completeRun degrades to every player Active when the roster status read fails on the pool, issuing no SAVEPOINT', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    rosterStatusError: new Error('roster status table unavailable'),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1] });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'a failed read reads every player Active');
+  assert.equal(calls.some((call) => call.text.includes('SAVEPOINT')), false, 'the pool needs no savepoint bracket');
+});
+
+/**
+ * #1790: a client that behaves like a real Postgres connection mid
+ * transaction - any failed query aborts it (25P02), and every later query on
+ * it keeps failing until a `ROLLBACK TO SAVEPOINT` clears the abort. Built
+ * on top of `mockPool`'s dispatch so every OTHER query completeRun issues
+ * (the player read, the run upsert, the cache write...) is served exactly as
+ * it is on the pool; only the roster-status query and the transaction-control
+ * statements are handled here. A distinct object from `pool` itself, which is
+ * what completeRun's SAVEPOINT bracket keys its decision on.
+ */
+function txAbortClient(t, options) {
+  mockPool(t, options);
+  let aborted = false;
+  const statements = [];
+  return {
+    statements,
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text)) return { rows: [] };
+      if (/^RELEASE SAVEPOINT\b/.test(text)) return { rows: [] };
+      if (/^ROLLBACK TO SAVEPOINT\b/.test(text)) {
+        aborted = false;
+        return { rows: [] };
+      }
+      if (aborted) {
+        const err = new Error('current transaction is aborted, commands ignored until end of transaction block');
+        err.code = '25P02';
+        throw err;
+      }
+      try {
+        return await pool.query(sql, params);
+      } catch (err) {
+        aborted = true;
+        throw err;
+      }
+    },
+  };
+}
+
+test('completeRun on a transaction client leaves the transaction usable and generates the run after a failed roster status read (#1790)', async (t) => {
+  const client = txAbortClient(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    rosterStatusError: new Error('roster status table unavailable'),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'the failed read still degrades to Active');
+  assert.ok(client.statements.includes('SAVEPOINT nfl_roster_status'), 'the read is wrapped in a savepoint');
+  assert.ok(
+    client.statements.includes('ROLLBACK TO SAVEPOINT nfl_roster_status'),
+    'the failed read rolls back to it, clearing the 25P02 abort'
+  );
+  // The run upsert is a LATER query on this same client; without the
+  // savepoint bracket it would fail with 25P02 (the transaction stays
+  // aborted) and this whole call would reject instead of returning a result.
+  assert.ok(
+    client.statements.some((s) => s.includes('INSERT INTO "projection_runs"')),
+    'a later query on the same client still ran'
+  );
+});
+
+// #1790 f2: `client !== pool` only says the caller did not hand us the pool
+// itself - a checked-out `pool.connect()` client used in AUTOCOMMIT (no
+// BEGIN) is exactly that shape, and Postgres refuses a bare SAVEPOINT
+// outside a transaction block with 25P01. completeRun must not let THAT
+// failure reject the whole call (worse than the pre-#1790 behaviour); it
+// reads 25P01 as "no transaction to protect" and proceeds with no bracket at
+// all, which is exactly as safe as the pool path since autocommit cannot be
+// left aborted by one failed statement.
+test('completeRun still generates projections when SAVEPOINT itself fails with 25P01 (a checked-out client not in a transaction) (#1790 f2)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+  });
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      statements.push(text);
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('SAVEPOINT can only be used in transaction blocks');
+        err.code = '25P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
+  const projected = result.projections.get(1);
+  assert.equal(projected.factors.availability.available, true, 'the read still ran and reads Active');
+  assert.equal(statements.filter((s) => /^SAVEPOINT\b/.test(s)).length, 1, 'the savepoint was attempted once');
+  assert.equal(
+    statements.some((s) => /^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(s)),
+    false,
+    'no close is attempted for a savepoint that never opened'
+  );
+});
+
+// #1790 f2 nit: a SAVEPOINT failure that is NOT 25P01 is a broken connection,
+// not "no transaction here" - it must propagate rather than be swallowed the
+// way 25P01 is, exactly as holdout.service.js's own SAVEPOINT loop treats a
+// failed transaction-control statement as unrecoverable. Silently proceeding
+// would run the rest of completeRun (the player/stats reads, the run upsert)
+// against a client that may already be dead.
+test('completeRun rejects when SAVEPOINT fails with a code other than 25P01 (#1790 f2)', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+  });
+  const client = {
+    query: async (sql, params) => {
+      const text = String(sql).trim();
+      if (/^SAVEPOINT\b/.test(text)) {
+        const err = new Error('connection terminated unexpectedly');
+        err.code = '57P01';
+        throw err;
+      }
+      return pool.query(sql, params);
+    },
+  };
+
+  await assert.rejects(
+    run({ season: SEASON, week: 5, league: league(), playerIds: [1], client }),
+    /connection terminated unexpectedly/
+  );
 });
 
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
