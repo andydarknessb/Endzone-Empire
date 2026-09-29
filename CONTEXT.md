@@ -1107,7 +1107,9 @@ _Avoid_: owner line, who has him, league status
 
 **Upgrade**:
 The Weekly projection a player would add this week over the weakest starter
-at a slot he is eligible for. Undefined in a best ball league, where the
+at a slot he is eligible for; an Unavailable starter counts as zero in that
+comparison, so a healthy candidate's Upgrade over him is his full projection
+and he is named overPlayer. Undefined in a best ball league, where the
 column and tile are hidden, and for a player who is Unavailable this week
 (bye, Out, IR or No NFL team), whose pill and tile are hidden and who sorts
 last under the Upgrade sort. The same number for a free agent, a waiver

@@ -183,11 +183,17 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     season, week, league, playerIds: combinedIds,
   });
 
+  // Unavailable this week (bye, Out, IR, No NFL team, Practice squad): the
+  // engine keeps his full estimate (ADR 0044), but he contributes nothing to
+  // this week's lineup, so he counts as 0 when `decisionService.upgradeFor`
+  // below picks the weakest eligible starter - otherwise his full estimate
+  // masks a real Upgrade and the Decision card never offers it (#1793). Same
+  // `classify()` source as the candidate-side refusal below (#1784).
   const currentStarters = starterRows.map((r) => ({
     playerId: r.player_id,
     slot: r.slot,
     name: r.name,
-    projection: projections.pointsFor(r.player_id),
+    projection: projections.classify(r.player_id).unavailable ? 0 : projections.pointsFor(r.player_id),
   }));
 
   // One identity read for every requested id (Ruling item 3a) rather than one

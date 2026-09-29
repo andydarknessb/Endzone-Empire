@@ -316,6 +316,60 @@ test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate ov
   assert.deepEqual(card.decision.upgrade, { points: 9, overPlayer: { id: 999, name: 'Weak Starter' }, slot: 'WR' });
 });
 
+// #1793: the weakest-starter comparison must not trust an Unavailable
+// starter's engine estimate either - he adds nothing to this week's lineup,
+// so he counts as 0 when `weakestEligibleStarter` picks the weakest, and the
+// Upgrade names him as overPlayer.
+function twoStarterHandlers() {
+  return [
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: PLAYER.id, position: PLAYER.position, nfl_team: PLAYER.nfl_team }],
+    })],
+    ...buildHandlers({
+      starterRows: [
+        { player_id: 999, slot: 'WR', name: 'Unavailable Starter' },
+        { player_id: 998, slot: 'WR', name: 'Healthy Starter' },
+      ],
+    }),
+  ];
+}
+
+function twoStarterProjection(starter999Availability) {
+  return (week, id) => {
+    if (id === 999) return { mean: 20, median: 20, factors: { availability: starter999Availability } };
+    if (id === 998) return { mean: 12, median: 12, factors: { availability: { available: true } } };
+    return { mean: 10, median: 10, factors: { availability: { available: true } } }; // the candidate, PLAYER.id
+  };
+}
+
+for (const reason of ['ir', 'practice_squad']) {
+  test(`getPlayerCard (#1793): a healthy candidate's Upgrade counts an Unavailable (${reason}) starter as 0, not his 20-point estimate`, async (t) => {
+    createFakePool(twoStarterHandlers()).install(t);
+    mockServices(t, { weeklyProjection: twoStarterProjection({ available: false, reason }) });
+
+    const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+    assert.deepEqual(card.decision.upgrade, {
+      points: 10,
+      overPlayer: { id: 999, name: 'Unavailable Starter' },
+      slot: 'WR',
+    });
+  });
+}
+
+test('getPlayerCard (#1793): with both starters healthy, the weakest-by-points starter is still overPlayer', async (t) => {
+  createFakePool(twoStarterHandlers()).install(t);
+  mockServices(t, { weeklyProjection: twoStarterProjection({ available: true }) });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.upgrade, {
+    points: -2,
+    overPlayer: { id: 998, name: 'Healthy Starter' },
+    slot: 'WR',
+  });
+});
+
 test('getPlayerCard (#1765): an available player\'s projWeek keeps the Point estimate and carries no reason', async (t) => {
   createFakePool(buildHandlers()).install(t);
   mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
