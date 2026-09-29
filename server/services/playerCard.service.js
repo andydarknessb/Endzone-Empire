@@ -133,7 +133,8 @@ async function loadIdentityIds(playerId) {
  * resolves, not the bare requested id - a duplicate-source players row for a
  * rostered athlete must still read as "already yours", formal review f1) or
  * in a best-ball league (Upgrade is undefined there, ADR 0040), or for a
- * player with No NFL team.
+ * player with No NFL team, an Unavailable one, or a Position-baseline one
+ * (#1809).
  */
 async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
@@ -233,6 +234,15 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     // is no Upgrade either - otherwise the Waiver Wire's Upgrade sort ranks
     // injured stars first.
     if (projections.classify(id).unavailable) {
+      upgrades.set(id, null);
+      continue;
+    }
+    // Position-baseline projection (CONTEXT.md; #1809, spec #1774): his number
+    // is the position's average, not his own evidence, so it is no Upgrade
+    // either - otherwise the 15.37 backup QB outranks real starters on the
+    // Waiver Wire's default Upgrade sort. The number stays; only the verdict
+    // changes (null sorts after every candidate with an Upgrade).
+    if (projections.positionBaselineFor(id)) {
       upgrades.set(id, null);
       continue;
     }
