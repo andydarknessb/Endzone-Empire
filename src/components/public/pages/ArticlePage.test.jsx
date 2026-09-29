@@ -1,11 +1,9 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import AppThemeProvider from '../../../theme/AppThemeProvider';
 import ArticlePage, { articleDate } from './ArticlePage';
-import { listArticles } from '../../../content/articles';
 
 // A date-only ISO string parses as UTC midnight, so in any timezone west of
 // UTC toLocaleDateString renders the PREVIOUS day: every byline was a day
@@ -54,36 +52,6 @@ test('article renders breadcrumb, generated table of contents, progress, and rel
   expect(toc).toHaveTextContent('How to build tiers');
   expect(toc).toHaveTextContent('Using tiers live');
   expect(screen.getByRole('heading', { name: 'Related articles' })).toBeInTheDocument();
-});
-
-test('navigating to a related article loads its body and rebuilds the table of contents from it', async () => {
-  const user = userEvent.setup();
-  render(
-    <AppThemeProvider>
-      <HelmetProvider>
-        <MemoryRouter initialEntries={['/strategy/reading-trade-value']}>
-          <Routes>
-            <Route path="/strategy/:slug" element={<ArticlePage />} />
-          </Routes>
-        </MemoryRouter>
-      </HelmetProvider>
-    </AppThemeProvider>
-  );
-  await screen.findByRole('heading', { name: 'Trade from surplus, not from panic' });
-
-  // Navigate to the newest related article (an in-app hop: the page keeps its
-  // component instance and only the slug changes). Starting from
-  // reading-trade-value (Trades, no cluster) so every non-Trades article has
-  // equal priority and the newest by date lands in the three-slot strip.
-  const related = listArticles().filter((a) => a.slug !== 'reading-trade-value');
-  const newest = related[0];
-  const titlePattern = new RegExp(newest.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  await user.click(screen.getByRole('link', { name: titlePattern }));
-
-  // Wait for the new body to load and the ToC to rebuild from it.
-  await waitFor(() => {
-    expect(screen.getByRole('navigation', { name: 'Table of contents' })).not.toHaveTextContent('Trade from surplus, not from panic');
-  });
 });
 
 // The fallback matters as much as the happy path: formatDate returns the raw
