@@ -7,7 +7,7 @@ import { SPRITE_FIXED } from '../../../shared/ui';
 // and B boot are the fixed sprite colors (`SPRITE_FIXED`). The ball's own two
 // colors are fixed pixel-art data, allowlisted in scripts/check-color-literals.js.
 
-/** Every player frame is 16 columns by 16 rows, feet on the last row. */
+/** Every player frame is 16 columns by 16 rows, feet on the last row (the helmet is 8 by 8). */
 export const FRAME_SIZE = 16;
 
 // Facing right, laid out flat: arms out front, legs trailing.
@@ -107,6 +107,60 @@ export const DANCE_C = [
 ];
 /** The dance loops A, B, C. */
 export const DANCE = [DANCE_A, DANCE_B, DANCE_C];
+
+// The loss walk: head down, shoulders hunched, arms hanging, no helmet on (the
+// helmet is dragged along as its own sprite). Facing right; the scene mirrors
+// the pair to walk right to left. Two frames, the trailing leg swapping.
+export const SLOUCH_A = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '.....SSSS.......',
+  '....SSSSSS......',
+  '....SSSSSS......',
+  '...JJJSSJJJ.....',
+  '..JJJJJJJJJJ....',
+  '.SJJJJAAJJJJ....',
+  '.SJJJJAAJJJJ....',
+  '.S.JJJJJJJJ.....',
+  '.S..PPPPPPP.....',
+  '....PPP..PPP....',
+  '....PP....PP....',
+  '...BBB....BBB...',
+];
+export const SLOUCH_B = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '.....SSSS.......',
+  '....SSSSSS......',
+  '....SSSSSS......',
+  '...JJJSSJJJ.....',
+  '..JJJJJJJJJJ....',
+  '..SJJJAAJJJJ....',
+  '..SJJJAAJJJJ....',
+  '..S.JJJJJJJ.....',
+  '..S.PPPPPPP.....',
+  '.....PPPPP......',
+  '.....PP.PP......',
+  '....BBB.BBB.....',
+];
+/** The walk loops A, B. */
+export const SLOUCH = [SLOUCH_A, SLOUCH_B];
+
+// The helmet dragged along the ground, 8 columns by 8 rows: H shell, F facemask.
+export const HELMET = [
+  '........',
+  '........',
+  '........',
+  '..HHHH..',
+  '.HHHHHH.',
+  'HHHHHHFF',
+  'HHHHHHF.',
+  '.HHHHH..',
+];
 
 // The football, 6 columns by 4 rows: O leather, L lace.
 export const BALL = [
