@@ -120,6 +120,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       onBye: Boolean(entry.onBye),
       // null is a released player; undefined is a caller that did not say.
       noTeam: entry.nflTeam === null,
+      nflRosterStatus: entry.nflRosterStatus ?? null,
       locked: entry.locked,
       lockedSlot: entry.slot,
       // A Position-baseline projection is never auto-recommended (#1775),
@@ -397,6 +398,8 @@ async function startSitAdvice({ leagueId, userId, week }) {
     injuryStatus: e.injury_status || null,
     onBye: Boolean(e.onBye),
     nflTeam: e.nfl_team ?? null,
+    // getLineup's own player read carries it (#1767).
+    nflRosterStatus: e.nfl_roster_status ?? null,
   }));
 
   // The ranking statistic comes from the RUN's constants (#1483), read back

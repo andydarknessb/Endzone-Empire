@@ -62,6 +62,9 @@ function mockPool(t, {
   runWeeks = null,
   cachedRows = [],
   leagueRow = null,
+  // #1767: `{ player_id, nfl_roster_status }` rows for the live cache path's
+  // NFL roster status read.
+  rosterStatusRows = [],
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -88,6 +91,7 @@ function mockPool(t, {
     }
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
     if (text.includes('FROM "players" WHERE "id" = ANY')) return { rows: players };
+    if (text.includes('FROM "player_nfl_roster_status"')) return { rows: rosterStatusRows };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -124,6 +128,47 @@ test('a No NFL team player projects a number but reads hard-unavailable (no_team
   assert.equal(projected.factors.availability.available, false);
   assert.equal(projected.factors.availability.activeProbability, 0);
   assert.ok(projected.median > 0, 'the pace still reads');
+});
+
+// #1767: the live cache path reads the NFL roster status and a fresh Practice
+// squad row makes the player hard-unavailable without moving any projected
+// number (the #1589 precedent).
+test('a Practice squad player reads hard-unavailable (practice_squad) with the same mean and median as without the status', async (t) => {
+  const stats = Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70, rushingTDs: 1 }));
+  mockPool(t, { players: [player(1, 'RB')], weeklyStats: stats });
+  const baseline = (await run({ season: SEASON, week: 5, league: league(), playerIds: [1] })).projections.get(1);
+  t.mock.restoreAll();
+
+  const nflRosterStatus = { status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() };
+  mockPool(t, {
+    players: [player(1, 'RB')], weeklyStats: stats, rosterStatusRows: [{ player_id: 1, nfl_roster_status: nflRosterStatus }],
+  });
+  const projected = (await run({ season: SEASON, week: 5, league: league(), playerIds: [1] })).projections.get(1);
+
+  assert.equal(projected.factors.availability.reason, 'practice_squad');
+  assert.equal(projected.factors.availability.available, false);
+  assert.equal(projected.activeProbability, 0);
+  assert.equal(baseline.activeProbability, 1);
+  assert.equal(projected.mean, baseline.mean);
+  assert.equal(projected.median, baseline.median);
+  assert.equal(projected.p10, baseline.p10);
+  assert.equal(projected.p90, baseline.p90);
+});
+
+// DEVIATIONS entry 4: only the live cache path reads it. A direct
+// generateProjections call (the holdout capture, backtest replays, the
+// successor evaluator) issues no roster-status query and reads Active.
+test('generateProjections called directly issues no NFL roster status read and reads every player Active', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70 })),
+    rosterStatusRows: [{ player_id: 1, nfl_roster_status: { status: 'practice_squad', capturedAt: new Date().toISOString() } }],
+  });
+  const generated = await projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1], hashValue: 'h', weatherService: false,
+  });
+  assert.equal(calls.some((call) => call.text.includes('"player_nfl_roster_status"')), false);
+  assert.equal(generated.projections.get(1).factors.availability.available, true);
 });
 
 test('Week 1 veteran falls back to prior-season production instead of an empty map', async (t) => {
@@ -1950,11 +1995,8 @@ test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored
   assert.equal(result.positionBaselineFor(999), false, 'no entry for the player at all');
 });
 
-// #1775: the Position-baseline verdict is a READ-path verdict. The engine's own
-// pre-projection unavailableFor call never receives `positionBaseline`, so a
-// stored row's availability (and the active_probability derived from it) is
-// exactly what it was before: Doubtful stays 'doubtful', a healthy player stays
-// active_probability 1, and no row is ever stored with reason 'no_history'.
+// #1775: the read attaches the Position-baseline verdict to a marked row; any
+// stored Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) wins.
 test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict for a marked row, over its own stored facts', () => {
   const marked = (availability) => ({
     playerId: 0, mean: 15, median: 15,
@@ -1970,6 +2012,8 @@ test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict f
       [5, marked({ available: false, status: null, reason: 'no_team' })],
       [6, marked({ available: false, status: 'O', reason: 'out' })],
       [7, marked({ available: false, status: 'IR', reason: 'ir' })],
+      [9, marked({ available: false, status: null, reason: 'practice_squad' })],
+      [10, marked({ available: false, status: 'O', reason: 'practice_squad' })],
       // Prior-season-only, sample size 0: no marker, no verdict from the read.
       [8, { playerId: 8, mean: 9, median: 9, sampleSize: 0, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { level: 'low', reasons: ['small sample', 'prior season'] } } }],
     ]),
@@ -1983,11 +2027,19 @@ test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict f
   assert.equal(result.availabilityFor(2).status, 'D', 'the stored designation rides along');
   assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).reason), ['bye', 'no_team', 'out', 'ir']);
   assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).available), [false, false, false, false]);
+  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).reason), ['practice_squad', 'practice_squad'],
+    'a stored Practice squad verdict wins over no_history (and over a stored Out)');
+  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).available), [false, false]);
   assert.equal(result.availabilityFor(8), null, 'a prior-season-only row with sample size 0 gets no verdict');
   assert.equal(result.availabilityFor(999), null, 'no entry for the player at all');
   assert.equal(result.projections.get(1).factors.availability.reason, null, 'derived on read, never written back to the row');
 });
 
+// #1775: the Position-baseline verdict is a READ-path verdict. The engine's own
+// pre-projection unavailableFor call never receives `positionBaseline`, so a
+// stored row's availability (and the active_probability derived from it) is
+// exactly what it was before: Doubtful stays 'doubtful', a healthy player stays
+// active_probability 1, and no row is ever stored with reason 'no_history'.
 test('the engine never stores the Position-baseline verdict: availability and activeProbability are unchanged', async (t) => {
   mockPool(t, {
     players: [

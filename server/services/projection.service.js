@@ -3,6 +3,7 @@ const model = require('./projectionModel');
 // The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
 const { poolPointsFor, poolPointsMap } = require('./poolProjection');
 const { unavailableFor } = require('./unavailable');
+const { loadNflRosterStatusById } = require('./nflRosterStatus');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
 const { lastPlayoffWeek } = require('./season.service');
@@ -328,6 +329,9 @@ function projectFromBundle({
   // body, before ANY other logic - including before the `!player` early
   // return below, where it is never actually invoked.
   onPreHomeAwayBaseline,
+  // This player's NFL roster status (#1767, nflRosterStatus.js), or null,
+  // which reads as Active.
+  nflRosterStatus = null,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('projectFromBundle: onPreHomeAwayBaseline must be undefined or a function');
@@ -463,6 +467,7 @@ function projectFromBundle({
     injuryStatus: player.injury_status,
     onBye,
     noTeam: player.nfl_team == null,
+    nflRosterStatus,
   });
 
   return model.projectPlayer({
@@ -583,6 +588,12 @@ async function generateProjections({
   // for any player the override happened not to name.
   playerContextOverrideById = null,
   expertOverrideByPlayerId = null,
+  // #1767: `Map<playerId, { status, capturedAt }>` from
+  // `loadNflRosterStatusById`, passed by the live cache path (`completeRun`)
+  // and the holdout capture (`holdout.service.js`). Backtest snapshot replays
+  // and the successor evaluator pass nothing, so every player reads as
+  // Active there and those runs stay byte-identical (DEVIATIONS entry 4).
+  nflRosterStatusById = null,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {
     throw new Error('generateProjections: onPreHomeAwayBaseline must be undefined or a function');
@@ -664,6 +675,7 @@ async function generateProjections({
         constants: modelConstants,
         modelVersion,
         onPreHomeAwayBaseline,
+        nflRosterStatus: nflRosterStatusById ? nflRosterStatusById.get(playerId) ?? null : null,
       })
     );
   }
@@ -949,8 +961,17 @@ function cachedRunResult({ season, week, hashValue, run, cached }) {
 async function completeRun({
   season, week, rules, hashValue, run, cached, playerIds, client, now, weatherService,
 }) {
+  // The NFL roster status is optional context on the same terms as weather:
+  // a failed read degrades to "every player Active" rather than failing the
+  // request (#1767).
+  let nflRosterStatusById = null;
+  try {
+    nflRosterStatusById = await loadNflRosterStatusById(client, playerIds);
+  } catch (err) {
+    console.error('projections: NFL roster status read failed, continuing without it:', err.message);
+  }
   const generated = await generateProjections({
-    season, week, rules, playerIds, hashValue, client, now, weatherService,
+    season, week, rules, playerIds, hashValue, client, now, weatherService, nflRosterStatusById,
   });
 
   const saved = await upsertRun({
@@ -1302,20 +1323,21 @@ function toWeeklyProjectionResult(run) {
      * The post-projection verdict the read attaches to a Position-baseline row
      * (#1775), else `null` (the read has no verdict of its own for any other
      * row; the engine's stored `factors.availability` stays the row's
-     * availability). Taken by the one verdict function, `unavailableFor`, with
-     * `positionBaseline: true` over the row's OWN stored availability facts
-     * (`status`, and `bye` / `no_team` reasons), so bye, No NFL team, Out and IR
-     * still win and everything else reads available, not auto-recommended,
-     * reason `no_history`. Derived on read, never stored: the engine, the
-     * stored rows and every holdout capture are unchanged.
+     * availability). A stored Unavailable verdict (bye, No NFL team, Practice
+     * squad, Out, IR: the engine took it from `unavailableFor` before
+     * projecting) always wins and is returned as stored, so the precedence
+     * reads bye, No NFL team, Practice squad, Out, IR, then Position-baseline.
+     * Otherwise the one verdict function, `unavailableFor`, is taken with
+     * `positionBaseline: true` over the row's stored designation: available,
+     * not auto-recommended, reason `no_history`. Derived on read, never stored:
+     * the engine, the stored rows and every holdout capture are unchanged.
      */
     availabilityFor(playerId) {
       if (!isPositionBaseline(playerId)) return null;
       const stored = (entryFor(playerId).factors || {}).availability || {};
+      if (stored.available === false) return { ...stored };
       return unavailableFor({
         injuryStatus: stored.status || null,
-        onBye: stored.reason === 'bye',
-        noTeam: stored.reason === 'no_team',
         positionBaseline: true,
       });
     },
