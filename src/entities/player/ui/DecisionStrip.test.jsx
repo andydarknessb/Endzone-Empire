@@ -106,3 +106,16 @@ test('Ownership reads percent and trend through finite(): blank and non-numeric 
   expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('0.0%');
   expect(screen.getByTestId('decision-strip-ownership')).toHaveTextContent('+0.0 7d');
 });
+
+test('NFL roster shows "Practice squad" or "Reserve" from the card, and hides for Active/null (#1766)', () => {
+  const { container, rerender } = render(<DecisionStrip rosterStatus="Practice squad" />);
+  expect(screen.getByTestId('decision-strip-roster-status')).toHaveTextContent('Practice squad');
+
+  rerender(<DecisionStrip rosterStatus="Reserve" />);
+  expect(screen.getByTestId('decision-strip-roster-status')).toHaveTextContent('Reserve');
+
+  rerender(<DecisionStrip rosterStatus={null} />);
+  expect(container).toBeEmptyDOMElement();
+  rerender(<DecisionStrip rosterStatus="" />);
+  expect(container).toBeEmptyDOMElement();
+});
