@@ -1361,10 +1361,15 @@ function classifyProjectionEntry(projection) {
   return { unavailable: false, points: point == null ? null : Number(point) };
 }
 
+// The data-quality reason the engine (projectionModel.confidenceFor) attaches to
+// a Position-baseline projection. Named once so the read path and its tests agree.
+const POSITION_BASELINE_REASON = 'position baseline';
+
 /**
  * The Weekly projection result (#1702, unparked #1495): wraps a
- * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the six
- * accessors the Decision card module and the decision service each used to
+ * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the
+ * accessors (six at #1702, plus `positionBaselineFor` and `availabilityFor`
+ * from #1775) the Decision card module and the decision service each used to
  * hand-roll for themselves - three private helpers in
  * `playerCard.service.js` and one in `decision.service.js`, all retired by
  * the migrate ticket (#1703) in favor of these - so a caller reads the SAME
@@ -1383,6 +1388,13 @@ function classifyProjectionEntry(projection) {
  */
 function toWeeklyProjectionResult(run) {
   const entryFor = (playerId) => run.projections.get(playerId) || null;
+  const isPositionBaseline = (playerId) => {
+    const entry = entryFor(playerId);
+    const dataQuality = entry && entry.factors ? entry.factors.dataQuality : null;
+    return !!(dataQuality
+      && Array.isArray(dataQuality.reasons)
+      && dataQuality.reasons.includes(POSITION_BASELINE_REASON));
+  };
 
   return {
     ...run,
@@ -1429,6 +1441,40 @@ function toWeeklyProjectionResult(run) {
     factorsFor(playerId) {
       const entry = entryFor(playerId);
       return entry ? entry.factors : null;
+    },
+
+    /**
+     * True when the stored row is a Position-baseline projection: its
+     * data-quality reasons contain `position baseline` (#1775), which the
+     * engine adds for every row built on the position average alone (no games,
+     * no prior season). Read-path only: feed it to `unavailableFor` as
+     * `positionBaseline`. The stored row and the engine are untouched.
+     */
+    positionBaselineFor(playerId) {
+      return isPositionBaseline(playerId);
+    },
+
+    /**
+     * The post-projection verdict the read attaches to a Position-baseline row
+     * (#1775), else `null` (the read has no verdict of its own for any other
+     * row; the engine's stored `factors.availability` stays the row's
+     * availability). A stored Unavailable verdict (bye, No NFL team, Practice
+     * squad, Out, IR: the engine took it from `unavailableFor` before
+     * projecting) always wins and is returned as stored, so the precedence
+     * reads bye, No NFL team, Practice squad, Out, IR, then Position-baseline.
+     * Otherwise the one verdict function, `unavailableFor`, is taken with
+     * `positionBaseline: true` over the row's stored designation: available,
+     * not auto-recommended, reason `no_history`. Derived on read, never stored:
+     * the engine, the stored rows and every holdout capture are unchanged.
+     */
+    availabilityFor(playerId) {
+      if (!isPositionBaseline(playerId)) return null;
+      const stored = (entryFor(playerId).factors || {}).availability || {};
+      if (stored.available === false) return { ...stored };
+      return unavailableFor({
+        injuryStatus: stored.status || null,
+        positionBaseline: true,
+      });
     },
 
     /** `{ mean, median, p10, p90, confidence, activeProbability } | null`. */
