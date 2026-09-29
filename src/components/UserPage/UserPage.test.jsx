@@ -241,3 +241,55 @@ test('opening Create or Join does not clear a leagues fetch error', async () => 
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(screen.getByText('server exploded')).toBeInTheDocument();
 });
+
+// --- Postgame cutscene (ADR 0052) ---
+
+const dueCutscene = {
+  matchupId: 9,
+  leagueId: 1,
+  leagueName: 'Sunday Ballers',
+  week: 4,
+  playoff: false,
+  outcome: 'win',
+  me: { teamId: 10, name: "alice's Team", avatarStaticUrl: null, score: 120 },
+  opponent: { teamId: 11, name: 'Rivals', avatarStaticUrl: null, score: 100 },
+  record: { wins: 3, losses: 1, ties: 0 },
+  standing: { rank: 1, of: 8 },
+};
+
+const mockHome = (cutscenes) => {
+  apiClient.get.mockImplementation((url) => {
+    if (url === '/api/user/postgame-cutscenes') return cutscenes instanceof Error ? Promise.reject(cutscenes) : Promise.resolve({ data: { cutscenes } });
+    if (url === '/api/league') return Promise.resolve({ data: [league()] });
+    return Promise.resolve({ data: [] });
+  });
+};
+
+test('Home reads the due Postgame cutscenes once, beside its own reads, and plays them', async () => {
+  window.sessionStorage.clear();
+  apiClient.post.mockResolvedValue({ status: 204 });
+  mockHome([dueCutscene]);
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('alertdialog')).toHaveAccessibleName('WEEK 4 IS FINAL');
+  const calls = apiClient.get.mock.calls.map((c) => c[0]);
+  expect(calls.filter((url) => url === '/api/user/postgame-cutscenes')).toHaveLength(1);
+  expect(calls).toContain('/api/league');
+  window.sessionStorage.clear();
+});
+
+test('a failed Postgame fetch renders nothing and never blocks Home', async () => {
+  mockHome(new Error('cutscenes down'));
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('heading', { level: 3, name: 'Sunday Ballers' })).toBeInTheDocument();
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+});
+
+test('an empty Postgame list renders no overlay', async () => {
+  mockHome([]);
+  renderWithProviders(<UserPage />, { state: baseState });
+
+  expect(await screen.findByRole('heading', { level: 3, name: 'Sunday Ballers' })).toBeInTheDocument();
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+});
