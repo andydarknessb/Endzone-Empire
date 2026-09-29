@@ -7,7 +7,9 @@
 
    WCAG 2.3.1: exactly one lightning flash of two frames (`loss-flash`, 220 ms,
    once) and one 2 Hz blink for 1 s ("GAME OVER."); nothing else flashes. The
-   rain is thin lines scrolled a few steps a second, never a full-field change. */
+   rain is 1 px lines on a 24 px tile stepped 4 times per 240 ms lap (about 17
+   steps a second): a fine periodic pattern whose average brightness never
+   changes, never a full-field change. */
 
 .loss-scene {
   --loss-sprite: 64px;
@@ -178,6 +180,7 @@
   font-size: clamp(20px, 8vw, 44px);
   color: #d2232a;
   text-shadow: 3px 3px 0 #00000099;
+  z-index: 6; /* above the opening fade (5), so the blink shows through it */
   animation: loss-blink 500ms steps(1) 2;
 }
 
@@ -217,6 +220,7 @@
 /* ---- The black panel: Record and the waiver link ---- */
 
 .loss-panel {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;

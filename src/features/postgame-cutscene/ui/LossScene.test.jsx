@@ -279,6 +279,11 @@ describe('the animation CSS', () => {
     expect(screen.getByText('GAME OVER.')).toBeInTheDocument();
   });
 
+  test('"GAME OVER." stacks above the opening fade so its blink is seen', () => {
+    const z = (selector) => Number(css.match(new RegExp(`${selector}\\s*\\{[^}]*z-index:\\s*(\\d+)`))[1]);
+    expect(z('\\.loss-gameover')).toBeGreaterThan(z('\\.loss-fade'));
+  });
+
   test('the lightning is two frames of white at 70%, once', () => {
     expect(css).toMatch(/\.loss-flash\s*\{[^}]*animation:\s*loss-flash\s+220ms\s+steps\(1\)\s+1;/);
     expect(FLASH_MS).toBe(220);
