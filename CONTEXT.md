@@ -1097,6 +1097,13 @@ day, never about this league (ADR 0041).
 _Avoid_: rostered % (Rostered is a state here), percent owned (the field),
 popularity
 
+**Waiver Target**:
+A player the public site tells managers to claim this waiver week, ranked by
+what a manager should spend on him. His Ownership is low enough that most
+public leagues have left him free, so a weekly starter is never one.
+League-free, unlike Availability.
+_Avoid_: available-type add, top add, pickup, sleeper
+
 **In your leagues**:
 The block on a player's public profile that a signed-in manager sees and a
 visitor does not: one line per league the manager plays in whose rosters
