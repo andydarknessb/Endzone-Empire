@@ -47,8 +47,14 @@ function earliestKickoff(entry) {
  * a Kickoff locks inclusively everywhere else.
  */
 function expiryOf({ league, matchup, kickoffs }) {
-  if (Number(league.current_week) > Number(matchup.week)) {
-    return earliestKickoff(kickoffs.get(weekKey(league.current_season, league.current_week)));
+  // finalizeWeekAndAdvance always moves current_week on (even when the season
+  // completes), so "no later week" is read from the league being complete, or
+  // from the next week having no Kickoff to lock against (the schedule holds
+  // NFL weeks 1-18 only). Either way the Matchup week's last Kickoff + 7 days
+  // is the bound, so a cutscene can never stay due for the rest of the season.
+  if (league.season_status !== 'complete' && Number(league.current_week) > Number(matchup.week)) {
+    const next = earliestKickoff(kickoffs.get(weekKey(league.current_season, league.current_week)));
+    if (next !== null) return next;
   }
   const last = kickoffs.get(weekKey(matchup.season, matchup.week))?.last;
   return last == null ? null : new Date(last).getTime() + SEVEN_DAYS_MS;

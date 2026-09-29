@@ -151,6 +151,22 @@ test('in the season\'s last week it expires 7 days after that week\'s last Kicko
   assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
 });
 
+test('a completed season expires 7 days after the Matchup week\'s last Kickoff even though current_week moved on', async () => {
+  const world = baseWorld();
+  world.leagues[0].season_status = 'complete'; // finalize sets current_week = week + 1 here too
+  const expiry = new Date(W4_LAST).getTime() + 7 * DAY;
+  assert.equal((await listDue(world, new Date(expiry - 1))).cutscenes.length, 1);
+  assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
+});
+
+test('a next week with no Kickoffs on the schedule falls back to the Matchup week\'s last Kickoff + 7 days', async () => {
+  const world = baseWorld();
+  world.leagues[0].current_week = 19; // past the schedule's weeks: no nfl_games rows
+  const expiry = new Date(W4_LAST).getTime() + 7 * DAY;
+  assert.equal((await listDue(world, new Date(expiry - 1))).cutscenes.length, 1);
+  assert.deepEqual((await listDue(world, new Date(expiry))).cutscenes, []);
+});
+
 test('a playoff Matchup carries playoff: true and no record or standing', async () => {
   const world = baseWorld();
   world.matchups[3] = matchup(904, 4, 248, 488, '114.50', '98.20', { is_playoff: true });
