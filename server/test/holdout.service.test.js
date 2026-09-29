@@ -154,6 +154,8 @@ function fakeDb({
               // proves a captured Practice squad row lands at 0, not just
               // that the row was written.
               active_probability: params[i + 8],
+              // Every bound column exactly as the capture INSERT sent it.
+              raw: params.slice(i, i + COLS),
               position: params[i + 12], nfl_team: params[i + 13], injury_status: params[i + 14],
               opponent: params[i + 15], home_away: params[i + 16], game_kickoff_at: params[i + 17],
             });
@@ -305,6 +307,48 @@ test('a successful capture commits header and every child in one transaction', a
     new Date(db.committed.snapshots[0].capture_not_after).toISOString(),
     new Date(KICKOFF).toISOString()
   );
+});
+
+// #1775: the Position-baseline verdict lives on the Weekly projection READ path
+// (`positionBaselineFor` -> `unavailableFor`), never in what generateProjections
+// returns. A capture stores that return value as-is, so a row carrying the
+// `position baseline` marker is recorded at its own number and the captured
+// bytes match a capture of the same week without the marker. Red if the verdict
+// ever leaks into the capture (a zeroed number, a changed active_probability).
+test('a capture records a Position-baseline row at its number: identical bytes to the same week without the marker', async (t) => {
+  withReleaseSha(t);
+  const MARKER = { note: 'test', dataQuality: { level: 'low', reasons: ['small sample', 'position baseline'] } };
+  const capture = async (factorsFor) => {
+    t.mock.restoreAll();
+    t.mock.method(projectionSvc, 'generateProjections', async (args) => ({
+      projections: new Map(args.playerIds.map((id) => [id, {
+        mean: id + 0.5, median: id + 0.25, p10: 1, p25: 2, p75: 8, p90: 9,
+        activeProbability: 1, confidence: 'high', sampleSize: 4, factors: factorsFor(id),
+      }])),
+      inputCutoff: new Date('2077-09-09T11:00:00Z'),
+      sourceCoverage: { stats: 'ok' },
+    }));
+    const db = fakeDb(dbArgs());
+    await holdout.snapshotWeek(captureArgs(db));
+    return db.committed.players;
+  };
+  const before = await capture(() => ({ note: 'test' }));
+  const after = await capture((id) => (id === 9 ? MARKER : { note: 'test' }));
+
+  const seeded = after.find((p) => p.player_id === 9);
+  assert.equal(seeded.mean, 9.5, 'the seeded Position-baseline row still records its number');
+  assert.equal(seeded.median, 9.25);
+  assert.equal(after.length, before.length);
+  // Every bound column except the seeded row's own factors JSON (index 11) is
+  // byte-identical to the capture without the marker: number, distribution,
+  // active probability, confidence, sample size.
+  const FACTORS = 11;
+  const bytes = (rows, skipSeeded) => JSON.stringify(rows.map((p) => (
+    skipSeeded && p.player_id === 9 ? p.raw.filter((_, i) => i !== FACTORS) : p.raw
+  )));
+  assert.equal(bytes(after, true), bytes(before, true));
+  assert.equal(seeded.raw[8], 1, 'the verdict did not touch the stored active probability');
+  assert.equal(seeded.raw[FACTORS], JSON.stringify(MARKER), 'the stored factors are the engine output, verbatim');
 });
 
 test('an injected mid-batch failure rolls back header AND children — nothing persists', async (t) => {

@@ -5,6 +5,7 @@ const projection = require('../services/projection.service');
 const poolProjection = require('../services/poolProjection');
 const features = require('../services/projectionFeatures');
 const model = require('../services/projectionModel');
+const { unavailableFor } = require('../services/unavailable');
 const { SCORING_PRESETS, SCORING_RULES } = require('../services/scoringRules');
 
 /**
@@ -2102,6 +2103,134 @@ test('toWeeklyProjectionResult: factorsFor is the factors object as the engine p
   });
   assert.equal(result.factorsFor(1), factors);
   assert.equal(result.factorsFor(999), null, 'no entry for the player at all');
+});
+
+test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored reasons contain `position baseline`', () => {
+  const dq = (reasons) => ({ dataQuality: { level: 'low', reasons } });
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, { playerId: 1, mean: 15, median: 15, factors: dq(['small sample', 'position baseline']) }],
+      // Prior-season-only with sample size 0: gets 'prior season', never the marker.
+      [2, { playerId: 2, mean: 9, median: 9, sampleSize: 0, factors: dq(['small sample', 'prior season']) }],
+      [3, { playerId: 3, mean: 9, median: 9, factors: {} }],
+      [4, { playerId: 4, mean: 9, median: 9, factors: { dataQuality: { level: 'none', reason: 'no prior games, prior season, or position baseline' } } }],
+    ]),
+  });
+  assert.equal(result.positionBaselineFor(1), true);
+  assert.equal(result.positionBaselineFor(2), false, 'a prior-season-only row is not a Position-baseline projection');
+  assert.equal(result.positionBaselineFor(3), false, 'no dataQuality at all');
+  assert.equal(result.positionBaselineFor(4), false, 'the no-evidence row has `reason`, not `reasons`');
+  assert.equal(result.positionBaselineFor(999), false, 'no entry for the player at all');
+});
+
+// #1775: the read attaches the Position-baseline verdict to a marked row; any
+// stored Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) wins.
+test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict for a marked row, over its own stored facts', () => {
+  const marked = (availability) => ({
+    playerId: 0, mean: 15, median: 15,
+    factors: { availability, dataQuality: { level: 'low', reasons: ['small sample', 'position baseline'] } },
+  });
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, marked({ available: true, autoRecommend: true, status: null, reason: null })],
+      [2, marked({ available: true, autoRecommend: false, status: 'D', reason: 'doubtful' })],
+      [3, marked({ available: true, autoRecommend: true, status: 'Q', reason: 'questionable' })],
+      [4, marked({ available: false, status: null, reason: 'bye' })],
+      [5, marked({ available: false, status: null, reason: 'no_team' })],
+      [6, marked({ available: false, status: 'O', reason: 'out' })],
+      [7, marked({ available: false, status: 'IR', reason: 'ir' })],
+      [9, marked({ available: false, status: null, reason: 'practice_squad' })],
+      [10, marked({ available: false, status: 'O', reason: 'practice_squad' })],
+      // Prior-season-only, sample size 0: no marker, no verdict from the read.
+      [8, { playerId: 8, mean: 9, median: 9, sampleSize: 0, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { level: 'low', reasons: ['small sample', 'prior season'] } } }],
+    ]),
+  });
+  for (const id of [1, 2, 3]) {
+    const verdict = result.availabilityFor(id);
+    assert.equal(verdict.reason, 'no_history', `player ${id}`);
+    assert.equal(verdict.available, true);
+    assert.equal(verdict.autoRecommend, false);
+  }
+  assert.equal(result.availabilityFor(2).status, 'D', 'the stored designation rides along');
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).reason), ['bye', 'no_team', 'out', 'ir']);
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).available), [false, false, false, false]);
+  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).reason), ['practice_squad', 'practice_squad'],
+    'a stored Practice squad verdict wins over no_history (and over a stored Out)');
+  assert.deepEqual([9, 10].map((id) => result.availabilityFor(id).available), [false, false]);
+  assert.equal(result.availabilityFor(8), null, 'a prior-season-only row with sample size 0 gets no verdict');
+  assert.equal(result.availabilityFor(999), null, 'no entry for the player at all');
+  assert.equal(result.projections.get(1).factors.availability.reason, null, 'derived on read, never written back to the row');
+});
+
+// #1775: the Position-baseline verdict is a READ-path verdict. The engine's own
+// pre-projection unavailableFor call never receives `positionBaseline`, so a
+// stored row's availability (and the active_probability derived from it) is
+// exactly what it was before: Doubtful stays 'doubtful', a healthy player stays
+// active_probability 1, and no row is ever stored with reason 'no_history'.
+test('the engine never stores the Position-baseline verdict: availability and activeProbability are unchanged', async (t) => {
+  mockPool(t, {
+    players: [
+      player(1, 'RB', { injury_status: 'D' }),
+      player(2, 'RB'),
+      player(3, 'RB', { injury_status: 'Q' }),
+    ],
+    weeklyStats: [],
+    leagueScan: Array.from({ length: 5 }, (_, i) => ({
+      player_id: 9, week: i + 1, position: 'RB',
+      stats: { rushingYards: 100, rushingTDs: 1 },
+      defense: 'MIA', home_away: 'away',
+    })),
+    defenseGames: [{ team: 'MIA', games: 5 }],
+  });
+  const result = await projection.generateProjections({
+    season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1, 2, 3], hashValue: 'h', weatherService: false,
+  });
+  const rows = [1, 2, 3].map((id) => result.projections.get(id));
+  for (const row of rows) {
+    assert.ok(row.factors.dataQuality.reasons.includes('position baseline'), 'the fixture is a Position-baseline projection');
+    assert.ok(row.mean > 0);
+    assert.notEqual(row.factors.availability.reason, 'no_history');
+  }
+  assert.deepEqual(
+    rows.map((r) => [r.factors.availability.reason, r.factors.availability.autoRecommend, r.activeProbability]),
+    [['doubtful', false, null], [null, true, 1], ['questionable', true, null]]
+  );
+  // ... while the read path marks every one of them.
+  const read = projection.toWeeklyProjectionResult(result);
+  for (const id of [1, 2, 3]) assert.equal(read.positionBaselineFor(id), true, `player ${id}`);
+});
+
+test('the engine: every row built on the position baseline alone carries the `position baseline` reason', () => {
+  // usedPositionFallback = baseline used, sampleSize 0, no prior season. With no
+  // games the recency weight sum is 0, so effectiveGames (0) is always below
+  // mediumEffectiveGames and the reason is never skipped.
+  const positions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+  const perGame = [0.5, 3, 9.75, 15.37, 30];
+  for (const position of positions) {
+    for (const positionBaselinePerGame of perGame) {
+      for (const injury of [null, 'Q', 'D']) {
+        const row = model.projectPlayer({
+          playerId: 1, position, season: SEASON, week: 5, priorGames: [],
+          priorSeasonPerGame: null, positionBaselinePerGame,
+          availability: unavailableFor({ injuryStatus: injury }),
+        });
+        assert.equal(row.sampleSize, 0);
+        assert.ok(
+          row.factors.dataQuality.reasons.includes('position baseline'),
+          `${position} ${positionBaselinePerGame} ${injury}: ${JSON.stringify(row.factors.dataQuality)}`
+        );
+      }
+    }
+  }
+  // Prior-season-only with sample size 0 never gets it.
+  const priorOnly = model.projectPlayer({
+    playerId: 2, position: 'RB', season: SEASON, week: 5, priorGames: [],
+    priorSeasonPerGame: 11, positionBaselinePerGame: null,
+    availability: unavailableFor({}),
+  });
+  assert.ok(!priorOnly.factors.dataQuality.reasons.includes('position baseline'));
 });
 
 test('toWeeklyProjectionResult: detailFor is { mean, median, p10, p90, confidence, activeProbability }', () => {

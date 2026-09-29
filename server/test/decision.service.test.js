@@ -302,6 +302,67 @@ test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
   assert.equal(result.optimalTotal, 8);
 });
 
+// #1775: a Position-baseline projection (its data-quality reasons carry
+// `position baseline`) is the position's average, not the player's evidence.
+const POSITION_BASELINE = { dataQuality: { reasons: ['position baseline'] } };
+
+test('buildSuggestions: a Position-baseline bench player is never suggested, even with the highest number', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = resultFromLegacyMap(new Map([
+    [1, { points: 8 }],
+    [2, { points: 25, factors: POSITION_BASELINE }],
+  ]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+  assert.equal(result.optimalTotal, 8);
+});
+
+test('buildSuggestions: a Position-baseline starter is left alone', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = resultFromLegacyMap(new Map([
+    [1, { points: 15, factors: POSITION_BASELINE }],
+    [2, { points: 4 }],
+  ]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0, 'not moved off his slot');
+});
+
+test('buildSuggestions: a bench player with a NON-baseline reason is still promoted', () => {
+  const lineup = [
+    entry(1, 'RB', 'RB'),
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = resultFromLegacyMap(new Map([
+    [1, { points: 8 }],
+    [2, { points: 25, factors: { dataQuality: { reasons: ['prior season'] } } }],
+  ]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 1);
+  assert.equal(result.suggestions[0].suggested.playerId, 2);
+});
+
+test('buildSuggestions: an Out starter is still replaced by a healthy bench player when the other bench player is a Position-baseline one', () => {
+  const lineup = [
+    { ...entry(1, 'RB', 'RB'), injuryStatus: 'O' },
+    entry(2, 'RB', 'BENCH'),
+    entry(3, 'RB', 'BENCH'),
+  ];
+  const projections = resultFromLegacyMap(new Map([
+    [1, { points: 20 }],
+    [2, { points: 25, factors: POSITION_BASELINE }],
+    [3, { points: 6 }],
+  ]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 1);
+  assert.equal(result.suggestions[0].suggested.playerId, 3);
+});
+
 test('buildSuggestions: a Questionable bench player CAN be promoted, flagged as such', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
