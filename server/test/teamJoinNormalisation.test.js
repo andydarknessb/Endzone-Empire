@@ -179,6 +179,8 @@ function digestWorld(t, world) {
       }],
     })],
     [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
+    // The week's kickoffs (the lock-aware status reads them): none locked here.
+    [/^SELECT "nfl_games"\."season"/, () => ({ rows: [] })],
     [/^SELECT "teams"\."id"/, () => ({
       rows: [{
         id: world.teamId,
