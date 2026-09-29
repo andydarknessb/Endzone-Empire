@@ -112,6 +112,39 @@ test('Unavailable bench players sort after every available one, regardless of pr
   expect(bench.map((r) => r.entry.playerId)).toEqual([2, 1]);
 });
 
+// #1776 (spec #1774): a Position-baseline projection is the position's
+// average, identical for everyone at the position, so it never outranks a
+// projection with evidence, whatever its hidden number.
+test('bench sorts evidenced players first, then Position-baseline players, whatever their numbers (#1776)', () => {
+  const entries = [
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 4, projection: 4 }),
+    entry({ playerId: 3, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 4, slot: 'BENCH', projectedPoints: 9, projection: 9 }),
+  ];
+  const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 4, irSlots: 0 });
+  expect(bench.map((r) => r.entry.playerId)).toEqual([4, 2, 1, 3]);
+});
+
+test('an evidenced player with an unknown projectedPoints still sorts before a Position-baseline player (#1776)', () => {
+  const entries = [
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: null, projection: null }),
+  ];
+  const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 2, irSlots: 0 });
+  expect(bench.map((r) => r.entry.playerId)).toEqual([2, 1]);
+});
+
+test('Unavailable bench players still sort last, after the Position-baseline ones (#1776)', () => {
+  const entries = [
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 20, projection: 20, availability: { available: false, reason: 'bye' } }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 3, slot: 'BENCH', projectedPoints: 3, projection: 3 }),
+  ];
+  const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 3, irSlots: 0 });
+  expect(bench.map((r) => r.entry.playerId)).toEqual([3, 2, 1]);
+});
+
 test('an unknown (null) projectedPoints sorts last among available bench players, never throwing', () => {
   const entries = [
     entry({ playerId: 1, slot: 'BENCH', projectedPoints: null, projection: null }),
