@@ -775,11 +775,12 @@ _Avoid_: roster, starting roster, My Team (a third name for the surface), Team
 page
 
 **Unavailable**:
-A player who cannot play this week: on bye, Out, on IR, or with No NFL team.
-His projection counts as zero wherever a total is summed, he is never among the
-Players remaining, and every surface shows the reason ("on bye", "out",
-"on IR", "no team") instead of a number. One verdict, read from the same facts
-everywhere (bye, injury designation, NFL team): the Optimizer, the Expected
+A player who cannot play this week: on bye, Out, on IR, with No NFL team, or
+on the Practice squad (NFL roster status). Their projection counts as zero
+wherever a total is summed, they are never among the Players remaining, and
+every surface shows the reason ("on bye", "out", "on IR", "no team",
+"practice squad") instead of a number. One verdict, read from the same facts
+everywhere (bye, injury designation, NFL team, NFL roster status): the Optimizer, the Expected
 final, the Lineup, the Decision card and the Players page never decide it
 separately. Questionable and Doubtful are not unavailable.
 _Avoid_: inactive, injured
@@ -1477,6 +1478,24 @@ not. A stat row alone is not an Appearance; rows exist for rostered players
 who never took the field.
 _Avoid_: game played, games (as a count of stat rows), did not play (say "no
 Appearance")
+
+**NFL roster status**:
+Where a player stands on their NFL team's roster: Active, Practice squad,
+or Reserve. A fact about the NFL team, never about a league (that is
+Availability), and it persists until the team changes it, unlike a Game
+status, which describes one week. A Practice squad player projects to
+zero, labelled as such, until the team elevates them for a game; Reserve
+is informational, because Game status already carries injured reserve and
+Out. A player whose status is unknown or stale counts as Active.
+_Avoid_: role, depth, active/inactive, roster state (say Availability for
+the league fact)
+
+**Depth chart rank**:
+A player's order within their position group on their NFL team's published
+depth chart, 1 being the starter. A daily fact shown as context; it does
+not move a projection. A player absent from the chart has no rank, which
+is not the same as being on the Practice squad.
+_Avoid_: role, string (first-string etc.), depth
 
 ### Evaluation
 
