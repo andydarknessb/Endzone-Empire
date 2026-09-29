@@ -1955,6 +1955,39 @@ test('toWeeklyProjectionResult: positionBaselineFor is true only when the stored
 // stored row's availability (and the active_probability derived from it) is
 // exactly what it was before: Doubtful stays 'doubtful', a healthy player stays
 // active_probability 1, and no row is ever stored with reason 'no_history'.
+test('toWeeklyProjectionResult: availabilityFor returns the no_history verdict for a marked row, over its own stored facts', () => {
+  const marked = (availability) => ({
+    playerId: 0, mean: 15, median: 15,
+    factors: { availability, dataQuality: { level: 'low', reasons: ['small sample', 'position baseline'] } },
+  });
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      [1, marked({ available: true, autoRecommend: true, status: null, reason: null })],
+      [2, marked({ available: true, autoRecommend: false, status: 'D', reason: 'doubtful' })],
+      [3, marked({ available: true, autoRecommend: true, status: 'Q', reason: 'questionable' })],
+      [4, marked({ available: false, status: null, reason: 'bye' })],
+      [5, marked({ available: false, status: null, reason: 'no_team' })],
+      [6, marked({ available: false, status: 'O', reason: 'out' })],
+      [7, marked({ available: false, status: 'IR', reason: 'ir' })],
+      // Prior-season-only, sample size 0: no marker, no verdict from the read.
+      [8, { playerId: 8, mean: 9, median: 9, sampleSize: 0, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { level: 'low', reasons: ['small sample', 'prior season'] } } }],
+    ]),
+  });
+  for (const id of [1, 2, 3]) {
+    const verdict = result.availabilityFor(id);
+    assert.equal(verdict.reason, 'no_history', `player ${id}`);
+    assert.equal(verdict.available, true);
+    assert.equal(verdict.autoRecommend, false);
+  }
+  assert.equal(result.availabilityFor(2).status, 'D', 'the stored designation rides along');
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).reason), ['bye', 'no_team', 'out', 'ir']);
+  assert.deepEqual([4, 5, 6, 7].map((id) => result.availabilityFor(id).available), [false, false, false, false]);
+  assert.equal(result.availabilityFor(8), null, 'a prior-season-only row with sample size 0 gets no verdict');
+  assert.equal(result.availabilityFor(999), null, 'no entry for the player at all');
+  assert.equal(result.projections.get(1).factors.availability.reason, null, 'derived on read, never written back to the row');
+});
+
 test('the engine never stores the Position-baseline verdict: availability and activeProbability are unchanged', async (t) => {
   mockPool(t, {
     players: [

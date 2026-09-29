@@ -82,15 +82,16 @@ function finiteNumber(value) {
  * Availability is applied BEFORE optimization, not as a haircut afterwards:
  * a player on a bye, ruled Out, or on IR is not a candidate at all; a locked
  * starter is pinned to his slot; a locked bench player can never be started;
- * and a Doubtful bench player is never auto-promoted over a healthy starter,
- * because there is no reliable active-probability data to make that trade
- * against (see unavailableFor).
+ * and a Doubtful bench player, or a Position-baseline one (#1775: his number
+ * is the position's average, not his own evidence), is never auto-promoted
+ * over a healthy starter, because there is no reliable data to make that
+ * trade against (see unavailableFor).
  *
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
- * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor` accessors and its
- * own `projections` map (the raw run entries, for the full distribution and
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`
+ * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
@@ -133,7 +134,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       continue;
     }
     if (!availability.available) continue; // bye / Out / IR designation
-    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful on the bench
+    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful or Position-baseline on the bench
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
