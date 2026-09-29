@@ -311,6 +311,10 @@ function currentWeeks(leagues) {
  * the digest), so Tuesday's Home page reads the lineup Sunday will start
  * from rather than nine false empty seats. The bye is read against the
  * CURRENT week, with the digest's fn_normalize_nfl_team join (#287).
+ * `on_bye` guards `players.nfl_team IS NOT NULL` (#1791): for a No NFL team
+ * row `fn_normalize_nfl_team(NULL)` is NULL, so the LEFT JOIN below never
+ * matches and `nfl_games.nfl_team IS NULL` alone would misread a free agent
+ * as on bye, feeding `unavailableFor` the wrong precedence.
  */
 async function loadLineups(db, { userId, teamIds }) {
   const byTeam = new Map();
@@ -328,7 +332,7 @@ async function loadLineups(db, { userId, teamIds }) {
      )
      SELECT "lineup_entries"."team_id", "lineup_entries"."slot", "lineup_entries"."ir_attested",
             "players"."name", "players"."injury_status", "players"."nfl_team",
-            ("nfl_games"."nfl_team" IS NULL) AS "on_bye",
+            ("players"."nfl_team" IS NOT NULL AND "nfl_games"."nfl_team" IS NULL) AS "on_bye",
             ${nflRosterStatusColumn()}
      FROM "source"
      JOIN "teams" ON "teams"."id" = "source"."team_id"
