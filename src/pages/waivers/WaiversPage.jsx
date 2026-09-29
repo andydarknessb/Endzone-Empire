@@ -205,7 +205,6 @@ export default function WaiversPage() {
             <WaiverRowDetail
               id={`waiver-row-detail-${player.id}`}
               player={player}
-              roster={rosterData}
               isFaab={isFaab}
               reads={cardReads}
               onOpen={setQuickViewId}

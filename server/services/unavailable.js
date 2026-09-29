@@ -35,13 +35,15 @@ function onPracticeSquad(nflRosterStatus, now) {
  * is no snapshot history to calibrate "Questionable" into a real probability
  * from. Inventing 0.6 would look like a measurement.
  *
- * Precedence: bye, then No NFL team, then Practice squad, then Out and IR.
+ * Precedence: bye, then No NFL team, then Practice squad, then Out and IR, then
+ * Position-baseline (#1775, `positionBaseline`: available but never
+ * auto-recommended; passed only by readers that already hold a projection).
  * `nflRosterStatus` is the fact every reader passes from its own player read
  * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  */
 function unavailableFor({
   injuryStatus = null, onBye = false, noTeam = false, nflRosterStatus = null, now = new Date(),
-  locked = false, lockedSlot = null,
+  locked = false, lockedSlot = null, positionBaseline = false,
 } = {}) {
   const status = injuryStatus ? String(injuryStatus).toUpperCase() : null;
   if (onBye) {
@@ -63,6 +65,24 @@ function unavailableFor({
   }
   if (status === 'IR') {
     return { available: false, activeProbability: 0, reason: 'ir', status, locked, lockedSlot };
+  }
+  if (positionBaseline) {
+    // A Position-baseline projection (#1775): the number is the position's
+    // average, not this player's own evidence. Startable if a manager insists,
+    // never AUTO-recommended (Start/sit advice never moves him onto the
+    // lineup). Reads only AFTER a Weekly projection exists, so the engine's
+    // pre-projection call never passes it and no stored field changes. Bye,
+    // no team, Out and IR (above) still win; this wins over Doubtful,
+    // Questionable and no designation.
+    return {
+      available: true,
+      autoRecommend: false,
+      activeProbability: status === 'D' || status === 'Q' ? null : 1,
+      reason: 'no_history',
+      status,
+      locked,
+      lockedSlot,
+    };
   }
   if (status === 'D') {
     // Doubtful players are startable if a manager insists, but never

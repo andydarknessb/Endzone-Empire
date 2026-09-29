@@ -123,10 +123,10 @@ async function loadIdentityIds(playerId) {
 
 /**
  * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
- * the caller's lineup exactly as `decision.service.waiverSuggestions` does,
+ * the caller's lineup inside a transaction (withTransaction + materializeLineup,
+ * same pattern commissioner.service.js's forceSetLineup uses at :150-165),
  * then makes ONE `getWeeklyProjections` call covering both the caller's
- * current starters and every requested `playerIds`, so the Weekly projection
- * behind
+ * current starters and every requested `playerIds`, so the Weekly projection behind
  * `decision.projWeek.points` and the one behind `decision.upgrade` are the
  * same producer call (Ruling item 2). `upgrades` is `null` for a player on
  * the caller's own roster (checked over the FULL identity set `loadIdentityIds`
@@ -155,9 +155,8 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       );
       return result.rows;
     },
-    // Distinct from decision.service.js's own 'decision' label - the guard
-    // (scripts/handRolledTransactionGuard.test.js) requires every
-    // withTransaction call site to carry a unique label.
+    // A unique label - the guard (scripts/handRolledTransactionGuard.test.js)
+    // requires every withTransaction call site to carry one.
     { label: 'player-card' }
   );
 
@@ -183,12 +182,26 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     season, week, league, playerIds: combinedIds,
   });
 
-  const currentStarters = starterRows.map((r) => ({
-    playerId: r.player_id,
-    slot: r.slot,
-    name: r.name,
-    projection: projections.pointsFor(r.player_id),
-  }));
+  // Unavailable this week (bye, Out, IR, No NFL team, Practice squad): the
+  // engine keeps his full estimate (ADR 0044), but he contributes nothing to
+  // this week's lineup, so he counts as 0 when `decisionService.upgradeFor`
+  // below picks the weakest eligible starter - otherwise his full estimate
+  // masks a real Upgrade and the Decision card never offers it (#1793). Same
+  // `classify()` source as the candidate-side refusal below (#1784). The
+  // reason rides along as `unavailable` (Ruling on #1793, option B) so
+  // `upgradeFor` can carry it onto `overPlayer`, and the claim sheet can tell
+  // "zero because Unavailable" from "zero because he genuinely projects 0"
+  // without re-deriving it from roster fields the client does not have.
+  const currentStarters = starterRows.map((r) => {
+    const classification = projections.classify(r.player_id);
+    return {
+      playerId: r.player_id,
+      slot: r.slot,
+      name: r.name,
+      projection: classification.unavailable ? 0 : projections.pointsFor(r.player_id),
+      unavailable: classification.unavailable ? classification.reason : null,
+    };
+  });
 
   // One identity read for every requested id (Ruling item 3a) rather than one
   // per id: `upgradesFor` over N ids is now the lineup transaction, the

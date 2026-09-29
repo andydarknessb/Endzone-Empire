@@ -185,6 +185,8 @@ test('getLineup returns league-scored current-week projections and preserves una
     kickoff: null,
     game_key: null,
     unavailable: null,
+    // #1776: no Position-baseline marker in his stored projection.
+    positionBaseline: false,
     // #1329: no game this week (weekOpponents carries no row for him here),
     // so both are null - never a bare undefined.
     line: null,
@@ -262,6 +264,100 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
   // outprojects the starter's, so he gets the "Outprojects" chip, even
   // though his mean does not.
   assert.deepEqual(byId.get(2).edge, { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' });
+  fake.assertClean();
+});
+
+// #1776: the Lineup wire says which entries are a Position-baseline projection
+// (CONTEXT.md; the Weekly projection result's `positionBaselineFor`, #1775),
+// so the client can read "no history" without holding a copy of the verdict.
+const POSITION_BASELINE_FACTORS = { dataQuality: { reasons: ['position baseline'] } };
+
+function installPositionBaselineWorld(t, { entries, projections }) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections,
+  }));
+  return createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ id }) => ({ player_id: id })),
+    })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+  ]).install(t);
+}
+
+test('getLineup: each entry carries positionBaseline, false when an Unavailable reason wins (#1776)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Evidenced', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
+    { id: 2, name: 'Backup QB', position: 'QB', nfl_team: 'ARI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Doubtful Backup', position: 'QB', nfl_team: 'LV', injury_status: 'D', injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 4, name: 'Out Backup', position: 'QB', nfl_team: 'PIT', injury_status: 'O', injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 5, name: 'Teamless Backup', position: 'QB', nfl_team: null, injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 20, median: 20, factors: {} }],
+      [2, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+      [3, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+      [4, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+      [5, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+    ]),
+  });
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(1).positionBaseline, false, 'an evidenced player is not Position-baseline');
+  assert.equal(byId.get(2).positionBaseline, true);
+  assert.equal(byId.get(2).unavailable, null, 'Position-baseline is not an Unavailable reason');
+  assert.equal(byId.get(3).positionBaseline, true, 'a Doubtful Position-baseline player is still flagged');
+  assert.equal(byId.get(4).unavailable, 'out');
+  assert.equal(byId.get(4).positionBaseline, false, 'Out wins over Position-baseline');
+  assert.equal(byId.get(5).unavailable, 'no_team');
+  assert.equal(byId.get(5).positionBaseline, false, 'No NFL team wins over Position-baseline');
+  fake.assertClean();
+});
+
+test('getLineup: no bench-above-starter Edge line names a Position-baseline player on either side (#1776)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Real Starter', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
+    { id: 2, name: 'Baseline Bench', position: 'QB', nfl_team: 'ARI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Baseline Starter', position: 'RB', nfl_team: 'DAL', injury_status: null, injury_detail: null, slot: 'RB', ir_attested: false },
+    { id: 4, name: 'Real Bench', position: 'RB', nfl_team: 'GB', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 5, name: 'Real Starter Two', position: 'WR', nfl_team: 'SEA', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
+    { id: 6, name: 'Real Bench Two', position: 'WR', nfl_team: 'WAS', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 12, median: 12, factors: {} }],
+      // The bench Position-baseline number is higher than the starter's.
+      [2, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+      // The starter is Position-baseline; the evidenced bench player is higher.
+      [3, { mean: 8, median: 8, factors: POSITION_BASELINE_FACTORS }],
+      [4, { mean: 11, median: 11, factors: {} }],
+      // Control: two evidenced players still get the comparison.
+      [5, { mean: 9, median: 9, factors: {} }],
+      [6, { mean: 10, median: 10, factors: {} }],
+    ]),
+  });
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(2).edge.kind, 'none', 'a Position-baseline bench player outprojects nobody');
+  assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a Position-baseline starter');
+  assert.deepEqual(byId.get(6).edge, { kind: 'bench-above-starter', text: 'Outprojects Real Starter Two at WR' });
   fake.assertClean();
 });
 

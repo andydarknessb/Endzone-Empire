@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, Paper, Box, FormControlLabel, Switch, Alert } from '@mui/material';
+import { Container, Typography, Paper, Box, FormControlLabel, FormHelperText, Switch, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import { urlBase64ToUint8Array } from '../../utils/push';
@@ -14,6 +14,11 @@ const PREF_FIELDS = [
   { key: 'draftReminders', label: 'Draft reminders & start alerts' },
   { key: 'pickemReminder', label: "Pick'em reminders" },
   { key: 'touchdownCelebrations', label: 'Touchdown celebrations' },
+  {
+    key: 'postgameCutscenes',
+    label: 'Postgame cutscenes',
+    helper: 'A full-screen result the first time you open Home after a week is final.',
+  },
 ];
 
 // Feature-detected each render (cheap) rather than hoisted to module scope,
@@ -178,19 +183,29 @@ function NotificationPrefs() {
 
       <Paper sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {PREF_FIELDS.map((field) => (
-            <FormControlLabel
-              key={field.key}
-              control={
-                <Switch
-                  checked={Boolean(prefs[field.key])}
-                  onChange={() => handleToggle(field.key)}
-                  disabled={savingKey === field.key}
+          {PREF_FIELDS.map((field) => {
+            const helperId = field.helper ? `pref-helper-${field.key}` : undefined;
+            return (
+              <Box key={field.key}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={Boolean(prefs[field.key])}
+                      onChange={() => handleToggle(field.key)}
+                      disabled={savingKey === field.key}
+                      inputProps={helperId ? { 'aria-describedby': helperId } : undefined}
+                    />
+                  }
+                  label={field.label}
                 />
-              }
-              label={field.label}
-            />
-          ))}
+                {field.helper && (
+                  <FormHelperText id={helperId} sx={{ mt: 0, ml: 7 }}>
+                    {field.helper}
+                  </FormHelperText>
+                )}
+              </Box>
+            );
+          })}
         </Box>
       </Paper>
     </Container>

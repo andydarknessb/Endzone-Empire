@@ -1,3 +1,4 @@
+import { hasNoHistory } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import { isEligibleMove } from '../../../features/swap-players';
 
@@ -17,7 +18,8 @@ import { isEligibleMove } from '../../../features/swap-players';
  * the bench players who could fill `slot` (AC4, "the bench options for the
  * player's slot"), sorted by `projectedPoints` (CONTEXT.md's Point estimate,
  * #1482 - never `projection`, the distribution's bare mean) descending - a
- * null value sorts last, the same rule `widgets/lineup-ledger/model/
+ * null value sorts last (a Position-baseline candidate after all of them,
+ * #1777), the same rule `widgets/lineup-ledger/model/
  * buildLedgerSections.js`'s own bench sort applies, restated here rather
  * than imported since that module's export is a full section builder, not
  * this narrower filter. Only a real starting slot has bench options: a card
@@ -60,13 +62,20 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
   const eligible = list.filter(
     (e) => e && e.slot === 'BENCH' && !e.spent && Array.isArray(e.eligibleSlots) && e.eligibleSlots.includes(slot)
   );
-  return eligible
-    .slice()
-    .sort((a, b) => {
+  // #1777: a Position-baseline candidate (`hasNoHistory`, the one helper the
+  // Ledger row also reads) sits after every evidenced option - his number is
+  // the position's average, not evidence, and the card hides it - kept in the
+  // order given since his hidden numbers tie.
+  const evidenced = eligible.filter((e) => !hasNoHistory(e));
+  const noHistory = eligible.filter((e) => hasNoHistory(e));
+  return [
+    ...evidenced.sort((a, b) => {
       const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
       const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
       return bp - ap;
-    })
+    }),
+    ...noHistory,
+  ]
     .map((candidate) => {
       const candidateLocked = locked(candidate);
       return {

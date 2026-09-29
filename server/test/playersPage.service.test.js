@@ -361,3 +361,132 @@ test('readPlayersPage without a league carries nfl_opponent: null on every row (
   const result = await readPlayersPage(baseQuery(), { db: fake });
   assert.equal(result.players[0].nfl_opponent, null);
 });
+
+// #1778 (spec #1774): sorting by projection puts every Position-baseline
+// projection after every evidenced one, whatever its hidden number, and the
+// payload carries the `no_history` verdict reason on those rows only.
+const projectionService = require('../services/projection.service');
+
+function positionBaselineWorld(t) {
+  const league = {
+    id: 1, name: 'Baseline League', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 5,
+  };
+  const players = [
+    { id: 1, name: 'Starter A', position: 'QB', nfl_team: 'KC', total_count: '5', identity_ids: [1] },
+    { id: 2, name: 'Starter B', position: 'QB', nfl_team: 'DAL', total_count: '5', identity_ids: [2] },
+    { id: 3, name: 'Backup With Big Old Numbers', position: 'QB', nfl_team: 'ARI', total_count: '5', identity_ids: [3] },
+    { id: 4, name: 'Backup Nothing', position: 'QB', nfl_team: 'LV', total_count: '5', identity_ids: [4] },
+    { id: 5, name: 'Evidenced No Prior Season', position: 'QB', nfl_team: 'PIT', total_count: '5', identity_ids: [5] },
+  ];
+  // Prior-season pace: 2 > 1; 3 is the hidden number that would win (5000
+  // yards); 4 and 5 have no prior season at all (projected_points null).
+  const seasonRow = (playerId, passingYards) => ({
+    player_id: playerId, season: 2025, games_played: 17, stats: { passingYards }, fantasy_points: 0,
+  });
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/FROM "player_season_stats"/, () => ({
+      rows: [seasonRow(1, 3000), seasonRow(2, 4000), seasonRow(3, 5000)],
+    })],
+    [/FROM "nfl_games"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+  ]);
+  const reads = [];
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
+    reads.push(options);
+    const entry = (reasons) => ({
+      median: 15.37,
+      factors: { availability: { available: true }, dataQuality: { reasons } },
+    });
+    return projectionService.toWeeklyProjectionResult({
+      week: options.week,
+      projections: new Map([
+        [1, entry([])], [2, entry([])], [3, entry(['position baseline'])],
+        [4, entry(['position baseline'])], [5, entry([])],
+      ]),
+    });
+  });
+  return { fake, reads };
+}
+
+test('projection sort DESC: Position-baseline rows come after every evidenced row, in id order (#1778)', async (t) => {
+  const { fake, reads } = positionBaselineWorld(t);
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  // 2 (160) > 1 (120) > 5 (no prior season, reads as 0), then the baseline rows 3 and 4 - although 3's hidden number is the
+  // highest of the pool.
+  assert.deepEqual(result.players.map((p) => p.id), [2, 1, 5, 3, 4]);
+  assert.equal(reads.length, 1, 'one Weekly projection read for the whole pool, not per row');
+  assert.equal(reads[0].week, 5);
+  assert.deepEqual([...reads[0].playerIds].sort(), [1, 2, 3, 4, 5]);
+});
+
+test('projection sort ASC: Position-baseline rows still come last (#1778)', async (t) => {
+  const { fake } = positionBaselineWorld(t);
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'ASC' }),
+    { db: fake },
+  );
+
+  // Player 5 has no prior season: `Number(null)` is 0, so it leads an ascending
+  // sort exactly as it did before this change.
+  assert.deepEqual(result.players.map((p) => p.id), [5, 1, 2, 3, 4]);
+});
+
+test('payload carries verdictReason no_history on Position-baseline rows only (#1778)', async (t) => {
+  const { fake } = positionBaselineWorld(t);
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.equal(byId.get(3).verdictReason, 'no_history');
+  assert.equal(byId.get(4).verdictReason, 'no_history');
+  for (const id of [1, 2, 5]) assert.equal('verdictReason' in byId.get(id), false, `player ${id} is evidenced`);
+});
+
+test('an Unavailable Position-baseline row keeps its own place and carries no no_history (#1778)', async (t) => {
+  const { fake } = positionBaselineWorld(t);
+  projectionService.getWeeklyProjections.mock.mockImplementation(async (options) => projectionService.toWeeklyProjectionResult({
+    week: options.week,
+    projections: new Map([
+      [1, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+      [2, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+      [3, { median: 15.37, factors: { availability: { available: false, reason: 'out' }, dataQuality: { reasons: ['position baseline'] } } }],
+      [4, { median: 15.37, factors: { availability: { available: true }, dataQuality: { reasons: ['position baseline'] } } }],
+      [5, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+    ]),
+  }));
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.equal('verdictReason' in byId.get(3), false, 'Out wins over no history');
+  assert.equal(byId.get(4).verdictReason, 'no_history');
+  assert.equal(result.players[result.players.length - 1].id, 4);
+});
+
+test('other sorts do not take the Weekly projection read (#1778)', async (t) => {
+  const { fake, reads } = positionBaselineWorld(t);
+
+  const result = await readPlayersPage(baseQuery({ leagueId: '1', sortField: 'name', dir: 'ASC' }), { db: fake });
+
+  assert.equal(reads.length, 0);
+  assert.deepEqual(result.players.map((p) => p.id), [1, 2, 3, 4, 5]);
+});

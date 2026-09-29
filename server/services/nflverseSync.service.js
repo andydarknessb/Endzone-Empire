@@ -204,14 +204,6 @@ function filterRowsForWeek(rows, { season, week }) {
   );
 }
 
-/** The unscored per-week snap keys nflverse's snap_counts feed writes. */
-const SNAP_STAT_KEYS = [
-  'usageOffenseSnaps',
-  'usageOffenseSnapPct',
-  'usageDefenseSnaps',
-  'usageDefenseSnapPct',
-];
-
 /**
  * Pure: join one (season, week)'s snap rows to our players (pfr_player_id ->
  * players.csv pfr_id -> espn_id -> players.external_id) and build each matched
@@ -292,10 +284,6 @@ function readNflverseShareAndEpa(row) {
   };
 }
 
-// The six keys readNflverseShareAndEpa writes, for applyNflverseWeekUnit's
-// no-existing-row guard (#1706 f1) below.
-const NFLVERSE_SHARE_EPA_KEYS = Object.keys(readNflverseShareAndEpa({}));
-
 /**
  * Pure: join filtered nflverse rows to our players (via the espn_id
  * crosswalk) and compute each matched player's finalization patch. Rows
@@ -317,9 +305,9 @@ const NFLVERSE_SHARE_EPA_KEYS = Object.keys(readNflverseShareAndEpa({}));
  * summed into the all-zero skip check below as zeros — a null carries no
  * data either, so a row where every field is 0-or-null is still skipped as
  * a no-op merge. This function has no DB access and so cannot tell whether
- * a player_stats row already exists for (player, season, week); the separate
- * guard against these six keys creating a brand new row on their own lives
- * in applyNflverseWeekUnit below, which does have that read (#1706 f1).
+ * a player_stats row already exists for (player, season, week); the guard
+ * against these six keys creating a brand new row on their own lives in the
+ * write module's ownership table (source 'nflverse-week', #1706 f1, #1760).
  */
 function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
   const num = (v) => {
@@ -400,9 +388,12 @@ async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk
   });
   let playersUpdated = 0;
   for (const { playerId, patch } of updates) {
-    const stats = { ...(statsByPlayer.get(playerId) || {}), ...patch };
-    await upsertPlayerStats(db, { playerId, season, week, stats });
-    playersUpdated += 1;
+    // The write module decides: a snap patch never creates a row (#1760), so a
+    // player with no stored line is counted as nothing written.
+    const written = await upsertPlayerStats(db, {
+      playerId, season, week, source: 'nflverse-snaps', fresh: patch, prior: statsByPlayer.get(playerId) || null,
+    });
+    if (written) playersUpdated += 1;
   }
   return { season, week, playersUpdated, teamMismatches };
 }
@@ -483,22 +474,13 @@ async function applyNflverseWeekUnit(db, { season, week, defRows, crosswalk }) {
       [playerId, season, week]
     );
     const priorRow = existing.rows[0];
-    // #1706 f1: this pass must never INSERT a brand new player_stats row as a
-    // side effect of the six unscored share/EPA keys alone (the successor eval
-    // rebuilds from player_stats as it stands). When no row exists yet for
-    // this (player, season, week), strip those six keys and re-apply the
-    // pre-#1706 all-zero IDP skip on what's left; only genuine IDP yardage
-    // still creates a row here, exactly as it did before this ticket. Once a
-    // row exists (Tank01 already wrote one, or a prior pass created one from
-    // real IDP data), every key in patch — new ones included — merges onto it.
-    const effectivePatch = priorRow
-      ? patch
-      : Object.fromEntries(Object.entries(patch).filter(([key]) => !NFLVERSE_SHARE_EPA_KEYS.includes(key)));
-    if (!priorRow && Object.values(effectivePatch).every((v) => v === 0)) continue;
-    const prevStats = priorRow ? priorRow.stats : {};
-    const stats = { ...prevStats, ...effectivePatch };
-    await upsertPlayerStats(db, { playerId, season, week, stats });
-    playersUpdated += 1;
+    // The write module owns the creation rule (#1706 f1, #1760): this pass
+    // never INSERTs a row from the share/EPA keys alone, only from a non-zero
+    // per-defender yardage value; with a row it merges every owned key onto it.
+    const written = await upsertPlayerStats(db, {
+      playerId, season, week, source: 'nflverse-week', fresh: patch, prior: priorRow ? priorRow.stats || {} : null,
+    });
+    if (written) playersUpdated += 1;
   }
   return { season, week, playersUpdated };
 }
@@ -844,10 +826,9 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
  *   league has scored matchups on backfilled seasons.
  * - target_share/air_yards_share/wopr/EPA (readNflverseShareAndEpa, #1706):
  *   this builder reads the row fresh from the same combined file the nightly
- *   finalization pass does, so it emits the six keys directly rather than
- *   carrying them forward via `preserveKeys` — a full-week rewrite (the
- *   Tue/Wed correction pass, or the backfill script) must not be the one
- *   nflverse-only key group it silently erases (review issue #1706 f2).
+ *   finalization pass does, so it emits the six keys directly - a full-week
+ *   rewrite (the Tue/Wed correction pass, or the backfill script) must not be
+ *   the one nflverse-only key group it silently erases (review issue #1706 f2).
  */
 function normalizeNflversePlayerStats(row) {
   const num = (v) => {
@@ -1020,14 +1001,15 @@ function buildCorrectionUnits({ weekPlayerRows, weekTeamRows }) {
  * apply(db, unit) for the 'nflverse-correction' Sync run: one game's COMPLETE
  * player_stats rows from already-fetched nflverse data - full stat lines for
  * every crosswalk-matched player plus the game's DST rows - on the unit's own
- * transaction client (ADR 0036). Same wholesale-jsonb upsert the Tank01 path
- * uses, so `preserveKeys` carries forward the stat keys nflverse has no
- * equivalent for (read here, on the same client, for just this unit's rows).
+ * transaction client (ADR 0036). The write module (source
+ * 'nflverse-correction') replaces the keys nflverse owns and carries forward
+ * every key it does not (the play-by-play TD-length arrays, the snap keys),
+ * from prior lines read here on the same client for just this unit's rows.
  * No league re-score, no play events.
  */
 async function applyNflverseFullWeek(db, unit) {
   const { season, week, gameId, playerRows, teamRows, scoresByGameId, crosswalk,
-    idByExternal, defByTeamCode, preserveKeys } = unit;
+    idByExternal, defByTeamCode } = unit;
   try {
     const playerUpdates = buildFullStatUpdates({
       rows: playerRows,
@@ -1042,39 +1024,35 @@ async function applyNflverseFullWeek(db, unit) {
       if (defRow) dstTargets.push({ playerId: defRow.id, stats });
     }
 
-    // When this runs over a week Tank01 already filled (the Tue/Wed correction
-    // path), carry forward the stat keys nflverse has no equivalent for - the
-    // play-by-play TD-length arrays and the snap keys. They're the only thing a
-    // wholesale nflverse upsert would silently destroy, and destroying them would
-    // zero out TD-length bonuses for exactly the leagues that opted into them.
-    const preserved = new Map();
+    // The write module carries what a wholesale nflverse rewrite must not
+    // destroy (the play-by-play TD-length arrays and the snap keys, which
+    // nflverse's weekly file has no equivalent for) from the prior line read
+    // here on the same client, for just this unit's rows (#1760). No caller
+    // chooses a carry list.
+    const priorByPlayer = new Map();
     const ids = [...playerUpdates.map((u) => u.playerId), ...dstTargets.map((u) => u.playerId)];
-    if (preserveKeys.length > 0 && ids.length > 0) {
+    if (ids.length > 0) {
       const existing = await db.query(
         `SELECT "player_id", "stats" FROM "player_stats"
          WHERE "season" = $1 AND "week" = $2 AND "player_id" = ANY($3)`,
         [season, week, ids]
       );
-      for (const row of existing.rows) {
-        const carry = {};
-        for (const key of preserveKeys) {
-          if (row.stats && row.stats[key] !== undefined) carry[key] = row.stats[key];
-        }
-        if (Object.keys(carry).length > 0) preserved.set(row.player_id, carry);
-      }
+      for (const row of existing.rows) priorByPlayer.set(row.player_id, row.stats || {});
     }
 
     let playersUpdated = 0;
     for (const { playerId, stats: fresh } of playerUpdates) {
-      const carry = preserved.get(playerId);
-      await upsertPlayerStats(db, { playerId, season, week, stats: carry ? { ...fresh, ...carry } : fresh });
-      playersUpdated += 1;
+      const written = await upsertPlayerStats(db, {
+        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null,
+      });
+      if (written) playersUpdated += 1;
     }
     let dstUpdated = 0;
     for (const { playerId, stats: fresh } of dstTargets) {
-      const carry = preserved.get(playerId);
-      await upsertPlayerStats(db, { playerId, season, week, stats: carry ? { ...fresh, ...carry } : fresh });
-      dstUpdated += 1;
+      const written = await upsertPlayerStats(db, {
+        playerId, season, week, source: 'nflverse-correction', fresh, prior: priorByPlayer.get(playerId) || null,
+      });
+      if (written) dstUpdated += 1;
     }
     return { gameId, playersUpdated, dstUpdated };
   } catch (err) {
@@ -1086,14 +1064,6 @@ async function applyNflverseFullWeek(db, unit) {
     throw err;
   }
 }
-
-/**
- * Stat keys only Tank01's play-by-play can produce, so a wholesale nflverse
- * apply must carry them forward rather than overwrite them. nflverse DOES
- * supply exact FG distances (fg_made_list), so that key is deliberately absent
- * here.
- */
-const PBP_ONLY_STAT_KEYS = ['passingTDLengths', 'rushingTDLengths', 'receivingTDLengths'];
 
 /**
  * Rewrite one (season, week) wholesale from nflverse's published CSVs -
@@ -1117,7 +1087,6 @@ async function syncNflverseCorrection({
   teamRows,
   scoresByGameId,
   crosswalk,
-  preserveKeys = [],
 }) {
   let gamesInFile = 0;
   const result = await runSyncJob({
@@ -1143,7 +1112,7 @@ async function syncNflverseCorrection({
       // diverges on the Rams) already lands on WAS and keeps matching;
       // normalizeNflTeam('WAS') is a no-op.
       const defByTeamCode = await boxScoreApply.loadDefUnitsByTeamCode();
-      const shared = { season, week, scoresByGameId: scores, crosswalk: xwalk, idByExternal, defByTeamCode, preserveKeys };
+      const shared = { season, week, scoresByGameId: scores, crosswalk: xwalk, idByExternal, defByTeamCode };
       const units = buildCorrectionUnits({ weekPlayerRows, weekTeamRows }).map((u) => ({ ...shared, ...u }));
       gamesInFile = Math.floor(weekTeamRows.length / 2);
       return { units, detail: { season, week, gamesInFile, games: units.map((u) => u.gameId) } };
@@ -1171,21 +1140,18 @@ async function syncNflverseCorrection({
  * data the NFL's own corrections flow into, published nightly and "cleanest by
  * Thursday" per nflverse's docs.
  *
- * This always runs over weeks Tank01 already filled, so preserving the
- * pbp-only keys is the DEFAULT here rather than something each caller has to
- * remember (correction.service and the backfill script both reach this path).
- * A caller can still pass an explicit list; passing [] opts out entirely.
+ * This always runs over weeks Tank01 already filled; the write module's
+ * ownership table (source 'nflverse-correction') carries the play-by-play and
+ * snap keys forward, so no caller chooses what to keep (#1760).
  *
- * @param {{season: number, week: number, rescoreLeagues?: boolean,
- *          preserveKeys?: string[]}} args
+ * @param {{season: number, week: number, rescoreLeagues?: boolean}} args
  */
 async function correctWeekFromNflverse({
   season,
   week,
   rescoreLeagues = true,
-  preserveKeys = [...PBP_ONLY_STAT_KEYS, ...SNAP_STAT_KEYS],
 }) {
-  const applied = await syncNflverseCorrection({ season, week, preserveKeys });
+  const applied = await syncNflverseCorrection({ season, week });
   if (!rescoreLeagues) return { ...applied, leaguesRescored: 0, corrected: [] };
 
   const leaguesResult = await pool.query(
@@ -1282,7 +1248,7 @@ async function finalizePriorWeeks() {
  *
  * The write is `applyNflverseWeekUnit`'s read-merge-upsert, so everything
  * Tank01 wrote on the row stays, and the live box apply carries these keys
- * forward on its next rewrite (boxScoreApply's NFLVERSE_ONLY_STAT_KEYS): the
+ * forward on its next rewrite (the write module's ownership table): the
  * two feeds never fight over a key.
  *
  * Its own Sync run job, 'nflverse-current-week', not 'nflverse-week': the
@@ -1370,7 +1336,6 @@ module.exports = {
   buildStatUpdates,
   buildSnapUpdates,
   syncNflverseSnaps,
-  SNAP_STAT_KEYS,
   parseFgMadeList,
   nflverseTeamToOurAbbr,
   optionalTeamAbbr,
@@ -1387,7 +1352,6 @@ module.exports = {
   buildCorrectionUnits,
   syncNflverseCorrection,
   correctWeekFromNflverse,
-  PBP_ONLY_STAT_KEYS,
   syncNflverseWeek,
   isNflverseFinalizationDay,
   finalizePriorWeeks,

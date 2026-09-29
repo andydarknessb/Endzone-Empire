@@ -180,8 +180,9 @@ if (!ENABLED) {
     assert.match(latest.detail.failed[0].message, new RegExp(`game ${GAME_2}`), 'the failing game is named in the run detail');
   });
 
-  // Red-tell: drop the preserveKeys merge and the play-by-play arrays and snap
-  // keys Tank01 wrote are overwritten by the wholesale nflverse upsert.
+  // Red-tell: drop the correction's carry of the keys it does not own (the
+  // write module's ownership table) and the play-by-play arrays and snap keys
+  // Tank01 wrote are overwritten by the wholesale nflverse upsert.
   test('correctWeekFromNflverse: a Tank01-filled week keeps its play-by-play and snap carry-forward keys', async (t) => {
     const qb = await seedPlayer('Disposable Carry QB', 'QB', 'KC');
     await pool.query(`DELETE FROM "player_stats" WHERE "season" = $1`, [SEASON]);

@@ -140,8 +140,11 @@ const digestRows = (world) => (sql, params) => {
   requireInStatement(sql, /"nfl_games"\."week" = \$3/, 'the week scope on the game join');
   requireInStatement(
     sql,
-    /\("nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/,
-    'the on_bye projection'
+    /\("players"\."nfl_team" IS NOT NULL AND "nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/,
+    // #1791: fn_normalize_nfl_team(NULL) is NULL, so a No NFL team row's own
+    // join never matches either - the guard is what keeps that reading as No
+    // NFL team rather than On bye.
+    'the on_bye projection with its No NFL team guard'
   );
   const sameTeam = teamPredicateFrom(sql, GAMES_TEAM, PLAYERS_TEAM);
   const rows = world.entries.map((entry) => {
@@ -152,7 +155,8 @@ const digestRows = (world) => (sql, params) => {
       ir_attested: entry.ir_attested || false,
       name: player.name,
       injury_status: player.injury_status || null,
-      on_bye: !game,
+      // Mirrors the guarded SQL: a No NFL team row is never on bye, join or no join.
+      on_bye: player.nfl_team != null && !game,
     };
   });
   return { rows };

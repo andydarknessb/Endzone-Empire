@@ -1250,3 +1250,108 @@ test("#1391 season-tail amendment: a league on week 17 once week 18 has closed i
   );
   fake.assertClean();
 });
+
+// ---------------------------------------------------------------------------
+// #1789: the cached engine's availability verdict is patched by an
+// availability reconcile after this pass writes - scoped to exactly the ids
+// the write actually changed (RETURNING) plus any departure, on the SAME
+// transaction client, guarded by a SAVEPOINT so a reconcile failure can never
+// abort the designation write this run already committed to.
+// ---------------------------------------------------------------------------
+
+const MAIN_INJURY_UPDATE = /^UPDATE "players" p\s+SET "injury_status"/;
+const SAVEPOINT_STMT = /^SAVEPOINT reconcile_availability$/;
+const RELEASE_SAVEPOINT_STMT = /^RELEASE SAVEPOINT reconcile_availability$/;
+const ROLLBACK_TO_SAVEPOINT_STMT = /^ROLLBACK TO SAVEPOINT reconcile_availability$/;
+
+test('#1789: syncInjuries reconciles availability with exactly the changed + departed ids, on the transaction client, after both writes', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileArgs = null;
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 4 }));
+  t.mock.method(projection, 'reconcileAvailability', async (args) => {
+    reconcileArgs = args;
+    return { checked: 1, updated: 1 };
+  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 601, external_id: 'tank-601', injury_status: null, nfl_team: 'BUF' }],
+    }), 'client'],
+    [MAIN_INJURY_UPDATE, () => ({ rows: [{ id: 601 }] }), 'client'], // RETURNING: the row actually changed
+    [SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
+    [RELEASE_SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const now = new Date('2026-09-29T12:00:00Z');
+  await syncInjuries({
+    api: async () => ({ data: { body: [{ playerID: 'tank-601', injury: { designation: 'Questionable' } }] } }),
+    now,
+  });
+
+  assert.ok(reconcileArgs, 'reconcileAvailability was called');
+  assert.deepEqual(reconcileArgs.playerIds, [601], 'exactly the RETURNING id, no untouched no-op match');
+  assert.equal(reconcileArgs.season, 2026);
+  assert.equal(reconcileArgs.fromWeek, 4);
+  assert.equal(reconcileArgs.now, now, 'the injected now threads through');
+  assert.equal(typeof reconcileArgs.client.query, 'function', 'the reconcile runs on a real client, not the pool');
+  const savepointCall = fake.calls.find((c) => SAVEPOINT_STMT.test(c.text));
+  assert.equal(savepointCall.via, 'client', 'the reconcile runs on the SAME transaction client');
+  const releaseIdx = fake.calls.findIndex((c) => RELEASE_SAVEPOINT_STMT.test(c.text));
+  assert.ok(releaseIdx >= 0, 'the savepoint is released on success');
+  const updateIdx = fake.calls.findIndex((c) => MAIN_INJURY_UPDATE.test(c.text));
+  const savepointIdx = fake.calls.findIndex((c) => SAVEPOINT_STMT.test(c.text));
+  assert.ok(updateIdx >= 0 && updateIdx < savepointIdx, 'the reconcile follows the designation write');
+  fake.assertClean();
+});
+
+test('#1789: a run with no designation change and no departure never reconciles - no SAVEPOINT, reconcileAvailability not called', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileCalls = 0;
+  t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 602, external_id: 'tank-602', injury_status: 'Q', nfl_team: 'BUF' }],
+    }), 'client'],
+    // A no-op match: the RETURNING clause reports nothing changed.
+    [MAIN_INJURY_UPDATE, () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await syncInjuries({
+    api: async () => ({ data: { body: [{ playerID: 'tank-602', injury: { designation: 'Questionable' } }] } }),
+  });
+
+  assert.equal(reconcileCalls, 0, 'nothing changed, so no reconcile is attempted');
+  assert.equal(fake.calls.some((c) => SAVEPOINT_STMT.test(c.text)), false, 'no savepoint is opened for nothing');
+  fake.assertClean();
+});
+
+test('#1789: a reconcile failure is isolated by ROLLBACK TO SAVEPOINT and never fails the sync', async (t) => {
+  const projection = require('../services/projection.service');
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 4 }));
+  t.mock.method(projection, 'reconcileAvailability', async () => { throw new Error('reconcile blew up'); });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 603, external_id: 'tank-603', injury_status: null, nfl_team: 'BUF' }],
+    }), 'client'],
+    [MAIN_INJURY_UPDATE, () => ({ rows: [{ id: 603 }] }), 'client'],
+    [SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
+    [ROLLBACK_TO_SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncInjuries({
+    api: async () => ({ data: { body: [{ playerID: 'tank-603', injury: { designation: 'Questionable' } }] } }),
+  });
+
+  // The sync itself succeeds despite the reconcile throwing.
+  assert.equal(result.playersUpdated, 1);
+  assert.ok(fake.calls.some((c) => ROLLBACK_TO_SAVEPOINT_STMT.test(c.text)), 'the failed reconcile rolls back to its own savepoint');
+  assert.equal(fake.calls.some((c) => RELEASE_SAVEPOINT_STMT.test(c.text)), false, 'a failed reconcile is never released');
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  assert.ok(commitIdx >= 0, 'the designation write still commits - the reconcile failure never poisons this transaction');
+  fake.assertClean();
+});

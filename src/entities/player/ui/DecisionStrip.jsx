@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { finite, formatPoints, unavailableLabel } from '../../../shared/lib';
+import { finite, formatPoints, unavailableLabel, NO_HISTORY_LABEL } from '../../../shared/lib';
 
 /**
  * The decision strip (#1307, ADR 0040: "Every context adds the decision
@@ -18,7 +18,7 @@ import { finite, formatPoints, unavailableLabel } from '../../../shared/lib';
  * (best ball, or the caller's own player, ADR 0040) hides the tile outright
  * rather than showing an empty label (the issue's own acceptance criterion).
  */
-export default function DecisionStrip({ decision, usage, ownership, depth, rosterStatus }) {
+export default function DecisionStrip({ decision, usage, ownership, depth, rosterStatus, noHistory = false }) {
   const tiles = [];
 
   if (decision?.projWeek && decision.projWeek.points != null) {
@@ -28,7 +28,10 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
           // #1765: an Unavailable week shows the reason, never a number
           // (CONTEXT.md, Unavailable) - the same label map the weekly bars use.
           ? (unavailableLabel(decision.projWeek.reason) || decision.projWeek.reason)
-          : formatPoints(decision.projWeek.points)}
+          // #1777: `noHistory` (the caller's `hasNoHistory(entry)`, the one
+          // shared helper) reads "no history" instead of the Position-baseline
+          // number, after the Unavailable reason above, which always wins.
+          : (noHistory ? NO_HISTORY_LABEL : formatPoints(decision.projWeek.points))}
       </Tile>
     );
   }

@@ -291,7 +291,17 @@ function rosterTransport(overrides = {}) {
   };
 }
 
-/** A fake pool that knows every athlete id as player id = athlete id + 1000. */
+/**
+ * A fake pool that knows every athlete id as player id = athlete id + 1000.
+ * QA f2: every OK run past this PR reaches the #1789 availability sweep,
+ * which calls the REAL `liveReconcileScope` unless a test stubs it - so
+ * every pre-existing test here needs a `FROM "leagues"` answer or it goes
+ * down the sweep's own swallowed-failure path (a real query the fake has no
+ * handler for, caught and logged, `reconcileAvailability` never reached).
+ * `[]` (no live league) is enough to make that path a clean, silent no-op:
+ * `liveReconcileScope` resolves `null` and the sweep skips `reconcileAvailability`
+ * without ever touching the pool again.
+ */
 function rosterPool(t, { onInsert } = {}) {
   return createFakePool([
     [PLAYERS_BY_EXTERNAL_ID, (text, params) => ({ rows: params[0].map((id) => ({ id: id + 1000, external_id: id })) })],
@@ -300,6 +310,7 @@ function rosterPool(t, { onInsert } = {}) {
       return { rowCount: params[0].length };
     }],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    [/FROM "leagues"/, () => ({ rows: [] })],
   ]).install(t);
 }
 
@@ -364,4 +375,62 @@ test('runRosterStatusSync: stamps the UTC day into detail.day and takes no advis
   await runRosterStatusSync({ now: new Date('2026-08-20T23:30:00-05:00'), transport: rosterTransport() });
   assert.equal(JSON.parse(dataSyncRuns(fake.calls)[0].params[3]).day, '2026-08-21');
   assert.equal(fake.matching(/pg_advisory_xact_lock/).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// #1789: a full availability reconcile sweep follows an OK roster-status run
+// - this job only knows each team's row count, never which players moved, so
+// there is no id list to scope a targeted reconcile to.
+// ---------------------------------------------------------------------------
+
+test('runRosterStatusSync: sweeps availability once after an ok run, scoped to the lowest live current_week', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileArgs = null;
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
+  t.mock.method(projection, 'reconcileAvailability', async (args) => {
+    reconcileArgs = args;
+    return { checked: 10, updated: 1 };
+  });
+  rosterPool(t);
+
+  await runRosterStatusSync({ transport: rosterTransport() });
+
+  assert.ok(reconcileArgs, 'reconcileAvailability was called once');
+  assert.equal(reconcileArgs.season, 2026);
+  assert.equal(reconcileArgs.fromWeek, 3);
+  assert.equal(reconcileArgs.playerIds, undefined, 'a full sweep - no id list, this job cannot know which players moved');
+});
+
+test('runRosterStatusSync: never sweeps when every team failing fails the run (fetch_failed)', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileCalls = 0;
+  // QA f2: `liveReconcileScope` is stubbed to resolve a REAL scope, same as
+  // the positive sweep test above - if the sweep call were ever reached on
+  // this failure path (moved into a `finally`, say), `reconcileAvailability`
+  // below is guaranteed to fire and this test's own assertion would catch
+  // it. Left unstubbed, a reached sweep would call the real
+  // `liveReconcileScope`, which would either find no live league or (before
+  // the `rosterPool` fix above) throw inside the fake pool - either way
+  // silently skipping `reconcileAvailability` and passing for the wrong
+  // reason regardless of whether the guard on failure is actually there.
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
+  t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
+  rosterPool(t);
+
+  await assert.rejects(
+    runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); }, others: () => { throw forbidden(); } }) })
+  );
+
+  assert.equal(reconcileCalls, 0, 'a failed run never reaches the sweep');
+});
+
+test('runRosterStatusSync: a reconcile failure is logged and never fails the run', async (t) => {
+  const projection = require('../services/projection.service');
+  t.mock.method(projection, 'liveReconcileScope', async () => { throw new Error('scope read blew up'); });
+  const fake = rosterPool(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport() });
+
+  assert.equal(result.teamCode, 'NYG', 'the run itself still succeeds');
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'still recorded ok');
 });

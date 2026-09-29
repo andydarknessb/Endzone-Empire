@@ -300,6 +300,50 @@ test('sendLineupReminders does not name a starter who is Out once his game has k
   fake.assertClean();
 });
 
+test('sendLineupReminders names a Practice squad starter and a No NFL team starter (#1791)', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    entries: [
+      lineupRow('QB', 'PS Quarterback', 'KC', {
+        nfl_roster_status: { status: 'practice_squad', capturedAt: new Date().toISOString() },
+      }),
+      lineupRow('WR', 'Free Agent WR', null),
+    ],
+    kickoffRows: [kickoff('KC', hoursFromNow(2))], // not kicked off yet
+  });
+
+  const result = await sendLineupReminders();
+
+  assert.deepEqual(result, { remindersSent: 1 });
+  assert.equal(
+    pushes[0].payload.body,
+    'Lineup check for week 9: PS Quarterback (QB) is on the practice squad; Free Agent WR (WR) has no NFL team'
+  );
+  fake.assertClean();
+});
+
+// #1791 QA: the reminder's own entries query keys on_bye off the same
+// fn_normalize_nfl_team(players.nfl_team) = fn_normalize_nfl_team(nfl_games.nfl_team)
+// LEFT JOIN as loadLineups. fn_normalize_nfl_team(NULL) is NULL, so a No NFL
+// team row's join never matches and on_bye would read true (bye, wrongly)
+// without the `players.nfl_team IS NOT NULL` guard - asserted on the actual
+// SQL text sent, so reverting the guard goes red even though the mocked rows
+// above never carry the pre-fix shape.
+test("sendLineupReminders' entries query guards a No NFL team row from reading as on_bye (#1791)", async (t) => {
+  const { fake } = lineupReminderWorld(t, {
+    entries: [lineupRow('QB', 'Fine QB', 'KC')],
+    kickoffRows: [],
+  });
+
+  await sendLineupReminders();
+
+  const [entriesQuery] = fake.matching(/^SELECT "lineup_entries"\."slot"/);
+  assert.ok(entriesQuery, 'the reminder entries query never ran');
+  assert.match(
+    entriesQuery.text,
+    /\("players"\."nfl_team" IS NOT NULL AND "nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/
+  );
+});
+
 test('sendLineupReminders sends nothing when the only problem is a starter whose game has kicked off', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
     entries: [

@@ -245,8 +245,8 @@ test('getPlayerCard: projWeek.points comes from getWeeklyProjections for the cur
   assert.equal(combinedIdsCalls.length, 1, 'loadUpgradeContext makes exactly ONE combined-ids call');
   assert.equal(combinedIdsCalls[0].season, LEAGUE.current_season);
   assert.equal(combinedIdsCalls[0].week, LEAGUE.current_week);
-  // formal review f2: the ticket exists because waiverSuggestions calls
-  // getWeekProjections with no `league` (routes to default-scoring pool
+  // formal review f2: the ticket exists because the legacy pool-projection
+  // path called getWeekProjections with no `league` (default-scoring pool
   // extrapolation) - assert the actual call carries the league object and
   // the player, not just that A call happened, so dropping `league` here
   // goes red.
@@ -313,7 +313,147 @@ test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate ov
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  assert.deepEqual(card.decision.upgrade, { points: 9, overPlayer: { id: 999, name: 'Weak Starter' }, slot: 'WR' });
+  assert.deepEqual(card.decision.upgrade, {
+    points: 9,
+    overPlayer: { id: 999, name: 'Weak Starter', points: 5, unavailable: null },
+    slot: 'WR',
+  });
+});
+
+// #1793: the weakest-starter comparison must not trust an Unavailable
+// starter's engine estimate either - he adds nothing to this week's lineup,
+// so he counts as 0 when `weakestEligibleStarter` picks the weakest, and the
+// Upgrade names him as overPlayer.
+function twoStarterHandlers() {
+  return [
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: PLAYER.id, position: PLAYER.position, nfl_team: PLAYER.nfl_team }],
+    })],
+    ...buildHandlers({
+      starterRows: [
+        { player_id: 999, slot: 'WR', name: 'Unavailable Starter' },
+        { player_id: 998, slot: 'WR', name: 'Healthy Starter' },
+      ],
+    }),
+  ];
+}
+
+function twoStarterProjection(starter999Availability) {
+  return (week, id) => {
+    if (id === 999) return { mean: 20, median: 20, factors: { availability: starter999Availability } };
+    if (id === 998) return { mean: 12, median: 12, factors: { availability: { available: true } } };
+    return { mean: 10, median: 10, factors: { availability: { available: true } } }; // the candidate, PLAYER.id
+  };
+}
+
+for (const reason of ['bye', 'out', 'ir', 'no_team', 'practice_squad']) {
+  test(`getPlayerCard (#1793): a healthy candidate's Upgrade counts an Unavailable (${reason}) starter as 0, not his 20-point estimate`, async (t) => {
+    createFakePool(twoStarterHandlers()).install(t);
+    mockServices(t, { weeklyProjection: twoStarterProjection({ available: false, reason }) });
+
+    const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+    assert.deepEqual(card.decision.upgrade, {
+      points: 10,
+      overPlayer: { id: 999, name: 'Unavailable Starter', points: 0, unavailable: reason },
+      slot: 'WR',
+    });
+  });
+}
+
+test('getPlayerCard (#1793): with both starters healthy, the weakest-by-points starter is still overPlayer', async (t) => {
+  createFakePool(twoStarterHandlers()).install(t);
+  mockServices(t, { weeklyProjection: twoStarterProjection({ available: true }) });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.upgrade, {
+    points: -2,
+    overPlayer: { id: 998, name: 'Healthy Starter', points: 12, unavailable: null },
+    slot: 'WR',
+  });
+});
+
+// A candidate helper that pins the candidate's OWN position (and starter
+// rows), for the FLEX and tie-break cases below, none of which fit
+// `upgradeHandlers`'s or `twoStarterHandlers`'s fixed WR-vs-WR shape.
+function starterHandlers(starterRows, candidatePosition = 'WR') {
+  return [
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: PLAYER.id, position: candidatePosition, nfl_team: PLAYER.nfl_team }],
+    })],
+    ...buildHandlers({ starterRows }),
+  ];
+}
+
+// #1793 (f4): an Unavailable starter at FLEX must zero out the same way for
+// an RB candidate, who is eligible at both RB and FLEX - not just for the
+// WR-slot case above.
+test('getPlayerCard (#1793): an Unavailable starter at FLEX counts as 0 for an RB candidate too', async (t) => {
+  createFakePool(starterHandlers([{ player_id: 997, slot: 'FLEX', name: 'Unavailable Flex' }], 'RB')).install(t);
+  mockServices(t, {
+    weeklyProjection: (week, id) => (id === 997
+      ? { mean: 18, median: 18, factors: { availability: { available: false, reason: 'out' } } }
+      : { mean: 10, median: 10, factors: { availability: { available: true } } }),
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.upgrade, {
+    points: 10,
+    overPlayer: { id: 997, name: 'Unavailable Flex', points: 0, unavailable: 'out' },
+    slot: 'FLEX',
+  });
+});
+
+// #1793 (f4): two Unavailable starters both read 0, so the existing
+// slot-order tiebreak (DEFAULT_ROSTER_SLOTS: WR before FLEX) still decides
+// which one is overPlayer, exactly as it would for two healthy starters
+// tied on points.
+test('getPlayerCard (#1793): two Unavailable starters tied at 0 break by slot order (WR before FLEX)', async (t) => {
+  createFakePool(starterHandlers([
+    { player_id: 501, slot: 'FLEX', name: 'Flex Tie' },
+    { player_id: 502, slot: 'WR', name: 'WR Tie' },
+  ], 'WR')).install(t);
+  mockServices(t, {
+    weeklyProjection: (week, id) => {
+      if (id === 501) return { mean: 15, median: 15, factors: { availability: { available: false, reason: 'out' } } };
+      if (id === 502) return { mean: 25, median: 25, factors: { availability: { available: false, reason: 'bye' } } };
+      return { mean: 8, median: 8, factors: { availability: { available: true } } };
+    },
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.upgrade, {
+    points: 8,
+    overPlayer: { id: 502, name: 'WR Tie', points: 0, unavailable: 'bye' },
+    slot: 'WR',
+  });
+});
+
+// #1793 (f4): tied on points AND slot, the lower player id wins, unchanged
+// by either starter being Unavailable.
+test('getPlayerCard (#1793): two Unavailable starters tied at 0 in the SAME slot break by the lower id', async (t) => {
+  createFakePool(starterHandlers([
+    { player_id: 504, slot: 'WR', name: 'Higher Id' },
+    { player_id: 503, slot: 'WR', name: 'Lower Id' },
+  ], 'WR')).install(t);
+  mockServices(t, {
+    weeklyProjection: (week, id) => {
+      if (id === 503) return { mean: 30, median: 30, factors: { availability: { available: false, reason: 'ir' } } };
+      if (id === 504) return { mean: 15, median: 15, factors: { availability: { available: false, reason: 'out' } } };
+      return { mean: 6, median: 6, factors: { availability: { available: true } } };
+    },
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(card.decision.upgrade, {
+    points: 6,
+    overPlayer: { id: 503, name: 'Lower Id', points: 0, unavailable: 'ir' },
+    slot: 'WR',
+  });
 });
 
 test('getPlayerCard (#1765): an available player\'s projWeek keeps the Point estimate and carries no reason', async (t) => {

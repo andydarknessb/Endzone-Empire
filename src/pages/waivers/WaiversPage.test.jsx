@@ -494,7 +494,8 @@ test('two refused moves up in a row both keep focus on the moved claim\'s contro
 
 // #1615: the claim sheet.
 const bench = (id, name, pts, position = 'RB') => ({ id, name, position, projected_weekly_points: pts });
-const upgradeFor = (over = { id: 2, name: 'Starter Two' }, points = 3.5) => ({ points, overPlayer: over, slot: 'RB' });
+const upgradeFor = (over = { id: 2, name: 'Starter Two', points: 8.6, unavailable: null }, points = 3.5) =>
+  ({ points, overPlayer: over, slot: 'RB' });
 const SHEET_ROSTER = [bench(3, 'Best Bench', 9.0), bench(2, 'Starter Two', 8.6), bench(1, 'Worst Guy', 2.0), bench(4, 'No Proj', null)];
 const openSheet = async (name = 'Breece Hall') => {
   await userEvent.click(await screen.findByRole('button', { name: `Claim ${name}` }));
@@ -546,6 +547,75 @@ test('drops sort weakest first with projections and the replaced starter is pres
     expect(radios[i]).toHaveAccessibleName(expect.stringContaining(name))
   );
   expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+});
+
+// Ruling on #1793 (option B): the swap preview reads the replaced starter's
+// Weekly points from overPlayer itself (the same producer as the gain), and
+// when he is Unavailable his reason replaces the number so the line reads
+// honestly instead of implying he still projects it.
+// QA f2: the fixture's two numbers and the gain must actually agree - an
+// Unavailable starter reads 0 (his reason, not a number), so mine (Proj Wk)
+// minus his 0 must equal the gain: 3.5 - 0 = 3.5.
+test('the swap preview shows the Unavailable reason in place of the number, and the gain still equals Proj Wk minus his (zeroed) points', async () => {
+  const over = { id: 2, name: 'Starter Two', points: 0, unavailable: 'bye' };
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over, 3.5), projWeek: { week: 4, points: 3.5 } })], roster: SHEET_ROSTER });
+  renderPage();
+  const swap = within(await openSheet()).getByTestId('claim-sheet-swap');
+  expect(swap).toHaveTextContent('Breece Hall 3.5');
+  expect(swap).toHaveTextContent('Starter Two on bye');
+  expect(swap).toHaveTextContent('+3.5 this week');
+});
+
+// Ruling on #1793 (option B): a starter merely Unavailable this week is not
+// a better default drop than none - dropping a healthy stud who is only on
+// a bye is the exact regression (f2) this split guards against. Red-tell:
+// seeding unavailable: 'bye' must un-check the stud's radio.
+test('an Unavailable replaced starter is on the roster but is NOT preselected; "No drop" is checked instead', async () => {
+  const over = { id: 2, name: 'Starter Two', points: 0, unavailable: 'bye' };
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over) })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).not.toBeChecked();
+});
+
+// The healthy-starter fixture keeps its preselection unchanged, carrying
+// `overPlayer.points` rather than a roster lookup - the control case for the
+// two tests above. QA f2: `over.points` (5.4) is deliberately NOT the
+// roster's Pool value for Starter Two (SHEET_ROSTER's 8.6), so a regression
+// back to the old roster lookup would fail the swap-preview assertion below
+// even though the radio assertions alone could not tell the two apart.
+test('a healthy replaced starter still IS preselected as the drop, and the swap preview reads overPlayer.points, not the roster Pool number', async () => {
+  const over = { id: 2, name: 'Starter Two', points: 5.4, unavailable: null };
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over) })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).not.toBeChecked();
+  const swap = within(sheet).getByTestId('claim-sheet-swap');
+  expect(swap).toHaveTextContent('Starter Two 5.4');
+  expect(swap).not.toHaveTextContent('8.6');
+});
+
+// QA f1 (deploy skew): the client (Netlify) and API (Render) release
+// separately, so a client build can run ahead of an API that has not shipped
+// `overPlayer.points`/`.unavailable` yet (the old wire shape: `{ id, name }`
+// only). The swap preview must still show a number (the exact
+// `mine - upgrade.points` fallback, not the roster's stale Pool number), and
+// the drop preselect must treat the missing `unavailable` field exactly as
+// today: preselected when he is on the roster.
+test('an old-shape overPlayer (no points/unavailable, a client ahead of the API) still shows a number and still preselects', async () => {
+  const over = { id: 2, name: 'Starter Two' };
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor(over, 4.0) })], roster: SHEET_ROSTER });
+  renderPage();
+  const sheet = await openSheet();
+  const swap = within(sheet).getByTestId('claim-sheet-swap');
+  // mine (12.1) - upgrade.points (4.0) = 8.1, the exact fallback math - not
+  // the roster's Pool value (8.6) and not "-" (a missing fallback).
+  expect(swap).toHaveTextContent('Starter Two 8.1');
+  expect(swap).not.toHaveTextContent('8.6');
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).not.toBeChecked();
 });
 
 test('a replaced starter who is not on the roster is not preselected', async () => {
@@ -861,7 +931,7 @@ test('the warning disappears once an edit changes the drop', async () => {
 const cardReads = () => apiClient.get.mock.calls.filter(([url]) => /^\/api\/players\/\d+\/card/.test(url));
 const expandButton = (name) => screen.findByRole('button', { name: `Show details for ${name}` });
 const SWAPPER = {
-  upgrade: { points: 3.2, overPlayer: { id: 3, name: 'Best Bench' }, slot: 'RB' },
+  upgrade: { points: 3.2, overPlayer: { id: 3, name: 'Best Bench', points: 8.9, unavailable: null }, slot: 'RB' },
   ros: { points: 150, perGame: 11.5 },
 };
 
@@ -889,6 +959,7 @@ test('the panel shows the swap, Rest of season with per game, the Clear time and
   await userEvent.click(await expandButton('Breece Hall'));
   const panel = await screen.findByTestId('waiver-row-detail');
   expect(within(panel).getByTestId('claim-sheet-swap')).toHaveTextContent('Best Bench');
+  expect(within(panel).getByTestId('claim-sheet-swap')).toHaveTextContent('8.9');
   expect(within(panel).getByTestId('claim-sheet-swap')).toHaveTextContent('+3.2 this week');
   expect(within(panel).getByText('Rest of season')).toBeInTheDocument();
   expect(panel).toHaveTextContent('150.0');
@@ -1043,4 +1114,21 @@ test('the live region announces the loaded headlines', async () => {
   const panel = await screen.findByTestId('waiver-row-detail');
   await within(panel).findByText('One');
   expect(within(panel).getByRole('status')).toHaveTextContent('2 news items');
+});
+
+test('a Position-baseline row reads "no history" in the Proj Wk column, no number (#1778)', async () => {
+  setup({
+    players: [
+      cardsPlayer({ id: 7, name: 'Carson Beck', verdictReason: 'no_history', projWeek: { week: 4, points: 15.37 } }),
+      cardsPlayer({ id: 8, name: 'Real Starter', projWeek: { week: 4, points: 17.2 } }),
+    ],
+  });
+  renderPage();
+  await screen.findByText('Carson Beck');
+  const rows = await screen.findAllByTestId('player-row');
+  const beck = rows.find((row) => row.textContent.includes('Carson Beck'));
+  const starter = rows.find((row) => row.textContent.includes('Real Starter'));
+  expect(within(beck).getByText('no history')).toBeInTheDocument();
+  expect(beck.textContent).not.toMatch(/15.4|15.37/);
+  expect(within(starter).getByText('17.2')).toBeInTheDocument();
 });
