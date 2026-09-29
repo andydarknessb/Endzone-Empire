@@ -617,3 +617,27 @@ test('a released starter counts 0, is not remaining, and the status reads played
   assert.deepEqual(home.starters[1].availability, { available: false, reason: 'no_team' });
   assert.equal(statusForMatchup({ settled: false, home, away: null }), 'played');
 });
+
+// #1767: a starter whose fresh NFL roster status is Practice squad is
+// Unavailable, counted as zero, the same as a released one. The status rides
+// on the Expected final's own candidate read.
+test('a Practice squad starter counts 0 and reads Unavailable practice_squad (#1767)', async (t) => {
+  const capturedAt = new Date(new Date(NOW).getTime() - 3600 * 1000).toISOString();
+  const starters = [
+    { team_id: 10, player_id: 1, position: 'QB', nfl_team: 'KC', injury_status: null, stats: { passingYards: 562.5 } },
+    {
+      team_id: 10, player_id: 6, position: 'WR', nfl_team: 'KC', injury_status: null, stats: null,
+      nfl_roster_status: { status: 'practice_squad', capturedAt },
+    },
+  ];
+  const projections = new Map([[1, { points: 19.0 }], [6, { points: 12.0 }]]);
+  const fake = weekPool(t, { starters, projections });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW,
+  });
+  const wr = byTeam.get(10).starters.find((s) => s.playerId === 6);
+  assert.deepEqual(wr.availability, { available: false, reason: 'practice_squad' });
+  assert.equal(wr.expectedFinal, 0);
+  const candidateRead = fake.calls.find((c) => String(c.text).includes('"lineup_entries"."team_id", "lineup_entries"."player_id"'));
+  assert.ok(candidateRead && String(candidateRead.text).includes('AS "nfl_roster_status"'));
+});

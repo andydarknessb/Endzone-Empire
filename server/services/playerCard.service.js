@@ -554,10 +554,12 @@ const ROSTER_STATUS_LABEL = Object.freeze({ practice_squad: 'Practice squad', re
  * row the daily Sync runs wrote (#1382) - never a live ESPN call, per the
  * Ruling (item 1). `rosterStatus` (#1766) is the card's NFL roster status
  * label from the latest `player_nfl_roster_status` row: "Practice squad" or
- * "Reserve", and null for Active or no row - a fact shown as context, never read
- * for availability or any projected number. Only a capture from the last three
- * days counts: the sweep writes a row for whoever is on a roster today, so a
- * released player writes none and his last row must age out, not show forever.
+ * "Reserve", and null for Active or no row. Only a row updated in the last 48
+ * hours counts, the same freshness the Unavailable verdict applies to the same
+ * row (#1767, unavailable.js NFL_ROSTER_STATUS_FRESH_MS), so the tile never
+ * says Practice squad while the verdict reads Active: the sweep writes a row
+ * for whoever is on a roster today, so a released player writes none and his
+ * last row must age out, not show forever.
  */
 async function loadEspnFacts(player) {
   if (!player.external_id) {
@@ -578,7 +580,7 @@ async function loadEspnFacts(player) {
     ),
     pool.query(
       `SELECT "roster_status", "captured_date"
-       FROM "player_nfl_roster_status" WHERE "player_id" = $1 AND "captured_date" >= CURRENT_DATE - 3
+       FROM "player_nfl_roster_status" WHERE "player_id" = $1 AND "updated_at" > now() - interval '48 hours'
        ORDER BY "captured_date" DESC LIMIT 1`,
       [player.id]
     ),

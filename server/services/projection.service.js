@@ -590,9 +590,9 @@ async function generateProjections({
   expertOverrideByPlayerId = null,
   // #1767: `Map<playerId, { status, capturedAt }>` from
   // `loadNflRosterStatusById`, passed by the live cache path (`completeRun`)
-  // only. Every other caller (the holdout capture, backtest snapshot
-  // replays, the successor evaluator) passes nothing, so every player reads
-  // as Active there and those runs stay byte-identical (DEVIATIONS entry 4).
+  // and the holdout capture (`holdout.service.js`). Backtest snapshot replays
+  // and the successor evaluator pass nothing, so every player reads as
+  // Active there and those runs stay byte-identical (DEVIATIONS entry 4).
   nflRosterStatusById = null,
 }) {
   if (onPreHomeAwayBaseline !== undefined && typeof onPreHomeAwayBaseline !== 'function') {

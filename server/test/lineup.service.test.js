@@ -2353,3 +2353,33 @@ test('annotateLineupEntries: a released player (no NFL team) reads Unavailable n
   );
   assert.equal(entry.unavailable, 'no_team');
 });
+
+// #1767: the Lineup reads the NFL roster status off its own player read and
+// passes it to the one verdict.
+test('annotateLineupEntries: a fresh Practice squad row reads Unavailable practice_squad; a stale one reads Active (#1767)', () => {
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+  const [fresh, stale] = annotateLineupEntries(
+    [
+      { id: 1, nfl_team: 'HOU', injury_status: null, slot: 'RB', nfl_roster_status: { status: 'practice_squad', capturedAt: hoursAgo(2) } },
+      { id: 2, nfl_team: 'HOU', injury_status: null, slot: 'RB', nfl_roster_status: { status: 'practice_squad', capturedAt: hoursAgo(72) } },
+    ],
+    { locked: new Set(), byeByTeam: new Map(), selectedWeek: 8 }
+  );
+  assert.equal(fresh.unavailable, 'practice_squad');
+  assert.equal(stale.unavailable, null);
+});
+
+test('getLineup: the entries read and the spent read both select the NFL roster status column (#1767)', async (t) => {
+  const fake = lineupWorld(t, {
+    rows: R_ROWS, roster: R_ROSTER_TODAY, settled: false,
+    tenures: R_TENURES, spentRows: R_SPENT,
+  });
+  await getLineup({ leagueId: 5, userId: 7, week: L_CURRENT_WEEK });
+  const entriesRead = fake.matching(/^SELECT "players"\."id"[\s\S]*"team_players"/);
+  const spentRead = fake.matching(/"spent_player_id"/);
+  assert.equal(entriesRead.length, 1);
+  assert.equal(spentRead.length, 1);
+  for (const read of [...entriesRead, ...spentRead]) {
+    assert.ok(read.text.includes('FROM "player_nfl_roster_status"') && read.text.includes('AS "nfl_roster_status"'), read.text);
+  }
+});

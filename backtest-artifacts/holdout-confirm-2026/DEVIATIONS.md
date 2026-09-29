@@ -99,32 +99,40 @@ never read, touching no `player_stats` row's existing keys, no `usage*` key,
 no `receptions`, `gameTeam` or `gameOpponent`, and no row count. Recorded as
 purely mechanical; it voids nothing.
 
-## 4. 2026-09-29: availability correction, Practice squad players project hard-unavailable on the live path (#1767)
+## 4. 2026-09-29: availability correction, Practice squad players project hard-unavailable (#1767, PR #1787)
 
 **What changed.** `unavailableFor` gains the `practice_squad` branch: a player
 whose latest NFL roster status row (`player_nfl_roster_status`, #1766) says
-Practice squad and was captured within 48 hours reads `available: false,
+Practice squad and was updated within 48 hours reads `available: false,
 activeProbability: 0`. Precedence is bye, No NFL team, Practice squad, then
 Out and IR. A missing or stale status reads as Active, and Reserve gates
-nothing. The projection engine receives the fact only on the live cache path
-(`completeRun`, the Weekly projection runs every product surface reads),
-through a separate read, because the engine's own player read is pinned by
-the backtest snapshot surface (`scripts/backtest/lib/sqlSurface.js`) and is
-left byte-identical. `MODEL_VERSION`, `MODEL_CONSTANTS` and the pinned hash
-are byte-identical, and no projected number moves: mean, median and the
-interval are computed exactly as before.
+nothing. The projection engine receives the fact as a
+`Map<playerId, status>` read by the caller (`nflRosterStatus.js`
+`loadNflRosterStatusById`), not through its own player read: that text is
+pinned by the backtest snapshot surface (`scripts/backtest/lib/sqlSurface.js`)
+and stays byte-identical. Two callers pass the Map: the live cache path
+(`completeRun`) and the holdout capture (`holdout.service.js`
+`snapshotWeek`, read once on the capture's own REPEATABLE READ connection
+and handed to every arm, required and Challenger). `MODEL_VERSION`,
+`MODEL_CONSTANTS` and the pinned hash are byte-identical, and no projected
+number moves: mean, median and the interval are computed exactly as before.
 
 **Why.** The 2026-09-29 diagnosis (spec #1764) found practice-squad players
 (Phil Mafah NYG, Jawhar Jordan HOU) with `activeProbability` 1 ranking as
-Waiver Wire upgrades and startable options.
+Waiver Wire upgrades and startable options. Captures include the fact so
+captured availability matches what managers saw (spec #1764 story 19; Cory's
+ruling on PR #1787 review finding f2).
 
-**Which claims it touches.** None of the gates. Every direct
-`generateProjections` caller passes no roster status, so every player reads
-Active there exactly as before: the holdout capture (`holdout.service.js`
-`snapshotWeek`, required and Challenger arms), backtest snapshot replays and
-the successor evaluator (`scripts/holdout/lib/successorEval.js`). Captured
-`active_probability` values, section 5 and 7 coverage denominators and
-section 6 lineups are therefore unchanged, and no section 9 void condition
-fires. The live Weekly projection runs, which no gate reads, are where the
-correction lands. Recorded as purely mechanical for the sealed protocol; it
-voids nothing, and no ledger row, snapshot or release_sha is rewritten.
+**Which claims it touches.** The same as entry 2, and no more. No section 9
+void condition fires: `model_version` and `constants_hash` stay their season
+majority. Captures from the merge week onward write `activeProbability` 0 for
+fresh Practice squad rows; section 5 and section 7 exclude such a row from
+Candidate B's coverage denominators (`scripts/holdout/lib/coverage.js`) and
+section 6 ranks it 0 in both arms' lineups (`scripts/holdout/lib/regret.js`),
+the treatment the sealed rules already give an Out designation at capture,
+applied identically in every arm. Backtest snapshot replays and the successor
+evaluator (`scripts/holdout/lib/successorEval.js`) pass no Map, so they read
+every player Active exactly as before and no replayed week changes. Recorded
+as an input correction touching no gate (ADR 0044, the #1589 precedent); it
+voids nothing. Captures made before the merge retain activeProbability 1 on
+the affected rows; no ledger row, snapshot or release_sha is rewritten.

@@ -58,4 +58,6 @@ test('unavailableFor (#1767): a missing, stale (49h), Active or Reserve status r
   assert.equal(healthy({ status: 'active', capturedAt: hoursBefore(1) }).available, true);
   assert.equal(healthy({ status: 'reserve', capturedAt: hoursBefore(1) }).available, true);
   assert.equal(healthy({ status: 'practice_squad', capturedAt: null }).available, true);
+  assert.equal(healthy({ status: 'practice_squad', capturedAt: 'garbage' }).available, true, 'unparseable');
+  assert.equal(healthy({ status: 'practice_squad' }).available, true, 'no timestamp');
 });
