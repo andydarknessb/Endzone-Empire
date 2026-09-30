@@ -1462,7 +1462,8 @@ one week. Deliberately kept separate from both of the above.
 
 **Position-baseline projection**:
 A Weekly projection with no player evidence behind it: the player has no
-stat lines in the engine's lookback, so the whole estimate is his position's
+stat lines in the engine's lookback and no prior-season fallback, so the
+whole estimate is his position's
 per-game baseline and every such player at a position gets the same number.
 It is a real projection, not a verdict: the player may still play and score.
 Surfaces show "no history" in place of its Point estimate and sort it after
