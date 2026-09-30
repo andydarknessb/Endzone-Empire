@@ -26,10 +26,11 @@ the verdict and its presentation, the shape #1589 used for No NFL team:
 3. Like Doubtful, the player is startable if a manager insists but never
    auto-recommended. The verdict is taken by the one verdict function, after
    projection, in the Weekly projection read; the engine's own availability
-   input before projection never sees it. It ranks last among verdicts: a
-   bye, No NFL team, Practice squad, Out or IR wins and shows its Unavailable
-   reason instead of "no history", and a Questionable or Doubtful Game status
-   tag still shows beside it.
+   input before projection never sees it. It ranks below every Unavailable
+   reason and above Doubtful and Questionable: a bye, No NFL team, Practice
+   squad, Out or IR wins and shows its Unavailable reason instead of "no
+   history", and a Questionable or Doubtful Game status tag still shows
+   beside it.
 4. Once started, the Expected final counts him at his number.
 5. Zero evidence only. No games-count threshold, because none has been
    measured.
