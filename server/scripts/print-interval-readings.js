@@ -17,16 +17,21 @@
  *   --season 2026         the season
  *   --current-week 5      the current week: weeks before it are read from the
  *                         ledger, this one from the live runs
- *   --out <dir>           where the markdown tables are written
+ *   --out <dir>           where the markdown tables are written; resolved against
+ *                         the repository root and required to be a directory
+ *                         inside it (the same rule as run-holdout-confirm.js)
  *
  * Output: one file per week, scoring profile and position,
- *   <season>-w<week>-<ledger|live>-<profile>-<position>.md
+ *   <season>-w<week>-<ledger|live>-<profile>-<model version>-<position>.md
  * plus INDEX.md listing them.
  */
 
 const fs = require('fs');
 const path = require('path');
 const reading = require('../services/intervalReading');
+const rootSafety = require('../../scripts/backtest/lib/rootSafety');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 const SOURCE_LEDGER = 'ledger';
 const SOURCE_LIVE = 'live';
@@ -40,13 +45,46 @@ function parseArgs(argv) {
     else if (token === '--out') args.outDir = argv[++i];
     else throw new Error(`print-interval-readings: unknown argument ${token}`);
   }
-  for (const [key, flag] of [['season', '--season'], ['currentWeek', '--current-week'], ['outDir', '--out']]) {
-    const v = args[key];
-    if (v === undefined || (typeof v === 'number' && !Number.isInteger(v))) {
-      throw new Error(`print-interval-readings: ${flag} is required`);
+  for (const [key, flag] of [['season', '--season'], ['currentWeek', '--current-week']]) {
+    if (args[key] === undefined) throw new Error(`print-interval-readings: ${flag} is required`);
+    if (!Number.isInteger(args[key]) || args[key] < 1) {
+      throw new Error(`print-interval-readings: ${flag} must be a positive integer`);
     }
   }
+  if (args.outDir === undefined) throw new Error('print-interval-readings: --out is required');
   return args;
+}
+
+/**
+ * Resolves and confines `--out` exactly as run-holdout-confirm.js's
+ * `resolveOutputPaths` does (see there for why): non-empty, not a UNC path,
+ * resolved against the repository root, and strictly inside it. Called before
+ * any database read, so a bad `--out` fails before any query runs.
+ */
+function resolveOutputDir(outDir) {
+  if (typeof outDir !== 'string' || outDir.trim() === '') {
+    throw new Error('print-interval-readings: --out must be a non-empty path');
+  }
+  rootSafety.assertNotUncFormPath(outDir, 'print-interval-readings: --out');
+  // Resolving is the first half of the containment proof: the value is compared
+  // against the repository root below, before any filesystem call. The
+  // suppression must stay on the line DIRECTLY above the call.
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  const resolved = path.resolve(REPO_ROOT, outDir);
+  const rootCmp = rootSafety.normalizeForCompare(rootSafety.canonicalizeForCompare(REPO_ROOT));
+  const outCmp = rootSafety.normalizeForCompare(rootSafety.canonicalizeForCompare(resolved));
+  if (!rootSafety.isContainedIn(rootCmp, outCmp)) {
+    throw new Error(
+      `print-interval-readings: --out (${outDir}) resolves to ${resolved}, which is not a directory inside this repository`
+    );
+  }
+  return resolved;
+}
+
+/** A file in the already-confined output directory; `file` is always a generated name. */
+function outputPath(dir, file) {
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  return path.join(dir, file);
 }
 
 const fmt = (n) => (Number.isFinite(n) ? n.toFixed(1) : '-');
@@ -96,17 +134,21 @@ function renderPositionTable({ season, week, source, profile, position, rows, no
   return lines.join('\n');
 }
 
-function slug(season, week, source, profile, position) {
-  return `${season}-w${week}-${source}-${profile}-${position}.md`;
+function slug(season, week, source, profile, modelVersion, position) {
+  // One ledger key per (season, week, scoring_hash, model_version, capture_kind):
+  // two scheduled captures of a week under different Model versions must not
+  // share a file.
+  const version = String(modelVersion).replace(/[^A-Za-z0-9._-]/g, '_');
+  return `${season}-w${week}-${source}-${profile}-${version}-${position}.md`;
 }
 
 /** Pure: every position's table for one week/profile/source. `Map<filename, markdown>`. */
-function renderWeekTables({ season, week, source, profile, rows, note }) {
+function renderWeekTables({ season, week, source, profile, modelVersion, rows, note }) {
   const out = new Map();
   for (const position of reading.CONSTANTS.positions) {
     const positionRows = rows.filter((r) => r.position === position);
     out.set(
-      slug(season, week, source, profile, position),
+      slug(season, week, source, profile, modelVersion, position),
       renderPositionTable({ season, week, source, profile, position, rows: positionRows, note })
     );
   }
@@ -159,6 +201,7 @@ async function loadLedgerWeeks({ client, season, currentWeek, profile, rules, mo
       pointEstimateFor({ mean: r.mean == null ? null : Number(r.mean), median: r.median == null ? null : Number(r.median), modelVersion: header.model_version });
     weeks.push({
       week: header.week,
+      modelVersion: header.model_version,
       note: `model ${header.model_version}${header.is_late ? '; LATE capture' : ''}`,
       rows: result.rows.map((r) => toRow(r, point)),
     });
@@ -184,18 +227,19 @@ async function loadLiveWeek({ client, season, currentWeek, rules, model, pointEs
   );
   const point = (r) =>
     pointEstimateFor({ mean: r.mean == null ? null : Number(r.mean), median: r.median == null ? null : Number(r.median), modelVersion: model.MODEL_VERSION });
-  return { week: currentWeek, note: `model ${model.MODEL_VERSION}`, rows: result.rows.map((r) => toRow(r, point)) };
+  return { week: currentWeek, modelVersion: model.MODEL_VERSION, note: `model ${model.MODEL_VERSION}`, rows: result.rows.map((r) => toRow(r, point)) };
 }
 
 async function main(argv) {
   const args = parseArgs(argv);
+  const outDir = resolveOutputDir(args.outDir);
   // Loaded here, not at the top, so the pure renderers above import without a pool.
   const pool = require('../modules/pool');
   const model = require('../services/projectionModel');
   const { pointEstimateFor } = require('../services/projection.service');
   const { SCORING_PRESETS } = require('../services/scoringRules');
 
-  fs.mkdirSync(args.outDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
   const written = [];
   const client = await pool.connect();
   try {
@@ -207,10 +251,10 @@ async function main(argv) {
         [SOURCE_LIVE, [await loadLiveWeek(ctx)].filter(Boolean)],
       ];
       for (const [source, weeks] of sources) {
-        for (const { week, note, rows } of weeks) {
-          const tables = renderWeekTables({ season: args.season, week, source, profile, rows, note });
+        for (const { week, modelVersion, note, rows } of weeks) {
+          const tables = renderWeekTables({ season: args.season, week, source, profile, modelVersion, rows, note });
           for (const [file, markdown] of tables) {
-            fs.writeFileSync(path.join(args.outDir, file), markdown);
+            fs.writeFileSync(outputPath(outDir, file), markdown);
             written.push(file);
           }
         }
@@ -223,17 +267,17 @@ async function main(argv) {
   }
   written.sort();
   fs.writeFileSync(
-    path.join(args.outDir, 'INDEX.md'),
+    outputPath(outDir, 'INDEX.md'),
     ['# Interval reading print', '', ...written.map((f) => `- [${f}](${f})`), ''].join('\n')
   );
-  console.log(`print-interval-readings: wrote ${written.length} tables to ${args.outDir}`);
+  console.log(`print-interval-readings: wrote ${written.length} tables to ${outDir}`);
 }
 
 if (require.main === module) {
   main(process.argv.slice(2)).catch((err) => {
-    console.error(err.message);
+    console.error(err.stack || err.message);
     process.exit(1);
   });
 }
 
-module.exports = { parseArgs, renderPositionTable, renderWeekTables, slug };
+module.exports = { parseArgs, resolveOutputDir, renderPositionTable, renderWeekTables, slug };

@@ -185,18 +185,20 @@ function pairRun(pairs) {
   return pairs.map(([point, width], i) => row(i + 1, { point, floor: point - width / 2, ceiling: point + width / 2 }));
 }
 const ON_LINE = [[8, 16], [10, 20], [11, 22], [13, 26], [14, 28], [15, 30]];
+const STEADY = [9, 2]; // (point, width): far below any line through the others
+const WIDE = [12, 40]; // far above it
 
 test('exact ties straddling the cut tag none of the tied group', () => {
   // A fifth of ten is 2. Three players share the widest distance, so the group
-  // straddles the cut and none is tagged; the narrowest two are clear.
-  const rows = pairRun([[9, 2], [10, 2], ...ON_LINE, [12, 30], [12, 30], [12, 30]].slice(0, 2).concat(ON_LINE.slice(0, 5), [[12, 30], [12, 30], [12, 30]]));
+  // straddles the cut and none is tagged; the two narrowest are clear.
+  const rows = pairRun([STEADY, [10, 2], ...ON_LINE.slice(0, 5), WIDE, WIDE, WIDE]);
   const tags = tagsOf(rows);
   assert.deepEqual(tags.slice(7), [null, null, null]);
   assert.deepEqual(tags.slice(0, 2), ['steady', 'steady']);
 });
 
 test('exact ties wholly inside the fifth are all tagged', () => {
-  const rows = pairRun([[9, 2], [9, 2], ...ON_LINE, [12, 30], [12, 30]].slice(0, 8).concat([[12, 40], [12, 40]]));
+  const rows = pairRun([STEADY, STEADY, ...ON_LINE, WIDE, WIDE]);
   const tags = tagsOf(rows);
   assert.deepEqual([tags[0], tags[1], tags[8], tags[9]], ['steady', 'steady', 'boom_or_bust', 'boom_or_bust']);
   assert.deepEqual(tags.slice(2, 8), Array(6).fill(null));
@@ -305,8 +307,8 @@ test('a null (or non-finite) probability yields start', () => {
 });
 
 test('every constant lives in CONSTANTS', () => {
-  assert.equal(CONSTANTS.tossupCeiling, 0.6);
-  assert.equal(CONSTANTS.strongFloor, 0.8);
+  assert.equal(CONSTANTS.tossupMax, 0.6);
+  assert.equal(CONSTANTS.strongMin, 0.8);
   assert.equal(CONSTANTS.taggedFractionDenominator, 5);
   assert.ok(Number.isFinite(CONSTANTS.minPointEstimate));
   assert.ok(Object.isFrozen(CONSTANTS));
@@ -323,7 +325,25 @@ test('print: parseArgs requires season, current week and out', () => {
     season: 2026, currentWeek: 5, outDir: 'x',
   });
   assert.throws(() => print.parseArgs(['--season', '2026', '--out', 'x']), /--current-week is required/);
+  assert.throws(() => print.parseArgs(['--season', '2026', '--current-week', '5']), /--out is required/);
+  // A present-but-unusable number is invalid, not "required".
+  assert.throws(() => print.parseArgs(['--season', 'abc', '--current-week', '5', '--out', 'x']), /--season must be a positive integer/);
+  assert.throws(() => print.parseArgs(['--season', '2026', '--current-week', '2.5', '--out', 'x']), /--current-week must be a positive integer/);
   assert.throws(() => print.parseArgs(['--bogus']), /unknown argument/);
+});
+
+test('print: --out is refused when empty, UNC, or outside the repository', () => {
+  assert.throws(() => print.resolveOutputDir(''), /non-empty/);
+  assert.throws(() => print.resolveOutputDir('   '), /non-empty/);
+  assert.throws(() => print.resolveOutputDir(String.raw`\\host\share\out`), /UNC/i);
+  assert.throws(() => print.resolveOutputDir(require('node:path').resolve('/', 'elsewhere-outside-repo')), /not a directory inside this repository/);
+  assert.throws(() => print.resolveOutputDir('.'), /not a directory inside this repository/, 'the repo root itself is refused');
+});
+
+test('print: a relative --out resolves inside the repository', () => {
+  const path = require('node:path');
+  const dir = print.resolveOutputDir('backtest-artifacts/interval-reading');
+  assert.equal(dir, path.resolve(__dirname, '..', '..', 'backtest-artifacts', 'interval-reading'));
 });
 
 test('print: a position with a full reference set lists its tagged players, boom_or_bust first', () => {
@@ -350,9 +370,16 @@ test('print: pipes in a name do not break the table', () => {
 });
 
 test('print: renderWeekTables yields one file per position', () => {
-  const tables = print.renderWeekTables({ season: 2026, week: 3, source: 'ledger', profile: 'half_ppr', rows: [] });
+  const tables = print.renderWeekTables({ season: 2026, week: 3, source: 'ledger', profile: 'half_ppr', modelVersion: 'free_baseline_v3.1', rows: [] });
   assert.deepEqual(
     [...tables.keys()],
-    ['QB', 'RB', 'WR', 'TE'].map((p) => `2026-w3-ledger-half_ppr-${p}.md`)
+    ['QB', 'RB', 'WR', 'TE'].map((p) => `2026-w3-ledger-half_ppr-free_baseline_v3.1-${p}.md`)
   );
+});
+
+test('print: two Model versions of one week do not share a file', () => {
+  const a = print.slug(2026, 3, 'ledger', 'ppr', 'free_baseline_v3.1', 'WR');
+  const b = print.slug(2026, 3, 'ledger', 'ppr', 'free_baseline_v3.2', 'WR');
+  assert.notEqual(a, b);
+  assert.doesNotMatch(print.slug(2026, 3, 'ledger', 'ppr', '../x/y', 'WR'), /[/\\]/);
 });

@@ -14,10 +14,14 @@
  * presentation names for it and never a separate estimate (CONTEXT.md), so
  * width here is `p90 - p10`.
  *
- * A row is the camelCased shape of one cached `player_week_projections` row
- * (`projectionFromCachedRow`) or one `projection_snapshot_players` row, plus
- * `pointEstimate`: the run's ranking statistic (`pointEstimateFor`), supplied
- * by the caller so this module needs neither the service nor a pool.
+ * A row is an object with these REQUIRED fields (a missing one reads as
+ * ineligible, so every reading is silently null):
+ *   playerId, position, p10, p25, median, p75, p90, sampleSize, factors
+ *   (`availability.available`, `dataQuality.residualSource`, `dataQuality.reasons`),
+ *   and pointEstimate (the run's ranking statistic, `pointEstimateFor`).
+ * `projectionFromCachedRow` returns everything but `position` and `pointEstimate`:
+ * the caller adds both (position from `players` or the snapshot row). The caller
+ * supplies the Point estimate so this module needs neither the service nor a pool.
  */
 
 /**
@@ -50,12 +54,12 @@ const CONSTANTS = Object.freeze({
   }),
   // Clamps: a threshold at or below the Floor reads the first, at or above the
   // Ceiling the second. Literals, so the clamp is exact rather than 1 - 0.9.
-  floorReading: 0.9,
-  ceilingReading: 0.1,
+  probabilityAtFloor: 0.9,
+  probabilityAtCeiling: 0.1,
   // Verdict band: at or below this is a tossup; above it, a start.
-  tossupCeiling: 0.6,
+  tossupMax: 0.6,
   // At or above this, a strong start.
-  strongFloor: 0.8,
+  strongMin: 0.8,
 });
 
 const TAG_STEADY = 'steady';
@@ -169,8 +173,8 @@ function thresholdProbability(row, threshold) {
   if (!isEligible(row) || !isNumber(threshold)) return null;
   const q = quantilesOf(row);
   const last = q.length - 1;
-  if (threshold <= q[0]) return CONSTANTS.floorReading;
-  if (threshold >= q[last]) return CONSTANTS.ceilingReading;
+  if (threshold <= q[0]) return CONSTANTS.probabilityAtFloor;
+  if (threshold >= q[last]) return CONSTANTS.probabilityAtCeiling;
   // First segment whose upper end reaches the threshold. A flat stretch is
   // matched at its start, so the denominator below is never zero.
   let i = 0;
@@ -192,8 +196,8 @@ function thresholdProbabilities(row) {
 /** Verdict band for a start/sit probability; a null probability is `start`. */
 function verdictBand(probability) {
   if (!isNumber(probability)) return 'start';
-  if (probability <= CONSTANTS.tossupCeiling) return 'tossup';
-  if (probability >= CONSTANTS.strongFloor) return 'strong';
+  if (probability <= CONSTANTS.tossupMax) return 'tossup';
+  if (probability >= CONSTANTS.strongMin) return 'strong';
   return 'start';
 }
 
