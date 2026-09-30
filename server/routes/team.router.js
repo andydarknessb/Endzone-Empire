@@ -6,6 +6,9 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const { addFreeAgent, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
+const {
+  declareCalledShot, withdrawCalledShot, voidShotContradictedBySave,
+} = require('../services/lineupOverride.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
@@ -185,6 +188,16 @@ async function updateLineup(req, res) {
   }
   try {
     const outcome = await setLineup({ leagueId, userId: req.user.id, week, moves });
+    // A saved lineup that no longer matches the team's open called shot voids
+    // it (#1856). The save has already committed, and the shot path never
+    // blocks it: any failure here is logged and the save still answers 200.
+    try {
+      await voidShotContradictedBySave(pool, {
+        teamId: outcome.teamId, season: outcome.season, week: outcome.week,
+      });
+    } catch (shotError) {
+      console.error('called shot: reconciling after a lineup save failed, the save stands:', shotError.message);
+    }
     res.json(outcome);
   } catch (error) {
     if (error.statusCode) {
@@ -227,6 +240,60 @@ router.get('/lineup/advice', async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Error fetching lineup advice', error);
     res.status(500).json({ error: 'failed to fetch lineup advice' });
+  }
+});
+
+// POST /api/team/lineup/called-shot — call a shot on a start/sit suggestion
+// (#1856): keep `starterId` over `benchedId`. Replaces the team's open shot.
+router.post('/lineup/called-shot', async (req, res) => {
+  const { leagueId, week, starterId, benchedId } = req.body || {};
+  if (!Number.isInteger(leagueId) || leagueId < 1) {
+    return res.status(400).json({ error: 'leagueId (integer) is required in the body' });
+  }
+  if (week !== undefined && (!Number.isInteger(week) || week < 1)) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const calledShot = await declareCalledShot({
+      leagueId,
+      userId: req.user.id,
+      week,
+      starterId,
+      benchedId,
+      // The advice with any open shot ignored: the pair being called must be a
+      // suggestion the Forecast would make on its own.
+      loadAdvice: (args) => startSitAdvice({ ...args, ignoreCalledShot: true }),
+    });
+    res.status(201).json({ calledShot });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error calling shot', error);
+    res.status(500).json({ error: 'failed to call shot' });
+  }
+});
+
+// DELETE /api/team/lineup/called-shot?leagueId=N&week=W — withdraw the team's
+// open shot until the first of its two players locks.
+router.delete('/lineup/called-shot', async (req, res) => {
+  const leagueId = req.query.leagueId;
+  if (!/^\d+$/.test(String(leagueId))) {
+    return res.status(400).json({ error: 'leagueId query param (integer) is required' });
+  }
+  const week = req.query.week === undefined ? undefined : req.query.week;
+  if (week !== undefined && !/^\d+$/.test(String(week))) {
+    return res.status(400).json({ error: 'week must be a positive integer' });
+  }
+  try {
+    const outcome = await withdrawCalledShot({
+      leagueId: Number(leagueId),
+      userId: req.user.id,
+      week: week === undefined ? undefined : Number(week),
+    });
+    res.json(outcome);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    console.error('Error withdrawing called shot', error);
+    res.status(500).json({ error: 'failed to withdraw called shot' });
   }
 });
 

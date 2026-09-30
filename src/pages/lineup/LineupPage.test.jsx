@@ -898,6 +898,56 @@ test('a too-close-to-call suggestion shows that chip, never a lean', async () =>
   expect(chip).toHaveTextContent('Too close to call');
 });
 
+test('Call your shot posts the pair, then the re-read advice shows the standing line (#1856)', async () => {
+  const user = userEvent.setup();
+  apiClient.post.mockResolvedValue({ data: { calledShot: {} } });
+  renderPage({
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion({ probabilityBetter: 0.92 })] }) },
+    [`${ADVICE_URL}&reload=1`]: {
+      data: adviceBody({
+        suggestions: [],
+        calledShot: {
+          status: 'pending', outcome: null, canWithdraw: true, probability: 0.92,
+          starter: { playerId: 2, name: 'Derrick King', projection: 8, points: null },
+          benched: { playerId: 10, name: 'Bench Guy', projection: 14.5, points: null },
+        },
+      }),
+    },
+  });
+
+  await user.click(await screen.findByTestId('suggestion-call-shot'));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/team/lineup/called-shot', {
+      leagueId: 1, week: 4, starterId: 2, benchedId: 10,
+    })
+  );
+  const line = await screen.findByTestId('called-shot-line');
+  expect(line).toHaveTextContent('Derrick King over Bench Guy');
+  expect(screen.queryByTestId('suggestion-card')).not.toBeInTheDocument();
+});
+
+test('Withdraw deletes the open shot and the re-read advice drops the line (#1856)', async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockResolvedValue({ data: { withdrawn: true } });
+  const calledShot = {
+    status: 'pending', outcome: null, canWithdraw: true, probability: 0.92,
+    starter: { playerId: 2, name: 'Derrick King', projection: 8, points: null },
+    benched: { playerId: 10, name: 'Bench Guy', projection: 14.5, points: null },
+  };
+  renderPage({
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [], calledShot }) },
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], calledShot: null }) },
+  });
+
+  await user.click(await screen.findByTestId('called-shot-withdraw'));
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/team/lineup/called-shot?leagueId=1&week=4')
+  );
+  await waitFor(() => expect(screen.queryByTestId('called-shot-line')).not.toBeInTheDocument());
+});
+
 test('applying the advice sends exactly the moves it names, as one write', async () => {
   const user = userEvent.setup();
   apiClient.put.mockResolvedValue({ data: {} });

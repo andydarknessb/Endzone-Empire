@@ -1,4 +1,4 @@
-import { buildSuggestionView, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
+import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -285,5 +285,78 @@ describe('buildSuggestionView fact chips (#1853)', () => {
     const view = buildSuggestionView({ slot: 'RB', current: side(1), suggested: side(2) }, entriesById);
     expect(view.sit.factChips).toEqual([]);
     expect(view.start.factChips).toEqual([]);
+  });
+});
+
+describe('canCallShot (#1856)', () => {
+  const side = (playerId) => ({ playerId, name: `p${playerId}`, projection: 10 });
+  const build = (over) => buildSuggestionView(
+    { slot: 'RB', current: side(1), suggested: side(2), verdict: 'start', probabilityBetter: 0.9, ...over },
+    new Map()
+  );
+
+  test('a lean with a probability can be called, and carries the probability', () => {
+    const view = build();
+    expect(view.canCallShot).toBe(true);
+    expect(view.probability).toBe(0.9);
+  });
+
+  test('a tossup or a missing probability cannot', () => {
+    expect(build({ verdict: 'tossup', probabilityBetter: 0.55 }).canCallShot).toBe(false);
+    expect(build({ probabilityBetter: null }).canCallShot).toBe(false);
+    expect(build({ probabilityBetter: undefined }).canCallShot).toBe(false);
+  });
+});
+
+describe('calledShotLine (#1856)', () => {
+  const base = {
+    status: 'pending',
+    outcome: null,
+    canWithdraw: true,
+    probability: 0.925,
+    starter: { playerId: 1, name: 'Kept', projection: 8, points: null },
+    benched: { playerId: 2, name: 'Passed', projection: 14.5, points: null },
+  };
+
+  test('no shot, no line', () => {
+    expect(calledShotLine(null)).toBeNull();
+    expect(calledShotLine(undefined)).toBeNull();
+    expect(calledShotLine({ status: 'pending' })).toBeNull();
+  });
+
+  test('pending: the pair, the numbers as called, open status, withdrawable', () => {
+    expect(calledShotLine(base)).toEqual({
+      text: 'Kept over Passed',
+      numbers: 'Proj 8.0 vs 14.5 · 93% lean to Passed',
+      status: 'Open until the first of the two kicks off',
+      state: 'pending',
+      canWithdraw: true,
+    });
+  });
+
+  test('locked is not withdrawable', () => {
+    const line = calledShotLine({ ...base, status: 'locked', canWithdraw: false });
+    expect(line.state).toBe('locked');
+    expect(line.status).toMatch(/^Locked/);
+    expect(line.canWithdraw).toBe(false);
+  });
+
+  test('resolved hit, miss and void each read their own outcome', () => {
+    const resolved = (outcome) => calledShotLine({
+      ...base,
+      status: 'resolved',
+      outcome,
+      canWithdraw: false,
+      starter: { ...base.starter, points: 12.5 },
+      benched: { ...base.benched, points: 9 },
+    });
+    expect(resolved('hit')).toMatchObject({ state: 'resolved-hit', status: 'Hit: Kept scored 12.5, Passed 9.0' });
+    expect(resolved('miss')).toMatchObject({ state: 'resolved-miss', status: 'Miss: Kept scored 12.5, Passed 9.0' });
+    expect(resolved('void')).toMatchObject({ state: 'resolved-void' });
+    expect(resolved('void').status).toMatch(/^Void/);
+  });
+
+  test('a missing probability drops that clause rather than printing NaN', () => {
+    expect(calledShotLine({ ...base, probability: null }).numbers).toBe('Proj 8.0 vs 14.5');
   });
 });

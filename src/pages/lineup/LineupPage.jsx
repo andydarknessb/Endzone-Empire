@@ -19,6 +19,7 @@ import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useLiveScores } from './model/useLiveScores';
 import { useAdvice } from './model/useAdvice';
+import { useCalledShot } from './model/useCalledShot';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 
 const MIN_WEEK = 1;
@@ -204,6 +205,9 @@ export default function LineupPage() {
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw });
+  // Called shots (#1856): the actions re-read the advice when they land, since
+  // the server pins or releases the shot's pair.
+  const calledShot = useCalledShot({ leagueId: selectedLeagueId, week: lineup?.week, onChanged: advice.reload });
 
   // The two teams' Expected finals for the viewed week's Matchup (#1852), for
   // the start/sit card's underdog-or-favorite line: the entity's shared read of
@@ -479,6 +483,8 @@ export default function LineupPage() {
                     entries={lineup?.entries}
                     bestBall={bestBall}
                     onApply={applyAdvice.apply}
+                    onCallShot={calledShot.busy ? undefined : calledShot.callShot}
+                    onWithdrawShot={calledShot.busy ? undefined : calledShot.withdrawShot}
                     onOpenDecisionCard={setDecisionCardEntryId}
                     expectedFinals={expectedFinals}
                   />

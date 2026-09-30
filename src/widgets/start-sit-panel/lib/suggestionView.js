@@ -153,6 +153,10 @@ export function buildSuggestionView(suggestion, entriesById) {
     start,
     gain: suggestion.gain ?? null,
     tooCloseToCall: isTooCloseToCall(suggestion),
+    // The start/sit probability the Forecast quoted (#1856); a called shot is
+    // offered only where there is an edge to call it against.
+    probability: finite(suggestion.probabilityBetter),
+    canCallShot: !isTooCloseToCall(suggestion) && finite(suggestion.probabilityBetter) != null,
     decideBy: earlierKickoff(sit.kickoff, start.kickoff),
     domainMin: 0,
     domainMax,
@@ -177,6 +181,46 @@ export function movePlanWithout(movePlan, dismissedViews) {
     held.add(view.start.playerId);
   }
   return plan.filter((move) => !held.has(move.playerId));
+}
+
+/**
+ * The standing "Your called shot" line (#1856), from the advice payload's
+ * `calledShot` ({ starter, benched: { name, projection, points }, probability,
+ * status: 'pending' | 'locked' | 'resolved', outcome: 'hit' | 'miss' | 'void' | null,
+ * canWithdraw }), or null when there is none. Returns the pair, the numbers as
+ * called and one status sentence; every status the payload can carry has its
+ * own wording, and an unknown one reads as still open rather than as nothing.
+ */
+export function calledShotLine(calledShot) {
+  if (!calledShot || !calledShot.starter || !calledShot.benched) return null;
+  const { starter, benched } = calledShot;
+  const number = (n) => (finite(n) == null ? '-' : Number(n).toFixed(1));
+  const probability = finite(calledShot.probability);
+  const numbers = [
+    `Proj ${number(starter.projection)} vs ${number(benched.projection)}`,
+    probability != null ? `${Math.round(probability * 100)}% lean to ${benched.name}` : null,
+  ].filter(Boolean).join(' · ');
+  let status;
+  if (calledShot.status === 'resolved') {
+    const scores = `${starter.name} scored ${number(starter.points)}, ${benched.name} ${number(benched.points)}`;
+    if (calledShot.outcome === 'hit') status = `Hit: ${scores}`;
+    else if (calledShot.outcome === 'miss') status = `Miss: ${scores}`;
+    else status = 'Void: a player did not play, or the lineup changed';
+  } else if (calledShot.status === 'locked') {
+    status = 'Locked: one of the two games has started';
+  } else {
+    status = 'Open until the first of the two kicks off';
+  }
+  const state = calledShot.status === 'resolved'
+    ? `resolved-${calledShot.outcome || 'void'}`
+    : (calledShot.status === 'locked' ? 'locked' : 'pending');
+  return {
+    text: `${starter.name} over ${benched.name}`,
+    numbers,
+    status,
+    state,
+    canWithdraw: calledShot.canWithdraw === true,
+  };
 }
 
 /** The Expected final gap, in points, at which the lean line appears (#1852). */

@@ -1,3 +1,4 @@
+import { useCallback, useRef, useState } from 'react';
 import { useEndpoint } from '../../../shared/lib';
 
 /**
@@ -22,11 +23,23 @@ import { useEndpoint } from '../../../shared/lib';
  * would actually write.
  */
 export function useAdvice({ leagueId, week, bestBall }) {
-  const url =
+  // `reload()` re-asks the same endpoint after a called shot is declared or
+  // withdrawn (#1856): the server pins or releases the pair, so the suggestions
+  // and the plan change with it. The counter rides on the URL so useEndpoint
+  // refetches; the first read keeps the plain URL. While a reload is in flight
+  // the previous advice stays on screen (same league and week) rather than the
+  // card flashing empty.
+  const [reloads, setReloads] = useState(0);
+  const reload = useCallback(() => setReloads((n) => n + 1), []);
+  const base =
     !bestBall && leagueId != null && week != null
       ? `/api/team/lineup/advice?leagueId=${leagueId}&week=${week}`
       : null;
-  const { status, data } = useEndpoint(url);
+  const url = base && reloads > 0 ? `${base}&reload=${reloads}` : base;
+  const { status, data: fetched } = useEndpoint(url);
+  const previous = useRef({ base: null, data: null });
+  if (fetched) previous.current = { base, data: fetched };
+  const data = fetched ?? (base && previous.current.base === base ? previous.current.data : null);
 
   return {
     status: bestBall ? 'hidden' : status,
@@ -34,6 +47,10 @@ export function useAdvice({ leagueId, week, bestBall }) {
     movePlan: Array.isArray(data?.movePlan) ? data.movePlan : [],
     projectedTotal: data?.projectedTotal ?? null,
     optimalTotal: data?.optimalTotal ?? null,
+    // The team's called shot for the week, or null (#1856): rendered as the
+    // standing "Your called shot" line.
+    calledShot: data?.calledShot ?? null,
+    reload,
   };
 }
 

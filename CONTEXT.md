@@ -1571,6 +1571,24 @@ Decision card or a Ledger row.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 
+**Called shot**:
+A manager's recorded decision to keep the current starter over the player the
+Forecast would start, made with "Call your shot" on a Lean start row of the
+Start/sit advice. The server stores the pair with both Point estimates and the
+start/sit probability as they stood, one shot per Team per week (calling
+another replaces it), and the manager may withdraw it until the first of its
+two players locks. While it is open the advice treats the pair as it treats
+Lineup-locked players: the starter keeps his slot and the benched player is not
+a candidate, so neither reaches a suggestion or the move plan, and Apply cannot
+undo it. The card shows it as "Your called shot": pending, locked once the
+first of the two games kicks off, then resolved when the week settles. It is a
+hit when the starter scored at least as much as the benched player, a miss when
+he scored less, and void when either never played or a later lineup save no
+longer matched the pair. A failure anywhere in the shot path never blocks
+saving a lineup. Stored in `lineup_overrides`, which also takes automatically
+captured overrides later.
+_Avoid_: pick, bet, prediction
+
 **Optimizer**:
 The assignment routine that fills every starting slot to maximize projected
 points. It will leave a slot empty rather than start a negative projection.

@@ -715,3 +715,35 @@ test('buildSuggestions: carries line, weather and their applied flags through; d
   assert.equal(suggested.line, null);
   assert.equal(suggested.weather, null);
 });
+
+// ---------------------------------------------------------------------------
+// #1856: an open called shot pins its pair like a locked pair
+// ---------------------------------------------------------------------------
+
+test('buildSuggestions: an open called shot keeps its starter in his slot and its benched player out of the suggestions and the plan (#1856)', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'RB'), entry(3, 'RB', 'BENCH'), entry(4, 'RB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([
+    [1, { points: 5 }], [2, { points: 8 }], [3, { points: 30 }], [4, { points: 12 }],
+  ]));
+  const open = buildSuggestions(lineup, projections, new Map(), RB2);
+  // Without the shot the optimizer wants both bench players in.
+  assert.deepEqual(open.suggestions.map((s) => s.suggested.playerId).sort(), [3, 4]);
+
+  const shot = buildSuggestions(lineup, projections, new Map(), RB2, { calledShot: { starterId: 1, benchedId: 3 } });
+  assert.equal(shot.suggestions.length, 1);
+  assert.equal(shot.suggestions[0].current.playerId, 2);
+  assert.equal(shot.suggestions[0].suggested.playerId, 4);
+  for (const move of shot.movePlan) {
+    assert.ok(![1, 3].includes(move.playerId), `movePlan touches shot player ${move.playerId}`);
+  }
+  assert.equal(shot.openSlotFills.some((f) => [1, 3].includes(f.playerId)), false);
+});
+
+test('buildSuggestions: a called shot no longer pins once the lineup stopped matching it (#1856)', () => {
+  // The starter now sits: there is nothing to hold, so the advice is unchanged.
+  const lineup = [entry(1, 'RB', 'BENCH'), entry(3, 'RB', 'RB')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 20 }], [3, { points: 5 }]]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1, { calledShot: { starterId: 1, benchedId: 3 } });
+  assert.equal(result.suggestions.length, 1);
+  assert.equal(result.suggestions[0].suggested.playerId, 1);
+});

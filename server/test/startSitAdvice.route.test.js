@@ -116,6 +116,7 @@ function mockAdviceDependencies(t, {
     queryLog.push({ text, params });
     if (failOdds && text.includes('FROM "game_odds_snapshots"')) throw new Error('pool timeout');
     if (text.includes('FROM "leagues"')) return { rows: [league] };
+    if (text.includes('FROM "lineup_overrides"')) return { rows: [] }; // #1856: no called shot here
     if (text.includes('FROM "game_odds_snapshots"')) return { rows: oddsByGame[params[0]] ? [oddsByGame[params[0]]] : [] };
     if (text.includes('FROM "game_weather_snapshots"')) return { rows: weatherByGame[params[0]] ? [weatherByGame[params[0]]] : [] };
     if (text.includes('FROM "nfl_games"')) {

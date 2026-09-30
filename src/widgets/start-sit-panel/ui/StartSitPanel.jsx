@@ -4,7 +4,7 @@ import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
 import { PlayerNameLink } from '../../../entities/player';
 import { formatKickoff, formatPoints } from '../../../shared/lib';
-import { buildSuggestionView, movePlanWithout, projectedLeanLine } from '../lib/suggestionView';
+import { buildSuggestionView, calledShotLine, movePlanWithout, projectedLeanLine } from '../lib/suggestionView';
 
 /**
  * The Start/sit panel widget (#1238, ADR 0037 AC1): the rail's advice panel,
@@ -34,12 +34,20 @@ import { buildSuggestionView, movePlanWithout, projectedLeanLine } from '../lib/
  * line at the top of the card when the gap is 10 points or more. The line
  * names no player and changes no suggestion.
  *
+ * A called shot (#1856) rides in the same way: each Lean row gets a "Call your
+ * shot" action beside Dismiss through `onCallShot(view)`, and the advice
+ * payload's `calledShot` renders the standing "Your called shot" line (pair,
+ * numbers as called, status, and Withdraw through `onWithdrawShot()` while the
+ * payload allows it).
+ *
  * Heading stays "Endzone Forecast" (CONTEXT.md's Endzone Forecast: "the name
  * the product gives its projection engine ... what managers see on the
  * advice surfaces"); no copy here ever reads "optimal", "optimize" or
  * "range" (AC6).
  */
-export default function StartSitPanel({ advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals }) {
+export default function StartSitPanel({
+  advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot,
+}) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState('');
   // The panel's own content container (formal risk review finding: Dismiss
@@ -65,6 +73,11 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
   const movePlan = movePlanWithout(advice?.movePlan, allViews.filter((v) => dismissed.has(v.key)));
   const canApply = movePlan.length > 0;
   const leanLine = projectedLeanLine(expectedFinals);
+  // The standing "Your called shot" line reads the advice payload (#1856): the
+  // server pins the shot's pair, so it never appears as a row above and the
+  // panel adds no client-side filter for it (Dismiss's movePlanWithout is
+  // per-mount UI state only).
+  const shotLine = calledShotLine(advice?.calledShot);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
@@ -96,6 +109,34 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
           <Typography data-testid="start-sit-lean-line" sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}>
             {leanLine}
           </Typography>
+        )}
+
+        {shotLine && (
+          <Box
+            data-testid="called-shot-line"
+            data-state={shotLine.state}
+            sx={{ p: '10px 12px', border: '1px solid var(--dash-line)', borderRadius: 'var(--dash-radius-sm)', display: 'grid', gap: '2px' }}
+          >
+            <Typography sx={{ fontSize: '11px', fontWeight: 700, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
+              Your called shot
+            </Typography>
+            <Typography data-testid="called-shot-pair" sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}>
+              {shotLine.text}
+            </Typography>
+            <Typography data-testid="called-shot-numbers" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+              {shotLine.numbers}
+            </Typography>
+            <Typography data-testid="called-shot-status" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+              {shotLine.status}
+            </Typography>
+            {shotLine.canWithdraw && onWithdrawShot && (
+              <Box>
+                <DashButton variant="ghost" size="sm" data-testid="called-shot-withdraw" onClick={() => onWithdrawShot()}>
+                  Withdraw
+                </DashButton>
+              </Box>
+            )}
+          </Box>
         )}
 
         {views.length === 0 && (
@@ -150,7 +191,7 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
               </Typography>
             )}
 
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <DashButton
                 variant="ghost"
                 size="sm"
@@ -171,6 +212,17 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
               >
                 Dismiss
               </DashButton>
+              {view.canCallShot && onCallShot && (
+                <DashButton
+                  variant="ghost"
+                  size="sm"
+                  data-testid="suggestion-call-shot"
+                  aria-label={`Call your shot: keep ${view.sit.name} over ${view.start.name}`}
+                  onClick={() => onCallShot(view)}
+                >
+                  Call your shot
+                </DashButton>
+              )}
             </Box>
           </Box>
         ))}
