@@ -204,28 +204,37 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
     throw new CalledShotError(409, 'that pair is too close to call, so there is no edge to call a shot against');
   }
 
-  await withTransaction(
-    pool,
-    async (client) => {
-      await client.query(
-        `DELETE FROM "lineup_overrides"
-         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "team_id" = $4 AND "called"`,
-        [leagueId, advice.season, advice.week, team.id]
-      );
-      await client.query(
-        `INSERT INTO "lineup_overrides"
-           ("league_id", "team_id", "season", "week", "slot", "starter_player_id", "benched_player_id",
-            "starter_point_estimate", "benched_point_estimate", "probability", "verdict", "called", "declared_at")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12)`,
-        [
-          leagueId, team.id, advice.season, advice.week, suggestion.slot, starterId, benchedId,
-          suggestion.current.projection, suggestion.suggested.projection, suggestion.probabilityBetter,
-          suggestion.verdict, now,
-        ]
-      );
-    },
-    { label: 'declare-called-shot' }
-  );
+  try {
+    await withTransaction(
+      pool,
+      async (client) => {
+        await client.query(
+          `DELETE FROM "lineup_overrides"
+           WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "team_id" = $4 AND "called"`,
+          [leagueId, advice.season, advice.week, team.id]
+        );
+        await client.query(
+          `INSERT INTO "lineup_overrides"
+             ("league_id", "team_id", "season", "week", "slot", "starter_player_id", "benched_player_id",
+              "starter_point_estimate", "benched_point_estimate", "probability", "verdict", "called", "declared_at")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12)`,
+          [
+            leagueId, team.id, advice.season, advice.week, suggestion.slot, starterId, benchedId,
+            suggestion.current.projection, suggestion.suggested.projection, suggestion.probabilityBetter,
+            suggestion.verdict, now,
+          ]
+        );
+      },
+      { label: 'declare-called-shot' }
+    );
+  } catch (error) {
+    // Two declares for one team-week racing each other: the partial unique
+    // index lets one row in and refuses the other.
+    if (error && error.code === '23505') {
+      throw new CalledShotError(409, 'another shot was called for this week at the same moment; try again');
+    }
+    throw error;
+  }
   return loadCalledShot(pool, { league, teamId: team.id, season: advice.season, week: advice.week, now });
 }
 

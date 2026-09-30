@@ -341,3 +341,17 @@ test('a saved lineup that contradicts the open shot voids it (#1856)', async (t)
   assert.equal(response.status, 200);
   assert.equal(world.calledRow.outcome, 'void');
 });
+
+test('two declares racing for one team-week: the loser is told to try again, not a 500 (#1856)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  mountWorld(t, {
+    extra: [[/^INSERT INTO "lineup_overrides"/, () => {
+      const error = new Error('duplicate key value violates unique constraint');
+      error.code = '23505';
+      throw error;
+    }]],
+  });
+  const response = await declare({ starterId: 1, benchedId: 3 });
+  assert.equal(response.status, 409);
+  assert.match(response.body.error, /same moment/);
+});
