@@ -1019,6 +1019,8 @@ test('GET /waiver-targets caps the list at 8 after the cutoff, keeping board ord
 });
 
 test('GET /waiver-targets: the waiver week waits until every game of the previous Slate is final', async (t) => {
+  // An empty board falls back to the computed list, which has nothing projected here.
+  t.mock.method(require('../services/projection.service'), 'getWeekProjections', async () => new Map());
   t.mock.method(waiverBoards, 'getBoard', (season, week) => {
     assert.equal(season, 2026);
     return { season, week, entries: [] };
@@ -1029,6 +1031,7 @@ test('GET /waiver-targets: the waiver week waits until every game of the previou
   assert.equal(waiting.body.week, 3);
 
   t.mock.restoreAll();
+  t.mock.method(require('../services/projection.service'), 'getWeekProjections', async () => new Map());
   t.mock.method(waiverBoards, 'getBoard', (season, week) => ({ season, week, entries: [] }));
   installPool(t, slateHandlers({ week3LastStatus: 'final' }));
   const done = await request(makeApp()).get('/api/public/waiver-targets');
@@ -1116,15 +1119,16 @@ test('deriveWaiverWeek: week 1 with no games, partial finals, a Tuesday game and
   assert.equal(deriveWaiverWeek([{ week: 18, status: 'final' }, { week: 19, status: 'final' }]), 18);
 });
 
-test('GET /waiver-targets returns an empty editorial list when no board exists for the waiver week', async (t) => {
+test('GET /waiver-targets returns an empty computed list when no board exists and nothing is projected', async (t) => {
   t.mock.method(waiverBoards, 'getBoard', () => null);
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
   installPool(t, slateHandlers({ week3LastStatus: 'in_progress' }));
 
   const res = await request(makeApp()).get('/api/public/waiver-targets');
 
   assert.equal(res.status, 200);
   assert.equal(res.body.week, 3);
-  assert.equal(res.body.source, 'editorial');
+  assert.equal(res.body.source, 'computed');
   assert.deepEqual(res.body.targets, []);
   assert.equal(res.body.ownershipAsOf, null);
 });
@@ -1150,6 +1154,228 @@ test('GET /waiver-targets exposes Ownership only for the returned targets', asyn
   assert.ok(!body.includes('57.3'), 'a non-board player percentage never appears');
   assert.ok(!body.includes('"ownership":50'), 'a dropped entry percentage never appears');
   assert.deepEqual(res.body.targets.map((x) => x.ownership), [18, 17.5]);
+});
+
+// ---------------------------------------------------------------------------
+// GET /waiver-targets computed fallback when no board exists (#1830)
+// ---------------------------------------------------------------------------
+
+const projectionService = require('../services/projection.service');
+
+// One candidate: `points` is the Pool projection; the rest are the facts the
+// candidate read returns for the player row.
+function candidate(id, points, over = {}) {
+  return {
+    id, points, name: `Cand ${id}`, position: 'WR', nfl_team: 'NYJ', photo_url: null,
+    injury_status: null, has_recent_stats: true, ownership: '10.00', ...over,
+  };
+}
+
+// Installs the no-board world: Pool projections, the candidate read, Ownership,
+// and a Weekly run whose Position-baseline / Unavailable verdicts come from
+// `baseline` and `unavailable` (sets of ids).
+function installComputed(t, candidates, { baseline = [], unavailable = [], week3LastStatus = 'final' } = {}) {
+  t.mock.method(waiverBoards, 'getBoard', () => null);
+  t.mock.method(projectionService, 'getWeekProjections', async () => new Map(
+    candidates.map((c) => [c.id, { points: c.points, source: 'extrapolated' }])
+  ));
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
+    pointsFor: () => null,
+    positionBaselineFor: (id) => baseline.includes(id),
+    classify: (id) => (unavailable.includes(id) ? { unavailable: true, reason: 'bye' } : { unavailable: false, points: 1 }),
+    playerIds,
+  }));
+  const seen = { candidateParams: null };
+  installPool(t, [
+    ['"has_recent_stats"', (params) => {
+      seen.candidateParams = params;
+      return { rows: candidates.filter((c) => params[0].includes(c.id)) };
+    }],
+    ...slateHandlers({
+      week3LastStatus,
+      ownership: candidates.filter((c) => c.ownership != null).map((c) => ownershipRow(c.id, c.ownership)),
+    }),
+  ]);
+  return seen;
+}
+
+test('GET /waiver-targets with no board returns computed targets ranked by this week\'s projection', async (t) => {
+  const seen = installComputed(t, [
+    candidate(1, 8.2, { name: 'Low', position: 'WR' }),
+    candidate(2, 15.4, { name: 'High', position: 'RB', nfl_team: 'MIA' }),
+    candidate(3, 11.0, { name: 'Mid', position: 'TE', nfl_team: 'NYJ' }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.week, 4);
+  assert.equal(res.body.source, 'computed');
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['High', 'Mid', 'Low']);
+  const first = res.body.targets[0];
+  assert.equal(first.position, 'RB');
+  assert.equal(first.nflTeam, 'MIA');
+  assert.equal(first.opponent, 'MIN');
+  assert.equal(first.ownership, 10);
+  assert.equal(first.projection, 15.4);
+  assert.ok(!('bidMin' in first) && !('bidMax' in first) && !('reason' in first), 'no bid range or reason on a computed target');
+  assert.equal(res.body.ownershipAsOf, '2026-09-29');
+  // The stats window is the last two completed weeks of the waiver week's season.
+  assert.equal(seen.candidateParams[1], 2026);
+  assert.deepEqual([...seen.candidateParams[2]].sort(), [2, 3]);
+  assertNoLeakyKeys(res.body);
+});
+
+test('GET /waiver-targets computed: a Position-baseline player with the highest projection is not returned', async (t) => {
+  installComputed(t, [
+    candidate(1, 30, { name: 'Baseline Star' }),
+    candidate(2, 9, { name: 'Real Evidence' }),
+  ], { baseline: [1] });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Real Evidence']);
+});
+
+test('GET /waiver-targets computed: a player with no stats in the last two completed weeks is not returned', async (t) => {
+  installComputed(t, [
+    candidate(1, 20, { name: 'No Recent Stats', has_recent_stats: false }),
+    candidate(2, 9, { name: 'Played' }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Played']);
+});
+
+test('GET /waiver-targets computed: Out, IR and Doubtful are not returned; Questionable is', async (t) => {
+  installComputed(t, [
+    candidate(1, 20, { name: 'Out Guy', injury_status: 'O' }),
+    candidate(2, 19, { name: 'IR Guy', injury_status: 'IR' }),
+    candidate(3, 18, { name: 'Doubtful Guy', injury_status: 'D' }),
+    candidate(4, 17, { name: 'Questionable Guy', injury_status: 'Q' }),
+    candidate(5, 16, { name: 'Healthy Guy', injury_status: null }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Questionable Guy', 'Healthy Guy']);
+});
+
+test('GET /waiver-targets computed: a player with No NFL team and an Unavailable player are not returned', async (t) => {
+  installComputed(t, [
+    candidate(1, 20, { name: 'No Team', nfl_team: null }),
+    candidate(2, 19, { name: 'On Bye' }),
+    candidate(3, 9, { name: 'Available' }),
+  ], { unavailable: [2] });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Available']);
+});
+
+test('GET /waiver-targets computed: 99.8% Ownership (Kenneth Walker III), exactly 50% and no Ownership row are not returned', async (t) => {
+  installComputed(t, [
+    candidate(1, 25, { name: 'Kenneth Walker III', position: 'RB', ownership: '99.80' }),
+    candidate(2, 24, { name: 'Half Owned', ownership: '50.00' }),
+    candidate(3, 23, { name: 'No Row', ownership: null }),
+    candidate(4, 9, { name: 'Under Half', ownership: '49.99' }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Under Half']);
+  assert.ok(!JSON.stringify(res.body).includes('99.8'));
+});
+
+test('GET /waiver-targets computed: only QB, RB, WR and TE are returned', async (t) => {
+  installComputed(t, [
+    candidate(1, 20, { name: 'Kicker', position: 'K' }),
+    candidate(2, 19, { name: 'Defense', position: 'DEF' }),
+    candidate(3, 9, { name: 'Passer', position: 'QB' }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Passer']);
+});
+
+test('GET /waiver-targets computed: at most 2 per position, and never more than 8 targets', async (t) => {
+  const rbs = Array.from({ length: 5 }, (_, i) => candidate(10 + i, 20 - i, { name: `RB ${i}`, position: 'RB' }));
+  installComputed(t, rbs);
+  const onlyRbs = await request(makeApp()).get('/api/public/waiver-targets');
+  assert.deepEqual(onlyRbs.body.targets.map((x) => x.name), ['RB 0', 'RB 1']);
+
+  t.mock.restoreAll();
+  const many = ['QB', 'RB', 'WR', 'TE'].flatMap((position, p) => Array.from({ length: 4 }, (_, i) => (
+    candidate(100 + p * 10 + i, 30 - p - i * 4, { name: `${position} ${i}`, position })
+  )));
+  installComputed(t, many);
+  const full = await request(makeApp()).get('/api/public/waiver-targets');
+  assert.equal(full.body.targets.length, 8);
+  for (const position of ['QB', 'RB', 'WR', 'TE']) {
+    assert.equal(full.body.targets.filter((x) => x.position === position).length, 2);
+  }
+  const projections = full.body.targets.map((x) => x.projection);
+  assert.deepEqual(projections, [...projections].sort((a, b) => b - a));
+});
+
+test('GET /waiver-targets computed: a Position-baseline player does not use up a position slot', async (t) => {
+  installComputed(t, [
+    candidate(1, 30, { name: 'Baseline RB', position: 'RB' }),
+    candidate(2, 20, { name: 'RB A', position: 'RB' }),
+    candidate(3, 19, { name: 'RB B', position: 'RB' }),
+    candidate(4, 18, { name: 'RB C', position: 'RB' }),
+  ], { baseline: [1] });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['RB A', 'RB B']);
+});
+
+test('GET /waiver-targets with a board for the waiver week returns the board, not the fallback', async (t) => {
+  installComputed(t, [candidate(1, 30, { name: 'Computed Star' })]);
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    ownership: [ownershipRow(502, '18.00')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.body.source, 'editorial');
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Braelon Allen']);
+  assert.equal(projectionService.getWeekProjections.mock.callCount(), 0);
+});
+
+test('GET /waiver-targets computed: waiver week 3 looks back at completed weeks 1 and 2', async (t) => {
+  const seen = installComputed(t, [candidate(1, 30, { name: 'Anyone' })], { week3LastStatus: 'in_progress' });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.body.week, 3);
+  assert.equal(res.body.source, 'computed');
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Anyone']);
+  assert.deepEqual([...seen.candidateParams[2]].sort(), [1, 2]);
+});
+
+test('GET /waiver-targets computed: no completed week (waiver week 1) has nothing to compute from', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => null);
+  t.mock.method(projectionService, 'getWeekProjections', async () => { throw new Error('should not be read'); });
+  installPool(t, [
+    ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
+    ['FROM "nfl_games"', { rows: scheduleRows(1, 'KC', 'BUF', '2026-09-10T00:20:00Z') }],
+    ['FROM "live_game_states"', { rows: [] }],
+    ['FROM "private"."game_recaps"', { rows: [] }],
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.week, 1);
+  assert.equal(res.body.source, 'computed');
+  assert.deepEqual(res.body.targets, []);
 });
 
 test('GET /waiver-targets surfaces a failed read as 500', async (t) => {

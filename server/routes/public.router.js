@@ -129,7 +129,8 @@ router.get('/rankings', async (req, res) => {
 });
 
 // GET /api/public/waiver-targets: the waiver week's editorial board, gated by
-// Ownership (#1829). No params; the waiver week comes from game finality.
+// Ownership (#1829), or a projection-ranked computed list when no board exists
+// (#1830). No params; the waiver week comes from game finality.
 const WAIVER_TARGETS_TTL_MS = 60_000;
 let waiverTargetsCache = null;
 router.get('/waiver-targets', async (_req, res) => {

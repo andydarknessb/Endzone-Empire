@@ -41,7 +41,7 @@ function initials(name) {
 }
 
 function WaiverTargetCard({ target }) {
-  const { playerId, name, position, nflTeam, photoUrl, opponent, ownership, bidMin, bidMax, reason } = target;
+  const { playerId, name, position, nflTeam, photoUrl, opponent, ownership, bidMin, bidMax, reason, projection } = target;
   return (
     <Card variant="outlined" sx={{ height: '100%' }}>
       <CardActionArea component={RouterLink} to={`/players/${playerId}`} sx={{ p: 1.5, height: '100%' }}>
@@ -74,10 +74,20 @@ function WaiverTargetCard({ target }) {
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>owned</Typography>
           </Box>
         </Stack>
-        <Typography variant="body2" sx={{ mt: 1.25, fontWeight: 700 }}>
-          {`Bid ${bidMin} to ${bidMax}% of budget`}
-        </Typography>
-        <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary' }}>{reason}</Typography>
+        {/* A computed target (no board this week) carries the projection instead
+            of an editorial bid range and reason. */}
+        {projection != null ? (
+          <Typography variant="body2" sx={{ mt: 1.25, fontWeight: 700 }}>
+            {`${projection} proj`}
+          </Typography>
+        ) : (
+          <>
+            <Typography variant="body2" sx={{ mt: 1.25, fontWeight: 700 }}>
+              {`Bid ${bidMin} to ${bidMax}% of budget`}
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary' }}>{reason}</Typography>
+          </>
+        )}
       </CardActionArea>
     </Card>
   );
@@ -97,7 +107,9 @@ function WaiverTargets() {
         {title}
       </Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75, mb: 2.5, maxWidth: 760 }}>
-        This week&apos;s picks from our Darkness Report, limited to players rostered in under half of public leagues. Bids are a percent of a $100 budget. Actual availability depends on your league, but these are useful players to monitor before claims run.
+        {data?.source === 'computed'
+          ? 'No Darkness Report is posted for this week yet, so these are the highest-projected players rostered in under half of public leagues, at most two per position. Actual availability depends on your league, but these are useful players to monitor before claims run.'
+          : 'This week’s picks from our Darkness Report, limited to players rostered in under half of public leagues. Bids are a percent of a $100 budget. Actual availability depends on your league, but these are useful players to monitor before claims run.'}
       </Typography>
       {loading && <LoadingRows rows={3} height={76} />}
       {!loading && error && <ErrorState message="We couldn't load this week's waiver targets." onRetry={retry} />}
