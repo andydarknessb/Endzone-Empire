@@ -1,4 +1,4 @@
-import { buildSuggestionView, earlierKickoff, isTooCloseToCall, opponentContextText } from './suggestionView';
+import { buildSuggestionView, earlierKickoff, isTooCloseToCall, movePlanWithout, opponentContextText } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -123,5 +123,32 @@ describe('buildSuggestionView', () => {
 
   test('a stable key identifies the pairing', () => {
     expect(buildSuggestionView(suggestion, entriesById).key).toBe('RB-1-2');
+  });
+});
+
+describe('movePlanWithout', () => {
+  const movePlan = [
+    { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' },
+    { playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' },
+    { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
+    { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
+    { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+  ];
+  const view = (sitId, startId) => ({ sit: { playerId: sitId }, start: { playerId: startId } });
+
+  test('drops both moves of a dismissed pair and keeps every other move', () => {
+    expect(movePlanWithout(movePlan, [view(1, 2)])).toEqual([
+      { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
+      { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
+      { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+    ]);
+  });
+
+  test('nothing dismissed returns the plan unchanged', () => {
+    expect(movePlanWithout(movePlan, [])).toEqual(movePlan);
+  });
+
+  test('a pair whose players are not in the plan leaves it unchanged', () => {
+    expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(movePlan);
   });
 });

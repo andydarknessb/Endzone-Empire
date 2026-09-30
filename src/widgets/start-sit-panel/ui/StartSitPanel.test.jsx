@@ -109,6 +109,41 @@ test('Apply sends the advice move plan through onApply', async () => {
   expect(onApply).toHaveBeenCalledWith(movePlan);
 });
 
+test('Apply after dismissing a suggestion sends only the remaining suggestions\' moves and open-slot fills', async () => {
+  const user = userEvent.setup();
+  const onApply = jest.fn();
+  const second = suggestion({
+    slot: 'WR',
+    current: { ...suggestion().current, playerId: 3, name: 'Other Sit' },
+    suggested: { ...suggestion().suggested, playerId: 4, name: 'Other Start' },
+  });
+  const movePlan = [
+    { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' },
+    { playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' },
+    { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
+    { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
+    { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+  ];
+  render(<StartSitPanel advice={{ suggestions: [suggestion(), second], movePlan }} entries={entries} bestBall={false} onApply={onApply} />);
+
+  await user.click(within(screen.getAllByTestId('suggestion-card')[0]).getByTestId('suggestion-dismiss'));
+  await user.click(screen.getByTestId('start-sit-apply'));
+
+  expect(onApply).toHaveBeenCalledWith([
+    { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
+    { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
+    { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+  ]);
+});
+
+test('Apply is gone once every move has been dismissed away', async () => {
+  const user = userEvent.setup();
+  const movePlan = [{ playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' }, { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' }];
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan }} entries={entries} bestBall={false} onApply={jest.fn()} />);
+  await user.click(screen.getByTestId('suggestion-dismiss'));
+  expect(screen.queryByTestId('start-sit-apply')).not.toBeInTheDocument();
+});
+
 test('no suggestions and no move plan shows "Lineup set" and no Apply button', () => {
   render(<StartSitPanel advice={{ suggestions: [], movePlan: [] }} entries={entries} bestBall={false} />);
   expect(screen.getByTestId('start-sit-panel-empty')).toHaveTextContent('Lineup set');
