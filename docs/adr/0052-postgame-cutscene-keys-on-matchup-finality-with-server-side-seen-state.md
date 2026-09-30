@@ -49,3 +49,14 @@ fire-and-forget with a sessionStorage guard so a failed write cannot replay
 within the session; the cutscene mounts from Home only, never from a deep
 link; and the Recap (the league week's narrative) and the digest email are
 untouched, this being the first personal "you won / you lost" surface.
+
+## Amendment 2026-09-30 (spec #1846)
+
+The cutscene also carries the Team's awards for the Matchup's week: a Called
+shot's result (hit or miss), Perfect Lineup and Captain Hindsight, read from
+the frozen Trophy and Called shot records written at Advance week. After the
+WIN, LOSS or TIE scene one static card in the same style lists them, and no
+card appears when there are none. Nothing else changes: seen state, expiry,
+the `postgameCutscenes` opt-out and the Home-only mount are as decided
+above, and the awards are judged once (ADR 0054), so a correction can no more
+change the card than the result.
