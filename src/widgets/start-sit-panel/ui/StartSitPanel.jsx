@@ -216,6 +216,16 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
       {player.kickoff && (
         <Typography sx={{ fontSize: '11px', color: 'var(--dash-faint)' }}>{formatKickoff(player.kickoff)}</Typography>
       )}
+      {player.factChips.length > 0 && (
+        <Box sx={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+          {player.factChips.map((chip) => (
+            <Badge key={chip.key} variant="neutral" data-testid="suggestion-fact-chip" data-chip={chip.key}>
+              {chip.text}
+              {chip.contextOnly && <Box component="span" sx={{ ml: '4px', fontWeight: 400 }}>context only</Box>}
+            </Badge>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }

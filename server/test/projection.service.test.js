@@ -3290,3 +3290,22 @@ test('liveReconcileScope returns null when no fantasy league is live', async (t)
   mockReconcilePool(t, { leagueRows: [] });
   assert.equal(await projection.liveReconcileScope(pool), null);
 });
+
+test('toWeeklyProjectionResult: weatherAppliedFor and marketAppliedFor read the Factors\' scored flag (#1853)', () => {
+  const result = projection.toWeeklyProjectionResult({
+    modelVersion: model.MODEL_VERSION,
+    projections: new Map([
+      // v3.1: both are available as context and neither is scored.
+      [1, { playerId: 1, factors: { weather: { available: true, scored: false }, gameEnvironment: { available: true, scored: false } } }],
+      // a future Model version that applies them.
+      [2, { playerId: 2, factors: { weather: { available: true, scored: true }, gameEnvironment: { available: true, scored: true } } }],
+      [3, { playerId: 3, factors: {} }],
+    ]),
+  });
+  assert.equal(result.weatherAppliedFor(1), false);
+  assert.equal(result.marketAppliedFor(1), false);
+  assert.equal(result.weatherAppliedFor(2), true);
+  assert.equal(result.marketAppliedFor(2), true);
+  assert.equal(result.weatherAppliedFor(3), false);
+  assert.equal(result.marketAppliedFor(999), false, 'no entry for the player at all');
+});

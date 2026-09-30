@@ -157,3 +157,136 @@ test('memoLeagueContext (#1682): setting a new key sweeps entries past the lifet
   memoLeagueContext({ leagueId: 1, season: 2026, week: 4, rules: {}, position: 'WR' });
   assert.equal(leagueContextMemoSize(), 1);
 });
+
+// ---------------------------------------------------------------------------
+// Start/sit chip context (#1853): the Line and weather a suggestion side carries
+// ---------------------------------------------------------------------------
+
+const pool = require('../modules/pool');
+const {
+  favoredByForTeam,
+  chipLine,
+  chipWeather,
+  loadGameChipContext,
+} = require('../services/decisionCardContext.service');
+
+test('favoredByForTeam: a negative spread favours the home team, a positive one the away team', () => {
+  // vegasOdds.provider: spread -3 is home favoured by 3.
+  assert.equal(favoredByForTeam(-7.5, 'home'), 7.5);
+  assert.equal(favoredByForTeam(-7.5, 'away'), -7.5);
+  assert.equal(favoredByForTeam(3, 'away'), 3);
+  assert.equal(favoredByForTeam(3, 'home'), -3);
+});
+
+test('favoredByForTeam: a pick-em is 0, and a missing spread or orientation is null', () => {
+  assert.equal(favoredByForTeam(0, 'home'), 0);
+  assert.equal(Object.is(favoredByForTeam(0, 'home'), -0), false);
+  assert.equal(favoredByForTeam(null, 'home'), null);
+  assert.equal(favoredByForTeam(-3, null), null);
+  assert.equal(favoredByForTeam(-3, 'neutral'), null);
+});
+
+test('chipLine: {spread, total, favoredBy} and never the Implied team total (ADR 0037)', () => {
+  const line = { spread: -7.5, total: 49.5, observedAt: 'x', impliedTeamTotal: 28.5 };
+  const shaped = chipLine(line, 'home');
+  assert.deepEqual(shaped, { spread: -7.5, total: 49.5, favoredBy: 7.5 });
+  assert.equal('impliedTeamTotal' in shaped, false);
+  assert.equal(chipLine(null, 'home'), null);
+});
+
+test('chipWeather: the five chip fields only, null for no weather', () => {
+  const weather = {
+    indoor: false, temperatureF: 40, windSpeedMph: 22, windGustMph: 30,
+    precipitationProbability: 70, shortForecast: 'Rain',
+  };
+  assert.deepEqual(chipWeather(weather), {
+    indoor: false, windSpeedMph: 22, windGustMph: 30, precipitationProbability: 70, shortForecast: 'Rain',
+  });
+  assert.equal(chipWeather(null), null);
+});
+
+test('loadGameChipContext: one odds and one weather read per game, keyed by folded team', async (t) => {
+  const queries = [];
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    queries.push({ text, params });
+    if (text.includes('FROM "nfl_games"')) {
+      return {
+        rows: [
+          { nfl_team: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'home' },
+          { nfl_team: 'NYJ', game_key: 'g1', roof: 'outdoors', home_away: 'away' },
+          { nfl_team: 'DAL', game_key: 'g2', roof: 'dome', home_away: 'home' },
+          { nfl_team: 'PHI', game_key: 'g3', roof: 'outdoors', home_away: 'home' },
+        ],
+      };
+    }
+    if (text.includes('FROM "game_odds_snapshots"')) {
+      return { rows: [{ total: '49.5', spread: '-7.5', observed_at: 'now' }] };
+    }
+    if (text.includes('FROM "game_weather_snapshots"')) {
+      return {
+        rows: [{
+          temperature_f: '40', wind_speed_mph: '22', wind_gust_mph: '30',
+          precipitation_probability: '70', short_forecast: 'Rain',
+        }],
+      };
+    }
+    throw new Error(`unexpected query: ${text.slice(0, 80)}`);
+  });
+
+  const byTeam = await loadGameChipContext({ season: 2026, week: 6, nflTeams: ['BUF', 'NYJ', 'DAL'] });
+
+  assert.equal(queries.filter((q) => q.text.includes('"game_odds_snapshots"')).length, 2, 'g1 and g2, not g3');
+  assert.equal(queries.filter((q) => q.text.includes('"game_weather_snapshots"')).length, 1, 'g1 only: g2 is a dome');
+  assert.deepEqual(byTeam.get('BUF').line, { spread: -7.5, total: 49.5, favoredBy: 7.5 });
+  assert.deepEqual(byTeam.get('NYJ').line, { spread: -7.5, total: 49.5, favoredBy: -7.5 });
+  assert.equal(byTeam.get('BUF').weather.windSpeedMph, 22);
+  assert.equal(byTeam.get('DAL').weather.indoor, true);
+  assert.equal(byTeam.has('PHI'), false, 'not in the lineup');
+});
+
+test('loadGameChipContext: a team with no game (bye) or a row with no game_key has no entry', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    if (String(sql).includes('FROM "nfl_games"')) {
+      return { rows: [{ nfl_team: 'BUF', opponent: 'NYJ' }] };
+    }
+    throw new Error('no odds or weather read without a game_key');
+  });
+  const byTeam = await loadGameChipContext({ season: 2026, week: 6, nflTeams: ['BUF', 'KC'] });
+  assert.equal(byTeam.size, 0);
+});
+
+test('loadGameChipContext: rejected reads in several games reject once and leave no unhandled rejection (#1853)', async (t) => {
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  t.after(() => process.off('unhandledRejection', onUnhandled));
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "nfl_games"')) {
+      return {
+        rows: [
+          { nfl_team: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'home' },
+          { nfl_team: 'DAL', game_key: 'g2', roof: 'outdoors', home_away: 'home' },
+          { nfl_team: 'KC', game_key: 'g3', roof: 'outdoors', home_away: 'home' },
+        ],
+      };
+    }
+    // g1 is slow and healthy; g2 and g3 fail, g3 after g1 has settled.
+    if (params[0] === 'g1') {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { rows: [] };
+    }
+    if (params[0] === 'g2') throw new Error('pool timeout g2');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    throw new Error('pool timeout g3');
+  });
+
+  await assert.rejects(
+    loadGameChipContext({ season: 2026, week: 6, nflTeams: ['BUF', 'DAL', 'KC'] }),
+    /pool timeout g2/
+  );
+  // Let g3's later rejection land; a handler-less promise would surface here.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(unhandled, []);
+});
