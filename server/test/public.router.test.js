@@ -1174,7 +1174,7 @@ function candidate(id, points, over = {}) {
 // Installs the no-board world: Pool projections, the candidate read, Ownership,
 // and a Weekly run whose Position-baseline / Unavailable verdicts come from
 // `baseline` and `unavailable` (sets of ids).
-function installComputed(t, candidates, { baseline = [], unavailable = [], week3LastStatus = 'final' } = {}) {
+function installComputed(t, candidates, { baseline = [], unavailable = [], identity = [], week3LastStatus = 'final' } = {}) {
   t.mock.method(waiverBoards, 'getBoard', () => null);
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map(
     candidates.map((c) => [c.id, { points: c.points, source: 'extrapolated' }])
@@ -1193,6 +1193,7 @@ function installComputed(t, candidates, { baseline = [], unavailable = [], week3
     }],
     ...slateHandlers({
       week3LastStatus,
+      identity,
       ownership: candidates.filter((c) => c.ownership != null).map((c) => ownershipRow(c.id, c.ownership)),
     }),
   ]);
@@ -1331,6 +1332,34 @@ test('GET /waiver-targets computed: a Position-baseline player does not use up a
   const res = await request(makeApp()).get('/api/public/waiver-targets');
 
   assert.deepEqual(res.body.targets.map((x) => x.name), ['RB A', 'RB B']);
+});
+
+test('GET /waiver-targets computed: keeps filling past a first batch of 24 that is all Position-baseline', async (t) => {
+  const baselineRbs = Array.from({ length: 24 }, (_, i) => candidate(200 + i, 50 - i, { name: `Baseline ${i}`, position: 'RB' }));
+  const real = [candidate(300, 5, { name: 'Real RB', position: 'RB' }), candidate(301, 4, { name: 'Real WR', position: 'WR' })];
+  installComputed(t, [...baselineRbs, ...real], { baseline: baselineRbs.map((c) => c.id) });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Real RB', 'Real WR']);
+  assert.equal(projectionService.getWeeklyProjections.mock.callCount(), 2);
+});
+
+test('GET /waiver-targets computed: serves an athlete once when two of his player rows are candidates', async (t) => {
+  installComputed(t, [
+    candidate(1, 20, { name: 'Twin', position: 'RB' }),
+    candidate(2, 19, { name: 'Twin', position: 'RB' }),
+    candidate(3, 9, { name: 'Other RB', position: 'RB' }),
+  ], {
+    identity: [
+      { requested_id: 1, identity_id: 1 }, { requested_id: 1, identity_id: 2 },
+      { requested_id: 2, identity_id: 1 }, { requested_id: 2, identity_id: 2 },
+    ],
+  });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [1, 3]);
 });
 
 test('GET /waiver-targets with a board for the waiver week returns the board, not the fallback', async (t) => {
