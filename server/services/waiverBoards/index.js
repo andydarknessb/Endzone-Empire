@@ -17,16 +17,15 @@
  * @property {WaiverBoardEntry[]} entries Column order; the endpoint keeps it
  */
 
-// No board is seeded yet: the Week 4 2026 board (from the Week 4 Darkness
-// Report) needs the real `players.id` values and lands as its own data-only
-// change, one module per week required and listed here. Until a week is listed
-// the endpoint serves an empty list for it. Prefer the `players.id` row that
-// carries the ESPN Ownership (the one with an `external_id`). An id that points
-// at a duplicate row of the same athlete still finds that snapshot through the
-// athlete's identity rows (same name, position and team), and an athlete listed
-// twice is served once. An entry with no Ownership row on any of them is dropped.
+// One module per week, required and listed here. A week that is not listed has
+// no board: getBoard returns null and the endpoint falls back to the computed
+// list. Prefer the `players.id` row that carries the ESPN Ownership (the one
+// with an `external_id`). An id that points at a duplicate row of the same
+// athlete still finds that snapshot through the athlete's identity rows (same
+// name, position and team), and an athlete listed twice is served once. An entry
+// with no Ownership row on any of them is dropped.
 /** @type {WaiverBoard[]} */
-const BOARDS = [];
+const BOARDS = [require('./week4-2026')];
 
 /**
  * The board for a season's week, or null when the column has none. Callers
