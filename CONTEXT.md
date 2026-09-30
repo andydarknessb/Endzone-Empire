@@ -1299,11 +1299,13 @@ settles standings, awards trophies and opens the next week.
 
 **Settle follow-up**:
 The work that follows a Settle pass, in one fixed order: power rankings
-recomputed, the Recap rebuilt, Trophies awarded (after an Advance week) or the
-weekly high score reconciled (after a correction of a final week), and after an
+recomputed, Trophies awarded (after an Advance week) or the weekly high score
+reconciled (after a correction of a final week), the Recap built, and after an
 Advance week the digest sent. The order is the same for both; only the mode
-differs: an advance announces and awards every Trophy, a correction is silent
-and reconciles one.
+differs: an advance awards every Trophy and announces the Recap, a correction
+reconciles one Trophy and stores the Recap silently. The Trophies come before
+the Recap because the Recap narrates them: it reads the Trophy rows just
+written and never recomputes them.
 _Avoid_: post-settle chain, post-week analytics, the recap chain
 
 **Expected final**:
@@ -1359,6 +1361,16 @@ high score, champion, longest win streak, biggest comeback or best draft grade.
 A pick'em league's season award is the pick'em champion, and a tie makes
 co-champions: it is the one trophy written to more than one team at once.
 Awarding is idempotent by design.
+Two weekly Trophies read a team's Hindsight at Advance week, for teams in that
+week's Matchups in a league with manager-set lineups (never best ball, which
+leaves nothing on a bench, and never a pick'em-only league, which has no
+Matchups): **Perfect Lineup**, when nothing was left on the bench; and
+**Captain Hindsight**, when the team lost or tied and a single move from the
+week as played, one bench player into a starting slot he is eligible for,
+replacing that starter or filling an empty seat, would have put its total
+strictly above the opponent's score of record (the largest such gain is the one
+named). Both use Hindsight's population and pricer, so an IR occupant is never
+a candidate. A stat correction never awards, revokes or changes either.
 
 **Recap**:
 A generated narrative summary of one league week.

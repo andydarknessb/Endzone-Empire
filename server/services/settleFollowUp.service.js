@@ -6,14 +6,16 @@ const digest = require('./digest.service');
 /**
  * The Settle follow-up: the post-week analytics that run after a week settles,
  * as one ordered chain. Odds first so the recap reads fresh playoff numbers
- * (the recap reads the latest stored power_rankings row), then the recap, then
- * trophies, then (advance only) the digest.
+ * (the recap reads the latest stored power_rankings row), then trophies, then
+ * the recap, then (advance only) the digest. Trophies come before the recap
+ * because the recap narrates them (#1854): it reads the trophy rows just
+ * written and never recomputes them.
  *
  * `mode` picks each step's variant:
- *   advance    - announce the recap, award every trophy, send the digest.
- *   correction - store the recap silently (the correction's own "scores were
- *                updated" notice is the one announcement), reconcile only the
- *                weekly high score trophy, no digest.
+ *   advance    - award every trophy, announce the recap, send the digest.
+ *   correction - reconcile only the weekly high score trophy, then store the
+ *                recap silently (the correction's own "scores were updated"
+ *                notice is the one announcement), no digest.
  *
  * Display data, never worth failing anything over: every step is caught and
  * logged and the next step still runs, so this never rejects for a step
@@ -22,14 +24,14 @@ const digest = require('./digest.service');
 const STEPS = {
   advance: [
     { failed: 'power rankings failed', run: ({ leagueId }) => montecarlo.computeLeagueOdds({ leagueId }) },
-    { failed: 'weekly recap failed', run: (a) => recap.generateWeeklyRecap(a) },
     { failed: 'trophy awards failed', run: (a) => trophies.awardWeeklyTrophies(a) },
+    { failed: 'weekly recap failed', run: (a) => recap.generateWeeklyRecap(a) },
     { failed: 'recap digest failed', run: (a) => digest.sendWeeklyRecapDigest(a) },
   ],
   correction: [
     { failed: 'power rankings failed', run: ({ leagueId }) => montecarlo.computeLeagueOdds({ leagueId }) },
-    { failed: 'recap rebuild failed', run: (a) => recap.computeAndStoreWeeklyRecap(a) },
     { failed: 'weekly high score trophy reconcile failed', run: (a) => trophies.reconcileWeeklyHighScoreTrophy(a) },
+    { failed: 'recap rebuild failed', run: (a) => recap.computeAndStoreWeeklyRecap(a) },
   ],
 };
 

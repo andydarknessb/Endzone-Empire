@@ -507,6 +507,19 @@ async function isWeekFinal({ leagueId, season, week }) {
  * branches treat IR identically.
  */
 async function weekHindsight({ leagueId, teamId, season, week }) {
+  const { counted, ...hindsight } = await weekHindsightRoster({ leagueId, teamId, season, week });
+  return hindsight;
+}
+
+/**
+ * weekHindsight's one read, plus the counted roster it priced: every
+ * held-as-played, non-IR row as `{ playerId, position, slot, points, name }`,
+ * BENCH rows included. The Captain Hindsight trophy (#1854) prices single
+ * bench-for-starter moves over exactly this population and pricer, so it reads
+ * the rows here rather than re-deriving them. `weekHindsight` returns the same
+ * object minus `counted`, so its wire shape is unchanged.
+ */
+async function weekHindsightRoster({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
   if (!(await isWeekFinal({ leagueId, season, week }))) {
     throw new DecisionError(409, `week ${week} is not final yet`);
@@ -539,11 +552,11 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   // settle pass cannot disagree.
   const rules = rulesForLeague(league);
   const price = (stats) => calculateFantasyPoints(stats, rules);
-  const { teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
+  const { counted, teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
     countedRoster({ rows: asPlayed, league, price });
 
   return {
-    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters,
+    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters, counted,
   };
 }
 
@@ -1013,6 +1026,7 @@ module.exports = {
   buildSuggestions,
   startSitAdvice,
   weekHindsight,
+  weekHindsightRoster,
   liveWhatIf,
   seasonHindsight,
   fitAdjustedValue,

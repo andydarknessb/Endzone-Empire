@@ -28,31 +28,33 @@ function stubAll(t, { failing } = {}) {
   return order;
 }
 
-test('advance: odds, then the announced recap, then every trophy, then the digest', async (t) => {
+// #1854: the Recap narrates the week's trophies, so it reads the trophy rows
+// the trophy step just wrote: trophies come before the Recap in both modes.
+test('advance: odds, then every trophy, then the announced recap, then the digest', async (t) => {
   const order = stubAll(t);
   await settleFollowUp({ ...ARGS, mode: 'advance' });
   assert.deepEqual(
     order.map((o) => o.label),
-    ['odds', 'generateWeeklyRecap', 'awardWeeklyTrophies', 'sendWeeklyRecapDigest']
+    ['odds', 'awardWeeklyTrophies', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']
   );
   assert.deepEqual(order[0].arg, { leagueId: 7 });
   for (const call of order.slice(1)) assert.deepEqual(call.arg, ARGS);
 });
 
-test('correction: odds, then the silent recap, then the weekly high score reconcile, no digest', async (t) => {
+test('correction: odds, then the weekly high score reconcile, then the silent recap, no digest', async (t) => {
   const order = stubAll(t);
   await settleFollowUp({ ...ARGS, mode: 'correction' });
   assert.deepEqual(
     order.map((o) => o.label),
-    ['odds', 'computeAndStoreWeeklyRecap', 'reconcileWeeklyHighScoreTrophy']
+    ['odds', 'reconcileWeeklyHighScoreTrophy', 'computeAndStoreWeeklyRecap']
   );
   assert.deepEqual(order[1].arg, ARGS);
   assert.deepEqual(order[2].arg, ARGS);
 });
 
 for (const [mode, labels] of [
-  ['advance', ['odds', 'generateWeeklyRecap', 'awardWeeklyTrophies', 'sendWeeklyRecapDigest']],
-  ['correction', ['odds', 'computeAndStoreWeeklyRecap', 'reconcileWeeklyHighScoreTrophy']],
+  ['advance', ['odds', 'awardWeeklyTrophies', 'generateWeeklyRecap', 'sendWeeklyRecapDigest']],
+  ['correction', ['odds', 'reconcileWeeklyHighScoreTrophy', 'computeAndStoreWeeklyRecap']],
 ]) {
   for (const failing of labels) {
     test(`${mode}: ${failing} throwing is logged and the next step still runs`, async (t) => {

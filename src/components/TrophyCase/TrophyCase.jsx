@@ -73,6 +73,8 @@ const TROPHY_ICON = {
   top_scorer: 'flame',
   closest_game: 'compress',
   biggest_blowout: 'burst',
+  perfect_lineup: 'target',
+  captain_hindsight: 'rebound',
   win_streak: 'rise',
   comeback: 'rebound',
   draft_grade: 'target',
@@ -107,8 +109,17 @@ export function TrophyIcon({ type, size = 20 }) {
   );
 }
 
+const WEEKLY_TROPHY_TYPES = [
+  'weekly_high',
+  'top_scorer',
+  'closest_game',
+  'biggest_blowout',
+  'perfect_lineup',
+  'captain_hindsight',
+];
+
 function trophySubLabel(trophy) {
-  if (['weekly_high', 'top_scorer', 'closest_game', 'biggest_blowout'].includes(trophy.type) && trophy.week != null) {
+  if (WEEKLY_TROPHY_TYPES.includes(trophy.type) && trophy.week != null) {
     return `${trophy.team_name} · Week ${trophy.week}`;
   }
   return trophy.team_name;
