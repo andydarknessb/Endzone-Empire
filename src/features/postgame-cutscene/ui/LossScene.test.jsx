@@ -392,6 +392,56 @@ describe('the panel and the waiver link', () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 
+  test('a live region exists from mount, empty, and announces the link at 5.5 s', () => {
+    mount();
+    const live = screen.getByTestId('loss-live');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveClass('postgame-sr');
+    expect(live).toBeEmptyDOMElement();
+    // Not in the aria-hidden stage, and the scene that holds it is not hidden either.
+    expect(screen.getByTestId('loss-stage')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(screen.getByTestId('loss-stage')).queryByTestId('loss-live')).not.toBeInTheDocument();
+    expect(screen.getByTestId('loss-scene')).not.toHaveAttribute('aria-hidden');
+    advance(PANEL_MS - 1);
+    expect(screen.getByTestId('loss-live')).toBe(live);
+    expect(live).toBeEmptyDOMElement();
+    advance(1);
+    expect(screen.getByTestId('loss-live')).toBe(live);
+    expect(live).toHaveTextContent('Link available: RETREAT TO THE WAIVER WIRE');
+  });
+
+  test('with no focus on the link, onDone is called once at 10000 ms', () => {
+    const { onDone } = mount();
+    advance(PANEL_MS);
+    advance(DONE_MS - PANEL_MS - 1);
+    expect(onDone).not.toHaveBeenCalled();
+    advance(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    advance(10000);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  test('once the link has focus, the scene never auto-dismisses, even after blur', () => {
+    const { onDone } = mount();
+    advance(PANEL_MS);
+    const link = screen.getByTestId('loss-link');
+    act(() => { link.focus(); });
+    expect(link).toHaveFocus();
+    advance(20000);
+    expect(onDone).not.toHaveBeenCalled();
+    act(() => { link.blur(); });
+    advance(20000);
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  test('a link focused after DONE_MS was armed still holds the scene', () => {
+    const { onDone } = mount();
+    advance(DONE_MS - 1);
+    act(() => { screen.getByTestId('loss-link').focus(); });
+    advance(1);
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
   test('rain continues over the panel', () => {
     mount();
     advance(PANEL_MS);

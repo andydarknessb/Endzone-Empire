@@ -27,6 +27,8 @@ export const COUNT_STEPS = 6; // the scores count up in 6 steps...
 export const COUNT_START_MS = STADIUM_MS; // ...from the scoreboard's appearance...
 export const COUNT_STEP_MS = 350; // ...one tick each, none on the flash
 
+const LINK_TEXT = 'RETREAT TO THE WAIVER WIRE';
+
 function FrameSprite({
   rows, kit, className, testId, frame,
 }) {
@@ -89,7 +91,9 @@ ScoreRow.propTypes = {
  * animated property is transform or opacity, and movement is on `steps()`.
  *
  * Only the stage is `aria-hidden`: the panel's link is focusable and must stay
- * in the accessibility tree.
+ * in the accessibility tree. The scene owns a polite live region (`loss-live`)
+ * that announces the link when the panel appears, and once the link has focus
+ * the scene stops auto-dismissing: it then ends only by a user action.
  */
 function LossScene({
   cutscene, sfx, onDone, onLeave,
@@ -103,6 +107,10 @@ function LossScene({
   sfxRef.current = sfx;
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
+  // Set once the waiver link has taken focus, and never cleared: WCAG 2.2.1 turns
+  // the auto-dismiss off for the scene. It does not resume on blur, because a
+  // click on the dialog moves focus to the overlay before it advances the queue.
+  const heldRef = useRef(false);
 
   const oppKit = useMemo(() => kitForTeam(opponent.teamId), [opponent.teamId]);
   const myKit = useMemo(() => kitForTeam(me.teamId, oppKit), [me.teamId, oppKit]);
@@ -123,7 +131,9 @@ function LossScene({
         setBeat('panel');
         audio().startLoop('dirge');
       }),
-      at(DONE_MS, () => doneRef.current()),
+      at(DONE_MS, () => {
+        if (!heldRef.current) doneRef.current();
+      }),
     ];
     for (let step = 1; step <= COUNT_STEPS; step += 1) {
       timers.push(at(COUNT_START_MS + step * COUNT_STEP_MS, () => {
@@ -143,8 +153,12 @@ function LossScene({
 
   return (
     <div className="loss-scene" data-testid="loss-scene" data-beat={beat}>
+      {/* Present from mount so a screen reader picks up the change when the link appears. */}
+      <div className="postgame-sr" aria-live="polite" data-testid="loss-live">
+        {beat === 'panel' ? `Link available: ${LINK_TEXT}` : ''}
+      </div>
       <div className="loss-slide" data-testid="loss-slide">
-        <div className="loss-stage" aria-hidden="true">
+        <div className="loss-stage" data-testid="loss-stage" aria-hidden="true">
           <div className="loss-fade" data-testid="loss-fade" />
           {inStadium && (
             <>
@@ -189,8 +203,9 @@ function LossScene({
                 data-testid="loss-link"
                 href={`#/league/${cutscene.leagueId}/waivers`}
                 onClick={onLeave}
+                onFocus={() => { heldRef.current = true; }}
               >
-                RETREAT TO THE WAIVER WIRE
+                {LINK_TEXT}
               </a>
             </>
           )}

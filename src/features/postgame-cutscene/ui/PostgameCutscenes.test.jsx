@@ -349,19 +349,39 @@ describe('keyboard and focus', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  test('focus is not stranded on body when a focused loss link is replaced by the next card', async () => {
+  test('a focused loss link holds the scene past 10 s; a click advances and focus is not stranded', async () => {
     jest.useFakeTimers();
     render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' }), item(2)]} />);
     await screen.findByRole('alertdialog');
     startFromTitle();
-    // The loss scene's link appears with its panel at 5.5 s; the scene ends at 10 s.
+    // The loss scene's link appears with its panel at 5.5 s; with it focused the scene no longer auto-ends.
     act(() => { jest.advanceTimersByTime(5500); });
-    screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' }).focus();
+    const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
+    act(() => { link.focus(); });
     act(() => { jest.advanceTimersByTime(4500); });
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    expect(link).toHaveFocus();
+    // A click on the dialog advances to the next card, and the overlay has focus.
+    fireEvent.click(dialog());
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
     onScreen(2);
     expect(dialog()).toHaveFocus();
     // A key pressed now reaches the overlay, so Escape still ends the queue.
     press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  test('Escape ends the queue while the loss link holds the scene', async () => {
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' }), item(2)]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    act(() => { jest.advanceTimersByTime(5500); });
+    const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
+    act(() => { link.focus(); });
+    act(() => { jest.advanceTimersByTime(20000); });
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    fireEvent.keyDown(link, { key: 'Escape' });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
