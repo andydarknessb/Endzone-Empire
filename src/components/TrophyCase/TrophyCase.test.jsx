@@ -102,6 +102,29 @@ test('marks each trophy with a decorative stroke icon, no emoji', async () => {
   });
 });
 
+// #1854: the two lineup trophies are weekly, so each reads "team · Week N", and
+// each has its own glyph rather than the medal fallback.
+test('shows Perfect Lineup and Captain Hindsight as chips with team and week', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      { ...trophies[0], id: 5, type: 'perfect_lineup', label: 'Perfect Lineup', week: 6, team_name: 'Sunday Ballers', data: { points: 98 } },
+      { ...trophies[0], id: 6, type: 'captain_hindsight', label: 'Captain Hindsight', week: 7, team_name: 'Cardiac Comebacks', data: { margin: 4 } },
+    ],
+  });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+  await screen.findByTestId('trophy-case');
+
+  expect(screen.getByTestId('trophy-5')).toHaveTextContent('Perfect Lineup');
+  expect(screen.getByTestId('trophy-5')).toHaveTextContent('Sunday Ballers · Week 6');
+  expect(screen.getByTestId('trophy-6')).toHaveTextContent('Captain Hindsight');
+  expect(screen.getByTestId('trophy-6')).toHaveTextContent('Cardiac Comebacks · Week 7');
+  // eslint-disable-next-line testing-library/no-node-access -- the glyphs are aria-hidden by design
+  const iconOf = (testId) => screen.getByTestId(testId).querySelector('svg[data-icon]');
+  expect(iconOf('trophy-5')).toHaveAttribute('data-icon', 'target');
+  expect(iconOf('trophy-6')).toHaveAttribute('data-icon', 'rebound');
+});
+
 test('renders nothing while loading', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderWithProviders(<TrophyCase leagueId={1} />);

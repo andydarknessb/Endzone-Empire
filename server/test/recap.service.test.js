@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildRecapFacts, pickWaiverSteal, templateNarrative } = require('../services/recap.service');
+const {
+  buildRecapFacts, pickWaiverSteal, templateNarrative, lineupTrophyFacts,
+} = require('../services/recap.service');
 const { rulesForLeague } = require('../services/scoringRules');
 const { createFakePool } = require('./helpers/fakePool');
 
@@ -99,6 +101,107 @@ test('templateNarrative skips a close-game line when nothing was close', () => {
   assert.equal(narrative.includes('steamrolled'), false);
 });
 
+// ---- #1854: Perfect Lineup and Captain Hindsight in the Recap --------------
+
+test('#1854 templateNarrative narrates a perfect lineup, one line per team', () => {
+  const narrative = templateNarrative({
+    week: 4,
+    perfectLineups: [{ team: 'Gridiron Geeks' }, { team: 'Sunday Scaries' }],
+  });
+  assert.match(narrative, /Gridiron Geeks set a perfect lineup\./);
+  assert.match(narrative, /Sunday Scaries set a perfect lineup\./);
+});
+
+test('#1854 templateNarrative narrates Captain Hindsight for a swap over a starter', () => {
+  const narrative = templateNarrative({
+    week: 4,
+    captainHindsight: [{ team: 'Team B', margin: 4.5, bench: 'Ben Bench', starter: 'Flex Guy', slot: 'FLEX' }],
+  });
+  assert.match(
+    narrative,
+    /Captain Hindsight: Team B lost by 4\.5; starting Ben Bench over Flex Guy at FLEX would have won it\./
+  );
+});
+
+test('#1854 templateNarrative narrates Captain Hindsight for an empty slot fill', () => {
+  const narrative = templateNarrative({
+    week: 4,
+    captainHindsight: [{ team: 'Team B', margin: 10, bench: 'Tina TE', starter: null, slot: 'TE' }],
+  });
+  assert.match(narrative, /Captain Hindsight: Team B lost by 10; filling TE with Tina TE would have won it\./);
+});
+
+test('#1854 templateNarrative words a tied Matchup as a tie, not "lost by 0"', () => {
+  const narrative = templateNarrative({
+    week: 4,
+    captainHindsight: [{ team: 'Team B', margin: 0, bench: 'Ben Bench', starter: 'Flex Guy', slot: 'FLEX' }],
+  });
+  assert.match(narrative, /Captain Hindsight: Team B tied; starting Ben Bench over Flex Guy at FLEX would have won it\./);
+  assert.equal(narrative.includes('lost by 0'), false);
+});
+
+test('#1854 templateNarrative leaves the bench blunder line as it was', () => {
+  const narrative = templateNarrative({
+    week: 4,
+    benchBlunder: { team: 'E', pointsLeftOnBench: 25.5 },
+    perfectLineups: [{ team: 'P' }],
+  });
+  assert.match(narrative, /Bench blunder of the week: E left 25\.5 points sitting on the bench\./);
+});
+
+test('#1854 lineupTrophyFacts reads trophy rows into recap facts, never recomputing', () => {
+  const facts = lineupTrophyFacts([
+    { type: 'perfect_lineup', team_name: 'Team A', data: { points: 98 } },
+    {
+      type: 'captain_hindsight', team_name: 'Team B',
+      data: {
+        benchPlayer: 'Ben Bench', starter: 'Flex Guy', slot: 'FLEX', margin: 12, gain: 25,
+        benchPlayerId: 21, starterPlayerId: 7, benchPoints: 30, starterPoints: 5,
+      },
+    },
+    { type: 'top_scorer', team_name: 'Team A', data: { points: 98 } },
+  ]);
+  assert.deepEqual(facts, {
+    perfectLineups: [{ team: 'Team A' }],
+    captainHindsight: [{ team: 'Team B', margin: 12, bench: 'Ben Bench', starter: 'Flex Guy', slot: 'FLEX' }],
+  });
+  assert.deepEqual(lineupTrophyFacts([]), {}, 'a week with neither adds no fact keys');
+});
+
+test('#1854 computeAndStoreWeeklyRecap reads the trophy rows just written into its facts and narrative', async (t) => {
+  const fake = recapWorld({
+    handlers: [[
+      /^SELECT "trophies"\."type"/,
+      (text, params) => {
+        assert.deepEqual(params, [7, 2026, 5]);
+        return {
+          rows: [
+            { type: 'perfect_lineup', team_name: 'Team A', data: { points: 98 } },
+            {
+              type: 'captain_hindsight', team_name: 'Team B',
+              data: { benchPlayer: 'Ben Bench', starter: 'Flex Guy', slot: 'FLEX', margin: 20 },
+            },
+          ],
+        };
+      },
+    ]],
+  });
+  fake.install(t);
+  // The Recap never recomputes a lineup trophy: Hindsight's roster read is
+  // poisoned, so any recomputation would show up as a thrown error here.
+  t.mock.method(require('../services/decision.service'), 'weekHindsightRoster', async () => {
+    throw new Error('the recap must not recompute lineup trophies');
+  });
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(data.facts.perfectLineups, [{ team: 'Team A' }]);
+  assert.equal(data.facts.captainHindsight[0].team, 'Team B');
+  assert.match(data.narrative, /Team A set a perfect lineup\./);
+  assert.match(data.narrative, /Captain Hindsight: Team B lost by 20; starting Ben Bench over Flex Guy at FLEX would have won it\./);
+});
+
 test('templateNarrative always produces something', () => {
   assert.equal(templateNarrative({ week: 9, matchupCount: 0 }), 'Week 9 is in the books.');
 });
@@ -113,8 +216,9 @@ test('templateNarrative always produces something', () => {
 // an unexpected extra INSERT is exactly as visible as a missing one.
 
 /** A minimal one-matchup, two-team world for the store/announce split tests. */
-function recapWorld({ homeScore = 100, awayScore = 80 } = {}) {
+function recapWorld({ homeScore = 100, awayScore = 80, handlers = [] } = {}) {
   return createFakePool([
+    ...handlers,
     [/^SELECT "matchups"\.\*/, () => ({
       rows: [{
         id: 1, final: true, home_team_id: 1, away_team_id: 2,

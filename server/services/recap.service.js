@@ -81,6 +81,31 @@ function pickWaiverSteal(pickups, rules) {
   return { player: best.player, team: best.team, points: round2(best.points) };
 }
 
+/**
+ * Pure: the Recap's lineup-trophy facts (#1854), read from the week's trophy
+ * rows (`type`, `team_name`, `data`) and never recomputed: the award pass is
+ * the one place Perfect Lineup and Captain Hindsight are decided. A week with
+ * neither adds no keys, so an ordinary Recap's facts are unchanged.
+ */
+function lineupTrophyFacts(rows) {
+  const perfectLineups = [];
+  const captainHindsight = [];
+  for (const r of rows || []) {
+    if (r.type === 'perfect_lineup') {
+      perfectLineups.push({ team: r.team_name });
+    } else if (r.type === 'captain_hindsight') {
+      const d = r.data || {};
+      captainHindsight.push({
+        team: r.team_name, margin: d.margin, bench: d.benchPlayer, starter: d.starter || null, slot: d.slot,
+      });
+    }
+  }
+  const facts = {};
+  if (perfectLineups.length > 0) facts.perfectLineups = perfectLineups;
+  if (captainHindsight.length > 0) facts.captainHindsight = captainHindsight;
+  return facts;
+}
+
 /** Pure: render the fallback narrative from recap facts. */
 function templateNarrative(facts) {
   const lines = [];
@@ -110,6 +135,15 @@ function templateNarrative(facts) {
       `Bench blunder of the week: ${facts.benchBlunder.team} left ` +
         `${facts.benchBlunder.pointsLeftOnBench} points sitting on the bench.`
     );
+  }
+  for (const p of facts.perfectLineups || []) {
+    lines.push(`${p.team} set a perfect lineup.`);
+  }
+  for (const c of facts.captainHindsight || []) {
+    // A tie has margin 0: "lost by 0" would be false, so a tied Matchup reads "tied".
+    const result = c.margin > 0 ? `lost by ${c.margin}` : 'tied';
+    const move = c.starter ? `starting ${c.bench} over ${c.starter} at ${c.slot}` : `filling ${c.slot} with ${c.bench}`;
+    lines.push(`Captain Hindsight: ${c.team} ${result}; ${move} would have won it.`);
   }
   if (facts.waiverSteal) {
     lines.push(
@@ -262,10 +296,28 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
     console.error('recap: playoff odds lookup failed:', err.message);
   }
 
+  // Lineup trophies (#1854): the Settle follow-up awards trophies before it
+  // builds this Recap, so the rows are already there. Read, never recomputed.
+  let lineupFacts = {};
+  try {
+    const trophyRows = await pool.query(
+      `SELECT "trophies"."type", "trophies"."data", "teams"."name" AS "team_name"
+       FROM "trophies" JOIN "teams" ON "teams"."id" = "trophies"."team_id"
+       WHERE "trophies"."league_id" = $1 AND "trophies"."season" = $2 AND "trophies"."week" = $3
+         AND "trophies"."type" IN ('perfect_lineup', 'captain_hindsight')
+       ORDER BY "trophies"."id"`,
+      [leagueId, season, week]
+    );
+    lineupFacts = lineupTrophyFacts(trophyRows.rows);
+  } catch (err) {
+    console.error('recap: lineup trophy lookup failed:', err.message);
+  }
+
   const facts = buildRecapFacts(week, matchupsResult.rows, {
     benchBlunder,
     waiverSteal,
     playoffOdds,
+    ...lineupFacts,
   });
   const narrative = (await llmNarrative(facts)) || templateNarrative(facts);
 
@@ -341,6 +393,7 @@ async function getLatestRecap({ leagueId }) {
 module.exports = {
   buildRecapFacts,
   pickWaiverSteal,
+  lineupTrophyFacts,
   templateNarrative,
   llmNarrative,
   computeAndStoreWeeklyRecap,
