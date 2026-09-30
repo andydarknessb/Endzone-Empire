@@ -1208,6 +1208,46 @@ test('GET /waiver-targets with a 4-day-old snapshot and no board returns an empt
   assert.equal(projected.mock.callCount(), 0, 'no computed fallback is attempted');
 });
 
+test('GET /waiver-targets on a stale feed reads no Ownership, keeps the cap of 8 and serves a duplicated athlete once', async (t) => {
+  const board = WEEK4_FIXTURE_BOARD;
+  const duplicate = { playerId: 902, name: board.entries[0].name, bidMin: 1, bidMax: 2, reason: 'Duplicate listing.' };
+  t.mock.method(waiverBoards, 'getBoard', () => ({ ...board, entries: [board.entries[0], duplicate, ...board.entries.slice(1)] }));
+  const ownershipReads = [];
+  installPool(t, [
+    ['DISTINCT ON ("player_id")', (params) => { ownershipReads.push(params); return { rows: [] }; }],
+    ...slateHandlers({
+      week3LastStatus: 'final',
+      players: [...board.entries.map(playerRowFor), { ...playerRowFor(board.entries[0], 0), id: 902 }],
+      identity: [
+        { requested_id: 700, identity_id: 700 }, { requested_id: 700, identity_id: 902 },
+        { requested_id: 902, identity_id: 700 }, { requested_id: 902, identity_id: 902 },
+      ],
+      newestSnapshot: { newest: '2026-09-25', age_days: 4 },
+    }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(ownershipReads.length, 0, 'no percentage is read on a stale feed');
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [700, 701, 702, 703, 704, 705, 706, 707]);
+  assert.ok(res.body.targets.every((x) => x.ownership === null));
+});
+
+test('GET /waiver-targets with an empty Ownership feed is not stale: the cutoff still applies', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    newestSnapshot: { newest: null, age_days: null },
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.targets, []);
+  assert.equal(res.body.ownershipAsOf, null);
+});
+
 test('GET /waiver-targets with a 3-day-old snapshot still applies the Ownership cutoff', async (t) => {
   t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
   installPool(t, slateHandlers({

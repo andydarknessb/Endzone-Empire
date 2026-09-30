@@ -335,7 +335,10 @@ const NEWEST_SNAPSHOT_SQL = `
 /**
  * `{ newest, ageDays }` when the newest Ownership snapshot is older than
  * OWNERSHIP_STALE_AFTER_DAYS (#1831), else null. Exactly that many days old is
- * still fresh. An empty feed is not "stale": there is no snapshot date to report
+ * still fresh. `captured_date` is the sync node's calendar day and CURRENT_DATE
+ * the database session's (UTC), so the age can read one day high near midnight;
+ * that only ever errs toward stale, which withholds percentages rather than
+ * serving old ones. An empty feed is not "stale": there is no snapshot date to report
  * and the cutoff keeps its existing behavior.
  */
 async function staleSnapshot() {
