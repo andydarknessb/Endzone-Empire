@@ -311,3 +311,48 @@ test('every constant lives in CONSTANTS', () => {
   assert.ok(Number.isFinite(CONSTANTS.minPointEstimate));
   assert.ok(Object.isFrozen(CONSTANTS));
 });
+
+// ---------------------------------------------------------------------------
+// The print script's pure half (no database, no pool)
+// ---------------------------------------------------------------------------
+
+const print = require('../scripts/print-interval-readings');
+
+test('print: parseArgs requires season, current week and out', () => {
+  assert.deepEqual(print.parseArgs(['--season', '2026', '--current-week', '5', '--out', 'x']), {
+    season: 2026, currentWeek: 5, outDir: 'x',
+  });
+  assert.throws(() => print.parseArgs(['--season', '2026', '--out', 'x']), /--current-week is required/);
+  assert.throws(() => print.parseArgs(['--bogus']), /unknown argument/);
+});
+
+test('print: a position with a full reference set lists its tagged players, boom_or_bust first', () => {
+  const rows = lineRun([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]).map((r) => ({ ...r, name: `Player ${r.playerId}` }));
+  const md = print.renderPositionTable({ season: 2026, week: 3, source: 'ledger', profile: 'ppr', position: 'WR', rows });
+  assert.match(md, /^# 2026 week 3, ledger, ppr, WR/);
+  assert.match(md, /Tagged: 4/);
+  assert.match(md, /\| Player \| Tag \| Point estimate \| Floor \| Ceiling \| Width \|/);
+  assert.ok(md.indexOf('boom_or_bust') < md.indexOf('steady'));
+  assert.equal(md.split('\n').filter((l) => /^\| Player \d/.test(l)).length, 4);
+});
+
+test('print: a too-small reference set says so and lists nobody', () => {
+  const rows = lineRun([-3, -2, -1, 0, 1]).map((r) => ({ ...r, name: `P${r.playerId}` }));
+  const md = print.renderPositionTable({ season: 2026, week: 3, source: 'live', profile: 'ppr', position: 'WR', rows });
+  assert.match(md, /No tags: the reference set is smaller than 10/);
+  assert.doesNotMatch(md, /\| P\d/);
+});
+
+test('print: pipes in a name do not break the table', () => {
+  const rows = lineRun([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]).map((r) => ({ ...r, name: `A|B ${r.playerId}` }));
+  const md = print.renderPositionTable({ season: 2026, week: 3, source: 'ledger', profile: 'ppr', position: 'WR', rows });
+  assert.match(md, /A\\|B/);
+});
+
+test('print: renderWeekTables yields one file per position', () => {
+  const tables = print.renderWeekTables({ season: 2026, week: 3, source: 'ledger', profile: 'half_ppr', rows: [] });
+  assert.deepEqual(
+    [...tables.keys()],
+    ['QB', 'RB', 'WR', 'TE'].map((p) => `2026-w3-ledger-half_ppr-${p}.md`)
+  );
+});

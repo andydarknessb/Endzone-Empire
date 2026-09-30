@@ -110,9 +110,14 @@ function fitWidthLine(points) {
   return { slope, intercept: meanY - slope * meanX };
 }
 
+/** The reference set of one position's rows: eligible and at the minimum Point estimate. */
+function referenceSet(rows) {
+  return rows.filter((r) => isEligible(r) && r.pointEstimate >= CONSTANTS.minPointEstimate);
+}
+
 /** Tags one position's rows; writes into `tags`. */
 function tagPosition(rows, tags) {
-  const reference = rows.filter((r) => isEligible(r) && r.pointEstimate >= CONSTANTS.minPointEstimate);
+  const reference = referenceSet(rows);
   if (reference.length < CONSTANTS.minReferenceSetSize) return;
 
   const line = fitWidthLine(reference.map((r) => ({ x: r.pointEstimate, y: widthOf(r) })));
@@ -198,6 +203,8 @@ module.exports = {
   TAG_BOOM_OR_BUST,
   isEligible,
   fitWidthLine,
+  referenceSet,
+  widthOf,
   volatilityTags,
   thresholdProbability,
   thresholdProbabilities,
