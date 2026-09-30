@@ -857,7 +857,7 @@ function liveRow(week, home, away, status) {
 
 // Weeks 1 and 2 are over. Week 3 has two games, and `week3LastStatus` decides
 // whether the second (the late one) is final. Week 4 is scheduled with no live rows.
-function slateHandlers({ week3LastStatus, ownership = [], players = [] }) {
+function slateHandlers({ week3LastStatus, ownership = [], players = [], identity = [] }) {
   const games = [
     ...scheduleRows(1, 'KC', 'BUF', '2026-09-10T00:20:00Z'),
     ...scheduleRows(2, 'KC', 'BUF', '2026-09-17T00:20:00Z'),
@@ -885,7 +885,11 @@ function slateHandlers({ week3LastStatus, ownership = [], players = [] }) {
     ['FROM "nfl_games"', { rows: games }],
     ['FROM "live_game_states"', { rows: live }],
     ['FROM "private"."game_recaps"', { rows: [] }],
-    ['FROM "player_ownership"', { rows: ownership }],
+    ['FROM "player_ownership"', (params) => ({
+      rows: ownership.filter((row) => params[0].includes(row.player_id)),
+    })],
+    // The identity read also selects FROM "players", so it must match first.
+    ['"identity_id"', { rows: identity }],
     ['FROM "players"', { rows: players }],
   ];
 }
@@ -1031,7 +1035,66 @@ test('GET /waiver-targets: the waiver week waits until every game of the previou
   assert.equal(done.body.week, 4);
 });
 
+test('GET /waiver-targets finds a duplicate row\'s Ownership through the identity ids', async (t) => {
+  // The board lists 502 (no Ownership row of its own); the ESPN-matched row of the
+  // same athlete is 902 and carries the snapshot. 501 (a hidden starter) has an
+  // identity row too, and stays hidden.
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    identity: [
+      { requested_id: 502, identity_id: 502 }, { requested_id: 502, identity_id: 902 },
+      { requested_id: 501, identity_id: 501 }, { requested_id: 501, identity_id: 901 },
+    ],
+    ownership: [ownershipRow(902, '21.40', '2026-09-28'), ownershipRow(901, '99.80')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Braelon Allen']);
+  assert.equal(res.body.targets[0].playerId, 502);
+  assert.equal(res.body.targets[0].ownership, 21.4);
+  assert.equal(res.body.ownershipAsOf, '2026-09-28');
+  assert.ok(!JSON.stringify(res.body).includes('99.8'));
+});
+
+test('GET /waiver-targets prefers the board id\'s own Ownership row over an identity row', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    identity: [{ requested_id: 502, identity_id: 502 }, { requested_id: 502, identity_id: 902 }],
+    ownership: [ownershipRow(502, '18.00'), ownershipRow(902, '40.00')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.body.targets[0].ownership, 18);
+});
+
+test('deriveWaiverWeek: week 1 with no games, partial finals, a Tuesday game and the week 18 clamp', () => {
+  const { deriveWaiverWeek } = require('../services/waiverTargets.service');
+  assert.equal(deriveWaiverWeek([]), 1);
+  assert.equal(deriveWaiverWeek(undefined), 1);
+  // Week 1 partly final: still week 1.
+  assert.equal(deriveWaiverWeek([
+    { week: 1, status: 'final' }, { week: 1, status: 'in_progress' },
+  ]), 1);
+  // A Tuesday game that has not finished holds the week; once final it advances.
+  const monday = [{ week: 1, status: 'final' }, { week: 2, status: 'final' }, { week: 2, status: 'final' }];
+  assert.equal(deriveWaiverWeek([...monday, { week: 2, status: 'scheduled' }]), 2);
+  assert.equal(deriveWaiverWeek([...monday, { week: 2, status: 'final' }]), 3);
+  // Weeks 1 and 2 over, week 3 not started: waiver week is 3.
+  assert.equal(deriveWaiverWeek([
+    { week: 1, status: 'final' }, { week: 2, status: 'final' }, { week: 3, status: 'scheduled' },
+  ]), 3);
+  // After week 18 is over it stays 18; weeks outside 1..18 are ignored.
+  assert.equal(deriveWaiverWeek([{ week: 18, status: 'final' }, { week: 19, status: 'final' }]), 18);
+});
+
 test('GET /waiver-targets returns an empty editorial list when no board exists for the waiver week', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => null);
   installPool(t, slateHandlers({ week3LastStatus: 'in_progress' }));
 
   const res = await request(makeApp()).get('/api/public/waiver-targets');

@@ -9,8 +9,9 @@
  *    keyed by IP, so public traffic can't exhaust the authed budget and vice
  *    versa.
  *  - Cache-Control on every response (these are CDN-cacheable).
- *  - All data goes through publicRead.service serializers — no league/user
- *    fields ever reach the response (enforced by the leak test).
+ *  - All data goes through explicit serializers (publicRead.service, and
+ *    waiverTargets.service for /waiver-targets) — no league/user fields ever
+ *    reach the response (enforced by the leak test).
  *  - Strict input validation: integer regex, position whitelist, 400/404 JSON.
  */
 const express = require('express');

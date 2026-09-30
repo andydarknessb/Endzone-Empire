@@ -69,6 +69,27 @@ const OWNERSHIP_SQL = `
    WHERE "player_id" = ANY($1::int[])
    ORDER BY "player_id", "captured_date" DESC`;
 
+// The `players` rows that are the same athlete as each requested id: the same
+// normalized name, position and team. ESPN Ownership is written only to the row
+// whose `external_id` matches, so a board id that points at a duplicate row must
+// still find that row's snapshot. This is the bulk form of `loadIdentityIdsFor`
+// in playerCard.service.js (not exported there, and that file is outside this
+// ticket), so keep the match rule in step with it.
+const IDENTITY_SQL = `
+  WITH "target" AS (
+    SELECT "id" AS "requested_id",
+           LOWER(REGEXP_REPLACE(TRIM("name"), '\\s+', ' ', 'g')) AS "name_key",
+           "position",
+           COALESCE(fn_normalize_nfl_team("nfl_team"), '') AS "team_key"
+      FROM "players" WHERE "id" = ANY($1::int[])
+  )
+  SELECT "target"."requested_id" AS "requested_id", "players"."id" AS "identity_id"
+    FROM "target"
+    JOIN "players"
+      ON LOWER(REGEXP_REPLACE(TRIM("players"."name"), '\\s+', ' ', 'g')) = "target"."name_key"
+     AND "players"."position" = "target"."position"
+     AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"`;
+
 const PLAYERS_SQL = `
   SELECT "id", "name", "position", "nfl_team", "photo_url"
     FROM "players"
@@ -104,17 +125,33 @@ async function getWaiverTargets() {
   if (!board || board.entries.length === 0) return empty;
 
   const ids = board.entries.map((entry) => entry.playerId);
-  const [ownershipRes, playersRes] = await Promise.all([
-    pool.query(OWNERSHIP_SQL, [ids]),
+  const [identityRes, playersRes] = await Promise.all([
+    pool.query(IDENTITY_SQL, [ids]),
     pool.query(PLAYERS_SQL, [ids]),
   ]);
+  const identityIdsById = new Map();
+  for (const row of identityRes.rows) {
+    const requested = Number(row.requested_id);
+    if (!identityIdsById.has(requested)) identityIdsById.set(requested, []);
+    identityIdsById.get(requested).push(Number(row.identity_id));
+  }
+  // Ownership is read over every identity id, one round trip, and only for the
+  // board's own players.
+  const ownershipIds = [...new Set([...ids, ...[...identityIdsById.values()].flat()])];
+  const ownershipRes = await pool.query(OWNERSHIP_SQL, [ownershipIds]);
   const ownershipById = new Map(ownershipRes.rows.map((row) => [Number(row.player_id), row]));
   const playersById = new Map(playersRes.rows.map((row) => [Number(row.id), row]));
+
+  // The board id's own row first, then its identity rows; the first snapshot
+  // with a percentage wins (the order playersPage.service ownershipForMany uses).
+  const ownershipFor = (playerId) => [playerId, ...(identityIdsById.get(playerId) || [])]
+    .map((id) => ownershipById.get(id))
+    .find((row) => row && row.percent_owned != null);
 
   const targets = [];
   let ownershipAsOf = null;
   for (const entry of board.entries) {
-    const row = ownershipById.get(entry.playerId);
+    const row = ownershipFor(entry.playerId);
     const player = playersById.get(entry.playerId);
     if (!row || !player || row.percent_owned == null) continue;
     const percent = Number(row.percent_owned);
