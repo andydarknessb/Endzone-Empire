@@ -511,7 +511,7 @@ export default function LeagueDashboardPage() {
           populated; gating it on fantasy would drop that. It self-hides on an
           empty list, so a league with no trophies renders nothing regardless. */}
       <Box component="section" data-testid="slot-trophy-case" sx={EMPTY_HIDDEN_SX}>
-        <TrophyCase leagueId={leagueId} />
+        <TrophyCase leagueId={leagueId} teams={teams} />
       </Box>
 
       {/* League chat: every member, in a drawer opened by a floating button that
