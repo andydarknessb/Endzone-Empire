@@ -1,0 +1,37 @@
+/* The Postgame marquee, shared by the WIN and TIE scenes (Marquee.jsx). Fixed
+   colors in both app themes (allowlisted in scripts/check-color-literals.js).
+   Only the track's transform moves, in the whole steps Marquee.jsx sets. Its
+   height is its own: it reads no variable a scene root sets, so it does not
+   collapse under a scene that never defined one. A scene that stacks something
+   above it (the WIN Record line) mirrors the 48px in its own stylesheet. */
+
+.postgame-marquee {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 48px;
+  overflow: hidden;
+  background: #000000;
+  border-top: 2px solid #ffd23f;
+  box-sizing: border-box;
+}
+.postgame-marquee-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  will-change: transform;
+}
+.postgame-marquee-avatar img {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.postgame-marquee-text {
+  font-size: clamp(10px, 3vw, 14px);
+  color: #ffffff;
+}

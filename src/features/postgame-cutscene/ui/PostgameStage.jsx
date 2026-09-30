@@ -7,6 +7,7 @@ import { Sprite } from '../../../shared/ui';
 import ResultCard from './ResultCard';
 import WinScene from './WinScene';
 import LossScene from './LossScene';
+import TieScene from './TieScene';
 import useOverlayFocus from './useOverlayFocus';
 import { planQueue, resultSentence } from '../model/plan';
 import { kitForTeam } from '../model/teamKit';
@@ -20,9 +21,9 @@ import './PostgameCutscenes.css';
 // outcome (and every outcome under reduced motion) shows the still ResultCard.
 // A scene is mounted with { cutscene, sfx, onDone, onLeave } and owns its own
 // length: the queue advances on its `onDone`, not on SCENE_MS. `onLeave` ends the
-// whole queue (the loss scene's waiver link); a scene with no link ignores it.
+// whole queue (the loss scene's waiver link); a scene with no link (win, tie) ignores it.
 // Later scenes register here.
-const SCENES = { win: WinScene, loss: LossScene };
+const SCENES = { win: WinScene, loss: LossScene, tie: TieScene };
 
 // Timing ledger. A card is on screen for SCENE_MS (2 s each under reduced motion).
 const SCENE_MS = 3500;

@@ -6,7 +6,7 @@ import { Sprite, GoalPostSprite } from '../../../shared/ui';
 import { OUTCOME_WORD, recordLine } from '../model/plan';
 import { kitForTeam } from '../model/teamKit';
 import Marquee from './Marquee';
-import Transition from './Transition';
+import Transition, { tallyLine } from './Transition';
 import {
   BALL, BALL_COLORS, DANCE, DIVE, SPIKE, frameRects,
 } from './sprites';
@@ -125,7 +125,7 @@ function WinScene({ cutscene, sfx, onDone }) {
   return (
     <div className="win-scene" data-testid="win-scene" data-beat={beat} aria-hidden="true">
       {beat === 'sweep' ? (
-        <Transition text={`WEEK ${cutscene.week} FINAL... TALLYING SCORES...`} />
+        <Transition text={tallyLine(cutscene.week)} />
       ) : (
         <>
           <div className="win-sky"><div className="win-layer win-layer--sky" data-testid="win-layer-sky" /></div>
