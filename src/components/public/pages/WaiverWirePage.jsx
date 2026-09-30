@@ -67,12 +67,16 @@ function WaiverTargetCard({ target }) {
               )}
             </Stack>
           </Box>
-          <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-            <Typography variant="stat" component="div" sx={{ fontWeight: 800, color: 'var(--accent)', fontSize: '1.15rem' }}>
-              {`${ownership}%`}
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>owned</Typography>
-          </Box>
+          {/* Ownership is null when the feed is stale (#1831): the block is left
+              out rather than rendering "null%" or an empty figure. */}
+          {ownership != null && (
+            <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+              <Typography variant="stat" component="div" sx={{ fontWeight: 800, color: 'var(--accent)', fontSize: '1.15rem' }}>
+                {`${ownership}%`}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>owned</Typography>
+            </Box>
+          )}
         </Stack>
         {/* A computed target (no board this week) carries the projection instead
             of an editorial bid range and reason. */}
@@ -100,6 +104,9 @@ function WaiverTargets() {
   );
   const targets = data?.targets || [];
   const title = data?.week ? `Week ${data.week} Waiver Targets` : 'Waiver Targets';
+  // Every Ownership % null means the feed is stale (#1831): the picks stand, but
+  // the "under half of public leagues" claim cannot be made for them.
+  const ownershipUnknown = targets.length > 0 && targets.every((target) => target.ownership == null);
 
   return (
     <Box component="section" sx={{ mt: 6, mb: 6 }} aria-labelledby="waiver-targets-heading">
@@ -109,7 +116,9 @@ function WaiverTargets() {
       <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75, mb: 2.5, maxWidth: 760 }}>
         {data?.source === 'computed'
           ? 'No Darkness Report is posted for this week yet, so these are the highest-projected players rostered in under half of public leagues, at most two per position. Actual availability depends on your league, but these are useful players to monitor before claims run.'
-          : 'This week’s picks from our Darkness Report, limited to players rostered in under half of public leagues. Bids are a percent of a $100 budget. Actual availability depends on your league, but these are useful players to monitor before claims run.'}
+          : ownershipUnknown
+            ? 'This week’s picks from our Darkness Report. Rostered percentages are being refreshed, so they are not shown right now. Bids are a percent of a $100 budget. Actual availability depends on your league, but these are useful players to monitor before claims run.'
+            : 'This week’s picks from our Darkness Report, limited to players rostered in under half of public leagues. Bids are a percent of a $100 budget. Actual availability depends on your league, but these are useful players to monitor before claims run.'}
       </Typography>
       {loading && <LoadingRows rows={3} height={76} />}
       {!loading && error && <ErrorState message="We couldn't load this week's waiver targets." onRetry={retry} />}

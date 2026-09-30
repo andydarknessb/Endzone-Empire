@@ -857,7 +857,12 @@ function liveRow(week, home, away, status) {
 
 // Weeks 1 and 2 are over. Week 3 has two games, and `week3LastStatus` decides
 // whether the second (the late one) is final. Week 4 is scheduled with no live rows.
-function slateHandlers({ week3LastStatus, ownership = [], players = [], identity = [] }) {
+// `newestSnapshot` is the newest Ownership snapshot across the whole feed: its
+// date and its age in days (the database computes the age from CURRENT_DATE).
+function slateHandlers({
+  week3LastStatus, ownership = [], players = [], identity = [],
+  newestSnapshot = { newest: '2026-09-29', age_days: 0 },
+}) {
   const games = [
     ...scheduleRows(1, 'KC', 'BUF', '2026-09-10T00:20:00Z'),
     ...scheduleRows(2, 'KC', 'BUF', '2026-09-17T00:20:00Z'),
@@ -885,6 +890,8 @@ function slateHandlers({ week3LastStatus, ownership = [], players = [], identity
     ['FROM "nfl_games"', { rows: games }],
     ['FROM "live_game_states"', { rows: live }],
     ['FROM "private"."game_recaps"', { rows: [] }],
+    // The feed-wide freshness read has no player filter, so it matches first.
+    ['MAX("captured_date")', { rows: [newestSnapshot] }],
     ['FROM "player_ownership"', (params) => ({
       rows: ownership.filter((row) => params[0].includes(row.player_id)),
     })],
@@ -1157,6 +1164,110 @@ test('GET /waiver-targets exposes Ownership only for the returned targets', asyn
 });
 
 // ---------------------------------------------------------------------------
+// GET /waiver-targets stale Ownership snapshot (#1831)
+// ---------------------------------------------------------------------------
+
+test('GET /waiver-targets with a 4-day-old snapshot returns the whole board without the cutoff and with Ownership null', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    newestSnapshot: { newest: '2026-09-25', age_days: 4 },
+    ownership: [ownershipRow(501, '60.00', '2026-09-25'), ownershipRow(502, '18.00', '2026-09-25')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.source, 'editorial');
+  assert.equal(res.body.ownershipAsOf, '2026-09-25');
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [501, 502, 503, 504, 505]);
+  assert.ok(res.body.targets.every((x) => x.ownership === null), 'every Ownership % is null');
+  assert.ok(!/"ownership":\d/.test(JSON.stringify(res.body)), 'a stale percentage never appears');
+  assert.equal(res.body.targets[0].bidMin, 12);
+  assert.equal(res.body.targets[0].reason, FAKE_BOARD.entries[0].reason);
+  assertNoLeakyKeys(res.body);
+});
+
+test('GET /waiver-targets with a 4-day-old snapshot and no board returns an empty list, not a computed one', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => null);
+  const projected = t.mock.method(projectionService, 'getWeekProjections', async () => new Map([
+    [1, { points: 20, source: 'extrapolated' }],
+  ]));
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    newestSnapshot: { newest: '2026-09-25', age_days: 4 },
+    ownership: [ownershipRow(1, '10.00', '2026-09-25')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.targets, []);
+  assert.equal(res.body.ownershipAsOf, '2026-09-25');
+  assert.equal(projected.mock.callCount(), 0, 'no computed fallback is attempted');
+});
+
+test('GET /waiver-targets on a stale feed reads no Ownership, keeps the cap of 8 and serves a duplicated athlete once', async (t) => {
+  const board = WEEK4_FIXTURE_BOARD;
+  const duplicate = { playerId: 902, name: board.entries[0].name, bidMin: 1, bidMax: 2, reason: 'Duplicate listing.' };
+  t.mock.method(waiverBoards, 'getBoard', () => ({ ...board, entries: [board.entries[0], duplicate, ...board.entries.slice(1)] }));
+  const ownershipReads = [];
+  installPool(t, [
+    ['DISTINCT ON ("player_id")', (params) => { ownershipReads.push(params); return { rows: [] }; }],
+    ...slateHandlers({
+      week3LastStatus: 'final',
+      players: [...board.entries.map(playerRowFor), { ...playerRowFor(board.entries[0], 0), id: 902 }],
+      identity: [
+        { requested_id: 700, identity_id: 700 }, { requested_id: 700, identity_id: 902 },
+        { requested_id: 902, identity_id: 700 }, { requested_id: 902, identity_id: 902 },
+      ],
+      newestSnapshot: { newest: '2026-09-25', age_days: 4 },
+    }),
+  ]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(ownershipReads.length, 0, 'no percentage is read on a stale feed');
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [700, 701, 702, 703, 704, 705, 706, 707]);
+  assert.ok(res.body.targets.every((x) => x.ownership === null));
+});
+
+test('GET /waiver-targets with an empty Ownership feed is not stale: the cutoff still applies', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    newestSnapshot: { newest: null, age_days: null },
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.targets, []);
+  assert.equal(res.body.ownershipAsOf, null);
+});
+
+test('GET /waiver-targets with a 3-day-old snapshot still applies the Ownership cutoff', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    newestSnapshot: { newest: '2026-09-26', age_days: 3 },
+    ownership: [
+      ownershipRow(501, '60.00', '2026-09-26'), ownershipRow(502, '18.00', '2026-09-26'),
+      ownershipRow(505, '17.50', '2026-09-26'),
+    ],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [502, 505]);
+  assert.deepEqual(res.body.targets.map((x) => x.ownership), [18, 17.5]);
+  assert.equal(res.body.ownershipAsOf, '2026-09-26');
+});
+
+// ---------------------------------------------------------------------------
 // GET /waiver-targets computed fallback when no board exists (#1830)
 // ---------------------------------------------------------------------------
 
@@ -1397,6 +1508,7 @@ test('GET /waiver-targets computed: no completed week (waiver week 1) has nothin
     ['FROM "nfl_games"', { rows: scheduleRows(1, 'KC', 'BUF', '2026-09-10T00:20:00Z') }],
     ['FROM "live_game_states"', { rows: [] }],
     ['FROM "private"."game_recaps"', { rows: [] }],
+    ['MAX("captured_date")', { rows: [{ newest: '2026-09-29', age_days: 0 }] }],
   ]);
 
   const res = await request(makeApp()).get('/api/public/waiver-targets');

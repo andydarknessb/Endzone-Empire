@@ -1122,7 +1122,10 @@ editorial board still gets Waiver Targets, computed: QB, RB, WR and TE under
 the Ownership cutoff, ranked by this week's projection (never season totals),
 at most two per position and eight in all, excluding Position-baseline
 projections, players with no stats in the last two completed weeks, No NFL team,
-Unavailable, and Out, IR or Doubtful players.
+Unavailable, and Out, IR or Doubtful players. When the newest Ownership
+snapshot is more than three days old the feed is stale: the editorial board is
+served without the Ownership cutoff and with no Ownership shown, and the
+computed list is not attempted, so a week with no board has none.
 _Avoid_: available-type add, top add, pickup, sleeper
 
 **In your leagues**:

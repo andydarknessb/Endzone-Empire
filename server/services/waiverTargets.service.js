@@ -23,6 +23,10 @@ const { unavailableFor } = require('./unavailable');
 // claim. Strictly less than, so a player at exactly 50% is dropped.
 const OWNERSHIP_CUTOFF_PERCENT = 50;
 
+// The newest Ownership snapshot may be at most this many days old. Older, and the
+// feed is stale: percentages are no longer trusted to filter on (#1831).
+const OWNERSHIP_STALE_AFTER_DAYS = 3;
+
 const MAX_TARGETS = 8;
 
 // The computed fallback (#1830): only these Positions, at most this many of
@@ -149,9 +153,11 @@ function serializeTarget({ entry, player, ownership, opponent }) {
  * round trip. Returns `identityIdsById` (each id's same-athlete rows) and
  * `ownershipFor(id)`: the id's own row first, then its identity rows; the first
  * snapshot with a percentage wins (the order playersPage.service
- * ownershipForMany uses).
+ * ownershipForMany uses). With `withOwnership: false` (a stale feed) only the
+ * identity round trip runs and `ownershipFor` finds nothing, so an old
+ * percentage is never read, let alone served.
  */
-async function loadOwnership(ids) {
+async function loadOwnership(ids, { withOwnership = true } = {}) {
   const identityRes = await pool.query(IDENTITY_SQL, [ids]);
   const identityIdsById = new Map();
   for (const row of identityRes.rows) {
@@ -159,6 +165,7 @@ async function loadOwnership(ids) {
     if (!identityIdsById.has(requested)) identityIdsById.set(requested, []);
     identityIdsById.get(requested).push(Number(row.identity_id));
   }
+  if (!withOwnership) return { identityIdsById, ownershipFor: () => undefined };
   // Ownership is read over every identity id, one round trip, and only for the
   // requested players.
   const ownershipIds = [...new Set([...ids, ...[...identityIdsById.values()].flat()])];
@@ -180,24 +187,26 @@ function ownershipUnderCutoff(row) {
 /**
  * `{ week, source: 'editorial', ownershipAsOf, targets }` from the waiver week's
  * board. Ownership is read only for the board's players and appears only on the
- * targets that survive the cutoff.
+ * targets that survive the cutoff. On a stale feed (#1831) the cutoff is not
+ * applied and no Ownership is read: every target carries `ownership: null` and
+ * `ownershipAsOf` is the stale snapshot's date.
  */
-async function editorialTargets({ board, games, week }) {
+async function editorialTargets({ board, games, week, stale = null }) {
   const ids = board.entries.map((entry) => entry.playerId);
   const [{ identityIdsById, ownershipFor }, playersRes] = await Promise.all([
-    loadOwnership(ids),
+    loadOwnership(ids, { withOwnership: !stale }),
     pool.query(PLAYERS_SQL, [ids]),
   ]);
   const playersById = new Map(playersRes.rows.map((row) => [Number(row.id), row]));
 
   const targets = [];
   const servedIds = new Set();
-  let ownershipAsOf = null;
+  let ownershipAsOf = stale ? stale.newest : null;
   for (const entry of board.entries) {
     const row = ownershipFor(entry.playerId);
     const player = playersById.get(entry.playerId);
-    const percent = ownershipUnderCutoff(row);
-    if (!player || percent == null) continue;
+    const percent = stale ? null : ownershipUnderCutoff(row);
+    if (!player || (!stale && percent == null)) continue;
     // Two board ids that are rows of the same athlete (an editorial slip) would
     // resolve to one snapshot; serve the athlete once, at the earlier entry.
     const athleteIds = [entry.playerId, ...(identityIdsById.get(entry.playerId) || [])];
@@ -209,7 +218,7 @@ async function editorialTargets({ board, games, week }) {
       ownership: percent,
       opponent: opponentOf(games, week, player.nfl_team),
     }));
-    if (row.captured_date && (ownershipAsOf === null || row.captured_date > ownershipAsOf)) {
+    if (!stale && row.captured_date && (ownershipAsOf === null || row.captured_date > ownershipAsOf)) {
       ownershipAsOf = row.captured_date;
     }
     if (targets.length === MAX_TARGETS) break;
@@ -314,23 +323,54 @@ async function computedTargets({ season, games, week }) {
   return result(targets, ownershipAsOf);
 }
 
+// The newest Ownership snapshot across the whole feed, with its age in days
+// counted by the database from CURRENT_DATE (the same clock the season read
+// uses). `captured_date` is cast to text for the same reason as above. A feed
+// with no snapshot at all yields one row of nulls.
+const NEWEST_SNAPSHOT_SQL = `
+  SELECT MAX("captured_date")::text AS "newest",
+         (CURRENT_DATE - MAX("captured_date"))::int AS "age_days"
+    FROM "player_ownership"`;
+
+/**
+ * `{ newest, ageDays }` when the newest Ownership snapshot is older than
+ * OWNERSHIP_STALE_AFTER_DAYS (#1831), else null. Exactly that many days old is
+ * still fresh. `captured_date` is the sync node's calendar day and CURRENT_DATE
+ * the database session's (UTC), so the age can read one day high near midnight;
+ * that only ever errs toward stale, which withholds percentages rather than
+ * serving old ones. An empty feed is not "stale": there is no snapshot date to report
+ * and the cutoff keeps its existing behavior.
+ */
+async function staleSnapshot() {
+  const { rows } = await pool.query(NEWEST_SNAPSHOT_SQL);
+  const row = rows[0];
+  if (!row || row.newest == null || row.age_days == null) return null;
+  const ageDays = Number(row.age_days);
+  return ageDays > OWNERSHIP_STALE_AFTER_DAYS ? { newest: row.newest, ageDays } : null;
+}
+
 /**
  * The public Waiver Targets payload. A board for the waiver week always wins
  * (`source: 'editorial'`); a week with none falls back to the computed list
- * (`source: 'computed'`).
+ * (`source: 'computed'`). When the Ownership feed is stale (#1831) the board is
+ * served without the cutoff and the computed list is not attempted: no board
+ * then means no targets.
  */
 async function getWaiverTargets() {
   const season = await upcomingNflSeason();
   const games = season == null ? [] : await getSeasonSlate({ season });
   const week = deriveWaiverWeek(games);
+  const stale = await staleSnapshot();
 
   const board = season == null ? null : waiverBoards.getBoard(season, week);
-  if (board && board.entries.length > 0) return editorialTargets({ board, games, week });
+  if (board && board.entries.length > 0) return editorialTargets({ board, games, week, stale });
+  if (stale) return { week, source: 'computed', ownershipAsOf: stale.newest, targets: [] };
   return computedTargets({ season, games, week });
 }
 
 module.exports = {
   OWNERSHIP_CUTOFF_PERCENT,
+  OWNERSHIP_STALE_AFTER_DAYS,
   MAX_TARGETS,
   MAX_PER_POSITION,
   deriveWaiverWeek,
