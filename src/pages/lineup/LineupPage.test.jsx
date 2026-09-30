@@ -1176,3 +1176,12 @@ test('no lean line in a closer Matchup, and none when the Matchup data has not l
   await screen.findByText('Bench Guy');
   expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
 });
+
+test("the week's matchups list is read once for the page, not once per surface (#1872)", async () => {
+  renderPage();
+  await screen.findByTestId('ledger-starters');
+  await waitFor(() =>
+    expect(apiClient.get.mock.calls.filter(([url]) => url === MATCHUPS_URL).length).toBeGreaterThanOrEqual(1)
+  );
+  expect(apiClient.get.mock.calls.filter(([url]) => url === MATCHUPS_URL)).toHaveLength(1);
+});

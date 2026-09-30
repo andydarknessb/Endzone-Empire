@@ -1,7 +1,8 @@
 import { useEndpoint, matchupWinProbability, formatKickoff, finite, teamNameLabel } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import {
-  matchupFromListRow,
+  useWeekMatchups,
+  viewerMatchupOf,
   matchupFromDetailBody,
   matchupStatusView,
 } from '../../../entities/matchup';
@@ -102,17 +103,19 @@ import {
  *     `name` column that the matchup routes also leak.
  *
  * Both reads are on the service-worker API allowlist
- * (public/service-worker.js: /api/league/N/matchups(/M)?). They are plain
- * useEndpoint reads rather than shared useResource resources ONLY because this
- * widget is the single mount of either URL on this page (ADR 0004: cache through
- * useResource when the GET is on the allowlist AND read by more than one mount
- * per typical navigation). The moment a second consumer of the week's matchups
- * or of a matchup detail lands on this page, that read must move to useResource,
- * the way the league read already has.
+ * (public/service-worker.js: /api/league/N/matchups(/M)?). ADR 0004 caches a GET
+ * through useResource when it is on the allowlist AND read by more than one
+ * mount per typical navigation. The week's matchups list meets that (the Lineup
+ * page and the team-summary-strip read it too, #1872), so it is
+ * `entities/matchup`'s shared `useWeekMatchups` and the viewer's row is its
+ * `viewerMatchupOf`. The matchup detail is still a single mount, so it stays a
+ * plain useEndpoint read; the moment a second consumer of a matchup detail lands
+ * on a page, that read must move to useResource too, the way the league read and
+ * the week's list already have.
  */
 
-// Both reads below use the shared useEndpoint (src/shared/lib, #669) and ignore
-// its `httpStatus` field deliberately: this widget degrades a failed read to a
+// The chained detail read below uses the shared useEndpoint (src/shared/lib,
+// #669) and ignores its `httpStatus` field deliberately: this widget degrades a failed read to a
 // compact error or a placeholder without distinguishing the status code. What
 // this widget DOES rely on is the shared hook's null-URL contract: a null url
 // never fetches and parks the state on `status: 'loading'` forever. That is
@@ -133,20 +136,15 @@ export function useMatchupPreview(leagueId) {
 
   // Read 1 (the spine): the week's matchups. Null until we know the league and
   // the current week, so a league with no current week never fires it.
-  const listUrl =
-    leagueId != null && week != null ? `/api/league/${leagueId}/matchups?week=${week}` : null;
-  const list = useEndpoint(listUrl);
+  // It is the entity's shared cached read (#1872): the Lineup page and the
+  // team-summary-strip read the same URL too.
+  const list = useWeekMatchups(leagueId, week);
+  const hasListRead = leagueId != null && week != null;
 
-  // Pick the viewer's matchup by Team id (#112). The list is a bare array of the
-  // wire's snake_case rows; each is read as the one Matchup shape (entities/
-  // matchup) so this widget never names a database column again (#864).
-  const rows = Array.isArray(list.data) ? list.data.map(matchupFromListRow) : [];
-  const myMatchup =
-    viewerTeamId != null
-      ? rows.find(
-          (m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)
-        ) || null
-      : null;
+  // Pick the viewer's matchup by Team id (#112). The rows are already the one
+  // Matchup shape (entities/matchup), so this widget never names a database
+  // column again (#864).
+  const myMatchup = viewerMatchupOf(list.matchups, viewerTeamId);
   const matchupId = myMatchup ? myMatchup.id : null;
   const opponentId = myMatchup
     ? myMatchup.home.teamId === viewerTeamId
@@ -245,14 +243,13 @@ export function useMatchupPreview(leagueId) {
     return { loading: false, value: Number.isFinite(raw) ? raw.toFixed(1) : null };
   };
 
-  // Card status: the list is the spine. A null list URL means there is nothing
-  // to fetch (no current week), which is an empty card, NOT a loading one: with
-  // no url useEndpoint idles at 'loading' forever, so this case is handled
-  // before the read's status is consulted.
+  // Card status: the list is the spine. No list read means there is nothing to
+  // fetch (no current week), which is an empty card, NOT a loading one, so this
+  // case is handled before the read's state is consulted.
   let status;
-  if (listUrl == null) status = 'empty';
-  else if (list.status === 'loading') status = 'loading';
-  else if (list.status === 'error') status = 'error';
+  if (!hasListRead) status = 'empty';
+  else if (list.loading) status = 'loading';
+  else if (list.error) status = 'error';
   else if (!myMatchup) status = 'empty';
   else status = 'ready';
 

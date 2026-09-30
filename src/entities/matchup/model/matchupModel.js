@@ -70,6 +70,20 @@ export function matchupFromListRow(row) {
 }
 
 /**
+ * The viewer's own Matchup out of the week's Matchups (already read as the one
+ * Matchup shape), picked by Team id (#112): the row whose home or away side is
+ * the viewer's Team, or null with no viewer Team, no such row, or no list.
+ * The one place the pick lives, so the Lineup page, the team-summary-strip and
+ * the matchup-preview cannot drift (#1872).
+ */
+export function viewerMatchupOf(matchups, viewerTeamId) {
+  if (viewerTeamId == null || !Array.isArray(matchups)) return null;
+  return (
+    matchups.find((m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)) || null
+  );
+}
+
+/**
  * From the Matchup detail body (`GET /api/league/:id/matchups/:matchupId`):
  * `{ matchup, home, away }`, where the score lives on `matchup.home_score` and
  * each side's identity, Expected final and Players remaining live on the
