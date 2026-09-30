@@ -3,8 +3,8 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates } from '../../entities/matchup';
-import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
+import { useLiveGameStates, matchupFromListRow } from '../../entities/matchup';
+import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, useEndpoint } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
@@ -204,6 +204,30 @@ export default function LineupPage() {
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw });
+
+  // The two teams' Expected finals for the viewed week's Matchup (#1852), for
+  // the start/sit card's underdog-or-favorite line: the same week's matchups
+  // list the summary strip and the matchup-preview widget already read, the
+  // viewer's row picked by Team id (#112) and read as the one Matchup shape.
+  // Best ball shows no card, so it reads nothing. A list that has not loaded,
+  // has no row for the viewer, or carries no Expected final (a started Matchup
+  // has none by design) leaves `null` here, which is no line.
+  const matchupsWeek = lineup?.week ?? null;
+  const matchups = useEndpoint(
+    selectedLeagueId != null && matchupsWeek != null && !bestBall
+      ? `/api/league/${selectedLeagueId}/matchups?week=${matchupsWeek}`
+      : null
+  );
+  const viewerMatchup = viewerTeamId != null && Array.isArray(matchups.data)
+    ? matchups.data
+        .map(matchupFromListRow)
+        .find((m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)) || null
+    : null;
+  const expectedFinals = viewerMatchup
+    ? viewerMatchup.home.teamId === viewerTeamId
+      ? { mine: viewerMatchup.home.expectedFinal, theirs: viewerMatchup.away.expectedFinal }
+      : { mine: viewerMatchup.away.expectedFinal, theirs: viewerMatchup.home.expectedFinal }
+    : null;
 
   // The Bench what-if swap (#910), read once and resolved against whichever
   // lineup actually loaded.
@@ -462,6 +486,8 @@ export default function LineupPage() {
                     entries={lineup?.entries}
                     bestBall={bestBall}
                     onApply={applyAdvice.apply}
+                    onOpenDecisionCard={setDecisionCardEntryId}
+                    expectedFinals={expectedFinals}
                   />
                   <ByeClusterGrid
                     entries={lineup?.entries}

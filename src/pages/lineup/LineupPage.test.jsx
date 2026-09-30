@@ -1117,3 +1117,62 @@ test('a past week (already played) shows no Bye cluster grid at all', async () =
   await screen.findByText('Josh Allen');
   expect(screen.queryByTestId('bye-cluster-grid')).not.toBeInTheDocument();
 });
+
+// #1852: the start/sit card's Game status tag, names that open the Decision
+// card, and the underdog-or-favorite line off the Matchup data the page reads.
+test('a Questionable player in a suggestion shows the injury tag; a healthy one shows none', async () => {
+  const sug = adviceSuggestion();
+  sug.suggested.availability = { available: true, status: 'Q' };
+  sug.current.availability = { available: true, status: null };
+  renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [sug] }) } });
+  const panel = await screen.findByTestId('start-sit-panel');
+  await within(panel).findByText('Bench Guy');
+  const tags = within(panel).getAllByTestId('injury-tag');
+  expect(tags).toHaveLength(1);
+  expect(tags[0]).toHaveAttribute('data-status', 'Q');
+});
+
+test('tapping a name in the start/sit card opens the Decision card, from the Outlook tab on a phone', async () => {
+  const user = userEvent.setup();
+  renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
+  await screen.findByText('Josh Allen');
+  await user.click(within(screen.getByTestId('lineup-mobile-view')).getByRole('radio', { name: 'Outlook' }));
+
+  const panel = screen.getByTestId('start-sit-panel');
+  await user.click(await within(panel).findByRole('button', { name: 'Bench Guy' }));
+
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { name: 'Bench Guy' })).toBeInTheDocument();
+});
+
+test('the lean line appears when the Expected finals are 10 or more apart, from the Matchup data the page loads', async () => {
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ home_expected_final: '88.0', away_expected_final: '100.4' })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  const line = await screen.findByTestId('start-sit-lean-line');
+  expect(line).toHaveTextContent('Projected to trail by 12: lean toward Ceiling');
+  expect(line.textContent).not.toMatch(/range|—/i);
+});
+
+test('the lean line favors Floor when the viewer leads by 10 or more, whichever side he is on', async () => {
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ home_team_id: 7, away_team_id: 3, home_expected_final: '80.0', away_expected_final: '95.0' })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  expect(await screen.findByTestId('start-sit-lean-line')).toHaveTextContent('Projected to lead by 15: lean toward Floor');
+});
+
+test('no lean line in a closer Matchup, and none when the Matchup data has not loaded', async () => {
+  const { unmount } = renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
+  await screen.findByText('Bench Guy');
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+  unmount();
+
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ home_expected_final: null, away_expected_final: null })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  await screen.findByText('Bench Guy');
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+});

@@ -1,4 +1,4 @@
-import { buildSuggestionView, earlierKickoff, isTooCloseToCall, movePlanWithout, opponentContextText } from './suggestionView';
+import { buildSuggestionView, earlierKickoff, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -150,5 +150,56 @@ describe('movePlanWithout', () => {
 
   test('a pair whose players are not in the plan leaves it unchanged', () => {
     expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(movePlan);
+  });
+});
+
+describe('projectedLeanLine (#1852)', () => {
+  test('a gap of 10 or more with the manager behind leans toward Ceiling, with the rounded gap', () => {
+    expect(projectedLeanLine({ mine: 88, theirs: 100 })).toBe('Projected to trail by 12: lean toward Ceiling');
+    expect(projectedLeanLine({ mine: 90, theirs: 100 })).toBe('Projected to trail by 10: lean toward Ceiling');
+  });
+
+  test('a gap of 10 or more with the manager ahead leans toward Floor', () => {
+    expect(projectedLeanLine({ mine: 112.4, theirs: 100 })).toBe('Projected to lead by 12: lean toward Floor');
+  });
+
+  test('a closer Matchup has no line, even when the gap rounds up to 10', () => {
+    expect(projectedLeanLine({ mine: 95, theirs: 88 })).toBeNull();
+    expect(projectedLeanLine({ mine: 90.5, theirs: 100 })).toBeNull();
+    expect(projectedLeanLine({ mine: 100, theirs: 100 })).toBeNull();
+  });
+
+  test('a missing Expected final on either side has no line (a 0 is a value, not a miss)', () => {
+    expect(projectedLeanLine({ mine: null, theirs: 100 })).toBeNull();
+    expect(projectedLeanLine({ mine: 88, theirs: undefined })).toBeNull();
+    expect(projectedLeanLine(null)).toBeNull();
+    expect(projectedLeanLine({ mine: 0, theirs: 10 })).toBe('Projected to trail by 10: lean toward Ceiling');
+  });
+
+  test('the copy says Floor and Ceiling, never "range", and has no em-dash', () => {
+    const line = projectedLeanLine({ mine: 80, theirs: 100 });
+    expect(line).not.toMatch(/range/i);
+    expect(line).not.toMatch(/—/);
+  });
+});
+
+describe('buildSuggestionView injury designation (#1852)', () => {
+  const side = (over = {}) => ({ playerId: 1, name: 'A', projection: 5, ...over });
+  const build = (current, suggested) =>
+    buildSuggestionView({ slot: 'RB', current, suggested }, new Map());
+
+  test('carries each side\'s availability status for the shared injury tag', () => {
+    const view = build(
+      side({ availability: { available: true, status: 'Q' } }),
+      side({ playerId: 2, availability: { available: false, status: 'O' } }),
+    );
+    expect(view.sit.injuryStatus).toBe('Q');
+    expect(view.start.injuryStatus).toBe('O');
+  });
+
+  test('a healthy side, or one with no availability, has no status', () => {
+    const view = build(side({ availability: { available: true, status: null } }), side({ playerId: 2 }));
+    expect(view.sit.injuryStatus).toBeNull();
+    expect(view.start.injuryStatus).toBeNull();
   });
 });

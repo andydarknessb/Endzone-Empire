@@ -156,3 +156,103 @@ test('no "optimal", "optimize" or "range" copy anywhere on the panel', () => {
   expect(text).not.toMatch(/optimal|optimize/i);
   expect(text).not.toMatch(/\brange\b/i);
 });
+
+// #1852: the shared injury tag, names that open the Decision card, and the
+// underdog-or-favorite line.
+const withStatus = (status) => ({ available: status !== 'O', status });
+
+test.each([['Q', 'Questionable'], ['D', 'Doubtful'], ['O', 'Out']])(
+  'a %s player shows the shared injury tag beside his name; a healthy player shows none',
+  (code, word) => {
+    const s = suggestion();
+    s.current.availability = withStatus(code);
+    render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+    const tags = screen.getAllByTestId('injury-tag');
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toHaveAttribute('data-status', code);
+    expect(tags[0]).toHaveTextContent(`Injury status: ${word}`);
+    // Beside the sit player's name, not the start player's.
+    const [sitColumn] = screen.getAllByTestId('suggestion-player');
+    expect(within(sitColumn).getByText('Sit Guy')).toBeInTheDocument();
+    expect(within(sitColumn).getByTestId('injury-tag')).toBeInTheDocument();
+  },
+);
+
+test('no injury tag when both players are healthy', () => {
+  const s = suggestion();
+  s.current.availability = { available: true, status: null };
+  render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+  expect(screen.queryByTestId('injury-tag')).not.toBeInTheDocument();
+});
+
+test('tapping either name opens the Decision card for that player; Compare is unchanged', async () => {
+  const user = userEvent.setup();
+  const onOpenDecisionCard = jest.fn();
+  const onCompare = jest.fn();
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion()], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      onOpenDecisionCard={onOpenDecisionCard}
+      onCompare={onCompare}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Sit Guy' }));
+  expect(onOpenDecisionCard).toHaveBeenLastCalledWith(1);
+  await user.click(screen.getByRole('button', { name: 'Start Guy' }));
+  expect(onOpenDecisionCard).toHaveBeenLastCalledWith(2);
+  expect(onCompare).not.toHaveBeenCalled();
+  await user.click(screen.getByTestId('suggestion-compare'));
+  expect(onCompare).toHaveBeenCalledTimes(1);
+  expect(onOpenDecisionCard).toHaveBeenCalledTimes(2);
+});
+
+test('the lean line shows at the top of the card when the Expected final gap is 10 or more', () => {
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion()], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      expectedFinals={{ mine: 88, theirs: 100 }}
+    />,
+  );
+  const line = screen.getByTestId('start-sit-lean-line');
+  expect(line).toHaveTextContent('Projected to trail by 12: lean toward Ceiling');
+  // Above the first suggestion, and it names no player.
+  const card = screen.getByTestId('suggestion-card');
+  expect(line.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(line.textContent).not.toMatch(/Sit Guy|Start Guy/);
+});
+
+test('the lean line favors Floor when the manager leads by 10 or more', () => {
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion()], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      expectedFinals={{ mine: 112, theirs: 100 }}
+    />,
+  );
+  expect(screen.getByTestId('start-sit-lean-line')).toHaveTextContent('Projected to lead by 12: lean toward Floor');
+});
+
+test('no lean line in a closer Matchup or before the Matchup data has loaded', () => {
+  const { rerender } = render(
+    <StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} expectedFinals={{ mine: 95, theirs: 88 }} />,
+  );
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+  rerender(
+    <StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} />,
+  );
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+});
+
+test('the lean line changes no suggestion and never reads "range"', () => {
+  const { container } = render(
+    <StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} expectedFinals={{ mine: 70, theirs: 100 }} />,
+  );
+  expect(screen.getAllByTestId('suggestion-card')).toHaveLength(1);
+  expect(container.textContent).not.toMatch(/\brange\b/i);
+  expect(container.textContent).not.toMatch(/—/);
+});

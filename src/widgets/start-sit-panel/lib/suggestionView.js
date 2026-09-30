@@ -7,6 +7,8 @@
  * unit-tested directly.
  */
 
+import { finite } from '../../../shared/lib';
+
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
  * known. `opponentApplied` (#1485) says whether the projection engine's own
@@ -52,6 +54,10 @@ function sideView(side, entriesById) {
     position,
     kickoff,
     projection: side.projection ?? null,
+    // The shared injury tag's code (#1852): the suggestion side's availability
+    // carries the player's designation (O, IR, D, Q or null), the same field
+    // the Ledger row's tag reads off the lineup entry.
+    injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
     opponentContext: opponentContextText({
@@ -113,6 +119,30 @@ export function movePlanWithout(movePlan, dismissedViews) {
     held.add(view.start.playerId);
   }
   return plan.filter((move) => !held.has(move.playerId));
+}
+
+/** The Expected final gap, in points, at which the lean line appears (#1852). */
+export const LEAN_LINE_MIN_GAP = 10;
+
+/**
+ * The one line at the top of the start/sit card when the Matchup is lopsided
+ * (#1852): "Projected to trail by 12: lean toward Ceiling" or "Projected to
+ * lead by 12: lean toward Floor". `mine` and `theirs` are the two teams'
+ * Expected finals for the Matchup. The line appears only when the absolute gap
+ * is `LEAN_LINE_MIN_GAP` or more (tested before rounding, so a 9.6 gap is no
+ * line), shows the rounded gap, names no player and changes no suggestion.
+ * A missing Expected final on either side reads as no line; a `0` is a value.
+ */
+export function projectedLeanLine(expectedFinals) {
+  const mine = finite(expectedFinals?.mine);
+  const theirs = finite(expectedFinals?.theirs);
+  if (mine == null || theirs == null) return null;
+  const gap = mine - theirs;
+  if (Math.abs(gap) < LEAN_LINE_MIN_GAP) return null;
+  const rounded = Math.round(Math.abs(gap));
+  return gap < 0
+    ? `Projected to trail by ${rounded}: lean toward Ceiling`
+    : `Projected to lead by ${rounded}: lean toward Floor`;
 }
 
 export default buildSuggestionView;
