@@ -136,7 +136,7 @@ test('renders nothing while loading', () => {
 
 test('hides itself when there are no trophies', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
-  renderWithProviders(<TrophyCase leagueId={1} teams={[{ id: 10, name: 'Sunday Ballers' }]} />);
+  renderWithProviders(<TrophyCase leagueId={1} teams={[{ id: 10, name: 'Sunday Ballers', teamId: 10, teamName: 'Sunday Ballers' }]} />);
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
   expect(screen.queryByTestId('trophy-case')).not.toBeInTheDocument();
@@ -158,11 +158,11 @@ describe('per-team tally', () => {
     t(6, 'champion', 'League Champion', 11, "Alice's Team", 2025, null),
   ];
   const teams = [
-    { id: 10, name: 'Sunday Ballers', avatar_url: null },
-    { id: 11, name: "Alice's Team", avatar_url: null },
-    { id: 12, name: 'Cardiac Comebacks', avatar_url: null },
-    { id: 13, name: 'Zero Hour', avatar_url: null },
-    { id: 14, name: 'Aardvarks', avatar_url: null },
+    { id: 10, name: 'Sunday Ballers', teamId: 10, teamName: 'Sunday Ballers', avatar_url: null },
+    { id: 11, name: "Alice's Team", teamId: 11, teamName: "Alice's Team", avatar_url: null },
+    { id: 12, name: 'Cardiac Comebacks', teamId: 12, teamName: 'Cardiac Comebacks', avatar_url: null },
+    { id: 13, name: 'Zero Hour', teamId: 13, teamName: 'Zero Hour', avatar_url: null },
+    { id: 14, name: 'Aardvarks', teamId: 14, teamName: 'Aardvarks', avatar_url: null },
   ];
   const rowOrder = () =>
     screen.getAllByTestId(/^tally-team-/).map((row) => row.getAttribute('data-testid'));
@@ -190,6 +190,38 @@ describe('per-team tally', () => {
     expect(screen.getByTestId('tally-team-13')).toHaveTextContent('Total 0');
     // The 2025 champion trophy is not a 2026 type.
     expect(screen.getByTestId('trophy-tally')).not.toHaveTextContent('League Champion');
+  });
+
+  // #1874: the row reads the canonical teamId/teamName, not the raw `id`/`name`
+  // columns the league-detail route leaks beside them.
+  test('a roster row reads teamName, not the raw name column', async () => {
+    apiClient.get.mockResolvedValue({ data: season2026 });
+    renderWithProviders(
+      <TrophyCase
+        leagueId={1}
+        teams={[{ id: 10, name: 'Old Name', teamId: 10, teamName: 'Sunday Ballers', avatar_url: null }]}
+      />
+    );
+    await screen.findByTestId('trophy-case');
+
+    const row = screen.getByTestId('tally-team-10');
+    expect(row).toHaveTextContent('Sunday Ballers');
+    expect(row).not.toHaveTextContent('Old Name');
+  });
+
+  test('a blank teamName reads Former manager', async () => {
+    apiClient.get.mockResolvedValue({ data: season2026 });
+    renderWithProviders(
+      <TrophyCase
+        leagueId={1}
+        teams={[{ id: 13, name: 'Zero Hour', teamId: 13, teamName: '   ', avatar_url: null }]}
+      />
+    );
+    await screen.findByTestId('trophy-case');
+
+    const row = screen.getByTestId('tally-team-13');
+    expect(row).toHaveTextContent('Former manager');
+    expect(row).not.toHaveTextContent('Zero Hour');
   });
 
   test('follows the season dropdown without another request', async () => {

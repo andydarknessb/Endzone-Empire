@@ -10,6 +10,7 @@ import {
 import { Card, Badge, TeamAvatar } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
+import { teamNameLabel } from '../../shared/lib/teamIdentity';
 
 // One inline stroke glyph per trophy type on the 20px grid (1.6 stroke, round
 // caps, currentColor), replacing the emoji map this module used to export.
@@ -144,17 +145,35 @@ function buildTally(seasonTrophies, teams = []) {
   );
 
   const byTeam = new Map();
-  teams.forEach((tm) => byTeam.set(tm.id, { ...tm, counts: {}, total: 0 }));
+  // One row shape, keyed on the canonical Team identity (`teamId`, `teamName`)
+  // rather than the raw `id`/`name` columns the league-detail route leaks
+  // beside them. `trophies.team_id` is the same integer as `teamId`.
+  teams.forEach((tm) =>
+    byTeam.set(tm.teamId, {
+      teamId: tm.teamId,
+      teamName: tm.teamName,
+      avatar_url: tm.avatar_url,
+      avatar_static_url: tm.avatar_static_url,
+      counts: {},
+      total: 0,
+    })
+  );
   seasonTrophies.forEach((t) => {
     if (!byTeam.has(t.team_id)) {
-      byTeam.set(t.team_id, { id: t.team_id, name: t.team_name, counts: {}, total: 0 });
+      byTeam.set(t.team_id, {
+        teamId: t.team_id,
+        teamName: teamNameLabel(t.team_name),
+        counts: {},
+        total: 0,
+      });
     }
     const row = byTeam.get(t.team_id);
     row.counts[t.type] = (row.counts[t.type] || 0) + 1;
     row.total += 1;
   });
   const rows = Array.from(byTeam.values()).sort(
-    (a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name))
+    (a, b) =>
+      b.total - a.total || teamNameLabel(a.teamName).localeCompare(teamNameLabel(b.teamName))
   );
   return { typeList, rows };
 }
@@ -175,8 +194,8 @@ function TrophyTally({ seasonTrophies, teams }) {
       {rows.map((row) => (
         <Box
           component="li"
-          key={row.id}
-          data-testid={`tally-team-${row.id}`}
+          key={row.teamId}
+          data-testid={`tally-team-${row.teamId}`}
           sx={{
             display: 'flex',
             flexWrap: 'wrap',
@@ -188,9 +207,14 @@ function TrophyTally({ seasonTrophies, teams }) {
           }}
         >
           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-            <TeamAvatar name={row.name} avatarUrl={row.avatar_url} avatarStaticUrl={row.avatar_static_url} size={24} />
+            <TeamAvatar
+              name={teamNameLabel(row.teamName)}
+              avatarUrl={row.avatar_url}
+              avatarStaticUrl={row.avatar_static_url}
+              size={24}
+            />
             <Typography variant="body2" sx={{ fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}>
-              {row.name}
+              {teamNameLabel(row.teamName)}
             </Typography>
           </Box>
           <Typography variant="caption" sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}>
