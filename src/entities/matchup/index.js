@@ -11,10 +11,11 @@
  * the two sides' unpaired starters instead, and nothing under this entity
  * imports `entities/roster` any more. Within the island it otherwise
  * depends on `shared` (the score feed, `shared/lib`); it also reaches the
- * legacy tree below the island for two things the brief and precedent settle -
+ * legacy tree below the island for three things the brief and precedent settle -
  * the existing generic Team profile helper (`src/lib/teamProfileEvents`, which
- * the issue mandated) and a plain fetch (`src/api/apiClient`, the same module
- * `shared/lib/useEndpoint` reads) - plus, since #885, the anon Supabase client
+ * the issue mandated), a plain fetch (`src/api/apiClient`, the same module
+ * `shared/lib/useEndpoint` reads) and, since #1872, the shared cached read
+ * (`src/hooks/useResource`, ADR 0004) behind `useWeekMatchups` - plus, since #885, the anon Supabase client
  * (`src/api/supabaseClient`) for the shared live game state subscription used
  * by Matchup Detail and Game Center. Everything else in this folder is
  * internal.
@@ -31,10 +32,12 @@ export {
   applyScoreEvent,
   applyIdentityPatch,
   matchupStatusView,
+  viewerMatchupOf,
 } from './model/matchupModel';
 export {
   playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
+export { useWeekMatchups } from './model/useWeekMatchups';
 export { useMatchup } from './model/useMatchup';
 export { useLiveGameStates } from './model/useLiveGameStates';

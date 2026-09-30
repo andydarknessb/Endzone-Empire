@@ -3,8 +3,8 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates, matchupFromListRow } from '../../entities/matchup';
-import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, useEndpoint } from '../../shared/lib';
+import { useLiveGameStates, useWeekMatchups, viewerMatchupOf } from '../../entities/matchup';
+import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
@@ -206,23 +206,16 @@ export default function LineupPage() {
   const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw });
 
   // The two teams' Expected finals for the viewed week's Matchup (#1852), for
-  // the start/sit card's underdog-or-favorite line: the same week's matchups
-  // list the summary strip and the matchup-preview widget already read, the
-  // viewer's row picked by Team id (#112) and read as the one Matchup shape.
-  // Best ball shows no card, so it reads nothing. A list that has not loaded,
-  // has no row for the viewer, or carries no Expected final (a started Matchup
-  // has none by design) leaves `null` here, which is no line.
-  const matchupsWeek = lineup?.week ?? null;
-  const matchups = useEndpoint(
-    selectedLeagueId != null && matchupsWeek != null && !bestBall
-      ? `/api/league/${selectedLeagueId}/matchups?week=${matchupsWeek}`
-      : null
-  );
-  const viewerMatchup = viewerTeamId != null && Array.isArray(matchups.data)
-    ? matchups.data
-        .map(matchupFromListRow)
-        .find((m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)) || null
-    : null;
+  // the start/sit card's underdog-or-favorite line: the entity's shared read of
+  // the week's matchups (#1872; the summary strip and the matchup-preview
+  // widget read the same list, deduped when the weeks coincide), the viewer's
+  // row picked by Team id (#112). Best ball shows no card, so it reads nothing.
+  // A list that has not loaded, has no row for the viewer, or carries no
+  // Expected final (only a settled, final Matchup has none; an in-progress
+  // starter's is actual plus the rest of its projection) leaves `null` here,
+  // which is no line.
+  const { matchups } = useWeekMatchups(selectedLeagueId, lineup?.week ?? null, { enabled: !bestBall });
+  const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
   const expectedFinals = viewerMatchup
     ? viewerMatchup.home.teamId === viewerTeamId
       ? { mine: viewerMatchup.home.expectedFinal, theirs: viewerMatchup.away.expectedFinal }
