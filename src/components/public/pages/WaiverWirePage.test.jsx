@@ -71,6 +71,34 @@ test('renders the week title and an editorial card with position, team, opponent
   expect(card).toHaveAttribute('href', '/players/11');
 });
 
+test('renders a computed card with position, team, opponent, Ownership and the projection, and no bid range', async () => {
+  publicApiClient.get.mockResolvedValue({
+    data: {
+      week: 4,
+      source: 'computed',
+      ownershipAsOf: '2026-09-29',
+      targets: [{
+        playerId: 21, name: 'Ollie Gordon II', position: 'RB', nflTeam: 'MIA', photoUrl: null,
+        opponent: 'MIN', ownership: 23.4, projection: 12.6,
+      }],
+    },
+  });
+  renderPage();
+
+  expect(await screen.findByRole('heading', { name: 'Week 4 Waiver Targets' })).toBeInTheDocument();
+  const card = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/players/21');
+  expect(card).toBeDefined();
+  expect(within(card).getByText('Ollie Gordon II')).toBeInTheDocument();
+  expect(within(card).getByText('RB')).toBeInTheDocument();
+  expect(within(card).getByText('MIA')).toBeInTheDocument();
+  expect(within(card).getByText('Opp MIN')).toBeInTheDocument();
+  expect(within(card).getByText('23.4%')).toBeInTheDocument();
+  expect(within(card).getByText('12.6 proj')).toBeInTheDocument();
+  expect(within(card).queryByText(/Bid /)).not.toBeInTheDocument();
+  expect(screen.queryByText(/of budget/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Darkness Report, limited/)).not.toBeInTheDocument();
+});
+
 test('no season rank appears on the page', async () => {
   renderPage();
 
