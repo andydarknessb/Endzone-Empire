@@ -1705,7 +1705,10 @@ function toWeeklyProjectionResult(run) {
      * the forecast move this player's number. The weather Factor is `available`
      * whenever a forecast exists, so `available` (the opponent flag's source)
      * would read "applied" for a forecast v3.1 multiplies by zero; `scored` is
-     * the flag that says the effect can reach the output.
+     * the flag that says the effect can reach the output. `weatherEffect`
+     * hard-codes `scored: false` today, so a Model version that applies weather
+     * must also change that function; raising `constants.weather.maxEffect`
+     * alone would leave this flag, and the "context only" label, false.
      */
     weatherAppliedFor(playerId) {
       const entry = entryFor(playerId);

@@ -255,3 +255,38 @@ test('loadGameChipContext: a team with no game (bye) or a row with no game_key h
   const byTeam = await loadGameChipContext({ season: 2026, week: 6, nflTeams: ['BUF', 'KC'] });
   assert.equal(byTeam.size, 0);
 });
+
+test('loadGameChipContext: rejected reads in several games reject once and leave no unhandled rejection (#1853)', async (t) => {
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  t.after(() => process.off('unhandledRejection', onUnhandled));
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "nfl_games"')) {
+      return {
+        rows: [
+          { nfl_team: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'home' },
+          { nfl_team: 'DAL', game_key: 'g2', roof: 'outdoors', home_away: 'home' },
+          { nfl_team: 'KC', game_key: 'g3', roof: 'outdoors', home_away: 'home' },
+        ],
+      };
+    }
+    // g1 is slow and healthy; g2 and g3 fail, g3 after g1 has settled.
+    if (params[0] === 'g1') {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { rows: [] };
+    }
+    if (params[0] === 'g2') throw new Error('pool timeout g2');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    throw new Error('pool timeout g3');
+  });
+
+  await assert.rejects(
+    loadGameChipContext({ season: 2026, week: 6, nflTeams: ['BUF', 'DAL', 'KC'] }),
+    /pool timeout g2/
+  );
+  // Let g3's later rejection land; a handler-less promise would surface here.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(unhandled, []);
+});

@@ -107,11 +107,14 @@ function mockAdviceDependencies(t, {
   oddsByGame = {},
   weatherByGame = {},
   queryLog = [],
+  // #1853: make every odds read reject, to pin the degrade-to-no-chips path.
+  failOdds = false,
 } = {}) {
   const projectionCalls = [];
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
     queryLog.push({ text, params });
+    if (failOdds && text.includes('FROM "game_odds_snapshots"')) throw new Error('pool timeout');
     if (text.includes('FROM "leagues"')) return { rows: [league] };
     if (text.includes('FROM "game_odds_snapshots"')) return { rows: oddsByGame[params[0]] ? [oddsByGame[params[0]]] : [] };
     if (text.includes('FROM "game_weather_snapshots"')) return { rows: weatherByGame[params[0]] ? [weatherByGame[params[0]]] : [] };
@@ -518,4 +521,34 @@ test('a side with no game, odds or weather carries null line and weather (#1853)
     assert.equal(side.weatherApplied, false);
     assert.equal(side.marketApplied, false);
   }
+});
+
+test('a rejected Line or weather read still answers the advice, with null line and weather (#1853)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB', { nfl_team: 'BUF' }),
+    lineupEntry(3, 'RB', 'BENCH', { nfl_team: 'NYJ' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+    gameRows: [
+      { nfl_team: 'BUF', opponent: 'NYJ', game_key: 'g1', roof: 'outdoors', home_away: 'home' },
+      { nfl_team: 'NYJ', opponent: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'away' },
+    ],
+    failOdds: true,
+  });
+  t.mock.method(console, 'error', () => {});
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  const { current, suggested } = response.body.suggestions[0];
+  for (const side of [current, suggested]) {
+    assert.equal(side.line, null);
+    assert.equal(side.weather, null);
+  }
+  assert.equal(current.opponent, 'NYJ', 'the rest of the advice is unchanged');
 });

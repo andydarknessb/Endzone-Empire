@@ -187,20 +187,25 @@ async function loadGameChipContext({ season, week, nflTeams }) {
     .map((row) => ({ team: normalizeNflTeam(row.nfl_team), row }))
     .filter(({ team, row }) => team !== null && wanted.has(team) && row.game_key);
 
-  const perGame = new Map();
+  const roofByGame = new Map();
   for (const { row } of games) {
-    if (perGame.has(row.game_key)) continue;
+    if (!roofByGame.has(row.game_key)) roofByGame.set(row.game_key, row.roof);
+  }
+  // Every per-game read is settled in ONE Promise.all, which attaches a handler
+  // to each of them: a read that rejects while another is still pending (or
+  // after the first rejection) is never left unhandled, and the process's
+  // unhandledRejection handler exits the API. The first rejection rejects this
+  // function, and the caller degrades to no chips.
+  const perGame = new Map(await Promise.all([...roofByGame].map(async ([gameKey, roof]) => {
     // `homeAway` is null here on purpose: the per-team orientation is applied
     // below, and the Implied team total it would select never leaves this read.
-    perGame.set(row.game_key, Promise.all([
-      loadLine(row.game_key, null),
-      loadWeather(row.game_key, row.roof),
-    ]));
-  }
+    const [line, weather] = await Promise.all([loadLine(gameKey, null), loadWeather(gameKey, roof)]);
+    return [gameKey, { line, weather }];
+  })));
 
   const byTeam = new Map();
   for (const { team, row } of games) {
-    const [line, weather] = await perGame.get(row.game_key);
+    const { line, weather } = perGame.get(row.game_key);
     byTeam.set(team, { line: chipLine(line, row.home_away), weather: chipWeather(weather) });
   }
   return byTeam;

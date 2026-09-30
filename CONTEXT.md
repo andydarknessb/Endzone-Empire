@@ -330,17 +330,20 @@ _Avoid_: stadium (fine in copy, not as the term), location
 
 **Weather**:
 A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
-The Decision card and Pick'em each read it independently (#1294, no shared
-shape): the Decision card's wire carries six fields (`indoor`, `temperatureF`,
+The Decision card, Pick'em and the start/sit card each read it independently
+(#1294, no shared shape): the Decision card's wire carries six fields (`indoor`, `temperatureF`,
 `windSpeedMph`, `windGustMph`, `precipitationProbability`, `shortForecast`),
 every field present and nullable, `indoor` explicit, whenever a game exists;
 Pick'em's wire carries four fields (`shortForecast`, `temperatureF`,
 `windSpeedMph`, `precipitationProbability`) and is `null` outright for an
-indoor game or a missing snapshot. The 15 mph wind and 30% precipitation
-display thresholds belong to the Pick'em card alone; the Decision card
-applies no threshold to the values it shows, and shows temperature, wind
-speed and the short forecast (`windGustMph` and `precipitationProbability`
-reach it on the wire but are not displayed).
+indoor game or a missing snapshot. The start/sit card's wire carries five
+fields (`indoor`, `windSpeedMph`, `windGustMph`, `precipitationProbability`,
+`shortForecast`) and shows a chip only outdoors, at 20 mph of wind or more and
+at 60% precipitation or more. Each card's display thresholds are its own: the
+15 mph wind and 30% precipitation ones belong to the Pick'em card alone, and
+the Decision card applies no threshold to the values it shows, and shows
+temperature, wind speed and the short forecast (`windGustMph` and
+`precipitationProbability` reach it on the wire but are not displayed).
 _Avoid_: forecast (fine in copy, not as the term)
 
 **Broadcast**:
@@ -1490,7 +1493,12 @@ One named adjustment a weekly projection applies (usage blend, opponent,
 head-to-head), each shrunk toward no effect and capped. Factors are what the
 explanation exposes to the manager. Another factor, home/away, is built but
 permanently gated off and never applies: its activation was abandoned without
-evidence (ADR 0001).
+evidence (ADR 0001). Two more, weather and game environment (how many points
+the Line implies for the player's team against the week's slate), are capped
+at zero effect under the current Model version: they carry their numbers as
+context and never move a projection. A Factor that is not applied is
+"context only" wherever its numbers surface; a Model version that applies one
+drops that label.
 _Avoid_: feature, weight, signal
 
 **Model version**:
@@ -1557,9 +1565,9 @@ player's game only when notable: "High total" (a Line total of 48 or more),
 "Favored by" (7 points or more), and, outdoors, "Wind" (20 mph or more) and
 "Rain" (60% or more). They come from the Decision card's Line and Weather
 loaders (the Implied team total stays on the Decision card), and each reads
-"context only" while its Factor's applied flag is false (the market and
-Weather Factors both have a maximum effect of zero under v3.1). No chips on
-the Decision card or a Ledger row.
+"context only" while its Factor is not applied: the Line chips follow the
+game environment Factor, the weather chips the weather Factor. No chips on the
+Decision card or a Ledger row.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 
