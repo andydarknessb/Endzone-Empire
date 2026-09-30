@@ -23,6 +23,10 @@ const DEFAULT_PREFS = {
   // In-app: play the Tecmo touchdown cutscene when the viewer's own starter
   // scores on the live matchup page. Opt-out, like the rest.
   touchdownCelebrations: true,
+  // In-app: play the Postgame cutscene, the full-screen result of the
+  // viewer's own final Matchup, on their next visit to Home. Opt-out; off
+  // returns an empty due list.
+  postgameCutscenes: true,
 };
 
 /** Pure: merge a stored prefs object onto the defaults. Unknown stored keys are ignored. */

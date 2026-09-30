@@ -298,7 +298,7 @@ test('a provider can be installed and removed through the seam', async () => {
     // exercises the real live path with no database at all.
     await projection.generateProjections({
       season: 2026, week: 8, rules: {}, playerIds: [], hashValue: 'x',
-      client: {}, weatherService: false,
+      client: { query: async () => ({ rows: [] }) }, weatherService: false,
     });
     const liveCall = calls[calls.length - 1];
     assert.equal(liveCall.observedAtOrBefore, null, 'the live path passes no odds bound');

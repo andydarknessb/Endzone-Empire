@@ -294,6 +294,32 @@ test('a starter on a bye is reported unavailable and replaced', async (t) => {
   assert.equal(advice.suggestions[0].suggested.playerId, 3);
 });
 
+// #1792 f11: getLineup's own player read carries `nfl_roster_status`
+// (#1767), and `startSitAdvice` maps it onto the entry it hands
+// `buildSuggestions` as `nflRosterStatus: e.nfl_roster_status`. This is the
+// ONLY test that goes through the real `getLineup` entry shape end to end -
+// decision.service.test.js's buildSuggestions cases pass `nflRosterStatus`
+// on the fixture directly, so they stay green even if startSitAdvice's own
+// mapping line is deleted and every roster status silently drops on the
+// floor.
+test('a fresh Practice squad row on getLineup\'s entry reaches buildSuggestions and reads Unavailable (#1792 f11)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB', {
+      nfl_roster_status: { status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() },
+    }),
+    lineupEntry(3, 'RB', 'BENCH'),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    projections: [[1, projectionFor(1, 20)], [3, projectionFor(3, 8)]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  assert.deepEqual(advice.unavailable.map((u) => [u.playerId, u.reason]), [[1, 'practice_squad']]);
+  assert.equal(advice.projectedTotal, 0);
+  assert.equal(advice.suggestions[0].suggested.playerId, 3);
+});
+
 test('a DEF unit resolves its opponent even though players.nfl_team is a full team name (#423)', async (t) => {
   // players.nfl_team for a DEF is seeded as a full team name ('Denver
   // Broncos') by syncTeamDefenses, while nfl_games.nfl_team is Tank01's raw

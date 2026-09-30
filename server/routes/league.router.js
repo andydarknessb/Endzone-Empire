@@ -778,6 +778,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
     const { unavailableFor } = require('../services/unavailable');
+    const { nflRosterStatusColumn } = require('../services/nflRosterStatus');
     const rules = rulesForLeague(leagueRow);
 
     // This week's real-game opponents, for the cutscene's chasing defender.
@@ -827,7 +828,8 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const lineupSql = (slotPredicate) => `SELECT "players"."id", "players"."name", "players"."position",
                 "players"."nfl_team", "players"."injury_status", "players"."photo_url",
                 "lineup_entries"."player_id",
-                "lineup_entries"."slot", "player_stats"."stats"
+                "lineup_entries"."slot", "player_stats"."stats",
+                ${nflRosterStatusColumn()}
          FROM "lineup_entries"
          ${rosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -920,7 +922,12 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       const availability = priced
         ? priced.availability
         : (() => {
-          const verdict = unavailableFor({ injuryStatus: row.injury_status, onBye: false, noTeam: row.nfl_team == null });
+          const verdict = unavailableFor({
+            injuryStatus: row.injury_status,
+            onBye: false,
+            noTeam: row.nfl_team == null,
+            nflRosterStatus: row.nfl_roster_status ?? null,
+          });
           return { available: verdict.available, reason: verdict.available ? null : verdict.reason };
         })();
       return {

@@ -44,6 +44,11 @@ const DEPTH_CHART_SEASON = Number(process.env.ESPN_DEPTH_CHART_SEASON) || new Da
 const depthChartUrl = (numericTeamId) =>
   `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${DEPTH_CHART_SEASON}` +
   `/teams/${numericTeamId}/depthcharts`;
+// The team roster (#1766) is ESPN's site API, on the same `site.web.api` host as
+// the athlete reads: `site.api.espn.com/apis/site/v2/.../roster` answers a
+// server-side request 403 (captured 2026-09-29), `site.web.api` answers 200.
+const teamRosterUrl = (numericTeamId) =>
+  `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/${numericTeamId}/roster`;
 const FANTASY_PLAYER_INFO_URL = (season) =>
   `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/1`;
 
@@ -271,6 +276,46 @@ function normalizeDepthChart(payload, teamCode) {
 }
 
 /**
+ * ESPN's team-roster group -> NFL roster status (#1766). The roster document
+ * files every athlete under one group: offense/defense/specialTeam are the
+ * 53-man Active roster, injuredReserveOrOut/suspended are Reserve,
+ * practiceSquad is the Practice squad. A group not named here is skipped, not
+ * guessed: an unknown group is ESPN adding a shape, never an Active player.
+ */
+const ROSTER_GROUP_STATUS = Object.freeze({
+  offense: 'active',
+  defense: 'active',
+  specialTeam: 'active',
+  injuredReserveOrOut: 'reserve',
+  suspended: 'reserve',
+  practiceSquad: 'practice_squad',
+});
+
+/**
+ * Pure: one team's site-API roster document -> `{ athleteId, teamCode,
+ * rosterStatus }[]`, one per athlete (the first group an athlete appears in
+ * wins). `rosterStatus` is `'active' | 'practice_squad' | 'reserve'`.
+ */
+function normalizeTeamRoster(payload, teamCode) {
+  const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
+  const seen = new Set();
+  const rows = [];
+  for (const group of groups) {
+    const rosterStatus = group && ROSTER_GROUP_STATUS[group.position];
+    if (!rosterStatus) continue;
+    const items = Array.isArray(group.items) ? group.items : [];
+    for (const item of items) {
+      if (!item || item.id == null || item.id === '') continue;
+      const athleteId = String(item.id);
+      if (seen.has(athleteId)) continue;
+      seen.add(athleteId);
+      rows.push({ athleteId, teamCode, rosterStatus });
+    }
+  }
+  return rows;
+}
+
+/**
  * Pure: a fantasy `kona_player_info` payload -> `{ athleteId, percentOwned,
  * percentStarted, percentChange }[]`, one per `players[]` entry that carries
  * an `ownership` block. No `draftRanksByRankType`/`rankings`/projection field
@@ -392,8 +437,21 @@ async function teamDepthChart(teamCode, { transport } = {}) {
   return payload ? normalizeDepthChart(payload, teamCode) : null;
 }
 
+/** This team's NFL roster -> `{ athleteId, teamCode, rosterStatus }[]` (never
+ * cached: the daily roster-status Sync run's table is the cache). `null` for an
+ * unknown team code or any fetch failure, `[]` when ESPN answered with no
+ * usable groups - `espnFactsSync.js`'s `fetchRosterStatus` tells the two apart.
+ * Never throws. */
+async function teamRoster(teamCode, { transport } = {}) {
+  const code = String(teamCode || '').toUpperCase();
+  const numericId = ESPN_TEAM_NUMERIC_ID[code];
+  if (!numericId) return null;
+  const payload = await getJson(transport, teamRosterUrl(numericId));
+  return payload ? normalizeTeamRoster(payload, code) : null;
+}
+
 /**
- * The whole pool's Ownership -> `{ athleteId, percentOwned, percentStarted,
+ * The whole pool's Ownership ->`{ athleteId, percentOwned, percentStarted,
  * percentChange }[]` (never cached). `season` is the fantasy season year
  * (`ESPN_FANTASY_SEASON` env, else the current UTC year). A high `limit`
  * sorted by percent owned, ESPN's own bulk-read shape for this endpoint,
@@ -418,8 +476,10 @@ module.exports = {
   profile,
   overview,
   teamDepthChart,
+  teamRoster,
   ownership,
   // pure - unit tested
+  normalizeTeamRoster,
   normalizeBio,
   normalizeEspnNews,
   normalizeFantasyNews,

@@ -227,6 +227,19 @@ async function tickUnlocked() {
     // calls each with its own ESPN_TIMEOUT_MS, so a slow or hanging host must
     // never delay any of those. Both jobs are free and keyless, so unlike the
     // nightly projection fill above they need no off-peak hour of their own.
+    // Roster status (#1766) BEFORE the depth chart: the daily run, then the
+    // Saturday run after the 4pm ET elevation deadline. The pre-holdout-capture
+    // run lives in runHoldoutSnapshots, ahead of the capture itself.
+    try {
+      await runDailyEspnRosterStatusSync();
+    } catch (err) {
+      console.error('daily ESPN roster-status sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runSaturdayEspnRosterStatusSync();
+    } catch (err) {
+      console.error('Saturday ESPN roster-status sync failed (will retry next tick):', err.message);
+    }
     try {
       await runDailyEspnDepthChartSync();
     } catch (err) {
@@ -421,6 +434,99 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
   const gate = await cadence.due({ job: 'espn-ownership', every: 'utc-day', now });
   if (!gate.due) return null;
   return require('./espnFactsSync').runOwnershipSync({ now });
+}
+
+const ROSTER_STATUS_JOB = 'espn-roster-status';
+const PRE_HOLDOUT_RETRY_MS = 30 * 60 * 1000;
+const ELEVATION_DEADLINE_HOUR_ET = 16;
+const ET_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+
+/**
+ * The NFL roster-status Sync run (#1766, ADR 0041 amendment), three triggers on
+ * one job, all ordered before what reads or follows them. The daily run is the
+ * plain cadence gate, exactly like the depth-chart run it precedes.
+ */
+async function runDailyEspnRosterStatusSync({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: ROSTER_STATUS_JOB, every: 'utc-day', now });
+  if (!gate.due) return null;
+  return require('./espnFactsSync').runRosterStatusSync({ now });
+}
+
+/**
+ * Pure: the 4pm ET Saturday elevation deadline `now` is at or past, as an
+ * instant, or null when `now` is not on an ET Saturday from 16:00. (Practice
+ * squad elevations for the weekend's games lock at 4pm ET Saturday.) The
+ * wall-clock parts are read in America/New_York, so the instant is DST-correct:
+ * a clock change never falls between Saturday 16:00 and midnight.
+ */
+function saturdayElevationDeadline(now) {
+  const parts = Object.fromEntries(ET_PARTS.formatToParts(now).map((p) => [p.type, p.value]));
+  if (parts.weekday !== 'Sat' || Number(parts.hour) < ELEVATION_DEADLINE_HOUR_ET) return null;
+  const sinceDeadlineMs =
+    (((Number(parts.hour) - ELEVATION_DEADLINE_HOUR_ET) * 60 + Number(parts.minute)) * 60 + Number(parts.second)) * 1000 +
+    now.getMilliseconds();
+  return new Date(now.getTime() - sinceDeadlineMs);
+}
+
+/**
+ * The Saturday run: due once the ET Saturday elevation deadline has passed and
+ * no successful run finished after it, so the day's earlier run cannot stand in
+ * for a status an elevation just changed. Not gated by the daily cadence - the
+ * daily run has usually already succeeded that UTC day.
+ */
+async function runSaturdayEspnRosterStatusSync({ now = new Date() } = {}) {
+  const deadline = saturdayElevationDeadline(now);
+  if (!deadline) return null;
+  const { latestOk } = await require('./syncRun').lastRun(ROSTER_STATUS_JOB);
+  if (latestOk && latestOk.finishedAt.getTime() >= deadline.getTime()) return null;
+  return require('./espnFactsSync').runRosterStatusSync({ now });
+}
+
+/**
+ * Pure: when the most recently opened holdout capture window opened, or null
+ * when none is open. A window is the CAPTURE_WINDOW_HOURS before a week's
+ * manifest deadline (the same rule `holdout.captureDueSnapshots` selects on).
+ * Manifest deadlines only: an observed kickoff earlier than its manifest
+ * deadline opens the real window sooner, in which case the run this gates fires
+ * on the manifest's schedule instead (nothing reads roster status for a
+ * snapshot yet).
+ */
+function holdoutWindowOpenedAt(now) {
+  const holdout = require('../services/holdout.service');
+  const windowMs = holdout.CAPTURE_WINDOW_HOURS * 3600 * 1000;
+  const windowEnd = now.getTime() + windowMs;
+  let opened = null;
+  for (const season of holdout.SEASON_MANIFESTS.keys()) {
+    for (let week = 1; week <= holdout.SEASON_WEEKS; week += 1) {
+      const deadline = holdout.captureNotAfterFor(season, week);
+      if (!deadline || deadline.getTime() <= now.getTime() || deadline.getTime() > windowEnd) continue;
+      const openedAt = deadline.getTime() - windowMs;
+      if (opened === null || openedAt > opened) opened = openedAt;
+    }
+  }
+  return opened === null ? null : new Date(opened);
+}
+
+/**
+ * The pre-capture run: due once per open holdout capture window, before any
+ * roster-status success inside it, so the capture that follows in the same tick
+ * sees a status no older than the window. Never runs outside a window.
+ */
+async function runPreHoldoutEspnRosterStatusSync({ now = new Date() } = {}) {
+  const openedAt = holdoutWindowOpenedAt(now);
+  if (!openedAt) return null;
+  const { latest, latestOk } = await require('./syncRun').lastRun(ROSTER_STATUS_JOB);
+  if (latestOk && latestOk.finishedAt.getTime() >= openedAt.getTime()) return null;
+  // A failed attempt holds this trigger off for PRE_HOLDOUT_RETRY_MS: the gate
+  // reads latestOk only, so without this a dead ESPN host would put its
+  // timeouts ahead of the capture on every five-minute tick for the whole
+  // window (#1766 risk review). The daily and Saturday runs keep their own
+  // retry-next-tick behaviour at the end of the tick, where they delay nothing.
+  if (latest && latest.ok === false && latest.finishedAt &&
+      now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
+  return require('./espnFactsSync').runRosterStatusSync({ now });
 }
 
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
@@ -776,6 +882,14 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
  */
 async function runHoldoutSnapshots() {
   const holdout = require('../services/holdout.service');
+  // Roster status refreshed once as a capture window opens (#1766), contained
+  // so an ESPN failure never skips the capture: the breaker in the sweep bounds
+  // a dead host to three timeouts.
+  try {
+    await runPreHoldoutEspnRosterStatusSync();
+  } catch (err) {
+    console.error('pre-holdout ESPN roster-status sync failed (capture continues):', err.message);
+  }
   const { captured, failures } = await holdout.captureDueSnapshots();
   const written = captured.filter((c) => !c.skipped);
   if (written.length > 0) {
@@ -939,6 +1053,23 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   }
 
   lastProjectionFillDay = today;
+  // #1789: belt and braces after the fill itself - a day both the injury
+  // sync and the roster-status sync fail still owes a fresh verdict for the
+  // 48h practice-squad expiry and a No NFL team clear, and this job runs
+  // regardless of either. A full sweep (no id list: the fill just touched
+  // every live league's players, not a "who changed" set) on the pool, after
+  // `runSyncJob` has already committed every unit's own transaction above -
+  // same reasoning as the roster-status sync's sweep, no ambient transaction
+  // to protect with a SAVEPOINT. Logged and swallowed, never thrown: a
+  // reconcile failure must not turn a real fill into a failed run the
+  // cadence gate retries.
+  try {
+    const projection = require('../services/projection.service');
+    const scope = await projection.liveReconcileScope();
+    if (scope) await projection.reconcileAvailability({ ...scope, now });
+  } catch (err) {
+    console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
+  }
   // `runSyncJob` resolves to the single unit's own return value when exactly
   // one unit ran, or `{ results: [...] }` for zero or more than one (never
   // a refusal: `fetch` above has no refusal path).
@@ -1211,7 +1342,7 @@ function stopScheduler() {
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
   'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'nflverse-snaps', 'nflverse-correction', 'odds', 'game-context',
-  'espn-depth-chart', 'espn-ownership',
+  'espn-depth-chart', 'espn-ownership', 'espn-roster-status',
 ];
 
 // The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
@@ -1351,6 +1482,11 @@ module.exports = {
   adpLastRun,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,
+  runDailyEspnRosterStatusSync,
+  runSaturdayEspnRosterStatusSync,
+  runPreHoldoutEspnRosterStatusSync,
+  saturdayElevationDeadline,
+  holdoutWindowOpenedAt,
   runHourlyOddsSync,
   runHourlyGameContextSync,
   runHoldoutSnapshots,

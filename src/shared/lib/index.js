@@ -40,6 +40,7 @@ export { parseRosterSlots } from './rosterSlots';
 // the retro-scoreboard widget model and the slot-comparison widget model
 // each carried an identical bye/out/ir label object.
 export { unavailableLabel } from './unavailableLabel';
+export { hasNoHistory, projectionLabel, NO_HISTORY_LABEL } from './projectionLabel';
 // Touch-target sizing, Team identity, league type, NFL team colors, league
 // phase and lineup-attention (#1272, ADR 0031's second-island-consumer
 // threshold, ruling R2): each of these six had already picked up a second
@@ -135,3 +136,7 @@ export { isRosterAtCapacity } from './rosterCapacity';
 // table (#1420) needed the identical derivation - "no third copy" of the
 // chip vocabulary or position-group table.
 export { chipsForRosterSlots } from './positionChips';
+// The chiptune synth (#1747, #1814): the Postgame cutscene's `sfx` imports it
+// from here like every other island consumer (#1815). `fakeAudioContext` is
+// test support and stays out of this index.
+export { createChiptune, MAX_MASTER_GAIN } from './chiptune';

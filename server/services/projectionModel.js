@@ -391,7 +391,8 @@ const MODEL_CONSTANTS = {
     // spread toward it, in pseudo-observations - the same idiom as
     // `priorSeasonPseudoGames`. Read ONLY when smoothingBandwidth > 0.
     smoothingPseudoResiduals: 8,
-    // v3.2 adds `truncateAtPositionFloor` here (see MODEL_CONSTANTS_V3_2).
+    // v3.2 adds `truncateAtPositionFloor` and `centerEvenPoolMedian` here (see
+    // MODEL_CONSTANTS_V3_2).
   },
   confidence: {
     // Effective sample size (recency-weighted games) thresholds.
@@ -466,6 +467,15 @@ const MODEL_CONSTANTS = {
  *    `mean`, which is reported from the input; only the impossible tail is
  *    removed, which is also what stops probabilityBetter being fed a
  *    fictional negative outcome.
+ *  - `simulation.centerEvenPoolMedian: true` (#1769). With smoothing off, the
+ *    draw median of an EVEN-sized residual pool snaps to one of the two middle
+ *    support points, stretched by the interval scale, and the seed picks which
+ *    (a 4-game pool on a 7.50 mean gave 1.53 on 99 of 200 seeds, 13.72 on 87
+ *    and the documented 7.62 on 14). The draws are translated so the median
+ *    sits on mean + median(residuals) for every seed, the same re-centring the
+ *    smoothed path already applies. A translation moves the Interval's
+ *    position, never its width. Odd pools are untouched: their median is a
+ *    support point already.
  *  - `opponent.priorSeasonPseudoGames: 4` (#1485). How many games of
  *    evidence the PRIOR season's points-allowed ratio is worth when seeding a
  *    defense's current-season allowance, the same pseudo-game idiom as
@@ -477,7 +487,7 @@ const MODEL_CONSTANTS = {
  *    "insufficient opponent sample" while the card prints the matchup as if
  *    it mattered. The cap and the shrinkage toward neutral are untouched.
  *
- * All three are DEFAULTS, not fitted values, preregistered once and judged
+ * All four are DEFAULTS, not fitted values, preregistered once and judged
  * on the 2026 holdout ledger through #1439 with the rest of v3.2; no sweep
  * on that ledger.
  */
@@ -500,6 +510,7 @@ const MODEL_CONSTANTS_V3_2 = (() => {
   const v32 = cloneConstants(MODEL_CONSTANTS);
   v32.decision.lineupRanking = 'mean';
   v32.simulation.truncateAtPositionFloor = true;
+  v32.simulation.centerEvenPoolMedian = true;
   v32.opponent.priorSeasonPseudoGames = 4;
   return deepFreeze(v32);
 })();
@@ -1238,7 +1249,10 @@ function standardNormal(rand) {
  * DATA (the lowest points any player of the position group scored over the
  * prior season and current season to date, computed by the feature loader), never a constant, so this
  * function only applies it; it does not decide what it is. Clamping runs
- * AFTER the smoothing drift correction and BEFORE the quantiles are read, so
+ * AFTER the drift re-centring (the translation that pins the draw median to
+ * `mean + median(residuals)`, which runs when smoothing is on, and under v3.2
+ * also for an even pool with smoothing off via `centerEvenPoolMedian`, #1769)
+ * and BEFORE the quantiles are read, so
  * it can only ever raise the bottom of the sorted draw set, never shift its
  * center: `mean` is reported from the input either way, and `median` moves
  * only in the fixture that must not occur in practice - more than half the
@@ -1336,7 +1350,12 @@ function simulateDistribution({
     draws.push(origin + scale * (residual - center) + jitter);
   }
   draws.sort((a, b) => a - b);
-  if (bandwidth > 0) {
+  // #1769 (v3.2): an even pool's unsmoothed draw median lands on one of its two
+  // middle support points by seed, so it gets the same re-centring. Odd pools
+  // are left alone: their median is a support point, and the key changes
+  // nothing for them.
+  const recentreEvenPool = constants.centerEvenPoolMedian === true && residuals.length % 2 === 0;
+  if (bandwidth > 0 || recentreEvenPool) {
     // A symmetric kernel does NOT leave a skewed draw set's median alone: it
     // pulls it toward the mean, measured at +0.18 points before this
     // correction. Widening the band must not move the point estimate, so the

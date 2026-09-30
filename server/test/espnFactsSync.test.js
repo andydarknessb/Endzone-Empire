@@ -261,3 +261,176 @@ test('runOwnershipSync: stamps the run\'s UTC day into detail.day, computed once
   const detail = JSON.parse(runs[0].params[3]);
   assert.equal(detail.day, '2026-08-21', 'the UTC day, not the local en-CA day (2026-08-20)');
 });
+
+// ---------------------------------------------------------------------------
+// runRosterStatusSync (#1766)
+// ---------------------------------------------------------------------------
+
+const teamRosterNygFixture = require('./fixtures/espn/team-roster-nyg.json');
+const { runRosterStatusSync } = require('../modules/espnFactsSync');
+
+const NYG_ROSTER_URL = /\/teams\/19\/roster$/;
+const emptyRoster = { data: { athletes: [] } };
+const forbidden = () => {
+  const err = new Error('Request failed with status code 403');
+  err.response = { status: 403 };
+  return err;
+};
+
+/** A transport answering every team with an empty roster except NYG (the recorded fixture). */
+function rosterTransport(overrides = {}) {
+  return {
+    get: async (url) => {
+      if (NYG_ROSTER_URL.test(url)) {
+        if (overrides.nyg) return overrides.nyg();
+        return { data: teamRosterNygFixture };
+      }
+      if (overrides.others) return overrides.others();
+      return emptyRoster;
+    },
+  };
+}
+
+/**
+ * A fake pool that knows every athlete id as player id = athlete id + 1000.
+ * QA f2: every OK run past this PR reaches the #1789 availability sweep,
+ * which calls the REAL `liveReconcileScope` unless a test stubs it - so
+ * every pre-existing test here needs a `FROM "leagues"` answer or it goes
+ * down the sweep's own swallowed-failure path (a real query the fake has no
+ * handler for, caught and logged, `reconcileAvailability` never reached).
+ * `[]` (no live league) is enough to make that path a clean, silent no-op:
+ * `liveReconcileScope` resolves `null` and the sweep skips `reconcileAvailability`
+ * without ever touching the pool again.
+ */
+function rosterPool(t, { onInsert } = {}) {
+  return createFakePool([
+    [PLAYERS_BY_EXTERNAL_ID, (text, params) => ({ rows: params[0].map((id) => ({ id: id + 1000, external_id: id })) })],
+    [insert('player_nfl_roster_status'), (text, params) => {
+      if (onInsert) onInsert(text, params);
+      return { rowCount: params[0].length };
+    }],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    [/FROM "leagues"/, () => ({ rows: [] })],
+  ]).install(t);
+}
+
+test('runRosterStatusSync: the recorded NYG roster stores Mafah as practice_squad, the offense/defense/specialTeam athletes as active and injuredReserveOrOut as reserve', async (t) => {
+  let written;
+  const fake = rosterPool(t, { onInsert: (text, params) => { written = params; } });
+
+  const result = await runRosterStatusSync({ now: new Date('2026-09-29T12:00:00Z'), transport: rosterTransport() });
+
+  assert.equal(result.teamCode, 'NYG');
+  const [playerIds, teamCodes, statuses, dates] = written;
+  const statusOf = (athleteId) => statuses[playerIds.indexOf(athleteId + 1000)];
+  assert.equal(statusOf(4431562), 'practice_squad');
+  const groups = new Map(teamRosterNygFixture.athletes.map((g) => [g.position, g.items.map((i) => Number(i.id))]));
+  for (const group of ['offense', 'defense', 'specialTeam']) {
+    for (const id of groups.get(group)) assert.equal(statusOf(id), 'active', `${group} ${id}`);
+  }
+  for (const id of groups.get('injuredReserveOrOut')) assert.equal(statusOf(id), 'reserve', `reserve ${id}`);
+  assert.ok(teamCodes.every((c) => c === 'NYG'));
+  assert.ok(dates.every((d) => d === '2026-09-29'));
+  assert.match(fake.matching(insert('player_nfl_roster_status'))[0].text, /ON CONFLICT \("player_id", "captured_date"\) DO UPDATE/);
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true);
+  fake.assertClean();
+});
+
+test('runRosterStatusSync: an athlete ESPN reports that we do not roster is skipped, not inserted', async (t) => {
+  const fake = createFakePool([
+    [PLAYERS_BY_EXTERNAL_ID, () => ({ rows: [] })],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport() });
+  assert.deepEqual(result, { teamCode: 'NYG', written: 0 });
+  assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0);
+});
+
+test('runRosterStatusSync: one team failing writes no rows for that team and does not fail the run', async (t) => {
+  // NYG (the only team with athletes) fails alone; every other team answers empty.
+  const fake = rosterPool(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); } }) });
+
+  assert.deepEqual(result, { results: [] });
+  assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0, 'the failed team wrote nothing');
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'the run still records ok');
+});
+
+test('runRosterStatusSync: every team failing fails the run (fetch_failed), so the gate stays open', async (t) => {
+  const fake = rosterPool(t);
+
+  await assert.rejects(runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); }, others: () => { throw forbidden(); } }) }));
+
+  const runs = dataSyncRuns(fake.calls);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].params[2], false);
+  assert.equal(JSON.parse(runs[0].params[3]).reason, 'fetch_failed');
+  assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0);
+});
+
+test('runRosterStatusSync: stamps the UTC day into detail.day and takes no advisory lock', async (t) => {
+  const fake = rosterPool(t);
+  await runRosterStatusSync({ now: new Date('2026-08-20T23:30:00-05:00'), transport: rosterTransport() });
+  assert.equal(JSON.parse(dataSyncRuns(fake.calls)[0].params[3]).day, '2026-08-21');
+  assert.equal(fake.matching(/pg_advisory_xact_lock/).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// #1789: a full availability reconcile sweep follows an OK roster-status run
+// - this job only knows each team's row count, never which players moved, so
+// there is no id list to scope a targeted reconcile to.
+// ---------------------------------------------------------------------------
+
+test('runRosterStatusSync: sweeps availability once after an ok run, scoped to the lowest live current_week', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileArgs = null;
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
+  t.mock.method(projection, 'reconcileAvailability', async (args) => {
+    reconcileArgs = args;
+    return { checked: 10, updated: 1 };
+  });
+  rosterPool(t);
+
+  await runRosterStatusSync({ transport: rosterTransport() });
+
+  assert.ok(reconcileArgs, 'reconcileAvailability was called once');
+  assert.equal(reconcileArgs.season, 2026);
+  assert.equal(reconcileArgs.fromWeek, 3);
+  assert.equal(reconcileArgs.playerIds, undefined, 'a full sweep - no id list, this job cannot know which players moved');
+});
+
+test('runRosterStatusSync: never sweeps when every team failing fails the run (fetch_failed)', async (t) => {
+  const projection = require('../services/projection.service');
+  let reconcileCalls = 0;
+  // QA f2: `liveReconcileScope` is stubbed to resolve a REAL scope, same as
+  // the positive sweep test above - if the sweep call were ever reached on
+  // this failure path (moved into a `finally`, say), `reconcileAvailability`
+  // below is guaranteed to fire and this test's own assertion would catch
+  // it. Left unstubbed, a reached sweep would call the real
+  // `liveReconcileScope`, which would either find no live league or (before
+  // the `rosterPool` fix above) throw inside the fake pool - either way
+  // silently skipping `reconcileAvailability` and passing for the wrong
+  // reason regardless of whether the guard on failure is actually there.
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 3 }));
+  t.mock.method(projection, 'reconcileAvailability', async () => { reconcileCalls += 1; return { checked: 0, updated: 0 }; });
+  rosterPool(t);
+
+  await assert.rejects(
+    runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); }, others: () => { throw forbidden(); } }) })
+  );
+
+  assert.equal(reconcileCalls, 0, 'a failed run never reaches the sweep');
+});
+
+test('runRosterStatusSync: a reconcile failure is logged and never fails the run', async (t) => {
+  const projection = require('../services/projection.service');
+  t.mock.method(projection, 'liveReconcileScope', async () => { throw new Error('scope read blew up'); });
+  const fake = rosterPool(t);
+
+  const result = await runRosterStatusSync({ transport: rosterTransport() });
+
+  assert.equal(result.teamCode, 'NYG', 'the run itself still succeeds');
+  assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'still recorded ok');
+});

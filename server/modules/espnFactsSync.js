@@ -1,19 +1,21 @@
 'use strict';
 
 /**
- * The two daily ESPN facts Sync runs (#1308, ADR 0041/0036): depth-chart rank
- * and Ownership, written to `player_depth_chart` and `player_ownership`
- * (#1382). Both go through `runSyncJob` (ADR 0036) so each owns exactly one
- * `data_sync_runs` row. Neither table is written by anything else, so
- * neither job takes an advisory lock (`advisoryLock.js`'s keyspace doc: a new
- * fixed id is only needed when two writers of the SAME table could race).
+ * The ESPN facts Sync runs (#1308, ADR 0041/0036): depth-chart rank and
+ * Ownership, written to `player_depth_chart` and `player_ownership` (#1382),
+ * and the NFL roster status (#1766) written to `player_nfl_roster_status`. All
+ * go through `runSyncJob` (ADR 0036) so each owns exactly one `data_sync_runs`
+ * row. No table is written by anything else, so no job takes an advisory lock
+ * (`advisoryLock.js`'s keyspace doc: a new fixed id is only needed when two
+ * writers of the SAME table could race).
  *
  * `fetch()` calls `espnAthleteClient` outside any transaction (ADR 0036);
  * `apply(client, unit)` resolves each ESPN athlete id to OUR `players.id` via
  * `external_id` (ADR 0035: `players.external_id` already is the ESPN athlete
  * id) and writes with `ON CONFLICT ("player_id", "captured_date") DO
  * NOTHING`, so a second run the same day is a recorded success with zero
- * rows written - never a duplicate snapshot, and never an error.
+ * rows written - never a duplicate snapshot, and never an error. The roster
+ * status is the one exception (DO UPDATE, see `applyRosterStatusUnit`).
  */
 const espnAthleteClient = require('./espnAthleteClient');
 const { runSyncJob } = require('./syncRun');
@@ -66,21 +68,37 @@ const CONSECUTIVE_FAILURE_LIMIT = 3;
  * close that gate until tomorrow).
  */
 async function fetchDepthCharts({ transport } = {}) {
+  return sweepTeams({
+    job: 'espn-depth-chart',
+    fetchTeam: (teamCode) => espnAthleteClient.teamDepthChart(teamCode, { transport }),
+  });
+}
+
+/**
+ * The one team sweep both team-level ESPN jobs share: `fetchTeam(teamCode)`
+ * per of our 32 canonical Team codes, sequentially, resolving `null` on a
+ * failure and an array (possibly empty) when ESPN answered. Only `null`
+ * counts against the circuit breaker. A team that answered with rows is one
+ * unit; a failed team is simply not a unit, so it writes nothing while every
+ * other team still does. Throws (`runSyncJob` then records `fetch_failed`)
+ * when the breaker trips or every team failed.
+ */
+async function sweepTeams({ job, fetchTeam }) {
   const teamCodes = Object.keys(espnAthleteClient.ESPN_TEAM_NUMERIC_ID);
   const units = [];
   let consecutiveFailures = 0;
   let anySucceeded = false;
   for (const teamCode of teamCodes) {
     // eslint-disable-next-line no-await-in-loop -- one call per team, by
-    // design: this is a once-a-day job, not a hot path, and ESPN's core API
-    // has no bulk "every team's depth chart" endpoint.
-    const rows = await espnAthleteClient.teamDepthChart(teamCode, { transport });
+    // design: this is a once-a-day job, not a hot path, and ESPN has no bulk
+    // "every team" endpoint for either read.
+    const rows = await fetchTeam(teamCode);
     if (rows === null) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
         throw new Error(
-          `espn-depth-chart: ${consecutiveFailures} consecutive team fetches failed (last: ${teamCode}); ` +
-          'stopping rather than burning the remaining teams\' timeouts'
+          `${job}: ${consecutiveFailures} consecutive team fetches failed (last: ${teamCode}); ` +
+          "stopping rather than burning the remaining teams' timeouts"
         );
       }
       continue;
@@ -89,7 +107,7 @@ async function fetchDepthCharts({ transport } = {}) {
     anySucceeded = true;
     if (rows.length > 0) units.push({ teamCode, rows });
   }
-  if (!anySucceeded) throw new Error('espn-depth-chart: every team fetch failed');
+  if (!anySucceeded) throw new Error(`${job}: every team fetch failed`);
   return units;
 }
 
@@ -144,6 +162,92 @@ async function runDepthChartSync({ now = new Date(), transport } = {}) {
     fetch: async () => ({ units: await fetchDepthCharts({ transport }), detail: { day } }),
     apply: applyDepthChartUnit(capturedDate),
   });
+}
+
+/**
+ * apply() for the roster-status job: one team's rows, resolved and written in
+ * this unit's own transaction. Unlike the depth chart, a second run the same
+ * day UPDATES the row (only when the status or team actually changed): the
+ * Saturday run after the 4pm ET elevation deadline exists to record a status
+ * an earlier run of the same day saw differently, so DO NOTHING would throw
+ * away the very fact it was scheduled to capture. One row per player per day.
+ */
+function applyRosterStatusUnit(capturedDate) {
+  return async function applyUnit(client, { teamCode, rows }) {
+    const idByExternalId = await loadPlayerIdsByExternalId(client, rows.map((r) => r.athleteId));
+    const playerIds = [];
+    const teamCodes = [];
+    const statuses = [];
+    const capturedDates = [];
+    for (const row of rows) {
+      const playerId = idByExternalId.get(Number(row.athleteId));
+      if (!playerId) continue; // ESPN reports an athlete we don't roster - skip, don't invent a player
+      playerIds.push(playerId);
+      teamCodes.push(row.teamCode);
+      statuses.push(row.rosterStatus);
+      capturedDates.push(capturedDate);
+    }
+    if (playerIds.length === 0) return { teamCode, written: 0 };
+    const result = await client.query(
+      `INSERT INTO "player_nfl_roster_status" ("player_id", "team_code", "roster_status", "captured_date")
+       SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::date[])
+       ON CONFLICT ("player_id", "captured_date") DO UPDATE
+         SET "team_code" = EXCLUDED."team_code",
+             "roster_status" = EXCLUDED."roster_status",
+             "updated_at" = now()
+         WHERE ("player_nfl_roster_status"."roster_status", "player_nfl_roster_status"."team_code")
+               IS DISTINCT FROM (EXCLUDED."roster_status", EXCLUDED."team_code")`,
+      [playerIds, teamCodes, statuses, capturedDates]
+    );
+    return { teamCode, written: result.rowCount };
+  };
+}
+
+/**
+ * The ESPN NFL roster-status Sync run (job `'espn-roster-status'`, #1766, ADR
+ * 0041 amendment): one `teamRoster` call per team, each team that answered
+ * with athletes one unit. A failed team fetch writes nothing for that team and
+ * never fails the run; every team failing (or the consecutive-failure breaker
+ * tripping) fails it, as the depth-chart run does. `now` is handled exactly as
+ * `runDepthChartSync` handles it (`capturedDate` local day, `detail.day` UTC).
+ *
+ * #1789: a full `reconcileAvailability` sweep follows an OK run - a moved-to-
+ * or -off-practice-squad row (or the 48h staleness expiry, #1767) is exactly
+ * this job's own kind of fact change, and `applyRosterStatusUnit` only knows
+ * each team's row count, not which players actually moved, so there is no id
+ * list to scope a targeted reconcile to the way the injury sync's changed
+ * ids do (#1789 ruling item 1). The sweep runs AFTER `runSyncJob` resolves,
+ * on the pool - every unit's own transaction has already committed by then,
+ * so there is no ambient transaction to protect with a SAVEPOINT the way
+ * `syncInjuries` protects its in-transaction call; a reconcile failure here
+ * simply starts and ends its own connection and is logged, never thrown,
+ * matching every other trigger's "log and continue" rule. `runSyncJob`
+ * rejects on a failed or fetch_failed run (this job has no refusal path), so
+ * throwing out of the `await` below already skips the sweep - it needs no
+ * ok-check of its own.
+ */
+async function runRosterStatusSync({ now = new Date(), transport } = {}) {
+  const capturedDate = today(now);
+  const day = cadence.utcDateKey(now);
+  const result = await runSyncJob({
+    job: 'espn-roster-status',
+    fetch: async () => ({
+      units: await sweepTeams({
+        job: 'espn-roster-status',
+        fetchTeam: (teamCode) => espnAthleteClient.teamRoster(teamCode, { transport }),
+      }),
+      detail: { day },
+    }),
+    apply: applyRosterStatusUnit(capturedDate),
+  });
+  try {
+    const { reconcileAvailability, liveReconcileScope } = require('../services/projection.service');
+    const scope = await liveReconcileScope();
+    if (scope) await reconcileAvailability({ ...scope, now });
+  } catch (err) {
+    console.error('roster status sync: availability reconcile failed, continuing:', err.message);
+  }
+  return result;
 }
 
 /** fetch() for the Ownership job: one bulk call for the whole pool, outside
@@ -210,6 +314,7 @@ async function runOwnershipSync({ now = new Date(), transport } = {}) {
 
 module.exports = {
   runDepthChartSync,
+  runRosterStatusSync,
   runOwnershipSync,
   // exported for tests
   loadPlayerIdsByExternalId,

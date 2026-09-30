@@ -93,3 +93,27 @@ and pin update, is #1438's, after the 2026 week 18 capture closes.
   replay over the ledger's stored `rawEffect` is the evidence that would
   activate it, and the ledger holds no week with a market quote at capture
   yet; the replay script exists so the comparison can run the day one does.
+
+## Amendment (2026-09-29, #1782)
+
+The Decision above says v3.2 "carries three constants changes" and calls them
+"the three deltas". There are four. #1769 added a fourth v3.2-only simulation
+key, `MODEL_CONSTANTS_V3_2.simulation.centerEvenPoolMedian = true`, and this
+ADR did not follow. With smoothing off (`smoothingBandwidth: 0`, inherited from
+the v3.1 constants), a residual pool of even size now takes the same drift
+translation the smoothed path already took: the draws are shifted so their
+median sits at `mean + median(residuals)`, before the position-floor
+truncation (delta 2) clamps them. The reason is that an unsmoothed even pool's
+draw median lands on one of its two middle support points by seed, so the
+median a run reported depended on the seed rather than on the pool. Odd pools
+are left alone, since their median is a support point already. The other three
+deltas are unchanged, and the constants object, the Model version and the
+pinned v3.1 hash do not move.
+
+This is a translation of the draws, not a change to the interval machinery: the
+Interval moves and its width does not. It is therefore not the rejected option
+"Fix the bootstrap itself (a different centring or residual pool)" above, which
+would change the residual pool or its shape and so re-tune the band; the pool,
+the resampling and the stretch about the pool median are exactly what they were.
+The Decision text above is left as written to show what was decided on
+2026-09-16.

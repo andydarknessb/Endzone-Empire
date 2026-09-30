@@ -18,6 +18,7 @@ import {
   GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
 } from './GreetingHeader';
 import { deriveLeaguePhase, LEAGUE_PHASE } from '../../shared/lib/leaguePhase';
+import { usePostgameCutscenes, PostgameCutscenes } from '../../features/postgame-cutscene';
 import homeTheme from './homeTheme';
 import {
   DISPLAY_FONT, alertActionSx, alertSx, dimSx, ghostButtonSx, homeRootSx, panelSx, panelTitleSx,
@@ -72,6 +73,10 @@ function UserPage() {
   const user = useSelector((store) => store.user);
   const outerTheme = useTheme();
   const theme = useMemo(() => homeTheme(outerTheme), [outerTheme]);
+
+  // The Postgame cutscenes due for this manager (ADR 0052): one read per Home
+  // mount, in parallel with the reads below; a failure renders nothing.
+  const { cutscenes: postgameCutscenes } = usePostgameCutscenes();
 
   const [myLeagues, setMyLeagues] = useState([]);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
@@ -183,6 +188,7 @@ function UserPage() {
     // token context (`dash-bg`, `dash-ink`, the body face). Nav and Footer
     // stay on the app tokens.
     <ThemeProvider theme={theme}>
+      <PostgameCutscenes cutscenes={postgameCutscenes} />
       {/* flexGrow cooperates with the flex column shell App.jsx sets up
           around <Nav />/<Routes />/<Footer /> so short pages still pin the
           footer to the bottom of the viewport, while tall pages scroll

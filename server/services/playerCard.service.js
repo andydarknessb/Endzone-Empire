@@ -123,17 +123,18 @@ async function loadIdentityIds(playerId) {
 
 /**
  * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
- * the caller's lineup exactly as `decision.service.waiverSuggestions` does,
+ * the caller's lineup inside a transaction (withTransaction + materializeLineup,
+ * same pattern commissioner.service.js's forceSetLineup uses at :150-165),
  * then makes ONE `getWeeklyProjections` call covering both the caller's
- * current starters and every requested `playerIds`, so the Weekly projection
- * behind
+ * current starters and every requested `playerIds`, so the Weekly projection behind
  * `decision.projWeek.points` and the one behind `decision.upgrade` are the
  * same producer call (Ruling item 2). `upgrades` is `null` for a player on
  * the caller's own roster (checked over the FULL identity set `loadIdentityIds`
  * resolves, not the bare requested id - a duplicate-source players row for a
  * rostered athlete must still read as "already yours", formal review f1) or
  * in a best-ball league (Upgrade is undefined there, ADR 0040), or for a
- * player with No NFL team.
+ * player with No NFL team, an Unavailable one, or a Position-baseline one
+ * (#1809).
  */
 async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
@@ -155,9 +156,8 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       );
       return result.rows;
     },
-    // Distinct from decision.service.js's own 'decision' label - the guard
-    // (scripts/handRolledTransactionGuard.test.js) requires every
-    // withTransaction call site to carry a unique label.
+    // A unique label - the guard (scripts/handRolledTransactionGuard.test.js)
+    // requires every withTransaction call site to carry one.
     { label: 'player-card' }
   );
 
@@ -183,12 +183,26 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     season, week, league, playerIds: combinedIds,
   });
 
-  const currentStarters = starterRows.map((r) => ({
-    playerId: r.player_id,
-    slot: r.slot,
-    name: r.name,
-    projection: projections.pointsFor(r.player_id),
-  }));
+  // Unavailable this week (bye, Out, IR, No NFL team, Practice squad): the
+  // engine keeps his full estimate (ADR 0044), but he contributes nothing to
+  // this week's lineup, so he counts as 0 when `decisionService.upgradeFor`
+  // below picks the weakest eligible starter - otherwise his full estimate
+  // masks a real Upgrade and the Decision card never offers it (#1793). Same
+  // `classify()` source as the candidate-side refusal below (#1784). The
+  // reason rides along as `unavailable` (Ruling on #1793, option B) so
+  // `upgradeFor` can carry it onto `overPlayer`, and the claim sheet can tell
+  // "zero because Unavailable" from "zero because he genuinely projects 0"
+  // without re-deriving it from roster fields the client does not have.
+  const currentStarters = starterRows.map((r) => {
+    const classification = projections.classify(r.player_id);
+    return {
+      playerId: r.player_id,
+      slot: r.slot,
+      name: r.name,
+      projection: classification.unavailable ? 0 : projections.pointsFor(r.player_id),
+      unavailable: classification.unavailable ? classification.reason : null,
+    };
+  });
 
   // One identity read for every requested id (Ruling item 3a) rather than one
   // per id: `upgradesFor` over N ids is now the lineup transaction, the
@@ -212,6 +226,23 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     // his old per-game pace until v3.2 (#1438 story 5), so the Upgrade must
     // refuse him here rather than trust that number.
     if (noNflTeamIds.has(id)) {
+      upgrades.set(id, null);
+      continue;
+    }
+    // Unavailable this week (bye, Out, IR): the engine keeps his full
+    // estimate (ADR 0044), but he adds nothing to this week's lineup, so he
+    // is no Upgrade either - otherwise the Waiver Wire's Upgrade sort ranks
+    // injured stars first.
+    if (projections.classify(id).unavailable) {
+      upgrades.set(id, null);
+      continue;
+    }
+    // Position-baseline projection (CONTEXT.md; #1809, spec #1774): his number
+    // is the position's average, not his own evidence, so it is no Upgrade
+    // either - otherwise the 15.37 backup QB outranks real starters on the
+    // Waiver Wire's default Upgrade sort. The number stays; only the verdict
+    // changes (null sorts after every candidate with an Upgrade).
+    if (projections.positionBaselineFor(id)) {
       upgrades.set(id, null);
       continue;
     }
@@ -533,21 +564,31 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
   return { rank, groupSize: scored.length };
 }
 
+// The card shows only the roster statuses that are news; Active shows nothing (#1766).
+const ROSTER_STATUS_LABEL = Object.freeze({ practice_squad: 'Practice squad', reserve: 'Reserve' });
+
 /**
- * `{ bio, news, injuryFacts, depth, ownership }` (#1308, ADR 0041): every
- * field null (news `[]`) when `player.external_id` is null - never fetches
+ * `{ bio, news, injuryFacts, depth, ownership, rosterStatus }` (#1308, #1766,
+ * ADR 0041): every field null (news `[]`) when `player.external_id` is null - never fetches
  * ESPN or reads either table in that case, so a player we've never matched
  * to an ESPN athlete costs this call nothing. `profile`/`overview` are
  * `espnAthleteClient`'s own in-process-cached reads (six hours / five
  * minutes on failure); `depth`/`ownership` read the latest `captured_date`
  * row the daily Sync runs wrote (#1382) - never a live ESPN call, per the
- * Ruling (item 1).
+ * Ruling (item 1). `rosterStatus` (#1766) is the card's NFL roster status
+ * label from the latest `player_nfl_roster_status` row: "Practice squad" or
+ * "Reserve", and null for Active or no row. Only a row updated in the last 48
+ * hours counts, the same freshness the Unavailable verdict applies to the same
+ * row (#1767, unavailable.js NFL_ROSTER_STATUS_FRESH_MS), so the tile never
+ * says Practice squad while the verdict reads Active: the sweep writes a row
+ * for whoever is on a roster today, so a released player writes none and his
+ * last row must age out, not show forever.
  */
 async function loadEspnFacts(player) {
   if (!player.external_id) {
-    return { bio: null, news: [], injuryFacts: null, depth: null, ownership: null };
+    return { bio: null, news: [], injuryFacts: null, depth: null, ownership: null, rosterStatus: null };
   }
-  const [bio, overview, depthResult, ownershipResult] = await Promise.all([
+  const [bio, overview, depthResult, ownershipResult, rosterResult] = await Promise.all([
     espnAthleteClient.profile(player.external_id),
     espnAthleteClient.overview(player.external_id),
     pool.query(
@@ -560,9 +601,16 @@ async function loadEspnFacts(player) {
        FROM "player_ownership" WHERE "player_id" = $1 ORDER BY "captured_date" DESC LIMIT 1`,
       [player.id]
     ),
+    pool.query(
+      `SELECT "roster_status", "captured_date"
+       FROM "player_nfl_roster_status" WHERE "player_id" = $1 AND "updated_at" > now() - interval '48 hours'
+       ORDER BY "captured_date" DESC LIMIT 1`,
+      [player.id]
+    ),
   ]);
   const depthRow = depthResult.rows[0];
   const ownershipRow = ownershipResult.rows[0];
+  const rosterRow = rosterResult.rows[0];
   return {
     bio: bio || null,
     news: (overview && overview.news) || [],
@@ -579,6 +627,7 @@ async function loadEspnFacts(player) {
       change: ownershipRow.percent_change != null ? Number(ownershipRow.percent_change) : null,
       capturedDate: ownershipRow.captured_date,
     } : null,
+    rosterStatus: (rosterRow && ROSTER_STATUS_LABEL[rosterRow.roster_status]) || null,
   };
 }
 
@@ -804,6 +853,10 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     });
   }
 
+  // The effective week's own bar: `kind: 'bye' | 'unavailable'` carries a
+  // `reason`; a projected bar never does (#1765).
+  const projWeekBar = weeks.find((w) => w.week === Number(effectiveWeek));
+
   return {
     player: {
       id: player.id,
@@ -835,7 +888,11 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         // `pointsFor` never coerces a missing estimate to 0 (unlike the old
         // `pointsOf` this replaces) - restated here so the wire field keeps
         // its documented "missing -> 0" contract, never a bare `null` (#1703).
-        points: projections.pointsFor(player.id) || 0,
+        // #1765: an Unavailable week (CONTEXT.md) shows the reason instead of
+        // a number - 0 plus the SAME reason the weekly bar for that week
+        // carries, read off `weeks` rather than re-classified here.
+        points: projWeekBar && projWeekBar.reason ? 0 : (projections.pointsFor(player.id) || 0),
+        ...(projWeekBar && projWeekBar.reason ? { reason: projWeekBar.reason } : {}),
         opponent: opponentByWeek.get(Number(effectiveWeek)) ?? null,
         // #1342 Ruling: the opponent Factor is the producer, ranked. Read off
         // the same result object's `opponentRankFor` - no second query, no
@@ -863,6 +920,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     bio: espnFacts.bio,
     depth: espnFacts.depth,
     ownership: espnFacts.ownership,
+    rosterStatus: espnFacts.rosterStatus,
   };
 }
 

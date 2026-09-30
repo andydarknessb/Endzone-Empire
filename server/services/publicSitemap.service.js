@@ -29,6 +29,7 @@ const STATIC_PUBLIC_PATHS = [
   '/strategy/week2-waiver-wire-priority-board',
   '/strategy/week3-waiver-wire-darkness-report',
   '/strategy/week3-start-sit-darkness-report',
+  '/strategy/week4-waiver-wire-darkness-report',
   '/recaps',
 ];
 

@@ -15,6 +15,7 @@ const {
   picksMadeByUser,
   pickemStatus,
 } = require('./homeStatus.service');
+const { nflRosterStatusColumn } = require('./nflRosterStatus');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -218,10 +219,16 @@ async function sendLineupReminders() {
         // team codes into one Team code; `nfl_games_season_week_team_code_unique`
         // (ADR 0011, #421) makes that second row a rejected insert, not a case
         // this query has to survive.
+        // `on_bye` also guards `players.nfl_team IS NOT NULL` (#1791): for a
+        // No NFL team row `fn_normalize_nfl_team(NULL)` is NULL, so the LEFT
+        // JOIN never matches and `nfl_games.nfl_team IS NULL` alone would
+        // misread a free agent as on bye, feeding `unavailableFor` the wrong
+        // precedence.
         return lineupClient.query(
           `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
                   "players"."name", "players"."injury_status", "players"."nfl_team",
-                  ("nfl_games"."nfl_team" IS NULL) AS "on_bye"
+                  ("players"."nfl_team" IS NOT NULL AND "nfl_games"."nfl_team" IS NULL) AS "on_bye",
+                  ${nflRosterStatusColumn()}
            FROM "lineup_entries"
            JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
              AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -236,7 +243,9 @@ async function sendLineupReminders() {
         },
         { label: 'reminders' }
       );
-      const entries = entriesResult.rows.map((row) => ({ ...lineupEntryFromRow(row), nflTeam: row.nfl_team }));
+      const entries = entriesResult.rows.map((row) => ({
+        ...lineupEntryFromRow(row), nflTeam: row.nfl_team, nflRosterStatus: row.nfl_roster_status ?? null,
+      }));
       const { problems } = lineupStatus({
         entries,
         rosterSlots,

@@ -1,3 +1,5 @@
+import { hasNoHistory } from '../../../shared/lib';
+
 /**
  * Groups the Roster entity's normalized lineup entries (`entities/roster`'s
  * `lineupEntries`) into the three Ledger sections (CONTEXT.md's Ledger row:
@@ -100,18 +102,26 @@ function isUnavailable(entry) {
 // (the distribution's bare mean): sorting by a different statistic than the
 // row prints could put the bench in an order its own headline numbers
 // contradict.
+//
+// Position-baseline players (#1776, `hasNoHistory`) sit between the two: their
+// number is the position's average, not evidence, so every evidenced player
+// sorts before them (kept in the order the server returned them, since their
+// hidden numbers tie), and Unavailable players still come last.
 function sortBenchEntries(benchEntries) {
   const available = [];
+  const noHistory = [];
   const unavailable = [];
   for (const entry of benchEntries) {
-    (isUnavailable(entry) ? unavailable : available).push(entry);
+    if (isUnavailable(entry)) unavailable.push(entry);
+    else if (hasNoHistory(entry)) noHistory.push(entry);
+    else available.push(entry);
   }
   available.sort((a, b) => {
     const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
     const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
     return bp - ap;
   });
-  return [...available, ...unavailable];
+  return [...available, ...noHistory, ...unavailable];
 }
 
 export default buildLedgerSections;

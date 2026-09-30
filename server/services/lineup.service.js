@@ -11,6 +11,7 @@ const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
 const { unavailableFor } = require('./unavailable');
+const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame } = require('./nwsWeather.service');
 
@@ -99,10 +100,11 @@ function slotEligible(slotKey, position, rosterSlots = DEFAULT_ROSTER_SLOTS) {
  * Pure: the roster slots (FLEX included) a position is eligible to start in,
  * given `rosterSlots`. A count-0 slot seats nobody, so it is excluded even
  * when the position would otherwise be eligible for it. Folded in from
- * decision.service's own local copy (#1503): waiver suggestions are the only
- * caller, but the mapping is a `slotEligible` question over every starting
- * slot, so it lives beside `slotEligible` rather than duplicated at the call
- * site.
+ * decision.service's own local copy (#1503): decision.service.upgradeFor is
+ * the only caller (serving the player-card/cards-view Upgrade via
+ * playerCard.service.js), but the mapping is a `slotEligible` question over
+ * every starting slot, so it lives beside `slotEligible` rather than
+ * duplicated at the call site.
  */
 function eligibleSlotsFor(position, rosterSlots) {
   return rosterSlots
@@ -472,7 +474,8 @@ async function spentStartingSlots(client, { teamId, season, week }) {
     `SELECT "players"."position", "lineup_entries"."player_id" AS "spent_player_id",
             "players"."name", "players"."nfl_team",
             "players"."injury_status", "players"."injury_detail", "players"."photo_url",
-            "lineup_entries"."slot", "player_stats"."stats" AS "week_stats"
+            "lineup_entries"."slot", "player_stats"."stats" AS "week_stats",
+            ${nflRosterStatusColumn()}
        FROM "lineup_entries"
        JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
        LEFT JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
@@ -500,6 +503,7 @@ async function spentStartingSlots(client, { teamId, season, week }) {
     nfl_team: row.nfl_team,
     injury_status: row.injury_status,
     injury_detail: row.injury_detail,
+    nfl_roster_status: row.nfl_roster_status ?? null,
     photo_url: row.photo_url ?? null,
     slot: row.slot,
     spent: true,
@@ -1119,14 +1123,20 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  *
  * `unavailable` (CONTEXT.md, Unavailable; #1235) is derived here, once, from
  * the same `onBye` this function already computes plus the row's own
- * `injury_status`: 'bye' | 'no_team' | 'out' | 'ir' | null. It is a server-side mirror of
+ * `injury_status` and `nfl_roster_status` (#1767):
+ * 'bye' | 'no_team' | 'practice_squad' | 'out' | 'ir' | null. It is a server-side mirror of
  * the client entity's own `availabilityFor` (src/entities/roster/model/
  * lineupModel.js) - both read the identical two facts, so they can never
  * disagree, but the wire carries the answer directly rather than asking every
  * consumer to re-derive it.
  */
 function unavailableReason(row, onBye) {
-  const verdict = unavailableFor({ injuryStatus: row.injury_status, onBye, noTeam: row.nfl_team == null });
+  const verdict = unavailableFor({
+    injuryStatus: row.injury_status,
+    onBye,
+    noTeam: row.nfl_team == null,
+    nflRosterStatus: row.nfl_roster_status ?? null,
+  });
   return verdict.available ? null : verdict.reason;
 }
 
@@ -1215,9 +1225,13 @@ function factorEdgeText(factors) {
  */
 function findBenchAboveStarter(entry, entries, rosterSlots) {
   if (entry.slot !== BENCH || entry.projected_points == null) return null;
+  // A Position-baseline projection (#1776) is the position's average, not this
+  // player's own evidence: no "Outprojects" comparison is made with one on
+  // either side.
+  if (entry.positionBaseline) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null) continue;
+    if (other.projected_points == null || other.positionBaseline) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1319,7 +1333,8 @@ async function getLineup({ leagueId, userId, week }) {
         `SELECT "players"."id", "players"."name", "players"."position", "players"."nfl_team",
                 "players"."injury_status", "players"."injury_detail", "players"."photo_url",
                 "lineup_entries"."slot", "lineup_entries"."ir_attested",
-                "player_stats"."stats" AS "week_stats"${asPlayedColumn}
+                "player_stats"."stats" AS "week_stats",
+                ${nflRosterStatusColumn()}${asPlayedColumn}
          FROM "lineup_entries"
          ${rosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -1441,6 +1456,14 @@ async function getLineup({ leagueId, userId, week }) {
       // record is not a seat he could actually take.
       const now = new Date();
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
+      // #1776: a Position-baseline projection (CONTEXT.md; `positionBaselineFor`,
+      // #1775) rides the wire as a boolean, false whenever an Unavailable reason
+      // applies (bye, No NFL team, Practice squad, Out, IR always win). Set for
+      // every row BEFORE any Edge line, since `findBenchAboveStarter` reads it
+      // off the other entries too.
+      for (const row of annotated) {
+        row.positionBaseline = row.unavailable == null && weeklyResult.positionBaselineFor(row.id);
+      }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
         // The full factors object exactly as the engine produced it (#1703),

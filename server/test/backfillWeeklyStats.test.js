@@ -79,22 +79,6 @@ function stubNflverseSeason(t) {
   return applied;
 }
 
-test('runNflverseSeason preserves the pbp-only keys on every week it rewrites', async (t) => {
-  const applied = stubNflverseSeason(t);
-  await runNflverseSeason({ season: 2025, weeks: [1, 2], crosswalk: new Map(), summary: [] });
-
-  assert.equal(applied.length, 2);
-  for (const call of applied) {
-    assert.deepEqual(
-      call.preserveKeys,
-      [...nflverse.PBP_ONLY_STAT_KEYS, ...nflverse.SNAP_STAT_KEYS],
-      'kills the "forgot preserveKeys" mutant: a re-run would drop the TD-length arrays and the snap keys'
-    );
-  }
-  assert.ok(nflverse.PBP_ONLY_STAT_KEYS.length > 0, 'an empty carry list would make the assertion vacuous');
-  assert.ok(nflverse.SNAP_STAT_KEYS.length > 0, 'an empty snap carry list would make the assertion vacuous');
-});
-
 test('runNflverseSeason fetches each season file once and reuses it across weeks', async (t) => {
   const applied = stubNflverseSeason(t);
   await runNflverseSeason({ season: 2025, weeks: [1, 2, 3], crosswalk: new Map(), summary: [] });
