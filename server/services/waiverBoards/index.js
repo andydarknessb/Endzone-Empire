@@ -1,0 +1,35 @@
+/**
+ * The editorial waiver boards: one typed module per week, the week's column
+ * picks in the column's order. The public Waiver Wire page reads the board for
+ * the waiver week through waiverTargets.service, which gates it by Ownership.
+ * Adding a week is adding a module here and listing it below.
+ *
+ * @typedef {object} WaiverBoardEntry
+ * @property {number} playerId `players.id`, the key the endpoint reads by
+ * @property {string} name For review only; the served name comes from `players`
+ * @property {number} bidMin Low end of the bid, percent of a $100 FAAB budget
+ * @property {number} bidMax High end of the bid, percent of a $100 FAAB budget
+ * @property {string} reason One line, shown on the card
+ *
+ * @typedef {object} WaiverBoard
+ * @property {number} season
+ * @property {number} week
+ * @property {WaiverBoardEntry[]} entries Column order; the endpoint keeps it
+ */
+const season2026Week4 = require('./season2026Week4');
+
+/** @type {WaiverBoard[]} */
+const BOARDS = [season2026Week4];
+
+/**
+ * The board for a season's week, or null when the column has none. Callers
+ * must go through this module object (not a destructured copy) so a test can
+ * stand in a board.
+ *
+ * @returns {WaiverBoard | null}
+ */
+function getBoard(season, week) {
+  return BOARDS.find((board) => board.season === season && board.week === week) || null;
+}
+
+module.exports = { getBoard };

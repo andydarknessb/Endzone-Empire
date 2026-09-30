@@ -833,3 +833,240 @@ test('public limiter returns 429 after 120 requests in the window', async (t) =>
   assert.equal(blocked.status, 429);
   assert.ok(blocked.headers['retry-after']);
 });
+
+// ---------------------------------------------------------------------------
+// GET /waiver-targets: the week's editorial board, gated by Ownership (#1829)
+// ---------------------------------------------------------------------------
+
+const waiverBoards = require('../services/waiverBoards');
+
+function scheduleRows(week, home, away, kickoffAt) {
+  const key = `${week}_${away}_${home}`;
+  return [
+    { week, nfl_team: home, opponent: away, kickoff_at: kickoffAt, game_key: key, roof: null, home_away: 'home' },
+    { week, nfl_team: away, opponent: home, kickoff_at: kickoffAt, game_key: key, roof: null, home_away: 'away' },
+  ];
+}
+
+function liveRow(week, home, away, status) {
+  return {
+    week, tank01_game_id: `${week}_${away}@${home}`, home_team: home, away_team: away,
+    game_status: status, current_score_home: 20, current_score_away: 17,
+  };
+}
+
+// Weeks 1 and 2 are over. Week 3 has two games, and `week3LastStatus` decides
+// whether the second (the late one) is final. Week 4 is scheduled with no live rows.
+function slateHandlers({ week3LastStatus, ownership = [], players = [] }) {
+  const games = [
+    ...scheduleRows(1, 'KC', 'BUF', '2026-09-10T00:20:00Z'),
+    ...scheduleRows(2, 'KC', 'BUF', '2026-09-17T00:20:00Z'),
+    ...scheduleRows(3, 'KC', 'BUF', '2026-09-24T00:20:00Z'),
+    ...scheduleRows(3, 'MIA', 'MIN', '2026-09-28T00:15:00Z'),
+    ...scheduleRows(4, 'CHI', 'NYJ', '2026-10-04T17:00:00Z'),
+    ...scheduleRows(4, 'MIN', 'MIA', '2026-10-04T17:00:00Z'),
+    ...scheduleRows(4, 'ATL', 'NO', '2026-10-06T00:15:00Z'),
+    ...scheduleRows(4, 'WAS', 'IND', '2026-10-04T13:30:00Z'),
+    ...scheduleRows(4, 'DET', 'CAR', '2026-10-05T00:20:00Z'),
+    ...scheduleRows(4, 'CIN', 'JAX', '2026-10-04T17:00:00Z'),
+    ...scheduleRows(4, 'SEA', 'LAC', '2026-10-04T20:05:00Z'),
+    ...scheduleRows(4, 'NYG', 'ARI', '2026-10-04T17:00:00Z'),
+    ...scheduleRows(4, 'BAL', 'TEN', '2026-10-04T17:00:00Z'),
+    ...scheduleRows(4, 'BUF', 'NE', '2026-10-04T17:00:00Z'),
+  ];
+  const live = [
+    liveRow(1, 'KC', 'BUF', 'final'),
+    liveRow(2, 'KC', 'BUF', 'final'),
+    liveRow(3, 'KC', 'BUF', 'final'),
+    liveRow(3, 'MIA', 'MIN', week3LastStatus),
+  ];
+  return [
+    ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
+    ['FROM "nfl_games"', { rows: games }],
+    ['FROM "live_game_states"', { rows: live }],
+    ['FROM "private"."game_recaps"', { rows: [] }],
+    ['FROM "player_ownership"', { rows: ownership }],
+    ['FROM "players"', { rows: players }],
+  ];
+}
+
+// Position and team of every player on the seeded Week 4 board.
+const WEEK4_PLAYERS = {
+  'Braelon Allen': ['RB', 'NYJ'], 'Ollie Gordon II': ['RB', 'MIA'], 'Kenyon Sadiq': ['TE', 'NYJ'],
+  'Alvin Kamara': ['RB', 'NO'], 'Keenan Allen': ['WR', 'IND'], 'Jaylen Wright': ['RB', 'MIA'],
+  'Darren Waller': ['TE', 'CAR'], 'Jakobi Meyers': ['WR', 'JAX'], 'Sam Darnold': ['QB', 'SEA'],
+  'Jacoby Brissett': ['QB', 'ARI'], "Wan'Dale Robinson": ['WR', 'TEN'], 'Geno Smith': ['QB', 'NYJ'],
+  'Mack Hollins': ['WR', 'NE'], "Tre' Harris": ['WR', 'LAC'],
+};
+
+function playerRowFor(entry) {
+  const [position, team] = WEEK4_PLAYERS[entry.name] || ['RB', 'KC'];
+  return {
+    id: entry.playerId, name: entry.name, position, nfl_team: team,
+    photo_url: `http://x/${entry.playerId}.png`,
+  };
+}
+
+function ownershipRow(playerId, percent, date = '2026-09-29') {
+  return { player_id: playerId, percent_owned: percent, captured_date: date };
+}
+
+const FAKE_BOARD = {
+  season: 2026,
+  week: 4,
+  entries: [
+    { playerId: 501, name: 'Kenneth Walker III', bidMin: 12, bidMax: 18, reason: 'Column pick who is rostered almost everywhere.' },
+    { playerId: 502, name: 'Braelon Allen', bidMin: 12, bidMax: 18, reason: 'Lead back this week.' },
+    { playerId: 503, name: 'Half Owned', bidMin: 5, bidMax: 8, reason: 'Exactly at the cutoff.' },
+    { playerId: 504, name: 'No Row', bidMin: 3, bidMax: 6, reason: 'Never captured.' },
+    { playerId: 505, name: 'Kenyon Sadiq', bidMin: 8, bidMax: 12, reason: 'Tight end hole.' },
+  ],
+};
+
+const FAKE_PLAYERS = [
+  { id: 501, name: 'Kenneth Walker III', position: 'RB', nfl_team: 'SEA', photo_url: null },
+  { id: 502, name: 'Braelon Allen', position: 'RB', nfl_team: 'NYJ', photo_url: 'http://x/502.png' },
+  { id: 503, name: 'Half Owned', position: 'WR', nfl_team: 'IND', photo_url: null },
+  { id: 504, name: 'No Row', position: 'WR', nfl_team: 'JAX', photo_url: null },
+  { id: 505, name: 'Kenyon Sadiq', position: 'TE', nfl_team: 'NYJ', photo_url: null },
+];
+
+test('GET /waiver-targets returns the Week 4 board in board order with bid, reason, opponent and Ownership', async (t) => {
+  const board = waiverBoards.getBoard(2026, 4);
+  assert.ok(board, 'the Week 4 2026 board is seeded');
+  assert.equal(board.week, 4);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: board.entries.map(playerRowFor),
+    ownership: board.entries.map((entry, i) => ownershipRow(entry.playerId, String(10 + i))),
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['cache-control'], 'public, max-age=60, s-maxage=300');
+  assert.equal(res.body.week, 4);
+  assert.equal(res.body.source, 'editorial');
+  assert.equal(res.body.ownershipAsOf, '2026-09-29');
+  const expected = board.entries.slice(0, 8);
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), expected.map((e) => e.playerId));
+  const first = res.body.targets[0];
+  assert.equal(first.name, 'Braelon Allen');
+  assert.equal(first.position, 'RB');
+  assert.equal(first.nflTeam, 'NYJ');
+  assert.equal(first.opponent, 'CHI');
+  assert.equal(first.ownership, 10);
+  assert.equal(first.bidMin, expected[0].bidMin);
+  assert.equal(first.bidMax, expected[0].bidMax);
+  assert.equal(first.reason, expected[0].reason);
+  assert.equal(first.photoUrl, `http://x/${expected[0].playerId}.png`);
+  assertNoLeakyKeys(res.body);
+});
+
+test('GET /waiver-targets never returns a weekly starter: Kenneth Walker III at 99.8% is hidden', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    ownership: [ownershipRow(501, '99.80'), ownershipRow(502, '18.00'), ownershipRow(505, '17.50')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Braelon Allen', 'Kenyon Sadiq']);
+});
+
+test('GET /waiver-targets drops a board entry at exactly 50% and one with no Ownership row', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    ownership: [ownershipRow(502, '49.99'), ownershipRow(503, '50.00'), ownershipRow(505, '17.50')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Braelon Allen', 'Kenyon Sadiq']);
+});
+
+test('GET /waiver-targets caps the list at 8 after the cutoff, keeping board order', async (t) => {
+  const entries = Array.from({ length: 12 }, (_, i) => ({
+    playerId: 600 + i, name: `Player ${i}`, bidMin: 1, bidMax: 2, reason: `Reason ${i}`,
+  }));
+  t.mock.method(waiverBoards, 'getBoard', () => ({ season: 2026, week: 4, entries }));
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: entries.map((e) => ({ id: e.playerId, name: e.name, position: 'WR', nfl_team: 'KC', photo_url: null })),
+    // Player 0 is a starter, so the eight come from players 1..8.
+    ownership: entries.map((e, i) => ownershipRow(e.playerId, i === 0 ? '90' : '5')),
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [601, 602, 603, 604, 605, 606, 607, 608]);
+});
+
+test('GET /waiver-targets: the waiver week waits until every game of the previous Slate is final', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', (season, week) => {
+    assert.equal(season, 2026);
+    return { season, week, entries: [] };
+  });
+  installPool(t, slateHandlers({ week3LastStatus: 'in_progress' }));
+  const waiting = await request(makeApp()).get('/api/public/waiver-targets');
+  assert.equal(waiting.status, 200);
+  assert.equal(waiting.body.week, 3);
+
+  t.mock.restoreAll();
+  t.mock.method(waiverBoards, 'getBoard', (season, week) => ({ season, week, entries: [] }));
+  installPool(t, slateHandlers({ week3LastStatus: 'final' }));
+  const done = await request(makeApp()).get('/api/public/waiver-targets');
+  assert.equal(done.body.week, 4);
+});
+
+test('GET /waiver-targets returns an empty editorial list when no board exists for the waiver week', async (t) => {
+  installPool(t, slateHandlers({ week3LastStatus: 'in_progress' }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.week, 3);
+  assert.equal(res.body.source, 'editorial');
+  assert.deepEqual(res.body.targets, []);
+  assert.equal(res.body.ownershipAsOf, null);
+});
+
+test('GET /waiver-targets exposes Ownership only for the returned targets', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: FAKE_PLAYERS,
+    ownership: [
+      ownershipRow(501, '99.80'), ownershipRow(502, '18.00'), ownershipRow(503, '50.00'),
+      ownershipRow(505, '17.50'),
+      // Not on the board at all: the query never asks for him, and he must not surface.
+      ownershipRow(999, '57.30'),
+    ],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  const body = JSON.stringify(res.body);
+  assert.equal(res.body.targets.length, 2);
+  assert.ok(!body.includes('99.8'), 'a hidden starter percentage never appears');
+  assert.ok(!body.includes('57.3'), 'a non-board player percentage never appears');
+  assert.ok(!body.includes('"ownership":50'), 'a dropped entry percentage never appears');
+  assert.deepEqual(res.body.targets.map((x) => x.ownership), [18, 17.5]);
+});
+
+test('GET /waiver-targets surfaces a failed read as 500', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  installPool(t, [['EXTRACT(MONTH FROM CURRENT_DATE)', () => { throw new Error('db down'); }]]);
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.equal(res.status, 500);
+  assert.deepEqual(res.body, { error: 'failed to fetch waiver targets' });
+  assert.equal(errors.length, 1);
+});

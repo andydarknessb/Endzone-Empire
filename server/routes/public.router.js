@@ -23,6 +23,7 @@ const {
   listRecaps,
   getRecap,
 } = require('../services/publicRead.service');
+const { getWaiverTargets } = require('../services/waiverTargets.service');
 const {
   getSitemapEntries,
   buildSitemapXml,
@@ -123,6 +124,26 @@ router.get('/rankings', async (req, res) => {
   } catch (error) {
     console.error('GET /api/public/rankings failed', error);
     res.status(500).json({ error: 'failed to fetch rankings' });
+  }
+});
+
+// GET /api/public/waiver-targets: the waiver week's editorial board, gated by
+// Ownership (#1829). No params; the waiver week comes from game finality.
+const WAIVER_TARGETS_TTL_MS = 60_000;
+let waiverTargetsCache = null;
+router.get('/waiver-targets', async (_req, res) => {
+  if (waiverTargetsCache && waiverTargetsCache.expires > Date.now()) {
+    res.set('Cache-Control', LIST_CACHE);
+    return res.json(waiverTargetsCache.value);
+  }
+  try {
+    const payload = await getWaiverTargets();
+    waiverTargetsCache = { value: payload, expires: Date.now() + WAIVER_TARGETS_TTL_MS };
+    res.set('Cache-Control', LIST_CACHE);
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /api/public/waiver-targets failed', error);
+    res.status(500).json({ error: 'failed to fetch waiver targets' });
   }
 });
 
