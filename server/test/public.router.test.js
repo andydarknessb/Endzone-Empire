@@ -890,17 +890,25 @@ function slateHandlers({ week3LastStatus, ownership = [], players = [] }) {
   ];
 }
 
-// Position and team of every player on the seeded Week 4 board.
-const WEEK4_PLAYERS = {
-  'Braelon Allen': ['RB', 'NYJ'], 'Ollie Gordon II': ['RB', 'MIA'], 'Kenyon Sadiq': ['TE', 'NYJ'],
-  'Alvin Kamara': ['RB', 'NO'], 'Keenan Allen': ['WR', 'IND'], 'Jaylen Wright': ['RB', 'MIA'],
-  'Darren Waller': ['TE', 'CAR'], 'Jakobi Meyers': ['WR', 'JAX'], 'Sam Darnold': ['QB', 'SEA'],
-  'Jacoby Brissett': ['QB', 'ARI'], "Wan'Dale Robinson": ['WR', 'TEN'], 'Geno Smith': ['QB', 'NYJ'],
-  'Mack Hollins': ['WR', 'NE'], "Tre' Harris": ['WR', 'LAC'],
+// A Week 4 board shaped like the column's: ten priced entries in order, on
+// fixture ids. [name, position, team, bidMin, bidMax].
+const WEEK4_FIXTURE_ROWS = [
+  ['Braelon Allen', 'RB', 'NYJ', 12, 18], ['Ollie Gordon II', 'RB', 'MIA', 12, 15],
+  ['Kenyon Sadiq', 'TE', 'NYJ', 8, 12], ['Alvin Kamara', 'RB', 'NO', 5, 8],
+  ['Keenan Allen', 'WR', 'IND', 3, 6], ['Jaylen Wright', 'RB', 'MIA', 3, 7],
+  ['Darren Waller', 'TE', 'CAR', 2, 4], ['Jakobi Meyers', 'WR', 'JAX', 2, 4],
+  ['Sam Darnold', 'QB', 'SEA', 1, 3], ['Jacoby Brissett', 'QB', 'ARI', 1, 3],
+];
+const WEEK4_FIXTURE_BOARD = {
+  season: 2026,
+  week: 4,
+  entries: WEEK4_FIXTURE_ROWS.map(([name, , , bidMin, bidMax], i) => ({
+    playerId: 700 + i, name, bidMin, bidMax, reason: `Reason for ${name}.`,
+  })),
 };
 
-function playerRowFor(entry) {
-  const [position, team] = WEEK4_PLAYERS[entry.name] || ['RB', 'KC'];
+function playerRowFor(entry, i) {
+  const [, position, team] = WEEK4_FIXTURE_ROWS[i];
   return {
     id: entry.playerId, name: entry.name, position, nfl_team: team,
     photo_url: `http://x/${entry.playerId}.png`,
@@ -932,9 +940,8 @@ const FAKE_PLAYERS = [
 ];
 
 test('GET /waiver-targets returns the Week 4 board in board order with bid, reason, opponent and Ownership', async (t) => {
-  const board = waiverBoards.getBoard(2026, 4);
-  assert.ok(board, 'the Week 4 2026 board is seeded');
-  assert.equal(board.week, 4);
+  const board = WEEK4_FIXTURE_BOARD;
+  t.mock.method(waiverBoards, 'getBoard', () => board);
   installPool(t, slateHandlers({
     week3LastStatus: 'final',
     players: board.entries.map(playerRowFor),

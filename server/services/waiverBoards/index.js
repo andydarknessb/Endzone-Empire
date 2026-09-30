@@ -16,10 +16,15 @@
  * @property {number} week
  * @property {WaiverBoardEntry[]} entries Column order; the endpoint keeps it
  */
-const season2026Week4 = require('./season2026Week4');
 
+// No board is seeded yet: the Week 4 2026 board (from the Week 4 Darkness
+// Report) needs the real `players.id` values and lands as its own data-only
+// change, one module per week required and listed here. Until a week is listed
+// the endpoint serves an empty list for it. Use the `players.id` row that
+// carries the ESPN Ownership (the one with an `external_id`): Ownership is read
+// by that exact id, and an entry whose id has no Ownership row is dropped.
 /** @type {WaiverBoard[]} */
-const BOARDS = [season2026Week4];
+const BOARDS = [];
 
 /**
  * The board for a season's week, or null when the column has none. Callers
