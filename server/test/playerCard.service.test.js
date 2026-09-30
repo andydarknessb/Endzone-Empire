@@ -6,7 +6,7 @@ const lineupService = require('../services/lineup.service');
 const byeService = require('../services/bye.service');
 const decisionCardContextService = require('../services/decisionCardContext.service');
 const irPolicy = require('../services/irPolicy.service');
-const { getPlayerCard } = require('../services/playerCard.service');
+const { getPlayerCard, upgradesFor } = require('../services/playerCard.service');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -306,6 +306,51 @@ for (const reason of ['out', 'ir', 'bye', 'practice_squad']) {
     assert.equal(card.decision.upgrade, null);
   });
 }
+
+// #1809 (spec #1774): a Position-baseline projection is the position's average,
+// not this player's own evidence, so the Upgrade refuses him as it refuses No
+// NFL team and Unavailable candidates - the 15.37 backup QB is never an
+// Upgrade, however high the hidden number is. An evidenced candidate keeps his.
+test('upgradesFor (#1809): a Position-baseline candidate at 15.37 gets null, an evidenced candidate keeps his Upgrade', async (t) => {
+  const BASELINE_ID = 55;
+  const EVIDENCED_ID = 56;
+  createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [
+        { id: BASELINE_ID, position: 'WR', nfl_team: 'BUF' },
+        { id: EVIDENCED_ID, position: 'WR', nfl_team: 'KC' },
+      ],
+    })],
+    ...buildHandlers({
+      starterRows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter' }],
+      identityIds: [BASELINE_ID],
+    }),
+  ]).install(t);
+  mockServices(t, {
+    weeklyProjection: (week, id) => {
+      if (id === 999) return { mean: 5, median: 5, factors: { availability: { available: true } } };
+      if (id === BASELINE_ID) {
+        return {
+          mean: 15.37,
+          median: 15.37,
+          factors: { availability: { available: true }, dataQuality: { reasons: ['position baseline'] } },
+        };
+      }
+      return { mean: 12, median: 12, factors: { availability: { available: true }, dataQuality: { reasons: [] } } };
+    },
+  });
+
+  const upgrades = await upgradesFor({
+    league: LEAGUE, team: TEAM, season: 2026, week: 1, playerIds: [BASELINE_ID, EVIDENCED_ID],
+  });
+
+  assert.equal(upgrades.get(BASELINE_ID), null);
+  assert.deepEqual(upgrades.get(EVIDENCED_ID), {
+    points: 7,
+    overPlayer: { id: 999, name: 'Weak Starter', points: 5, unavailable: null },
+    slot: 'WR',
+  });
+});
 
 test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate over the weakest eligible starter', async (t) => {
   createFakePool(upgradeHandlers()).install(t);

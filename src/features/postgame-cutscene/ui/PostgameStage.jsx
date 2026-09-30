@@ -5,6 +5,9 @@ import PropTypes from 'prop-types';
 import apiClient from '../../../api/apiClient';
 import { Sprite } from '../../../shared/ui';
 import ResultCard from './ResultCard';
+import WinScene from './WinScene';
+import LossScene from './LossScene';
+import TieScene from './TieScene';
 import useOverlayFocus from './useOverlayFocus';
 import { planQueue, resultSentence } from '../model/plan';
 import { kitForTeam } from '../model/teamKit';
@@ -14,10 +17,20 @@ import { readPostgameIntroSeen, writePostgameIntroSeen } from '../model/introFla
 import { recordStartedIds } from '../model/sessionGuard';
 import './PostgameCutscenes.css';
 
-// Timing ledger. A scene under reduced motion is a still card: 2 s each.
+// The scene registry: an outcome with a component here plays it; every other
+// outcome (and every outcome under reduced motion) shows the still ResultCard.
+// A scene is mounted with { cutscene, sfx, onDone, onLeave } and owns its own
+// length: the queue advances on its `onDone`, not on SCENE_MS. `onLeave` ends the
+// whole queue (the loss scene's waiver link); a scene with no link (win, tie) ignores it.
+// Later scenes register here.
+const SCENES = { win: WinScene, loss: LossScene, tie: TieScene };
+
+// Timing ledger. A card is on screen for SCENE_MS (2 s each under reduced motion).
 const SCENE_MS = 3500;
 const REDUCED_SCENE_MS = 2000;
 const IDLE_FRAME_MS = 500;
+// Every dismissal (PRESS START, SKIP, Escape, the last scene) fades the sound out over this.
+const DISMISS_FADE_MS = 100;
 
 function prefersReducedMotion() {
   return typeof window !== 'undefined'
@@ -131,13 +144,19 @@ function PostgameStage({ cutscenes, onFinish }) {
   const finish = useCallback((reachedEnd) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
-    sfx.stopAll({ fadeMs: 200 });
+    sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
     finishRef.current({ overflowText: reachedEnd ? plan.overflowText : null });
   }, [plan]);
 
   useEffect(() => {
     sfx.setMuted(muted);
   }, [muted]);
+
+  // Leaving the page (browser Back) unmounts the overlay without a dismissal:
+  // silence the loops the title card and the scenes started.
+  useEffect(() => () => {
+    if (!finishedRef.current) sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
+  }, []);
 
   useEffect(() => {
     if (reduced) markStarted();
@@ -149,16 +168,26 @@ function PostgameStage({ cutscenes, onFinish }) {
     sfx.startLoop('title');
   }, [phase]);
 
+  const item = plan.scenes[index];
+  const Scene = reduced ? null : SCENES[item.outcome];
+
+  // Following a link (a loss's waiver wire) ends the queue behind the navigation.
+  const leave = useCallback(() => { finish(false); }, [finish]);
+
   const nextScene = useCallback(() => {
-    if (index + 1 < plan.scenes.length) setIndex(index + 1);
-    else finish(true);
-  }, [index, plan, finish]);
+    if (index + 1 < plan.scenes.length) {
+      // A scene leaves its loops running when a tap or its own end moves on.
+      if (Scene) sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
+      setIndex(index + 1);
+    } else finish(true);
+  }, [index, plan, finish, Scene]);
 
   useEffect(() => {
-    if (phase !== 'scenes') return undefined;
+    // A scene ends itself (`onDone`); only a card runs on the fixed timer.
+    if (phase !== 'scenes' || Scene) return undefined;
     const id = setTimeout(nextScene, reduced ? REDUCED_SCENE_MS : SCENE_MS);
     return () => clearTimeout(id);
-  }, [phase, index, reduced, nextScene]);
+  }, [phase, index, reduced, nextScene, Scene]);
 
   // A card that held focus (the loss link, the title card's buttons) is removed
   // when the scene changes, which fires no focusin and would strand focus on
@@ -176,7 +205,10 @@ function PostgameStage({ cutscenes, onFinish }) {
   const advance = () => {
     if (phase === 'title') {
       markStarted();
-      sfx.stopAll({ fadeMs: 200 });
+      // PRESS START is the user gesture browsers wait for before they let an
+      // AudioContext run: unlock here, before the title card ends.
+      sfx.unlock();
+      sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
       setPhase('scenes');
     } else {
       nextScene();
@@ -212,7 +244,6 @@ function PostgameStage({ cutscenes, onFinish }) {
     advance();
   };
 
-  const item = plan.scenes[index];
   const label = phase === 'title' ? titleFor(cutscenes) : resultSentence(item);
 
   return (
@@ -235,8 +266,10 @@ function PostgameStage({ cutscenes, onFinish }) {
             onSkip={skip}
             showIntro={showIntro}
           />
+        ) : Scene ? (
+          <Scene key={item.matchupId} cutscene={item} sfx={sfx} onDone={nextScene} onLeave={leave} />
         ) : (
-          <ResultCard key={item.matchupId} item={item} onLeave={() => { finish(false); }} />
+          <ResultCard key={item.matchupId} item={item} onLeave={leave} />
         )}
         {/* Announces each scene: the overlay keeps focus across scenes, so its
             aria-label changing in place is not reliably read out. */}

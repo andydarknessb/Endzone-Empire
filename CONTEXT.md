@@ -272,6 +272,14 @@ _Avoid_: defensive player
 Every NFL game in one week.
 _Avoid_: schedule (the schedule is the whole season), games list
 
+**Waiver week**:
+The Slate after the most recent Slate whose every game is final. It advances
+only when the whole previous Slate is over, so it does not flip during Sunday's
+games and it waits for a Tuesday game. It names the week of the public Waiver
+Wire page's "Week N Waiver Targets" (#1829). Distinct from the calendar week
+that `deriveNflWeek` reports, which rolls by last kickoff plus a grace period.
+_Avoid_: current week (the calendar's word)
+
 **Kickoff**:
 The scheduled start of an NFL game. It is the clock every time-sensitive rule
 keys off: lineup locks, pick'em locks and holdout capture deadlines.
@@ -775,11 +783,12 @@ _Avoid_: roster, starting roster, My Team (a third name for the surface), Team
 page
 
 **Unavailable**:
-A player who cannot play this week: on bye, Out, on IR, or with No NFL team.
-His projection counts as zero wherever a total is summed, he is never among the
-Players remaining, and every surface shows the reason ("on bye", "out",
-"on IR", "no team") instead of a number. One verdict, read from the same facts
-everywhere (bye, injury designation, NFL team): the Optimizer, the Expected
+A player who cannot play this week: on bye, Out, on IR, with No NFL team, or
+on the Practice squad (NFL roster status). Their projection counts as zero
+wherever a total is summed, they are never among the Players remaining, and
+every surface shows the reason ("on bye", "out", "on IR", "no team",
+"practice squad") instead of a number. One verdict, read from the same facts
+everywhere (bye, injury designation, NFL team, NFL roster status): the Optimizer, the Expected
 final, the Lineup, the Decision card and the Players page never decide it
 separately. Questionable and Doubtful are not unavailable.
 _Avoid_: inactive, injured
@@ -1000,6 +1009,14 @@ does not apply in best ball, where BENCH participates in scoring; every other
 move remains locked. Locks are per player, not per week.
 _Avoid_: roster lock
 
+**Lineup problem**:
+A reason a Team's lineup will not score as its Manager intends that the
+Manager can still act on: an empty starting slot, a starter on bye or Out, an
+IR stash that no longer qualifies. A starter whose game has kicked off is not
+a problem, and after the week's last kickoff there are none; the lineup
+reminder, the league card and the to-do list state the same set.
+_Avoid_: lineup issue, lineup warning, invalid lineup
+
 **Roster lock**:
 A commissioner freeze on one team's roster moves, or on the whole league's.
 Stops every roster write: a free agent add, a drop, an undo-drop, a waiver
@@ -1097,6 +1114,20 @@ day, never about this league (ADR 0041).
 _Avoid_: rostered % (Rostered is a state here), percent owned (the field),
 popularity
 
+**Waiver Target**:
+A player the public site tells managers to claim this waiver week, whose
+Ownership is under half of public ESPN leagues, so a weekly starter is never
+one. Defined by Ownership, never by Availability or Rostered. A week with no
+editorial board still gets Waiver Targets, computed: QB, RB, WR and TE under
+the Ownership cutoff, ranked by this week's projection (never season totals),
+at most two per position and eight in all, excluding Position-baseline
+projections, players with no stats in the last two completed weeks, No NFL team,
+Unavailable, and Out, IR or Doubtful players. When the newest Ownership
+snapshot is more than three days old the feed is stale: the editorial board is
+served without the Ownership cutoff and with no Ownership shown, and the
+computed list is not attempted, so a week with no board has none.
+_Avoid_: available-type add, top add, pickup, sleeper
+
 **In your leagues**:
 The block on a player's public profile that a signed-in manager sees and a
 visitor does not: one line per league the manager plays in whose rosters
@@ -1182,6 +1213,17 @@ then on, apart from the per-defender yardage nflverse patches at week end.
 Distinct from the Score of record, which is a week's settled total, not a
 game's stats.
 _Avoid_: score of record (for a game's stats), official box, box of record
+
+**Stat line**:
+One Player's recorded statistics for one week, assembled from several feeds,
+each the owner of some of its keys: the box (Live, then Final) owns the
+scoring stats and the touchdown-length and field-goal-distance lists its plays
+supply; nflverse owns usage, share and EPA and the per-defender yardage
+patches; the snap file owns snap counts. A feed writes only the keys it owns
+and never erases another feed's, and no feed creates a Stat line from
+unscored keys alone.
+_Avoid_: stat row, stats jsonb, box (a box is one game's feed; a Stat line is
+what is stored)
 
 **Score summary line**:
 One entry in an NFL game's scoring summary as the feed states it: the kind of
@@ -1276,6 +1318,13 @@ The count of a team's starters whose NFL games have not finished this week. A
 starter whose game has not kicked off counts.
 _Avoid_: PMR (in prose), players left, yet to play
 
+**Win probability**:
+A Team's chance of winning its Matchup as best known now, from both sides'
+Expected finals and the scores so far, sharpening as games finish. Distinct
+from the home side's win probability inside an NFL game's Situation, which is
+ESPN's.
+_Avoid_: odds (the odds bar is its display), win chance, WP
+
 **Matchup status**:
 Where a Matchup sits in its week, read from its starters' NFL games: scheduled
 until the first of them kicks off, live while any is in progress or has kicked
@@ -1313,6 +1362,23 @@ Awarding is idempotent by design.
 
 **Recap**:
 A generated narrative summary of one league week.
+_Avoid_: weekly recap animation, postgame cutscene (one Team's result, not the
+league's week)
+
+**Postgame cutscene**:
+A full-screen Tecmo cutscene that reveals one Team's final Matchup result, win,
+loss or tie, to its Manager, once per Matchup. It is due the moment the Matchup
+is final, shown on the Manager's next visit to Home whatever the day, and
+expires at the league's next first Kickoff (for a season's last week, one week
+after that week's last Kickoff). It is seen once across every device the
+Manager uses, counted from the moment it starts, skipped or not; a later stat
+correction never replays or reverses it. It carries the Team identity of both
+sides, the scores and, for a regular-season Matchup, the Record; a playoff
+Matchup carries no Record. A Manager with several Teams is owed one per Team.
+Distinct from the touchdown cutscene (one Scoring play, live) and from the
+Recap (one league week, narrative).
+_Avoid_: recap, weekly recap, result animation, celebration (the touchdown
+cutscene's word), Tuesday recap (finality is Advance week, not a weekday)
 
 **Season archive**:
 A League's completed seasons as they finished: each season's final standings,
@@ -1484,6 +1550,24 @@ not. A stat row alone is not an Appearance; rows exist for rostered players
 who never took the field.
 _Avoid_: game played, games (as a count of stat rows), did not play (say "no
 Appearance")
+
+**NFL roster status**:
+Where a player stands on their NFL team's roster: Active, Practice squad,
+or Reserve. A fact about the NFL team, never about a league (that is
+Availability), and it persists until the team changes it, unlike a Game
+status, which describes one week. A Practice squad player projects to
+zero, labelled as such, until the team elevates them for a game; Reserve
+is informational, because Game status already carries injured reserve and
+Out. A player whose status is unknown or stale counts as Active.
+_Avoid_: role, depth, active/inactive, roster state (say Availability for
+the league fact)
+
+**Depth chart rank**:
+A player's order within their position group on their NFL team's published
+depth chart, 1 being the starter. A daily fact shown as context; it does
+not move a projection. A player absent from the chart has no rank, which
+is not the same as being on the Practice squad.
+_Avoid_: role, string (first-string etc.), depth
 
 ### Evaluation
 

@@ -245,14 +245,24 @@ if (!ENABLED) {
     await pool.query(`DELETE FROM "player_nfl_roster_status" WHERE "player_id" = $1`, [playerId]);
   });
 
-  test('QA f1: a stored no_team row is never overwritten once the player has a team again (an undetectable bye-week risk)', async () => {
+  test('QA f1: a stored no_team row stays deferred, untouched, once the player has a team again but his new team\'s bye week cannot be resolved (no synced schedule)', async () => {
     // Signed mid-week: he now has a real team, so the freshly computed
     // verdict is no longer no_team - but his cached rows were generated with
     // onBye always false (byeByTeam.get(null) resolved nothing), so nothing
     // here can tell his new team's bye week apart from any other week.
     // Reconciling this row the ordinary way would wrongly flip it to
-    // available. The guard defers it to regeneration instead.
+    // available. The main UPDATE's guard skips it, and the bye-aware second
+    // pass (reconcileByeAwareSignings) finds no bye week for his team - KC
+    // has NO nfl_games rows for SEASON, deliberately (asserted below, so a
+    // future fixture that seeds one cannot silently change what this proves)
+    // - so it logs and leaves the row deferred to regeneration. The resolvable
+    // schedule case is the QA f4 test below.
     const playerId = await seedPlayer({ injuryStatus: null, nflTeam: 'KC' });
+    const scheduled = await pool.query(
+      `SELECT COUNT(*)::int AS "n" FROM "nfl_games" WHERE "season" = $1 AND "nfl_team" = 'KC'`,
+      [SEASON]
+    );
+    assert.equal(scheduled.rows[0].n, 0, 'KC has no schedule for SEASON: the bye lookup fails on purpose');
     const runId = await seedRun(8);
     await seedRow(runId, playerId, {
       available: false, activeProbability: 0, reason: 'no_team', status: null, locked: false, lockedSlot: null,

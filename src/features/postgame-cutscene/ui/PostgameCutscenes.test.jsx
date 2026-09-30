@@ -8,6 +8,7 @@ import apiClient from '../../../api/apiClient';
 import PostgameCutscenes from './PostgameCutscenes';
 import { planQueue, recordLine } from '../model/plan';
 import { POSTGAME_STARTED_KEY } from '../model/sessionGuard';
+import { setSfx } from '../model/sfx';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -31,7 +32,7 @@ const item = (id, over = {}) => ({
   leagueName: 'Sunday League',
   week: 5,
   playoff: false,
-  outcome: 'win',
+  outcome: 'tie',
   me: { teamId: 100 + id, name: `Mine ${id}`, avatarStaticUrl: null, score: 120 },
   opponent: { teamId: 200 + id, name: `Theirs ${id}`, avatarStaticUrl: null, score: 100 },
   record: { wins: 3, losses: 1, ties: 0 },
@@ -49,6 +50,9 @@ async function show(cutscenes) {
 const dialog = () => screen.getByRole('alertdialog');
 const press = (key) => fireEvent.keyDown(dialog(), { key });
 const startFromTitle = () => fireEvent.click(dialog());
+// Every outcome now plays a scene, so which Matchup is on screen is read from the
+// live region, whose text is the result sentence.
+const onScreen = (id) => expect(screen.getByTestId('postgame-live')).toHaveTextContent(`Mine ${id} tied Theirs ${id}`);
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -185,11 +189,11 @@ describe('queue', () => {
   test('scenes play in the list order and tap advances', async () => {
     await show([item(1), item(2), item(3)]);
     startFromTitle();
-    expect(screen.getByText('Mine 1')).toBeInTheDocument();
+    onScreen(1);
     fireEvent.click(dialog());
-    expect(screen.getByText('Mine 2')).toBeInTheDocument();
+    onScreen(2);
     fireEvent.click(dialog());
-    expect(screen.getByText('Mine 3')).toBeInTheDocument();
+    onScreen(3);
     fireEvent.click(dialog());
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
@@ -197,17 +201,17 @@ describe('queue', () => {
   test('Enter and Space advance the same way', async () => {
     await show([item(1), item(2), item(3)]);
     press('Enter');
-    expect(screen.getByText('Mine 1')).toBeInTheDocument();
+    onScreen(1);
     press(' ');
-    expect(screen.getByText('Mine 2')).toBeInTheDocument();
+    onScreen(2);
     press('Enter');
-    expect(screen.getByText('Mine 3')).toBeInTheDocument();
+    onScreen(3);
   });
 
   test('the overlay is an alertdialog named by the result sentence', async () => {
     await show([item(1)]);
     startFromTitle();
-    expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
+    expect(dialog()).toHaveAccessibleName('Mine 1 tied Theirs 1, 120 to 100');
   });
 
   test('Escape mid-queue ends it with no overflow line', async () => {
@@ -241,11 +245,70 @@ describe('queue', () => {
     render(<PostgameCutscenes cutscenes={[item(1), item(2)]} />);
     await screen.findByRole('alertdialog');
     startFromTitle();
-    expect(screen.getByText('Mine 1')).toBeInTheDocument();
-    act(() => { jest.advanceTimersByTime(3500); });
-    expect(screen.getByText('Mine 2')).toBeInTheDocument();
-    act(() => { jest.advanceTimersByTime(3500); });
+    onScreen(1);
+    act(() => { jest.advanceTimersByTime(6999); });
+    onScreen(1);
+    act(() => { jest.advanceTimersByTime(1); });
+    onScreen(2);
+    act(() => { jest.advanceTimersByTime(7000); });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('sound', () => {
+  let calls;
+  beforeEach(() => {
+    calls = [];
+    setSfx({
+      unlock: jest.fn(() => calls.push('unlock')),
+      startLoop: jest.fn((name) => calls.push(`startLoop:${name}`)),
+      stopAll: jest.fn((options) => calls.push(`stopAll:${options.fadeMs}`)),
+      setMuted: jest.fn(),
+    });
+  });
+  afterEach(() => setSfx(null));
+
+  test('the title theme starts on the title card', async () => {
+    await show([item(1)]);
+    expect(calls).toEqual(['startLoop:title']);
+  });
+
+  test('PRESS START unlocks the audio, then fades the theme over 100 ms', async () => {
+    await show([item(1)]);
+    fireEvent.click(screen.getByRole('button', { name: 'PRESS START' }));
+    expect(calls).toEqual(['startLoop:title', 'unlock', 'stopAll:100']);
+  });
+
+  test('a tap on the card and Enter unlock just the same', async () => {
+    const first = await show([item(1)]);
+    startFromTitle();
+    expect(calls).toContain('unlock');
+    first.unmount();
+    calls.length = 0;
+    await show([item(1)]);
+    press('Enter');
+    expect(calls).toContain('unlock');
+  });
+
+  test('the speaker toggle and SKIP are not the start gesture', async () => {
+    await show([item(1)]);
+    fireEvent.click(screen.getByRole('button', { name: 'Sound' }));
+    expect(calls).not.toContain('unlock');
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    expect(calls).not.toContain('unlock');
+  });
+
+  test('every dismissal fades over 100 ms: SKIP, Escape and the last scene', async () => {
+    const skipped = await show([item(1)]);
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    expect(calls.filter((c) => c.startsWith('stopAll'))).toEqual(['stopAll:100']);
+    skipped.unmount();
+
+    calls.length = 0;
+    await show([item(1)]);
+    startFromTitle();
+    press('Escape');
+    expect(calls.filter((c) => c.startsWith('stopAll'))).toEqual(['stopAll:100', 'stopAll:100']);
   });
 });
 
@@ -278,7 +341,7 @@ describe('keyboard and focus', () => {
     // Enter on a button is its native click; the overlay must not also treat it as a tap.
     fireEvent.keyDown(start, { key: 'Enter' });
     fireEvent.click(start);
-    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.getByTestId('tie-scene')).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledTimes(1);
     // The button that held focus is gone; the overlay took focus back.
     expect(dialog()).toHaveFocus();
@@ -286,17 +349,39 @@ describe('keyboard and focus', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  test('focus is not stranded on body when a focused loss link is replaced by the next card', async () => {
+  test('a focused loss link holds the scene past 10 s; a click advances and focus is not stranded', async () => {
     jest.useFakeTimers();
     render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' }), item(2)]} />);
     await screen.findByRole('alertdialog');
     startFromTitle();
-    screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' }).focus();
-    act(() => { jest.advanceTimersByTime(3500); });
-    expect(screen.getByText('Mine 2')).toBeInTheDocument();
+    // The loss scene's link appears with its panel at 5.5 s; with it focused the scene no longer auto-ends.
+    act(() => { jest.advanceTimersByTime(5500); });
+    const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
+    act(() => { link.focus(); });
+    act(() => { jest.advanceTimersByTime(4500); });
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    expect(link).toHaveFocus();
+    // A click on the dialog advances to the next card, and the overlay has focus.
+    fireEvent.click(dialog());
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+    onScreen(2);
     expect(dialog()).toHaveFocus();
     // A key pressed now reaches the overlay, so Escape still ends the queue.
     press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  test('Escape ends the queue while the loss link holds the scene', async () => {
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' }), item(2)]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    act(() => { jest.advanceTimersByTime(5500); });
+    const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
+    act(() => { link.focus(); });
+    act(() => { jest.advanceTimersByTime(20000); });
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    fireEvent.keyDown(link, { key: 'Escape' });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
@@ -304,9 +389,9 @@ describe('keyboard and focus', () => {
     await show([item(1), item(2)]);
     startFromTitle();
     const live = screen.getByTestId('postgame-live');
-    expect(live).toHaveTextContent('Mine 1 beat Theirs 1, 120 to 100');
+    expect(live).toHaveTextContent('Mine 1 tied Theirs 1, 120 to 100');
     fireEvent.click(dialog());
-    expect(live).toHaveTextContent('Mine 2 beat Theirs 2, 120 to 100');
+    expect(live).toHaveTextContent('Mine 2 tied Theirs 2, 120 to 100');
   });
 
   test('Enter on a focused button is not also a tap on the card', async () => {
@@ -340,9 +425,9 @@ describe('keyboard and focus', () => {
 });
 
 describe('static result card', () => {
-  test('a win shows the outcome, both Teams and scores, the Record line and no link', async () => {
-    await show([item(1)]);
-    startFromTitle();
+  test('a win, under reduced motion, shows the outcome, both Teams and scores, the Record line and no link', async () => {
+    setReducedMotion(true);
+    await show([item(1, { outcome: 'win' })]);
     const card = screen.getByTestId('postgame-result-card');
     expect(within(card).getByText('YOU WIN!')).toBeInTheDocument();
     expect(within(card).getByText('Mine 1')).toBeInTheDocument();
@@ -353,32 +438,32 @@ describe('static result card', () => {
     expect(within(card).queryByRole('link')).not.toBeInTheDocument();
   });
 
-  test('a loss reads GAME OVER. and links to the league Waiver wire', async () => {
+  test('a loss, under reduced motion, reads GAME OVER. and links to the league Waiver wire', async () => {
+    setReducedMotion(true);
     await show([item(1, {
       outcome: 'loss', leagueId: 77, me: { ...item(1).me, score: 90 },
     })]);
-    startFromTitle();
     expect(screen.getByText('GAME OVER.')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
     expect(link).toHaveAttribute('href', '#/league/77/waivers');
   });
 
-  test('following the loss link ends the queue', async () => {
+  test('following the loss link, under reduced motion, ends the queue', async () => {
+    setReducedMotion(true);
     await show([item(1, { outcome: 'loss' }), item(2)]);
-    startFromTitle();
     fireEvent.click(screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' }));
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  test('a tie reads TIE GAME', async () => {
+  test('a tie, under reduced motion, reads TIE GAME', async () => {
+    setReducedMotion(true);
     await show([item(1, { outcome: 'tie' })]);
-    startFromTitle();
     expect(screen.getByText('TIE GAME')).toBeInTheDocument();
   });
 
   test('a playoff week reads PLAYOFF WEEK in place of the Record line', async () => {
+    setReducedMotion(true);
     await show([item(1, { playoff: true, record: null, standing: null })]);
-    startFromTitle();
     expect(screen.getByText('PLAYOFF WEEK')).toBeInTheDocument();
     expect(screen.queryByText(/^RECORD/)).not.toBeInTheDocument();
   });
@@ -395,18 +480,193 @@ describe('static result card', () => {
   });
 
   test('an avatar with no image falls back to initials', async () => {
+    setReducedMotion(true);
     await show([item(1)]);
-    startFromTitle();
     expect(within(screen.getByTestId('postgame-side-me')).getByText('M1')).toBeInTheDocument();
   });
 
   test('an avatar image is the static URL', async () => {
     const withAvatar = item(1);
     withAvatar.me.avatarStaticUrl = 'https://img.example/still.png';
+    setReducedMotion(true);
     await show([withAvatar]);
-    startFromTitle();
     expect(within(screen.getByTestId('postgame-side-me')).getByRole('img', { hidden: true }))
       .toHaveAttribute('src', 'https://img.example/still.png');
+  });
+});
+
+describe('scene registry', () => {
+  let calls;
+  beforeEach(() => {
+    calls = [];
+    setSfx({
+      unlock: jest.fn(),
+      play: jest.fn((name) => calls.push(`play:${name}`)),
+      startLoop: jest.fn((name) => calls.push(`startLoop:${name}`)),
+      stopAll: jest.fn((options) => calls.push(`stopAll:${options.fadeMs}`)),
+      setMuted: jest.fn(),
+    });
+  });
+  afterEach(() => setSfx(null));
+
+  async function startAt(cutscenes) {
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={cutscenes} />);
+    await screen.findByRole('alertdialog');
+    calls.length = 0;
+    // PRESS START fades the title theme (stopAll:100), then the scene mounts.
+    startFromTitle();
+  }
+  const fades = () => calls.filter((c) => c.startsWith('stopAll'));
+
+  test('a win mounts the WIN scene, not the result card', async () => {
+    await startAt([item(1, { outcome: 'win' })]);
+    expect(screen.getByTestId('win-scene')).toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-result-card')).not.toBeInTheDocument();
+  });
+
+  test('a loss mounts the LOSS scene, not the result card', async () => {
+    await startAt([item(1, { outcome: 'loss' })]);
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-result-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    expect(calls).toEqual(['stopAll:100', 'play:lossChord', 'startLoop:rain']);
+  });
+
+  test('a tie mounts the TIE scene, not the result card', async () => {
+    await startAt([item(1, { outcome: 'tie' })]);
+    expect(screen.getByTestId('tie-scene')).toBeInTheDocument();
+    expect(screen.queryByTestId('postgame-result-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+    expect(calls).toEqual(['stopAll:100', 'play:slide']);
+  });
+
+  test('a tie ends on its own onDone at 7 s and finishes the queue', async () => {
+    await startAt([item(1, { outcome: 'tie' })]);
+    act(() => { jest.advanceTimersByTime(6999); });
+    expect(screen.getByTestId('tie-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('a tie under reduced motion keeps the result card', async () => {
+    setReducedMotion(true);
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'tie' })]} />);
+    await screen.findByRole('alertdialog');
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('tie-scene')).not.toBeInTheDocument();
+  });
+
+  test('the loss link ends the whole queue, not just the scene: onLeave, not onDone', async () => {
+    await startAt([item(1, { outcome: 'loss', leagueId: 77 }), item(2, { outcome: 'loss' })]);
+    act(() => { jest.advanceTimersByTime(5500); });
+    const link = screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' });
+    expect(link).toHaveAttribute('href', '#/league/77/waivers');
+    fireEvent.click(link);
+    // The queue is over: the second loss never mounts, and the sound fades once.
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('a loss that is not the last scene advances on its onDone at 10 s', async () => {
+    await startAt([item(1, { outcome: 'loss' }), item(2, { outcome: 'tie' })]);
+    act(() => { jest.advanceTimersByTime(9999); });
+    expect(screen.getByTestId('loss-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.getByTestId('tie-scene')).toBeInTheDocument();
+  });
+
+  test('a loss under reduced motion keeps the result card, with its own link', async () => {
+    setReducedMotion(true);
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'loss' })]} />);
+    await screen.findByRole('alertdialog');
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('loss-scene')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'RETREAT TO THE WAIVER WIRE' })).toBeInTheDocument();
+  });
+
+  test('the scene gets the queue sfx and the queue advances on its onDone, not on SCENE_MS', async () => {
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'tie' })]);
+    // The scene played its sound through the sfx the stage installed.
+    expect(calls).toEqual(['stopAll:100', 'play:slide']);
+    act(() => { jest.advanceTimersByTime(3500); });
+    expect(screen.getByTestId('win-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(9999 - 3500); });
+    expect(screen.getByTestId('win-scene')).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tie-scene')).toBeInTheDocument();
+    // Moving on from a scene fades its loops out over 100 ms.
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('the last scene ending finishes the queue and fades the sound', async () => {
+    await startAt([item(1, { outcome: 'win' })]);
+    act(() => { jest.advanceTimersByTime(10000); });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('a tap during a scene moves on and stops its sound', async () => {
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'tie' })]);
+    act(() => { jest.advanceTimersByTime(5000); });
+    fireEvent.click(dialog());
+    expect(screen.getByTestId('tie-scene')).toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('Escape during a scene ends the queue and stops the sound over 100 ms', async () => {
+    await startAt([item(1, { outcome: 'win' }), item(2, { outcome: 'win' })]);
+    act(() => { jest.advanceTimersByTime(5000); });
+    press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(fades()).toEqual(['stopAll:100', 'stopAll:100']);
+  });
+
+  test('leaving the page mid-scene (unmount without a dismissal) stops the loops', async () => {
+    jest.useFakeTimers();
+    const { unmount } = render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'win' })]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    act(() => { jest.advanceTimersByTime(4600); });
+    calls.length = 0;
+    unmount();
+    expect(calls).toEqual(['stopAll:100']);
+  });
+
+  test('a dismissal already stopped the sound: unmounting after it adds no second stop', async () => {
+    jest.useFakeTimers();
+    const { unmount } = render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'win' })]} />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    press('Escape');
+    calls.length = 0;
+    unmount();
+    expect(calls).toEqual([]);
+  });
+
+  test('the dialog keeps its result-sentence name while the scene plays', async () => {
+    await startAt([item(1, { outcome: 'win' })]);
+    expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
+    expect(screen.getByTestId('postgame-live')).toHaveTextContent('Mine 1 beat Theirs 1, 120 to 100');
+  });
+
+  test('under reduced motion a win keeps the result card as the only card', async () => {
+    setReducedMotion(true);
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[item(1, { outcome: 'win' }), item(2, { outcome: 'win' })]} />);
+    await screen.findByRole('alertdialog');
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
+    // The card runs on the 2 s reduced-motion timer, as before.
+    act(() => { jest.advanceTimersByTime(2000); });
+    expect(screen.getByText('Mine 2')).toBeInTheDocument();
+    expect(screen.queryByTestId('win-scene')).not.toBeInTheDocument();
   });
 });
 
@@ -419,7 +679,7 @@ describe('reduced motion', () => {
     expect(screen.queryByTestId('postgame-title-card')).not.toBeInTheDocument();
     expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledTimes(2);
-    expect(dialog()).toHaveAccessibleName('Mine 1 beat Theirs 1, 120 to 100');
+    expect(dialog()).toHaveAccessibleName('Mine 1 tied Theirs 1, 120 to 100');
   });
 
   test('each card holds for 2 s', async () => {
