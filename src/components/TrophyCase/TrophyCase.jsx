@@ -165,6 +165,9 @@ function TrophyTally({ seasonTrophies, teams }) {
   return (
     <Box
       component="ul"
+      // WebKit drops the list mapping from a list-style: none <ul>, so VoiceOver
+      // would read the rows as loose text without the explicit role.
+      role="list"
       data-testid="trophy-tally"
       aria-label="Trophies by team"
       sx={{ listStyle: 'none', m: 0, mb: 2, p: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}

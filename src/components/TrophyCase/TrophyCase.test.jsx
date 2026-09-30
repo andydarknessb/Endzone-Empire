@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
@@ -225,6 +225,15 @@ describe('per-team tally', () => {
     await screen.findByTestId('trophy-case');
 
     expect(rowOrder()).toEqual(['tally-team-10', 'tally-team-12']);
+  });
+
+  test('is a named list with one item per team', async () => {
+    apiClient.get.mockResolvedValue({ data: season2026 });
+    renderWithProviders(<TrophyCase leagueId={1} teams={teams} />);
+    await screen.findByTestId('trophy-case');
+
+    const list = screen.getByRole('list', { name: 'Trophies by team' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5);
   });
 
   test('wraps on a phone: nothing forces a horizontal scroll', async () => {
