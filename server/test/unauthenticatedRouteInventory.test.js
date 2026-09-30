@@ -350,6 +350,7 @@ const PUBLIC_ROUTES = [
   'GET /api/public/recaps',
   'GET /api/public/recaps/:gameId',
   'GET /api/public/sitemap.xml',
+  'GET /api/public/waiver-targets',
 ];
 
 test('the app serves exactly these API routes without a session', () => {
