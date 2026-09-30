@@ -10,6 +10,7 @@ import TieScene, {
 } from './TieScene';
 import { REF_FLAT_A, REF_FLAT_B, frameRects } from './sprites';
 import { tallyLine } from './Transition';
+import { contrastRatio } from '../../../theme/contrast';
 
 const css = fs.readFileSync(path.join(__dirname, 'TieScene.css'), 'utf8');
 
@@ -229,6 +230,23 @@ describe('the stylesheet', () => {
     const rule = css.match(/\.tie-title-text \{([^}]*)\}/)[1];
     expect(rule).toMatch(/animation:\s*tie-slam 420ms steps\(6\) forwards/);
     expect(rule).not.toMatch(/infinite/);
+  });
+
+  test('TIE GAME and the score line sit on a solid band with 4.5:1 contrast, never on the sky', () => {
+    const declared = (selector, prop) => {
+      const open = css.indexOf(`\n${selector} {`);
+      const rule = css.slice(open, css.indexOf('}', open));
+      const decl = rule.split(/[{;]/).map((d) => d.trim()).find((d) => d.startsWith(`${prop}:`));
+      const found = decl && decl.match(/#[0-9a-fA-F]{6}$/);
+      return found && found[0];
+    };
+    const band = declared('.tie-title', 'background');
+    expect(band).toBeTruthy();
+    ['.tie-title-text', '.tie-title-score'].forEach((selector) => {
+      const color = declared(selector, 'color');
+      expect(color).toBeTruthy();
+      expect(contrastRatio(color, band)).toBeGreaterThanOrEqual(4.5);
+    });
   });
 
   test('the scene reads no other scene\'s variable', () => {
