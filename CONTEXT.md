@@ -272,6 +272,14 @@ _Avoid_: defensive player
 Every NFL game in one week.
 _Avoid_: schedule (the schedule is the whole season), games list
 
+**Waiver week**:
+The Slate after the most recent Slate whose every game is final. It advances
+only when the whole previous Slate is over, so it does not flip during Sunday's
+games and it waits for a Tuesday game. It names the week of the public Waiver
+Wire page's "Week N Waiver Targets" (#1829). Distinct from the calendar week
+that `deriveNflWeek` reports, which rolls by last kickoff plus a grace period.
+_Avoid_: current week (the calendar's word)
+
 **Kickoff**:
 The scheduled start of an NFL game. It is the clock every time-sensitive rule
 keys off: lineup locks, pick'em locks and holdout capture deadlines.
