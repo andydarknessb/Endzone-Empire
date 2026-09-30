@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Badge, Card, DashButton, RangeBar } from '../../../shared/ui';
+import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
+import { PlayerNameLink } from '../../../entities/player';
 import { formatKickoff, formatPoints } from '../../../shared/lib';
-import { buildSuggestionView, movePlanWithout } from '../lib/suggestionView';
+import { buildSuggestionView, movePlanWithout, projectedLeanLine } from '../lib/suggestionView';
 
 /**
  * The Start/sit panel widget (#1238, ADR 0037 AC1): the rail's advice panel,
@@ -25,12 +26,20 @@ import { buildSuggestionView, movePlanWithout } from '../lib/suggestionView';
  * affordance until ticket 8, AC3) are the only interactions this widget
  * owns outright.
  *
+ * Three more things ride in as plain props (#1852): each player carries the
+ * shared injury tag from his designation; his name opens the Decision card
+ * through `onOpenDecisionCard(playerId)` (the page owns the card, the same
+ * callback a Ledger row's name calls); and `expectedFinals` ({ mine, theirs },
+ * the two teams' Expected finals for the Matchup, read by the page) drives one
+ * line at the top of the card when the gap is 10 points or more. The line
+ * names no player and changes no suggestion.
+ *
  * Heading stays "Endzone Forecast" (CONTEXT.md's Endzone Forecast: "the name
  * the product gives its projection engine ... what managers see on the
  * advice surfaces"); no copy here ever reads "optimal", "optimize" or
  * "range" (AC6).
  */
-export default function StartSitPanel({ advice, entries, bestBall, onApply, onCompare }) {
+export default function StartSitPanel({ advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals }) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState('');
   // The panel's own content container (formal risk review finding: Dismiss
@@ -55,6 +64,7 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
   // so the dismissed pairs' moves are taken out of it here.
   const movePlan = movePlanWithout(advice?.movePlan, allViews.filter((v) => dismissed.has(v.key)));
   const canApply = movePlan.length > 0;
+  const leanLine = projectedLeanLine(expectedFinals);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
@@ -81,6 +91,12 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
         sx={{ p: '14px', display: 'grid', gap: '14px', outline: 'none' }}
       >
         <span role="status" aria-live="polite" style={visuallyHidden}>{announcement}</span>
+
+        {leanLine && (
+          <Typography data-testid="start-sit-lean-line" sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}>
+            {leanLine}
+          </Typography>
+        )}
 
         {views.length === 0 && (
           <Typography sx={{ fontSize: '13px', color: 'var(--dash-faint)' }} data-testid="start-sit-panel-empty">
@@ -113,8 +129,8 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
             </Box>
 
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <PlayerColumn label="Sit" player={view.sit} domainMin={view.domainMin} domainMax={view.domainMax} />
-              <PlayerColumn label="Start" player={view.start} domainMin={view.domainMin} domainMax={view.domainMax} />
+              <PlayerColumn label="Sit" player={view.sit} domainMin={view.domainMin} domainMax={view.domainMax} onOpenDecisionCard={onOpenDecisionCard} />
+              <PlayerColumn label="Start" player={view.start} domainMin={view.domainMin} domainMax={view.domainMax} onOpenDecisionCard={onOpenDecisionCard} />
             </Box>
 
             {/* One joined text node, not two sibling spans (formal risk
@@ -169,15 +185,22 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
   );
 }
 
-function PlayerColumn({ label, player, domainMin, domainMax }) {
+const NAME_SX = { fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard }) {
   return (
-    <Box sx={{ display: 'grid', gap: '4px', minWidth: 0 }}>
+    <Box data-testid="suggestion-player" sx={{ display: 'grid', gap: '4px', minWidth: 0 }}>
       <Typography sx={{ fontSize: '11px', fontWeight: 600, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
         {label}
       </Typography>
-      <Typography sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {player.name}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+        {onOpenDecisionCard ? (
+          <PlayerNameLink name={player.name} playerId={player.playerId} onOpen={onOpenDecisionCard} sx={{ ...NAME_SX, minWidth: 0, display: 'block', lineHeight: 'inherit' }} />
+        ) : (
+          <Typography sx={NAME_SX}>{player.name}</Typography>
+        )}
+        <InjuryTag status={player.injuryStatus} />
+      </Box>
       <RangeBar
         label={player.name}
         floor={player.floor}
