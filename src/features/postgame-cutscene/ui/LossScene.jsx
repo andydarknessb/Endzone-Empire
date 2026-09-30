@@ -158,7 +158,7 @@ function LossScene({
         {beat === 'panel' ? `Link available: ${LINK_TEXT}` : ''}
       </div>
       <div className="loss-slide" data-testid="loss-slide">
-        <div className="loss-stage" aria-hidden="true">
+        <div className="loss-stage" data-testid="loss-stage" aria-hidden="true">
           <div className="loss-fade" data-testid="loss-fade" />
           {inStadium && (
             <>

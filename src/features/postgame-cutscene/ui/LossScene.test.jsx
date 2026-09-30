@@ -398,8 +398,10 @@ describe('the panel and the waiver link', () => {
     expect(live).toHaveAttribute('aria-live', 'polite');
     expect(live).toHaveClass('postgame-sr');
     expect(live).toBeEmptyDOMElement();
-    expect(live.closest('.loss-stage')).toBeNull();
-    expect(live.closest('[aria-hidden="true"]')).toBeNull();
+    // Not in the aria-hidden stage, and the scene that holds it is not hidden either.
+    expect(screen.getByTestId('loss-stage')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(screen.getByTestId('loss-stage')).queryByTestId('loss-live')).not.toBeInTheDocument();
+    expect(screen.getByTestId('loss-scene')).not.toHaveAttribute('aria-hidden');
     advance(PANEL_MS - 1);
     expect(screen.getByTestId('loss-live')).toBe(live);
     expect(live).toBeEmptyDOMElement();
