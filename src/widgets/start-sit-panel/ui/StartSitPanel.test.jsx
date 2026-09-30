@@ -454,3 +454,56 @@ test('the shot adds no client filter: Apply still passes the payload plan minus 
   await user.click(screen.getByTestId('start-sit-apply'));
   expect(onApply).toHaveBeenCalledWith(plan);
 });
+
+test('while a shot request is in flight the actions stay mounted, aria-disabled, and ignore clicks (#1856)', async () => {
+  const user = userEvent.setup();
+  const onCallShot = jest.fn();
+  const onWithdrawShot = jest.fn();
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ probabilityBetter: 0.9 })], movePlan: [], calledShot: shot() }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={onCallShot}
+      onWithdrawShot={onWithdrawShot}
+      shotBusy
+    />
+  );
+  const call = screen.getByTestId('suggestion-call-shot');
+  const withdraw = screen.getByTestId('called-shot-withdraw');
+  expect(call).toHaveAttribute('aria-disabled', 'true');
+  expect(withdraw).toHaveAttribute('aria-disabled', 'true');
+  await user.click(call);
+  await user.click(withdraw);
+  expect(onCallShot).not.toHaveBeenCalled();
+  expect(onWithdrawShot).not.toHaveBeenCalled();
+});
+
+test('an accepted shot moves focus to the card and announces it; a refused one does neither (#1856)', async () => {
+  const user = userEvent.setup();
+  const onCallShot = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ probabilityBetter: 0.9 })], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={onCallShot}
+    />
+  );
+  const call = screen.getByTestId('suggestion-call-shot');
+  await user.click(call);
+  expect(screen.getByRole('status')).toHaveTextContent('');
+  expect(screen.getByTestId('start-sit-panel-content')).not.toHaveFocus();
+
+  await user.click(call);
+  expect(await screen.findByText('Shot called: Sit Guy over Start Guy')).toBeInTheDocument();
+  expect(screen.getByTestId('start-sit-panel-content')).toHaveFocus();
+});
+
+test('the standing line is a labelled group and Withdraw names the shot (#1856)', () => {
+  render(
+    <StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: shot() }} entries={entries} bestBall={false} onWithdrawShot={() => {}} />
+  );
+  expect(screen.getByRole('group', { name: 'Your called shot' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Withdraw your called shot: Sit Guy over Start Guy' })).toBeInTheDocument();
+});

@@ -483,8 +483,9 @@ export default function LineupPage() {
                     entries={lineup?.entries}
                     bestBall={bestBall}
                     onApply={applyAdvice.apply}
-                    onCallShot={calledShot.busy ? undefined : calledShot.callShot}
-                    onWithdrawShot={calledShot.busy ? undefined : calledShot.withdrawShot}
+                    onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
+                    onWithdrawShot={calledShot.withdrawShot}
+                    shotBusy={calledShot.busy}
                     onOpenDecisionCard={setDecisionCardEntryId}
                     expectedFinals={expectedFinals}
                   />

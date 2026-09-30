@@ -193,6 +193,16 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
     throw new CalledShotError(409, 'a shot cannot be called once either player has locked; his game has started');
   }
 
+  // A shot that has locked is on the record and stays: replacing it would let a
+  // manager walk away from a miss in progress. A voided row has nothing to keep.
+  const existing = await readCalledRow(pool, { teamId: team.id, season: league.current_season, week: targetWeek });
+  if (existing && (existing.outcome === 'hit' || existing.outcome === 'miss')) {
+    throw new CalledShotError(409, 'the called shot for this week has already resolved, so it cannot be replaced');
+  }
+  if (existing && existing.outcome === 'pending' && (await lockedAmong(pool, existing, now)).size > 0) {
+    throw new CalledShotError(409, 'your called shot has locked (a game has started), so it cannot be replaced');
+  }
+
   const advice = await loadAdvice({ leagueId, userId, week: targetWeek });
   const suggestion = (advice.suggestions || []).find(
     (s) => s.current.playerId === starterId && s.suggested.playerId === benchedId
@@ -210,7 +220,8 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
       async (client) => {
         await client.query(
           `DELETE FROM "lineup_overrides"
-           WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "team_id" = $4 AND "called"`,
+           WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "team_id" = $4 AND "called"
+           AND "outcome" IN ('pending', 'void')`,
           [leagueId, advice.season, advice.week, team.id]
         );
         await client.query(
@@ -269,6 +280,9 @@ async function voidShotContradictedBySave(db, { teamId, season, week }) {
   const slotOf = new Map(slots.rows.map((r) => [r.player_id, r.slot]));
   const holds = isStartingSlot(slotOf.get(row.starter_player_id)) && !isStartingSlot(slotOf.get(row.benched_player_id));
   if (holds) return false;
+  // Once either player has locked the shot is on the record: a later save that
+  // moves the other player does not erase a result in progress.
+  if ((await lockedAmong(db, row, new Date())).size > 0) return false;
   await db.query(
     `UPDATE "lineup_overrides" SET "outcome" = 'void', "resolved_at" = now()
      WHERE "id" = $1 AND "outcome" = 'pending'`,

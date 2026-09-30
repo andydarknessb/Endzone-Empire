@@ -13,6 +13,9 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * the start-sit-panel widget as plain callbacks (a widget never imports a
  * feature, ADR 0020).
  *
+ * `callShot` and `withdrawShot` resolve true when the server accepted and false
+ * when it refused, so the card can announce and move focus only on success.
+ *
  * A refusal (a locked player, a tossup, a pair the advice no longer names)
  * reads its server reason into a snackbar; nothing changes on screen.
  */
@@ -26,8 +29,10 @@ export function useCalledShot({ leagueId, week, onChanged }) {
       await request();
       notify(success);
       onChanged?.();
+      return true;
     } catch (err) {
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+      return false;
     } finally {
       setBusy(false);
     }

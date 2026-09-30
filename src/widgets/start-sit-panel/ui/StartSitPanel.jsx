@@ -46,7 +46,7 @@ import { buildSuggestionView, calledShotLine, movePlanWithout, projectedLeanLine
  * "range" (AC6).
  */
 export default function StartSitPanel({
-  advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot,
+  advice, entries, bestBall, onApply, onCompare, onOpenDecisionCard, expectedFinals, onCallShot, onWithdrawShot, shotBusy,
 }) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState('');
@@ -95,6 +95,26 @@ export default function StartSitPanel({
     setDismissed((prev) => new Set(prev).add(view.key));
   };
 
+  // The shot actions stay mounted while a request is in flight (aria-disabled,
+  // not removed) so the button the manager just pressed keeps focus; once the
+  // server accepts, focus goes to the card's own container and a polite status
+  // says what happened, since the row or the Withdraw button then leaves the
+  // DOM silently (the same hand-off Dismiss makes above).
+  const callShot = async (view) => {
+    if (shotBusy) return;
+    const accepted = await onCallShot?.(view);
+    if (accepted === false) return;
+    contentRef.current?.focus();
+    setAnnouncement(`Shot called: ${view.sit.name} over ${view.start.name}`);
+  };
+  const withdrawShot = async () => {
+    if (shotBusy) return;
+    const accepted = await onWithdrawShot?.();
+    if (accepted === false) return;
+    contentRef.current?.focus();
+    setAnnouncement('Called shot withdrawn');
+  };
+
   return (
     <Card title="Endzone Forecast" data-testid="start-sit-panel">
       <Box
@@ -115,6 +135,8 @@ export default function StartSitPanel({
           <Box
             data-testid="called-shot-line"
             data-state={shotLine.state}
+            role="group"
+            aria-label="Your called shot"
             sx={{ p: '10px 12px', border: '1px solid var(--dash-line)', borderRadius: 'var(--dash-radius-sm)', display: 'grid', gap: '2px' }}
           >
             <Typography sx={{ fontSize: '11px', fontWeight: 700, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
@@ -131,7 +153,14 @@ export default function StartSitPanel({
             </Typography>
             {shotLine.canWithdraw && onWithdrawShot && (
               <Box>
-                <DashButton variant="ghost" size="sm" data-testid="called-shot-withdraw" onClick={() => onWithdrawShot()}>
+                <DashButton
+                  variant="ghost"
+                  size="sm"
+                  data-testid="called-shot-withdraw"
+                  aria-label={`Withdraw your called shot: ${shotLine.text}`}
+                  aria-disabled={shotBusy || undefined}
+                  onClick={withdrawShot}
+                >
                   Withdraw
                 </DashButton>
               </Box>
@@ -218,7 +247,8 @@ export default function StartSitPanel({
                   size="sm"
                   data-testid="suggestion-call-shot"
                   aria-label={`Call your shot: keep ${view.sit.name} over ${view.start.name}`}
-                  onClick={() => onCallShot(view)}
+                  aria-disabled={shotBusy || undefined}
+                  onClick={() => callShot(view)}
                 >
                   Call your shot
                 </DashButton>

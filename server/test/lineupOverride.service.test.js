@@ -23,6 +23,7 @@ const slotsFake = (slots, calledRow = row()) => {
     [/^SELECT "player_id", "slot" FROM "lineup_entries"/, () => ({
       rows: Object.entries(slots).map(([player_id, slot]) => ({ player_id: Number(player_id), slot })),
     })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^UPDATE "lineup_overrides"/, () => ({ rows: [] })],
   ]);
   return fake;

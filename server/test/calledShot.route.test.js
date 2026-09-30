@@ -289,7 +289,7 @@ test('the advice still answers when the shot read fails (#1856)', async (t) => {
 
 // A saved lineup and the shot path -------------------------------------------
 
-function mountSaveWorld(t, { calledRow = null, shotFails = false } = {}) {
+function mountSaveWorld(t, { calledRow = null, shotFails = false, kickedOff = [] } = {}) {
   const entries = [
     { player_id: 1, name: 'p1', position: 'RB', nfl_team: 'BUF', injury_status: null, slot: 'RB', ir_attested: false },
     { player_id: 3, name: 'p3', position: 'RB', nfl_team: 'BUF', injury_status: null, slot: 'BENCH', ir_attested: false },
@@ -305,7 +305,7 @@ function mountSaveWorld(t, { calledRow = null, shotFails = false } = {}) {
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: entries.map(({ player_id }) => ({ player_id })) })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((e) => ({ ...e, slot: world.slots.get(e.player_id) })) })],
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
-    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOff.map((nfl_team) => ({ nfl_team })) })],
     [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => { world.slots.set(params[4], params[0]); return { rows: [] }; }],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT .*FROM "lineup_overrides"/, () => {
@@ -354,4 +354,34 @@ test('two declares racing for one team-week: the loser is told to try again, not
   const response = await declare({ starterId: 1, benchedId: 3 });
   assert.equal(response.status, 409);
   assert.match(response.body.error, /same moment/);
+});
+
+test('declare will not replace a shot that has locked: the miss in progress stays on the record (#1856)', async (t) => {
+  const { world, fake } = mountWorld(t, {
+    calledRow: joinedRow({ starter_player_id: 9, benched_player_id: 8, starter_nfl_team: 'NYJ' }),
+    kickedOff: ['NYJ'],
+  });
+  const response = await declare({ starterId: 1, benchedId: 3 });
+  assert.equal(response.status, 409);
+  assert.match(response.body.error, /has locked/);
+  assert.equal(world.calledRow.starter_player_id, 9);
+  assert.equal(fake.matching(/^DELETE FROM "lineup_overrides"/).length, 0);
+});
+
+test('declare will not replace a resolved hit or miss, but does replace a voided row (#1856)', async (t) => {
+  const settled = mountWorld(t, { calledRow: joinedRow({ outcome: 'miss', starter_player_id: 9, benched_player_id: 8 }) });
+  assert.equal((await declare({ starterId: 1, benchedId: 3 })).status, 409);
+  assert.equal(settled.world.calledRow.outcome, 'miss');
+
+  const voided = mountWorld(t, { calledRow: joinedRow({ outcome: 'void', starter_player_id: 9, benched_player_id: 8 }) });
+  const response = await declare({ starterId: 1, benchedId: 3 });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(voided.world.calledRow.starter_player_id, 1);
+});
+
+test('a lineup save does not void a shot once one of its players has locked (#1856)', async (t) => {
+  const { world } = mountSaveWorld(t, { calledRow: joinedRow({ starter_nfl_team: 'NYJ' }), kickedOff: ['NYJ'] });
+  const response = await saveSwap();
+  assert.equal(response.status, 200);
+  assert.equal(world.calledRow.outcome, 'pending');
 });
