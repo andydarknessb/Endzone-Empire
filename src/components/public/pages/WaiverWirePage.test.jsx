@@ -99,6 +99,28 @@ test('renders a computed card with position, team, opponent, Ownership and the p
   expect(screen.queryByText(/Darkness Report, limited/)).not.toBeInTheDocument();
 });
 
+test('renders an editorial card with null Ownership showing no percentage and no "null"', async () => {
+  publicApiClient.get.mockResolvedValue({
+    data: {
+      week: 4,
+      source: 'editorial',
+      ownershipAsOf: '2026-09-25',
+      targets: [{ ...TARGET, ownership: null }],
+    },
+  });
+  renderPage();
+
+  expect(await screen.findByRole('heading', { name: 'Week 4 Waiver Targets' })).toBeInTheDocument();
+  const card = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/players/11');
+  expect(card).toBeDefined();
+  expect(within(card).getByText('Braelon Allen')).toBeInTheDocument();
+  expect(within(card).getByText('Bid 12 to 18% of budget')).toBeInTheDocument();
+  // No Ownership figure (a bare "19%") and no "owned" label without a figure.
+  expect(within(card).queryByText(/^[\d.]+%$/)).not.toBeInTheDocument();
+  expect(within(card).queryByText('owned')).not.toBeInTheDocument();
+  expect(card.textContent).not.toMatch(/null|undefined|NaN/);
+});
+
 test('no season rank appears on the page', async () => {
   renderPage();
 
