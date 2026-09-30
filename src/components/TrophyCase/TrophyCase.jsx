@@ -10,7 +10,6 @@ import {
 import { Card, Badge, TeamAvatar } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { teamNameLabel } from '../../shared/lib/teamIdentity';
 
 // One inline stroke glyph per trophy type on the 20px grid (1.6 stroke, round
 // caps, currentColor), replacing the emoji map this module used to export.
@@ -162,7 +161,9 @@ function buildTally(seasonTrophies, teams = []) {
     if (!byTeam.has(t.team_id)) {
       byTeam.set(t.team_id, {
         teamId: t.team_id,
-        teamName: teamNameLabel(t.team_name),
+        teamName: t.team_name,
+        avatar_url: null,
+        avatar_static_url: null,
         counts: {},
         total: 0,
       });
@@ -173,7 +174,7 @@ function buildTally(seasonTrophies, teams = []) {
   });
   const rows = Array.from(byTeam.values()).sort(
     (a, b) =>
-      b.total - a.total || teamNameLabel(a.teamName).localeCompare(teamNameLabel(b.teamName))
+      b.total - a.total || String(a.teamName).localeCompare(String(b.teamName))
   );
   return { typeList, rows };
 }
@@ -208,13 +209,13 @@ function TrophyTally({ seasonTrophies, teams }) {
         >
           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
             <TeamAvatar
-              name={teamNameLabel(row.teamName)}
+              name={row.teamName}
               avatarUrl={row.avatar_url}
               avatarStaticUrl={row.avatar_static_url}
               size={24}
             />
             <Typography variant="body2" sx={{ fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}>
-              {teamNameLabel(row.teamName)}
+              {row.teamName}
             </Typography>
           </Box>
           <Typography variant="caption" sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}>

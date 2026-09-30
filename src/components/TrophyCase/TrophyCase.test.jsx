@@ -209,7 +209,9 @@ describe('per-team tally', () => {
     expect(row).not.toHaveTextContent('Old Name');
   });
 
-  test('a blank teamName reads Former manager', async () => {
+  // A roster row is a current Team: its teamName renders as it arrives, never
+  // the raw `name` column and never a "Former manager" label (teamIdentity.js).
+  test('a roster row with a blank teamName is neither the raw name nor Former manager', async () => {
     apiClient.get.mockResolvedValue({ data: season2026 });
     renderWithProviders(
       <TrophyCase
@@ -220,8 +222,16 @@ describe('per-team tally', () => {
     await screen.findByTestId('trophy-case');
 
     const row = screen.getByTestId('tally-team-13');
-    expect(row).toHaveTextContent('Former manager');
+    expect(row).not.toHaveTextContent('Former manager');
     expect(row).not.toHaveTextContent('Zero Hour');
+  });
+
+  test('a trophy-only row renders the trophy team_name as it arrives', async () => {
+    apiClient.get.mockResolvedValue({ data: season2026 });
+    renderWithProviders(<TrophyCase leagueId={1} teams={[]} />);
+    await screen.findByTestId('trophy-case');
+
+    expect(screen.getByTestId('tally-team-12')).toHaveTextContent('Cardiac Comebacks');
   });
 
   test('follows the season dropdown without another request', async () => {
