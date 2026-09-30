@@ -47,7 +47,7 @@ function WaiverTargetCard({ target }) {
       <CardActionArea component={RouterLink} to={`/players/${playerId}`} sx={{ p: 1.5, height: '100%' }}>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Avatar src={photoUrl || undefined} alt="" sx={{ width: 48, height: 48, bgcolor: 'var(--surface-sunken)', color: 'text.primary' }}>
-            {initials(name)}
+            <span aria-hidden="true">{initials(name)}</span>
           </Avatar>
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
             <Typography variant="subtitle2" component="p" noWrap sx={{ fontWeight: 700 }}>{name}</Typography>
@@ -60,9 +60,11 @@ function WaiverTargetCard({ target }) {
                 />
               )}
               {nflTeam && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{nflTeam}</Typography>}
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                {opponent ? `Opp ${opponent}` : 'Bye'}
-              </Typography>
+              {/* A null opponent is a bye, a free agent or an unsynced schedule, and
+                  the payload cannot tell them apart, so nothing is claimed. */}
+              {opponent && (
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>{`Opp ${opponent}`}</Typography>
+              )}
             </Stack>
           </Box>
           <Box sx={{ textAlign: 'right', flexShrink: 0 }}>

@@ -7,7 +7,9 @@
  * OPEN: the `playerId` values below are PLACEHOLDERS (9000001 and up). They
  * must be replaced with the real `players.id` values before this ships; until
  * then no live player matches, so the endpoint returns an empty list rather
- * than a wrong one.
+ * than a wrong one. Use the `players.id` that carries the ESPN Ownership rows
+ * (the row with an `external_id`): Ownership is read by this exact id, and an
+ * entry whose id has no Ownership row is dropped.
  *
  * @type {import('./index').WaiverBoard}
  */
