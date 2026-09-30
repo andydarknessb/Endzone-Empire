@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, RangeBar } from '../../../shared/ui';
 import { formatKickoff, formatPoints } from '../../../shared/lib';
-import { buildSuggestionView } from '../lib/suggestionView';
+import { buildSuggestionView, movePlanWithout } from '../lib/suggestionView';
 
 /**
  * The Start/sit panel widget (#1238, ADR 0037 AC1): the rail's advice panel,
@@ -48,8 +48,12 @@ export default function StartSitPanel({ advice, entries, bestBall, onApply, onCo
 
   const entriesById = new Map((Array.isArray(entries) ? entries : []).map((e) => [e.playerId, e]));
   const suggestions = Array.isArray(advice?.suggestions) ? advice.suggestions : [];
-  const views = suggestions.map((s) => buildSuggestionView(s, entriesById)).filter((v) => !dismissed.has(v.key));
-  const movePlan = Array.isArray(advice?.movePlan) ? advice.movePlan : [];
+  const allViews = suggestions.map((s) => buildSuggestionView(s, entriesById));
+  const views = allViews.filter((v) => !dismissed.has(v.key));
+  // Apply makes the moves of the suggestions still showing and nothing else
+  // (#1851): the advice's movePlan comes from the server's optimal assignment,
+  // so the dismissed pairs' moves are taken out of it here.
+  const movePlan = movePlanWithout(advice?.movePlan, allViews.filter((v) => dismissed.has(v.key)));
   const canApply = movePlan.length > 0;
 
   // Focus moves BEFORE the state update commits, while every sibling card

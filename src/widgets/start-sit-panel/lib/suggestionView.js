@@ -95,4 +95,24 @@ export function buildSuggestionView(suggestion, entriesById) {
   };
 }
 
+/**
+ * The advice's `movePlan` minus the moves of every dismissed suggestion (#1851).
+ * `movePlan` is built server-side from the optimal assignment, not from the
+ * suggestions the panel shows, so a dismissed swap would otherwise still be
+ * made on Apply. A swap suggestion is exactly one sit (current starter -> bench)
+ * and one start (bench player -> that slot), so a dismissed pair removes the
+ * moves of those two players and nothing else: open-slot fills and reshuffles
+ * name other players and pass through untouched.
+ */
+export function movePlanWithout(movePlan, dismissedViews) {
+  const plan = Array.isArray(movePlan) ? movePlan : [];
+  if (!dismissedViews || dismissedViews.length === 0) return plan;
+  const held = new Set();
+  for (const view of dismissedViews) {
+    held.add(view.sit.playerId);
+    held.add(view.start.playerId);
+  }
+  return plan.filter((move) => !held.has(move.playerId));
+}
+
 export default buildSuggestionView;

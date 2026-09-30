@@ -722,6 +722,28 @@ test('setLineup allows a count-neutral swap on an over-benched lineup', async (t
   fake.assertClean();
 });
 
+test('setLineup accepts a reduced move list: one swap of several advised, the dismissed pair left as it was (#1851)', async (t) => {
+  const slotsByIndex = ['QB', 'BENCH', 'BENCH', 'BENCH', 'BENCH', 'BENCH',
+    'RB', 'RB', 'FLEX', 'WR', 'WR', 'BENCH', 'BENCH', 'K', 'DEF'];
+  const { fake, slots } = installOverBenchedWorld(t, { positions: NO_TE_ROSTER, slotsByIndex });
+
+  // The advice named two swaps (QB 1 <-> 2 and WR 10 <-> 13); the manager
+  // dismissed the QB one, so Apply sends only the WR pair's two moves.
+  const result = await setLineup({
+    leagueId: 137,
+    userId: 7,
+    week: 1,
+    moves: [{ playerId: 13, slot: 'WR' }, { playerId: 10, slot: 'BENCH' }],
+  });
+
+  assert.equal(result.updated, 2);
+  assert.equal(slots.get(13), 'WR');
+  assert.equal(slots.get(10), 'BENCH');
+  assert.equal(slots.get(1), 'QB', 'the dismissed starter keeps his slot');
+  assert.equal(slots.get(2), 'BENCH', 'the dismissed bench player keeps his slot');
+  fake.assertClean();
+});
+
 test('setLineup still refuses a move that worsens inherited bench overflow', async (t) => {
   const slotsByIndex = ['QB', 'BENCH', 'BENCH', 'BENCH', 'BENCH', 'BENCH',
     'RB', 'RB', 'FLEX', 'WR', 'WR', 'BENCH', 'BENCH', 'K', 'DEF'];
