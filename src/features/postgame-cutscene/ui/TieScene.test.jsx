@@ -234,9 +234,11 @@ describe('the stylesheet', () => {
 
   test('TIE GAME and the score line sit on a solid band with 4.5:1 contrast, never on the sky', () => {
     const declared = (selector, prop) => {
-      const rule = css.match(new RegExp(`${selector.replace('.', '\\.')} \\{([^}]*)\\}`))[1];
-      const found = rule.match(new RegExp(`(?:^|[\\s;])${prop}:\\s*(#[0-9a-fA-F]{6})\\s*;`));
-      return found && found[1];
+      const open = css.indexOf(`\n${selector} {`);
+      const rule = css.slice(open, css.indexOf('}', open));
+      const decl = rule.split(/[{;]/).map((d) => d.trim()).find((d) => d.startsWith(`${prop}:`));
+      const found = decl && decl.match(/#[0-9a-fA-F]{6}$/);
+      return found && found[0];
     };
     const band = declared('.tie-title', 'background');
     expect(band).toBeTruthy();
