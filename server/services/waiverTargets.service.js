@@ -74,7 +74,9 @@ const OWNERSHIP_SQL = `
 // whose `external_id` matches, so a board id that points at a duplicate row must
 // still find that row's snapshot. This is the bulk form of `loadIdentityIdsFor`
 // in playerCard.service.js (not exported there, and that file is outside this
-// ticket), so keep the match rule in step with it.
+// ticket), so keep the match rule in step with it. The ORDER BY is this
+// query's own: it puts the ESPN-matched row (one with an `external_id`) first,
+// so which snapshot wins never depends on the plan.
 const IDENTITY_SQL = `
   WITH "target" AS (
     SELECT "id" AS "requested_id",
@@ -88,7 +90,8 @@ const IDENTITY_SQL = `
     JOIN "players"
       ON LOWER(REGEXP_REPLACE(TRIM("players"."name"), '\\s+', ' ', 'g')) = "target"."name_key"
      AND "players"."position" = "target"."position"
-     AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"`;
+     AND COALESCE(fn_normalize_nfl_team("players"."nfl_team"), '') = "target"."team_key"
+   ORDER BY "target"."requested_id", ("players"."external_id" IS NULL), "players"."id"`;
 
 const PLAYERS_SQL = `
   SELECT "id", "name", "position", "nfl_team", "photo_url"
@@ -149,6 +152,7 @@ async function getWaiverTargets() {
     .find((row) => row && row.percent_owned != null);
 
   const targets = [];
+  const servedIds = new Set();
   let ownershipAsOf = null;
   for (const entry of board.entries) {
     const row = ownershipFor(entry.playerId);
@@ -156,6 +160,11 @@ async function getWaiverTargets() {
     if (!row || !player || row.percent_owned == null) continue;
     const percent = Number(row.percent_owned);
     if (!Number.isFinite(percent) || !(percent < OWNERSHIP_CUTOFF_PERCENT)) continue;
+    // Two board ids that are rows of the same athlete (an editorial slip) would
+    // resolve to one snapshot; serve the athlete once, at the earlier entry.
+    const athleteIds = [entry.playerId, ...(identityIdsById.get(entry.playerId) || [])];
+    if (athleteIds.some((id) => servedIds.has(id))) continue;
+    athleteIds.forEach((id) => servedIds.add(id));
     targets.push(serializeTarget({
       entry,
       player,

@@ -1059,6 +1059,29 @@ test('GET /waiver-targets finds a duplicate row\'s Ownership through the identit
   assert.ok(!JSON.stringify(res.body).includes('99.8'));
 });
 
+test('GET /waiver-targets serves an athlete once when the board lists two of his rows', async (t) => {
+  t.mock.method(waiverBoards, 'getBoard', () => ({
+    ...FAKE_BOARD,
+    entries: [
+      FAKE_BOARD.entries[1],
+      { playerId: 902, name: 'Braelon Allen', bidMin: 1, bidMax: 2, reason: 'Duplicate listing.' },
+    ],
+  }));
+  installPool(t, slateHandlers({
+    week3LastStatus: 'final',
+    players: [...FAKE_PLAYERS, { id: 902, name: 'Braelon Allen', position: 'RB', nfl_team: 'NYJ', photo_url: null }],
+    identity: [
+      { requested_id: 502, identity_id: 502 }, { requested_id: 502, identity_id: 902 },
+      { requested_id: 902, identity_id: 502 }, { requested_id: 902, identity_id: 902 },
+    ],
+    ownership: [ownershipRow(902, '21.40')],
+  }));
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.playerId), [502]);
+});
+
 test('GET /waiver-targets prefers the board id\'s own Ownership row over an identity row', async (t) => {
   t.mock.method(waiverBoards, 'getBoard', () => FAKE_BOARD);
   installPool(t, slateHandlers({

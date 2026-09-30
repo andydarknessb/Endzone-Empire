@@ -20,9 +20,11 @@
 // No board is seeded yet: the Week 4 2026 board (from the Week 4 Darkness
 // Report) needs the real `players.id` values and lands as its own data-only
 // change, one module per week required and listed here. Until a week is listed
-// the endpoint serves an empty list for it. Use the `players.id` row that
-// carries the ESPN Ownership (the one with an `external_id`): Ownership is read
-// by that exact id, and an entry whose id has no Ownership row is dropped.
+// the endpoint serves an empty list for it. Prefer the `players.id` row that
+// carries the ESPN Ownership (the one with an `external_id`). An id that points
+// at a duplicate row of the same athlete still finds that snapshot through the
+// athlete's identity rows (same name, position and team), and an athlete listed
+// twice is served once. An entry with no Ownership row on any of them is dropped.
 /** @type {WaiverBoard[]} */
 const BOARDS = [];
 
