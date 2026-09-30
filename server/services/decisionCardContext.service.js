@@ -131,6 +131,82 @@ async function loadWeather(gameKey, roof) {
 }
 
 /**
+ * Pure: how many points the player's team is favored by, from a game's spread
+ * (negative = home favored, the `vegasOdds.provider` convention) and this
+ * team's orientation. Positive when favored, negative for an underdog; null for
+ * a missing spread or an unrecognized/neutral orientation, never a guess.
+ */
+function favoredByForTeam(spread, homeAway) {
+  if (!isNum(spread)) return null;
+  if (homeAway === 'home') return 0 - Number(spread);
+  if (homeAway === 'away') return Number(spread);
+  return null;
+}
+
+/**
+ * Pure: the Line as the start/sit card carries it (#1853): `{ spread, total,
+ * favoredBy }`, or null. The Implied team total is deliberately dropped: ADR
+ * 0037 derives it on the Decision card only.
+ */
+function chipLine(line, homeAway) {
+  if (!line) return null;
+  return {
+    spread: line.spread,
+    total: line.total,
+    favoredBy: favoredByForTeam(line.spread, homeAway),
+  };
+}
+
+/** Pure: the weather as the start/sit card carries it (#1853): the five chip fields, or null. */
+function chipWeather(weather) {
+  if (!weather) return null;
+  return {
+    indoor: weather.indoor,
+    windSpeedMph: weather.windSpeedMph,
+    windGustMph: weather.windGustMph,
+    precipitationProbability: weather.precipitationProbability,
+    shortForecast: weather.shortForecast,
+  };
+}
+
+/**
+ * The Line and weather for each requested team's game this week, as
+ * Map<folded Team code, { line, weather }> (#1853). One schedule read; one
+ * odds read and at most one weather read per GAME, however many of the
+ * caller's players (and both teams of a game) share it. A team with no game
+ * row, or a row with no `game_key`, has no entry: absence stays absence.
+ */
+async function loadGameChipContext({ season, week, nflTeams }) {
+  const wanted = new Set((nflTeams || []).map((team) => normalizeNflTeam(team)).filter((team) => team !== null));
+  if (wanted.size === 0) return new Map();
+  const gamesResult = await pool.query(
+    `SELECT "nfl_team", "game_key", "roof", "home_away" FROM "nfl_games" WHERE "season" = $1 AND "week" = $2`,
+    [season, week]
+  );
+  const games = gamesResult.rows
+    .map((row) => ({ team: normalizeNflTeam(row.nfl_team), row }))
+    .filter(({ team, row }) => team !== null && wanted.has(team) && row.game_key);
+
+  const perGame = new Map();
+  for (const { row } of games) {
+    if (perGame.has(row.game_key)) continue;
+    // `homeAway` is null here on purpose: the per-team orientation is applied
+    // below, and the Implied team total it would select never leaves this read.
+    perGame.set(row.game_key, Promise.all([
+      loadLine(row.game_key, null),
+      loadWeather(row.game_key, row.roof),
+    ]));
+  }
+
+  const byTeam = new Map();
+  for (const { team, row } of games) {
+    const [line, weather] = await perGame.get(row.game_key);
+    byTeam.set(team, { line: chipLine(line, row.home_away), weather: chipWeather(weather) });
+  }
+  return byTeam;
+}
+
+/**
  * Usage for the last three played weeks plus the season average, or null
  * when his team has no played week at all before `week` (e.g. week 1).
  */
@@ -311,6 +387,10 @@ module.exports = {
   memoLeagueContext,
   loadLine,
   loadWeather,
+  favoredByForTeam,
+  chipLine,
+  chipWeather,
+  loadGameChipContext,
   loadOpponents,
   sideForPosition,
   loadGameContext,

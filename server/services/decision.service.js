@@ -23,6 +23,9 @@ const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
 const { getWeekOpponents } = require('./nflWeekOpponents');
+// The Decision card's Line and weather loaders, reused for the start/sit
+// card's fact chips (#1853) rather than read a second way.
+const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
 // live what-if price a player-week the identical way the score of record does
 // - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
@@ -90,7 +93,10 @@ function finiteNumber(value) {
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
- * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
+ * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
+ * opponentApplied, line, weather, weatherApplied, marketApplied } (#1853: the
+ * game's Line and weather for the start/sit card's fact chips, each with the
+ * Factor's applied flag that decides the "context only" label).
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
@@ -105,7 +111,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
-    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null };
+    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null, line: null, weather: null };
 
   const availabilityById = new Map();
   const pinned = new Map();
@@ -354,7 +360,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
   const effectiveWeek = lineup.week;
   const playerIds = lineup.entries.map((e) => e.id);
 
-  const [run, defense, opponents] = await Promise.all([
+  const [run, defense, opponents, gameChips] = await Promise.all([
     projectionService.getWeeklyProjections({
       season: effectiveSeason,
       week: effectiveWeek,
@@ -363,6 +369,17 @@ async function startSitAdvice({ leagueId, userId, week }) {
     }),
     projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
+    // The Line and weather for the start/sit card's fact chips (#1853): the
+    // Decision card's own loaders, one read per game. Optional context, so a
+    // failed read degrades to no chips rather than no advice.
+    decisionCardContext.loadGameChipContext({
+      season: effectiveSeason,
+      week: effectiveWeek,
+      nflTeams: lineup.entries.map((e) => e.nfl_team),
+    }).catch((err) => {
+      console.error('start/sit advice: game context lookup failed, continuing without chips:', err.message);
+      return new Map();
+    }),
   ]);
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
@@ -382,7 +399,19 @@ async function startSitAdvice({ leagueId, userId, week }) {
     // Read straight off the projection the client will show, so a lineup that
     // only ever displays one number cannot silently disagree with itself.
     const opponentApplied = run.opponentAppliedFor(entry.id);
-    defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed, opponentApplied });
+    const game = gameChips.get(normalizeNflTeam(entry.nfl_team)) || null;
+    defenseByPlayer.set(entry.id, {
+      opponent,
+      opponentPointsAllowed,
+      opponentApplied,
+      // #1853: the game's Line and weather, each labelled by the Factor's own
+      // applied flag (`scored`; both are 0-effect under v3.1) rather than by a
+      // constant, so a Model version that applies them drops the label.
+      line: game ? game.line : null,
+      weather: game ? game.weather : null,
+      weatherApplied: run.weatherAppliedFor(entry.id),
+      marketApplied: run.marketAppliedFor(entry.id),
+    });
   }
 
   const lineupEntries = lineup.entries.map((e) => ({

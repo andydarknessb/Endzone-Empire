@@ -25,6 +25,58 @@ export function opponentContextText({ opponent, opponentPointsAllowed, position,
   return opponentApplied === false ? `${allowed}, context only)` : `${allowed})`;
 }
 
+/** The Line total at which the "High total" chip appears (#1853). */
+export const HIGH_TOTAL_MIN = 48;
+/** How many points a team must be favored by for the "Favored by" chip (#1853). */
+export const FAVORED_BY_MIN = 7;
+/** Outdoor wind speed, mph, at which the "Wind" chip appears (#1853). */
+export const WIND_MIN_MPH = 20;
+/** Outdoor chance of precipitation, percent, at which the "Rain" chip appears (#1853). */
+export const RAIN_MIN_PERCENT = 60;
+
+// 49.5 -> "49.5", 48 -> "48": a half point is kept, a whole number has no ".0".
+const plain = (n) => String(Math.round(n * 10) / 10);
+
+/**
+ * The fact chips under one suggestion side (#1853): only what is notable about
+ * the player's game, in a fixed order (total, favored, wind, rain), each
+ * `{ key, text, contextOnly }`. `line` is the payload's `{ spread, total,
+ * favoredBy }` (favoredBy positive when the player's team is favored) and
+ * `weather` its `{ indoor, windSpeedMph, precipitationProbability, ... }`; either
+ * may be null. A dome has no weather chip. The Implied team total is never
+ * shown here (ADR 0037: Decision card only).
+ *
+ * `contextOnly` is driven by the Factor's applied flag, not hard-coded: the
+ * Line chips by `marketApplied` (the gameEnvironment Factor), the weather chips
+ * by `weatherApplied`. Only an explicit `true` drops the label, so a payload
+ * that does not say is never read as applied; under v3.1 both Factors have a
+ * maximum effect of zero and both flags are false.
+ */
+export function factChips({ line, weather, weatherApplied, marketApplied } = {}) {
+  const marketContextOnly = marketApplied !== true;
+  const weatherContextOnly = weatherApplied !== true;
+  const chips = [];
+  const total = finite(line?.total);
+  if (total != null && total >= HIGH_TOTAL_MIN) {
+    chips.push({ key: 'total', text: `High total ${plain(total)}`, contextOnly: marketContextOnly });
+  }
+  const favoredBy = finite(line?.favoredBy);
+  if (favoredBy != null && favoredBy >= FAVORED_BY_MIN) {
+    chips.push({ key: 'favored', text: `Favored by ${plain(favoredBy)}`, contextOnly: marketContextOnly });
+  }
+  if (weather && !weather.indoor) {
+    const wind = finite(weather.windSpeedMph);
+    if (wind != null && wind >= WIND_MIN_MPH) {
+      chips.push({ key: 'wind', text: `Wind ${Math.round(wind)} mph`, contextOnly: weatherContextOnly });
+    }
+    const rain = finite(weather.precipitationProbability);
+    if (rain != null && rain >= RAIN_MIN_PERCENT) {
+      chips.push({ key: 'rain', text: `Rain ${Math.round(rain)}%`, contextOnly: weatherContextOnly });
+    }
+  }
+  return chips;
+}
+
 /** The earlier of two kickoff instants (ISO strings); either may be absent. */
 export function earlierKickoff(a, b) {
   const aTime = a ? new Date(a).getTime() : null;
@@ -65,6 +117,12 @@ function sideView(side, entriesById) {
       opponentPointsAllowed: side.opponentPointsAllowed,
       position,
       opponentApplied: side.opponentApplied,
+    }),
+    factChips: factChips({
+      line: side.line,
+      weather: side.weather,
+      weatherApplied: side.weatherApplied,
+      marketApplied: side.marketApplied,
     }),
   };
 }

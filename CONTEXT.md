@@ -1552,7 +1552,14 @@ The engine's recommendation about which rostered players to start, including an
 explicit "too close to call" answer when two players' distributions overlap
 enough that no honest edge exists. Applying advice means making exactly the
 moves the advice names, one manager action for all of them; it never
-re-assigns the whole lineup.
+re-assigns the whole lineup. The advice card shows fact chips for each
+player's game only when notable: "High total" (a Line total of 48 or more),
+"Favored by" (7 points or more), and, outdoors, "Wind" (20 mph or more) and
+"Rain" (60% or more). They come from the Decision card's Line and Weather
+loaders (the Implied team total stays on the Decision card), and each reads
+"context only" while its Factor's applied flag is false (the market and
+Weather Factors both have a maximum effect of zero under v3.1). No chips on
+the Decision card or a Ledger row.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 

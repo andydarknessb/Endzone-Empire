@@ -1,4 +1,4 @@
-import { buildSuggestionView, earlierKickoff, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
+import { buildSuggestionView, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -201,5 +201,89 @@ describe('buildSuggestionView injury designation (#1852)', () => {
     const view = build(side({ availability: { available: true, status: null } }), side({ playerId: 2 }));
     expect(view.sit.injuryStatus).toBeNull();
     expect(view.start.injuryStatus).toBeNull();
+  });
+});
+
+describe('factChips (#1853)', () => {
+  const texts = (input) => factChips(input).map((chip) => chip.text);
+  const calm = { indoor: false, windSpeedMph: 5, windGustMph: 9, precipitationProbability: 10, shortForecast: 'Clear' };
+
+  test('High total at 48 or more, with the exact copy', () => {
+    expect(texts({ line: { spread: -1, total: 49.5, favoredBy: 1 } })).toEqual(['High total 49.5']);
+    expect(texts({ line: { spread: -1, total: 48, favoredBy: 1 } })).toEqual(['High total 48']);
+    expect(texts({ line: { spread: -1, total: 47.5, favoredBy: 1 } })).toEqual([]);
+  });
+
+  test('Favored by at 7 or more, never for an underdog', () => {
+    expect(texts({ line: { spread: -7.5, total: 40, favoredBy: 7.5 } })).toEqual(['Favored by 7.5']);
+    expect(texts({ line: { spread: -7, total: 40, favoredBy: 7 } })).toEqual(['Favored by 7']);
+    expect(texts({ line: { spread: -6.5, total: 40, favoredBy: 6.5 } })).toEqual([]);
+    expect(texts({ line: { spread: 10, total: 40, favoredBy: -10 } })).toEqual([]);
+    expect(texts({ line: { spread: null, total: 40, favoredBy: null } })).toEqual([]);
+  });
+
+  test('Wind at 20 mph or more and Rain at 60% or more, outdoors', () => {
+    expect(texts({ weather: { ...calm, windSpeedMph: 22 } })).toEqual(['Wind 22 mph']);
+    expect(texts({ weather: { ...calm, windSpeedMph: 20 } })).toEqual(['Wind 20 mph']);
+    expect(texts({ weather: { ...calm, windSpeedMph: 19 } })).toEqual([]);
+    expect(texts({ weather: { ...calm, precipitationProbability: 70 } })).toEqual(['Rain 70%']);
+    expect(texts({ weather: { ...calm, precipitationProbability: 60 } })).toEqual(['Rain 60%']);
+    expect(texts({ weather: { ...calm, precipitationProbability: 59 } })).toEqual([]);
+  });
+
+  test('a dome shows no weather chip whatever the numbers say', () => {
+    expect(texts({ weather: { ...calm, indoor: true, windSpeedMph: 30, precipitationProbability: 90 } })).toEqual([]);
+  });
+
+  test('no line, no weather, or nothing notable is no chips', () => {
+    expect(factChips({})).toEqual([]);
+    expect(factChips({ line: null, weather: null })).toEqual([]);
+    expect(factChips({ line: { spread: -3, total: 44, favoredBy: 3 }, weather: calm })).toEqual([]);
+  });
+
+  test('chips read in a fixed order: total, favored, wind, rain', () => {
+    expect(texts({
+      line: { spread: -8, total: 50, favoredBy: 8 },
+      weather: { ...calm, windSpeedMph: 25, precipitationProbability: 80 },
+    })).toEqual(['High total 50', 'Favored by 8', 'Wind 25 mph', 'Rain 80%']);
+  });
+
+  test("the context-only label follows each Factor's applied flag, line chips the market and weather chips the weather", () => {
+    const input = {
+      line: { spread: -8, total: 50, favoredBy: 8 },
+      weather: { ...calm, windSpeedMph: 25 },
+    };
+    const contextOnly = (flags) => factChips({ ...input, ...flags }).map((chip) => chip.contextOnly);
+    // Under v3.1 both Factors ship unscored: every chip is context only.
+    expect(contextOnly({ weatherApplied: false, marketApplied: false })).toEqual([true, true, true]);
+    // A Model version that applies the market drops the label on the Line chips only.
+    expect(contextOnly({ weatherApplied: false, marketApplied: true })).toEqual([false, false, true]);
+    expect(contextOnly({ weatherApplied: true, marketApplied: false })).toEqual([true, true, false]);
+    // A payload that does not say is never read as applied.
+    expect(contextOnly({})).toEqual([true, true, true]);
+  });
+});
+
+describe('buildSuggestionView fact chips (#1853)', () => {
+  const entriesById = new Map();
+  const side = (playerId, extra) => ({ playerId, name: `p${playerId}`, projection: 5, distribution: { p10: 1, p90: 9 }, ...extra });
+
+  test('each side gets the chips for its own game and flags', () => {
+    const view = buildSuggestionView({
+      slot: 'RB',
+      current: side(1, { line: { spread: 9, total: 40, favoredBy: -9 }, marketApplied: false }),
+      suggested: side(2, { line: { spread: -9, total: 52, favoredBy: 9 }, marketApplied: true }),
+    }, entriesById);
+    expect(view.sit.factChips).toEqual([]);
+    expect(view.start.factChips).toEqual([
+      { key: 'total', text: 'High total 52', contextOnly: false },
+      { key: 'favored', text: 'Favored by 9', contextOnly: false },
+    ]);
+  });
+
+  test('a legacy payload with no line or weather has no chips', () => {
+    const view = buildSuggestionView({ slot: 'RB', current: side(1), suggested: side(2) }, entriesById);
+    expect(view.sit.factChips).toEqual([]);
+    expect(view.start.factChips).toEqual([]);
   });
 });

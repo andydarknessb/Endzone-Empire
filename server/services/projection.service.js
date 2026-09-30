@@ -1700,6 +1700,24 @@ function toWeeklyProjectionResult(run) {
       return !!(entry && entry.factors && entry.factors.opponent && entry.factors.opponent.available);
     },
 
+    /**
+     * `factors.weather.scored` (#1853): whether the Model version actually let
+     * the forecast move this player's number. The weather Factor is `available`
+     * whenever a forecast exists, so `available` (the opponent flag's source)
+     * would read "applied" for a forecast v3.1 multiplies by zero; `scored` is
+     * the flag that says the effect can reach the output.
+     */
+    weatherAppliedFor(playerId) {
+      const entry = entryFor(playerId);
+      return !!(entry && entry.factors && entry.factors.weather && entry.factors.weather.scored === true);
+    },
+
+    /** `factors.gameEnvironment.scored` (#1853): the market (Line) Factor's applied flag, on the same terms as `weatherAppliedFor`. */
+    marketAppliedFor(playerId) {
+      const entry = entryFor(playerId);
+      return !!(entry && entry.factors && entry.factors.gameEnvironment && entry.factors.gameEnvironment.scored === true);
+    },
+
     /** The factors object exactly as the engine produced it, or `null` for no entry. */
     factorsFor(playerId) {
       const entry = entryFor(playerId);

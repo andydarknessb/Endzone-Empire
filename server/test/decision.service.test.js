@@ -698,3 +698,20 @@ test('buildSuggestions: a released bench player with the highest projection is n
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
 });
+
+test('buildSuggestions: carries line, weather and their applied flags through; defaults to null (#1853)', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 5 }], [2, { points: 12 }]]));
+  const line = { spread: -7.5, total: 49.5, favoredBy: 7.5 };
+  const weather = { indoor: false, windSpeedMph: 22, windGustMph: 30, precipitationProbability: 70, shortForecast: 'Rain' };
+  const defenseByPlayer = new Map([
+    [1, { opponent: 'NYG', opponentPointsAllowed: 10, line, weather, weatherApplied: false, marketApplied: false }],
+  ]);
+  const { current, suggested } = buildSuggestions(lineup, projections, defenseByPlayer, RB1).suggestions[0];
+  assert.deepEqual(current.line, line);
+  assert.deepEqual(current.weather, weather);
+  assert.equal(current.weatherApplied, false);
+  assert.equal(current.marketApplied, false);
+  assert.equal(suggested.line, null);
+  assert.equal(suggested.weather, null);
+});

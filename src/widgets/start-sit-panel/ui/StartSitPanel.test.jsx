@@ -256,3 +256,59 @@ test('the lean line changes no suggestion and never reads "range"', () => {
   expect(container.textContent).not.toMatch(/\brange\b/i);
   expect(container.textContent).not.toMatch(/—/);
 });
+
+describe('fact chips (#1853)', () => {
+  const withGame = (current, suggested) => suggestion({
+    current: { ...suggestion().current, ...current },
+    suggested: { ...suggestion().suggested, ...suggested },
+  });
+  const calm = { indoor: false, windSpeedMph: 5, windGustMph: 8, precipitationProbability: 10, shortForecast: 'Clear' };
+  const renderPanel = (s) => render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+
+  test('renders each chip with its exact copy and the context-only label', () => {
+    renderPanel(withGame({}, {
+      line: { spread: -7.5, total: 49.5, favoredBy: 7.5 },
+      weather: { ...calm, windSpeedMph: 22, precipitationProbability: 70 },
+      weatherApplied: false,
+      marketApplied: false,
+    }));
+    const chips = screen.getAllByTestId('suggestion-fact-chip');
+    expect(chips.map((chip) => chip.getAttribute('data-chip'))).toEqual(['total', 'favored', 'wind', 'rain']);
+    expect(chips[0]).toHaveTextContent('High total 49.5');
+    expect(chips[1]).toHaveTextContent('Favored by 7.5');
+    expect(chips[2]).toHaveTextContent('Wind 22 mph');
+    expect(chips[3]).toHaveTextContent('Rain 70%');
+    for (const chip of chips) expect(within(chip).getByText('context only')).toBeInTheDocument();
+  });
+
+  test('the label drops for a Factor that is applied, chip by chip', () => {
+    renderPanel(withGame({}, {
+      line: { spread: -7.5, total: 49.5, favoredBy: 7.5 },
+      weather: { ...calm, windSpeedMph: 22 },
+      weatherApplied: false,
+      marketApplied: true,
+    }));
+    const byKey = Object.fromEntries(screen.getAllByTestId('suggestion-fact-chip').map((chip) => [chip.getAttribute('data-chip'), chip]));
+    expect(within(byKey.total).queryByText('context only')).not.toBeInTheDocument();
+    expect(within(byKey.favored).queryByText('context only')).not.toBeInTheDocument();
+    expect(within(byKey.wind).getByText('context only')).toBeInTheDocument();
+  });
+
+  test('a chip sits under its own player, not the other side', () => {
+    renderPanel(withGame(
+      { line: { spread: 9, total: 40, favoredBy: -9 } },
+      { line: { spread: -9, total: 40, favoredBy: 9 }, marketApplied: false },
+    ));
+    const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+    expect(within(sitColumn).queryByTestId('suggestion-fact-chip')).not.toBeInTheDocument();
+    expect(within(startColumn).getByTestId('suggestion-fact-chip')).toHaveTextContent('Favored by 9');
+  });
+
+  test('a dome and an unremarkable game show no chips', () => {
+    renderPanel(withGame(
+      { weather: { ...calm, indoor: true, windSpeedMph: null, precipitationProbability: null } },
+      { line: { spread: -3, total: 44, favoredBy: 3 }, weather: calm },
+    ));
+    expect(screen.queryByTestId('suggestion-fact-chip')).not.toBeInTheDocument();
+  });
+});
