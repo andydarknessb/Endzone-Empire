@@ -1460,6 +1460,19 @@ _Avoid_: projection, unqualified
 A third projection horizon covering a player's remaining schedule rather than
 one week. Deliberately kept separate from both of the above.
 
+**Position-baseline projection**:
+A Weekly projection with no player evidence behind it: the player has no
+stat lines in the engine's lookback and no prior-season fallback, so the
+whole estimate is his position's
+per-game baseline and every such player at a position gets the same number.
+It is a real projection, not a verdict: the player may still play and score.
+Surfaces show "no history" in place of its Point estimate and sort it after
+every projection with evidence; like Doubtful, he is startable if a manager
+insists but never recommended, and counts at his number once started (ADR
+0053).
+_Avoid_: fallback, default projection, no-history projection (the reason
+text "no history" is fine as copy)
+
 **Factor**:
 One named adjustment a weekly projection applies (usage blend, opponent,
 head-to-head), each shrunk toward no effect and capped. Factors are what the
