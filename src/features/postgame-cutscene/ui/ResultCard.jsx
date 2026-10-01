@@ -7,7 +7,7 @@ import { kitForTeam } from '../model/teamKit';
 function Side({ side, kit, testId }) {
   return (
     <div className="postgame-side" data-testid={testId}>
-      <TeamAvatar name={side.name || ''} avatarUrl={side.avatarStaticUrl} avatarStaticUrl={side.avatarStaticUrl} size={48} />
+      <TeamAvatar name={side.name || ''} avatarUrl={side.avatarStaticUrl || side.avatarUrl} avatarStaticUrl={side.avatarStaticUrl} size={48} />
       <Sprite kit={kit} frame={0} className="postgame-sprite" />
       <span className="postgame-team">{side.name || 'TEAM'}</span>
       <span className="postgame-score">{side.score}</span>
@@ -18,6 +18,7 @@ function Side({ side, kit, testId }) {
 Side.propTypes = {
   side: PropTypes.shape({
     name: PropTypes.string,
+    avatarUrl: PropTypes.string,
     avatarStaticUrl: PropTypes.string,
     score: PropTypes.number,
   }).isRequired,
