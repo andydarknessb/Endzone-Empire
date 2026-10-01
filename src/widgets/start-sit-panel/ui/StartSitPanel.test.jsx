@@ -579,3 +579,16 @@ test('with only one player locked the standing line shows no live points', () =>
   expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Locked: one of the two games has started');
   expect(screen.getByTestId('called-shot-status')).not.toHaveTextContent('Live');
 });
+
+// #1861
+test('shows the season points left line from the advice payload', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [], pointsLeft: { total: 41.2, rank: 3, teams: 10 } }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('points-left-line')).toHaveTextContent('Left on the bench this season: 41.2 (3rd fewest of 10)');
+});
+
+test('no points-left line without a standing in the payload, and none in best ball', () => {
+  const { rerender } = render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [], pointsLeft: null }} entries={entries} bestBall={false} />);
+  expect(screen.queryByTestId('points-left-line')).not.toBeInTheDocument();
+  rerender(<StartSitPanel advice={{ suggestions: [], movePlan: [], pointsLeft: { total: 4, rank: 1, teams: 10 } }} entries={entries} bestBall />);
+  expect(screen.queryByTestId('points-left-line')).not.toBeInTheDocument();
+});

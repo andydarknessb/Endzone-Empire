@@ -781,3 +781,37 @@ test('#1860 madeAppearance: a snap or any non-zero figure is an Appearance; a ro
   assert.equal(madeAppearance({}), false);
   assert.equal(madeAppearance(null), false, 'no stat row at all (a bye week)');
 });
+
+// ---------------------------------------------------------------------------
+// #1861: the manager's season points left and rank, from the stored weekly rows
+// ---------------------------------------------------------------------------
+
+const { pointsLeftStanding } = require('../services/decision.service');
+
+// A pool that serves the stored rows of one league-season, as the real query would.
+const poolWith = (...weeks) => ({
+  query: async () => ({
+    rows: weeks.map((left, i) => ({
+      week: i + 1,
+      data: { teams: Object.entries(left).map(([teamId, pointsLeft]) => ({ teamId: Number(teamId), pointsLeft })) },
+    })),
+  }),
+});
+
+test('#1861 pointsLeftStanding: the season total and the rank among the league\'s teams, fewest first', async () => {
+  const db = poolWith({ 1: 10.1, 2: 4, 3: 20 }, { 1: 31.1, 2: 4, 3: 1 });
+  // Totals: team 1 -> 41.2, team 2 -> 8, team 3 -> 21.
+  assert.deepEqual(await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 1 }), { total: 41.2, rank: 3, teams: 3 });
+  assert.deepEqual(await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 2 }), { total: 8, rank: 1, teams: 3 });
+});
+
+test('#1861 pointsLeftStanding: a tie shares the better rank', async () => {
+  const db = poolWith({ 1: 5, 2: 5, 3: 9 });
+  assert.equal((await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 2 })).rank, 1);
+  assert.equal((await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 3 })).rank, 3);
+});
+
+test('#1861 pointsLeftStanding: no stored rows, or a team with none, is no standing', async () => {
+  assert.equal(await pointsLeftStanding(poolWith(), { leagueId: 7, season: 2026, teamId: 1 }), null);
+  assert.equal(await pointsLeftStanding(poolWith({ 1: 5 }), { leagueId: 7, season: 2026, teamId: 9 }), null);
+});

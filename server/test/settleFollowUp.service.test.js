@@ -91,6 +91,7 @@ const shotRow = (over) => ({
 
 function shotWorld(t, shots) {
   const stored = [];
+  const left = new Map();
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
       rows: [{ id: 7, draft_status: 'complete', season_status: 'in_season', regular_season_weeks: 14, best_ball: false, scoring_rules: null }],
@@ -116,8 +117,19 @@ function shotWorld(t, shots) {
       rows: [{ id: 1, final: true, home_team_id: 10, away_team_id: 20, home_team_name: 'Team A', away_team_name: 'Team B', home_score: 98, away_score: 110 }],
     })],
     [/^SELECT .* FROM "transactions"/, () => ({ rows: [] })],
-    [/^SELECT "data" FROM "league_analytics"/, () => ({ rows: [] })],
-    [/^INSERT INTO "league_analytics"/, (text, params) => { stored.push(JSON.parse(params[3])); return { rows: [] }; }],
+    // #1861: the stored points-left rows, first write wins (the real insert is
+    // ON CONFLICT DO NOTHING); the Recap rows are the 4-param inserts.
+    [/^SELECT "data" FROM "league_analytics"/, (text, params) => ({
+      rows: params[3] === 'points_left' && left.has(params[2]) ? [{ data: left.get(params[2]) }] : [],
+    })],
+    [/^INSERT INTO "league_analytics"/, (text, params) => {
+      if (params.length === 5) {
+        if (!left.has(params[2])) left.set(params[2], JSON.parse(params[4]));
+        return { rows: [] };
+      }
+      stored.push(JSON.parse(params[3]));
+      return { rows: [] };
+    }],
     [/^SELECT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 1 }] })],
     [/^SELECT DISTINCT "owner_id"/, () => ({ rows: [] })],
     [/^INSERT INTO "(notifications|transactions)"/, () => ({ rows: [] })],
@@ -134,7 +146,7 @@ function shotWorld(t, shots) {
   t.mock.method(decisionSvc, 'weekHindsight', async () => ({ pointsLeftOnBench: 0 }));
   t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
   t.mock.method(digest, 'sendWeeklyRecapDigest', async () => ({}));
-  return { fake, stored };
+  return { fake, stored, left };
 }
 
 const calledTrophies = (fake) => fake.matching(/^INSERT INTO "trophies"/).filter((c) => c.params[4] === 'called_shot');
@@ -218,4 +230,53 @@ test('#1860 correction: outcomes, trophies and the shot\'s Recap facts are left 
   assert.equal(calledTrophies(fake).length, 0);
   assert.deepEqual(shots.map((x) => x.outcome), ['hit', 'pending']);
   assert.equal(stored[0].facts.calledShots[0].starterPoints, 11.4, 'the rebuilt Recap reads the frozen numbers');
+});
+
+// ---- #1861: points left, stored in the trophy step and read by the Recap ----
+
+const pointsLeftWeek = {
+  teams: [{ teamId: 10, pointsLeft: 3.5 }, { teamId: 20, pointsLeft: 14.5 }],
+};
+const leftInserts = (fake) => fake.matching(/^INSERT INTO "league_analytics"/).filter((c) => c.params.length === 5);
+
+test('#1861 advance: the points-left row is written in the trophy step, before the Recap, and the blunder line reads it', async (t) => {
+  const { fake, stored, left } = shotWorld(t, []);
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async ({ teamId }) => ({
+    counted: [], pointsLeftOnBench: teamId === 10 ? 3.5 : 14.5,
+  }));
+  // The live read would now say something else: only the stored row may be read.
+  decisionSvc.weekHindsight.mock.mockImplementation(async () => ({ pointsLeftOnBench: 99 }));
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.deepEqual(left.get(ARGS.week), pointsLeftWeek);
+  const rowIdx = fake.calls.findIndex((c) => /^INSERT INTO "league_analytics"/.test(c.text) && c.params.length === 5);
+  const recapIdx = fake.calls.findIndex((c) => /^INSERT INTO "league_analytics"/.test(c.text) && c.params.length === 4);
+  assert.ok(rowIdx >= 0 && rowIdx < recapIdx, 'stored before the Recap is built');
+  assert.deepEqual(stored[0].facts.benchBlunder, { team: 'Team B', pointsLeftOnBench: 14.5 });
+});
+
+test('#1861 correction: the stored row is not rewritten, and the rebuilt Recap still reads the frozen numbers', async (t) => {
+  const { fake, stored, left } = shotWorld(t, []);
+  left.set(ARGS.week, pointsLeftWeek);
+  // A correction moved the live stat lines: Hindsight now disagrees.
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => { throw new Error('a correction must not re-judge'); });
+  decisionSvc.weekHindsight.mock.mockImplementation(async () => ({ pointsLeftOnBench: 99 }));
+
+  await settleFollowUp({ ...ARGS, mode: 'correction' });
+
+  assert.equal(leftInserts(fake).length, 0);
+  assert.deepEqual(left.get(ARGS.week), pointsLeftWeek);
+  assert.deepEqual(stored[0].facts.benchBlunder, { team: 'Team B', pointsLeftOnBench: 14.5 });
+});
+
+test('#1861 advance twice: the second run keeps the first run\'s numbers', async (t) => {
+  const { left } = shotWorld(t, []);
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => ({ counted: [], pointsLeftOnBench: 3.5 }));
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => ({ counted: [], pointsLeftOnBench: 50 }));
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.deepEqual(left.get(ARGS.week).teams.map((x) => x.pointsLeft), [3.5, 3.5]);
 });

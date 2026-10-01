@@ -485,6 +485,16 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       console.error('start/sit advice: called shot lookup failed, continuing without it:', err.message);
     }
   }
+  // The manager's season points left and rank (#1861), from the stored weekly
+  // rows. Optional context: a failed read degrades to no line, not no advice.
+  let pointsLeft = null;
+  if (lineup.teamId != null) {
+    try {
+      pointsLeft = await pointsLeftStanding(pool, { leagueId, season: effectiveSeason, teamId: lineup.teamId });
+    } catch (err) {
+      console.error('start/sit advice: points left lookup failed, continuing without it:', err.message);
+    }
+  }
   const plan = buildSuggestions(
     lineupEntries,
     run,
@@ -541,6 +551,8 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     // The team's called shot for the week, or null (#1856): the pair, the
     // numbers as called and a status of pending, locked or resolved.
     calledShot,
+    // `{ total, rank, teams }` of points left this season, or null (#1861).
+    pointsLeft,
     players,
   };
 }
@@ -654,6 +666,43 @@ async function weekHindsightRoster({ leagueId, teamId, season, week }) {
     teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters,
     counted: counted.map((c) => ({ ...c, appeared: madeAppearance(statsById.get(c.playerId)) })),
   };
+}
+
+/** The `league_analytics` type holding every team's points left for one week (#1861, ADR 0054). */
+const POINTS_LEFT_TYPE = 'points_left';
+
+/**
+ * Each team's points left on the bench over the season, summed from the stored
+ * per-week rows (`{ teams: [{ teamId, pointsLeft }] }`), never recomputed from
+ * Hindsight: a stored number is judged once and a correction never revisits it.
+ * Returns Map(teamId -> total, two places); empty when no week has a row (best
+ * ball and pick'em-only leagues never write one).
+ */
+async function seasonPointsLeft(db, { leagueId, season }) {
+  const { rows } = await db.query(
+    `SELECT "week", "data" FROM "league_analytics"
+     WHERE "league_id" = $1 AND "season" = $2 AND "type" = $3`,
+    [leagueId, season, POINTS_LEFT_TYPE]
+  );
+  const totals = new Map();
+  for (const { data } of rows) {
+    for (const { teamId, pointsLeft } of data.teams) {
+      totals.set(Number(teamId), (totals.get(Number(teamId)) || 0) + Number(pointsLeft));
+    }
+  }
+  return new Map([...totals].map(([teamId, total]) => [teamId, round2(total)]));
+}
+
+/**
+ * The team's season points left and its rank among the league's teams, fewest
+ * first (a tie shares the better rank): `{ total, rank, teams }`, or null when
+ * the team has no stored week (nothing is stored in best ball or pick'em-only).
+ */
+async function pointsLeftStanding(db, { leagueId, season, teamId }) {
+  const totals = await seasonPointsLeft(db, { leagueId, season });
+  const total = totals.get(Number(teamId));
+  if (total === undefined) return null;
+  return { total, rank: 1 + [...totals.values()].filter((v) => v < total).length, teams: totals.size };
 }
 
 /**
@@ -1137,6 +1186,9 @@ module.exports = {
   startSitAdvice,
   weekHindsight,
   weekHindsightRoster,
+  POINTS_LEFT_TYPE,
+  seasonPointsLeft,
+  pointsLeftStanding,
   madeAppearance,
   liveWhatIf,
   seasonHindsight,

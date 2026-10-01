@@ -258,15 +258,26 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
   );
   const league = leagueResult.rows[0];
 
-  // Bench blunder: worst points-left-on-bench among the week's teams
+  // Bench blunder: worst points-left-on-bench among the week's teams. The stored
+  // points-left row (#1861, ADR 0054) is read when the week has one, so a silent
+  // rebuild on a correction cannot drift from the frozen numbers; a week with no
+  // row (best ball, or one advanced before the row existed) reads Hindsight live.
   let benchBlunder = null;
   try {
-    const { weekHindsight } = require('./decision.service');
+    const { weekHindsight, POINTS_LEFT_TYPE } = require('./decision.service');
+    const stored = await pool.query(
+      `SELECT "data" FROM "league_analytics"
+       WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "type" = $4`,
+      [leagueId, season, week, POINTS_LEFT_TYPE]
+    );
+    const frozen = stored.rows[0] && new Map(stored.rows[0].data.teams.map((x) => [Number(x.teamId), x.pointsLeft]));
     const teamIds = new Set(
       matchupsResult.rows.flatMap((m) => [m.home_team_id, m.away_team_id])
     );
     for (const teamId of teamIds) {
-      const h = await weekHindsight({ leagueId, teamId, season, week });
+      const h = frozen
+        ? { pointsLeftOnBench: frozen.get(Number(teamId)) ?? 0 }
+        : await weekHindsight({ leagueId, teamId, season, week });
       if (!benchBlunder || h.pointsLeftOnBench > benchBlunder.pointsLeftOnBench) {
         const name = matchupsResult.rows
           .map((m) => (m.home_team_id === teamId ? m.home_team_name : m.away_team_id === teamId ? m.away_team_name : null))

@@ -7,7 +7,7 @@
  * unit-tested directly.
  */
 
-import { finite, VOLATILITY_LABELS } from '../../../shared/lib';
+import { finite, ordinal, VOLATILITY_LABELS } from '../../../shared/lib';
 
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
@@ -227,6 +227,19 @@ export function calledShotLine(calledShot, entriesById = new Map()) {
     state,
     canWithdraw: calledShot.canWithdraw === true,
   };
+}
+
+/**
+ * The season points-left line (#1861), from the advice payload's `pointsLeft`
+ * ({ total, rank, teams }): "Left on the bench this season: 41.2 (3rd fewest of
+ * 10)". Null when the payload has no standing (best ball, pick'em, week one) or
+ * one it cannot read.
+ */
+export function pointsLeftLine(pointsLeft) {
+  const total = finite(pointsLeft?.total);
+  const rank = ordinal(finite(pointsLeft?.rank));
+  if (total == null || rank == null) return null;
+  return `Left on the bench this season: ${total.toFixed(1)} (${rank} fewest of ${pointsLeft.teams})`;
 }
 
 /** The Expected final gap, in points, at which the lean line appears (#1852). */

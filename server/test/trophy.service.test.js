@@ -34,6 +34,9 @@ function awardWorld({
   // #1860: the pending lineup_overrides rows the judge reads, and whether its
   // UPDATE still finds each one pending (false = someone resolved it first).
   overrides = [], shotStillPending = true, seasonStatus = 'in_season',
+  // #1861: the stored points-left rows (every week of the season, the advanced
+  // week included) the season total and the season trophy read.
+  pointsLeftRows = [],
 }) {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
@@ -68,6 +71,8 @@ function awardWorld({
     // week's high is updated in place, not re-inserted or deleted.
     // 'client'-scoped for the same reason the SELECT and DELETE above are.
     [/^UPDATE "trophies"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "week", "data" FROM "league_analytics"/, () => ({ rows: pointsLeftRows })],
+    [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
     [/^SELECT .* FROM "lineup_overrides"/, () => ({ rows: overrides })],
     [/^UPDATE "lineup_overrides"/, (text, params) => ({ rows: shotStillPending ? [{ id: params[0] }] : [] })],
     [/^INSERT INTO "trophies"/, () => ({ rows: newInserts ? [{ id: 1 }] : [] })],
@@ -696,4 +701,123 @@ test('#1860 (D): the Advance that completes the season defers nothing: the no-Ap
 test('#1860 (D): a lineup void is written at once even when a player also shows no Appearance', async (t) => {
   const { fake } = await judge(t, { roster: shotRoster({ starter: { slot: 'BENCH', appeared: false } }) });
   assert.equal(judged(fake)[0].outcome, 'void');
+});
+
+// ---- #1861: points left on the bench, stored and rewarded ------------------
+//
+// One analytics row per league-week holds every team's points left (the
+// Hindsight gap Perfect Lineup already reads), written in the trophy step
+// before the Recap and never rewritten; the season's fewest earns a trophy.
+
+const analyticsInserts = (fake) => fake.matching(/^INSERT INTO "league_analytics"/);
+const weekRow = (week, left) => ({ week, data: { teams: Object.entries(left).map(([teamId, pointsLeft]) => ({ teamId: Number(teamId), pointsLeft })) } });
+
+test('#1861: the pass stores every team\'s points left for the week in one idempotent analytics row', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110,
+    hindsight: {
+      10: { actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0, counted: startersFor() },
+      20: { actualPoints: 110, optimalPoints: 118.25, pointsLeftOnBench: 8.25, counted: [] },
+    },
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  const rows = analyticsInserts(fake);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].text, /ON CONFLICT \("league_id", "season", "week", "type"\)\s+DO NOTHING/, 'a replay never rewrites the frozen numbers');
+  assert.deepEqual(rows[0].params.slice(0, 4), [L, S, W, 'points_left']);
+  assert.deepEqual(JSON.parse(rows[0].params[4]).teams, [
+    { teamId: 10, pointsLeft: 0 },
+    { teamId: 20, pointsLeft: 8.25 },
+  ]);
+  const rowIdx = fake.calls.findIndex((c) => /^INSERT INTO "league_analytics"/.test(c.text));
+  assert.ok(rowIdx > fake.calls.findIndex((c) => /^SELECT \* FROM "matchups"/.test(c.text)), 'written by the trophy step');
+  fake.assertClean();
+});
+
+test('#1861: best ball writes no points-left row', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, bestBall: true });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  assert.equal(analyticsInserts(fake).length, 0);
+});
+
+test('#1861: a team whose Hindsight cannot be read leaves no row, so the next pass can write the whole week', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110 });
+  fake.install(t);
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async ({ teamId }) => {
+    if (teamId === 20) throw new Error('hindsight down');
+    return NORMAL_WEEK;
+  });
+  t.mock.method(console, 'error', () => {});
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  assert.equal(analyticsInserts(fake).length, 0);
+});
+
+test('#1861: a league that is still in season awards no points-left trophy', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110,
+    pointsLeftRows: [weekRow(W, { 10: 1, 20: 8 })],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  assert.equal(trophyInserts(fake, 'fewest_left_on_bench').length, 0);
+});
+
+test('#1861: when the league completes, the team with the fewest points left over the settled weeks gets the season trophy with its number', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [
+      weekRow(4, { 10: 20.1, 20: 5.5, 30: 9 }),
+      weekRow(W, { 10: 11.1, 20: 25.7, 30: 9 }),
+    ],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  const season = trophyInserts(fake, 'fewest_left_on_bench');
+  assert.equal(season.length, 1);
+  // 10: 31.2, 20: 31.2, 30: 18 -> team 30 left the fewest.
+  assert.equal(season[0].params[1], 30);
+  assert.equal(season[0].params[3], 0, 'a season trophy sits at week 0');
+  assert.equal(season[0].params[5], 'Fewest Left on the Bench (18.0)');
+  assert.deepEqual(JSON.parse(season[0].params[6]), { pointsLeft: 18 });
+  fake.assertClean();
+});
+
+test('#1861: a tie for the fewest breaks to the lowest team id, as the weekly high score does', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [weekRow(4, { 30: 10.1, 20: 10.1, 40: 12 }), weekRow(W, { 30: 5, 20: 5, 40: 5 })],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  const season = trophyInserts(fake, 'fewest_left_on_bench');
+  assert.equal(season.length, 1, 'one trophy, not co-champions');
+  assert.equal(season[0].params[1], 20);
+  assert.equal(season[0].params[5], 'Fewest Left on the Bench (15.1)');
+});
+
+test('#1861: the season total is the sum of the stored rows, rounded to two places', async (t) => {
+  const { seasonPointsLeft } = decisionSvc;
+  const fake = awardWorld({
+    leagueId: L, homeScore: 1, awayScore: 2,
+    pointsLeftRows: [weekRow(1, { 10: 0.1, 20: 3 }), weekRow(2, { 10: 0.2, 20: 4 })],
+  });
+  fake.install(t);
+
+  const totals = await seasonPointsLeft(require('../modules/pool'), { leagueId: L, season: S });
+
+  assert.deepEqual([...totals], [[10, 0.3], [20, 7]]);
 });

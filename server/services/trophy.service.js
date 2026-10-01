@@ -335,8 +335,10 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
   if (league.best_ball) return [];
   const awarded = [];
   try {
-    const { weekHindsightRoster } = require('./decision.service');
+    const { weekHindsightRoster, POINTS_LEFT_TYPE, seasonPointsLeft } = require('./decision.service');
     const { rosterSlots } = parseLineupSettings(league);
+    const pointsLeft = [];
+    let weekRead = true;
     const matchups = await pool.query(
       `SELECT * FROM "matchups"
        WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true`,
@@ -359,6 +361,7 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
       try {
         const h = await weekHindsightRoster({ leagueId, teamId, season, week });
         const counted = h.counted || [];
+        pointsLeft.push({ teamId, pointsLeft: h.pointsLeftOnBench });
         const toAward = [];
         // An empty roster trivially "equals" its empty best lineup; it set
         // nothing, so it is not a perfect lineup.
@@ -375,7 +378,32 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
           }
         }
       } catch (err) {
+        weekRead = false;
         console.error('lineup trophies skipped for team %s (league %s week %s):', teamId, leagueId, week, err.message);
+      }
+    }
+
+    // Points left (#1861, ADR 0054): every team's Hindsight gap for the week,
+    // stored once and never revisited (DO NOTHING; a correction runs only the
+    // high-score reconcile). Written only when every team read, so a replay can
+    // still store the whole week; a partial row would freeze a missing team.
+    if (weekRead && pointsLeft.length > 0) {
+      await pool.query(
+        `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT ("league_id", "season", "week", "type")
+         DO NOTHING`,
+        [leagueId, season, week, POINTS_LEFT_TYPE, JSON.stringify({ teams: pointsLeft })]
+      );
+      if (deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE) {
+        // Fewest over the settled weeks; a tie goes to the lowest team id, the
+        // weekly high score's own tiebreak.
+        const [teamId, total] = [...(await seasonPointsLeft(pool, { leagueId, season }))]
+          .sort((a, b) => a[1] - b[1] || a[0] - b[0])[0];
+        const label = `Fewest Left on the Bench (${total.toFixed(1)})`;
+        if (await award(pool, { leagueId, teamId, season, week: 0, type: 'fewest_left_on_bench', label, data: { pointsLeft: total } })) {
+          awarded.push({ type: 'fewest_left_on_bench', teamId, label });
+        }
       }
     }
   } catch (err) {
