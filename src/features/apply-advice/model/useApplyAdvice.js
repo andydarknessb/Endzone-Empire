@@ -1,6 +1,7 @@
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { readHttpFailure } from '../../../lib/httpFailure';
+import { clearWeekMatchupsCache } from '../../../entities/matchup';
 
 /**
  * apply-advice feature (#1238, ADR 0037 AC2): applies the Start/sit advice's
@@ -23,7 +24,13 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  */
 export function useApplyAdvice({ leagueId, raw, setRaw }) {
   const notify = useSnackbar();
-  const { saveLineup } = useResilientLineupMutation({ onReplaySuccess: () => notify('Lineup saved') });
+  // #1881: a save that lands (now, or when a queued one replays) changes Expected final.
+  const { saveLineup } = useResilientLineupMutation({
+    onReplaySuccess: () => {
+      clearWeekMatchupsCache(leagueId);
+      notify('Lineup saved');
+    },
+  });
 
   const apply = async (movePlan) => {
     const moves = (movePlan || [])
@@ -40,6 +47,7 @@ export function useApplyAdvice({ leagueId, raw, setRaw }) {
     );
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
+      if (!result.queued) clearWeekMatchupsCache(leagueId);
       notify(
         result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
         { severity: result.queued ? 'info' : 'success' }

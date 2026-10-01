@@ -3,6 +3,7 @@ import useResilientLineupMutation from '../../../hooks/useResilientLineupMutatio
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { locked, slotsFor, parseRosterTemplate } from '../../../entities/roster';
+import { clearWeekMatchupsCache } from '../../../entities/matchup';
 
 /**
  * Whether `entry` may occupy `slotKey` (#1500): delegates to the Roster
@@ -153,7 +154,13 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  */
 export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
   const notify = useSnackbar();
-  const { saveLineup } = useResilientLineupMutation({ onReplaySuccess: () => notify('Lineup saved') });
+  // #1881: a save that lands (now, or when a queued one replays) changes Expected final.
+  const { saveLineup } = useResilientLineupMutation({
+    onReplaySuccess: () => {
+      clearWeekMatchupsCache(leagueId);
+      notify('Lineup saved');
+    },
+  });
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
 
@@ -171,6 +178,7 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
     );
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
+      if (!result.queued) clearWeekMatchupsCache(leagueId);
       notify(
         result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
         { severity: result.queued ? 'info' : 'success' }

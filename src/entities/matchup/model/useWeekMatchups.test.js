@@ -1,7 +1,7 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
-import { useWeekMatchups } from './useWeekMatchups';
+import { clearWeekMatchupsCache, useWeekMatchups } from './useWeekMatchups';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -89,4 +89,29 @@ test('a second mount of the same key inside the TTL issues no second GET', async
   expect(secondResult.current.loading).toBe(false);
   expect(secondResult.current.matchups).toHaveLength(1);
   expect(apiClient.get).toHaveBeenCalledTimes(1);
+});
+
+describe('clearWeekMatchupsCache', () => {
+  test('reloads a mounted read of that league, and leaves another league alone', async () => {
+    apiClient.get.mockResolvedValue({ data: [row()] });
+    const { result } = renderHook(() => useWeekMatchups(1, 4));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+
+    act(() => clearWeekMatchupsCache(2));
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+
+    act(() => clearWeekMatchupsCache(1));
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
+    expect(apiClient.get).toHaveBeenLastCalledWith('/api/league/1/matchups?week=4');
+  });
+
+  test('with no id it clears every league', async () => {
+    apiClient.get.mockResolvedValue({ data: [row()] });
+    const { result } = renderHook(() => useWeekMatchups(1, 4));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => clearWeekMatchupsCache());
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(2));
+  });
 });

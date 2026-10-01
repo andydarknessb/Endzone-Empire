@@ -1,6 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
-import { PENDING_LINEUP_MUTATIONS_KEY } from '../../../lib/pendingLineupMutations';
+import {
+  LINEUP_MUTATION_REPLAYED_EVENT,
+  PENDING_LINEUP_MUTATIONS_KEY,
+  readPendingLineupMutations,
+} from '../../../lib/pendingLineupMutations';
+import { read, setResource, invalidate } from '../../../lib/resourceCache';
 import { useApplyAdvice } from './useApplyAdvice';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -14,6 +19,7 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 }));
 
 afterEach(() => {
+  invalidate(undefined, { reload: false });
   jest.clearAllMocks();
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
 });
@@ -79,4 +85,53 @@ test('a refused apply rolls the optimistic state back to the exact snapshot', as
 
   await waitFor(() => expect(getRaw()).toEqual(RAW));
   expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' });
+});
+
+// #1881: the week's Matchups list carries Expected final, which an applied
+// plan changes, so a save that lands clears the cached list (30 s TTL, #1877).
+describe('matchups list cache after an apply (#1881)', () => {
+  const MATCHUPS_KEY = ['league-matchups', 7, 4];
+  const PLAN = [{ playerId: 1, fromSlot: 'BENCH', toSlot: 'WR' }];
+
+  test('a save whose PUT resolves clears the cached list', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    setResource(MATCHUPS_KEY, []);
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(read(MATCHUPS_KEY)).toBeUndefined();
+  });
+
+  test('a save refused with an HTTP error leaves the cached list', async () => {
+    apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+    setResource(MATCHUPS_KEY, []);
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(read(MATCHUPS_KEY)).toBeDefined();
+  });
+
+  test('a save queued offline leaves the cached list until the replay lands', async () => {
+    apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+    setResource(MATCHUPS_KEY, []);
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(readPendingLineupMutations()).toHaveLength(1);
+    expect(read(MATCHUPS_KEY)).toBeDefined();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
+    });
+    expect(read(MATCHUPS_KEY)).toBeUndefined();
+  });
 });

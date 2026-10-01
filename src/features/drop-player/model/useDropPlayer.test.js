@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
+import { read, setResource, invalidate } from '../../../lib/resourceCache';
 import { useDropPlayer } from './useDropPlayer';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -13,6 +14,7 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 }));
 
 afterEach(() => {
+  invalidate(undefined, { reload: false });
   jest.clearAllMocks();
 });
 
@@ -73,4 +75,51 @@ test('confirmDrop with no candidate is a no-op', async () => {
   const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn() }));
   await act(async () => result.current.confirmDrop());
   expect(apiClient.delete).not.toHaveBeenCalled();
+});
+
+// #1881: a drop or an undo changes the roster behind Expected final, so the
+// cached week Matchups list (30 s TTL, #1877) is cleared once the write lands.
+describe('matchups list cache after a drop or undo (#1881)', () => {
+  const MATCHUPS_KEY = ['league-matchups', 7, 4];
+
+  test('a confirmed drop whose DELETE resolves clears the cached list; the Undo POST clears it again', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockResolvedValue({});
+    setResource(MATCHUPS_KEY, []);
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue() }));
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+    expect(read(MATCHUPS_KEY)).toBeUndefined();
+
+    setResource(MATCHUPS_KEY, []);
+    const [, options] = mockNotify.mock.calls[0];
+    await act(async () => options.onAction());
+
+    expect(apiClient.post).toHaveBeenCalled();
+    expect(read(MATCHUPS_KEY)).toBeUndefined();
+  });
+
+  test('a drop whose DELETE is rejected leaves the cached list', async () => {
+    apiClient.delete.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    setResource(MATCHUPS_KEY, []);
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn() }));
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+
+    expect(read(MATCHUPS_KEY)).toBeDefined();
+  });
+
+  test('an Undo whose POST is rejected leaves the cached list', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue() }));
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+
+    setResource(MATCHUPS_KEY, []);
+    const [, options] = mockNotify.mock.calls[0];
+    await act(async () => options.onAction());
+
+    expect(read(MATCHUPS_KEY)).toBeDefined();
+  });
 });

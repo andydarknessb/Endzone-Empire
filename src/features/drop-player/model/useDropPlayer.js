@@ -2,6 +2,7 @@ import { useState } from 'react';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
+import { clearWeekMatchupsCache } from '../../../entities/matchup';
 
 /**
  * drop-player feature (#1237, ADR 0019): drop with a confirmation dialog and
@@ -22,6 +23,7 @@ export function useDropPlayer({ leagueId, refresh }) {
   const undoDrop = async (entry) => {
     try {
       await apiClient.post(`/api/team/roster/${entry.playerId}/undo-drop`, { leagueId: Number(leagueId) });
+      clearWeekMatchupsCache(leagueId);
       await refresh?.();
     } catch (err) {
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
@@ -31,6 +33,7 @@ export function useDropPlayer({ leagueId, refresh }) {
   const dropPlayer = async (entry) => {
     try {
       await apiClient.delete(`/api/team/roster/${entry.playerId}?leagueId=${leagueId}`);
+      clearWeekMatchupsCache(leagueId);
       await refresh?.();
       notify(`Dropped ${entry.name}`, {
         severity: 'info',

@@ -38,6 +38,6 @@ export {
   playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';
 export { useLeagueMatchups } from './model/useLeagueMatchups';
-export { useWeekMatchups } from './model/useWeekMatchups';
+export { useWeekMatchups, clearWeekMatchupsCache } from './model/useWeekMatchups';
 export { useMatchup } from './model/useMatchup';
 export { useLiveGameStates } from './model/useLiveGameStates';
