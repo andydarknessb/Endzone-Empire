@@ -1,7 +1,6 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const lineupService = require('./lineup.service');
-const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 
 /**
  * Called shots (spec #1846, #1856; CONTEXT.md "Start/sit advice"): a Manager
@@ -93,52 +92,15 @@ async function lockedAmong(db, row, now) {
 }
 
 /**
- * Settles a pending shot once every matchup of its week is final: hit when the
- * starter scored at least as much as the benched player, miss when he scored
- * less, void when either player has no stat line (never played). Both players
- * are priced the settle pass's way, under this league's rules (#739).
- */
-async function resolveIfSettled(db, { league, row }) {
-  if (row.outcome !== 'pending') return row;
-  const settled = await db.query(
-    `SELECT COUNT(*)::int AS "n", BOOL_AND("final") AS "all_final"
-     FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
-    [league.id, row.season, row.week]
-  );
-  if (!(Number(settled.rows[0].n) > 0 && settled.rows[0].all_final === true)) return row;
-
-  const statRows = await db.query(
-    `SELECT "player_id", "stats" FROM "player_stats"
-     WHERE "player_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3`,
-    [[row.starter_player_id, row.benched_player_id], row.season, row.week]
-  );
-  const rules = rulesForLeague(league);
-  const pointsOf = new Map(statRows.rows.map((r) => [r.player_id, calculateFantasyPoints(r.stats, rules)]));
-  const starterPoints = pointsOf.has(row.starter_player_id) ? pointsOf.get(row.starter_player_id) : null;
-  const benchedPoints = pointsOf.has(row.benched_player_id) ? pointsOf.get(row.benched_player_id) : null;
-  let outcome = 'void';
-  if (starterPoints != null && benchedPoints != null) outcome = starterPoints >= benchedPoints ? 'hit' : 'miss';
-  await db.query(
-    `UPDATE "lineup_overrides"
-     SET "outcome" = $1, "starter_points_actual" = $2, "benched_points_actual" = $3, "resolved_at" = now()
-     WHERE "id" = $4 AND "outcome" = 'pending'`,
-    [outcome, starterPoints, benchedPoints, row.id]
-  );
-  return {
-    ...row, outcome, starter_points_actual: starterPoints, benched_points_actual: benchedPoints, resolved_at: new Date(),
-  };
-}
-
-/**
  * The team's called shot for the week as the wire carries it, or null.
- * Resolves the shot first when its week has settled.
+ * Reads the stored outcome only: a shot is judged once, at Advance week, by the
+ * settle follow-up (ADR 0054, #1860).
  */
-async function loadCalledShot(db, { league, teamId, season, week, now = new Date() }) {
+async function loadCalledShot(db, { teamId, season, week, now = new Date() }) {
   const row = await readCalledRow(db, { teamId, season, week });
   if (!row) return null;
-  const current = await resolveIfSettled(db, { league, row });
-  const lockedIds = await lockedAmong(db, current, now);
-  return shotPayload(current, lockedIds);
+  const lockedIds = await lockedAmong(db, row, now);
+  return shotPayload(row, lockedIds);
 }
 
 async function loadLeagueAndTeam(leagueId, userId) {
