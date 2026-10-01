@@ -38,6 +38,9 @@ const { countedRoster } = require('./countedRoster.service');
 // their pairs; it never asks lineupOverride.service for advice (the router
 // hands the declare path an advice loader), so the two do not require each other.
 const lineupOverrideService = require('./lineupOverride.service');
+// The Volatility tag (spec #1845): the Interval reading module the Decision card
+// uses, so a tag here and there cannot disagree (#1858).
+const intervalReading = require('./intervalReading');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -102,7 +105,9 @@ function finiteNumber(value) {
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
  * opponentApplied, line, weather, weatherApplied, marketApplied } (#1853: the
  * game's Line and weather for the start/sit card's fact chips, each with the
- * Factor's applied flag that decides the "context only" label).
+ * Factor's applied flag that decides the "context only" label; and #1858's
+ * `volatility`, the player's Volatility tag or null, which rides to both sides
+ * of every suggestion through the same spread).
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
@@ -134,7 +139,8 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
-    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null, line: null, weather: null };
+    defenseByPlayer.get(playerId)
+    || { opponent: null, opponentPointsAllowed: null, line: null, weather: null, volatility: null };
 
   const availabilityById = new Map();
   const pinned = new Map();
@@ -360,6 +366,52 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
 }
 
 /**
+ * The Volatility tag of every player in the run at `positions` (#1858):
+ * `Map<playerId, 'steady' | 'boom_or_bust' | null>`. The reference set is the
+ * run's own rows at each position, read ONCE here (one query, whatever the
+ * roster), and tagged by the Interval reading module with its constants, the
+ * same call the Decision card makes. A position with no reading (K, DEF) is not
+ * read; with none left there is no query at all.
+ *
+ * `run` is the Weekly projection result the advice already reads (its season,
+ * week, scoringHash and modelVersion name the run row).
+ */
+async function loadVolatilityTags({ run, positions, client = pool }) {
+  const wanted = [...new Set(positions)].filter((p) => intervalReading.CONSTANTS.positions.includes(p));
+  if (wanted.length === 0) return new Map();
+  const result = await client.query(
+    `SELECT w."player_id", p."position", w."mean", w."median", w."p10", w."p25",
+            w."p75", w."p90", w."sample_size", w."factors"
+     FROM "player_week_projections" w
+     JOIN "players" p ON p."id" = w."player_id"
+     WHERE w."run_id" = (
+       SELECT "id" FROM "projection_runs"
+       WHERE "season" = $1 AND "week" = $2 AND "scoring_hash" = $3 AND "model_version" = $4
+     ) AND p."position" = ANY($5::text[])`,
+    [run.season, run.week, run.scoringHash, run.modelVersion, wanted]
+  );
+  const num = (v) => (v == null ? null : Number(v));
+  const rows = result.rows.map((r) => {
+    const mean = num(r.mean);
+    const median = num(r.median);
+    return {
+      playerId: r.player_id,
+      position: r.position,
+      mean,
+      median,
+      p10: num(r.p10),
+      p25: num(r.p25),
+      p75: num(r.p75),
+      p90: num(r.p90),
+      sampleSize: Number(r.sample_size) || 0,
+      factors: r.factors || {},
+      pointEstimate: projectionService.pointEstimateFor({ mean, median, modelVersion: run.modelVersion }),
+    };
+  });
+  return intervalReading.volatilityTags(rows);
+}
+
+/**
  * Start/sit advice for the caller's team.
  *
  * Projections come from `free_baseline_v2`, scoped to the roster's player ids
@@ -408,6 +460,15 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   // projection.service.js), the same vocabulary `opponents` above already
   // folds into (#1136), so this pairing is folded-on-folded with no local
   // remap: read `defense` directly with the already-canonical opponent.
+  // The Volatility tags (#1858), one read of the run's rows for the roster's
+  // positions. Optional context: a failed read degrades to no tags, not no advice.
+  const volatilityByPlayer = await loadVolatilityTags({
+    run,
+    positions: lineup.entries.map((e) => e.position),
+  }).catch((err) => {
+    console.error('start/sit advice: volatility lookup failed, continuing without tags:', err.message);
+    return new Map();
+  });
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;
@@ -434,6 +495,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       weather: game ? game.weather : null,
       weatherApplied: run.weatherAppliedFor(entry.id),
       marketApplied: run.marketAppliedFor(entry.id),
+      volatility: volatilityByPlayer.get(entry.id) ?? null,
     });
   }
 
@@ -1099,6 +1161,7 @@ function upgradeFor(candidate, currentStarters, rosterSlots) {
 module.exports = {
   DecisionError,
   buildSuggestions,
+  loadVolatilityTags,
   startSitAdvice,
   weekHindsight,
   weekHindsightRoster,

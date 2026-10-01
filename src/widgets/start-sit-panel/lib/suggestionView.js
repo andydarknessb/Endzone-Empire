@@ -87,6 +87,10 @@ export function earlierKickoff(a, b) {
   return aTime <= bTime ? a : b;
 }
 
+// The Volatility tag's wire values and their card copy (#1858): the Interval
+// reading's `steady` and `boom_or_bust`. Anything else reads as no tag.
+const VOLATILITY_LABELS = { steady: 'Steady', boom_or_bust: 'Boom or bust' };
+
 /**
  * One suggestion side (the advice's `current` or `suggested`), enriched with
  * the matching lineup entry's `position` and `kickoff` - fields the advice
@@ -110,6 +114,7 @@ function sideView(side, entriesById) {
     // carries the player's designation (O, IR, D, Q or null), the same field
     // the Ledger row's tag reads off the lineup entry.
     injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
+    volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
     opponentContext: opponentContextText({

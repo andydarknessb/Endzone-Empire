@@ -204,6 +204,25 @@ describe('buildSuggestionView injury designation (#1852)', () => {
   });
 });
 
+describe('buildSuggestionView volatility (#1858)', () => {
+  const side = (over = {}) => ({ playerId: 1, name: 'A', projection: 5, ...over });
+  const build = (current, suggested) =>
+    buildSuggestionView({ slot: 'RB', current, suggested }, new Map());
+
+  test('carries each side\'s tag as its label', () => {
+    const view = build(side({ volatility: 'steady' }), side({ playerId: 2, volatility: 'boom_or_bust' }));
+    expect(view.sit.volatility).toBe('Steady');
+    expect(view.start.volatility).toBe('Boom or bust');
+  });
+
+  test('a null, absent or unknown tag has no label', () => {
+    const view = build(side({ volatility: null }), side({ playerId: 2, volatility: 'wild' }));
+    expect(view.sit.volatility).toBeNull();
+    expect(view.start.volatility).toBeNull();
+    expect(build(side(), side({ playerId: 2 })).sit.volatility).toBeNull();
+  });
+});
+
 describe('factChips (#1853)', () => {
   const texts = (input) => factChips(input).map((chip) => chip.text);
   const calm = { indoor: false, windSpeedMph: 5, windGustMph: 9, precipitationProbability: 10, shortForecast: 'Clear' };
