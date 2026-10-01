@@ -1605,7 +1605,9 @@ The engine's recommendation about which rostered players to start, including an
 explicit "too close to call" answer when two players' distributions overlap
 enough that no honest edge exists. Applying advice means making exactly the
 moves the advice names, one manager action for all of them; it never
-re-assigns the whole lineup. While a Called shot is open, its starter is
+re-assigns the whole lineup. A manager can dismiss a suggestion on the Start/sit
+card; Apply then leaves that suggestion's moves out, and the dismissal lasts
+only the session. While a Called shot is open, its starter is
 pinned in his slot and its benched player is not a candidate, as locked
 players are, so the advice never names that pair and Apply cannot undo it.
 The Start/sit card shows fact chips for each player's game only when notable:
