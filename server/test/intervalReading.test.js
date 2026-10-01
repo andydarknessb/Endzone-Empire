@@ -401,6 +401,13 @@ test('print: a position with a full reference set lists its tagged players, boom
   assert.equal(md.split('\n').filter((l) => /^\| Player \d/.test(l)).length, 4);
 });
 
+test('print: the header names the position\'s own minimum Point estimate (#1896)', () => {
+  const qb = print.renderPositionTable({ season: 2026, week: 3, source: 'ledger', profile: 'ppr', position: 'QB', rows: [] });
+  const wr = print.renderPositionTable({ season: 2026, week: 3, source: 'ledger', profile: 'ppr', position: 'WR', rows: [] });
+  assert.match(qb, /Point estimate >= 10\)/);
+  assert.match(wr, /Point estimate >= 5\)/);
+});
+
 test('print: a too-small reference set says so and lists nobody', () => {
   const rows = lineRun([-3, -2, -1, 0, 1]).map((r) => ({ ...r, name: `P${r.playerId}` }));
   const md = print.renderPositionTable({ season: 2026, week: 3, source: 'live', profile: 'ppr', position: 'WR', rows });

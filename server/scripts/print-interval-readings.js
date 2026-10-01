@@ -247,7 +247,9 @@ async function main(argv) {
     for (const [profile, rules] of Object.entries(SCORING_PRESETS)) {
       const ctx = { client, season: args.season, currentWeek: args.currentWeek, rules, model, pointEstimateFor };
       const liveWeek = await loadLiveWeek(ctx);
-      if (!liveWeek) console.log(`print-interval-readings: no live run for ${profile} (no league uses that scoring hash)`);
+      if (!liveWeek) {
+        console.log(`print-interval-readings: no live run for ${profile}, week ${args.currentWeek}, model ${model.MODEL_VERSION}`);
+      }
       const sources = [
         [SOURCE_LEDGER, await loadLedgerWeeks({ ...ctx, profile })],
         [SOURCE_LIVE, [liveWeek].filter(Boolean)],
