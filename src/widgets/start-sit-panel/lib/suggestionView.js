@@ -128,13 +128,20 @@ function sideView(side, entriesById) {
   };
 }
 
-// A comparison the intervals say is close to a coin flip (decision.service's
-// own TOSSUP_PROBABILITY threshold, restated on the wire as `verdict`) reads
+// A comparison the intervals say is close to a coin flip (Interval reading's
+// tossup line, restated on the wire as `verdict`) reads
 // as "too close to call" rather than a lean (CONTEXT.md's Start/sit advice:
 // "an explicit too close to call answer when two players' distributions
 // overlap enough that no honest edge exists").
 export function isTooCloseToCall(suggestion) {
   return suggestion?.verdict === 'tossup';
+}
+
+// "about N%" to the nearest 10%, never above 90% (the 90-100% bin observed
+// 92.6%, so a higher figure would overclaim). Null when there is no probability.
+export function probabilityLabel(probability) {
+  const p = finite(probability);
+  return p == null ? null : `about ${Math.min(90, Math.round(p * 10) * 10)}%`;
 }
 
 /**
@@ -153,7 +160,9 @@ export function buildSuggestionView(suggestion, entriesById) {
     sit,
     start,
     gain: suggestion.gain ?? null,
+    verdict: suggestion.verdict,
     tooCloseToCall: isTooCloseToCall(suggestion),
+    probabilityLabel: probabilityLabel(suggestion.probabilityBetter),
     // The start/sit probability the Forecast quoted (#1856); a called shot is
     // offered only where there is an edge to call it against.
     probability: finite(suggestion.probabilityBetter),

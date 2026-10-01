@@ -18,6 +18,7 @@ const {
 } = require('./lineup.service');
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
+const { verdictBand } = require('./intervalReading');
 const { unavailableFor } = require('./unavailable');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
@@ -48,10 +49,6 @@ class DecisionError extends Error {
 
 const BENCH = 'BENCH';
 const IR = 'IR';
-
-// Above this the suggested player is a real edge; at or below it the two
-// distributions overlap enough that the honest answer is "watch it".
-const TOSSUP_PROBABILITY = 0.6;
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
@@ -302,11 +299,13 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       gain: round2(suggestedPoints - currentPoints),
       probabilityBetter: probability,
       // A comparison the intervals say is close to a coin flip is a watch
-      // item, not an instruction to change the lineup. The threshold is 0.6
-      // rather than something tighter because probabilityBetter is computed
-      // from five summary quantiles per side, so it resolves in steps of 0.04
-      // around 0.5 — anything at or below 0.6 is inside that grid's noise.
-      verdict: probability != null && probability <= TOSSUP_PROBABILITY ? 'tossup' : 'start',
+      // item, not an instruction to change the lineup. The bands (tossup at or
+      // below 0.6, strong at or above 0.8) live in Interval reading's
+      // verdictBand. The tossup line is 0.6 rather than something tighter
+      // because probabilityBetter is computed from five summary quantiles per
+      // side, so it resolves in steps of 0.04 around 0.5 — anything at or
+      // below 0.6 is inside that grid's noise.
+      verdict: verdictBand(probability),
       confidence: swap.suggestedProjection.confidence || null,
     };
   });

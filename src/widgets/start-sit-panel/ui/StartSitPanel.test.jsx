@@ -47,6 +47,34 @@ test('a tossup verdict shows the too-close-to-call chip, never a lean', () => {
   expect(chip).toHaveAttribute('data-verdict', 'tossup');
 });
 
+test.each([
+  ['strong', 'Strong start', 'strong'],
+  ['start', 'Lean start', 'lean'],
+  ['tossup', 'Too close to call', 'tossup'],
+])('the %s band reads "%s" (#1909)', (verdict, text, attr) => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion({ verdict })], movePlan: [] }} entries={entries} bestBall={false} />);
+  const chip = screen.getByTestId('suggestion-verdict');
+  expect(chip).toHaveTextContent(text);
+  expect(chip).toHaveAttribute('data-verdict', attr);
+});
+
+test('"about N%" sits beside the badge, capped at 90%, and is absent when the probability is null (#1909)', () => {
+  const { rerender } = render(
+    <StartSitPanel advice={{ suggestions: [suggestion({ verdict: 'start', probabilityBetter: 0.72 })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.getByTestId('suggestion-probability')).toHaveTextContent('about 70%');
+
+  rerender(
+    <StartSitPanel advice={{ suggestions: [suggestion({ verdict: 'strong', probabilityBetter: 0.97 })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.getByTestId('suggestion-probability')).toHaveTextContent('about 90%');
+
+  rerender(
+    <StartSitPanel advice={{ suggestions: [suggestion({ verdict: 'start', probabilityBetter: null })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.queryByTestId('suggestion-probability')).not.toBeInTheDocument();
+});
+
 test('dismiss hides the suggestion without touching any other', async () => {
   const user = userEvent.setup();
   const second = suggestion({

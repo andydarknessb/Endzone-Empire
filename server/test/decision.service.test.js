@@ -10,6 +10,7 @@ const {
 } = require('../services/decision.service');
 const { DEFAULT_ROSTER_SLOTS, slotEligible } = require('../services/lineup.service');
 const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
+const projectionModel = require('../services/projectionModel');
 
 // ---------------------------------------------------------------------------
 // buildSuggestions
@@ -407,8 +408,25 @@ test('buildSuggestions: a clear edge is a start recommendation with a probabilit
     [2, { points: 18, projection: { p10: 14, p25: 16, median: 18, p75: 21, p90: 25 } }],
   ]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
-  assert.equal(result.suggestions[0].verdict, 'start');
+  assert.equal(result.suggestions[0].verdict, 'strong');
   assert.equal(result.suggestions[0].probabilityBetter, 1);
+});
+
+// The verdict bands live in Interval reading's verdictBand; these pin the
+// builder reading them at each boundary (#1909).
+test('buildSuggestions: the verdict is tossup at 0.6, start just above it, strong at 0.8, start when null', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 4 }], [2, { points: 18 }]]));
+  const original = projectionModel.probabilityBetter;
+  try {
+    for (const [probability, verdict] of [[0.6, 'tossup'], [0.61, 'start'], [0.79, 'start'], [0.8, 'strong'], [null, 'start']]) {
+      projectionModel.probabilityBetter = () => probability;
+      const [suggestion] = buildSuggestions(lineup, projections, new Map(), RB1).suggestions;
+      assert.equal(suggestion.verdict, verdict, `probability ${probability}`);
+    }
+  } finally {
+    projectionModel.probabilityBetter = original;
+  }
 });
 
 test('buildSuggestions: a missing projection never becomes a recommendation', () => {

@@ -240,6 +240,14 @@ test('capture writes one row per pair above the tossup line with a locking playe
   assert.deepEqual(inserts[0].params.slice(0, 11), [3, 10, 2026, 6, 'RB', 1, 3, 6, 18, 0.92, 'start']);
 });
 
+test('a strong suggestion is still above the tossup line: captured, and eligible for a Called shot (#1909)', async () => {
+  const world = captureWorld();
+  await captureOverrides({ seen: new Map(), db: world.fake, now: TICK, loadAdvice: adviceOf([suggestion(1, 3, 0.85, 'strong')]) });
+  const inserts = world.fake.matching(/^INSERT INTO "lineup_overrides"/);
+  assert.equal(inserts.length, 1);
+  assert.equal(inserts[0].params[10], 'strong');
+});
+
 test('capture takes a pair whose benched player is the one locking', async () => {
   const world = captureWorld({ games: [{ nfl_team: 'KC', kickoff_at: T }] });
   await captureOverrides({ seen: new Map(), db: world.fake, now: TICK, loadAdvice: adviceOf([suggestion(1, 3, 0.9)]) });
