@@ -372,14 +372,16 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
  * legacy `opponent` / `opponentPointsAllowed` display fields are still
  * populated from getPositionDefense so no client field changes type.
  */
-async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false }) {
+async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false, now = new Date() }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
   if (league.best_ball) {
     throw new DecisionError(409, 'best-ball leagues set lineups automatically, so there is no advice to give');
   }
-  const lineup = await lineupService.getLineup({ leagueId, userId, week });
+  // `now` is the time the lineup's locks are read at: the override capture asks
+  // for the advice as of a minute before a kickoff (#1862).
+  const lineup = await lineupService.getLineup({ leagueId, userId, week, now });
   // The lineup's own season is authoritative — a caller-supplied season that
   // disagreed with it would pair this lineup with another year's projections.
   const effectiveSeason = lineup.season;
@@ -497,6 +499,19 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       console.error('start/sit advice: points left lookup failed, continuing without it:', err.message);
     }
   }
+  // The manager's season record against the Forecast and of Called shots
+  // (#1862), private to this team. Optional context: a failed read degrades to
+  // no lines, not no advice.
+  let seasonRecord = { overrides: null, calledShots: null };
+  if (lineup.teamId != null) {
+    try {
+      seasonRecord = await lineupOverrideService.loadSeasonRecord(pool, {
+        leagueId, teamId: lineup.teamId, season: effectiveSeason,
+      });
+    } catch (err) {
+      console.error('start/sit advice: season record lookup failed, continuing without it:', err.message);
+    }
+  }
   const plan = buildSuggestions(
     lineupEntries,
     run,
@@ -555,6 +570,10 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     calledShot,
     // `{ total, rank, teams }` of points left this season, or null (#1861).
     pointsLeft,
+    // `{ hits, misses }` over this team's resolved Overrides and `{ hits,
+    // resolved, streak }` over its resolved Called shots, or null (#1862).
+    overrideRecord: seasonRecord.overrides,
+    calledShotRecord: seasonRecord.calledShots,
     players,
   };
 }

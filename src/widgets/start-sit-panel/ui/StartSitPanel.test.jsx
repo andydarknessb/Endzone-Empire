@@ -592,3 +592,27 @@ test('no points-left line without a standing in the payload, and none in best ba
   rerender(<StartSitPanel advice={{ suggestions: [], movePlan: [], pointsLeft: { total: 4, rank: 1, teams: 10 } }} entries={entries} bestBall />);
   expect(screen.queryByTestId('points-left-line')).not.toBeInTheDocument();
 });
+
+// #1862
+test('shows the manager their You vs the Forecast and Called shot season lines from the advice payload', () => {
+  render(
+    <StartSitPanel
+      advice={{
+        suggestions: [suggestion()],
+        movePlan: [],
+        overrideRecord: { hits: 5, misses: 3 },
+        calledShotRecord: { hits: 2, resolved: 3, streak: 2 },
+      }}
+      entries={entries}
+      bestBall={false}
+    />
+  );
+  expect(screen.getByTestId('forecast-record-line')).toHaveTextContent('You vs the Forecast: 5-3');
+  expect(screen.getByTestId('called-record-line')).toHaveTextContent('Called shots this season: 2 of 3 · streak 2');
+});
+
+test('no season record lines without a resolved record in the payload', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [], overrideRecord: null, calledShotRecord: null }} entries={entries} bestBall={false} />);
+  expect(screen.queryByTestId('forecast-record-line')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('called-record-line')).not.toBeInTheDocument();
+});

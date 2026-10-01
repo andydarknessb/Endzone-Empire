@@ -2501,3 +2501,36 @@ test('getLineup: the entries read and the spent read both select the NFL roster 
     assert.ok(read.text.includes('FROM "player_nfl_roster_status"') && read.text.includes('AS "nfl_roster_status"'), read.text);
   }
 });
+
+test('getLineup reads the kickoff lock at the time it is given, so the advice can be asked as of a minute before a kickoff (#1862)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Starter', position: 'RB', nfl_team: 'BUF', injury_status: null, slot: 'RB', ir_attested: false },
+  ];
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
+  const asOf = new Date('2026-10-11T16:59:00.000Z');
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 6 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 1, position: 'RB' }] })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [{ player_id: 1 }] })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    // BUF kicks off at 17:00: locked at 17:03, still movable at 16:59.
+    [/^SELECT "nfl_team" FROM "nfl_games" WHERE "season" = \$1 AND "week" = \$2 AND "kickoff_at"/, (text, params) => ({
+      rows: new Date('2026-10-11T17:00:00.000Z') <= params[2] ? [{ nfl_team: 'BUF' }] : [],
+    })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  const earlier = await getLineup({ leagueId: 5, userId: 7, week: 6, now: asOf });
+  assert.equal(earlier.entries[0].locked, false);
+  const later = await getLineup({ leagueId: 5, userId: 7, week: 6, now: new Date('2026-10-11T17:03:00.000Z') });
+  assert.equal(later.entries[0].locked, true);
+  fake.assertClean();
+});

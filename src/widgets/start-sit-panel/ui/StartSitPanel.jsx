@@ -4,7 +4,7 @@ import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
 import { PlayerNameLink } from '../../../entities/player';
 import { formatKickoff, formatPoints } from '../../../shared/lib';
-import { buildSuggestionView, calledShotLine, movePlanWithout, pointsLeftLine, projectedLeanLine } from '../lib/suggestionView';
+import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLine, movePlanWithout, pointsLeftLine, projectedLeanLine } from '../lib/suggestionView';
 
 /**
  * The Start/sit panel widget (#1238, ADR 0037 AC1): the rail's advice panel,
@@ -79,6 +79,8 @@ export default function StartSitPanel({
   // per-mount UI state only).
   const shotLine = calledShotLine(advice?.calledShot, entriesById);
   const benchLine = pointsLeftLine(advice?.pointsLeft);
+  const forecastLine = forecastRecordLine(advice?.overrideRecord);
+  const calledRecord = calledRecordLine(advice?.calledShotRecord);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
@@ -135,6 +137,18 @@ export default function StartSitPanel({
         {benchLine && (
           <Typography data-testid="points-left-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
             {benchLine}
+          </Typography>
+        )}
+
+        {forecastLine && (
+          <Typography data-testid="forecast-record-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+            {forecastLine}
+          </Typography>
+        )}
+
+        {calledRecord && (
+          <Typography data-testid="called-record-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+            {calledRecord}
           </Typography>
         )}
 

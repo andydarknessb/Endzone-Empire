@@ -242,6 +242,31 @@ export function pointsLeftLine(pointsLeft) {
   return `Left on the bench this season: ${total.toFixed(1)} (${rank} fewest of ${pointsLeft.teams})`;
 }
 
+/**
+ * The "You vs the Forecast: 5-3" line (#1862), from the advice payload's
+ * `overrideRecord` ({ hits, misses } over this team's resolved Overrides).
+ * Null when nothing has resolved or the payload cannot be read.
+ */
+export function forecastRecordLine(overrideRecord) {
+  const hits = finite(overrideRecord?.hits);
+  const misses = finite(overrideRecord?.misses);
+  if (hits == null || misses == null || hits + misses === 0) return null;
+  return `You vs the Forecast: ${hits}-${misses}`;
+}
+
+/**
+ * The "Called shots this season: 2 of 3 · streak 2" line (#1862), from the
+ * payload's `calledShotRecord` ({ hits, resolved, streak }). Null when no shot
+ * has resolved or the payload cannot be read.
+ */
+export function calledRecordLine(calledShotRecord) {
+  const hits = finite(calledShotRecord?.hits);
+  const resolved = finite(calledShotRecord?.resolved);
+  const streak = finite(calledShotRecord?.streak);
+  if (hits == null || resolved == null || streak == null || resolved === 0) return null;
+  return `Called shots this season: ${hits} of ${resolved} · streak ${streak}`;
+}
+
 /** The Expected final gap, in points, at which the lean line appears (#1852). */
 export const LEAN_LINE_MIN_GAP = 10;
 

@@ -1,6 +1,8 @@
 const pool = require('./pool');
 const { processAllDueWaivers, holdKickedOffPlayers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
+const { startSitAdvice } = require('../services/decision.service');
+const { captureOverrides } = require('../services/lineupOverride.service');
 const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
@@ -205,6 +207,15 @@ async function tickUnlocked() {
     if (ticksSinceSync >= (await syncEveryTicks())) {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
+    }
+    // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
+    // minute before it. After every time-sensitive duty above, since it asks for
+    // advice per team and its run time must never delay claims, reminders,
+    // trades or scheduled drafts; contained, and it logs per league itself.
+    try {
+      await captureOverrides({ loadAdvice: startSitAdvice });
+    } catch (err) {
+      console.error('override capture failed (will retry next tick):', err.message);
     }
     await runRetention();
     // Weather snapshots (#1883): after live scoring and every deadline duty,

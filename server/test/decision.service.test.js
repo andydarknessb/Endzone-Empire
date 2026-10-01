@@ -815,3 +815,35 @@ test('#1861 pointsLeftStanding: no stored rows, or a team with none, is no stand
   assert.equal(await pointsLeftStanding(poolWith(), { leagueId: 7, season: 2026, teamId: 1 }), null);
   assert.equal(await pointsLeftStanding(poolWith({ 1: 5 }), { leagueId: 7, season: 2026, teamId: 9 }), null);
 });
+
+// #1862: the as-of time and the season record on the advice payload.
+test('#1862 startSitAdvice reads the lineup at the as-of time and carries the manager\'s season record', async (t) => {
+  const { createFakePool } = require('./helpers/fakePool');
+  const lineupService = require('../services/lineup.service');
+  const projectionService = require('../services/projection.service');
+  const decisionCardContext = require('../services/decisionCardContext.service');
+  const { startSitAdvice } = require('../services/decision.service');
+  createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ id: 3, best_ball: false, scoring_rules: null, regular_season_weeks: 14 }] })],
+    [/^SELECT "called", "outcome" FROM "lineup_overrides"/, () => ({ rows: [
+      { called: false, outcome: 'hit' }, { called: false, outcome: 'miss' }, { called: true, outcome: 'hit' },
+    ] })],
+    [/./, () => ({ rows: [] })],
+  ]).install(t);
+  const reads = [];
+  t.mock.method(lineupService, 'getLineup', async (args) => {
+    reads.push(args);
+    return { teamId: 10, season: 2026, week: 6, rosterSlots: [], entries: [] };
+  });
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => resultFromLegacyMap(new Map()));
+  t.mock.method(projectionService, 'getPositionDefense', async () => new Map());
+  t.mock.method(decisionCardContext, 'loadGameChipContext', async () => new Map());
+  t.mock.method(decisionCardContext, 'loadVolatilityTags', async () => new Map());
+
+  const asOf = new Date('2026-10-11T16:59:00.000Z');
+  const advice = await startSitAdvice({ leagueId: 3, userId: 7, now: asOf });
+
+  assert.equal(reads[0].now, asOf, 'the lock is read at the as-of time');
+  assert.deepEqual(advice.overrideRecord, { hits: 1, misses: 1 });
+  assert.deepEqual(advice.calledShotRecord, { hits: 1, resolved: 1, streak: 1 });
+});
