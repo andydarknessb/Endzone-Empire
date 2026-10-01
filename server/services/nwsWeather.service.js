@@ -283,6 +283,11 @@ async function getForecastsForGames({
   let fetched = 0;
   for (const game of locatable) {
     const hoursAway = (new Date(game.kickoffAt).getTime() - new Date(now).getTime()) / 3600000;
+    // No forecast exists for a kickoff past NWS's reach, and none is useful
+    // once the game has started: skip with no request and no row, so the
+    // game's byGame entry stays null (#1883). Without this, horizonBucket's
+    // clamp saved the LAST period NWS returned as that game's forecast.
+    if (!Number.isFinite(hoursAway) || hoursAway < 0 || hoursAway > MAX_HORIZON_HOURS) continue;
     const bucket = horizonBucket(hoursAway);
     if (bucket == null) continue;
     const cached = snapshots.get(`${game.gameKey}:${bucket}`);

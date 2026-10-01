@@ -207,6 +207,9 @@ async function tickUnlocked() {
       if (synced) ticksSinceSync = 0;
     }
     await runRetention();
+    // Weather snapshots (#1883): after live scoring and every deadline duty,
+    // ahead of the multi-minute nightly fill; it never throws.
+    await runWeatherSnapshotSync();
     // Last, beside the other once-a-day housekeeping pass, and never ahead of
     // a time-sensitive duty above: this can run long (every in-season
     // league's whole roster), so it only starts inside its own off-peak
@@ -621,6 +624,92 @@ async function runHourlyGameContextSync({ now = new Date() } = {}) {
     }
   }
   return results;
+}
+
+// One horizon bucket (nwsWeather.service HORIZON_BUCKET_HOURS = 6): each due
+// run lands in a NEW bucket, so a snapshot is never refetched into the bucket
+// it already filled and never skipped past one (#1883).
+const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Weather snapshots Sync run (#1883, ADR 0036): refreshes
+ * `game_weather_snapshots` for every game kicking off in the future and at
+ * most `MAX_HORIZON_HOURS` (168) away, on its own 6-hour cadence
+ * (`cadence.due({ job: 'weather-snapshots', every: { ms } })`, which reads the
+ * run row this job records).
+ *
+ * Why it exists: the only other writer of that table is a projection run being
+ * GENERATED, and `getWeeklyProjections` returns a cached week without
+ * generating, so once a week was cached nothing refreshed its forecast and the
+ * Decision card showed whatever the last generation left behind. The
+ * projection path still calls `getForecastsForGames`; with this job in place
+ * it normally reads the bucket this job already filled.
+ *
+ * Games are read by kickoff window rather than by season literal: a game in
+ * the next 168 hours is by definition the current slate (and is grouped by its
+ * own `season`/`week` because the snapshot cache is keyed that way). An
+ * `nfl_games` row exists per team, so the read is DISTINCT per `game_key`.
+ *
+ * Tick safety: it runs after live scoring in `tickUnlocked`, and it waits out
+ * an open game window (`inGameWindow`, as the owed nightly refill does)
+ * because the worst case is two sequential 3.5 s NWS requests per outdoor game
+ * and a slow run holds the tick (and its 5-minute live-scoring cadence) for
+ * its whole duration. Waiting costs nothing: no row is written, so the gate is
+ * still due on the first tick after the window closes. It never throws: a
+ * failed run is already recorded by `runSyncJob` and is retried next tick (a
+ * failed row never moves the gate), and `getForecastsForGames` itself fails
+ * open per game, so one dead NWS lookup does not fail the run.
+ *
+ * `apply` deliberately does not pass its transactional `client` into
+ * `getForecastsForGames` (same reason as `runNightlyProjectionFill`): the
+ * weather lookup and its snapshot write log-and-continue on a failed query,
+ * which only holds in autocommit, and the NWS HTTP fetches stay off a
+ * transaction (ADR 0036).
+ */
+async function runWeatherSnapshotSync({ now = new Date() } = {}) {
+  try {
+    const gate = await cadence.due({
+      job: 'weather-snapshots', every: { ms: WEATHER_SNAPSHOT_INTERVAL_MS }, now,
+    });
+    if (!gate.due) return null;
+    if (await inGameWindow()) return null;
+    const { getForecastsForGames, MAX_HORIZON_HOURS } = require('../services/nwsWeather.service');
+    const horizonEnd = new Date(now.getTime() + MAX_HORIZON_HOURS * 3600000);
+    return await runSyncJob({
+      job: 'weather-snapshots',
+      fetch: async () => {
+        const result = await pool.query(
+          `SELECT DISTINCT ON ("game_key") "game_key", "season", "week", "kickoff_at", "roof", "venue"
+             FROM "nfl_games"
+            WHERE "game_key" IS NOT NULL AND "kickoff_at" > $1 AND "kickoff_at" <= $2
+            ORDER BY "game_key", "kickoff_at"`,
+          [now, horizonEnd]
+        );
+        const byWeek = new Map();
+        for (const row of result.rows) {
+          const key = `${row.season}:${row.week}`;
+          if (!byWeek.has(key)) byWeek.set(key, { season: row.season, week: row.week, games: [] });
+          byWeek.get(key).games.push({
+            gameKey: row.game_key, kickoffAt: row.kickoff_at, roof: row.roof, venue: row.venue,
+          });
+        }
+        return [...byWeek.values()];
+      },
+      apply: async (_client, { season, week, games }) => {
+        const { coverage } = await getForecastsForGames({ season, week, games, now });
+        return {
+          season,
+          week,
+          games: games.length,
+          requests: coverage.requests || 0,
+          fetched: coverage.fetched || 0,
+        };
+      },
+    });
+  } catch (err) {
+    console.error('weather snapshot sync failed (will retry next tick):', err.message);
+    return null;
+  }
 }
 
 async function tick() {
@@ -1489,6 +1578,8 @@ module.exports = {
   holdoutWindowOpenedAt,
   runHourlyOddsSync,
   runHourlyGameContextSync,
+  runWeatherSnapshotSync,
+  WEATHER_SNAPSHOT_INTERVAL_MS,
   runHoldoutSnapshots,
   runDailyStatCorrections,
   runNightlyProjectionFill,
