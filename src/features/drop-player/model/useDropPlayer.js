@@ -14,14 +14,19 @@ import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
  * `refresh` is called after a successful drop or undo so the page's own
  * lineup read (and roster-derived counts elsewhere on the page) reflect the
  * roster change; this feature owns no lineup state of its own.
+ *
+ * `onLanded` (#1881, optional): called with no arguments once the DELETE, or
+ * the undo's POST, has resolved, before `refresh`. Never on a failed request.
+ * The page supplies it to refresh whatever read the roster change made stale.
  */
-export function useDropPlayer({ leagueId, refresh }) {
+export function useDropPlayer({ leagueId, refresh, onLanded }) {
   const notify = useSnackbar();
   const [dropCandidate, setDropCandidate] = useState(null);
 
   const undoDrop = async (entry) => {
     try {
       await apiClient.post(`/api/team/roster/${entry.playerId}/undo-drop`, { leagueId: Number(leagueId) });
+      onLanded?.();
       await refresh?.();
     } catch (err) {
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
@@ -31,6 +36,7 @@ export function useDropPlayer({ leagueId, refresh }) {
   const dropPlayer = async (entry) => {
     try {
       await apiClient.delete(`/api/team/roster/${entry.playerId}?leagueId=${leagueId}`);
+      onLanded?.();
       await refresh?.();
       notify(`Dropped ${entry.name}`, {
         severity: 'info',

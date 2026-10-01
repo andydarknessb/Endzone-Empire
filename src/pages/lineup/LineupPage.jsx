@@ -3,7 +3,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates } from '../../entities/matchup';
+import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
@@ -19,6 +19,7 @@ import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
 import { useLiveScores } from './model/useLiveScores';
 import { useAdvice } from './model/useAdvice';
+import { useCalledShot } from './model/useCalledShot';
 import { readRequestedSwap, resolveRequestedSwap } from './model/requestedSwap';
 
 const MIN_WEEK = 1;
@@ -186,6 +187,11 @@ export default function LineupPage() {
     });
   };
 
+  // A lineup or roster write that lands (#1881) changes the viewer's Expected
+  // final, which the week's cached Matchups list carries for 30 s. The features
+  // may not import the Matchup entity (ADR 0029/0031, and swap-players is in the
+  // Draft room's import closure), so the page hands them this callback.
+  const onLanded = () => clearWeekMatchupsCache(selectedLeagueId);
   const swap = useSwapPlayers({
     leagueId: selectedLeagueId,
     raw,
@@ -194,8 +200,9 @@ export default function LineupPage() {
     bestBall,
     leagueUnsettled,
     hasEligibleTarget,
+    onLanded,
   });
-  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
+  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded });
 
   // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
   // start-sit-panel widget, the team-summary-strip widget's advice tile and
@@ -203,7 +210,27 @@ export default function LineupPage() {
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
-  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw });
+  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
+  // Called shots (#1856): the actions re-read the advice when they land, since
+  // the server pins or releases the shot's pair.
+  const calledShot = useCalledShot({ leagueId: selectedLeagueId, week: lineup?.week, onChanged: advice.reload });
+
+  // The two teams' Expected finals for the viewed week's Matchup (#1852), for
+  // the start/sit card's underdog-or-favorite line: the entity's shared read of
+  // the week's matchups (#1872; the summary strip and the matchup-preview
+  // widget read the same list, deduped when the weeks coincide), the viewer's
+  // row picked by Team id (#112). Best ball shows no card, so it reads nothing.
+  // A list that has not loaded, has no row for the viewer, or carries no
+  // Expected final (only a settled, final Matchup has none; an in-progress
+  // starter's is actual plus the rest of its projection) leaves `null` here,
+  // which is no line.
+  const { matchups } = useWeekMatchups(selectedLeagueId, lineup?.week ?? null, { enabled: !bestBall });
+  const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
+  const expectedFinals = viewerMatchup
+    ? viewerMatchup.home.teamId === viewerTeamId
+      ? { mine: viewerMatchup.home.expectedFinal, theirs: viewerMatchup.away.expectedFinal }
+      : { mine: viewerMatchup.away.expectedFinal, theirs: viewerMatchup.home.expectedFinal }
+    : null;
 
   // The Bench what-if swap (#910), read once and resolved against whichever
   // lineup actually loaded.
@@ -462,6 +489,11 @@ export default function LineupPage() {
                     entries={lineup?.entries}
                     bestBall={bestBall}
                     onApply={applyAdvice.apply}
+                    onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
+                    onWithdrawShot={calledShot.withdrawShot}
+                    shotBusy={calledShot.busy}
+                    onOpenDecisionCard={setDecisionCardEntryId}
+                    expectedFinals={expectedFinals}
                   />
                   <ByeClusterGrid
                     entries={lineup?.entries}

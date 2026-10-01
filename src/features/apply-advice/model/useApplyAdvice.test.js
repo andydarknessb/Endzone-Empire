@@ -1,6 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
-import { PENDING_LINEUP_MUTATIONS_KEY } from '../../../lib/pendingLineupMutations';
+import {
+  LINEUP_MUTATION_REPLAYED_EVENT,
+  PENDING_LINEUP_MUTATIONS_KEY,
+  readPendingLineupMutations,
+} from '../../../lib/pendingLineupMutations';
 import { useApplyAdvice } from './useApplyAdvice';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -18,12 +22,12 @@ afterEach(() => {
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
 });
 
-function setup(raw) {
+function setup(raw, onLanded) {
   let currentRaw = raw;
   const setRaw = jest.fn((updater) => {
     currentRaw = typeof updater === 'function' ? updater(currentRaw) : updater;
   });
-  const { result } = renderHook(() => useApplyAdvice({ leagueId: 7, raw: currentRaw, setRaw }));
+  const { result } = renderHook(() => useApplyAdvice({ leagueId: 7, raw: currentRaw, setRaw, onLanded }));
   return { result, setRaw, getRaw: () => currentRaw };
 }
 
@@ -79,4 +83,63 @@ test('a refused apply rolls the optimistic state back to the exact snapshot', as
 
   await waitFor(() => expect(getRaw()).toEqual(RAW));
   expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' });
+});
+
+// #1881: a save that lands changes Expected final, so the page's `onLanded`
+// runs once it has (now, or when a queued write replays), never otherwise.
+describe('onLanded after an apply (#1881)', () => {
+  const PLAN = [{ playerId: 1, fromSlot: 'BENCH', toSlot: 'WR' }];
+
+  test('a save whose PUT resolves calls it once', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const onLanded = jest.fn();
+    const { result } = setup(RAW, onLanded);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+
+  test('a resolved save with no onLanded passed does not throw', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' });
+  });
+
+  test('a save refused with an HTTP error never calls it', async () => {
+    apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+    const onLanded = jest.fn();
+    const { result } = setup(RAW, onLanded);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test('a save queued offline calls it only once the replay lands', async () => {
+    apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+    const onLanded = jest.fn();
+    const { result } = setup(RAW, onLanded);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(readPendingLineupMutations()).toHaveLength(1);
+    expect(onLanded).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
+    });
+    expect(onLanded).toHaveBeenCalledTimes(1);
+  });
 });

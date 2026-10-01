@@ -593,6 +593,27 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   );
 });
 
+// #1881: the page hands the swap, apply-advice and drop features an `onLanded`
+// that clears the week's cached Matchups list, so a save that lands re-reads it
+// (the list carries the Expected final the lean line and the strip show).
+test("a swap whose PUT resolves re-reads the week's matchups list (#1881)", async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage();
+  const matchupsReads = () =>
+    apiClient.get.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.startsWith('/api/league/') && url.includes('/matchups?week=')
+    ).length;
+
+  await user.click(await screen.findByTestId('slot-row-BENCH-10-select'));
+  const before = matchupsReads();
+  expect(before).toBeGreaterThan(0);
+  await user.click(screen.getByTestId('slot-row-WR-0-select'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(matchupsReads()).toBeGreaterThan(before));
+});
+
 test('a refused swap: clicking a locked starter warns and saves nothing', async () => {
   const user = userEvent.setup();
   renderPage();
@@ -898,6 +919,56 @@ test('a too-close-to-call suggestion shows that chip, never a lean', async () =>
   expect(chip).toHaveTextContent('Too close to call');
 });
 
+test('Call your shot posts the pair, then the re-read advice shows the standing line (#1856)', async () => {
+  const user = userEvent.setup();
+  apiClient.post.mockResolvedValue({ data: { calledShot: {} } });
+  renderPage({
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion({ probabilityBetter: 0.92 })] }) },
+    [`${ADVICE_URL}&reload=1`]: {
+      data: adviceBody({
+        suggestions: [],
+        calledShot: {
+          status: 'pending', outcome: null, canWithdraw: true, probability: 0.92,
+          starter: { playerId: 2, name: 'Derrick King', projection: 8, points: null },
+          benched: { playerId: 10, name: 'Bench Guy', projection: 14.5, points: null },
+        },
+      }),
+    },
+  });
+
+  await user.click(await screen.findByTestId('suggestion-call-shot'));
+
+  await waitFor(() =>
+    expect(apiClient.post).toHaveBeenCalledWith('/api/team/lineup/called-shot', {
+      leagueId: 1, week: 4, starterId: 2, benchedId: 10,
+    })
+  );
+  const line = await screen.findByTestId('called-shot-line');
+  expect(line).toHaveTextContent('Derrick King over Bench Guy');
+  expect(screen.queryByTestId('suggestion-card')).not.toBeInTheDocument();
+});
+
+test('Withdraw deletes the open shot and the re-read advice drops the line (#1856)', async () => {
+  const user = userEvent.setup();
+  apiClient.delete.mockResolvedValue({ data: { withdrawn: true } });
+  const calledShot = {
+    status: 'pending', outcome: null, canWithdraw: true, probability: 0.92,
+    starter: { playerId: 2, name: 'Derrick King', projection: 8, points: null },
+    benched: { playerId: 10, name: 'Bench Guy', projection: 14.5, points: null },
+  };
+  renderPage({
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [], calledShot }) },
+    [`${ADVICE_URL}&reload=1`]: { data: adviceBody({ suggestions: [], calledShot: null }) },
+  });
+
+  await user.click(await screen.findByTestId('called-shot-withdraw'));
+
+  await waitFor(() =>
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/team/lineup/called-shot?leagueId=1&week=4')
+  );
+  await waitFor(() => expect(screen.queryByTestId('called-shot-line')).not.toBeInTheDocument());
+});
+
 test('applying the advice sends exactly the moves it names, as one write', async () => {
   const user = userEvent.setup();
   apiClient.put.mockResolvedValue({ data: {} });
@@ -1116,4 +1187,93 @@ test('a past week (already played) shows no Bye cluster grid at all', async () =
   renderPage({ [LINEUP_URL]: { data: lineupBody({ body: { week: 2, currentWeek: 4 } }) } });
   await screen.findByText('Josh Allen');
   expect(screen.queryByTestId('bye-cluster-grid')).not.toBeInTheDocument();
+});
+
+// #1852: the start/sit card's Game status tag, names that open the Decision
+// card, and the underdog-or-favorite line off the Matchup data the page reads.
+test('a Questionable player in a suggestion shows the injury tag; a healthy one shows none', async () => {
+  const sug = adviceSuggestion();
+  sug.suggested.availability = { available: true, status: 'Q' };
+  sug.current.availability = { available: true, status: null };
+  renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [sug] }) } });
+  const panel = await screen.findByTestId('start-sit-panel');
+  await within(panel).findByText('Bench Guy');
+  const tags = within(panel).getAllByTestId('injury-tag');
+  expect(tags).toHaveLength(1);
+  expect(tags[0]).toHaveAttribute('data-status', 'Q');
+});
+
+test('tapping a name in the start/sit card opens the Decision card, from the Outlook tab on a phone', async () => {
+  const user = userEvent.setup();
+  renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
+  await screen.findByText('Josh Allen');
+  await user.click(within(screen.getByTestId('lineup-mobile-view')).getByRole('radio', { name: 'Outlook' }));
+
+  const panel = screen.getByTestId('start-sit-panel');
+  await user.click(await within(panel).findByRole('button', { name: 'Bench Guy' }));
+
+  const card = await screen.findByTestId('decision-card');
+  expect(within(card).getByRole('heading', { name: 'Bench Guy' })).toBeInTheDocument();
+});
+
+test('the lean line appears when the Expected finals are 10 or more apart, from the Matchup data the page loads', async () => {
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ home_expected_final: '88.0', away_expected_final: '100.4' })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  const line = await screen.findByTestId('start-sit-lean-line');
+  expect(line).toHaveTextContent('Projected to trail by 12: lean toward Ceiling');
+  expect(line.textContent).not.toMatch(/range|—/i);
+});
+
+test('the lean line favors Floor when the viewer leads by 10 or more, whichever side he is on', async () => {
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ home_team_id: 7, away_team_id: 3, home_expected_final: '80.0', away_expected_final: '95.0' })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  expect(await screen.findByTestId('start-sit-lean-line')).toHaveTextContent('Projected to lead by 15: lean toward Floor');
+});
+
+test('no lean line in a closer Matchup, and none when the Matchup data has not loaded', async () => {
+  const { unmount } = renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
+  await screen.findByText('Bench Guy');
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+  unmount();
+
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ home_expected_final: null, away_expected_final: null })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  await screen.findByText('Bench Guy');
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+});
+
+test("the week's matchups list is read once for the page, not once per surface (#1872)", async () => {
+  // Order-independent: the lineup GET (which carries the week the page reads) is
+  // held on a deferred promise until the widgets' matchups GET has settled, so the
+  // page's own read mounts after the settle and is served by the TTL, not a reload.
+  mockGetByUrl(baseUrls());
+  const answer = apiClient.get.getMockImplementation();
+  let releaseLineup;
+  const lineupGate = new Promise((resolve) => {
+    releaseLineup = resolve;
+  });
+  let matchupsSettled = null;
+  apiClient.get.mockImplementation((url) => {
+    if (url === LINEUP_URL) return lineupGate.then(() => answer(url));
+    const result = answer(url);
+    if (url === MATCHUPS_URL && !matchupsSettled) matchupsSettled = result.then(() => undefined);
+    return result;
+  });
+  renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+
+  await waitFor(() => expect(matchupsSettled).not.toBeNull());
+  await matchupsSettled;
+  await act(async () => {
+    await Promise.resolve();
+  });
+  releaseLineup();
+
+  await screen.findByTestId('ledger-starters');
+  expect(apiClient.get.mock.calls.filter(([url]) => url === MATCHUPS_URL)).toHaveLength(1);
 });

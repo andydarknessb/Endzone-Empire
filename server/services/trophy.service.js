@@ -4,6 +4,7 @@ const { lockTwoKeyXact } = require('../modules/advisoryLock');
 const { computeStandings } = require('./season.service');
 const { notify } = require('./activity.service');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
+const { slotEligible, parseLineupSettings } = require('./lineup.service');
 
 /**
  * Trophies: automatic awards written after weekly scoring (and, once the
@@ -64,9 +65,10 @@ async function notifyOwner(client, { leagueId, teamId, label }) {
 }
 
 /**
- * Award everything due after a week finalizes: the weekly high score, and —
- * once the league's season is complete — the season-level set (champion,
- * longest win streak, biggest comeback, best draft grade).
+ * Award everything due after a week finalizes: the weekly high score, the
+ * lineup trophies (Perfect Lineup, Captain Hindsight; #1854), and — once the
+ * league's season is complete — the season-level set (champion, longest win
+ * streak, biggest comeback, best draft grade).
  */
 async function awardWeeklyTrophies({ leagueId, season, week }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
@@ -240,7 +242,135 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
     { label: 'trophies' }
   );
 
+  // The lineup trophies (#1854) read Hindsight, which is pool I/O, so they run
+  // after the transaction above has committed and released the week's lock, not
+  // inside it. They are idempotent single-statement inserts (the unique key
+  // plus ON CONFLICT DO NOTHING), need no lock, and are never revoked, so they
+  // have nothing to serialize against a reconcile. A failure here is logged and
+  // never takes back what the transaction already wrote.
+  const lineupAwarded = await awardLineupTrophies({ league, leagueId, season, week });
+  awarded.push(...lineupAwarded);
+
   await notifyAwardedOwners({ leagueId, awarded });
+  return awarded;
+}
+
+const round2 = (x) => Math.round(Number(x) * 100) / 100;
+
+/**
+ * Pure: the one bench move that would have beaten `margin` by the most, or
+ * null when no single move would have. A move seats one BENCH player in one
+ * starting slot he is eligible for under the league's own template
+ * (`slotEligible`), either replacing the slot's current starter or filling a
+ * seat the team left empty. Only the counted roster is read, so an IR occupant
+ * (excluded upstream, and never BENCH or a starter here) is never a candidate,
+ * and every point is the league-priced value Hindsight already computed.
+ *
+ * A move qualifies when its gain is strictly above the deficit: the new total
+ * would top the opponent's score of record, not merely tie it (a tie has
+ * margin 0, so any positive gain wins it). The largest gain wins; an exact tie
+ * keeps the first found (bench order, then template order).
+ *
+ * @param {object} args
+ * @param {Array}  args.counted     `{ playerId, name, position, slot, points }`
+ * @param {Array}  args.rosterSlots the league's roster template
+ * @param {number} args.margin      opponent's score minus this team's (>= 0)
+ * @returns {object|null} the trophy's `data`
+ */
+function bestCaptainMove({ counted, rosterSlots, margin }) {
+  const bench = counted.filter((r) => r.slot === 'BENCH');
+  const starters = counted.filter((r) => r.slot !== 'BENCH' && r.slot !== 'IR');
+  const deficit = round2(margin);
+  let best = null;
+  for (const b of bench) {
+    for (const slot of rosterSlots) {
+      if (!(slot.count > 0) || !slotEligible(slot.key, b.position, rosterSlots)) continue;
+      const occupants = starters.filter((s) => s.slot === slot.key);
+      const options = occupants.map((s) => ({ starter: s, starterPoints: Number(s.points) || 0 }));
+      if (occupants.length < slot.count) options.push({ starter: null, starterPoints: 0 });
+      for (const { starter, starterPoints } of options) {
+        const gain = round2((Number(b.points) || 0) - starterPoints);
+        if (gain <= deficit) continue;
+        if (best && gain <= best.gain) continue;
+        best = {
+          benchPlayerId: b.playerId, benchPlayer: b.name, benchPoints: round2(b.points),
+          starterPlayerId: starter ? starter.playerId : null,
+          starter: starter ? starter.name : null,
+          starterPoints: round2(starterPoints),
+          slot: slot.key, gain, margin: deficit,
+        };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Perfect Lineup and Captain Hindsight for one finalized week (#1854), for each
+ * team in a final Matchup of a manager-set-lineup league (best ball seats
+ * nobody, so there is no lineup to get right or wrong, and a pick'em-only
+ * league has no Matchups to iterate).
+ *
+ *   perfect_lineup    - Hindsight shows nothing left on the bench: the team's
+ *                       total equals the best legal lineup's. `{ points }`.
+ *   captain_hindsight - the team lost or tied and `bestCaptainMove` found a
+ *                       single bench move that would have beaten the
+ *                       opponent's score of record.
+ *
+ * Both read Hindsight (`weekHindsightRoster`), so they share its population and
+ * pricer. Returns `[{ type, teamId, label }]` newly awarded. Never throws: a
+ * team whose Hindsight cannot be read is logged and skipped.
+ */
+async function awardLineupTrophies({ league, leagueId, season, week }) {
+  if (league.best_ball) return [];
+  const awarded = [];
+  try {
+    const { weekHindsightRoster } = require('./decision.service');
+    const { rosterSlots } = parseLineupSettings(league);
+    const matchups = await pool.query(
+      `SELECT * FROM "matchups"
+       WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "final" = true`,
+      [leagueId, season, week]
+    );
+    // A team's first appearance: the unique key on matchups is only per home
+    // team, so a team can in principle appear twice, and one trophy row per
+    // (week, team, type) is all that can ever be kept.
+    const sides = new Map();
+    for (const m of matchups.rows) {
+      for (const [teamId, own, opp] of [
+        [Number(m.home_team_id), Number(m.home_score), Number(m.away_score)],
+        [Number(m.away_team_id), Number(m.away_score), Number(m.home_score)],
+      ]) {
+        if (!sides.has(teamId)) sides.set(teamId, { own, opp });
+      }
+    }
+
+    for (const [teamId, { own, opp }] of sides) {
+      try {
+        const h = await weekHindsightRoster({ leagueId, teamId, season, week });
+        const counted = h.counted || [];
+        const toAward = [];
+        // An empty roster trivially "equals" its empty best lineup; it set
+        // nothing, so it is not a perfect lineup.
+        if (h.pointsLeftOnBench <= 0 && counted.some((r) => r.slot !== 'BENCH')) {
+          toAward.push({ type: 'perfect_lineup', label: 'Perfect Lineup', data: { points: h.actualPoints } });
+        }
+        if (own <= opp) {
+          const move = bestCaptainMove({ counted, rosterSlots, margin: opp - own });
+          if (move) toAward.push({ type: 'captain_hindsight', label: 'Captain Hindsight', data: move });
+        }
+        for (const { type, label, data } of toAward) {
+          if (await award(pool, { leagueId, teamId, season, week, type, label, data })) {
+            awarded.push({ type, teamId, label });
+          }
+        }
+      } catch (err) {
+        console.error('lineup trophies skipped for team %s (league %s week %s):', teamId, leagueId, week, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('lineup trophies failed for league %s week %s:', leagueId, week, err.message);
+  }
   return awarded;
 }
 
@@ -531,6 +661,7 @@ async function getLeagueTrophies({ leagueId, season }) {
 module.exports = {
   longestWinStreak,
   comebackTeam,
+  bestCaptainMove,
   awardWeeklyTrophies,
   reconcileWeeklyHighScoreTrophy,
   awardPickemChampions,

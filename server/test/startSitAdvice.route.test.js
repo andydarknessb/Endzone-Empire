@@ -102,11 +102,23 @@ function mockAdviceDependencies(t, {
   // regress (#428).
   gameRows,
   positionDefense = new Map([['NYJ', { RB: 21.4, WR: 15.2 }]]),
+  // #1853: the odds and weather snapshot rows by game_key, and a log of every
+  // query so a test can count the per-game reads.
+  oddsByGame = {},
+  weatherByGame = {},
+  queryLog = [],
+  // #1853: make every odds read reject, to pin the degrade-to-no-chips path.
+  failOdds = false,
 } = {}) {
   const projectionCalls = [];
-  t.mock.method(pool, 'query', async (sql) => {
+  t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
+    queryLog.push({ text, params });
+    if (failOdds && text.includes('FROM "game_odds_snapshots"')) throw new Error('pool timeout');
     if (text.includes('FROM "leagues"')) return { rows: [league] };
+    if (text.includes('FROM "lineup_overrides"')) return { rows: [] }; // #1856: no called shot here
+    if (text.includes('FROM "game_odds_snapshots"')) return { rows: oddsByGame[params[0]] ? [oddsByGame[params[0]]] : [] };
+    if (text.includes('FROM "game_weather_snapshots"')) return { rows: weatherByGame[params[0]] ? [weatherByGame[params[0]]] : [] };
     if (text.includes('FROM "nfl_games"')) {
       return { rows: gameRows || entries.map((e) => ({ nfl_team: e.nfl_team, opponent: 'NYJ' })) };
     }
@@ -440,4 +452,104 @@ test('advice never lists a player in two recommendations', async (t) => {
   const mentioned = advice.suggestions.flatMap((s) => [s.current.playerId, s.suggested.playerId]);
   assert.equal(new Set(mentioned).size, mentioned.length);
   assert.equal(advice.optimalTotal, 41, 'RB 22 at RB and WR 19 at FLEX, the exact optimum');
+});
+
+test('each suggestion side carries the Line, the weather and the applied flags, read once per game (#1853)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB', { nfl_team: 'BUF' }),
+    lineupEntry(3, 'RB', 'BENCH', { nfl_team: 'NYJ' }),
+  ];
+  const queryLog = [];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [
+      [1, projectionFor(1, 6, { factors: { opponent: { available: true }, weather: { available: true, scored: false }, gameEnvironment: { available: true, scored: false } } })],
+      [3, projectionFor(3, 18, { factors: { opponent: { available: true }, weather: { available: true, scored: true }, gameEnvironment: { available: true, scored: false } } })],
+    ],
+    // BUF and NYJ are the two sides of ONE game; BUF is home.
+    gameRows: [
+      { nfl_team: 'BUF', opponent: 'NYJ', game_key: 'g1', roof: 'outdoors', home_away: 'home' },
+      { nfl_team: 'NYJ', opponent: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'away' },
+    ],
+    oddsByGame: { g1: { total: '49.5', spread: '-7.5', observed_at: '2026-10-08T00:00:00.000Z' } },
+    weatherByGame: { g1: {
+      temperature_f: '40', wind_speed_mph: '22', wind_gust_mph: '30',
+      precipitation_probability: '70', short_forecast: 'Rain',
+    } },
+    queryLog,
+  });
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  const { current, suggested } = response.body.suggestions[0];
+  assert.deepEqual(current.line, { spread: -7.5, total: 49.5, favoredBy: 7.5 });
+  assert.deepEqual(suggested.line, { spread: -7.5, total: 49.5, favoredBy: -7.5 });
+  const weather = { indoor: false, windSpeedMph: 22, windGustMph: 30, precipitationProbability: 70, shortForecast: 'Rain' };
+  assert.deepEqual(current.weather, weather);
+  assert.deepEqual(suggested.weather, weather);
+  assert.equal(current.weatherApplied, false);
+  assert.equal(suggested.weatherApplied, true);
+  assert.equal(current.marketApplied, false);
+  assert.equal(suggested.marketApplied, false);
+  assert.equal(queryLog.filter((q) => q.text.includes('"game_odds_snapshots"')).length, 1);
+  assert.equal(queryLog.filter((q) => q.text.includes('"game_weather_snapshots"')).length, 1);
+  assert.doesNotMatch(JSON.stringify(response.body.suggestions), /impliedTeamTotal/);
+});
+
+test('a side with no game, odds or weather carries null line and weather (#1853)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB'),
+    lineupEntry(3, 'RB', 'BENCH'),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+  });
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  const { current, suggested } = response.body.suggestions[0];
+  for (const side of [current, suggested]) {
+    assert.equal(side.line, null);
+    assert.equal(side.weather, null);
+    assert.equal(side.weatherApplied, false);
+    assert.equal(side.marketApplied, false);
+  }
+});
+
+test('a rejected Line or weather read still answers the advice, with null line and weather (#1853)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB', { nfl_team: 'BUF' }),
+    lineupEntry(3, 'RB', 'BENCH', { nfl_team: 'NYJ' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+    gameRows: [
+      { nfl_team: 'BUF', opponent: 'NYJ', game_key: 'g1', roof: 'outdoors', home_away: 'home' },
+      { nfl_team: 'NYJ', opponent: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'away' },
+    ],
+    failOdds: true,
+  });
+  t.mock.method(console, 'error', () => {});
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  const { current, suggested } = response.body.suggestions[0];
+  for (const side of [current, suggested]) {
+    assert.equal(side.line, null);
+    assert.equal(side.weather, null);
+  }
+  assert.equal(current.opponent, 'NYJ', 'the rest of the advice is unchanged');
 });

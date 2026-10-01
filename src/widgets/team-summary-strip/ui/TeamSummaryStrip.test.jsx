@@ -2,12 +2,19 @@ import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
+import { invalidate } from '../../../lib/resourceCache';
 import TeamSummaryStrip from '../index';
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
+
+beforeEach(() => {
+  // The week's matchups list is a shared cached resource (ADR 0004, #1872) and is
+  // module state that outlives a test, so it is cleared whole.
+  invalidate(undefined, { reload: false });
+});
 
 afterEach(() => {
   jest.clearAllMocks();

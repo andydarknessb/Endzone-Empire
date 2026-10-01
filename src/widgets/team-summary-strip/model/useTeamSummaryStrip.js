@@ -1,5 +1,5 @@
-import { useEndpoint, matchupWinProbability, finite } from '../../../shared/lib';
-import { matchupFromListRow, applyScoreEvent } from '../../../entities/matchup';
+import { matchupWinProbability, finite } from '../../../shared/lib';
+import { useWeekMatchups, viewerMatchupOf, applyScoreEvent } from '../../../entities/matchup';
 
 /**
  * Data model for the team-summary-strip widget (#1237 AC4): "live score
@@ -8,8 +8,8 @@ import { matchupFromListRow, applyScoreEvent } from '../../../entities/matchup';
  * placeholder until ticket 6" (the advice tile itself is therefore not
  * built by this widget - ADR 0037 defers it).
  *
- * Reads the week's matchups list (`entities/matchup`'s `matchupFromListRow`,
- * the same wire the matchup-preview widget reads) for the viewer's own
+ * Reads the week's matchups list (`entities/matchup`'s `useWeekMatchups`,
+ * the same shared read the matchup-preview widget and the page use) for the viewer's own
  * Matchup - score, projected total (Expected final) and Players remaining
  * for both sides, plus the win probability computed the same way
  * (`matchupWinProbability`, `shared/lib`, #1120) so this strip and the
@@ -48,14 +48,13 @@ import { matchupFromListRow, applyScoreEvent } from '../../../entities/matchup';
  * how many renders replay it.
  */
 export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scoreEvent }) {
-  const listUrl = leagueId != null && week != null ? `/api/league/${leagueId}/matchups?week=${week}` : null;
-  const list = useEndpoint(listUrl);
+  // The week's matchups list is the entity's shared cached read (#1872, ADR
+  // 0004): the Lineup page and the matchup-preview read the same URL, so the
+  // store serves them one request when their weeks coincide.
+  const list = useWeekMatchups(leagueId, week);
+  const hasRead = leagueId != null && week != null;
 
-  const rows = Array.isArray(list.data) ? list.data.map(matchupFromListRow) : [];
-  const myMatchupFromList =
-    viewerTeamId != null
-      ? rows.find((m) => m && (m.home.teamId === viewerTeamId || m.away.teamId === viewerTeamId)) || null
-      : null;
+  const myMatchupFromList = viewerMatchupOf(list.matchups, viewerTeamId);
   const scoredEntry = scoreEvent && myMatchupFromList
     ? (scoreEvent.scored || []).find((s) => s.matchupId === myMatchupFromList.id)
     : null;
@@ -67,9 +66,9 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
     : null;
 
   let status;
-  if (listUrl == null) status = 'empty';
-  else if (list.status === 'loading') status = 'loading';
-  else if (list.status === 'error') status = 'error';
+  if (!hasRead) status = 'empty';
+  else if (list.loading) status = 'loading';
+  else if (list.error) status = 'error';
   else if (!myMatchup) status = 'empty';
   else status = 'ready';
 

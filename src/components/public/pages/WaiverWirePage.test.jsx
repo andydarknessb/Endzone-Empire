@@ -119,6 +119,8 @@ test('renders an editorial card with null Ownership showing no percentage and no
   expect(within(card).queryByText(/^[\d.]+%$/)).not.toBeInTheDocument();
   expect(within(card).queryByText('owned')).not.toBeInTheDocument();
   expect(card.textContent).not.toMatch(/null|undefined|NaN/);
+  expect(screen.queryByText(/being refreshed/)).not.toBeInTheDocument();
+  expect(screen.getByText(/is out of date, so it is not shown right now/)).toBeInTheDocument();
 });
 
 test('no season rank appears on the page', async () => {
@@ -135,6 +137,24 @@ test('shows the empty state when the week has no targets', async () => {
 
   expect(await screen.findByText("This week's waiver targets aren't posted yet.")).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Week 3 Waiver Targets' })).toBeInTheDocument();
+});
+
+test('shows no intro above the empty state when a computed list is empty', async () => {
+  publicApiClient.get.mockResolvedValue({ data: { week: 3, source: 'computed', ownershipAsOf: null, targets: [] } });
+  renderPage();
+
+  expect(await screen.findByText("This week's waiver targets aren't posted yet.")).toBeInTheDocument();
+  expect(screen.queryByText(/highest-projected players/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/useful players to monitor/)).not.toBeInTheDocument();
+});
+
+test('shows no intro while loading or on error', async () => {
+  publicApiClient.get.mockRejectedValueOnce(new Error('boom'));
+  renderPage();
+
+  expect(screen.queryByText(/useful players to monitor/)).not.toBeInTheDocument();
+  expect(await screen.findByText("We couldn't load this week's waiver targets.")).toBeInTheDocument();
+  expect(screen.queryByText(/useful players to monitor/)).not.toBeInTheDocument();
 });
 
 test('shows the error state with retry, keeps the guides and key terms, and recovers on retry', async () => {

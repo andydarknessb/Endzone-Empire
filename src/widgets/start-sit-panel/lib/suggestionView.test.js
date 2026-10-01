@@ -1,4 +1,4 @@
-import { buildSuggestionView, earlierKickoff, isTooCloseToCall, opponentContextText } from './suggestionView';
+import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -123,5 +123,240 @@ describe('buildSuggestionView', () => {
 
   test('a stable key identifies the pairing', () => {
     expect(buildSuggestionView(suggestion, entriesById).key).toBe('RB-1-2');
+  });
+});
+
+describe('movePlanWithout', () => {
+  const movePlan = [
+    { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' },
+    { playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' },
+    { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
+    { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
+    { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+  ];
+  const view = (sitId, startId) => ({ sit: { playerId: sitId }, start: { playerId: startId } });
+
+  test('drops both moves of a dismissed pair and keeps every other move', () => {
+    expect(movePlanWithout(movePlan, [view(1, 2)])).toEqual([
+      { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
+      { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
+      { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+    ]);
+  });
+
+  test('nothing dismissed returns the plan unchanged', () => {
+    expect(movePlanWithout(movePlan, [])).toEqual(movePlan);
+  });
+
+  test('a pair whose players are not in the plan leaves it unchanged', () => {
+    expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(movePlan);
+  });
+});
+
+describe('projectedLeanLine (#1852)', () => {
+  test('a gap of 10 or more with the manager behind leans toward Ceiling, with the rounded gap', () => {
+    expect(projectedLeanLine({ mine: 88, theirs: 100 })).toBe('Projected to trail by 12: lean toward Ceiling');
+    expect(projectedLeanLine({ mine: 90, theirs: 100 })).toBe('Projected to trail by 10: lean toward Ceiling');
+  });
+
+  test('a gap of 10 or more with the manager ahead leans toward Floor', () => {
+    expect(projectedLeanLine({ mine: 112.4, theirs: 100 })).toBe('Projected to lead by 12: lean toward Floor');
+  });
+
+  test('a closer Matchup has no line, even when the gap rounds up to 10', () => {
+    expect(projectedLeanLine({ mine: 95, theirs: 88 })).toBeNull();
+    expect(projectedLeanLine({ mine: 90.5, theirs: 100 })).toBeNull();
+    expect(projectedLeanLine({ mine: 100, theirs: 100 })).toBeNull();
+  });
+
+  test('a missing Expected final on either side has no line (a 0 is a value, not a miss)', () => {
+    expect(projectedLeanLine({ mine: null, theirs: 100 })).toBeNull();
+    expect(projectedLeanLine({ mine: 88, theirs: undefined })).toBeNull();
+    expect(projectedLeanLine(null)).toBeNull();
+    expect(projectedLeanLine({ mine: 0, theirs: 10 })).toBe('Projected to trail by 10: lean toward Ceiling');
+  });
+
+  test('the copy says Floor and Ceiling, never "range", and has no em-dash', () => {
+    const line = projectedLeanLine({ mine: 80, theirs: 100 });
+    expect(line).not.toMatch(/range/i);
+    expect(line).not.toMatch(/—/);
+  });
+});
+
+describe('buildSuggestionView injury designation (#1852)', () => {
+  const side = (over = {}) => ({ playerId: 1, name: 'A', projection: 5, ...over });
+  const build = (current, suggested) =>
+    buildSuggestionView({ slot: 'RB', current, suggested }, new Map());
+
+  test('carries each side\'s availability status for the shared injury tag', () => {
+    const view = build(
+      side({ availability: { available: true, status: 'Q' } }),
+      side({ playerId: 2, availability: { available: false, status: 'O' } }),
+    );
+    expect(view.sit.injuryStatus).toBe('Q');
+    expect(view.start.injuryStatus).toBe('O');
+  });
+
+  test('a healthy side, or one with no availability, has no status', () => {
+    const view = build(side({ availability: { available: true, status: null } }), side({ playerId: 2 }));
+    expect(view.sit.injuryStatus).toBeNull();
+    expect(view.start.injuryStatus).toBeNull();
+  });
+});
+
+describe('factChips (#1853)', () => {
+  const texts = (input) => factChips(input).map((chip) => chip.text);
+  const calm = { indoor: false, windSpeedMph: 5, windGustMph: 9, precipitationProbability: 10, shortForecast: 'Clear' };
+
+  test('High total at 48 or more, with the exact copy', () => {
+    expect(texts({ line: { spread: -1, total: 49.5, favoredBy: 1 } })).toEqual(['High total 49.5']);
+    expect(texts({ line: { spread: -1, total: 48, favoredBy: 1 } })).toEqual(['High total 48']);
+    expect(texts({ line: { spread: -1, total: 47.5, favoredBy: 1 } })).toEqual([]);
+  });
+
+  test('Favored by at 7 or more, never for an underdog', () => {
+    expect(texts({ line: { spread: -7.5, total: 40, favoredBy: 7.5 } })).toEqual(['Favored by 7.5']);
+    expect(texts({ line: { spread: -7, total: 40, favoredBy: 7 } })).toEqual(['Favored by 7']);
+    expect(texts({ line: { spread: -6.5, total: 40, favoredBy: 6.5 } })).toEqual([]);
+    expect(texts({ line: { spread: 10, total: 40, favoredBy: -10 } })).toEqual([]);
+    expect(texts({ line: { spread: null, total: 40, favoredBy: null } })).toEqual([]);
+  });
+
+  test('Wind at 20 mph or more and Rain at 60% or more, outdoors', () => {
+    expect(texts({ weather: { ...calm, windSpeedMph: 22 } })).toEqual(['Wind 22 mph']);
+    expect(texts({ weather: { ...calm, windSpeedMph: 20 } })).toEqual(['Wind 20 mph']);
+    expect(texts({ weather: { ...calm, windSpeedMph: 19 } })).toEqual([]);
+    expect(texts({ weather: { ...calm, precipitationProbability: 70 } })).toEqual(['Rain 70%']);
+    expect(texts({ weather: { ...calm, precipitationProbability: 60 } })).toEqual(['Rain 60%']);
+    expect(texts({ weather: { ...calm, precipitationProbability: 59 } })).toEqual([]);
+  });
+
+  test('a dome shows no weather chip whatever the numbers say', () => {
+    expect(texts({ weather: { ...calm, indoor: true, windSpeedMph: 30, precipitationProbability: 90 } })).toEqual([]);
+  });
+
+  test('no line, no weather, or nothing notable is no chips', () => {
+    expect(factChips({})).toEqual([]);
+    expect(factChips({ line: null, weather: null })).toEqual([]);
+    expect(factChips({ line: { spread: -3, total: 44, favoredBy: 3 }, weather: calm })).toEqual([]);
+  });
+
+  test('chips read in a fixed order: total, favored, wind, rain', () => {
+    expect(texts({
+      line: { spread: -8, total: 50, favoredBy: 8 },
+      weather: { ...calm, windSpeedMph: 25, precipitationProbability: 80 },
+    })).toEqual(['High total 50', 'Favored by 8', 'Wind 25 mph', 'Rain 80%']);
+  });
+
+  test("the context-only label follows each Factor's applied flag, line chips the market and weather chips the weather", () => {
+    const input = {
+      line: { spread: -8, total: 50, favoredBy: 8 },
+      weather: { ...calm, windSpeedMph: 25 },
+    };
+    const contextOnly = (flags) => factChips({ ...input, ...flags }).map((chip) => chip.contextOnly);
+    // Under v3.1 both Factors ship unscored: every chip is context only.
+    expect(contextOnly({ weatherApplied: false, marketApplied: false })).toEqual([true, true, true]);
+    // A Model version that applies the market drops the label on the Line chips only.
+    expect(contextOnly({ weatherApplied: false, marketApplied: true })).toEqual([false, false, true]);
+    expect(contextOnly({ weatherApplied: true, marketApplied: false })).toEqual([true, true, false]);
+    // A payload that does not say is never read as applied.
+    expect(contextOnly({})).toEqual([true, true, true]);
+  });
+});
+
+describe('buildSuggestionView fact chips (#1853)', () => {
+  const entriesById = new Map();
+  const side = (playerId, extra) => ({ playerId, name: `p${playerId}`, projection: 5, distribution: { p10: 1, p90: 9 }, ...extra });
+
+  test('each side gets the chips for its own game and flags', () => {
+    const view = buildSuggestionView({
+      slot: 'RB',
+      current: side(1, { line: { spread: 9, total: 40, favoredBy: -9 }, marketApplied: false }),
+      suggested: side(2, { line: { spread: -9, total: 52, favoredBy: 9 }, marketApplied: true }),
+    }, entriesById);
+    expect(view.sit.factChips).toEqual([]);
+    expect(view.start.factChips).toEqual([
+      { key: 'total', text: 'High total 52', contextOnly: false },
+      { key: 'favored', text: 'Favored by 9', contextOnly: false },
+    ]);
+  });
+
+  test('a legacy payload with no line or weather has no chips', () => {
+    const view = buildSuggestionView({ slot: 'RB', current: side(1), suggested: side(2) }, entriesById);
+    expect(view.sit.factChips).toEqual([]);
+    expect(view.start.factChips).toEqual([]);
+  });
+});
+
+describe('canCallShot (#1856)', () => {
+  const side = (playerId) => ({ playerId, name: `p${playerId}`, projection: 10 });
+  const build = (over) => buildSuggestionView(
+    { slot: 'RB', current: side(1), suggested: side(2), verdict: 'start', probabilityBetter: 0.9, ...over },
+    new Map()
+  );
+
+  test('a lean with a probability can be called, and carries the probability', () => {
+    const view = build();
+    expect(view.canCallShot).toBe(true);
+    expect(view.probability).toBe(0.9);
+  });
+
+  test('a tossup or a missing probability cannot', () => {
+    expect(build({ verdict: 'tossup', probabilityBetter: 0.55 }).canCallShot).toBe(false);
+    expect(build({ probabilityBetter: null }).canCallShot).toBe(false);
+    expect(build({ probabilityBetter: undefined }).canCallShot).toBe(false);
+  });
+});
+
+describe('calledShotLine (#1856)', () => {
+  const base = {
+    status: 'pending',
+    outcome: null,
+    canWithdraw: true,
+    probability: 0.925,
+    starter: { playerId: 1, name: 'Kept', projection: 8, points: null },
+    benched: { playerId: 2, name: 'Passed', projection: 14.5, points: null },
+  };
+
+  test('no shot, no line', () => {
+    expect(calledShotLine(null)).toBeNull();
+    expect(calledShotLine(undefined)).toBeNull();
+    expect(calledShotLine({ status: 'pending' })).toBeNull();
+  });
+
+  test('pending: the pair, the numbers as called, open status, withdrawable', () => {
+    expect(calledShotLine(base)).toEqual({
+      text: 'Kept over Passed',
+      numbers: 'Proj 8.0 vs 14.5 · 93% lean to Passed',
+      status: 'Open until the first of the two kicks off',
+      state: 'pending',
+      canWithdraw: true,
+    });
+  });
+
+  test('locked is not withdrawable', () => {
+    const line = calledShotLine({ ...base, status: 'locked', canWithdraw: false });
+    expect(line.state).toBe('locked');
+    expect(line.status).toMatch(/^Locked/);
+    expect(line.canWithdraw).toBe(false);
+  });
+
+  test('resolved hit, miss and void each read their own outcome', () => {
+    const resolved = (outcome) => calledShotLine({
+      ...base,
+      status: 'resolved',
+      outcome,
+      canWithdraw: false,
+      starter: { ...base.starter, points: 12.5 },
+      benched: { ...base.benched, points: 9 },
+    });
+    expect(resolved('hit')).toMatchObject({ state: 'resolved-hit', status: 'Hit: Kept scored 12.5, Passed 9.0' });
+    expect(resolved('miss')).toMatchObject({ state: 'resolved-miss', status: 'Miss: Kept scored 12.5, Passed 9.0' });
+    expect(resolved('void')).toMatchObject({ state: 'resolved-void' });
+    expect(resolved('void').status).toMatch(/^Void/);
+  });
+
+  test('a missing probability drops that clause rather than printing NaN', () => {
+    expect(calledShotLine({ ...base, probability: null }).numbers).toBe('Proj 8.0 vs 14.5');
   });
 });

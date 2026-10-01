@@ -4,6 +4,7 @@ import {
   applyScoreEvent,
   applyIdentityPatch,
   matchupStatusView,
+  viewerMatchupOf,
 } from './matchupModel';
 
 // A list row exactly as GET /api/league/:id/matchups delivers it
@@ -278,5 +279,26 @@ describe('firstKickoffAt and syncedAt (#892)', () => {
     const newer = applyScoreEvent(base, { matchupId: 5, homeScore: 50, awayScore: 60, syncedAt: '2025-09-21T20:12:00.000Z', firstKickoffAt: null });
     expect(newer.syncedAt).toBe('2025-09-21T20:12:00.000Z');
     expect(newer.firstKickoffAt).toBeNull();
+  });
+});
+
+describe('viewerMatchupOf (#1872)', () => {
+  const mine = matchupFromListRow({ ...listRow, id: 1, home_team_id: 3, away_team_id: 7 });
+  const awayMine = matchupFromListRow({ ...listRow, id: 2, home_team_id: 8, away_team_id: 3 });
+  const other = matchupFromListRow({ ...listRow, id: 3, home_team_id: 4, away_team_id: 5 });
+
+  test('picks the Matchup the viewer Team is home in', () => {
+    expect(viewerMatchupOf([other, mine], 3)).toBe(mine);
+  });
+
+  test('picks the Matchup the viewer Team is away in', () => {
+    expect(viewerMatchupOf([other, awayMine], 3)).toBe(awayMine);
+  });
+
+  test('is null with no viewer Team, no row for the viewer, or a non-list', () => {
+    expect(viewerMatchupOf([mine], null)).toBeNull();
+    expect(viewerMatchupOf([other], 3)).toBeNull();
+    expect(viewerMatchupOf(null, 3)).toBeNull();
+    expect(viewerMatchupOf([null, other], 3)).toBeNull();
   });
 });

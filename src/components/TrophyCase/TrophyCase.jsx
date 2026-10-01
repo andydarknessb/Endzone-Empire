@@ -7,7 +7,7 @@ import {
   Select,
   MenuItem,
 } from '@mui/material';
-import { Card, Badge } from '../../shared/ui';
+import { Card, Badge, TeamAvatar } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 
@@ -73,6 +73,8 @@ const TROPHY_ICON = {
   top_scorer: 'flame',
   closest_game: 'compress',
   biggest_blowout: 'burst',
+  perfect_lineup: 'target',
+  captain_hindsight: 'rebound',
   win_streak: 'rise',
   comeback: 'rebound',
   draft_grade: 'target',
@@ -107,14 +109,134 @@ export function TrophyIcon({ type, size = 20 }) {
   );
 }
 
+const WEEKLY_TROPHY_TYPES = [
+  'weekly_high',
+  'top_scorer',
+  'closest_game',
+  'biggest_blowout',
+  'perfect_lineup',
+  'captain_hindsight',
+];
+
 function trophySubLabel(trophy) {
-  if (['weekly_high', 'top_scorer', 'closest_game', 'biggest_blowout'].includes(trophy.type) && trophy.week != null) {
+  if (WEEKLY_TROPHY_TYPES.includes(trophy.type) && trophy.week != null) {
     return `${trophy.team_name} · Week ${trophy.week}`;
   }
   return trophy.team_name;
 }
 
-function TrophyCase({ leagueId }) {
+/**
+ * The season's per-team tally: one row per team, a count for every trophy type
+ * awarded that season, ordered by total then name. Types come from the trophies
+ * themselves (label included), so a type a newer server awards appears with no
+ * client change. `teams` (the league's roster, already loaded by the page)
+ * supplies teams that won nothing; a team only the trophies know about is
+ * still listed, so the tally is complete with or without the roster.
+ */
+function buildTally(seasonTrophies, teams = []) {
+  const types = new Map();
+  seasonTrophies.forEach((t) => {
+    if (!types.has(t.type)) types.set(t.type, { type: t.type, label: t.label, total: 0 });
+    types.get(t.type).total += 1;
+  });
+  const typeList = Array.from(types.values()).sort(
+    (a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label))
+  );
+
+  const byTeam = new Map();
+  // One row shape, keyed on the canonical Team identity (`teamId`, `teamName`)
+  // rather than the raw `id`/`name` columns the league-detail route leaks
+  // beside them. `trophies.team_id` is the same integer as `teamId`.
+  teams.forEach((tm) =>
+    byTeam.set(tm.teamId, {
+      teamId: tm.teamId,
+      teamName: tm.teamName,
+      avatar_url: tm.avatar_url,
+      avatar_static_url: tm.avatar_static_url,
+      counts: {},
+      total: 0,
+    })
+  );
+  seasonTrophies.forEach((t) => {
+    if (!byTeam.has(t.team_id)) {
+      byTeam.set(t.team_id, {
+        teamId: t.team_id,
+        teamName: t.team_name,
+        avatar_url: null,
+        avatar_static_url: null,
+        counts: {},
+        total: 0,
+      });
+    }
+    const row = byTeam.get(t.team_id);
+    row.counts[t.type] = (row.counts[t.type] || 0) + 1;
+    row.total += 1;
+  });
+  const rows = Array.from(byTeam.values()).sort(
+    (a, b) =>
+      b.total - a.total || String(a.teamName).localeCompare(String(b.teamName))
+  );
+  return { typeList, rows };
+}
+
+function TrophyTally({ seasonTrophies, teams }) {
+  const { typeList, rows } = useMemo(() => buildTally(seasonTrophies, teams), [seasonTrophies, teams]);
+  if (rows.length === 0) return null;
+  return (
+    <Box
+      component="ul"
+      // WebKit drops the list mapping from a list-style: none <ul>, so VoiceOver
+      // would read the rows as loose text without the explicit role.
+      role="list"
+      data-testid="trophy-tally"
+      aria-label="Trophies by team"
+      sx={{ listStyle: 'none', m: 0, mb: 2, p: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}
+    >
+      {rows.map((row) => (
+        <Box
+          component="li"
+          key={row.teamId}
+          data-testid={`tally-team-${row.teamId}`}
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            columnGap: 1.5,
+            rowGap: 0.5,
+            minWidth: 0,
+            fontFamily: 'var(--dash-font-body)',
+          }}
+        >
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <TeamAvatar
+              name={row.teamName}
+              avatarUrl={row.avatar_url}
+              avatarStaticUrl={row.avatar_static_url}
+              size={24}
+            />
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}>
+              {row.teamName}
+            </Typography>
+          </Box>
+          <Typography variant="caption" sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}>
+            Total {row.total}
+          </Typography>
+          {typeList.map(({ type, label }) => (
+            <Typography
+              key={type}
+              variant="caption"
+              sx={{ color: row.counts[type] ? 'var(--dash-ink)' : 'var(--dash-dim)' }}
+            >
+              {label} {row.counts[type] || 0}
+            </Typography>
+          ))}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function TrophyCase({ leagueId, teams }) {
   const [trophies, setTrophies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -197,6 +319,7 @@ function TrophyCase({ leagueId }) {
           </FormControl>
         )}
       </Box>
+      {visibleTrophies.length > 0 && <TrophyTally seasonTrophies={visibleTrophies} teams={teams} />}
       {visibleTrophies.length === 0 ? (
         <Typography variant="body2" sx={{ color: 'var(--dash-dim)', fontFamily: 'var(--dash-font-body)' }}>
           No trophies for this season yet

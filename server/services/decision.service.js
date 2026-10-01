@@ -23,6 +23,9 @@ const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
 const { getWeekOpponents } = require('./nflWeekOpponents');
+// The Decision card's Line and weather loaders, reused for the start/sit
+// card's fact chips (#1853) rather than read a second way.
+const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
 // live what-if price a player-week the identical way the score of record does
 // - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
@@ -31,6 +34,10 @@ const { getWeekOpponents } = require('./nflWeekOpponents');
 // `fantasy_points` column, which is the DEFAULT-rules price.
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { countedRoster } = require('./countedRoster.service');
+// The called shot's rows and rules (#1856). This module reads shots to pin
+// their pairs; it never asks lineupOverride.service for advice (the router
+// hands the declare path an advice loader), so the two do not require each other.
+const lineupOverrideService = require('./lineupOverride.service');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -90,7 +97,12 @@ function finiteNumber(value) {
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
- * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed }.
+ * options.calledShot (#1856): `{ starterId, benchedId }` of the team's open
+ * called shot, pinned as described above.
+ * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
+ * opponentApplied, line, weather, weatherApplied, marketApplied } (#1853: the
+ * game's Line and weather for the start/sit card's fact chips, each with the
+ * Factor's applied flag that decides the "context only" label).
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
@@ -100,12 +112,29 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const lineupRanking = (options && options.lineupRanking)
     || (projectionModel.MODEL_CONSTANTS.decision || {}).lineupRanking
     || 'median';
-  const entries = (lineupEntries || []).map((e) => ({ ...e, locked: Boolean(e.locked) }));
   const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
+  // An open called shot (#1856) is treated exactly as a locked pair: its starter
+  // keeps his slot and its benched player is never a candidate, so neither
+  // player reaches a suggestion or the movePlan. It holds only while the
+  // lineup still matches the shot (starter starting, benched player benched).
+  const heldByShot = new Set();
+  const shot = options && options.calledShot;
+  if (shot) {
+    const starterEntry = (lineupEntries || []).find((e) => e.playerId === shot.starterId);
+    const benchedEntry = (lineupEntries || []).find((e) => e.playerId === shot.benchedId);
+    if (starterEntry && benchedEntry && isStarter(starterEntry) && benchedEntry.slot === BENCH) {
+      heldByShot.add(shot.starterId);
+      heldByShot.add(shot.benchedId);
+    }
+  }
+  const entries = (lineupEntries || []).map((e) => ({
+    ...e,
+    locked: Boolean(e.locked) || heldByShot.has(e.playerId),
+  }));
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
-    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null };
+    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null, line: null, weather: null };
 
   const availabilityById = new Map();
   const pinned = new Map();
@@ -340,7 +369,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
  * legacy `opponent` / `opponentPointsAllowed` display fields are still
  * populated from getPositionDefense so no client field changes type.
  */
-async function startSitAdvice({ leagueId, userId, week }) {
+async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
@@ -354,7 +383,7 @@ async function startSitAdvice({ leagueId, userId, week }) {
   const effectiveWeek = lineup.week;
   const playerIds = lineup.entries.map((e) => e.id);
 
-  const [run, defense, opponents] = await Promise.all([
+  const [run, defense, opponents, gameChips] = await Promise.all([
     projectionService.getWeeklyProjections({
       season: effectiveSeason,
       week: effectiveWeek,
@@ -363,6 +392,17 @@ async function startSitAdvice({ leagueId, userId, week }) {
     }),
     projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
+    // The Line and weather for the start/sit card's fact chips (#1853): the
+    // Decision card's own loaders, one read per game. Optional context, so a
+    // failed read degrades to no chips rather than no advice.
+    decisionCardContext.loadGameChipContext({
+      season: effectiveSeason,
+      week: effectiveWeek,
+      nflTeams: lineup.entries.map((e) => e.nfl_team),
+    }).catch((err) => {
+      console.error('start/sit advice: game context lookup failed, continuing without chips:', err.message);
+      return new Map();
+    }),
   ]);
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
@@ -382,7 +422,19 @@ async function startSitAdvice({ leagueId, userId, week }) {
     // Read straight off the projection the client will show, so a lineup that
     // only ever displays one number cannot silently disagree with itself.
     const opponentApplied = run.opponentAppliedFor(entry.id);
-    defenseByPlayer.set(entry.id, { opponent, opponentPointsAllowed, opponentApplied });
+    const game = gameChips.get(normalizeNflTeam(entry.nfl_team)) || null;
+    defenseByPlayer.set(entry.id, {
+      opponent,
+      opponentPointsAllowed,
+      opponentApplied,
+      // #1853: the game's Line and weather, each labelled by the Factor's own
+      // applied flag (`scored`; both are 0-effect under v3.1) rather than by a
+      // constant, so a Model version that applies them drops the label.
+      line: game ? game.line : null,
+      weather: game ? game.weather : null,
+      weatherApplied: run.weatherAppliedFor(entry.id),
+      marketApplied: run.marketAppliedFor(entry.id),
+    });
   }
 
   const lineupEntries = lineup.entries.map((e) => ({
@@ -402,12 +454,32 @@ async function startSitAdvice({ leagueId, userId, week }) {
   // off the run's modelVersion, so a successor run ranks and displays the
   // same number and a v3.1 run keeps ranking on the median.
   const runConstants = projectionModel.constantsForVersion(run.modelVersion) || projectionModel.MODEL_CONSTANTS;
+  // The team's called shot for the week (#1856), read BEFORE the suggestions
+  // and the plan are built so the server pins its pair (the declare path asks
+  // for the advice with the shot ignored, so a pair can be re-called). A shot
+  // is a convenience on top of the advice: a failed read degrades to no shot
+  // and no pin, never to no advice.
+  let calledShot = null;
+  if (!ignoreCalledShot && lineup.teamId != null) {
+    try {
+      calledShot = await lineupOverrideService.loadCalledShot(pool, {
+        league, teamId: lineup.teamId, season: effectiveSeason, week: effectiveWeek,
+      });
+    } catch (err) {
+      console.error('start/sit advice: called shot lookup failed, continuing without it:', err.message);
+    }
+  }
   const plan = buildSuggestions(
     lineupEntries,
     run,
     defenseByPlayer,
     lineup.rosterSlots,
-    { lineupRanking: (runConstants.decision || {}).lineupRanking }
+    {
+      lineupRanking: (runConstants.decision || {}).lineupRanking,
+      calledShot: calledShot && calledShot.status !== 'resolved'
+        ? { starterId: calledShot.starter.playerId, benchedId: calledShot.benched.playerId }
+        : null,
+    }
   );
 
   const players = lineupEntries.map((entry) => {
@@ -450,6 +522,9 @@ async function startSitAdvice({ leagueId, userId, week }) {
     openSlotFills: plan.openSlotFills,
     movePlan: plan.movePlan,
     unavailable: plan.unavailable,
+    // The team's called shot for the week, or null (#1856): the pair, the
+    // numbers as called and a status of pending, locked or resolved.
+    calledShot,
     players,
   };
 }
@@ -507,6 +582,19 @@ async function isWeekFinal({ leagueId, season, week }) {
  * branches treat IR identically.
  */
 async function weekHindsight({ leagueId, teamId, season, week }) {
+  const { counted, ...hindsight } = await weekHindsightRoster({ leagueId, teamId, season, week });
+  return hindsight;
+}
+
+/**
+ * weekHindsight's one read, plus the counted roster it priced: every
+ * held-as-played, non-IR row as `{ playerId, position, slot, points, name }`,
+ * BENCH rows included. The Captain Hindsight trophy (#1854) prices single
+ * bench-for-starter moves over exactly this population and pricer, so it reads
+ * the rows here rather than re-deriving them. `weekHindsight` returns the same
+ * object minus `counted`, so its wire shape is unchanged.
+ */
+async function weekHindsightRoster({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
   if (!(await isWeekFinal({ leagueId, season, week }))) {
     throw new DecisionError(409, `week ${week} is not final yet`);
@@ -539,11 +627,11 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
   // settle pass cannot disagree.
   const rules = rulesForLeague(league);
   const price = (stats) => calculateFantasyPoints(stats, rules);
-  const { teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
+  const { counted, teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
     countedRoster({ rows: asPlayed, league, price });
 
   return {
-    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters,
+    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters, counted,
   };
 }
 
@@ -1013,6 +1101,7 @@ module.exports = {
   buildSuggestions,
   startSitAdvice,
   weekHindsight,
+  weekHindsightRoster,
   liveWhatIf,
   seasonHindsight,
   fitAdjustedValue,

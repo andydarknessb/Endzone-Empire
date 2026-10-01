@@ -7,6 +7,8 @@
  * unit-tested directly.
  */
 
+import { finite } from '../../../shared/lib';
+
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
  * known. `opponentApplied` (#1485) says whether the projection engine's own
@@ -21,6 +23,58 @@ export function opponentContextText({ opponent, opponentPointsAllowed, position,
   if (opponentPointsAllowed == null || position == null) return `vs ${opponent}`;
   const allowed = `vs ${opponent} (allows ${Number(opponentPointsAllowed).toFixed(1)} to ${position}`;
   return opponentApplied === false ? `${allowed}, context only)` : `${allowed})`;
+}
+
+/** The Line total at which the "High total" chip appears (#1853). */
+export const HIGH_TOTAL_MIN = 48;
+/** How many points a team must be favored by for the "Favored by" chip (#1853). */
+export const FAVORED_BY_MIN = 7;
+/** Outdoor wind speed, mph, at which the "Wind" chip appears (#1853). */
+export const WIND_MIN_MPH = 20;
+/** Outdoor chance of precipitation, percent, at which the "Rain" chip appears (#1853). */
+export const RAIN_MIN_PERCENT = 60;
+
+// 49.5 -> "49.5", 48 -> "48": a half point is kept, a whole number has no ".0".
+const plain = (n) => String(Math.round(n * 10) / 10);
+
+/**
+ * The fact chips under one suggestion side (#1853): only what is notable about
+ * the player's game, in a fixed order (total, favored, wind, rain), each
+ * `{ key, text, contextOnly }`. `line` is the payload's `{ spread, total,
+ * favoredBy }` (favoredBy positive when the player's team is favored) and
+ * `weather` its `{ indoor, windSpeedMph, precipitationProbability, ... }`; either
+ * may be null. A dome has no weather chip. The Implied team total is never
+ * shown here (ADR 0037: Decision card only).
+ *
+ * `contextOnly` is driven by the Factor's applied flag, not hard-coded: the
+ * Line chips by `marketApplied` (the gameEnvironment Factor), the weather chips
+ * by `weatherApplied`. Only an explicit `true` drops the label, so a payload
+ * that does not say is never read as applied; under v3.1 both Factors have a
+ * maximum effect of zero and both flags are false.
+ */
+export function factChips({ line, weather, weatherApplied, marketApplied } = {}) {
+  const marketContextOnly = marketApplied !== true;
+  const weatherContextOnly = weatherApplied !== true;
+  const chips = [];
+  const total = finite(line?.total);
+  if (total != null && total >= HIGH_TOTAL_MIN) {
+    chips.push({ key: 'total', text: `High total ${plain(total)}`, contextOnly: marketContextOnly });
+  }
+  const favoredBy = finite(line?.favoredBy);
+  if (favoredBy != null && favoredBy >= FAVORED_BY_MIN) {
+    chips.push({ key: 'favored', text: `Favored by ${plain(favoredBy)}`, contextOnly: marketContextOnly });
+  }
+  if (weather && !weather.indoor) {
+    const wind = finite(weather.windSpeedMph);
+    if (wind != null && wind >= WIND_MIN_MPH) {
+      chips.push({ key: 'wind', text: `Wind ${Math.round(wind)} mph`, contextOnly: weatherContextOnly });
+    }
+    const rain = finite(weather.precipitationProbability);
+    if (rain != null && rain >= RAIN_MIN_PERCENT) {
+      chips.push({ key: 'rain', text: `Rain ${Math.round(rain)}%`, contextOnly: weatherContextOnly });
+    }
+  }
+  return chips;
 }
 
 /** The earlier of two kickoff instants (ISO strings); either may be absent. */
@@ -52,6 +106,10 @@ function sideView(side, entriesById) {
     position,
     kickoff,
     projection: side.projection ?? null,
+    // The shared injury tag's code (#1852): the suggestion side's availability
+    // carries the player's designation (O, IR, D, Q or null), the same field
+    // the Ledger row's tag reads off the lineup entry.
+    injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
     opponentContext: opponentContextText({
@@ -59,6 +117,12 @@ function sideView(side, entriesById) {
       opponentPointsAllowed: side.opponentPointsAllowed,
       position,
       opponentApplied: side.opponentApplied,
+    }),
+    factChips: factChips({
+      line: side.line,
+      weather: side.weather,
+      weatherApplied: side.weatherApplied,
+      marketApplied: side.marketApplied,
     }),
   };
 }
@@ -89,10 +153,98 @@ export function buildSuggestionView(suggestion, entriesById) {
     start,
     gain: suggestion.gain ?? null,
     tooCloseToCall: isTooCloseToCall(suggestion),
+    // The start/sit probability the Forecast quoted (#1856); a called shot is
+    // offered only where there is an edge to call it against.
+    probability: finite(suggestion.probabilityBetter),
+    canCallShot: !isTooCloseToCall(suggestion) && finite(suggestion.probabilityBetter) != null,
     decideBy: earlierKickoff(sit.kickoff, start.kickoff),
     domainMin: 0,
     domainMax,
   };
+}
+
+/**
+ * The advice's `movePlan` minus the moves of every dismissed suggestion (#1851).
+ * `movePlan` is built server-side from the optimal assignment, not from the
+ * suggestions the panel shows, so a dismissed swap would otherwise still be
+ * made on Apply. A swap suggestion is exactly one sit (current starter -> bench)
+ * and one start (bench player -> that slot), so a dismissed pair removes the
+ * moves of those two players and nothing else: open-slot fills and reshuffles
+ * name other players and pass through untouched.
+ */
+export function movePlanWithout(movePlan, dismissedViews) {
+  const plan = Array.isArray(movePlan) ? movePlan : [];
+  if (!dismissedViews || dismissedViews.length === 0) return plan;
+  const held = new Set();
+  for (const view of dismissedViews) {
+    held.add(view.sit.playerId);
+    held.add(view.start.playerId);
+  }
+  return plan.filter((move) => !held.has(move.playerId));
+}
+
+/**
+ * The standing "Your called shot" line (#1856), from the advice payload's
+ * `calledShot` ({ starter, benched: { name, projection, points }, probability,
+ * status: 'pending' | 'locked' | 'resolved', outcome: 'hit' | 'miss' | 'void' | null,
+ * canWithdraw }), or null when there is none. Returns the pair, the numbers as
+ * called and one status sentence; every status the payload can carry has its
+ * own wording, and an unknown one reads as still open rather than as nothing.
+ */
+export function calledShotLine(calledShot) {
+  if (!calledShot || !calledShot.starter || !calledShot.benched) return null;
+  const { starter, benched } = calledShot;
+  const number = (n) => (finite(n) == null ? '-' : Number(n).toFixed(1));
+  const probability = finite(calledShot.probability);
+  const numbers = [
+    `Proj ${number(starter.projection)} vs ${number(benched.projection)}`,
+    probability != null ? `${Math.round(probability * 100)}% lean to ${benched.name}` : null,
+  ].filter(Boolean).join(' · ');
+  let status;
+  if (calledShot.status === 'resolved') {
+    const scores = `${starter.name} scored ${number(starter.points)}, ${benched.name} ${number(benched.points)}`;
+    if (calledShot.outcome === 'hit') status = `Hit: ${scores}`;
+    else if (calledShot.outcome === 'miss') status = `Miss: ${scores}`;
+    else status = 'Void: a player did not play, or the lineup changed';
+  } else if (calledShot.status === 'locked') {
+    status = 'Locked: one of the two games has started';
+  } else {
+    status = 'Open until the first of the two kicks off';
+  }
+  const state = calledShot.status === 'resolved'
+    ? `resolved-${calledShot.outcome || 'void'}`
+    : (calledShot.status === 'locked' ? 'locked' : 'pending');
+  return {
+    text: `${starter.name} over ${benched.name}`,
+    numbers,
+    status,
+    state,
+    canWithdraw: calledShot.canWithdraw === true,
+  };
+}
+
+/** The Expected final gap, in points, at which the lean line appears (#1852). */
+export const LEAN_LINE_MIN_GAP = 10;
+
+/**
+ * The one line at the top of the start/sit card when the Matchup is lopsided
+ * (#1852): "Projected to trail by 12: lean toward Ceiling" or "Projected to
+ * lead by 12: lean toward Floor". `mine` and `theirs` are the two teams'
+ * Expected finals for the Matchup. The line appears only when the absolute gap
+ * is `LEAN_LINE_MIN_GAP` or more (tested before rounding, so a 9.6 gap is no
+ * line), shows the rounded gap, names no player and changes no suggestion.
+ * A missing Expected final on either side reads as no line; a `0` is a value.
+ */
+export function projectedLeanLine(expectedFinals) {
+  const mine = finite(expectedFinals?.mine);
+  const theirs = finite(expectedFinals?.theirs);
+  if (mine == null || theirs == null) return null;
+  const gap = mine - theirs;
+  if (Math.abs(gap) < LEAN_LINE_MIN_GAP) return null;
+  const rounded = Math.round(Math.abs(gap));
+  return gap < 0
+    ? `Projected to trail by ${rounded}: lean toward Ceiling`
+    : `Projected to lead by ${rounded}: lean toward Floor`;
 }
 
 export default buildSuggestionView;
