@@ -331,7 +331,7 @@ _Avoid_: stadium (fine in copy, not as the term), location
 **Weather**:
 A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
 That table is refreshed by the weather snapshots Sync run (every 6 hours; each
-run writes one bucket per game). A **horizon bucket** is a game's hours to
+run writes one bucket per game). A horizon bucket is a game's hours to
 kickoff floored to a 6-hour step, and a snapshot is kept per game and bucket.
 A run where NWS returned no forecast fails and retries next tick.
 The Decision card, Pick'em and the start/sit card each read it independently

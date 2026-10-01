@@ -629,7 +629,7 @@ async function runHourlyGameContextSync({ now = new Date() } = {}) {
 // One horizon bucket (nwsWeather.service HORIZON_BUCKET_HOURS = 6): a run that
 // follows an ok run lands in each game's next bucket, so a snapshot is never
 // refetched into the bucket it already filled and never skipped past one
-// (#1883). A retry after a failed run stays in the same bucket.
+// (#1883).
 const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
