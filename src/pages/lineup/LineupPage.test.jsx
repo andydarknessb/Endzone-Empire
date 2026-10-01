@@ -1178,10 +1178,31 @@ test('no lean line in a closer Matchup, and none when the Matchup data has not l
 });
 
 test("the week's matchups list is read once for the page, not once per surface (#1872)", async () => {
-  renderPage();
+  // Order-independent: the lineup GET (which carries the week the page reads) is
+  // held on a deferred promise until the widgets' matchups GET has settled, so the
+  // page's own read mounts after the settle and is served by the TTL, not a reload.
+  mockGetByUrl(baseUrls());
+  const answer = apiClient.get.getMockImplementation();
+  let releaseLineup;
+  const lineupGate = new Promise((resolve) => {
+    releaseLineup = resolve;
+  });
+  let matchupsSettled = null;
+  apiClient.get.mockImplementation((url) => {
+    if (url === LINEUP_URL) return lineupGate.then(() => answer(url));
+    const result = answer(url);
+    if (url === MATCHUPS_URL && !matchupsSettled) matchupsSettled = result.then(() => undefined);
+    return result;
+  });
+  renderWithProviders(<LineupPage />, { route: '/team?leagueId=1', path: '/team' });
+
+  await waitFor(() => expect(matchupsSettled).not.toBeNull());
+  await matchupsSettled;
+  await act(async () => {
+    await Promise.resolve();
+  });
+  releaseLineup();
+
   await screen.findByTestId('ledger-starters');
-  await waitFor(() =>
-    expect(apiClient.get.mock.calls.filter(([url]) => url === MATCHUPS_URL).length).toBeGreaterThanOrEqual(1)
-  );
   expect(apiClient.get.mock.calls.filter(([url]) => url === MATCHUPS_URL)).toHaveLength(1);
 });
