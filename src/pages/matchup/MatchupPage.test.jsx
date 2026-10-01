@@ -1315,6 +1315,43 @@ test('a final void called shot shows the line with no outcome word', async () =>
   expect(screen.queryByTestId('called-shot-outcome-home')).not.toBeInTheDocument();
 });
 
+test('an unknown number reads as a dash, never 0.0: a void shot whose benched player left the lineup', async () => {
+  mockApi({
+    matchup: withShot(
+      calledShot({ outcome: 'void', benched: { playerId: 99, name: 'Dropped Guy', points: null } }),
+      { matchup: { final: true } }
+    ),
+  });
+  renderPage();
+  expect(await screen.findByTestId('called-shot-home')).toHaveTextContent('Called shot: P. Mahomes over Dropped Guy · 24.1 to -');
+});
+
+test('a resync reads the fresh bench points and never adds the summed deltas on top of them', async () => {
+  mockApi({ matchup: withShot(calledShot()) });
+  renderPage();
+  await screen.findByTestId('called-shot-home');
+  emitScores({
+    week: 3,
+    scored: [{ matchupId: 9, homeScore: 105, awayScore: 88 }],
+    plays: [{ playerId: 20, type: 'rushing', isTouchdown: false, pointsDelta: 2.5 }],
+  });
+  expect(screen.getByTestId('called-shot-home')).toHaveTextContent('24.1 to 8.7');
+
+  // The reconnect's read already includes those 2.5 points.
+  mockApi({
+    matchup: matchupResponse({
+      homeBench: [{ id: 20, name: 'Bench Runner', position: 'RB', points: 8.7, projected: 9 }],
+      home: { calledShot: calledShot() },
+    }),
+  });
+  act(() => { socket.reconnect(); });
+  await waitFor(() => expect(matchupFetches()).toHaveLength(2));
+  await waitFor(() => expect(screen.getByTestId('called-shot-home')).toHaveTextContent('24.1 to 8.7'));
+  // A later play on the new read sums from zero again.
+  emitScores({ week: 3, plays: [{ playerId: 20, type: 'rushing', isTouchdown: false, pointsDelta: 1 }] });
+  expect(screen.getByTestId('called-shot-home')).toHaveTextContent('24.1 to 9.7');
+});
+
 test("the away team's called shot shows on the away side", async () => {
   mockApi({
     matchup: matchupResponse({

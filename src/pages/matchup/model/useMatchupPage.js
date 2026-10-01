@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
-import { matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
+import { formatPoints, matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
 import { useMatchup, matchupStatusView, deltasFor } from '../../../entities/matchup';
 import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
@@ -80,6 +80,7 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
 const RETRO_DASH_MS = 1000;
 const RETRO_MOMENT_MS = 1800;
 const TICKER_LIMIT = 12;
+const NO_DELTAS = new Map();
 
 /**
  * The league's roster_slots keys in commissioner order, or an empty list.
@@ -106,7 +107,9 @@ const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', sch
  * once both players have locked. While it is open each player's points are
  * read live: the starter off the entity's score-bumped starters, the benched
  * player off the bench plus the deltas this page has summed since the read (the
- * entity bumps starters only). Judged numbers stand once hit or miss.
+ * entity bumps starters only). Judged numbers stand once hit or miss; a number
+ * the wire does not know (a void shot, a player dropped since) reads as a dash,
+ * never 0.0.
  */
 export function calledShotView(shot, { starters, bench, deltas }) {
   if (!shot?.starter || !shot?.benched) return null;
@@ -119,9 +122,8 @@ export function calledShotView(shot, { starters, bench, deltas }) {
     if (benched) return Math.round(((Number(benched.points) || 0) + (deltas.get(side.playerId) || 0)) * 100) / 100;
     return side.points;
   };
-  const one = (n) => (Number(n) || 0).toFixed(1);
   return {
-    text: `Called shot: ${shot.starter.name} over ${shot.benched.name} · ${one(pointsOf(shot.starter))} to ${one(pointsOf(shot.benched))}`,
+    text: `Called shot: ${shot.starter.name} over ${shot.benched.name} · ${formatPoints(pointsOf(shot.starter))} to ${formatPoints(pointsOf(shot.benched))}`,
     outcome: judged ? (shot.outcome === 'hit' ? 'Hit' : 'Miss') : null,
   };
 }
@@ -151,7 +153,9 @@ export function useMatchupPage(leagueId, matchupId) {
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
   // Points summed per player from score events since the last read, so a
   // bench player's live points move (the entity bumps starters only, #1857).
-  const [liveDeltas, setLiveDeltas] = useState(() => new Map());
+  // Tied to the read they sum against: `read` is the detail body they were
+  // summed on, and a different body (a refetch or resync) means they are spent.
+  const [live, setLive] = useState({ read: null, deltas: NO_DELTAS });
   const retroTimeoutRef = useRef(null);
   // The latest detail body, so the play handler reads the current lineups and
   // viewer id without closing over them (and without re-subscribing the feed).
@@ -165,10 +169,11 @@ export function useMatchupPage(leagueId, matchupId) {
 
     const deltaById = deltasFor(event, detailRef.current?.matchup?.week);
     if (deltaById.size) {
-      setLiveDeltas((prev) => {
-        const next = new Map(prev);
+      const read = detailRef.current;
+      setLive((prev) => {
+        const next = new Map(prev.read === read ? prev.deltas : NO_DELTAS);
         deltaById.forEach((d, id) => next.set(id, (next.get(id) || 0) + d));
-        return next;
+        return { read, deltas: next };
       });
     }
 
@@ -227,8 +232,6 @@ export function useMatchupPage(leagueId, matchupId) {
 
   useEffect(() => {
     detailRef.current = detail;
-    // A fresh read carries the points the deltas were summing toward.
-    setLiveDeltas(new Map());
   }, [detail]);
 
   // Clear the retro timer on unmount so a late timeout never fires after the
@@ -317,6 +320,8 @@ export function useMatchupPage(leagueId, matchupId) {
     : null;
   const viewerHasRoster = !!viewerSide
     && ((viewerSide.starters || []).length > 0 || (viewerSide.bench || []).length > 0);
+
+  const liveDeltas = live.read === detail ? live.deltas : NO_DELTAS;
 
   return {
     league,
