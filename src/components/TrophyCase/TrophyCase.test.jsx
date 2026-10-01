@@ -128,6 +128,23 @@ test('shows Perfect Lineup and Captain Hindsight as chips with team and week', a
   expect(iconOf('trophy-6')).toHaveAttribute('data-icon', 'rebound');
 });
 
+// #1860: a hit Called shot is a weekly trophy: "team · Week N" and its own glyph.
+test('shows Called Shot as a weekly chip with team and week', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      { ...trophies[0], id: 7, type: 'called_shot', label: 'Called Shot', week: 8, team_name: 'Sunday Ballers', data: { bold: true } },
+    ],
+  });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+  await screen.findByTestId('trophy-case');
+
+  expect(screen.getByTestId('trophy-7')).toHaveTextContent('Called Shot');
+  expect(screen.getByTestId('trophy-7')).toHaveTextContent('Sunday Ballers · Week 8');
+  // eslint-disable-next-line testing-library/no-node-access -- the glyph is aria-hidden by design
+  expect(screen.getByTestId('trophy-7').querySelector('svg[data-icon]')).toHaveAttribute('data-icon', 'target');
+});
+
 test('renders nothing while loading', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderWithProviders(<TrophyCase leagueId={1} />);
@@ -294,4 +311,23 @@ test('hides itself on a fetch error', async () => {
 
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
   expect(screen.queryByTestId('trophy-case')).not.toBeInTheDocument();
+});
+
+// #1861: the season's fewest points left is a season trophy: the team name
+// alone (no week) beside its own glyph, the number carried by the label.
+test('shows Fewest Left on the Bench as a season chip with its number and no week', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      { ...trophies[0], id: 8, type: 'fewest_left_on_bench', label: 'Fewest Left on the Bench (31.2)', week: 0, team_name: 'Sunday Ballers', data: { pointsLeft: 31.2 } },
+    ],
+  });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+  await screen.findByTestId('trophy-case');
+
+  expect(screen.getByTestId('trophy-8')).toHaveTextContent('Fewest Left on the Bench (31.2)');
+  expect(screen.getByTestId('trophy-8')).toHaveTextContent('Sunday Ballers');
+  expect(screen.getByTestId('trophy-8')).not.toHaveTextContent('Week');
+  // eslint-disable-next-line testing-library/no-node-access -- the glyph is aria-hidden by design
+  expect(screen.getByTestId('trophy-8').querySelector('svg[data-icon]')).toHaveAttribute('data-icon', 'target');
 });

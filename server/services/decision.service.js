@@ -23,8 +23,8 @@ const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
 const { getWeekOpponents } = require('./nflWeekOpponents');
-// The Decision card's Line and weather loaders, reused for the start/sit
-// card's fact chips (#1853) rather than read a second way.
+// The Decision card's Line, weather and Volatility loaders, reused for the
+// start/sit card's fact chips (#1853) and tags (#1858) rather than read a second way.
 const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
 // live what-if price a player-week the identical way the score of record does
@@ -102,7 +102,9 @@ function finiteNumber(value) {
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
  * opponentApplied, line, weather, weatherApplied, marketApplied } (#1853: the
  * game's Line and weather for the start/sit card's fact chips, each with the
- * Factor's applied flag that decides the "context only" label).
+ * Factor's applied flag that decides the "context only" label; and #1858's
+ * `volatility`, the player's Volatility tag or null, which rides to both sides
+ * of every suggestion through the same spread).
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
@@ -134,7 +136,8 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
-    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null, line: null, weather: null };
+    defenseByPlayer.get(playerId)
+    || { opponent: null, opponentPointsAllowed: null, line: null, weather: null, volatility: null };
 
   const availabilityById = new Map();
   const pinned = new Map();
@@ -369,14 +372,16 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
  * legacy `opponent` / `opponentPointsAllowed` display fields are still
  * populated from getPositionDefense so no client field changes type.
  */
-async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false }) {
+async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false, now = new Date() }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
   if (league.best_ball) {
     throw new DecisionError(409, 'best-ball leagues set lineups automatically, so there is no advice to give');
   }
-  const lineup = await lineupService.getLineup({ leagueId, userId, week });
+  // `now` is the time the lineup's locks are read at: the override capture asks
+  // for the advice as of a minute before a kickoff (#1862).
+  const lineup = await lineupService.getLineup({ leagueId, userId, week, now });
   // The lineup's own season is authoritative — a caller-supplied season that
   // disagreed with it would pair this lineup with another year's projections.
   const effectiveSeason = lineup.season;
@@ -404,6 +409,18 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       return new Map();
     }),
   ]);
+  // The Volatility tags (#1858), one read of the run's rows for the roster's
+  // positions. Optional context: a failed read degrades to no tags, not no advice.
+  // The Decision card's own loader, so a player carries the same tag on both.
+  const volatilityByPlayer = await decisionCardContext.loadVolatilityTags({
+    season: effectiveSeason,
+    week: effectiveWeek,
+    rules: rulesForLeague(league),
+    positions: lineup.entries.map((e) => e.position),
+  }).catch((err) => {
+    console.error('start/sit advice: volatility lookup failed, continuing without tags:', err.message);
+    return new Map();
+  });
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
   // folds into (#1136), so this pairing is folded-on-folded with no local
@@ -434,6 +451,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       weather: game ? game.weather : null,
       weatherApplied: run.weatherAppliedFor(entry.id),
       marketApplied: run.marketAppliedFor(entry.id),
+      volatility: volatilityByPlayer.get(entry.id) ?? null,
     });
   }
 
@@ -467,6 +485,31 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       });
     } catch (err) {
       console.error('start/sit advice: called shot lookup failed, continuing without it:', err.message);
+    }
+  }
+  // The manager's season points left and rank (#1861), from the stored weekly
+  // rows. Optional context: a failed read degrades to no line, not no advice.
+  let pointsLeft = null;
+  if (lineup.teamId != null) {
+    try {
+      pointsLeft = await pointsLeftStanding(pool, {
+        leagueId, season: effectiveSeason, teamId: lineup.teamId, throughWeek: league.regular_season_weeks,
+      });
+    } catch (err) {
+      console.error('start/sit advice: points left lookup failed, continuing without it:', err.message);
+    }
+  }
+  // The manager's season record against the Forecast and of Called shots
+  // (#1862), private to this team. Optional context: a failed read degrades to
+  // no lines, not no advice.
+  let seasonRecord = { overrides: null, calledShots: null };
+  if (lineup.teamId != null) {
+    try {
+      seasonRecord = await lineupOverrideService.loadSeasonRecord(pool, {
+        leagueId, teamId: lineup.teamId, season: effectiveSeason,
+      });
+    } catch (err) {
+      console.error('start/sit advice: season record lookup failed, continuing without it:', err.message);
     }
   }
   const plan = buildSuggestions(
@@ -525,6 +568,12 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     // The team's called shot for the week, or null (#1856): the pair, the
     // numbers as called and a status of pending, locked or resolved.
     calledShot,
+    // `{ total, rank, teams }` of points left this season, or null (#1861).
+    pointsLeft,
+    // `{ hits, misses }` over this team's resolved Overrides and `{ hits,
+    // resolved, streak }` over its resolved Called shots, or null (#1862).
+    overrideRecord: seasonRecord.overrides,
+    calledShotRecord: seasonRecord.calledShots,
     players,
   };
 }
@@ -588,11 +637,14 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 
 /**
  * weekHindsight's one read, plus the counted roster it priced: every
- * held-as-played, non-IR row as `{ playerId, position, slot, points, name }`,
+ * held-as-played, non-IR row as `{ playerId, position, slot, points, name, appeared }`,
  * BENCH rows included. The Captain Hindsight trophy (#1854) prices single
  * bench-for-starter moves over exactly this population and pricer, so it reads
  * the rows here rather than re-deriving them. `weekHindsight` returns the same
  * object minus `counted`, so its wire shape is unchanged.
+ *
+ * Each counted row also carries `appeared` (#1860): whether his stat line
+ * records an Appearance (`madeAppearance`), which the Called shot judge reads.
  */
 async function weekHindsightRoster({ leagueId, teamId, season, week }) {
   const league = await assertLeagueAndTeam({ leagueId, teamId });
@@ -630,9 +682,64 @@ async function weekHindsightRoster({ leagueId, teamId, season, week }) {
   const { counted, teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
     countedRoster({ rows: asPlayed, league, price });
 
+  const statsById = new Map(asPlayed.map((r) => [r.player_id, r.stats]));
   return {
-    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters, counted,
+    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters,
+    counted: counted.map((c) => ({ ...c, appeared: madeAppearance(statsById.get(c.playerId)) })),
   };
+}
+
+/** The `league_analytics` type holding every team's points left for one week (#1861, ADR 0054). */
+const POINTS_LEFT_TYPE = 'points_left';
+
+/**
+ * Each team's points left on the bench over the season, summed from the stored
+ * per-week rows (`{ teams: [{ teamId, pointsLeft }] }`), never recomputed from
+ * Hindsight: a stored number is judged once and a correction never revisits it.
+ * Returns Map(teamId -> total, two places); empty when no week has a row (best
+ * ball and pick'em-only leagues never write one). Only weeks through
+ * `throughWeek` count: the regular season, the weeks every team plays (a
+ * playoff row holds only the teams still alive).
+ */
+async function seasonPointsLeft(db, { leagueId, season, throughWeek }) {
+  const { rows } = await db.query(
+    `SELECT "week", "data" FROM "league_analytics"
+     WHERE "league_id" = $1 AND "season" = $2 AND "type" = $3 AND "week" <= $4`,
+    [leagueId, season, POINTS_LEFT_TYPE, throughWeek]
+  );
+  const totals = new Map();
+  for (const { data } of rows) {
+    for (const { teamId, pointsLeft } of data.teams) {
+      totals.set(Number(teamId), (totals.get(Number(teamId)) || 0) + Number(pointsLeft));
+    }
+  }
+  return new Map([...totals].map(([teamId, total]) => [teamId, round2(total)]));
+}
+
+/**
+ * The team's season points left and its rank among the league's teams, fewest
+ * first (a tie shares the better rank): `{ total, rank, teams }`, or null when
+ * the team has no stored week (nothing is stored in best ball or pick'em-only).
+ */
+async function pointsLeftStanding(db, { leagueId, season, teamId, throughWeek }) {
+  const totals = await seasonPointsLeft(db, { leagueId, season, throughWeek });
+  const total = totals.get(Number(teamId));
+  if (total === undefined) return null;
+  return { total, rank: 1 + [...totals.values()].filter((v) => v < total).length, teams: totals.size };
+}
+
+/**
+ * Pure: did this player-week's stat line record an Appearance (CONTEXT.md
+ * "Appearance"; #1860)? A stat row alone is not one: rows exist for rostered
+ * players who never took the field, and the box writes its zeros. An Appearance
+ * is a snap (nflverse snap_counts, offense or defense) or any non-zero figure in
+ * the line. ponytail: the box and snap feed are the only participation data
+ * there is (no active/inactive flag), so a blocking tight end whose snaps have
+ * not been published yet reads as no Appearance; upgrade to a game-level active
+ * list if the feed ever carries one.
+ */
+function madeAppearance(stats) {
+  return Object.values(stats || {}).some((v) => typeof v === 'number' && Number.isFinite(v) && v !== 0);
 }
 
 /**
@@ -1102,6 +1209,10 @@ module.exports = {
   startSitAdvice,
   weekHindsight,
   weekHindsightRoster,
+  POINTS_LEFT_TYPE,
+  seasonPointsLeft,
+  pointsLeftStanding,
+  madeAppearance,
   liveWhatIf,
   seasonHindsight,
   fitAdjustedValue,

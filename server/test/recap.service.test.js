@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  buildRecapFacts, pickWaiverSteal, templateNarrative, lineupTrophyFacts,
+  buildRecapFacts, pickWaiverSteal, templateNarrative, lineupTrophyFacts, calledShotFacts,
 } = require('../services/recap.service');
 const { rulesForLeague } = require('../services/scoringRules');
 const { createFakePool } = require('./helpers/fakePool');
@@ -202,6 +202,58 @@ test('#1854 computeAndStoreWeeklyRecap reads the trophy rows just written into i
   assert.match(data.narrative, /Captain Hindsight: Team B lost by 20; starting Ben Bench over Flex Guy at FLEX would have won it\./);
 });
 
+// ---- #1860: Called shots in the Recap --------------------------------------
+
+const HIT = { outcome: 'hit', team_name: 'Team A', starter_name: 'Sam Starter', benched_name: 'Ben Bench', starter_points_actual: '11.4', benched_points_actual: '6.2', probability: '0.65' };
+const MISS = { ...HIT, outcome: 'miss', team_name: 'Team B', starter_points_actual: '5', benched_points_actual: '9.5' };
+
+test('#1860 templateNarrative narrates a hit and a miss, noting a bold call', () => {
+  const narrative = templateNarrative({
+    week: 4,
+    calledShots: [
+      { team: 'Team A', starter: 'Sam Starter', benched: 'Ben Bench', starterPoints: 11.4, benchedPoints: 6.2, outcome: 'hit', bold: false },
+      { team: 'Team B', starter: 'Sue Starter', benched: 'Bea Bench', starterPoints: 5, benchedPoints: 9.5, outcome: 'miss', bold: true },
+      { team: 'Team C', starter: 'Cy Starter', benched: 'Cat Bench', starterPoints: 20, benchedPoints: 8, outcome: 'hit', bold: true },
+    ],
+  });
+  assert.match(narrative, /Team A called it: Sam Starter over Ben Bench, 11\.4 to 6\.2\./);
+  assert.match(narrative, /Team B called Sue Starter over Bea Bench and missed, 5 to 9\.5\. A bold call\./);
+  assert.match(narrative, /Team C called it: Cy Starter over Cat Bench, 20 to 8\. A bold call\./);
+  assert.equal(narrative.match(/bold call/g).length, 2, 'only the bold ones are noted');
+});
+
+test('#1860 calledShotFacts reads resolved rows; a void adds nothing; no rows adds no key', () => {
+  assert.deepEqual(calledShotFacts([HIT, MISS, { ...HIT, outcome: 'void' }]), {
+    calledShots: [
+      { team: 'Team A', starter: 'Sam Starter', benched: 'Ben Bench', starterPoints: 11.4, benchedPoints: 6.2, outcome: 'hit', bold: false },
+      { team: 'Team B', starter: 'Sam Starter', benched: 'Ben Bench', starterPoints: 5, benchedPoints: 9.5, outcome: 'miss', bold: false },
+    ],
+  });
+  assert.deepEqual(calledShotFacts([{ ...HIT, probability: '0.8' }]).calledShots[0].bold, true, '0.8 is bold');
+  assert.deepEqual(calledShotFacts([]), {});
+});
+
+test('#1860 computeAndStoreWeeklyRecap reads the week\'s resolved called rows and never recomputes them', async (t) => {
+  const fake = recapWorld({
+    handlers: [[
+      /^SELECT "teams"\."name" AS "team_name".* FROM "lineup_overrides"/,
+      (text, params) => {
+        assert.deepEqual(params, [7, 2026, 5], 'only the advanced week: a catch-up row of an earlier week gets no line');
+        assert.match(text, /"called"/);
+        assert.match(text, /"outcome" IN \('hit', 'miss'\)/);
+        return { rows: [HIT] };
+      },
+    ]],
+  });
+  fake.install(t);
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.equal(data.facts.calledShots.length, 1);
+  assert.match(data.narrative, /Team A called it: Sam Starter over Ben Bench, 11\.4 to 6\.2\./);
+});
+
 test('templateNarrative always produces something', () => {
   assert.equal(templateNarrative({ week: 9, matchupCount: 0 }), 'Week 9 is in the books.');
 });
@@ -219,6 +271,7 @@ test('templateNarrative always produces something', () => {
 function recapWorld({ homeScore = 100, awayScore = 80, handlers = [] } = {}) {
   return createFakePool([
     ...handlers,
+    [/FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "matchups"\.\*/, () => ({
       rows: [{
         id: 1, final: true, home_team_id: 1, away_team_id: 2,
@@ -289,4 +342,40 @@ test('#1409: generateWeeklyRecap still does both, store then announce, for the a
   const announceIdx = fake.calls.findIndex((c) => /INSERT INTO "transactions"/.test(c.text));
   assert.ok(storeIdx >= 0 && announceIdx >= 0 && storeIdx < announceIdx, 'stores before it announces');
   fake.assertClean();
+});
+
+// ---- #1861: the Bench blunder line reads the stored points-left row ---------
+
+test('#1861 the Bench blunder reads the week\'s stored points-left row and never Hindsight', async (t) => {
+  const fake = recapWorld({
+    handlers: [[
+      /^SELECT "data" FROM "league_analytics"/,
+      (text, params) => {
+        assert.deepEqual(params, [7, 2026, 5, 'points_left']);
+        return { rows: [{ data: { teams: [{ teamId: 1, pointsLeft: 4 }, { teamId: 2, pointsLeft: 12.5 }] } }] };
+      },
+    ]],
+  });
+  fake.install(t);
+  t.mock.method(require('../services/decision.service'), 'weekHindsight', async () => {
+    throw new Error('a stored week must not be re-read live');
+  });
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(data.facts.benchBlunder, { team: 'Team B', pointsLeftOnBench: 12.5 });
+});
+
+test('#1861 a week with no stored row still reads Hindsight live', async (t) => {
+  const fake = recapWorld({ handlers: [[/^SELECT "data" FROM "league_analytics"/, () => ({ rows: [] })]] });
+  fake.install(t);
+  t.mock.method(require('../services/decision.service'), 'weekHindsight', async ({ teamId }) => ({
+    pointsLeftOnBench: teamId === 1 ? 9 : 2,
+  }));
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(data.facts.benchBlunder, { team: 'Team A', pointsLeftOnBench: 9 });
 });

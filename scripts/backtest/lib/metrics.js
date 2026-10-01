@@ -767,7 +767,7 @@ const PERMUTATION_CONTROL_INPUT_KEYS = Object.freeze([
   // lineup machinery the control cell evaluator uses. Without them it can only
   // compute a per-player error, which is invariant to the permutation.
   'rosterWeeks', 'cohortWeeks', 'positionRank', 'nameRankById', 'rosterSlots',
-  'availabilityFor', 'optimize', 'ordering', 'expectedRosterCount',
+  'availabilityFor', 'positionBaselineFor', 'optimize', 'ordering', 'expectedRosterCount',
 ]);
 
 function computePermutationControl(input) {
@@ -779,8 +779,9 @@ function computePermutationControl(input) {
   if (!Array.isArray(observations) || !Array.isArray(rosterRows)) {
     throw new Error(`${label}: requires canonical raw control observations; caller-supplied statistics are prohibited`);
   }
-  if (typeof input.optimize !== 'function' || typeof input.availabilityFor !== 'function') {
-    throw new Error(`${label}: the production optimizer and availability rule must be injected; section 5's statistic is a lineup outcome, not a projection error`);
+  if (typeof input.optimize !== 'function' || typeof input.availabilityFor !== 'function'
+    || typeof input.positionBaselineFor !== 'function') {
+    throw new Error(`${label}: the production optimizer, availability rule and positionBaselineFor must be injected; section 5's statistic is a lineup outcome, not a projection error`);
   }
   // Deliberately lazy: the raw reducer depends on the metric primitives above,
   // while this remains the sole public control entry point.

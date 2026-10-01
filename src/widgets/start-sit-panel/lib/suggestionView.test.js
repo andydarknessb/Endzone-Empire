@@ -1,4 +1,4 @@
-import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
+import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, pointsLeftLine, projectedLeanLine, forecastRecordLine, calledRecordLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -204,6 +204,25 @@ describe('buildSuggestionView injury designation (#1852)', () => {
   });
 });
 
+describe('buildSuggestionView volatility (#1858)', () => {
+  const side = (over = {}) => ({ playerId: 1, name: 'A', projection: 5, ...over });
+  const build = (current, suggested) =>
+    buildSuggestionView({ slot: 'RB', current, suggested }, new Map());
+
+  test('carries each side\'s tag as its label', () => {
+    const view = build(side({ volatility: 'steady' }), side({ playerId: 2, volatility: 'boom_or_bust' }));
+    expect(view.sit.volatility).toBe('Steady');
+    expect(view.start.volatility).toBe('Boom or bust');
+  });
+
+  test('a null, absent or unknown tag has no label', () => {
+    const view = build(side({ volatility: null }), side({ playerId: 2, volatility: 'wild' }));
+    expect(view.sit.volatility).toBeNull();
+    expect(view.start.volatility).toBeNull();
+    expect(build(side(), side({ playerId: 2 })).sit.volatility).toBeNull();
+  });
+});
+
 describe('factChips (#1853)', () => {
   const texts = (input) => factChips(input).map((chip) => chip.text);
   const calm = { indoor: false, windSpeedMph: 5, windGustMph: 9, precipitationProbability: 10, shortForecast: 'Clear' };
@@ -358,5 +377,38 @@ describe('calledShotLine (#1856)', () => {
 
   test('a missing probability drops that clause rather than printing NaN', () => {
     expect(calledShotLine({ ...base, probability: null }).numbers).toBe('Proj 8.0 vs 14.5');
+  });
+});
+
+// #1861
+describe('pointsLeftLine', () => {
+  test('the season total and the rank among the league\'s teams', () => {
+    expect(pointsLeftLine({ total: 41.2, rank: 3, teams: 10 })).toBe('Left on the bench this season: 41.2 (3rd fewest of 10)');
+    expect(pointsLeftLine({ total: 8, rank: 1, teams: 12 })).toBe('Left on the bench this season: 8.0 (1st fewest of 12)');
+    expect(pointsLeftLine({ total: 0, rank: 11, teams: 12 })).toBe('Left on the bench this season: 0.0 (11th fewest of 12)');
+  });
+
+  test('no standing, or an unreadable one, is no line', () => {
+    expect(pointsLeftLine(null)).toBeNull();
+    expect(pointsLeftLine(undefined)).toBeNull();
+    expect(pointsLeftLine({ total: null, rank: 2, teams: 10 })).toBeNull();
+    expect(pointsLeftLine({ total: 4, rank: null, teams: 10 })).toBeNull();
+  });
+});
+
+describe('forecastRecordLine and calledRecordLine (#1862)', () => {
+  test('the Override record reads hits-misses, the Called shot record reads hits of resolved and the streak', () => {
+    expect(forecastRecordLine({ hits: 5, misses: 3 })).toBe('You vs the Forecast: 5-3');
+    expect(forecastRecordLine({ hits: 0, misses: 2 })).toBe('You vs the Forecast: 0-2');
+    expect(calledRecordLine({ hits: 2, resolved: 3, streak: 2 })).toBe('Called shots this season: 2 of 3 · streak 2');
+    expect(calledRecordLine({ hits: 0, resolved: 1, streak: 0 })).toBe('Called shots this season: 0 of 1 · streak 0');
+  });
+
+  test('nothing resolved, or a payload it cannot read, is no line', () => {
+    expect(forecastRecordLine(null)).toBeNull();
+    expect(forecastRecordLine({ hits: 0, misses: 0 })).toBeNull();
+    expect(forecastRecordLine({ hits: 'x', misses: 1 })).toBeNull();
+    expect(calledRecordLine(undefined)).toBeNull();
+    expect(calledRecordLine({ hits: 0, resolved: 0, streak: 0 })).toBeNull();
   });
 });

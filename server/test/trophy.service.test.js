@@ -31,11 +31,19 @@ const NORMAL_WEEK = { actualPoints: 50, optimalPoints: 55, pointsLeftOnBench: 5,
 function awardWorld({
   leagueId, homeScore, awayScore, homeTeamId = 10, awayTeamId = 20, existingTrophies = [],
   bestBall = false, hindsight = {}, newInserts = true, calls: hindsightCalls = [], rosterSlots,
+  // #1860: the pending lineup_overrides rows the judge reads, and whether its
+  // UPDATE still finds each one pending (false = someone resolved it first).
+  overrides = [], shotStillPending = true, seasonStatus = 'in_season',
+  // #1861: the stored points-left rows (every week of the season, the advanced
+  // week included) the season total and the season trophy read.
+  pointsLeftRows = [],
+  // #1864: backfill dry-run probes and whether the points-left insert is new.
+  trophyExists = false, analyticsExists = false, analyticsInsertsNew = true,
 }) {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
       rows: [{
-        id: leagueId, draft_status: 'complete', season_status: 'in_season', regular_season_weeks: 14,
+        id: leagueId, draft_status: 'complete', season_status: seasonStatus, regular_season_weeks: 14,
         best_ball: bestBall,
         ...(rosterSlots ? { roster_slots: rosterSlots } : {}),
       }],
@@ -46,6 +54,11 @@ function awardWorld({
     // shape). Scoping the matcher this way means a pool-side lock throws
     // "unexpected query" instead of silently satisfying the assertions below.
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] }), 'client'],
+    // The season-level set (a complete league) reads these; empty is enough here.
+    [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "champion_team_id" FROM "league_history"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "data" FROM "league_analytics"/, () => ({ rows: [] }), 'client'],
     [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
       rows: [{ id: 1, home_team_id: homeTeamId, away_team_id: awayTeamId, home_score: homeScore, away_score: awayScore }],
     })],
@@ -60,6 +73,15 @@ function awardWorld({
     // week's high is updated in place, not re-inserted or deleted.
     // 'client'-scoped for the same reason the SELECT and DELETE above are.
     [/^UPDATE "trophies"/, () => ({ rows: [] }), 'client'],
+    // #1864: the backfill dry-run probes for an existing row instead of inserting.
+    [/^SELECT 1 FROM "trophies"/, () => ({ rows: trophyExists ? [{ '?column?': 1 }] : [] })],
+    [/^SELECT 1 FROM "league_analytics"/, () => ({ rows: analyticsExists ? [{ '?column?': 1 }] : [] })],
+    [/^SELECT "week", "data" FROM "league_analytics"/, (text, params) => ({
+      rows: pointsLeftRows.filter((r) => r.week <= params[3]),
+    })],
+    [/^INSERT INTO "league_analytics"/, () => ({ rows: analyticsInsertsNew ? [{ week: 1 }] : [] })],
+    [/^SELECT .* FROM "lineup_overrides"/, () => ({ rows: overrides })],
+    [/^UPDATE "lineup_overrides"/, (text, params) => ({ rows: shotStillPending ? [{ id: params[0] }] : [] })],
     [/^INSERT INTO "trophies"/, () => ({ rows: newInserts ? [{ id: 1 }] : [] })],
     [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
       rows: [{ owner_id: 1000 + Number(params[0]) }],
@@ -490,4 +512,415 @@ test('#1854: a stat correction awards, revokes and changes no lineup trophy', as
   const selects = fake.matching(/^SELECT "id", "team_id", "data" FROM "trophies"/);
   assert.ok(selects.every((c) => /"type" = 'top_scorer'/.test(c.text)), 'only the weekly high score row is ever read for change');
   fake.assertClean();
+});
+
+// ---- #1860: Called shots are judged once, at Advance week ------------------
+//
+// Inside the award pass, after the lineup trophies. Each pending row is read
+// against its own week's lineup as played (Hindsight's counted roster, which
+// also carries each player's Appearance and league-priced points): void when the
+// starter is not in a starting slot or the benched player is not on the bench,
+// or when either made no Appearance; else a hit when the starter strictly
+// outscored, else a miss (a tie is a miss). Only a called hit writes a trophy.
+
+const shotRow = (over = {}) => ({
+  id: 501, team_id: 10, week: W, called: true, probability: '0.65',
+  starter_player_id: 7, benched_player_id: 21, ...over,
+});
+const shotRoster = ({ starter = {}, benched = {}, omit = [] } = {}) => ({
+  actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0,
+  counted: [
+    { playerId: 7, name: 'Flex Guy', position: 'WR', slot: 'FLEX', points: 11.4, appeared: true, ...starter },
+    { playerId: 21, name: 'Ben Bench', position: 'WR', slot: 'BENCH', points: 6.2, appeared: true, ...benched },
+  ].filter((r) => !omit.includes(r.playerId)),
+});
+const shotUpdates = (fake) => fake.matching(/^UPDATE "lineup_overrides"/);
+const judged = (fake) => shotUpdates(fake).map((c) => ({ id: c.params[0], outcome: c.params[1], starter: c.params[2], benched: c.params[3] }));
+
+async function judge(t, { row = shotRow(), roster = shotRoster(), ...world } = {}) {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, overrides: [row], hindsight: { [row.team_id]: roster }, ...world,
+  });
+  fake.install(t);
+  const awarded = await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  return { fake, awarded };
+}
+
+test('#1860: a pending called row whose starter strictly outscored is a hit: points stored, Called Shot trophy written', async (t) => {
+  const { fake, awarded } = await judge(t);
+
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'hit', starter: 11.4, benched: 6.2 }]);
+  const trophy = trophyInserts(fake, 'called_shot');
+  assert.equal(trophy.length, 1);
+  assert.deepEqual(trophy[0].params.slice(0, 6), [L, 10, S, W, 'called_shot', 'Called Shot']);
+  assert.deepEqual(JSON.parse(trophy[0].params[6]), {
+    starterPlayerId: 7, starter: 'Flex Guy', starterPoints: 11.4,
+    benchedPlayerId: 21, benched: 'Ben Bench', benchedPoints: 6.2,
+    probability: 0.65, bold: false,
+  });
+  assert.ok(awarded.some((a) => a.type === 'called_shot' && a.teamId === 10 && a.label === 'Called Shot'), 'announced and notified like any trophy');
+  // The pending read is league/season/<= week, judged inside the trophy pass.
+  const read = fake.matching(/^SELECT .* FROM "lineup_overrides"/)[0];
+  assert.deepEqual(read.params, [L, S, W]);
+  assert.match(read.text, /"week" <= \$3/);
+  assert.match(read.text, /"outcome" = 'pending'/);
+});
+
+test('#1860: a miss stores both players\' points and writes no trophy', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { points: 4 } }) });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'miss', starter: 4, benched: 6.2 }]);
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860: a tie is a miss', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { points: 6.2 } }) });
+  assert.equal(judged(fake)[0].outcome, 'miss');
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860: points are the league-priced values rounded to two places', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { points: 6.204 }, benched: { points: 6.196 } }) });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'miss', starter: 6.2, benched: 6.2 }], 'equal once rounded, so a tie');
+});
+
+for (const [name, roster] of [
+  ['the starter was moved to the bench', shotRoster({ starter: { slot: 'BENCH' } })],
+  ['the benched player was started', shotRoster({ benched: { slot: 'FLEX' } })],
+  ['the starter is not in the lineup as played', shotRoster({ omit: [7] })],
+  ['the benched player is not on the bench (not held, or on IR)', shotRoster({ omit: [21] })],
+]) {
+  test(`#1860: void when ${name}; a void writes no trophy`, async (t) => {
+    const { fake } = await judge(t, { roster });
+    assert.equal(judged(fake).length, 1);
+    assert.equal(judged(fake)[0].outcome, 'void');
+    assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+  });
+}
+
+test('#1860: the lineup is checked before Appearance and points: a moved starter who also did not appear is void on the lineup', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { slot: 'BENCH', appeared: false, points: 99 } }) });
+  assert.equal(judged(fake)[0].outcome, 'void');
+  assert.equal(judged(fake)[0].starter, 99, 'points are still stored where the player was in the lineup');
+});
+
+test('#1860: a call made at probability 0.8 or higher is bold; below it is not', async (t) => {
+  const bold = await judge(t, { row: shotRow({ probability: '0.8' }) });
+  assert.equal(JSON.parse(trophyInserts(bold.fake, 'called_shot')[0].params[6]).bold, true);
+  const notBold = await judge(t, { row: shotRow({ probability: '0.79' }) });
+  assert.equal(JSON.parse(trophyInserts(notBold.fake, 'called_shot')[0].params[6]).bold, false);
+});
+
+test('#1860: a hit on a row that is not a called shot (an Override) settles but writes no trophy', async (t) => {
+  const { fake } = await judge(t, { row: shotRow({ called: false }) });
+  assert.equal(judged(fake)[0].outcome, 'hit');
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860: judged once: a row someone resolved first is not re-judged and awards nothing; no pending rows means no writes', async (t) => {
+  const raced = await judge(t, { shotStillPending: false });
+  assert.equal(shotUpdates(raced.fake).length, 1, 'the UPDATE is guarded on outcome = pending');
+  assert.match(shotUpdates(raced.fake)[0].text, /"outcome" = 'pending'/);
+  assert.equal(trophyInserts(raced.fake, 'called_shot').length, 0);
+
+  const none = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [] });
+  none.install(t);
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  assert.equal(shotUpdates(none).length, 0);
+});
+
+test('#1860: awarding twice never duplicates the trophy: the insert rides ON CONFLICT DO NOTHING', async (t) => {
+  const { fake, awarded } = await judge(t, { newInserts: false });
+  assert.ok(trophyInserts(fake, 'called_shot').every((c) => /ON CONFLICT \("league_id", "season", "week", "team_id", "type"\) DO NOTHING/.test(c.text)));
+  assert.equal(awarded.some((a) => a.type === 'called_shot'), false);
+});
+
+test('#1860: catch-up: a pending row of an earlier week is judged against its own week and its hit is written under that week', async (t) => {
+  const calls = [];
+  const { fake } = await judge(t, { row: shotRow({ week: W - 1 }), calls });
+  assert.ok(calls.some((c) => c.teamId === 10 && c.week === W - 1), "Hindsight read for the shot's own week");
+  assert.equal(judged(fake)[0].outcome, 'hit');
+  assert.equal(trophyInserts(fake, 'called_shot')[0].params[3], W - 1);
+});
+
+test('#1860: a week whose Hindsight cannot be read leaves its row pending and never rolls back the week', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W - 1 })] });
+  fake.install(t);
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('week 4 is not final yet'); });
+  t.mock.method(console, 'error', () => {});
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  assert.equal(shotUpdates(fake).length, 0);
+  assert.equal(trophyInserts(fake, 'top_scorer').length, 1);
+});
+
+test('#1860: a stat correction never judges, rejudges or revokes a called shot', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow()], hindsight: { 10: shotRoster() } });
+  fake.install(t);
+  await trophySvc.reconcileWeeklyHighScoreTrophy({ leagueId: L, season: S, week: W });
+  assert.equal(fake.matching(/"lineup_overrides"/).length, 0, 'the reconcile never touches called shots');
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+// ---- #1860 (D): a no-Appearance row is deferred once, at its own week's Advance
+//
+// Week N's snap counts, the only participation data for a zero-line player,
+// arrive only after week N is advanced. So at week N's Advance a week-N row whose
+// starter or benched player shows no Appearance stays pending (no outcome, no
+// points, no trophy); the catch-up judges it at the next Advance, where no
+// Appearance is void. When the Advance completes the season nothing is deferred.
+
+for (const [who, patch] of [['starter', { starter: { appeared: false } }], ['benched player', { benched: { appeared: false } }]]) {
+  test(`#1860 (D): at its own week's Advance a row whose ${who} shows no Appearance stays pending: no UPDATE, no trophy`, async (t) => {
+    const { fake, awarded } = await judge(t, { roster: shotRoster(patch) });
+    assert.equal(shotUpdates(fake).length, 0);
+    assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+    assert.equal(awarded.some((a) => a.type === 'called_shot'), false);
+  });
+}
+
+test('#1860 (D): the next Advance voids the row when the line is still all zero', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W })],
+    hindsight: { 10: shotRoster({ starter: { appeared: false, points: 0 } }) },
+  });
+  fake.install(t);
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W + 1 });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'void', starter: 0, benched: 6.2 }]);
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860 (D): the next Advance judges the deferred row by its points once the snap counts are in: a miss when the benched player outscored him', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W })],
+    hindsight: { 10: shotRoster({ starter: { appeared: true, points: 0 }, benched: { points: 14 } }) },
+  });
+  fake.install(t);
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W + 1 });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'miss', starter: 0, benched: 14 }]);
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860 (D): the Advance that completes the season defers nothing: the no-Appearance row is void at once', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { appeared: false } }), seasonStatus: 'complete' });
+  assert.equal(judged(fake).length, 1);
+  assert.equal(judged(fake)[0].outcome, 'void');
+});
+
+test('#1860 (D): a lineup void is written at once even when a player also shows no Appearance', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { slot: 'BENCH', appeared: false } }) });
+  assert.equal(judged(fake)[0].outcome, 'void');
+});
+
+// ---- #1861: points left on the bench, stored and rewarded ------------------
+//
+// One analytics row per league-week holds every team's points left (the
+// Hindsight gap Perfect Lineup already reads), written in the trophy step
+// before the Recap and never rewritten; the season's fewest earns a trophy.
+
+const analyticsInserts = (fake) => fake.matching(/^INSERT INTO "league_analytics"/);
+const weekRow = (week, left) => ({ week, data: { teams: Object.entries(left).map(([teamId, pointsLeft]) => ({ teamId: Number(teamId), pointsLeft })) } });
+
+test('#1861: the pass stores every team\'s points left for the week in one idempotent analytics row', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110,
+    hindsight: {
+      10: { actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0, counted: startersFor() },
+      20: { actualPoints: 110, optimalPoints: 118.25, pointsLeftOnBench: 8.25, counted: [] },
+    },
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  const rows = analyticsInserts(fake);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].text, /ON CONFLICT \("league_id", "season", "week", "type"\)\s+DO NOTHING/, 'a replay never rewrites the frozen numbers');
+  assert.deepEqual(rows[0].params.slice(0, 4), [L, S, W, 'points_left']);
+  assert.deepEqual(JSON.parse(rows[0].params[4]).teams, [
+    { teamId: 10, pointsLeft: 0 },
+    { teamId: 20, pointsLeft: 8.25 },
+  ]);
+  const rowIdx = fake.calls.findIndex((c) => /^INSERT INTO "league_analytics"/.test(c.text));
+  assert.ok(rowIdx > fake.calls.findIndex((c) => /^SELECT \* FROM "matchups"/.test(c.text)), 'written by the trophy step');
+  fake.assertClean();
+});
+
+test('#1861: best ball writes no points-left row', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, bestBall: true });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  assert.equal(analyticsInserts(fake).length, 0);
+});
+
+test('#1861: a team whose Hindsight cannot be read leaves no row, rather than a partial one frozen for good', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110 });
+  fake.install(t);
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async ({ teamId }) => {
+    if (teamId === 20) throw new Error('hindsight down');
+    return NORMAL_WEEK;
+  });
+  t.mock.method(console, 'error', () => {});
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  assert.equal(analyticsInserts(fake).length, 0);
+});
+
+test('#1861: the season trophy counts the regular season only: a playoff row holds just the teams still alive', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [
+      weekRow(13, { 10: 10, 20: 12, 30: 11 }),
+      // Playoff weeks (league has 14 regular-season weeks): only 10 and 20 play.
+      weekRow(15, { 10: 30, 20: 30 }),
+      weekRow(16, { 10: 30, 20: 30 }),
+    ],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: 16 });
+
+  const season = trophyInserts(fake, 'fewest_left_on_bench');
+  assert.equal(season.length, 1);
+  assert.equal(season[0].params[1], 10, 'team 30 played no playoff week and is not rewarded for it');
+  assert.equal(season[0].params[5], 'Fewest Left on the Bench (10.0)');
+});
+
+test('#1861: the season trophy is awarded even when the final week\'s Hindsight could not be read', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [weekRow(13, { 10: 10, 20: 12 })],
+  });
+  fake.install(t);
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('hindsight down'); });
+  t.mock.method(console, 'error', () => {});
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: 16 });
+
+  assert.equal(analyticsInserts(fake).length, 0, 'no partial row for the unread week');
+  assert.equal(trophyInserts(fake, 'fewest_left_on_bench')[0].params[1], 10);
+});
+
+test('#1861: a league that is still in season awards no points-left trophy', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110,
+    pointsLeftRows: [weekRow(W, { 10: 1, 20: 8 })],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  assert.equal(trophyInserts(fake, 'fewest_left_on_bench').length, 0);
+});
+
+test('#1861: when the league completes, the team with the fewest points left over the settled weeks gets the season trophy with its number', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [
+      weekRow(4, { 10: 20.1, 20: 5.5, 30: 9 }),
+      weekRow(W, { 10: 11.1, 20: 25.7, 30: 9 }),
+    ],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  const season = trophyInserts(fake, 'fewest_left_on_bench');
+  assert.equal(season.length, 1);
+  // 10: 31.2, 20: 31.2, 30: 18 -> team 30 left the fewest.
+  assert.equal(season[0].params[1], 30);
+  assert.equal(season[0].params[3], 0, 'a season trophy sits at week 0');
+  assert.equal(season[0].params[5], 'Fewest Left on the Bench (18.0)');
+  assert.deepEqual(JSON.parse(season[0].params[6]), { pointsLeft: 18 });
+  fake.assertClean();
+});
+
+test('#1861: a tie for the fewest breaks to the lowest team id, as the weekly high score does', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    // The tied teams are stored with the higher id first (weekRow's object keys
+    // would sort ascending), so only the id tiebreak, not stored order, picks 20.
+    pointsLeftRows: [
+      { week: 4, data: { teams: [{ teamId: 30, pointsLeft: 10.1 }, { teamId: 20, pointsLeft: 10.1 }, { teamId: 40, pointsLeft: 12 }] } },
+      { week: W, data: { teams: [{ teamId: 30, pointsLeft: 5 }, { teamId: 20, pointsLeft: 5 }, { teamId: 40, pointsLeft: 5 }] } },
+    ],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+
+  const season = trophyInserts(fake, 'fewest_left_on_bench');
+  assert.equal(season.length, 1, 'one trophy, not co-champions');
+  assert.equal(season[0].params[1], 20);
+  assert.equal(season[0].params[5], 'Fewest Left on the Bench (15.1)');
+});
+
+test('#1861: the season total is the sum of the stored rows, rounded to two places', async (t) => {
+  const { seasonPointsLeft } = decisionSvc;
+  const fake = awardWorld({
+    leagueId: L, homeScore: 1, awayScore: 2,
+    pointsLeftRows: [weekRow(1, { 10: 0.1, 20: 3 }), weekRow(2, { 10: 0.2, 20: 4 })],
+  });
+  fake.install(t);
+
+  const totals = await seasonPointsLeft(require('../modules/pool'), { leagueId: L, season: S, throughWeek: 14 });
+
+  assert.deepEqual([...totals], [[10, 0.3], [20, 7]]);
+});
+
+// ---- #1864: the backfill drives the same lineup pass, weekly only ----------
+//
+// `awardLineupTrophies({ backfill })` is the one door the owner-run script uses
+// for a past week: the same Hindsight reads and the same writes as the Advance
+// week pass, minus the season trophy (a partial backfill would judge it on an
+// incomplete season), with a dry-run that writes nothing and reports each row
+// it would write through `onRow`.
+
+const PERFECT_AND_LOSS = {
+  10: { actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0, counted: startersFor() },
+  20: { actualPoints: 110, optimalPoints: 118.25, pointsLeftOnBench: 8.25, counted: [] },
+};
+
+async function backfillWeek(t, { backfill, seasonStatus = 'in_season', ...world }) {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, hindsight: PERFECT_AND_LOSS, seasonStatus,
+    pointsLeftRows: [weekRow(1, { 10: 0, 20: 1 })], ...world,
+  });
+  fake.install(t);
+  const rows = [];
+  const league = (await fake.query('SELECT * FROM "leagues" WHERE "id" = $1', [L])).rows[0];
+  const awarded = await trophySvc.awardLineupTrophies({
+    league, leagueId: L, season: S, week: W, backfill: { ...backfill, onRow: (r) => rows.push(r) },
+  });
+  return { fake, rows, awarded };
+}
+
+test('#1864: a backfill run writes Perfect Lineup and the points-left row through the Advance week writes, and reports each', async (t) => {
+  const { fake, rows, awarded } = await backfillWeek(t, { backfill: {} });
+  assert.equal(trophyInserts(fake, 'perfect_lineup').length, 1);
+  assert.deepEqual(awarded.map((a) => a.type), ['perfect_lineup']);
+  assert.equal(analyticsInserts(fake).length, 1);
+  assert.deepEqual(rows.map((r) => [r.table, r.type, r.week]), [
+    ['trophies', 'perfect_lineup', W],
+    ['league_analytics', 'points_left', W],
+  ]);
+});
+
+test('#1864: a backfill never awards the season trophy, even for a completed league', async (t) => {
+  const { fake } = await backfillWeek(t, { backfill: {}, seasonStatus: 'complete' });
+  assert.equal(trophyInserts(fake, 'fewest_left_on_bench').length, 0);
+});
+
+test('#1864: a dry run writes nothing and reports the rows it would write', async (t) => {
+  const { fake, rows } = await backfillWeek(t, { backfill: { dryRun: true } });
+  assert.equal(fake.matching(/^INSERT INTO/).length, 0);
+  assert.deepEqual(rows.map((r) => [r.table, r.type]), [['trophies', 'perfect_lineup'], ['league_analytics', 'points_left']]);
+});
+
+test('#1864: a dry run reports no row that already exists, and a real re-run writes nothing new', async (t) => {
+  const dry = await backfillWeek(t, { backfill: { dryRun: true }, trophyExists: true, analyticsExists: true });
+  assert.deepEqual(dry.rows, []);
+  const real = await backfillWeek(t, { backfill: {}, newInserts: false, analyticsInsertsNew: false });
+  assert.deepEqual(real.rows, []);
 });

@@ -7,7 +7,7 @@
  * unit-tested directly.
  */
 
-import { finite } from '../../../shared/lib';
+import { finite, ordinal, VOLATILITY_LABELS } from '../../../shared/lib';
 
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
@@ -110,6 +110,7 @@ function sideView(side, entriesById) {
     // carries the player's designation (O, IR, D, Q or null), the same field
     // the Ledger row's tag reads off the lineup entry.
     injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
+    volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
     opponentContext: opponentContextText({
@@ -187,11 +188,11 @@ export function movePlanWithout(movePlan, dismissedViews) {
  * The standing "Your called shot" line (#1856), from the advice payload's
  * `calledShot` ({ starter, benched: { name, projection, points }, probability,
  * status: 'pending' | 'locked' | 'resolved', outcome: 'hit' | 'miss' | 'void' | null,
- * canWithdraw }), or null when there is none. Returns the pair, the numbers as
+ * bothLocked, canWithdraw }), or null when there is none. Returns the pair, the numbers as
  * called and one status sentence; every status the payload can carry has its
  * own wording, and an unknown one reads as still open rather than as nothing.
  */
-export function calledShotLine(calledShot) {
+export function calledShotLine(calledShot, entriesById = new Map()) {
   if (!calledShot || !calledShot.starter || !calledShot.benched) return null;
   const { starter, benched } = calledShot;
   const number = (n) => (finite(n) == null ? '-' : Number(n).toFixed(1));
@@ -206,6 +207,11 @@ export function calledShotLine(calledShot) {
     if (calledShot.outcome === 'hit') status = `Hit: ${scores}`;
     else if (calledShot.outcome === 'miss') status = `Miss: ${scores}`;
     else status = 'Void: a player did not play, or the lineup changed';
+  } else if (calledShot.status === 'locked' && calledShot.bothLocked) {
+    // Both games have kicked off (#1857): the points are moving. The lineup
+    // entries carry the page's live points; the payload's are the read's.
+    const live = (side) => number(finite(entriesById.get(side.playerId)?.points) ?? side.points);
+    status = `Live: ${starter.name} ${live(starter)} to ${benched.name} ${live(benched)}`;
   } else if (calledShot.status === 'locked') {
     status = 'Locked: one of the two games has started';
   } else {
@@ -221,6 +227,44 @@ export function calledShotLine(calledShot) {
     state,
     canWithdraw: calledShot.canWithdraw === true,
   };
+}
+
+/**
+ * The season points-left line (#1861), from the advice payload's `pointsLeft`
+ * ({ total, rank, teams }): "Left on the bench this season: 41.2 (3rd fewest of
+ * 10)". Null when the payload has no standing (best ball, pick'em, week one) or
+ * one it cannot read.
+ */
+export function pointsLeftLine(pointsLeft) {
+  const total = finite(pointsLeft?.total);
+  const rank = ordinal(finite(pointsLeft?.rank));
+  if (total == null || rank == null) return null;
+  return `Left on the bench this season: ${total.toFixed(1)} (${rank} fewest of ${pointsLeft.teams})`;
+}
+
+/**
+ * The "You vs the Forecast: 5-3" line (#1862), from the advice payload's
+ * `overrideRecord` ({ hits, misses } over this team's resolved Overrides).
+ * Null when nothing has resolved or the payload cannot be read.
+ */
+export function forecastRecordLine(overrideRecord) {
+  const hits = finite(overrideRecord?.hits);
+  const misses = finite(overrideRecord?.misses);
+  if (hits == null || misses == null || hits + misses === 0) return null;
+  return `You vs the Forecast: ${hits}-${misses}`;
+}
+
+/**
+ * The "Called shots this season: 2 of 3 · streak 2" line (#1862), from the
+ * payload's `calledShotRecord` ({ hits, resolved, streak }). Null when no shot
+ * has resolved or the payload cannot be read.
+ */
+export function calledRecordLine(calledShotRecord) {
+  const hits = finite(calledShotRecord?.hits);
+  const resolved = finite(calledShotRecord?.resolved);
+  const streak = finite(calledShotRecord?.streak);
+  if (hits == null || resolved == null || streak == null || resolved === 0) return null;
+  return `Called shots this season: ${hits} of ${resolved} · streak ${streak}`;
 }
 
 /** The Expected final gap, in points, at which the lean line appears (#1852). */

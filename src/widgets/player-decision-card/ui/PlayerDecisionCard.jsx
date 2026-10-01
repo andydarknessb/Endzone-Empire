@@ -23,7 +23,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import CloseIcon from '@mui/icons-material/Close';
-import { InjuryTag, PosChip, RangeBar, SegmentedControl } from '../../../shared/ui';
+import { Badge, InjuryTag, PosChip, RangeBar, SegmentedControl } from '../../../shared/ui';
 import {
   formatKickoff,
   formatPoints,
@@ -35,6 +35,7 @@ import {
   ordinal,
   hasNoHistory,
   projectionLabel,
+  VOLATILITY_LABELS,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import {
@@ -957,7 +958,7 @@ export default function PlayerDecisionCard(props) {
                 <Typography component="h3" sx={{ fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
                 <InjurySection entry={entry} level="h4" />
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
-                <ProjectionSection entry={entry} level="h4" />
+                <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} />
                 <UsageSection usage={usage} opponents={opponents} position={entry.position} level="h4" />
                 <BenchOptionsSection
                   entry={entry}
@@ -981,7 +982,7 @@ export default function PlayerDecisionCard(props) {
                 </Box>
                 <InjurySection entry={compareEntry} level="h4" />
                 <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
-                <ProjectionSection entry={compareEntry} level="h4" />
+                <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} />
                 <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
               </Box>
             </Box>
@@ -989,7 +990,7 @@ export default function PlayerDecisionCard(props) {
             <>
               <InjurySection entry={displayEntry} />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
-              {lineupManaged && <ProjectionSection entry={entry} />}
+              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} />}
               <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
@@ -1216,17 +1217,28 @@ function GameSection({ entry, line, weather, level }) {
 // exactly as it does on the Ledger row that opened the card - `projectionLabel`
 // and `hasNoHistory` (`shared/lib`) are the one helper both surfaces call - and
 // the RangeBar marker is withheld (a null projection paints no tick).
-function ProjectionSection({ entry, level }) {
+//
+// #1849 (spec #1845): the Volatility tag sits beside the RangeBar as a Badge,
+// from the card payload's `decision.volatility` (`steady` | `boom_or_bust`);
+// anything else (null, absent, a tag this build does not know) renders nothing,
+// never an "unavailable" (ADR 0040).
+function ProjectionSection({ entry, level, volatility }) {
   const factorText = entry.factorExplanation || null;
+  const volatilityLabel = VOLATILITY_LABELS[volatility] ?? null;
   return (
     <Section title="Weekly projection" testId="decision-card-projection" level={level}>
-      <RangeBar
-        floor={entry.floor}
-        ceiling={entry.ceiling}
-        projection={hasNoHistory(entry) ? null : entry.projectedPoints}
-        label={entry.name}
-        data-testid="decision-card-range-bar"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <RangeBar
+            floor={entry.floor}
+            ceiling={entry.ceiling}
+            projection={hasNoHistory(entry) ? null : entry.projectedPoints}
+            label={entry.name}
+            data-testid="decision-card-range-bar"
+          />
+        </Box>
+        {volatilityLabel && <Badge data-testid="decision-card-volatility">{volatilityLabel}</Badge>}
+      </Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5, fontSize: 12, color: 'var(--dash-faint)' }}>
         <span>{`Floor ${formatPoints(entry.floor)}`}</span>
         <span>{`Proj ${projectionLabel(entry)}`}</span>

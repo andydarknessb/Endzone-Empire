@@ -22,7 +22,7 @@ function key(row) { return `${row.season}:${row.week}:${row.position}`; }
  * projections a manager would have chosen from. That is the irreducible part.
  */
 function buildPolicyContext({
-  rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots, availabilityFor, optimize, ordering, actualsByWeek, label,
+  rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, actualsByWeek, label,
 }) {
   const ranks = {
     positionRank: positionRank instanceof Map ? positionRank : new Map(Object.entries(positionRank || {})),
@@ -42,10 +42,10 @@ function buildPolicyContext({
     const entries = rosterWeek.rosters.map((roster) => rosterEntriesFor({ roster, cohortByPlayerId, label }));
     entriesByWeek.set(week, entries);
     bestByWeek.set(week, entries.map((rosterEntries) => policy.deployedPolicyLineup({
-      entries: rosterEntries, projections: actuals, ranks, rosterSlots, availabilityFor, optimize, ordering, label: `${label}: best`,
+      entries: rosterEntries, projections: actuals, ranks, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, label: `${label}: best`,
     }).started));
   }
-  return { entriesByWeek, bestByWeek, ranks, rosterSlots, availabilityFor, optimize, ordering };
+  return { entriesByWeek, bestByWeek, ranks, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering };
 }
 
 /**
@@ -153,6 +153,7 @@ function weekDeployedPolicyRegret({ week, projections, actuals, ctx, label }) {
       ranks: ctx.ranks,
       rosterSlots: ctx.rosterSlots,
       availabilityFor: ctx.availabilityFor,
+      positionBaselineFor: ctx.positionBaselineFor,
       optimize: ctx.optimize,
       ordering: ctx.ordering,
       label,
@@ -331,11 +332,11 @@ function negativeMean(rows, field) {
 
 function computePermutationControlFromObservations({
   observations, rosterRows, rosterWeeks, cohortWeeks, positionRank, nameRankById,
-  rosterSlots, availabilityFor, optimize, ordering, expectedRosterCount, label = 'permutation control',
+  rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, expectedRosterCount, label = 'permutation control',
 }) {
   // The ORDERING is injected machinery like the optimizer and the slot model.
-  // Refusing undefined here (mirroring metrics' optimize/availabilityFor
-  // guard) means production can never silently ride policy.js's own
+  // Refusing undefined here (mirroring metrics' optimize/availabilityFor/
+  // positionBaselineFor guard) means production can never silently ride policy.js's own
   // destructuring default three modules away - a value the runner does not
   // explicitly pin is one key-list edit from operator-supplied (round 3,
   // recording MINOR D's lesson on this parameter).
@@ -363,14 +364,16 @@ function computePermutationControlFromObservations({
     observations, rosterRows, rosterWeeks, cohortWeeks, rosterSlots, ordering, expectedRosterCount,
     positionRank: canonicalRankMap(positionRank), nameRankById: canonicalRankMap(nameRankById),
   });
-  const machinery = { availabilityFor, optimize };
+  const machinery = { availabilityFor, positionBaselineFor, optimize };
   const cached = resultCache.get(cacheKey);
   // A hit may return before assertPolicyArtifactDomain below. That is sound
   // BECAUSE the key is complete: identical bytes mean the same inputs already
   // computed successfully, so the assertion ran and passed for exactly this
   // input set. Rejections throw before the cache is written, so a failure is
   // never replayed as a success.
-  if (cached && cached.machinery.availabilityFor === availabilityFor && cached.machinery.optimize === optimize) {
+  if (cached && cached.machinery.availabilityFor === availabilityFor
+    && cached.machinery.positionBaselineFor === positionBaselineFor
+    && cached.machinery.optimize === optimize) {
     return cloneResult(cached.result);
   }
   // Actual points are a property of (week, player) and are never touched by the
@@ -396,7 +399,7 @@ function computePermutationControlFromObservations({
   assertPolicyArtifactDomain({ rosterWeeks, cohortWeeks, actualsByWeek, cells, expectedRosterCount, label });
   const ctx = buildPolicyContext({
     rosterWeeks, cohortWeeks, positionRank, nameRankById, rosterSlots,
-    availabilityFor, optimize, ordering, actualsByWeek, label,
+    availabilityFor, positionBaselineFor, optimize, ordering, actualsByWeek, label,
   });
   const observedWeeks = metrics.EVALUATED_WEEKS.map((week) => scoreWeek(bySaltCell, null, week, `${label}: observed`, ctx, actualsByWeek));
   const observed = { regret: negativeMean(observedWeeks, 'regret'), pairwise: meanPairwiseOverSurvivingWeeks(observedWeeks, `${label}: observed`) };

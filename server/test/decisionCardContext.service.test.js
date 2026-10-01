@@ -290,3 +290,147 @@ test('loadGameChipContext: rejected reads in several games reject once and leave
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.deepEqual(unhandled, []);
 });
+
+// ---------------------------------------------------------------------------
+// Volatility tag (#1849): the card's tag off the run the card already reads
+// ---------------------------------------------------------------------------
+
+const { createFakePool } = require('./helpers/fakePool');
+const { loadVolatility } = require('../services/decisionCardContext.service');
+const { SCORING_RULES } = require('../services/scoringRules');
+
+const OWN_FACTORS = {
+  availability: { available: true },
+  dataQuality: { residualSource: 'player', reasons: [] },
+};
+
+// A stored run row (snake_case, as the pool returns it): point estimate `point`,
+// a p10..p90 Interval `width` wide.
+function runRow(id, position, point, width, over = {}) {
+  return {
+    player_id: id,
+    position,
+    mean: point,
+    median: point,
+    p10: point - width / 2,
+    p25: point - width / 4,
+    p75: point + width / 4,
+    p90: point + width / 2,
+    sample_size: 16,
+    factors: OWN_FACTORS,
+    ...over,
+  };
+}
+
+// The projection entry the card already holds for the player (camelCase).
+function entryOf(row) {
+  return {
+    mean: row.mean,
+    median: row.median,
+    p10: row.p10,
+    p25: row.p25,
+    p75: row.p75,
+    p90: row.p90,
+    sampleSize: row.sample_size,
+    factors: row.factors,
+    modelVersion: require('../services/projectionModel').MODEL_VERSION,
+  };
+}
+
+// Twelve WRs of one width, plus id 1 far wider (boom) and id 2 far narrower (steady).
+function wrRun() {
+  const rows = [runRow(1, 'WR', 11, 20), runRow(2, 'WR', 12, 2)];
+  for (let id = 3; id <= 12; id += 1) rows.push(runRow(id, 'WR', 10 + id, 8));
+  return rows;
+}
+
+function mockRun(t, rows, { runs = [{ id: 77 }] } = {}) {
+  const fake = createFakePool([
+    [/FROM "projection_runs"/, () => ({ rows: runs })],
+    [/FROM "player_week_projections"/, () => ({ rows })],
+  ]);
+  fake.install(t);
+  return fake.calls;
+}
+
+async function tagFor(rows, id, position = 'WR') {
+  const row = rows.find((r) => r.player_id === id);
+  return loadVolatility({
+    season: 2026, week: 6, rules: SCORING_RULES, player: { id, position }, entry: entryOf(row),
+  });
+}
+
+test('loadVolatility: one eligible player reads boom_or_bust, steady or null off the position\'s run rows, read per call', async (t) => {
+  const rows = wrRun();
+  const queries = mockRun(t, rows);
+
+  assert.equal(await tagFor(rows, 1), 'boom_or_bust');
+  assert.equal(await tagFor(rows, 2), 'steady');
+  assert.equal(await tagFor(rows, 7), null);
+
+  const rowReads = queries.filter((q) => q.text.includes('FROM "player_week_projections"'));
+  assert.equal(rowReads.length, 3, 'one run lookup and one position read per call');
+  assert.deepEqual(rowReads[0].params, [77, 'WR']);
+});
+
+for (const [label, over, position] of [
+  ['an Unavailable player', { factors: { ...OWN_FACTORS, availability: { available: false, reason: 'out' } } }, 'WR'],
+  ['a Position-baseline projection', { factors: { ...OWN_FACTORS, dataQuality: { residualSource: 'player', reasons: ['position baseline'] } } }, 'WR'],
+  ['a pooled-residual projection', { factors: { ...OWN_FACTORS, dataQuality: { residualSource: 'pooled', reasons: [] } } }, 'WR'],
+  ['a player with fewer than 8 games', { sample_size: 7 }, 'WR'],
+  ['a kicker', {}, 'K'],
+  ['a defense', {}, 'DEF'],
+  ['an IDP player', {}, 'LB'],
+]) {
+  test(`loadVolatility: ${label} shows no tag and reads nothing`, async (t) => {
+    const row = runRow(1, position, 11, 20, over);
+    const queries = mockRun(t, [row, ...wrRun().slice(1)]);
+    assert.equal(await tagFor([row], 1, position), null);
+    assert.equal(queries.length, 0);
+  });
+}
+
+test('loadVolatility: no run for the week, or a reference set under ten, shows no tag', async (t) => {
+  const rows = wrRun();
+  mockRun(t, rows, { runs: [] });
+  assert.equal(await tagFor(rows, 1), null);
+
+  t.mock.restoreAll();
+  mockRun(t, rows.slice(0, 9));
+  assert.equal(await tagFor(rows, 1), null);
+});
+test('loadVolatilityTags: one run lookup and one read per distinct position, tags merged across positions (#1858)', async (t) => {
+  const wr = [...wrRun(), runRow(13, 'WR', 15, 8, { sample_size: 3 })]; // too few games
+  const rb = [];
+  for (let id = 101; id <= 112; id += 1) rb.push(runRow(id, 'RB', id - 90, 8));
+  rb[0] = runRow(101, 'RB', 11, 20);
+  const fake = createFakePool([
+    [/FROM "projection_runs"/, () => ({ rows: [{ id: 77 }] })],
+    [/FROM "player_week_projections"/, (text, params) => ({ rows: params[1] === 'WR' ? wr : rb })],
+  ]);
+  fake.install(t);
+  const { loadVolatilityTags } = require('../services/decisionCardContext.service');
+
+  const tags = await loadVolatilityTags({
+    season: 2026, week: 6, rules: SCORING_RULES, positions: ['WR', 'RB', 'WR', 'K'],
+  });
+
+  assert.equal(tags.get(1), 'boom_or_bust');
+  assert.equal(tags.get(2), 'steady');
+  assert.equal(tags.get(101), 'boom_or_bust');
+  assert.equal(tags.get(13), null, 'an ineligible row reads null, never a tag');
+  assert.equal(fake.calls.filter((q) => q.text.includes('FROM "projection_runs"')).length, 1);
+  assert.deepEqual(
+    fake.calls.filter((q) => q.text.includes('FROM "player_week_projections"')).map((q) => q.params),
+    [[77, 'WR'], [77, 'RB']],
+  );
+});
+
+test('loadVolatilityTags: no taggable position reads nothing; no run for the week reads an empty map (#1858)', async (t) => {
+  const fake = createFakePool([[/FROM "projection_runs"/, () => ({ rows: [] })]]);
+  fake.install(t);
+  const { loadVolatilityTags } = require('../services/decisionCardContext.service');
+  assert.equal((await loadVolatilityTags({ season: 2026, week: 6, rules: SCORING_RULES, positions: ['K', 'DEF'] })).size, 0);
+  assert.equal(fake.calls.length, 0);
+  assert.equal((await loadVolatilityTags({ season: 2026, week: 6, rules: SCORING_RULES, positions: ['WR'] })).size, 0);
+});

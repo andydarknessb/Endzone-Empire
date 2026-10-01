@@ -16,6 +16,9 @@ const runBacktestSweep = require('../scripts/run-backtest-sweep');
 // two increments before this one inject them.
 const model = require('../services/projectionModel');
 const { availabilityFor } = require('../services/projectionModel');
+const { isPositionBaselineEntry } = require('../services/projection.service');
+// The real marker predicate, injected beside availabilityFor.
+const positionBaselineFor = isPositionBaselineEntry;
 const { optimalAssignment } = require('../services/lineupOptimizer');
 
 const { SALTS, EVALUATED_WEEKS, MACRO_POSITIONS } = metrics;
@@ -267,7 +270,7 @@ function baseArgs(overrides = {}) {
     generate: makeGenerator().generate,
     seedFor,
     benchmarkProjectionsFor,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
     ...overrides,
   };
@@ -599,7 +602,7 @@ test('the sensitivity profiles are scored against the PRIMARY profile\'s outcome
     projectionsByPlayerId: projections,
     positionRank: artifacts.positionRank,
     nameRankById: artifacts.nameRankById,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
   assert.deepEqual(published.values, rescored.values);
@@ -1061,7 +1064,7 @@ test('the non-regret invariance guard actually fires (mutation QA G4)', () => {
     projectionsByPlayerId: projections,
     positionRank: artifacts.positionRank,
     nameRankById: artifacts.nameRankById,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   };
   const primaryEvaluation = armWeekEvaluatorLib.evaluateArmWeek({ ...evaluateArgs, label: 'g4' });
@@ -1463,7 +1466,7 @@ test('FIXTURE-FIX: a benchmark arm-week is scored from ITS OWN week\'s benchmark
       projectionsByPlayerId: benches[arm],
       positionRank: artifacts.positionRank,
       nameRankById: artifacts.nameRankById,
-      availabilityFor,
+      availabilityFor, positionBaselineFor,
       optimize: optimalAssignment,
     });
     const published = records.armWeekMetrics.find((row) => row.arm === arm
@@ -1497,7 +1500,7 @@ test('FIXTURE-FIX: arm-week values are positively pinned in BOTH seasons', async
         projectionsByPlayerId: run.projections,
         positionRank: artifacts.positionRank,
         nameRankById: artifacts.nameRankById,
-        availabilityFor,
+        availabilityFor, positionBaselineFor,
         optimize: optimalAssignment,
       });
       const published = records.armWeekMetrics.find((row) => row.scoringProfile === 'half_ppr'

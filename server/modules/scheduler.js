@@ -1,6 +1,8 @@
 const pool = require('./pool');
 const { processAllDueWaivers, holdKickedOffPlayers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
+const { startSitAdvice } = require('../services/decision.service');
+const { captureOverrides } = require('../services/lineupOverride.service');
 const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
@@ -205,6 +207,15 @@ async function tickUnlocked() {
     if (ticksSinceSync >= (await syncEveryTicks())) {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
+    }
+    // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
+    // minute before it. After every time-sensitive duty above, since it asks for
+    // advice per team and its run time must never delay claims, reminders,
+    // trades or scheduled drafts; contained, and it logs per league itself.
+    try {
+      await captureOverrides({ loadAdvice: startSitAdvice });
+    } catch (err) {
+      console.error('override capture failed (will retry next tick):', err.message);
     }
     await runRetention();
     // Weather snapshots (#1883): after live scoring and every deadline duty,
@@ -626,9 +637,10 @@ async function runHourlyGameContextSync({ now = new Date() } = {}) {
   return results;
 }
 
-// One horizon bucket (nwsWeather.service HORIZON_BUCKET_HOURS = 6): each due
-// run lands in a NEW bucket, so a snapshot is never refetched into the bucket
-// it already filled and never skipped past one (#1883).
+// One horizon bucket (nwsWeather.service HORIZON_BUCKET_HOURS = 6): a run that
+// follows an ok run lands in each game's next bucket, so a snapshot is never
+// refetched into the bucket it already filled and never skipped past one
+// (#1883).
 const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
@@ -712,11 +724,16 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
         // A unit that asked NWS and got nothing, or got forecasts and saved
         // none, did not do its job: throw so `runSyncJob` records ok: false,
         // the gate stays due and the next tick retries (a game already saved
-        // in the bucket is read from the cache, so only the missing games are
-        // asked again). A partial result (one forecast fetched and saved)
-        // stays an ok run.
+        // in its horizon bucket is read from the cache only while it is still
+        // in that bucket, so only the missing games are asked again). A
+        // partial result (one forecast fetched and saved) stays an ok run.
+        // The no-forecast throw is tagged `fetch_failed` so the unit's
+        // `detail.failed[].reason` says the feed failed; the run-level
+        // `detail.reason` stays `write_failed` (ADR 0036).
         if (requests > 0 && fetched === 0) {
-          throw new Error(`NWS answered none of ${requests} forecast request(s) for ${season} week ${week}`);
+          const error = new Error(`NWS returned no forecast for any of ${requests} request(s) for ${season} week ${week}`);
+          error.syncFailureReason = 'fetch_failed';
+          throw error;
         }
         if (fetched > 0 && saved === 0) {
           throw new Error(`fetched ${fetched} NWS forecast(s) for ${season} week ${week} and saved none`);

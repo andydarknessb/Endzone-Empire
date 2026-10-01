@@ -6,6 +6,7 @@ const recap = require('../services/recap.service');
 const trophies = require('../services/trophy.service');
 const digest = require('../services/digest.service');
 const { settleFollowUp } = require('../services/settleFollowUp.service');
+const { createFakePool } = require('./helpers/fakePool');
 
 const ARGS = { leagueId: 7, season: 2026, week: 5 };
 
@@ -73,4 +74,209 @@ test('an unknown mode is refused before any step runs', async (t) => {
   const order = stubAll(t);
   await assert.rejects(settleFollowUp({ ...ARGS, mode: 'sideways' }), /mode/);
   assert.equal(order.length, 0);
+});
+
+// ---- #1860: Called shots through the real trophy and Recap steps ------------
+//
+// A stateful fake pool holds the league's `lineup_overrides` rows, so the
+// judge's UPDATE is what the Recap's read then sees. Odds and the digest are
+// stubbed; Hindsight is the one seam below the judge (it has its own suites).
+const decisionSvc = require('../services/decision.service');
+
+const shotRow = (over) => ({
+  team_id: 10, team_name: 'Team A', called: true, probability: '0.65', outcome: 'pending',
+  starter_player_id: 7, benched_player_id: 21, starter_name: 'Flex Guy', benched_name: 'Ben Bench',
+  starter_points_actual: null, benched_points_actual: null, ...over,
+});
+
+function shotWorld(t, shots) {
+  const stored = [];
+  const left = new Map();
+  const fake = createFakePool([
+    [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
+      rows: [{ id: 7, draft_status: 'complete', season_status: 'in_season', regular_season_weeks: 14, best_ball: false, scoring_rules: null }],
+    })],
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] }), 'client'],
+    [/^SELECT \* FROM "matchups"/, () => ({ rows: [{ id: 1, final: true, home_team_id: 10, away_team_id: 20, home_score: 98, away_score: 110 }] })],
+    [/^SELECT "id", "team_id", "data" FROM "trophies"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "id", "team_id", "week"/, (text, params) => ({
+      rows: shots.filter((s) => s.outcome === 'pending' && s.week <= params[2]),
+    })],
+    [/^UPDATE "lineup_overrides"/, (text, params) => {
+      const s = shots.find((x) => x.id === params[0] && x.outcome === 'pending');
+      if (!s) return { rows: [] };
+      Object.assign(s, { outcome: params[1], starter_points_actual: params[2], benched_points_actual: params[3] });
+      return { rows: [{ id: s.id }] };
+    }],
+    [/^SELECT "teams"\."name" AS "team_name".* FROM "lineup_overrides"/, (text, params) => ({
+      rows: shots.filter((s) => s.week === params[2] && (s.outcome === 'hit' || s.outcome === 'miss')),
+    })],
+    [/^INSERT INTO "trophies"/, () => ({ rows: [{ id: 1 }] })],
+    [/^SELECT "trophies"\."type"/, () => ({ rows: [] })],
+    [/^SELECT "matchups"\.\*/, () => ({
+      rows: [{ id: 1, final: true, home_team_id: 10, away_team_id: 20, home_team_name: 'Team A', away_team_name: 'Team B', home_score: 98, away_score: 110 }],
+    })],
+    [/^SELECT .* FROM "transactions"/, () => ({ rows: [] })],
+    // #1861: the stored points-left rows, first write wins (the real insert is
+    // ON CONFLICT DO NOTHING); the Recap rows are the 4-param inserts.
+    [/^SELECT "data" FROM "league_analytics"/, (text, params) => ({
+      rows: params[3] === 'points_left' && left.has(params[2]) ? [{ data: left.get(params[2]) }] : [],
+    })],
+    [/^INSERT INTO "league_analytics"/, (text, params) => {
+      if (params.length === 5) {
+        if (!left.has(params[2])) left.set(params[2], JSON.parse(params[4]));
+        return { rows: [] };
+      }
+      stored.push(JSON.parse(params[3]));
+      return { rows: [] };
+    }],
+    [/^SELECT "owner_id" FROM "teams"/, () => ({ rows: [{ owner_id: 1 }] })],
+    [/^SELECT DISTINCT "owner_id"/, () => ({ rows: [] })],
+    [/^INSERT INTO "(notifications|transactions)"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+  const roster = {
+    actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0,
+    counted: [
+      { playerId: 7, name: 'Flex Guy', position: 'WR', slot: 'FLEX', points: 11.4, appeared: true },
+      { playerId: 21, name: 'Ben Bench', position: 'WR', slot: 'BENCH', points: 6.2, appeared: true },
+    ],
+  };
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async () => roster);
+  t.mock.method(decisionSvc, 'weekHindsight', async () => ({ pointsLeftOnBench: 0 }));
+  t.mock.method(montecarlo, 'computeLeagueOdds', async () => ({}));
+  t.mock.method(digest, 'sendWeeklyRecapDigest', async () => ({}));
+  return { fake, stored, left };
+}
+
+const calledTrophies = (fake) => fake.matching(/^INSERT INTO "trophies"/).filter((c) => c.params[4] === 'called_shot');
+
+test('#1860 advance: the week\'s shots are judged in the trophy step, before the Recap reads them', async (t) => {
+  const shots = [shotRow({ id: 1, week: 5, team_id: 20, team_name: 'Team B', probability: '0.85' })];
+  const { fake, stored } = shotWorld(t, shots);
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.equal(shots[0].outcome, 'hit');
+  assert.deepEqual([shots[0].starter_points_actual, shots[0].benched_points_actual], [11.4, 6.2]);
+  assert.equal(calledTrophies(fake).length, 1);
+  assert.equal(JSON.parse(calledTrophies(fake)[0].params[6]).bold, true);
+  assert.deepEqual(stored[0].facts.calledShots, [
+    { team: 'Team B', starter: 'Flex Guy', benched: 'Ben Bench', starterPoints: 11.4, benchedPoints: 6.2, outcome: 'hit', bold: true },
+  ]);
+  assert.match(stored[0].narrative, /Team B called it: Flex Guy over Ben Bench, 11\.4 to 6\.2\. A bold call\./);
+});
+
+test('#1860 advance catch-up: week N advanced with a pending row in week N-1 judges it, writes its trophy under N-1, and gives it no Recap line', async (t) => {
+  const shots = [shotRow({ id: 1, week: ARGS.week - 1 })];
+  const { fake, stored } = shotWorld(t, shots);
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.equal(shots[0].outcome, 'hit');
+  assert.deepEqual([shots[0].starter_points_actual, shots[0].benched_points_actual], [11.4, 6.2]);
+  assert.equal(calledTrophies(fake).length, 1);
+  assert.equal(calledTrophies(fake)[0].params[3], ARGS.week - 1, 'the hit is written under the shot\'s own week');
+  assert.equal(stored.length, 1, 'week N\'s Recap was written');
+  assert.equal('calledShots' in stored[0].facts, false, 'and carries no line for the week N-1 shot');
+  assert.doesNotMatch(stored[0].narrative, /called/);
+});
+
+test('#1860 advance: a miss is narrated, a void is not, and neither writes a trophy', async (t) => {
+  const shots = [
+    shotRow({ id: 1, week: 5, team_id: 10 }),
+    shotRow({ id: 2, week: 5, team_id: 20, team_name: 'Team B', starter_player_id: 99 }),
+  ];
+  const { fake, stored } = shotWorld(t, shots);
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async ({ teamId }) => ({
+    counted: [
+      { playerId: 7, name: 'Flex Guy', position: 'WR', slot: 'FLEX', points: teamId === 10 ? 3 : 11.4, appeared: true },
+      { playerId: 21, name: 'Ben Bench', position: 'WR', slot: 'BENCH', points: 6.2, appeared: true },
+    ],
+  }));
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.deepEqual(shots.map((s) => s.outcome), ['miss', 'void']);
+  assert.equal(calledTrophies(fake).length, 0);
+  assert.equal(stored[0].facts.calledShots.length, 1, 'the void adds no line');
+  assert.match(stored[0].narrative, /Team A called Flex Guy over Ben Bench and missed, 3 to 6\.2\./);
+});
+
+test('#1860 advance twice: the second run judges nothing again and the trophy stays one', async (t) => {
+  const shots = [shotRow({ id: 1, week: 5 })];
+  const { fake } = shotWorld(t, shots);
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.equal(fake.matching(/^UPDATE "lineup_overrides"/).length, 1, 'a resolved row is never read as pending again');
+});
+
+test('#1860 correction: outcomes, trophies and the shot\'s Recap facts are left as judged', async (t) => {
+  // One frozen hit, and one row still pending (as if the judge had been skipped): a
+  // correction must neither judge the pending row nor touch the hit.
+  const shots = [
+    shotRow({ id: 1, week: 5, outcome: 'hit', starter_points_actual: 11.4, benched_points_actual: 6.2 }),
+    shotRow({ id: 2, week: 5, team_id: 20, team_name: 'Team B' }),
+  ];
+  const { fake, stored } = shotWorld(t, shots);
+  // A correction moved the live stat lines: nothing may be re-read from them.
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => { throw new Error('a correction must not re-judge'); });
+
+  await settleFollowUp({ ...ARGS, mode: 'correction' });
+
+  assert.equal(fake.matching(/^UPDATE "lineup_overrides"/).length, 0);
+  assert.equal(calledTrophies(fake).length, 0);
+  assert.deepEqual(shots.map((x) => x.outcome), ['hit', 'pending']);
+  assert.equal(stored[0].facts.calledShots[0].starterPoints, 11.4, 'the rebuilt Recap reads the frozen numbers');
+});
+
+// ---- #1861: points left, stored in the trophy step and read by the Recap ----
+
+const pointsLeftWeek = {
+  teams: [{ teamId: 10, pointsLeft: 3.5 }, { teamId: 20, pointsLeft: 14.5 }],
+};
+const leftInserts = (fake) => fake.matching(/^INSERT INTO "league_analytics"/).filter((c) => c.params.length === 5);
+
+test('#1861 advance: the points-left row is written in the trophy step, before the Recap, and the blunder line reads it', async (t) => {
+  const { fake, stored, left } = shotWorld(t, []);
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async ({ teamId }) => ({
+    counted: [], pointsLeftOnBench: teamId === 10 ? 3.5 : 14.5,
+  }));
+  // The live read would now say something else: only the stored row may be read.
+  decisionSvc.weekHindsight.mock.mockImplementation(async () => ({ pointsLeftOnBench: 99 }));
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.deepEqual(left.get(ARGS.week), pointsLeftWeek);
+  const rowIdx = fake.calls.findIndex((c) => /^INSERT INTO "league_analytics"/.test(c.text) && c.params.length === 5);
+  const recapIdx = fake.calls.findIndex((c) => /^INSERT INTO "league_analytics"/.test(c.text) && c.params.length === 4);
+  assert.ok(rowIdx >= 0 && rowIdx < recapIdx, 'stored before the Recap is built');
+  assert.deepEqual(stored[0].facts.benchBlunder, { team: 'Team B', pointsLeftOnBench: 14.5 });
+});
+
+test('#1861 correction: the stored row is not rewritten, and the rebuilt Recap still reads the frozen numbers', async (t) => {
+  const { fake, stored, left } = shotWorld(t, []);
+  left.set(ARGS.week, pointsLeftWeek);
+  // A correction moved the live stat lines: Hindsight now disagrees.
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => { throw new Error('a correction must not re-judge'); });
+  decisionSvc.weekHindsight.mock.mockImplementation(async () => ({ pointsLeftOnBench: 99 }));
+
+  await settleFollowUp({ ...ARGS, mode: 'correction' });
+
+  assert.equal(leftInserts(fake).length, 0);
+  assert.deepEqual(left.get(ARGS.week), pointsLeftWeek);
+  assert.deepEqual(stored[0].facts.benchBlunder, { team: 'Team B', pointsLeftOnBench: 14.5 });
+});
+
+test('#1861 advance twice: the second run keeps the first run\'s numbers', async (t) => {
+  const { left } = shotWorld(t, []);
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => ({ counted: [], pointsLeftOnBench: 3.5 }));
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+  decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => ({ counted: [], pointsLeftOnBench: 50 }));
+
+  await settleFollowUp({ ...ARGS, mode: 'advance' });
+
+  assert.deepEqual(left.get(ARGS.week).teams.map((x) => x.pointsLeft), [3.5, 3.5]);
 });

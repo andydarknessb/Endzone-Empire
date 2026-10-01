@@ -1974,6 +1974,23 @@ test('tickUnlocked runs the kickoff waiver hold before claim processing (#1375, 
   assert.ok(holdAt < waiversAt, "the hold job writes this tick's kickoff rows before claims are processed");
 });
 
+test('tickUnlocked runs the Override capture after the time-sensitive duties, in its own containment (#1862)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await captureOverrides\(\{ loadAdvice: startSitAdvice \}\);\s*\} catch/);
+  const captureAt = tickBody.indexOf('captureOverrides(');
+  const fillAt = tickBody.indexOf('await runNightlyProjectionFill();');
+  for (const duty of ['holdKickedOffPlayers()', 'processAllDueWaivers()', 'sendLineupReminders()', 'processDueTrades()', 'processScheduledDrafts()', 'syncAndScoreLiveWeeks()']) {
+    assert.ok(tickBody.indexOf(duty) < captureAt, `${duty} runs before the capture, so its run time never delays them`);
+  }
+  assert.ok(captureAt < fillAt, 'and ahead of the long nightly fill');
+});
+
 // ---- stat-corrections: failed weeks (#1674) -----------------------------------
 // The pass reports weeks whose sync threw; a run with any is not ok, leaves the
 // day unstamped and retries no sooner than an hour later. Driven through the

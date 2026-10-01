@@ -651,6 +651,7 @@ async function getSettledDetail(t) {
     [/FROM "nfl_games"/, () => ({ rows: SETTLED_SCHEDULE })],
     [/FROM "live_game_states"/, () => ({ rows: [] })],
     [/FROM "view_matchup_nfl_games"/, () => ({ rows: [] })],
+    [/FROM "lineup_overrides"/, () => ({ rows: [] })], // no called shot (#1857)
     [/"lineup_entries"\."slot" = \$4/, (text, params) => answer(SETTLED_BENCH, text, params)],
     [/"players"\."id", "players"\."name"[\s\S]*"lineup_entries"\."slot" NOT IN/, (text, params) => answer(SETTLED_STARTERS, text, params)],
   ]).install(t);
@@ -831,6 +832,7 @@ const SETTLED_EXPECTED_BODY = {
     ],
     expectedFinal: null,
     playersRemaining: null,
+    calledShot: null,
   },
   away: {
     teamId: AWAY,
@@ -845,6 +847,7 @@ const SETTLED_EXPECTED_BODY = {
     bench: [],
     expectedFinal: null,
     playersRemaining: null,
+    calledShot: null,
   },
 };
 

@@ -62,6 +62,7 @@ const sweepEvidence = require('../../scripts/backtest/lib/sweepEvidence');
 // the document carries only data - the same split run-backtest-mde.js uses.
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const { availabilityFor } = require('../services/projectionModel');
+const { isPositionBaselineEntry } = require('../services/projection.service');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 const rosters = require('../../scripts/backtest/lib/rosters');
 const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
@@ -1075,6 +1076,9 @@ function buildReportFromInputs(inputs, { expectedRosterCount = rosters.TEAM_COUN
       // Now the read does not exist to be enabled.
       rosterSlots: DEFAULT_ROSTER_SLOTS,
       availabilityFor,
+      // The Position-baseline marker is read from the projection row the way
+      // production's `positionBaselineFor` reads it: one shared predicate.
+      positionBaselineFor: isPositionBaselineEntry,
       optimize: optimalAssignment,
       // The lineup ORDERING is injected like the optimizer and the slot model
       // - never from the document, and never via policy.js's own destructuring

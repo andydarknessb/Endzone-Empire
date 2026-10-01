@@ -75,9 +75,11 @@ const TROPHY_ICON = {
   biggest_blowout: 'burst',
   perfect_lineup: 'target',
   captain_hindsight: 'rebound',
+  called_shot: 'target',
   win_streak: 'rise',
   comeback: 'rebound',
   draft_grade: 'target',
+  fewest_left_on_bench: 'target',
 };
 
 /**
@@ -116,6 +118,7 @@ const WEEKLY_TROPHY_TYPES = [
   'biggest_blowout',
   'perfect_lineup',
   'captain_hindsight',
+  'called_shot',
 ];
 
 function trophySubLabel(trophy) {

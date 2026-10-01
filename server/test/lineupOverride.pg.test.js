@@ -150,6 +150,37 @@ if (!ENABLED) {
     assert.equal(ok.rowCount, 1);
   });
 
+  // #1862: the capture's own write, against the real pair key.
+  test('writeOverride is idempotent on the pair key, and a pair matching the called row updates it once instead of adding one', async () => {
+    const { writeOverride } = require('../services/lineupOverride.service');
+    const suggestion = (starter, benched) => ({
+      slot: 'RB', current: { playerId: starter, projection: 6 }, suggested: { playerId: benched, projection: 18 },
+      probabilityBetter: 0.92, verdict: 'start',
+    });
+    const write = (starter, benched, capturedAt) => writeOverride(pool, {
+      leagueId: world.leagueId, teamId: world.teamId, season: 2026, week: 9, suggestion: suggestion(starter, benched), capturedAt,
+    });
+    const rows = (called) => pool.query(
+      `SELECT "captured_at", "called" FROM "lineup_overrides"
+       WHERE "team_id" = $1 AND "week" = 9 AND "called" = $2`,
+      [world.teamId, called]
+    );
+    // A captured pair: written once, never twice.
+    await write(world.a, world.c, new Date('2030-01-01T17:03:00.000Z'));
+    await write(world.a, world.c, new Date('2030-01-01T17:08:00.000Z'));
+    const captured = await rows(false);
+    assert.equal(captured.rows.length, 1);
+    assert.equal(captured.rows[0].captured_at.toISOString(), '2030-01-01T17:03:00.000Z');
+    // The called pair: its capture time moves once, and no second row appears.
+    await insertRow({ ...world, week: 9, starter: world.b, benched: world.d, called: true });
+    await write(world.b, world.d, new Date('2030-01-01T17:03:00.000Z'));
+    await write(world.b, world.d, new Date('2030-01-01T17:08:00.000Z'));
+    const called = await rows(true);
+    assert.equal(called.rows.length, 1);
+    assert.equal(called.rows[0].captured_at.toISOString(), '2030-01-01T17:03:00.000Z');
+    assert.equal((await rows(false)).rows.length, 1, 'the called pair added no captured row');
+  });
+
   test('down() refuses while rows exist (ADR 0012) and leaves the table', async () => {
     const knexShim = { raw: (sql) => pool.query(sql), schema: { dropTable: () => assert.fail('must not drop') } };
     await assert.rejects(() => migration.down(knexShim), /refusing to drop lineup_overrides/);

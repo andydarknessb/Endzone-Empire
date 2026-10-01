@@ -1211,3 +1211,73 @@ test('the decision strip shows the Ownership and depth chart tiles in this conte
   expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
   expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
 });
+
+// #1849 (spec #1845): the Volatility tag, a Badge beside the RangeBar, from the
+// card payload's own decision.volatility; nothing at all for null.
+describe('Volatility tag (#1849)', () => {
+  const cardWith = (volatility) => ({ decision: { projWeek: { week: 4, points: 12 }, volatility } });
+
+  test('reads "Steady" beside the RangeBar', async () => {
+    mockCardRoute(cardWith('steady'));
+    renderCard();
+    const badge = await screen.findByTestId('decision-card-volatility');
+    expect(badge).toHaveTextContent('Steady');
+    expect(within(screen.getByTestId('decision-card-projection')).getByTestId('decision-card-volatility')).toBe(badge);
+  });
+
+  test('reads "Boom or bust", with no emoji, em-dash or the word "range" in its copy', async () => {
+    mockCardRoute(cardWith('boom_or_bust'));
+    renderCard();
+    const text = (await screen.findByTestId('decision-card-volatility')).textContent;
+    expect(text).toBe('Boom or bust');
+    expect(text).not.toMatch(/range|—|\p{Extended_Pictographic}/iu);
+  });
+
+  test.each([[null], [undefined], ['volatile']])('renders nothing for %p, and never "unavailable"', async (volatility) => {
+    mockCardRoute(cardWith(volatility));
+    renderCard();
+    await screen.findByTestId('decision-card-projection');
+    expect(screen.queryByTestId('decision-card-volatility')).not.toBeInTheDocument();
+    expect(screen.getByTestId('decision-card-projection')).not.toHaveTextContent(/unavailable/i);
+  });
+
+  test('Compare shows the tag in both panels, each from its own player\'s card', async () => {
+    const starter = entry();
+    const other = entry({ playerId: 2, name: 'Compare Target' });
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/players/1/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWith('steady') } });
+      if (url.includes('/players/2/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWith('boom_or_bust') } });
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+    renderCard({ entry: starter, entries: [starter, other] });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('decision-card-compare-action'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+    await screen.findByTestId('decision-card-compare');
+
+    const left = screen.getByTestId('decision-card-compare-panel-1');
+    const right = screen.getByTestId('decision-card-compare-panel-2');
+    await waitFor(() => expect(within(right).getByTestId('decision-card-volatility')).toHaveTextContent('Boom or bust'));
+    expect(within(left).getByTestId('decision-card-volatility')).toHaveTextContent('Steady');
+  });
+
+  test('Compare with one side null shows the tag on the other side only', async () => {
+    const starter = entry();
+    const other = entry({ playerId: 2, name: 'Compare Target' });
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/players/1/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWith('steady') } });
+      if (url.includes('/players/2/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWith(null) } });
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+    renderCard({ entry: starter, entries: [starter, other] });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('decision-card-compare-action'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+    await screen.findByTestId('decision-card-compare');
+
+    await waitFor(() => expect(within(screen.getByTestId('decision-card-compare-panel-1')).getByTestId('decision-card-volatility')).toBeInTheDocument());
+    expect(within(screen.getByTestId('decision-card-compare-panel-2')).queryByTestId('decision-card-volatility')).not.toBeInTheDocument();
+  });
+});

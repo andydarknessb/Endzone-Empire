@@ -3,8 +3,8 @@ import { useSelector } from 'react-redux';
 import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
-import { matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
-import { useMatchup, matchupStatusView } from '../../../entities/matchup';
+import { formatPoints, matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
+import { useMatchup, matchupStatusView, deltasFor } from '../../../entities/matchup';
 import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
@@ -80,6 +80,7 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
 const RETRO_DASH_MS = 1000;
 const RETRO_MOMENT_MS = 1800;
 const TICKER_LIMIT = 12;
+const NO_DELTAS = new Map();
 
 /**
  * The league's roster_slots keys in commissioner order, or an empty list.
@@ -98,6 +99,34 @@ export function slotOrderFor(league) {
 // The status chip's Badge variant per server status, the canvas's statusChip()
 // (the hero's, the matchup cards' and the scoreboard strip's map).
 const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
+
+/**
+ * One team's called shot line for the bench card (#1857), or null: "Called
+ * shot: {starter} over {benched} · 11.4 to 6.2" and, once judged, "Hit" or
+ * "Miss" (a void shows the line and no word). The server sends the shot only
+ * once both players have locked. While it is open each player's points are
+ * read live: the starter off the entity's score-bumped starters, the benched
+ * player off the bench plus the deltas this page has summed since the read (the
+ * entity bumps starters only). Judged numbers stand once hit or miss; a number
+ * the wire does not know (a void shot, a player dropped since) reads as a dash,
+ * never 0.0.
+ */
+export function calledShotView(shot, { starters, bench, deltas }) {
+  if (!shot?.starter || !shot?.benched) return null;
+  const judged = shot.outcome === 'hit' || shot.outcome === 'miss';
+  const pointsOf = (side) => {
+    if (judged) return side.points;
+    const started = (starters || []).find((p) => p.id === side.playerId);
+    if (started) return started.points;
+    const benched = (bench || []).find((p) => p.id === side.playerId);
+    if (benched) return Math.round(((Number(benched.points) || 0) + (deltas.get(side.playerId) || 0)) * 100) / 100;
+    return side.points;
+  };
+  return {
+    text: `Called shot: ${shot.starter.name} over ${shot.benched.name} · ${formatPoints(pointsOf(shot.starter))} to ${formatPoints(pointsOf(shot.benched))}`,
+    outcome: judged ? (shot.outcome === 'hit' ? 'Hit' : 'Miss') : null,
+  };
+}
 
 /**
  * The header's status chip: the entity predicate's label (ADR 0030), the
@@ -122,6 +151,11 @@ export function useMatchupPage(leagueId, matchupId) {
   const [retroActivePlay, setRetroActivePlay] = useState(null);
   const [homeBenchLeft, setHomeBenchLeft] = useState(null);
   const [awayBenchLeft, setAwayBenchLeft] = useState(null);
+  // Points summed per player from score events since the last read, so a
+  // bench player's live points move (the entity bumps starters only, #1857).
+  // Tied to the read they sum against: `read` is the detail body they were
+  // summed on, and a different body (a refetch or resync) means they are spent.
+  const [live, setLive] = useState({ read: null, deltas: NO_DELTAS });
   const retroTimeoutRef = useRef(null);
   // The latest detail body, so the play handler reads the current lineups and
   // viewer id without closing over them (and without re-subscribing the feed).
@@ -132,6 +166,16 @@ export function useMatchupPage(leagueId, matchupId) {
   const handleScores = useCallback((event) => {
     const plays = (event && event.plays) || [];
     if (!plays.length) return;
+
+    const deltaById = deltasFor(event, detailRef.current?.matchup?.week);
+    if (deltaById.size) {
+      const read = detailRef.current;
+      setLive((prev) => {
+        const next = new Map(prev.read === read ? prev.deltas : NO_DELTAS);
+        deltaById.forEach((d, id) => next.set(id, (next.get(id) || 0) + d));
+        return { read, deltas: next };
+      });
+    }
 
     const detailNow = detailRef.current;
     const viewerTeamId = detailNow?.viewerTeamId ?? null;
@@ -277,6 +321,8 @@ export function useMatchupPage(leagueId, matchupId) {
   const viewerHasRoster = !!viewerSide
     && ((viewerSide.starters || []).length > 0 || (viewerSide.bench || []).length > 0);
 
+  const liveDeltas = live.read === detail ? live.deltas : NO_DELTAS;
+
   return {
     league,
     leagueName: league?.name ?? null,
@@ -299,6 +345,11 @@ export function useMatchupPage(leagueId, matchupId) {
       away: detail?.away?.bench || [],
     },
     benchLeft: { home: homeBenchLeft, away: awayBenchLeft },
+    // Each team's called shot line, once the server shows it (#1857).
+    calledShots: {
+      home: calledShotView(detail?.home?.calledShot, { starters: homeStarters, bench: detail?.home?.bench, deltas: liveDeltas }),
+      away: calledShotView(detail?.away?.calledShot, { starters: awayStarters, bench: detail?.away?.bench, deltas: liveDeltas }),
+    },
     // The line shows only for a final Matchup in a league that sets a lineup
     // (ADR 0023); it waits for the league so a best-ball zero never flashes.
     showBenchLeft: isFinal && !!league && !league.best_ball,

@@ -21,6 +21,12 @@ import { unavailableLabel } from '../../../widgets/slot-comparison';
  * whether the card is open or not: "Left 12.4 on the bench" per side, the
  * legacy page's exact line.
  *
+ * Under the benches, each team's called shot once the server shows it (#1857:
+ * both players have locked): "Called shot: {starter} over {benched} · 11.4 to
+ * 6.2", moving with the live points, and "Hit" or "Miss" once judged (a void
+ * shows the line and no word). The page model builds the text; this card
+ * only lays it out, open or collapsed.
+ *
  * Composes `shared/ui` (Card, PosChip) and paints only `dash-*` tokens plus
  * the app's radius and focus-ring tokens; ink, dim and faint on the card
  * surface are registered pairings. The count and the Show / Hide control sit
@@ -42,6 +48,7 @@ export default function BenchCard({
   onOpenPlayer,
   benchLeft,
   showBenchLeft,
+  calledShots,
   mobile = false,
 }) {
   const panelId = useId();
@@ -51,7 +58,9 @@ export default function BenchCard({
   const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
   const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
   // Collapsed with no bench-left line: the header is the whole card.
-  const headerOnly = !open && leftHome == null && leftAway == null;
+  const shotHome = calledShots?.home || null;
+  const shotAway = calledShots?.away || null;
+  const headerOnly = !open && leftHome == null && leftAway == null && !shotHome && !shotAway;
 
   return (
     <Card
@@ -125,6 +134,24 @@ export default function BenchCard({
           <BenchColumn name={awayName} players={away} side="away" onOpenPlayer={onOpenPlayer} mobile={mobile} />
         </Box>
       )}
+
+      {(shotHome || shotAway) && (
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+            gap: mobile ? '10px' : '18px',
+            px: mobile ? '14px' : '18px',
+            py: '10px',
+            fontSize: '12px',
+            color: 'var(--dash-dim)',
+            borderTop: open ? '1px solid var(--dash-line)' : 0,
+          }}
+        >
+          <CalledShot shot={shotHome} side="home" />
+          <CalledShot shot={shotAway} side="away" align="right" />
+        </Box>
+      )}
     </Card>
   );
 }
@@ -141,6 +168,22 @@ function BenchLeft({ name, value, side, align = 'left' }) {
       <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
         {`Left ${Number(value).toFixed(1)} on the bench`}
       </Box>
+    </Box>
+  );
+}
+
+function CalledShot({ shot, side, align = 'left' }) {
+  if (!shot) return <span />;
+  return (
+    <Box component="span" sx={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: align, minWidth: 0 }}>
+      <Box component="span" data-testid={`called-shot-${side}`} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+        {shot.text}
+      </Box>
+      {shot.outcome && (
+        <Box component="span" data-testid={`called-shot-outcome-${side}`} sx={{ fontWeight: 700, color: 'var(--dash-ink)' }}>
+          {shot.outcome}
+        </Box>
+      )}
     </Box>
   );
 }

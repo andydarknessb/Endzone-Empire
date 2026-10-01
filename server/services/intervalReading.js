@@ -36,8 +36,10 @@ const CONSTANTS = Object.freeze({
   // least this many games.
   minSampleSize: 8,
   // Reference set: a player must project at least this many points (Point
-  // estimate). Below it a width-vs-point line is fitted to noise.
-  minPointEstimate: 5,
+  // estimate), per position. Below it a width-vs-point line is fitted to noise.
+  // QB is 10, not 5: at 5, backup QBs with starter-era residual pools took
+  // most of the QB tags (#1847 ruling).
+  minPointEstimate: Object.freeze({ QB: 10, RB: 5, WR: 5, TE: 5 }),
   // Fewer eligible players than this at a position in a run: no tags.
   minReferenceSetSize: 10,
   // The tagged fifth: each tag takes floor(eligible / 5) players.
@@ -75,10 +77,13 @@ function quantilesOf(row) {
   return values.every(isNumber) ? values : null;
 }
 
+const widthOf = (row) => row.p90 - row.p10;
+
 /**
  * Eligible: QB/RB/WR/TE, Available, projected from his own residuals, at least
  * `minSampleSize` games, not a Position-baseline projection, and a complete
- * Interval with a Point estimate. Anything else reads null on every reading.
+ * Interval with a Point estimate and a positive width (a zero-width or
+ * inverted Interval says nothing). Anything else reads null on every reading.
  */
 function isEligible(row) {
   if (!row || !CONSTANTS.positions.includes(row.position)) return false;
@@ -89,10 +94,9 @@ function isEligible(row) {
   if (Array.isArray(quality.reasons) && quality.reasons.includes('position baseline')) return false;
   if (!isNumber(row.sampleSize) || row.sampleSize < CONSTANTS.minSampleSize) return false;
   if (!isNumber(row.pointEstimate)) return false;
-  return quantilesOf(row) !== null;
+  if (quantilesOf(row) === null) return false;
+  return widthOf(row) > 0;
 }
-
-const widthOf = (row) => row.p90 - row.p10;
 
 /**
  * Ordinary least squares of `y` on `x`. With no spread in `x` the slope is 0
@@ -114,9 +118,9 @@ function fitWidthLine(points) {
   return { slope, intercept: meanY - slope * meanX };
 }
 
-/** The reference set of one position's rows: eligible and at the minimum Point estimate. */
+/** The reference set of one position's rows: eligible and at the position's minimum Point estimate. */
 function referenceSet(rows) {
-  return rows.filter((r) => isEligible(r) && r.pointEstimate >= CONSTANTS.minPointEstimate);
+  return rows.filter((r) => isEligible(r) && r.pointEstimate >= CONSTANTS.minPointEstimate[r.position]);
 }
 
 /** Tags one position's rows; writes into `tags`. */

@@ -4,7 +4,7 @@ import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
 import { PlayerNameLink } from '../../../entities/player';
 import { formatKickoff, formatPoints } from '../../../shared/lib';
-import { buildSuggestionView, calledShotLine, movePlanWithout, projectedLeanLine } from '../lib/suggestionView';
+import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLine, movePlanWithout, pointsLeftLine, projectedLeanLine } from '../lib/suggestionView';
 
 /**
  * The Start/sit panel widget (#1238, ADR 0037 AC1): the rail's advice panel,
@@ -77,7 +77,10 @@ export default function StartSitPanel({
   // server pins the shot's pair, so it never appears as a row above and the
   // panel adds no client-side filter for it (Dismiss's movePlanWithout is
   // per-mount UI state only).
-  const shotLine = calledShotLine(advice?.calledShot);
+  const shotLine = calledShotLine(advice?.calledShot, entriesById);
+  const benchLine = pointsLeftLine(advice?.pointsLeft);
+  const forecastLine = forecastRecordLine(advice?.overrideRecord);
+  const calledRecord = calledRecordLine(advice?.calledShotRecord);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
@@ -128,6 +131,24 @@ export default function StartSitPanel({
         {leanLine && (
           <Typography data-testid="start-sit-lean-line" sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)' }}>
             {leanLine}
+          </Typography>
+        )}
+
+        {benchLine && (
+          <Typography data-testid="points-left-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+            {benchLine}
+          </Typography>
+        )}
+
+        {forecastLine && (
+          <Typography data-testid="forecast-record-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+            {forecastLine}
+          </Typography>
+        )}
+
+        {calledRecord && (
+          <Typography data-testid="called-record-line" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+            {calledRecord}
           </Typography>
         )}
 
@@ -282,6 +303,9 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
           <Typography sx={NAME_SX}>{player.name}</Typography>
         )}
         <InjuryTag status={player.injuryStatus} />
+        {player.volatility && (
+          <Badge variant="neutral" data-testid="suggestion-volatility">{player.volatility}</Badge>
+        )}
       </Box>
       <RangeBar
         label={player.name}

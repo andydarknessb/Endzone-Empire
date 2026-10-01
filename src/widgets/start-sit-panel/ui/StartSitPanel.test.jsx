@@ -313,6 +313,40 @@ describe('fact chips (#1853)', () => {
   });
 });
 
+describe('Volatility tag (#1858)', () => {
+  const withTags = (current, suggested) => suggestion({
+    current: { ...suggestion().current, volatility: current },
+    suggested: { ...suggestion().suggested, volatility: suggested },
+  });
+  const renderPanel = (s) => render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+
+  test('a tagged pair shows each tag beside its own player', () => {
+    renderPanel(withTags('steady', 'boom_or_bust'));
+    const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+    expect(within(sitColumn).getByTestId('suggestion-volatility')).toHaveTextContent('Steady');
+    expect(within(startColumn).getByTestId('suggestion-volatility')).toHaveTextContent('Boom or bust');
+  });
+
+  test('an untagged pair shows no tag', () => {
+    renderPanel(withTags(null, null));
+    expect(screen.queryByTestId('suggestion-volatility')).not.toBeInTheDocument();
+  });
+
+  test('a mixed pair tags only the tagged side', () => {
+    renderPanel(withTags(null, 'steady'));
+    const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+    expect(within(sitColumn).queryByTestId('suggestion-volatility')).not.toBeInTheDocument();
+    expect(within(startColumn).getByTestId('suggestion-volatility')).toHaveTextContent('Steady');
+  });
+
+  test('the copy has no emoji and no em-dash', () => {
+    renderPanel(withTags('steady', 'boom_or_bust'));
+    for (const tag of screen.getAllByTestId('suggestion-volatility')) {
+      expect(tag.textContent).toMatch(/^[A-Za-z ]+$/);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // #1856: Call your shot
 // ---------------------------------------------------------------------------
@@ -506,4 +540,79 @@ test('the standing line is a labelled group and Withdraw names the shot (#1856)'
   );
   expect(screen.getByRole('group', { name: 'Your called shot' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Withdraw your called shot: Sit Guy over Start Guy' })).toBeInTheDocument();
+});
+
+// #1857: once both players have locked the standing line shows live points.
+const bothLocked = (over = {}) => shot({
+  status: 'locked',
+  bothLocked: true,
+  canWithdraw: false,
+  starter: { playerId: 1, name: 'Sit Guy', projection: 8, points: 11.4 },
+  benched: { playerId: 2, name: 'Start Guy', projection: 14.5, points: 6.2 },
+  ...over,
+});
+
+test('with both players locked the standing line reads their live points off the lineup entries', () => {
+  const live = [
+    { playerId: 1, position: 'RB', points: 12.9 },
+    { playerId: 2, position: 'RB', points: 7 },
+  ];
+  render(<StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: bothLocked() }} entries={live} bestBall={false} />);
+  expect(screen.getByTestId('called-shot-line')).toHaveAttribute('data-state', 'locked');
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Live: Sit Guy 12.9 to Start Guy 7.0');
+});
+
+test('with both players locked and no live entry points, the payload points stand', () => {
+  render(<StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: bothLocked() }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Live: Sit Guy 11.4 to Start Guy 6.2');
+});
+
+test('with only one player locked the standing line shows no live points', () => {
+  const live = [{ playerId: 1, position: 'RB', points: 12.9 }, { playerId: 2, position: 'RB', points: 7 }];
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [], movePlan: [], calledShot: shot({ status: 'locked', bothLocked: false, canWithdraw: false }) }}
+      entries={live}
+      bestBall={false}
+    />
+  );
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Locked: one of the two games has started');
+  expect(screen.getByTestId('called-shot-status')).not.toHaveTextContent('Live');
+});
+
+// #1861
+test('shows the season points left line from the advice payload', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [], pointsLeft: { total: 41.2, rank: 3, teams: 10 } }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('points-left-line')).toHaveTextContent('Left on the bench this season: 41.2 (3rd fewest of 10)');
+});
+
+test('no points-left line without a standing in the payload, and none in best ball', () => {
+  const { rerender } = render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [], pointsLeft: null }} entries={entries} bestBall={false} />);
+  expect(screen.queryByTestId('points-left-line')).not.toBeInTheDocument();
+  rerender(<StartSitPanel advice={{ suggestions: [], movePlan: [], pointsLeft: { total: 4, rank: 1, teams: 10 } }} entries={entries} bestBall />);
+  expect(screen.queryByTestId('points-left-line')).not.toBeInTheDocument();
+});
+
+// #1862
+test('shows the manager their You vs the Forecast and Called shot season lines from the advice payload', () => {
+  render(
+    <StartSitPanel
+      advice={{
+        suggestions: [suggestion()],
+        movePlan: [],
+        overrideRecord: { hits: 5, misses: 3 },
+        calledShotRecord: { hits: 2, resolved: 3, streak: 2 },
+      }}
+      entries={entries}
+      bestBall={false}
+    />
+  );
+  expect(screen.getByTestId('forecast-record-line')).toHaveTextContent('You vs the Forecast: 5-3');
+  expect(screen.getByTestId('called-record-line')).toHaveTextContent('Called shots this season: 2 of 3 · streak 2');
+});
+
+test('no season record lines without a resolved record in the payload', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [], overrideRecord: null, calledShotRecord: null }} entries={entries} bestBall={false} />);
+  expect(screen.queryByTestId('forecast-record-line')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('called-record-line')).not.toBeInTheDocument();
 });

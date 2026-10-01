@@ -6,6 +6,7 @@ const {
   tradeVerdict,
   tradeFairnessSummary,
   upgradeFor,
+  madeAppearance,
 } = require('../services/decision.service');
 const { DEFAULT_ROSTER_SLOTS, slotEligible } = require('../services/lineup.service');
 const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
@@ -746,4 +747,103 @@ test('buildSuggestions: a called shot no longer pins once the lineup stopped mat
   const result = buildSuggestions(lineup, projections, new Map(), RB1, { calledShot: { starterId: 1, benchedId: 3 } });
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.playerId, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Volatility tag on each suggestion side (#1858)
+// ---------------------------------------------------------------------------
+
+
+test('buildSuggestions: each side carries the volatility its context holds, null when it holds none', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 15 }]]));
+  const context = new Map([
+    [1, { opponent: null, opponentPointsAllowed: null, volatility: 'steady' }],
+    [2, { opponent: null, opponentPointsAllowed: null, volatility: 'boom_or_bust' }],
+  ]);
+  const tagged = buildSuggestions(lineup, projections, context, RB1).suggestions[0];
+  assert.equal(tagged.current.volatility, 'steady');
+  assert.equal(tagged.suggested.volatility, 'boom_or_bust');
+
+  const bare = buildSuggestions(lineup, projections, new Map(), RB1).suggestions[0];
+  assert.equal(bare.current.volatility, null);
+  assert.equal(bare.suggested.volatility, null);
+});
+
+// #1860: Appearance (CONTEXT.md). A stat row alone is not one: the box writes
+// zeros for rostered players who never took the field.
+test('#1860 madeAppearance: a snap or any non-zero figure is an Appearance; a row of zeros or nulls is not', () => {
+  assert.equal(madeAppearance({ usageOffenseSnaps: 12 }), true, 'a blocking tight end with snaps and no touches');
+  assert.equal(madeAppearance({ usageDefenseSnaps: 30, usageOffenseSnaps: 0 }), true);
+  assert.equal(madeAppearance({ fieldGoal: 2, usageOffenseSnaps: 0 }), true, 'a kicker has no offense snaps');
+  assert.equal(madeAppearance({ receptions: 0, passingYards: 0, usageOffenseSnaps: null, gameTeam: 'KC' }), false, 'a zero stat row');
+  assert.equal(madeAppearance({ usageOffenseSnaps: 0, usageOffenseSnapPct: 0 }), false);
+  assert.equal(madeAppearance({}), false);
+  assert.equal(madeAppearance(null), false, 'no stat row at all (a bye week)');
+});
+
+// ---------------------------------------------------------------------------
+// #1861: the manager's season points left and rank, from the stored weekly rows
+// ---------------------------------------------------------------------------
+
+const { pointsLeftStanding } = require('../services/decision.service');
+
+// A pool that serves the stored rows of one league-season, as the real query would.
+const poolWith = (...weeks) => ({
+  query: async () => ({
+    rows: weeks.map((left, i) => ({
+      week: i + 1,
+      data: { teams: Object.entries(left).map(([teamId, pointsLeft]) => ({ teamId: Number(teamId), pointsLeft })) },
+    })),
+  }),
+});
+
+test('#1861 pointsLeftStanding: the season total and the rank among the league\'s teams, fewest first', async () => {
+  const db = poolWith({ 1: 10.1, 2: 4, 3: 20 }, { 1: 31.1, 2: 4, 3: 1 });
+  // Totals: team 1 -> 41.2, team 2 -> 8, team 3 -> 21.
+  assert.deepEqual(await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 1 }), { total: 41.2, rank: 3, teams: 3 });
+  assert.deepEqual(await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 2 }), { total: 8, rank: 1, teams: 3 });
+});
+
+test('#1861 pointsLeftStanding: a tie shares the better rank', async () => {
+  const db = poolWith({ 1: 5, 2: 5, 3: 9 });
+  assert.equal((await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 2 })).rank, 1);
+  assert.equal((await pointsLeftStanding(db, { leagueId: 7, season: 2026, teamId: 3 })).rank, 3);
+});
+
+test('#1861 pointsLeftStanding: no stored rows, or a team with none, is no standing', async () => {
+  assert.equal(await pointsLeftStanding(poolWith(), { leagueId: 7, season: 2026, teamId: 1 }), null);
+  assert.equal(await pointsLeftStanding(poolWith({ 1: 5 }), { leagueId: 7, season: 2026, teamId: 9 }), null);
+});
+
+// #1862: the as-of time and the season record on the advice payload.
+test('#1862 startSitAdvice reads the lineup at the as-of time and carries the manager\'s season record', async (t) => {
+  const { createFakePool } = require('./helpers/fakePool');
+  const lineupService = require('../services/lineup.service');
+  const projectionService = require('../services/projection.service');
+  const decisionCardContext = require('../services/decisionCardContext.service');
+  const { startSitAdvice } = require('../services/decision.service');
+  createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [{ id: 3, best_ball: false, scoring_rules: null, regular_season_weeks: 14 }] })],
+    [/^SELECT "called", "outcome" FROM "lineup_overrides"/, () => ({ rows: [
+      { called: false, outcome: 'hit' }, { called: false, outcome: 'miss' }, { called: true, outcome: 'hit' },
+    ] })],
+    [/./, () => ({ rows: [] })],
+  ]).install(t);
+  const reads = [];
+  t.mock.method(lineupService, 'getLineup', async (args) => {
+    reads.push(args);
+    return { teamId: 10, season: 2026, week: 6, rosterSlots: [], entries: [] };
+  });
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => resultFromLegacyMap(new Map()));
+  t.mock.method(projectionService, 'getPositionDefense', async () => new Map());
+  t.mock.method(decisionCardContext, 'loadGameChipContext', async () => new Map());
+  t.mock.method(decisionCardContext, 'loadVolatilityTags', async () => new Map());
+
+  const asOf = new Date('2026-10-11T16:59:00.000Z');
+  const advice = await startSitAdvice({ leagueId: 3, userId: 7, now: asOf });
+
+  assert.equal(reads[0].now, asOf, 'the lock is read at the as-of time');
+  assert.deepEqual(advice.overrideRecord, { hits: 1, misses: 1 });
+  assert.deepEqual(advice.calledShotRecord, { hits: 1, resolved: 1, streak: 1 });
 });

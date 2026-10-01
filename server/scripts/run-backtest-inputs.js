@@ -168,7 +168,7 @@ const sweepScript = require('./run-backtest-sweep');
 // that is `canariesPassed`'s only source (see the module docblock).
 const canariesScript = require('./run-backtest-canaries');
 
-const { generateProjections } = require('../services/projection.service');
+const { generateProjections, isPositionBaselineEntry } = require('../services/projection.service');
 const { availabilityFor } = require('../services/projectionModel');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const model = require('../services/projectionModel');
@@ -1150,6 +1150,9 @@ async function main(argv, { probes, ...unknown } = {}) {
     seedFor,
     benchmarkProjectionsFor,
     availabilityFor,
+    // The Position-baseline marker is read from the projection row the way
+    // production's `positionBaselineFor` reads it: one shared predicate.
+    positionBaselineFor: isPositionBaselineEntry,
     optimize: optimalAssignment,
   });
 

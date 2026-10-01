@@ -80,7 +80,7 @@ const { collectColumns } = require('../../scripts/backtest/lib/csv');
 const { makeSourceReader } = require('../../scripts/backtest/snapshot-checks');
 
 const { normalizeTeamKey } = require('../services/projectionFeatures');
-const { generateProjections } = require('../services/projection.service');
+const { generateProjections, isPositionBaselineEntry } = require('../services/projection.service');
 const { availabilityFor } = require('../services/projectionModel');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const model = require('../services/projectionModel');
@@ -397,6 +397,9 @@ async function main(argv) {
     baseConstants: model.MODEL_CONSTANTS,
     projectPoints,
     availabilityFor,
+    // The Position-baseline marker is read from the projection row the way
+    // production's `positionBaselineFor` reads it: one shared predicate.
+    positionBaselineFor: isPositionBaselineEntry,
     optimize: optimalAssignment,
   });
 

@@ -10,10 +10,13 @@ const rosters = require('../../scripts/backtest/lib/rosters');
 // is that it runs production's own availability rule and optimizer, so these
 // are injected rather than re-implemented.
 const { availabilityFor } = require('../services/projectionModel');
+const { isPositionBaselineEntry } = require('../services/projection.service');
 const { optimalAssignment } = require('../services/lineupOptimizer');
 const { normalizeTeamKey } = require('../services/projectionFeatures');
 
 const SLOTS = rosters.DEFAULT_ROSTER_SLOTS;
+// The real marker predicate, injected beside availabilityFor.
+const positionBaselineFor = isPositionBaselineEntry;
 
 /** Rank artifacts in the shape the extraction captures them. */
 function makeRanks({ positions = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'], players = [] } = {}) {
@@ -320,7 +323,7 @@ function runDeployed(entries, projections, extra = {}) {
     projections,
     ranks: ranksFor(entries),
     rosterSlots: SLOTS,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
     ...extra,
   });
@@ -366,6 +369,102 @@ test('Doubtful on the bench is never auto-promoted; Doubtful already starting ke
   assert.equal(startResult.started.includes(6), true, 'a Doubtful starter is not benched');
 });
 
+/** A projection row, optionally carrying production's Position-baseline marker. */
+const row = (median, { baseline = false } = {}) => ({
+  median,
+  factors: { dataQuality: { reasons: baseline ? ['position baseline'] : [] } },
+});
+
+test('Position-baseline on the bench is never auto-promoted; already starting keeps his slot', () => {
+  // Same shape as the Doubtful fixture, but the fact lives on the PROJECTION
+  // ROW, not the entry (ADR 0053). Player 6 is a benched RB with the best
+  // median on the roster.
+  const entries = makeRoster();
+  const projections = (baseline) => new Map(entries.map((e) => [
+    e.playerId, e.playerId === 6 ? row(1000, { baseline }) : row(1),
+  ]));
+  const runners = {
+    deployed: runDeployed,
+    'force-fill': (e, p) => policy.forceFillLineup({
+      entries: e, projections: p, ranks: ranksFor(e), rosterSlots: SLOTS,
+      availabilityFor, positionBaselineFor, optimize: optimalAssignment,
+    }),
+  };
+  for (const [name, run] of Object.entries(runners)) {
+    const benched = run(entries, projections(true));
+    assert.equal(benched.started.includes(6), false, `${name}: a no-history bench player is not promoted`);
+    assert.ok(benched.removed.some((r) => r.playerId === 6 && r.reason === 'no-history-on-bench'), name);
+
+    const starting = entries.map((e) => (e.playerId === 6 ? { ...e, slot: 'RB' } : e));
+    assert.equal(run(starting, projections(true)).started.includes(6), true,
+      `${name}: a no-history starter is not benched`);
+
+    // Red if the flag is read from anywhere but the projection row.
+    assert.equal(run(entries, projections(false)).started.includes(6), true,
+      `${name}: without the marker the same player starts`);
+  }
+  // The Doubtful reason is unchanged.
+  const doubtful = runDeployed(
+    entries.map((e) => (e.playerId === 6 ? { ...e, injuryStatus: 'D' } : e)), projections(false),
+  );
+  assert.ok(doubtful.removed.some((r) => r.playerId === 6 && r.reason === 'doubtful-on-bench'));
+});
+
+test('the Position-baseline marker reads false for a missing entry or a bare number', () => {
+  const seen = [];
+  const spy = (entry) => { seen.push(entry); return isPositionBaselineEntry(entry); };
+  const entries = [
+    { playerId: 1, position: 'QB', slot: 'BENCH' },
+    { playerId: 2, position: 'QB', slot: 'BENCH' },
+  ];
+  const { availabilityById } = policy.partitionCandidates({
+    entries, projections: new Map([[2, 40]]), availabilityFor, positionBaselineFor: spy,
+  });
+  assert.deepEqual(seen, [null, 40], 'a missing entry is handed over as null, a number as itself');
+  assert.equal(availabilityById.get(1).autoRecommend !== false, true);
+  assert.equal(availabilityById.get(2).autoRecommend !== false, true);
+  for (const value of [null, undefined, 40, {}, { factors: null }, { factors: {} },
+    { factors: { dataQuality: { reasons: 'position baseline' } } },
+    { factors: { dataQuality: { reasons: ['other'] } } }]) {
+    assert.equal(isPositionBaselineEntry(value), false);
+  }
+  assert.equal(isPositionBaselineEntry(row(1, { baseline: true })), true);
+});
+
+test('the lineup functions name positionBaselineFor when it is not injected', () => {
+  const entries = makeRoster();
+  const args = {
+    entries, projections: new Map(), ranks: ranksFor(entries), rosterSlots: SLOTS,
+    availabilityFor, optimize: optimalAssignment,
+  };
+  assert.throws(() => policy.deployedPolicyLineup(args), /positionBaselineFor must be injected/);
+  assert.throws(() => policy.forceFillLineup(args), /positionBaselineFor must be injected/);
+  assert.throws(() => policy.partitionCandidates({ entries, availabilityFor }),
+    /positionBaselineFor must be injected/);
+});
+
+test('the best lineup under ACTUALS keeps a Position-baseline player, and regret stays non-negative', () => {
+  // The marker is on the arm's projection row only. The hindsight-best lineup
+  // is built from actual points (bare numbers), so it reads the marker false.
+  const entries = makeRoster();
+  const armProjections = new Map(entries.map((e) => [
+    e.playerId, e.playerId === 6 ? row(1000, { baseline: true }) : row(1),
+  ]));
+  const actuals = new Map(entries.map((e) => [e.playerId, e.playerId === 6 ? 50 : 2]));
+
+  const started = runDeployed(entries, armProjections);
+  const best = runDeployed(entries, actuals);
+  assert.equal(started.started.includes(6), false);
+  assert.equal(best.started.includes(6), true, 'under hindsight he is a legal start');
+  assert.equal(best.removed.some((r) => r.playerId === 6), false);
+
+  const regret = policy.regretFor({
+    startedPlayerIds: started.started, bestPlayerIds: best.started, actualPoints: actuals,
+  });
+  assert.ok(regret >= 0);
+  assert.ok(regret > 0, 'the player the arm refused to start is the one that scored');
+});
+
 test('an unavailable player is worth ZERO even when he cannot be removed', () => {
   // The candidate filter is not the whole story. A LOCKED starter is pinned
   // into his slot and never enters the candidate pool at all, so if the bye
@@ -378,7 +477,7 @@ test('an unavailable player is worth ZERO even when he cannot be removed', () =>
     { playerId: 2, position: 'K', slot: 'K', name: 'Fit' },
   ];
   const projections = new Map([[1, 99], [2, 7]]);
-  const { availabilityById } = policy.partitionCandidates({ entries, availabilityFor });
+  const { availabilityById } = policy.partitionCandidates({ entries, availabilityFor, positionBaselineFor });
   const effective = policy.effectiveProjections({ entries, projections, availabilityById });
   assert.equal(effective.get(1), 0, 'the bye player is worth zero, not 99');
   assert.equal(effective.get(2), 7);
@@ -390,7 +489,7 @@ test('an unavailable player is worth ZERO even when he cannot be removed', () =>
     ranks: ranksFor(entries),
     rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] },
       { key: 'K', count: 1, eligiblePositions: ['K'] }],
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
   assert.equal(result.total, 7, 'the locked bye starter contributes nothing to the total');
@@ -401,7 +500,7 @@ test('an unavailable player is worth ZERO even when he cannot be removed', () =>
     entries: [{ playerId: 3, position: 'QB', slot: 'QB', injuryStatus: 'O' }],
     projections: new Map([[3, 50]]),
     availabilityById: policy.partitionCandidates({
-      entries: [{ playerId: 3, position: 'QB', slot: 'QB', injuryStatus: 'O' }], availabilityFor,
+      entries: [{ playerId: 3, position: 'QB', slot: 'QB', injuryStatus: 'O' }], availabilityFor, positionBaselineFor,
     }).availabilityById,
   });
   assert.equal(out.get(3), 0);
@@ -421,7 +520,7 @@ test('force-fill zeroes an unavailable player too, rather than force-starting a 
     ranks: ranksFor(entries),
     rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] },
       { key: 'K', count: 1, eligiblePositions: ['K'] }],
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
   assert.equal(forced.started.includes(1), true, 'he is pinned, so he is in the lineup');
@@ -442,7 +541,7 @@ test('the empty-slot dummy beats a strictly negative projection', () => {
     ranks: ranksFor(entries),
     rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] },
       { key: 'K', count: 1, eligiblePositions: ['K'] }],
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
   assert.deepEqual(result.started, [], 'both slots stay empty rather than start a negative');
@@ -458,7 +557,7 @@ test('zero and null-coerced-to-zero TIE with the dummy, so a real player may sta
   ]) {
     const result = policy.deployedPolicyLineup({
       entries, projections, ranks: ranksFor(entries), rosterSlots: slots,
-      availabilityFor, optimize: optimalAssignment,
+      availabilityFor, positionBaselineFor, optimize: optimalAssignment,
     });
     // Tie with the dummy: the real player is permitted to start, which is
     // production's behaviour and why null is NOT excluded from regret.
@@ -486,7 +585,7 @@ test('equal projections are resolved by CANDIDATE ORDER, which is why ordering m
   });
   const first = policy.deployedPolicyLineup({
     entries, projections, ranks: byName, rosterSlots: slots,
-    availabilityFor, optimize: optimalAssignment,
+    availabilityFor, positionBaselineFor, optimize: optimalAssignment,
   });
   assert.deepEqual(first.started, [2], 'the earlier candidate wins an exact tie');
 
@@ -497,7 +596,7 @@ test('equal projections are resolved by CANDIDATE ORDER, which is why ordering m
   });
   const second = policy.deployedPolicyLineup({
     entries, projections, ranks: flipped, rosterSlots: slots,
-    availabilityFor, optimize: optimalAssignment,
+    availabilityFor, positionBaselineFor, optimize: optimalAssignment,
   });
   assert.deepEqual(second.started, [1]);
 });
@@ -513,7 +612,7 @@ test('force-fill leaves no slot empty and ranks null strictly below every finite
   ];
   const slots = [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }];
   const common = {
-    entries, ranks: ranksFor(entries), rosterSlots: slots, availabilityFor, optimize: optimalAssignment,
+    entries, ranks: ranksFor(entries), rosterSlots: slots, availabilityFor, positionBaselineFor, optimize: optimalAssignment,
   };
 
   // With ONLY a negative candidate, production leaves the slot empty: the
@@ -552,7 +651,7 @@ test('force-fill still honours the availability wrapper - it is not a free-for-a
     projections: new Map([[1, 100], [2, 1]]),
     ranks: ranksFor(entries),
     rosterSlots: [{ key: 'QB', count: 1, eligiblePositions: ['QB'] }],
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
   assert.deepEqual(forced.started, [2], 'a bye player is still removed, however high his projection');
@@ -673,11 +772,11 @@ test('the wrapper needs the real production pieces injected, never a stand-in it
   const entries = makeRoster();
   assert.throws(() => policy.deployedPolicyLineup({
     entries, projections: new Map(), ranks: ranksFor(entries), rosterSlots: SLOTS,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
   }), /the production optimizer must be injected/);
   assert.throws(() => policy.partitionCandidates({ entries }),
     /the production availabilityFor must be injected/);
   assert.throws(() => policy.forceFillLineup({
-    entries, projections: new Map(), ranks: ranksFor(entries), rosterSlots: SLOTS, availabilityFor,
+    entries, projections: new Map(), ranks: ranksFor(entries), rosterSlots: SLOTS, availabilityFor, positionBaselineFor,
   }), /the production optimizer must be injected/);
 });

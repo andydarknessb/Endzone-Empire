@@ -99,7 +99,7 @@ export default function MatchupPage() {
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
     matchup, starterRows, loading, error, leagueName, viewerTeamId, records,
-    statusChip, isLive, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft,
+    statusChip, isLive, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
@@ -246,6 +246,7 @@ export default function MatchupPage() {
                 onOpenPlayer={openPlayer}
                 benchLeft={benchLeft}
                 showBenchLeft={showBenchLeft}
+                calledShots={calledShots}
                 mobile={compact}
               />
             </>

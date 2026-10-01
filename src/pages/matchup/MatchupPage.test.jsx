@@ -1244,3 +1244,122 @@ test('below the sm breakpoint the toggle fills its row and Set lineup sits at th
   const toggle = screen.getByRole('radiogroup', { name: 'Matchup view' });
   expect(rulesUnder(toggle)['[role="radio"]']).toMatch(/min-height:\s*44px/);
 });
+
+// --- the called shot (#1857) --------------------------------------------------
+
+const calledShot = (over = {}) => ({
+  starter: { playerId: 5, name: 'P. Mahomes', points: 24.1 },
+  benched: { playerId: 20, name: 'Bench Runner', points: 6.2 },
+  outcome: null,
+  ...over,
+});
+const withShot = (shot, extra = {}) => matchupResponse({
+  homeBench: [{ id: 20, name: 'Bench Runner', position: 'RB', points: 6.2, projected: 9 }],
+  home: { calledShot: shot },
+  ...extra,
+});
+
+test('a team with no called shot shows no called-shot line', async () => {
+  mockApi({ matchup: withShot(null) });
+  renderPage();
+  await screen.findByTestId('bench-card');
+  expect(screen.queryByTestId('called-shot-home')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('called-shot-away')).not.toBeInTheDocument();
+  expect(screen.getByTestId('bench-card')).toHaveAttribute('data-header-only', 'true');
+});
+
+test("a live called shot reads both players' points under the bench, collapsed or open, and moves with the score feed", async () => {
+  mockApi({ matchup: withShot(calledShot()) });
+  renderPage();
+
+  const line = await screen.findByTestId('called-shot-home');
+  expect(line).toHaveTextContent('Called shot: P. Mahomes over Bench Runner · 24.1 to 6.2');
+  expect(screen.queryByTestId('called-shot-outcome-home')).not.toBeInTheDocument();
+  // Visible with the bench collapsed; the other team has none.
+  expect(screen.queryByTestId('bench-panel')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('called-shot-away')).not.toBeInTheDocument();
+
+  emitScores({
+    week: 3,
+    scored: [{ matchupId: 9, homeScore: 105, awayScore: 88 }],
+    plays: [
+      { playerId: 5, type: 'passing', isTouchdown: false, pointsDelta: 3 },
+      { playerId: 20, type: 'rushing', isTouchdown: false, pointsDelta: 2.5 },
+    ],
+  });
+  expect(screen.getByTestId('called-shot-home')).toHaveTextContent('Called shot: P. Mahomes over Bench Runner · 27.1 to 8.7');
+  // A play stamped for another week moves nothing.
+  emitScores({ week: 4, plays: [{ playerId: 20, type: 'rushing', isTouchdown: false, pointsDelta: 9 }] });
+  expect(screen.getByTestId('called-shot-home')).toHaveTextContent('27.1 to 8.7');
+});
+
+test.each([
+  ['hit', 'Hit'],
+  ['miss', 'Miss'],
+])('a final called shot that %s reads the judged points and %s', async (outcome, label) => {
+  mockApi({
+    matchup: withShot(
+      calledShot({ outcome, starter: { playerId: 5, name: 'P. Mahomes', points: 11.4 }, benched: { playerId: 20, name: 'Bench Runner', points: 6.2 } }),
+      { matchup: { final: true } }
+    ),
+  });
+  renderPage();
+  expect(await screen.findByTestId('called-shot-home')).toHaveTextContent('Called shot: P. Mahomes over Bench Runner · 11.4 to 6.2');
+  expect(screen.getByTestId('called-shot-outcome-home')).toHaveTextContent(label);
+});
+
+test('a final void called shot shows the line with no outcome word', async () => {
+  mockApi({ matchup: withShot(calledShot({ outcome: 'void' }), { matchup: { final: true } }) });
+  renderPage();
+  expect(await screen.findByTestId('called-shot-home')).toHaveTextContent('Called shot: P. Mahomes over Bench Runner');
+  expect(screen.queryByTestId('called-shot-outcome-home')).not.toBeInTheDocument();
+});
+
+test('an unknown number reads as a dash, never 0.0: a void shot whose benched player left the lineup', async () => {
+  mockApi({
+    matchup: withShot(
+      calledShot({ outcome: 'void', benched: { playerId: 99, name: 'Dropped Guy', points: null } }),
+      { matchup: { final: true } }
+    ),
+  });
+  renderPage();
+  expect(await screen.findByTestId('called-shot-home')).toHaveTextContent('Called shot: P. Mahomes over Dropped Guy · 24.1 to -');
+});
+
+test('a resync reads the fresh bench points and never adds the summed deltas on top of them', async () => {
+  mockApi({ matchup: withShot(calledShot()) });
+  renderPage();
+  await screen.findByTestId('called-shot-home');
+  emitScores({
+    week: 3,
+    scored: [{ matchupId: 9, homeScore: 105, awayScore: 88 }],
+    plays: [{ playerId: 20, type: 'rushing', isTouchdown: false, pointsDelta: 2.5 }],
+  });
+  expect(screen.getByTestId('called-shot-home')).toHaveTextContent('24.1 to 8.7');
+
+  // The reconnect's read already includes those 2.5 points.
+  mockApi({
+    matchup: matchupResponse({
+      homeBench: [{ id: 20, name: 'Bench Runner', position: 'RB', points: 8.7, projected: 9 }],
+      home: { calledShot: calledShot() },
+    }),
+  });
+  act(() => { socket.reconnect(); });
+  await waitFor(() => expect(matchupFetches()).toHaveLength(2));
+  await waitFor(() => expect(screen.getByTestId('called-shot-home')).toHaveTextContent('24.1 to 8.7'));
+  // A later play on the new read sums from zero again.
+  emitScores({ week: 3, plays: [{ playerId: 20, type: 'rushing', isTouchdown: false, pointsDelta: 1 }] });
+  expect(screen.getByTestId('called-shot-home')).toHaveTextContent('24.1 to 9.7');
+});
+
+test("the away team's called shot shows on the away side", async () => {
+  mockApi({
+    matchup: matchupResponse({
+      awayBench: [{ id: 31, name: 'Away Bench', position: 'WR', points: 4, projected: 8 }],
+      away: { calledShot: { starter: { playerId: 6, name: 'D. Adams', points: 15.4 }, benched: { playerId: 31, name: 'Away Bench', points: 4 }, outcome: null } },
+    }),
+  });
+  renderPage();
+  expect(await screen.findByTestId('called-shot-away')).toHaveTextContent('Called shot: D. Adams over Away Bench · 15.4 to 4.0');
+  expect(screen.queryByTestId('called-shot-home')).not.toBeInTheDocument();
+});

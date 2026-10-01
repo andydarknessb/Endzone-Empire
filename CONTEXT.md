@@ -330,8 +330,10 @@ _Avoid_: stadium (fine in copy, not as the term), location
 
 **Weather**:
 A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
-That table is refreshed by the weather snapshots Sync run (every 6 hours, one
-horizon bucket); a run where NWS answered nothing fails and retries next tick.
+That table is refreshed by the weather snapshots Sync run (every 6 hours; each
+run writes one bucket per game). A horizon bucket is a game's hours to
+kickoff floored to a 6-hour step, and a snapshot is kept per game and bucket.
+A run where NWS returned no forecast fails and retries next tick.
 The Decision card, Pick'em and the start/sit card each read it independently
 (#1294, no shared shape): the Decision card's wire carries six fields (`indoor`, `temperatureF`,
 `windSpeedMph`, `windGustMph`, `precipitationProbability`, `shortForecast`),
@@ -1606,8 +1608,9 @@ explicit "too close to call" answer when two players' distributions overlap
 enough that no honest edge exists. Applying advice means making exactly the
 moves the advice names, one manager action for all of them; it never
 re-assigns the whole lineup. A manager can dismiss a suggestion on the Start/sit
-card; Apply then leaves that suggestion's moves out, and the dismissal lasts
-only the session. While a Called shot is open, its starter is
+card; Apply then leaves that suggestion's moves out. The dismissal is not
+saved: it lasts until the manager leaves or reloads the page. While a Called
+shot is open, its starter is
 pinned in his slot and its benched player is not a candidate, as locked
 players are, so the advice never names that pair and Apply cannot undo it.
 The Start/sit card shows fact chips for each player's game only when notable:
@@ -1641,11 +1644,17 @@ settled; replaceable or withdrawn until the first of the two players locks;
 judged on the Forecast's numbers as they stood when it was called. It is
 settled at Advance week as a hit (the starter strictly outscored), a miss (a
 tie is a miss) or void (the lineup as played no longer reflected it, or
-either player made no Appearance), and never revisited (ADR 0054). The
-league sees it once both players have locked, hit or miss alike; a hit is a
-Trophy; a call made against a start/sit probability of 0.8 or higher is bold
-(spec #1846). The card shows it as "Your called shot": pending, locked once
-the first of the two games kicks off, then resolved. A failure anywhere in the
+either player made no Appearance), and never revisited (ADR 0054). A shot
+with a player who shows no Appearance at its own week's Advance is settled at
+the league's next Advance week, once the snap counts are in (the Advance that
+completes the season settles it at once). The
+league sees it once both players have locked, hit or miss alike: the Matchup
+page's Bench card prints "Called shot: {starter} over {benched} · 11.4 to 6.2"
+under the team's bench with both players' live points, then Hit or Miss once
+final (a void shows no word); a hit is a Trophy; a call made against a
+start/sit probability of 0.8 or higher is bold (spec #1846). The card shows it
+as "Your called shot": pending, locked once the first of the two games kicks
+off, live points once both have, then resolved. A failure anywhere in the
 shot path never blocks saving a lineup. Stored in `lineup_overrides`, which
 also holds Overrides.
 _Avoid_: bet, wager, prediction, pick (that is pick'em), Maverick, lock in

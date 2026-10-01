@@ -992,3 +992,33 @@ test('getPlayerCard (#1682): a failing loadOpponents degrades opponents to []', 
 
   assert.deepEqual(card.opponents, []);
 });
+
+// #1849: the Volatility tag rides decision.volatility, read off the card's own run entry.
+test('getPlayerCard (#1849): decision.volatility is the tag read for the player\'s own entry; a failed read hides the tag, not the card', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
+  const calls = [];
+  const read = t.mock.method(decisionCardContextService, 'loadVolatility', async (args) => {
+    calls.push(args);
+    return 'boom_or_bust';
+  });
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  assert.equal(card.decision.volatility, 'boom_or_bust');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].entry.mean, 14.5);
+  assert.equal(calls[0].week, LEAGUE.current_week);
+  assert.equal(calls[0].player.id, PLAYER.id);
+
+  read.mock.mockImplementation(async () => { throw new Error('boom'); });
+  t.mock.method(console, 'error', () => {});
+  const failed = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  assert.equal(failed.decision.volatility, null);
+});
+
+test('getPlayerCard (#1849): an ineligible entry (no sample size on the fixture) carries decision.volatility: null', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t);
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  assert.equal(card.decision.volatility, null);
+});
