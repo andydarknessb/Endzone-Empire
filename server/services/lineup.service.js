@@ -1302,7 +1302,10 @@ function computeEdgeLine(entry, { entries, rosterSlots, factors, liveStatus, act
  * Fetch (materializing if needed) the caller's lineup for a week, annotated
  * with per-player locked, bye_week, and onBye metadata.
  */
-async function getLineup({ leagueId, userId, week }) {
+async function getLineup({ leagueId, userId, week, now = new Date() }) {
+  // `now` is the time the lock is read at (#1862): the override capture asks
+  // for the lineup as it stood a minute before a kickoff, so the players
+  // locking then still read as movable.
   return withTransaction(
     pool,
     async (client) => {
@@ -1410,6 +1413,7 @@ async function getLineup({ leagueId, userId, week }) {
       const locked = await lockedPlayerIds(client, {
         season,
         week: targetWeek,
+        now,
         players: entries.map((row) => ({ id: row.id, nflTeam: row.nfl_team })),
       });
       const byeByTeam = await computeByeWeeks(entries.map((row) => row.nfl_team), season);
@@ -1454,7 +1458,6 @@ async function getLineup({ leagueId, userId, week }) {
       // of that comparison (`findBenchAboveStarter`'s own `other.spent`
       // guard): a bench player outprojecting a departed starter's frozen
       // record is not a seat he could actually take.
-      const now = new Date();
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
       // #1776: a Position-baseline projection (CONTEXT.md; `positionBaselineFor`,
       // #1775) rides the wire as a boolean, false whenever an Unavailable reason

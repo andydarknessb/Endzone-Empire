@@ -2,6 +2,8 @@ const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const lineupService = require('./lineup.service');
 const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
+const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
+const { normalizeNflTeam } = require('./nflTeam');
 
 /**
  * Called shots (spec #1846, #1856; CONTEXT.md "Start/sit advice"): a Manager
@@ -309,6 +311,141 @@ async function voidShotContradictedBySave(db, { teamId, season, week }) {
   return true;
 }
 
+/**
+ * The team's season record for the start/sit card (#1862), private to its
+ * manager: `overrides` is { hits, misses } over the resolved Overrides that
+ * are not Called shots (a hit is a manager who was right to keep his starter),
+ * `calledShots` { hits, resolved, streak } over the resolved Called shots (a
+ * void is neither; the streak is the hits in a row ending at the latest).
+ * Each side is null while nothing has resolved, so the card shows no line.
+ */
+async function loadSeasonRecord(db, { leagueId, teamId, season }) {
+  const result = await db.query(
+    `SELECT "called", "outcome" FROM "lineup_overrides"
+     WHERE "league_id" = $1 AND "team_id" = $2 AND "season" = $3 AND "outcome" IN ('hit', 'miss')
+     ORDER BY "week", "id"`,
+    [leagueId, teamId, season]
+  );
+  const overrides = result.rows.filter((r) => !r.called);
+  const shots = result.rows.filter((r) => r.called);
+  let streak = 0;
+  for (let i = shots.length - 1; i >= 0 && shots[i].outcome === 'hit'; i -= 1) streak += 1;
+  return {
+    overrides: overrides.length === 0 ? null : {
+      hits: overrides.filter((r) => r.outcome === 'hit').length,
+      misses: overrides.filter((r) => r.outcome === 'miss').length,
+    },
+    calledShots: shots.length === 0 ? null : {
+      hits: shots.filter((r) => r.outcome === 'hit').length,
+      resolved: shots.length,
+      streak,
+    },
+  };
+}
+
+// A kickoff is captured on the first tick that sees it; a tick that failed is
+// retried by the ticks after it for this long. ponytail: a fixed lookback
+// stands in for a per-team-week "captured" marker (no table for one); a
+// capture still failing after 30 minutes is lost, add the marker if that bites.
+const CAPTURE_LOOKBACK_MS = 30 * 60 * 1000;
+const ADVICE_LEAD_MS = 60 * 1000; // the advice is read as of a minute before kickoff
+
+/**
+ * One captured pair: an Override row (`called = false`), idempotent on the pair
+ * key. A pair matching the team's Called shot updates that row's capture time
+ * once (only while it still predates the kickoff) instead of adding a row.
+ */
+function writeOverride(db, { leagueId, teamId, season, week, suggestion, capturedAt, kickoff }) {
+  return db.query(
+    `INSERT INTO "lineup_overrides"
+       ("league_id", "team_id", "season", "week", "slot", "starter_player_id", "benched_player_id",
+        "starter_point_estimate", "benched_point_estimate", "probability", "verdict", "called", "captured_at")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, $12)
+     ON CONFLICT ON CONSTRAINT "lineup_overrides_pair_unique" DO UPDATE
+       SET "captured_at" = EXCLUDED."captured_at"
+       WHERE "lineup_overrides"."called" AND "lineup_overrides"."captured_at" < $13`,
+    [
+      leagueId, teamId, season, week, suggestion.slot, suggestion.current.playerId, suggestion.suggested.playerId,
+      suggestion.current.projection, suggestion.suggested.projection, suggestion.probabilityBetter,
+      suggestion.verdict, capturedAt, kickoff,
+    ]
+  );
+}
+
+async function captureLeague(db, { league, loadAdvice, now }) {
+  const { id: leagueId, current_season: season, current_week: week } = league;
+  const kicked = await db.query(
+    `SELECT "nfl_team", "kickoff_at" FROM "nfl_games"
+     WHERE "season" = $1 AND "week" = $2 AND "kickoff_at" <= $3 AND "kickoff_at" > $4`,
+    [season, week, now, new Date(now.getTime() - CAPTURE_LOOKBACK_MS)]
+  );
+  // The NFL teams kicking off at each instant: a player locks at HIS team's kickoff.
+  const byKickoff = new Map();
+  for (const game of kicked.rows) {
+    const instant = new Date(game.kickoff_at).getTime();
+    const team = normalizeNflTeam(game.nfl_team);
+    if (team === null) continue;
+    if (!byKickoff.has(instant)) byKickoff.set(instant, new Set());
+    byKickoff.get(instant).add(team);
+  }
+  if (byKickoff.size === 0) return;
+
+  const teams = await db.query(
+    `SELECT "id", "owner_id" FROM "teams" WHERE "league_id" = $1 AND "owner_id" IS NOT NULL`,
+    [leagueId]
+  );
+  let firstError = null;
+  for (const [instant, nflTeams] of byKickoff) {
+    const kickoff = new Date(instant);
+    for (const team of teams.rows) {
+      try {
+        // As of a minute before the kickoff, so the players locking now are
+        // still movable; the open Called shot is ignored so its own pair shows
+        // up and updates its row.
+        const advice = await loadAdvice({
+          leagueId, userId: team.owner_id, week, ignoreCalledShot: true, now: new Date(instant - ADVICE_LEAD_MS),
+        });
+        const standing = (advice.suggestions || []).filter((s) => s.verdict !== 'tossup' && s.probabilityBetter != null);
+        if (standing.length === 0) continue;
+        const ids = [...new Set(standing.flatMap((s) => [s.current.playerId, s.suggested.playerId]))];
+        const players = await db.query(`SELECT "id", "nfl_team" FROM "players" WHERE "id" = ANY($1::int[])`, [ids]);
+        const locking = new Set(players.rows.filter((p) => nflTeams.has(normalizeNflTeam(p.nfl_team))).map((p) => p.id));
+        for (const suggestion of standing) {
+          if (!locking.has(suggestion.current.playerId) && !locking.has(suggestion.suggested.playerId)) continue;
+          await writeOverride(db, { leagueId, teamId: team.id, season: advice.season, week: advice.week, suggestion, capturedAt: now, kickoff });
+        }
+      } catch (err) {
+        firstError = firstError || err; // one team's failure never costs the others their pairs
+      }
+    }
+  }
+  if (firstError) throw firstError;
+}
+
+/**
+ * The Override capture (#1862, ADR 0054 ruling 6), run once per scheduler tick
+ * beside the kickoff waiver hold (ADR 0043): for every kickoff the tick sees,
+ * each team in a lineup league has every suggestion above the tossup line that
+ * involves a locking player written as an Override. `loadAdvice` is the advice
+ * loader (the scheduler hands it `startSitAdvice`; this module never requires
+ * the decision service). A league's failure is logged and the rest go on; the
+ * next tick tries the pairs still unwritten.
+ */
+async function captureOverrides({ loadAdvice, db = pool, now = new Date() }) {
+  const leagues = await db.query(
+    `SELECT "id", "current_season", "current_week" FROM "leagues"
+     WHERE ${fantasySeasonLiveWhereSql()} AND NOT "best_ball"`
+  );
+  for (const league of leagues.rows) {
+    if (league.current_season == null || league.current_week == null) continue;
+    try {
+      await captureLeague(db, { league, loadAdvice, now });
+    } catch (err) {
+      console.error('override capture failed for league %s:', league.id, err.message);
+    }
+  }
+}
+
 module.exports = {
   CalledShotError,
   loadCalledShot,
@@ -316,4 +453,7 @@ module.exports = {
   declareCalledShot,
   withdrawCalledShot,
   voidShotContradictedBySave,
+  loadSeasonRecord,
+  captureOverrides,
+  writeOverride,
 };

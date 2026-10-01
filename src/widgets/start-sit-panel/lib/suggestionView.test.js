@@ -1,4 +1,4 @@
-import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, pointsLeftLine, projectedLeanLine } from './suggestionView';
+import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, pointsLeftLine, projectedLeanLine, forecastRecordLine, calledRecordLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -393,5 +393,22 @@ describe('pointsLeftLine', () => {
     expect(pointsLeftLine(undefined)).toBeNull();
     expect(pointsLeftLine({ total: null, rank: 2, teams: 10 })).toBeNull();
     expect(pointsLeftLine({ total: 4, rank: null, teams: 10 })).toBeNull();
+  });
+});
+
+describe('forecastRecordLine and calledRecordLine (#1862)', () => {
+  test('the Override record reads hits-misses, the Called shot record reads hits of resolved and the streak', () => {
+    expect(forecastRecordLine({ hits: 5, misses: 3 })).toBe('You vs the Forecast: 5-3');
+    expect(forecastRecordLine({ hits: 0, misses: 2 })).toBe('You vs the Forecast: 0-2');
+    expect(calledRecordLine({ hits: 2, resolved: 3, streak: 2 })).toBe('Called shots this season: 2 of 3 · streak 2');
+    expect(calledRecordLine({ hits: 0, resolved: 1, streak: 0 })).toBe('Called shots this season: 0 of 1 · streak 0');
+  });
+
+  test('nothing resolved, or a payload it cannot read, is no line', () => {
+    expect(forecastRecordLine(null)).toBeNull();
+    expect(forecastRecordLine({ hits: 0, misses: 0 })).toBeNull();
+    expect(forecastRecordLine({ hits: 'x', misses: 1 })).toBeNull();
+    expect(calledRecordLine(undefined)).toBeNull();
+    expect(calledRecordLine({ hits: 0, resolved: 0, streak: 0 })).toBeNull();
   });
 });

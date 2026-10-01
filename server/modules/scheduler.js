@@ -1,6 +1,8 @@
 const pool = require('./pool');
 const { processAllDueWaivers, holdKickedOffPlayers } = require('../services/waiver.service');
 const { processDueTrades } = require('../services/trade.service');
+const { startSitAdvice } = require('../services/decision.service');
+const { captureOverrides } = require('../services/lineupOverride.service');
 const { processExpiredPickClocks, cancelAllExpiryTimers } = require('../services/pickClock.service');
 const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
@@ -151,6 +153,14 @@ async function tickUnlocked() {
       await holdKickedOffPlayers();
     } catch (err) {
       console.error('kickoff waiver hold failed (will retry next tick):', err.message);
+    }
+    // Override capture (#1862, ADR 0054): the same kickoff, the advice as of a
+    // minute before it. Contained so a failure never delays claims; it logs
+    // per league itself and the next ticks retry the pairs still unwritten.
+    try {
+      await captureOverrides({ loadAdvice: startSitAdvice });
+    } catch (err) {
+      console.error('override capture failed (will retry next tick):', err.message);
     }
     const waivers = await processAllDueWaivers();
     if (waivers.length > 0) {
