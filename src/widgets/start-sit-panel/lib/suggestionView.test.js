@@ -1,4 +1,4 @@
-import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, projectedLeanLine } from './suggestionView';
+import { buildSuggestionView, calledShotLine, earlierKickoff, factChips, isTooCloseToCall, movePlanWithout, opponentContextText, pointsLeftLine, projectedLeanLine } from './suggestionView';
 
 describe('opponentContextText', () => {
   test('names the opponent and the points it allows the position', () => {
@@ -377,5 +377,21 @@ describe('calledShotLine (#1856)', () => {
 
   test('a missing probability drops that clause rather than printing NaN', () => {
     expect(calledShotLine({ ...base, probability: null }).numbers).toBe('Proj 8.0 vs 14.5');
+  });
+});
+
+// #1861
+describe('pointsLeftLine', () => {
+  test('the season total and the rank among the league\'s teams', () => {
+    expect(pointsLeftLine({ total: 41.2, rank: 3, teams: 10 })).toBe('Left on the bench this season: 41.2 (3rd fewest of 10)');
+    expect(pointsLeftLine({ total: 8, rank: 1, teams: 12 })).toBe('Left on the bench this season: 8.0 (1st fewest of 12)');
+    expect(pointsLeftLine({ total: 0, rank: 11, teams: 12 })).toBe('Left on the bench this season: 0.0 (11th fewest of 12)');
+  });
+
+  test('no standing, or an unreadable one, is no line', () => {
+    expect(pointsLeftLine(null)).toBeNull();
+    expect(pointsLeftLine(undefined)).toBeNull();
+    expect(pointsLeftLine({ total: null, rank: 2, teams: 10 })).toBeNull();
+    expect(pointsLeftLine({ total: 4, rank: null, teams: 10 })).toBeNull();
   });
 });

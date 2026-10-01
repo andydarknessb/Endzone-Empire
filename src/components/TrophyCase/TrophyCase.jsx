@@ -79,6 +79,7 @@ const TROPHY_ICON = {
   win_streak: 'rise',
   comeback: 'rebound',
   draft_grade: 'target',
+  fewest_left_on_bench: 'target',
 };
 
 /**

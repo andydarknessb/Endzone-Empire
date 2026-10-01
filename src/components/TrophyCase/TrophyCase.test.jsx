@@ -312,3 +312,22 @@ test('hides itself on a fetch error', async () => {
   await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
   expect(screen.queryByTestId('trophy-case')).not.toBeInTheDocument();
 });
+
+// #1861: the season's fewest points left is a season trophy: the team name
+// alone (no week) beside its own glyph, the number carried by the label.
+test('shows Fewest Left on the Bench as a season chip with its number and no week', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      { ...trophies[0], id: 8, type: 'fewest_left_on_bench', label: 'Fewest Left on the Bench (31.2)', week: 0, team_name: 'Sunday Ballers', data: { pointsLeft: 31.2 } },
+    ],
+  });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+  await screen.findByTestId('trophy-case');
+
+  expect(screen.getByTestId('trophy-8')).toHaveTextContent('Fewest Left on the Bench (31.2)');
+  expect(screen.getByTestId('trophy-8')).toHaveTextContent('Sunday Ballers');
+  expect(screen.getByTestId('trophy-8')).not.toHaveTextContent('Week');
+  // eslint-disable-next-line testing-library/no-node-access -- the glyph is aria-hidden by design
+  expect(screen.getByTestId('trophy-8').querySelector('svg[data-icon]')).toHaveAttribute('data-icon', 'target');
+});

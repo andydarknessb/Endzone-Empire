@@ -343,3 +343,39 @@ test('#1409: generateWeeklyRecap still does both, store then announce, for the a
   assert.ok(storeIdx >= 0 && announceIdx >= 0 && storeIdx < announceIdx, 'stores before it announces');
   fake.assertClean();
 });
+
+// ---- #1861: the Bench blunder line reads the stored points-left row ---------
+
+test('#1861 the Bench blunder reads the week\'s stored points-left row and never Hindsight', async (t) => {
+  const fake = recapWorld({
+    handlers: [[
+      /^SELECT "data" FROM "league_analytics"/,
+      (text, params) => {
+        assert.deepEqual(params, [7, 2026, 5, 'points_left']);
+        return { rows: [{ data: { teams: [{ teamId: 1, pointsLeft: 4 }, { teamId: 2, pointsLeft: 12.5 }] } }] };
+      },
+    ]],
+  });
+  fake.install(t);
+  t.mock.method(require('../services/decision.service'), 'weekHindsight', async () => {
+    throw new Error('a stored week must not be re-read live');
+  });
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(data.facts.benchBlunder, { team: 'Team B', pointsLeftOnBench: 12.5 });
+});
+
+test('#1861 a week with no stored row still reads Hindsight live', async (t) => {
+  const fake = recapWorld({ handlers: [[/^SELECT "data" FROM "league_analytics"/, () => ({ rows: [] })]] });
+  fake.install(t);
+  t.mock.method(require('../services/decision.service'), 'weekHindsight', async ({ teamId }) => ({
+    pointsLeftOnBench: teamId === 1 ? 9 : 2,
+  }));
+  const { computeAndStoreWeeklyRecap } = require('../services/recap.service');
+
+  const data = await computeAndStoreWeeklyRecap({ leagueId: 7, season: 2026, week: 5 });
+
+  assert.deepEqual(data.facts.benchBlunder, { team: 'Team A', pointsLeftOnBench: 9 });
+});
