@@ -187,11 +187,11 @@ export function movePlanWithout(movePlan, dismissedViews) {
  * The standing "Your called shot" line (#1856), from the advice payload's
  * `calledShot` ({ starter, benched: { name, projection, points }, probability,
  * status: 'pending' | 'locked' | 'resolved', outcome: 'hit' | 'miss' | 'void' | null,
- * canWithdraw }), or null when there is none. Returns the pair, the numbers as
+ * bothLocked, canWithdraw }), or null when there is none. Returns the pair, the numbers as
  * called and one status sentence; every status the payload can carry has its
  * own wording, and an unknown one reads as still open rather than as nothing.
  */
-export function calledShotLine(calledShot) {
+export function calledShotLine(calledShot, entriesById = new Map()) {
   if (!calledShot || !calledShot.starter || !calledShot.benched) return null;
   const { starter, benched } = calledShot;
   const number = (n) => (finite(n) == null ? '-' : Number(n).toFixed(1));
@@ -206,6 +206,11 @@ export function calledShotLine(calledShot) {
     if (calledShot.outcome === 'hit') status = `Hit: ${scores}`;
     else if (calledShot.outcome === 'miss') status = `Miss: ${scores}`;
     else status = 'Void: a player did not play, or the lineup changed';
+  } else if (calledShot.status === 'locked' && calledShot.bothLocked) {
+    // Both games have kicked off (#1857): the points are moving. The lineup
+    // entries carry the page's live points; the payload's are the read's.
+    const live = (side) => number(finite(entriesById.get(side.playerId)?.points) ?? side.points);
+    status = `Live: ${starter.name} ${live(starter)} to ${benched.name} ${live(benched)}`;
   } else if (calledShot.status === 'locked') {
     status = 'Locked: one of the two games has started';
   } else {

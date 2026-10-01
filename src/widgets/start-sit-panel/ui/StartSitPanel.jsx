@@ -77,7 +77,7 @@ export default function StartSitPanel({
   // server pins the shot's pair, so it never appears as a row above and the
   // panel adds no client-side filter for it (Dismiss's movePlanWithout is
   // per-mount UI state only).
-  const shotLine = calledShotLine(advice?.calledShot);
+  const shotLine = calledShotLine(advice?.calledShot, entriesById);
 
   // Focus moves BEFORE the state update commits, while every sibling card
   // (and its Dismiss button) is still mounted in this same synchronous
