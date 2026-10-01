@@ -1629,6 +1629,21 @@ function classifyProjectionEntry(projection) {
 const POSITION_BASELINE_REASON = 'position baseline';
 
 /**
+ * Pure: true exactly when a projection entry's data-quality reasons contain
+ * `POSITION_BASELINE_REASON`. The one definition of the marker: production's
+ * `positionBaselineFor` and the backtest drivers (which inject it, because
+ * nothing in `scripts/backtest` may require `server/services`) both use it.
+ * Anything that is not an entry carrying the reasons (null, a bare number)
+ * reads false.
+ */
+function isPositionBaselineEntry(entry) {
+  const dataQuality = entry && entry.factors ? entry.factors.dataQuality : null;
+  return !!(dataQuality
+    && Array.isArray(dataQuality.reasons)
+    && dataQuality.reasons.includes(POSITION_BASELINE_REASON));
+}
+
+/**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the
  * accessors (six at #1702, plus `positionBaselineFor` and `availabilityFor`
@@ -1651,13 +1666,7 @@ const POSITION_BASELINE_REASON = 'position baseline';
  */
 function toWeeklyProjectionResult(run) {
   const entryFor = (playerId) => run.projections.get(playerId) || null;
-  const isPositionBaseline = (playerId) => {
-    const entry = entryFor(playerId);
-    const dataQuality = entry && entry.factors ? entry.factors.dataQuality : null;
-    return !!(dataQuality
-      && Array.isArray(dataQuality.reasons)
-      && dataQuality.reasons.includes(POSITION_BASELINE_REASON));
-  };
+  const isPositionBaseline = (playerId) => isPositionBaselineEntry(entryFor(playerId));
 
   return {
     ...run,
@@ -1798,5 +1807,6 @@ module.exports = {
   buildSourceCoverage,
   distinctGamesFor,
   pointEstimateFor,
+  isPositionBaselineEntry,
   toWeeklyProjectionResult,
 };

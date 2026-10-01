@@ -12,6 +12,9 @@ const { canonicalJson } = require('../../scripts/backtest/lib/snapshotStore');
 // test injects them: the deployed-policy estimand runs production's
 // availability rule and optimizer, never a stand-in.
 const { availabilityFor } = require('../services/projectionModel');
+const { isPositionBaselineEntry } = require('../services/projection.service');
+// The real marker predicate, injected beside availabilityFor.
+const positionBaselineFor = isPositionBaselineEntry;
 const { optimalAssignment } = require('../services/lineupOptimizer');
 
 // ---------------------------------------------------------------------------
@@ -114,7 +117,7 @@ function weekInputs({ season = 2025, week = 5, intervals = true, actualFor, deep
     projectionsByPlayerId: makeProjections(cohortWeek, { intervals }),
     positionRank,
     nameRankById,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   };
 }
@@ -323,6 +326,10 @@ test('artifact week/season mismatches, missing injections, and quarantined seaso
   const noOptimize = weekInputs();
   delete noOptimize.optimize;
   assert.throws(() => armWeekEvaluator.evaluateArmWeek(noOptimize), /optimize must be injected/);
+
+  const noMarker = weekInputs();
+  delete noMarker.positionBaselineFor;
+  assert.throws(() => armWeekEvaluator.evaluateArmWeek(noMarker), /positionBaselineFor must be injected/);
 
   const quarantined = weekInputs({ season: 2026 });
   assert.throws(() => armWeekEvaluator.evaluateArmWeek(quarantined), /quarantine/i);

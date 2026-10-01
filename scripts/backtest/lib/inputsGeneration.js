@@ -855,7 +855,8 @@ function emitSaltSeedRecords({ scoringHash, seedFor, playerIds, season, week, sa
  *   - `benchmarkProjectionsFor({ season, week, playerIds })` -> an object
  *     keyed by the two `inputsAssembly.BENCHMARK_ARMS` names, each a
  *     projections Map (`lib/naive.benchmarksFor`, gathered per player).
- *   - `availabilityFor` / `optimize`: production's wrapper and optimizer,
+ *   - `availabilityFor` / `positionBaselineFor` / `optimize`: production's
+ *     wrapper, its Position-baseline marker predicate and its optimizer,
  *     forwarded to `armWeekEvaluator` unchanged.
  */
 async function generateSweepInputRecords({
@@ -866,13 +867,14 @@ async function generateSweepInputRecords({
   seedFor,
   benchmarkProjectionsFor,
   availabilityFor,
+  positionBaselineFor,
   optimize,
   profiles = GENERATION_PROFILES,
   label = 'inputs generation',
 }) {
   for (const [name, fn] of [
     ['scoringHashFor', scoringHashFor], ['generate', generate], ['seedFor', seedFor],
-    ['benchmarkProjectionsFor', benchmarkProjectionsFor], ['availabilityFor', availabilityFor], ['optimize', optimize],
+    ['benchmarkProjectionsFor', benchmarkProjectionsFor], ['availabilityFor', availabilityFor], ['positionBaselineFor', positionBaselineFor], ['optimize', optimize],
   ]) {
     if (typeof fn !== 'function') throw new Error(`${label}: ${name} must be injected`);
   }
@@ -1044,6 +1046,7 @@ async function generateSweepInputRecords({
               positionRank,
               nameRankById,
               availabilityFor,
+              positionBaselineFor,
               optimize,
             };
             const evaluation = armWeekEvaluator.evaluateArmWeek({
@@ -1215,6 +1218,7 @@ async function generateSweepInputRecords({
               positionRank,
               nameRankById,
               availabilityFor,
+              positionBaselineFor,
               optimize,
             };
             const evaluation = armWeekEvaluator.evaluateArmWeek({

@@ -9,6 +9,9 @@ const { PRIMARY_SCORING_PROFILE } = require('../../scripts/backtest/lib/freezeMa
 const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
 const { optimalAssignment } = require('../../server/services/lineupOptimizer');
 const { availabilityFor } = require('../../server/services/projectionModel');
+const { isPositionBaselineEntry } = require('../../server/services/projection.service');
+// The real marker predicate, injected beside availabilityFor.
+const positionBaselineFor = isPositionBaselineEntry;
 const { DEFAULT_ROSTER_SLOTS } = require('../../server/services/lineup.service');
 
 const { SALTS, EVALUATED_WEEKS, MACRO_POSITIONS } = metrics;
@@ -228,7 +231,7 @@ function reducerMachinery() {
     positionRank: new Map(MACRO_POSITIONS.map((position, i) => [position, i + 1])),
     nameRankById: new Map(cohortMembers().map((member) => [member.playerId, member.playerId])),
     rosterSlots: DEFAULT_ROSTER_SLOTS,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
     ordering: ORDERINGS.PRIMARY,
     expectedRosterCount: 1,
