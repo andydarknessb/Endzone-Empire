@@ -38,7 +38,7 @@ const entry = (overrides = {}) => ({
 // `eligibleSlots` on its fixtures for the standalone `isEligibleMove` describe
 // block below, which calls the exported function directly with no template
 // and so exercises its fallback.
-function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget } = {}) {
+function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget, onLanded } = {}) {
   let currentRaw =
     raw ?? { week: 4, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
   const setRaw = jest.fn((updater) => {
@@ -46,7 +46,7 @@ function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEli
   });
   const { result, rerender } = renderHook(
     (props) =>
-      useSwapPlayers({ leagueId: 7, raw: currentRaw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, ...props })
+      useSwapPlayers({ leagueId: 7, raw: currentRaw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, onLanded, ...props })
   );
   return { result, rerender, setRaw, getRaw: () => currentRaw };
 }
@@ -407,4 +407,60 @@ test('a queued mutation replaying on reconnect notifies "Lineup saved"', () => {
     window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
   });
   expect(mockNotify).toHaveBeenCalledWith('Lineup saved');
+});
+
+// #1881: a save that lands changes Expected final, so the page's `onLanded`
+// runs once it has (now, or when a queued write replays), never otherwise.
+describe('onLanded after a save (#1881)', () => {
+  const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const move = (result) => {
+    act(() => result.current.onRowClick(bench, 'BENCH'));
+    act(() => result.current.onRowClick(null, 'BENCH'));
+  };
+
+  test('a save whose PUT resolves calls it once', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const onLanded = jest.fn();
+    const { result } = setup({ entries: [entry(), bench], onLanded });
+
+    move(result);
+
+    await waitFor(() => expect(onLanded).toHaveBeenCalledTimes(1));
+  });
+
+  test('a resolved save with no onLanded passed does not throw', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result } = setup({ entries: [entry(), bench] });
+
+    move(result);
+
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' }));
+  });
+
+  test('a save refused with an HTTP error never calls it', async () => {
+    apiClient.put.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    const onLanded = jest.fn();
+    const { result } = setup({ entries: [entry(), bench], onLanded });
+
+    move(result);
+
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test('a save queued offline calls it only once the replay lands', async () => {
+    apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+    const onLanded = jest.fn();
+    const { result } = setup({ entries: [entry(), bench], onLanded });
+
+    move(result);
+
+    await waitFor(() => expect(readPendingLineupMutations()).toHaveLength(1));
+    expect(onLanded).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
+    });
+    expect(onLanded).toHaveBeenCalledTimes(1);
+  });
 });

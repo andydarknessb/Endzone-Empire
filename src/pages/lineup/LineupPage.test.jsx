@@ -593,6 +593,27 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   );
 });
 
+// #1881: the page hands the swap, apply-advice and drop features an `onLanded`
+// that clears the week's cached Matchups list, so a save that lands re-reads it
+// (the list carries the Expected final the lean line and the strip show).
+test("a swap whose PUT resolves re-reads the week's matchups list (#1881)", async () => {
+  const user = userEvent.setup();
+  apiClient.put.mockResolvedValue({ data: {} });
+  renderPage();
+  const matchupsReads = () =>
+    apiClient.get.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.startsWith('/api/league/') && url.includes('/matchups?week=')
+    ).length;
+
+  await user.click(await screen.findByTestId('slot-row-BENCH-10-select'));
+  const before = matchupsReads();
+  expect(before).toBeGreaterThan(0);
+  await user.click(screen.getByTestId('slot-row-WR-0-select'));
+
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalled());
+  await waitFor(() => expect(matchupsReads()).toBeGreaterThan(before));
+});
+
 test('a refused swap: clicking a locked starter warns and saves nothing', async () => {
   const user = userEvent.setup();
   renderPage();
