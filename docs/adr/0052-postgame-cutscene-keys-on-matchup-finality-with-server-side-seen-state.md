@@ -49,3 +49,20 @@ fire-and-forget with a sessionStorage guard so a failed write cannot replay
 within the session; the cutscene mounts from Home only, never from a deep
 link; and the Recap (the league week's narrative) and the digest email are
 untouched, this being the first personal "you won / you lost" surface.
+
+## Amendment (2026-09-30, #1846)
+
+The cutscene also closes with one card naming the Team's Trophies for the
+Matchup's week (Perfect Lineup, Captain Hindsight, Called Shot) and its
+Called shot result, hit or miss, read from the records the Settle follow-up
+wrote at Advance week (ADR 0054). One static card in the same style follows
+the WIN, LOSS or TIE scene, and no card appears when there is nothing to
+name. The result scene keeps reading live scores as decided above, so until
+the cutscene is seen a correction can still flip the scene while the card,
+read from frozen records, cannot: a WIN scene followed by a Captain
+Hindsight card is possible and accepted. The award pass runs first in the
+Settle follow-up, seconds after the Matchup is final, but a cutscene fetched
+inside that window carries no card and, once seen, never will; that gap is
+accepted rather than making the cutscene wait on the follow-up. Seen state,
+expiry, the `postgameCutscenes` opt-out and the Home-only mount are
+unchanged.

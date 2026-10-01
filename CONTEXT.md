@@ -834,7 +834,8 @@ Factor is the source, not a separate defense-versus-position table)
 The player detail a manager opens from any surface that names a player: a
 drawer on desktop, a sheet on a phone. It carries the injury designation and
 detail, the game with implied team total and weather, the Weekly projection
-with its Floor and Ceiling, the largest Factor's explanation, Usage, Rest of
+with its Floor and Ceiling, its Volatility tag and Threshold probabilities
+(spec #1845), the largest Factor's explanation, Usage, Rest of
 season, Ownership, the Season summary for every season on record, the
 eighteen-week bars and game log for the season the manager picks, and an
 action bar that follows the player's context: bench options with Trade and
@@ -1302,13 +1303,14 @@ settles standings, awards trophies and opens the next week.
 
 **Settle follow-up**:
 The work that follows a Settle pass, in one fixed order: power rankings
-recomputed, Trophies awarded (after an Advance week) or the weekly high score
-reconciled (after a correction of a final week), the Recap built, and after an
-Advance week the digest sent. The order is the same for both; only the mode
-differs: an advance awards every Trophy and announces the Recap, a correction
-reconciles one Trophy and stores the Recap silently. The Trophies come before
-the Recap because the Recap narrates them: it reads the Trophy rows just
-written and never recomputes them.
+recomputed, Trophies awarded with Called shots and Overrides settled (after
+an Advance week) or the weekly high score reconciled (after a correction of a
+final week), the Recap built, and after an Advance week the digest sent. The
+order is the same for both; only the mode differs: an advance awards every
+Trophy and announces the Recap, a correction reconciles one Trophy and stores
+the Recap silently. The Trophies come before the Recap because the Recap
+narrates them: it reads the Trophy rows just written and never recomputes them
+(ADR 0054).
 _Avoid_: post-settle chain, post-week analytics, the recap chain
 
 **Expected final**:
@@ -1354,16 +1356,27 @@ bench. In best ball the two lineups are one and nothing is ever left (ADR
 settle pass uses, not the stored default-rules `fantasy_points` column (ADR
 0024). An IR occupant is never left on the bench: he is not a candidate starter
 in any league type, matching the settle pass and the start/sit advisor (#741).
+Three Trophies read it, none of them in best ball: Perfect Lineup, a settled
+week with nothing left on the bench; Captain Hindsight, a Matchup lost or
+tied that one move from the week as played would have won, the move being one
+bench player into a starting slot he was eligible for, replacing that starter
+or filling an empty slot; and the season's fewest points left on the bench
+(spec #1846).
 _Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
 study's measure of the same gap), optimal lineup (the thing hindsight
 compares against, not the comparison)
 
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
-high score, champion, longest win streak, biggest comeback or best draft grade.
-A pick'em league's season award is the pick'em champion, and a tie makes
-co-champions: it is the one trophy written to more than one team at once.
-Awarding is idempotent by design.
+high score, champion, longest win streak, biggest comeback, best draft grade,
+Perfect Lineup, Captain Hindsight, a Called shot that hit, or the fewest
+points left on the bench over a season. A pick'em league's season award is
+the pick'em champion, and a tie makes co-champions: the one case where a
+single trophy is shared by more than one team. Awarding is idempotent by
+design, and a trophy stands through every later correction, except the
+weekly high score, the one trophy a correction reconciles (ADR 0054). Lineup
+trophies exist only where managers set lineups: never in best ball or a
+pick'em league.
 Two weekly Trophies read a team's Hindsight at Advance week, for teams in that
 week's Matchups in a league with manager-set lineups (never best ball, which
 leaves nothing on a bench, and never a pick'em-only league, which has no
@@ -1374,6 +1387,8 @@ replacing that starter or filling an empty seat, would have put its total
 strictly above the opponent's score of record (the largest such gain is the one
 named). Both use Hindsight's population and pricer, so an IR occupant is never
 a candidate. A stat correction never awards, revokes or changes either.
+_Avoid_: achievement, award (fine in copy, not as the term), XP, badge (the
+UI chip that shows a tag, not a trophy)
 
 **Recap**:
 A generated narrative summary of one league week.
@@ -1390,8 +1405,10 @@ Manager uses, counted from the moment it starts, skipped or not; a later stat
 correction never replays or reverses it. It carries the Team identity of both
 sides, the scores and, for a regular-season Matchup, the Record; a playoff
 Matchup carries no Record. A Manager with several Teams is owed one per Team.
-Distinct from the touchdown cutscene (one Scoring play, live) and from the
-Recap (one league week, narrative).
+After the result it closes with one card naming the Team's Trophies for
+the week and its Called shot result, read from the records written at
+Advance week (ADR 0052, amended). Distinct from the touchdown cutscene (one
+Scoring play, live) and from the Recap (one league week, narrative).
 _Avoid_: recap, weekly recap, result animation, celebration (the touchdown
 cutscene's word), Tuesday recap (finality is Advance week, not a weekday)
 
@@ -1440,7 +1457,8 @@ only one that groups things a reader would not otherwise group.
 
 **Endzone Forecast**:
 The name the product gives its projection engine: what managers see on the
-advice surfaces. Naming is presentation only - the model version identity
+advice surfaces. "The Forecast", capitalised, is its short form in copy and
+in this glossary. Naming is presentation only - the model version identity
 underneath does not change when the name does, and the two are never
 interchangeable in evaluation contexts.
 _Avoid_: the model (in user-facing copy), Start/Sit Suggestions (superseded
@@ -1537,6 +1555,30 @@ truncated at the Position floor before either is read, so a Floor is never
 a value no real game has scored (ADR 0047).
 _Avoid_: low, high, worst case, best case, range
 
+**Volatility**:
+How wide a Weekly projection's Interval is against the Intervals of
+similarly projected players at the same position in the same run. It
+surfaces as one of two tags, Steady for an unusually narrow Interval and
+Boom or bust for an unusually wide one, the cut set once against real runs,
+and most players carry neither. Only a player projected from his own history
+with enough games can carry one; an Unavailable player, a Position-baseline
+projection, and K, DEF and IDP never do. A reading of the Interval, never a
+separate estimate (spec #1845).
+_Avoid_: safe floor (the tag is not about the Floor's level), balanced (no
+tag is the middle), consistency, variance (the statistic, not the tag),
+archetype
+
+**Threshold probability**:
+The chance a Weekly projection reaches a fixed score in the league's own
+scoring, read off the Interval: 10 and 20 points for RB, WR and TE, 15 and
+25 for a QB. Shown to the nearest 5% with "over 90%" and "under 10%" at the
+ends, only for a player who can carry a Volatility tag, and shipped only
+once the completed weeks' pre-kickoff captures showed the stated chances
+hold. A reading of the Interval, never a separate estimate (spec #1845).
+Distinct from the start/sit probability, which compares two players.
+_Avoid_: boom probability, bust probability, solid start, floor check,
+ceiling smash, hit rate
+
 **Position floor**:
 The lowest score any player of a position group has recorded over the
 prior season and the current season to date under the league's own
@@ -1550,8 +1592,8 @@ _Avoid_: minimum projection, clamp at zero
 The opponent Factor's evidence in the early weeks: the prior season's points
 allowed per position, worth four pseudo-games, blended toward the current
 season as real games accrue. It is why the Factor applies from week 1
-instead of reporting an insufficient sample until week 4. The advice card
-labels the matchup line "context only" when the Factor did not apply
+instead of reporting an insufficient sample until week 4. The Start/sit card
+labels the NFL opponent line "context only" when the Factor did not apply
 (ADR 0047).
 _Avoid_: last year's defense, carry-over
 
@@ -1560,34 +1602,59 @@ The engine's recommendation about which rostered players to start, including an
 explicit "too close to call" answer when two players' distributions overlap
 enough that no honest edge exists. Applying advice means making exactly the
 moves the advice names, one manager action for all of them; it never
-re-assigns the whole lineup. The advice card shows fact chips for each
-player's game only when notable: "High total" (a Line total of 48 or more),
-"Favored by" (7 points or more), and, outdoors, "Wind" (20 mph or more) and
-"Rain" (60% or more). They come from the Decision card's Line and Weather
-loaders (the Implied team total stays on the Decision card), and each reads
-"context only" while its Factor is not applied: the Line chips follow the
-game environment Factor, the weather chips the weather Factor. No chips on the
-Decision card or a Ledger row.
+re-assigns the whole lineup. While a Called shot is open, its starter is
+pinned in his slot and its benched player is not a candidate, as locked
+players are, so the advice never names that pair and Apply cannot undo it.
+The Start/sit card shows fact chips for each player's game only when notable:
+"High total" (a Line total of 48 or more), "Favored by" (7 points or more),
+and, outdoors, "Wind" (20 mph or more) and "Rain" (60% or more). They come
+from the Decision card's Line and Weather loaders (the Implied team total
+stays on the Decision card), and each reads "context only" while its Factor
+is not applied: the Line chips follow the game environment Factor, the
+weather chips the weather Factor. No chips on the Decision card or a Ledger
+row.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 
+**Start/sit card**:
+The Lineup page's presentation of the Start/sit advice, headed Endzone
+Forecast: one row per suggested swap, the sit and start sides with their
+Floor, Point estimate and Ceiling, a verdict of "Too close to call" or "Lean
+start" (and "Strong start" once spec #1845 ships it), the NFL opponent line,
+fact chips labelled "context only" for what the Forecast did not use, and
+the manager's standing Called shot.
+_Avoid_: advice card, start/sit panel (the code name), suggestions card
+
 **Called shot**:
-A manager's recorded decision to keep the current starter over the player the
-Forecast would start, made with "Call your shot" on a Lean start row of the
-Start/sit advice. The server stores the pair with both Point estimates and the
-start/sit probability as they stood, one shot per Team per week (calling
-another replaces it), and the manager may withdraw it until the first of its
-two players locks. While it is open the advice treats the pair as it treats
-Lineup-locked players: the starter keeps his slot and the benched player is not
-a candidate, so neither reaches a suggestion or the move plan, and Apply cannot
-undo it. The card shows it as "Your called shot": pending, locked once the
-first of the two games kicks off, then resolved when the week settles. It is a
-hit when the starter scored at least as much as the benched player, a miss when
-he scored less, and void when either never played or a later lineup save no
-longer matched the pair. A failure anywhere in the shot path never blocks
-saving a lineup. Stored in `lineup_overrides`, which also takes automatically
-captured overrides later.
-_Avoid_: pick, bet, prediction
+A manager's declaration, made on the Start/sit card before either player's
+Kickoff, that the player he is starting will outscore the benched player the
+Start/sit advice would start instead. It can be made only against a
+suggestion the advice gives a start/sit probability above the tossup line,
+never against "Too close to call" or a pair with no probability. One per Team
+per week, and open from its declaration until it is withdrawn, replaced or
+settled; replaceable or withdrawn until the first of the two players locks;
+judged on the Forecast's numbers as they stood when it was called. It is
+settled at Advance week as a hit (the starter strictly outscored), a miss (a
+tie is a miss) or void (the lineup as played no longer reflected it, or
+either player made no Appearance), and never revisited (ADR 0054). The
+league sees it once both players have locked, hit or miss alike; a hit is a
+Trophy; a call made against a start/sit probability of 0.8 or higher is bold
+(spec #1846). The card shows it as "Your called shot": pending, locked once
+the first of the two games kicks off, then resolved. A failure anywhere in the
+shot path never blocks saving a lineup. Stored in `lineup_overrides`, which
+also holds Overrides.
+_Avoid_: bet, wager, prediction, pick (that is pick'em), Maverick, lock in
+
+**Override**:
+A suggestion with a start/sit probability above the tossup line that still
+stood against the manager's lineup when the first of its two players locked,
+captured on the next scheduler tick with the advice recomputed as of that
+lock, and settled at Advance week by the Called shot's rules. A Called shot
+is the one Override a manager put on the record beforehand, and it keeps its
+declaration numbers; every other Override is his alone, summed into a
+private "You vs the Forecast" record and never shown to another manager.
+Distinct from a commissioner overriding a Roster lock.
+_Avoid_: disagreement, fade, ignored advice
 
 **Optimizer**:
 The assignment routine that fills every starting slot to maximize projected
