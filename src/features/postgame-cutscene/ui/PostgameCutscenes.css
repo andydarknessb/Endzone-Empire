@@ -212,6 +212,33 @@
   color: #cfd4e0;
 }
 
+.postgame-awards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.postgame-award {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.postgame-award-label {
+  font-size: clamp(12px, 4vw, 20px);
+  color: #ffd23f;
+}
+
+.postgame-award-detail {
+  font-size: clamp(9px, 2.8vw, 12px);
+  color: #cfd4e0;
+}
+
 .postgame-link {
   display: inline-flex;
   align-items: center;

@@ -59,6 +59,79 @@ function outcomeOf(mine, theirs) {
   return 'tie';
 }
 
+const awardKey = (leagueId, season, week, teamId) => `${leagueId}:${season}:${week}:${teamId}`;
+const upper = (text) => String(text).toUpperCase();
+const AWARD_ORDER = ['called_shot', 'perfect_lineup', 'captain_hindsight'];
+
+/**
+ * The awards card's rows (ADR 0052 amendment), keyed by league, season, week and
+ * the viewer's Team: the week's resolved called shot (hit or miss; a void is a
+ * non-event), then Perfect Lineup, then Captain Hindsight, read from the frozen
+ * rows the Settle follow-up wrote and never recomputed. The `called_shot` trophy
+ * is not read: the called row already says hit or miss. A failed read costs the
+ * card, never the result.
+ */
+async function loadAwards(db, due) {
+  const byKey = new Map();
+  const add = (key, award) => byKey.set(key, [...(byKey.get(key) || []), award]);
+  try {
+    const leagueIds = [...new Set(due.map(({ league }) => Number(league.id)))];
+    const teamIds = [...new Set(due.map(({ league }) => Number(league.my_team_id)))];
+    const seasons = [...new Set(due.map(({ row }) => Number(row.season)))];
+    const weeks = [...new Set(due.map(({ row }) => Number(row.week)))];
+    const params = [leagueIds, teamIds, seasons, weeks];
+    const [shots, trophies] = await Promise.all([
+      db.query(
+        `SELECT "lineup_overrides"."league_id", "lineup_overrides"."team_id", "lineup_overrides"."season",
+                "lineup_overrides"."week", "lineup_overrides"."outcome",
+                "lineup_overrides"."starter_points_actual", "lineup_overrides"."benched_points_actual",
+                "starter"."name" AS "starter_name", "benched"."name" AS "benched_name"
+         FROM "lineup_overrides"
+         JOIN "players" AS "starter" ON "starter"."id" = "lineup_overrides"."starter_player_id"
+         JOIN "players" AS "benched" ON "benched"."id" = "lineup_overrides"."benched_player_id"
+         WHERE "lineup_overrides"."league_id" = ANY($1) AND "lineup_overrides"."team_id" = ANY($2)
+           AND "lineup_overrides"."season" = ANY($3) AND "lineup_overrides"."week" = ANY($4)
+           AND "lineup_overrides"."called" AND "lineup_overrides"."outcome" IN ('hit', 'miss')
+         ORDER BY "lineup_overrides"."id"`,
+        params
+      ),
+      db.query(
+        `SELECT "league_id", "team_id", "season", "week", "type", "data" FROM "trophies"
+         WHERE "league_id" = ANY($1) AND "team_id" = ANY($2) AND "season" = ANY($3) AND "week" = ANY($4)
+           AND "type" IN ('perfect_lineup', 'captain_hindsight')`,
+        params
+      ),
+    ]);
+    for (const r of shots.rows) {
+      add(awardKey(r.league_id, r.season, r.week, r.team_id), {
+        type: 'called_shot',
+        label: `CALLED SHOT: ${upper(r.outcome)}`,
+        detail: `${upper(r.starter_name)} OVER ${upper(r.benched_name)}, ${num(r.starter_points_actual)} TO ${num(r.benched_points_actual)}`,
+      });
+    }
+    for (const r of trophies.rows) {
+      const data = r.data || {};
+      const key = awardKey(r.league_id, r.season, r.week, r.team_id);
+      if (r.type === 'perfect_lineup') {
+        add(key, { type: r.type, label: 'PERFECT LINEUP', detail: data.points == null ? null : `${data.points} PTS` });
+      } else if (r.type === 'captain_hindsight') {
+        add(key, {
+          type: r.type,
+          label: 'CAPTAIN HINDSIGHT',
+          detail: data.benchPlayer && data.gain != null ? `${upper(data.benchPlayer)} WAS +${data.gain}` : null,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('postgame cutscene: award lookup failed:', err.message);
+    byKey.clear();
+  }
+  for (const awards of byKey.values()) {
+    awards.sort((a, b) => AWARD_ORDER.indexOf(a.type) - AWARD_ORDER.indexOf(b.type));
+  }
+  return byKey;
+}
+
 /** The viewer's `postgameCutscenes` preference; opt-out, so unset is on. */
 async function cutscenesWanted({ userId, db }) {
   const result = await db.query(
@@ -125,6 +198,7 @@ async function listDue({ userId, now, db }) {
     return expiry === null || nowMs < expiry;
   });
 
+  const awardsByKey = due.length > 0 ? await loadAwards(db, due) : new Map();
   const { computeStandings } = require('./season.service');
   const standingsByLeague = new Map();
   const items = due.map(({ row, league, home }) => {
@@ -160,6 +234,7 @@ async function listDue({ userId, now, db }) {
       opponent: side(oppId, oppScore),
       record: mine ? { wins: mine.wins, losses: mine.losses, ties: mine.ties } : null,
       standing: mine ? { rank: mine.rank, of: standings.length } : null,
+      awards: awardsByKey.get(awardKey(leagueId, row.season, row.week, myId)) || [],
     };
   });
 

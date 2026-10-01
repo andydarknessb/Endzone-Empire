@@ -49,6 +49,8 @@ function mockPool(t) {
     [/FROM "matchups" WHERE "id"/, (text, params) => ({ rows: MATCHUPS[params[0]] ? [MATCHUPS[params[0]]] : [] })],
     [/FROM "postgame_cutscene_views"/, () => ({ rows: [] })],
     [/FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "trophies"/, () => ({ rows: [] })],
+    [/FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^INSERT INTO "postgame_cutscene_views"/, () => ({ rows: [], rowCount: 1 })],
   ]).install(t);
 }
@@ -61,7 +63,7 @@ test('GET /api/user/postgame-cutscenes answers { cutscenes } with the viewer\'s 
   assert.equal(res.body.cutscenes.length, 1);
   const [item] = res.body.cutscenes;
   assert.deepEqual(Object.keys(item), [
-    'matchupId', 'leagueId', 'leagueName', 'season', 'week', 'playoff', 'outcome', 'me', 'opponent', 'record', 'standing',
+    'matchupId', 'leagueId', 'leagueName', 'season', 'week', 'playoff', 'outcome', 'me', 'opponent', 'record', 'standing', 'awards',
   ]);
   assert.equal(item.matchupId, 904);
   assert.equal(item.outcome, 'win');
