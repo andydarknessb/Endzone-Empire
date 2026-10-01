@@ -385,7 +385,60 @@ async function loadOpponents({ leagueId, player, season, week, rules }) {
   return opponentEntries(gamesResult.rows, context ? context.allowedByDefense : null);
 }
 
+/**
+ * The Volatility tag (#1849, spec #1845) for one player's card: `steady`,
+ * `boom_or_bust` or null, read by the Interval reading module off the SAME run
+ * the card reads (`entry` is the player's own entry from it) under the league's
+ * scoring. The position's rows are loaded once per request, in one read of that
+ * run; an ineligible entry (Unavailable, Position-baseline, pooled residual,
+ * under 8 games, K/DEF/IDP) short-circuits before any query. No run for the
+ * week, or a reference set under ten, reads null.
+ * ponytail: no cache by run id; add one if the per-open position read shows up in load.
+ */
+async function loadVolatility({ season, week, rules, player, entry }) {
+  if (!entry) return null;
+  const reading = require('./intervalReading');
+  const model = require('./projectionModel');
+  const { pointEstimateFor } = require('./projection.service');
+  const withPoint = (row) => ({ ...row, pointEstimate: pointEstimateFor({ mean: row.mean, median: row.median, modelVersion: model.MODEL_VERSION }) });
+  const own = withPoint({ ...entry, playerId: player.id, position: player.position });
+  if (!reading.isEligible(own)) return null;
+
+  const run = await pool.query(
+    `SELECT "id" FROM "projection_runs"
+     WHERE "season" = $1 AND "week" = $2 AND "scoring_hash" = $3 AND "model_version" = $4`,
+    [season, week, model.scoringHash(rules), model.MODEL_VERSION]
+  );
+  if (run.rows.length === 0) return null;
+  // Only the two factors the reading looks at: the full factors blob is large.
+  const result = await pool.query(
+    `SELECT w."player_id", p."position", w."mean", w."median", w."p10", w."p25", w."p75", w."p90",
+            w."sample_size",
+            jsonb_build_object('availability', w."factors" -> 'availability',
+                               'dataQuality', w."factors" -> 'dataQuality') AS "factors"
+     FROM "player_week_projections" w
+     JOIN "players" p ON p."id" = w."player_id"
+     WHERE w."run_id" = $1 AND p."position" = $2`,
+    [run.rows[0].id, player.position]
+  );
+  const num = (v) => (v == null ? null : Number(v));
+  const rows = result.rows.map((r) => withPoint({
+    playerId: r.player_id,
+    position: r.position,
+    mean: num(r.mean),
+    median: num(r.median),
+    p10: num(r.p10),
+    p25: num(r.p25),
+    p75: num(r.p75),
+    p90: num(r.p90),
+    sampleSize: Number(r.sample_size) || 0,
+    factors: r.factors || {},
+  }));
+  return reading.volatilityTags(rows).get(player.id) ?? null;
+}
+
 module.exports = {
+  loadVolatility,
   LEAGUE_CONTEXT_TTL_MS,
   clearLeagueContextMemo,
   leagueContextMemoSize,

@@ -720,6 +720,15 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
 
   const ros = rosMap.get(player.id) || { total: 0, perGame: 0 };
 
+  // #1849: the Volatility tag, off the same run `projections` came from. A
+  // failed read hides the tag, never the card (the `line`/`weather` rule).
+  const volatility = await decisionCardContextService.loadVolatility({
+    season, week: effectiveWeek, rules, player, entry: projections.projections.get(player.id) || null,
+  }).catch((err) => {
+    console.error('getPlayerCard: volatility failed', err);
+    return null;
+  });
+
   // `log`: not covered by the #1306 Ruling or ADR 0040-0042's decision-strip
   // list. Reusing `buildPlayerSummary` (the exact producer `/summary` already
   // shipped, which this route supersedes) rather than inventing a second stat
@@ -907,6 +916,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       },
       upgrade: upgrades.get(player.id) ?? null,
       usage,
+      volatility,
     },
     weeks,
     seasons,
