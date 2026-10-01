@@ -327,7 +327,12 @@ function bestCaptainMove({ counted, rosterSlots, margin }) {
  *                       single bench move that would have beaten the
  *                       opponent's score of record.
  *
- * Both read Hindsight (`weekHindsightRoster`), so they share its population and
+ * The same pass (#1861) stores every team's points left for the week as one
+ * `league_analytics` row (type `points_left`, never rewritten), and, once the
+ * league is complete, awards the season trophy `fewest_left_on_bench` over the
+ * regular-season rows.
+ *
+ * All read Hindsight (`weekHindsightRoster`), so they share its population and
  * pricer. Returns `[{ type, teamId, label }]` newly awarded. Never throws: a
  * team whose Hindsight cannot be read is logged and skipped.
  */

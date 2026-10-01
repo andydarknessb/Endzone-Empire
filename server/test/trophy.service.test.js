@@ -834,7 +834,12 @@ test('#1861: when the league completes, the team with the fewest points left ove
 test('#1861: a tie for the fewest breaks to the lowest team id, as the weekly high score does', async (t) => {
   const fake = awardWorld({
     leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
-    pointsLeftRows: [weekRow(4, { 30: 10.1, 20: 10.1, 40: 12 }), weekRow(W, { 30: 5, 20: 5, 40: 5 })],
+    // The tied teams are stored with the higher id first (weekRow's object keys
+    // would sort ascending), so only the id tiebreak, not stored order, picks 20.
+    pointsLeftRows: [
+      { week: 4, data: { teams: [{ teamId: 30, pointsLeft: 10.1 }, { teamId: 20, pointsLeft: 10.1 }, { teamId: 40, pointsLeft: 12 }] } },
+      { week: W, data: { teams: [{ teamId: 30, pointsLeft: 5 }, { teamId: 20, pointsLeft: 5 }, { teamId: 40, pointsLeft: 5 }] } },
+    ],
   });
   fake.install(t);
 
