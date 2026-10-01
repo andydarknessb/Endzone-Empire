@@ -312,3 +312,198 @@ describe('fact chips (#1853)', () => {
     expect(screen.queryByTestId('suggestion-fact-chip')).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// #1856: Call your shot
+// ---------------------------------------------------------------------------
+
+const shot = (over = {}) => ({
+  status: 'pending',
+  outcome: null,
+  canWithdraw: true,
+  probability: 0.92,
+  starter: { playerId: 1, name: 'Sit Guy', projection: 8, points: null },
+  benched: { playerId: 2, name: 'Start Guy', projection: 14.5, points: null },
+  ...over,
+});
+
+test('Call your shot sits beside Dismiss on a lean row and hands the row to onCallShot', async () => {
+  const user = userEvent.setup();
+  const onCallShot = jest.fn();
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ probabilityBetter: 0.91 })], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={onCallShot}
+    />
+  );
+  const card = screen.getByTestId('suggestion-card');
+  await user.click(within(card).getByRole('button', { name: /call your shot/i }));
+  expect(onCallShot).toHaveBeenCalledTimes(1);
+  expect(onCallShot.mock.calls[0][0]).toMatchObject({ sit: { playerId: 1 }, start: { playerId: 2 } });
+});
+
+test('Call your shot is absent on a too-close-to-call row, on a row with no probability, and with no handler', () => {
+  const { rerender } = render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ verdict: 'tossup', probabilityBetter: 0.55 })], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={() => {}}
+    />
+  );
+  expect(screen.queryByTestId('suggestion-call-shot')).not.toBeInTheDocument();
+
+  rerender(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ probabilityBetter: null })], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={() => {}}
+    />
+  );
+  expect(screen.queryByTestId('suggestion-call-shot')).not.toBeInTheDocument();
+
+  rerender(
+    <StartSitPanel advice={{ suggestions: [suggestion({ probabilityBetter: 0.9 })], movePlan: [] }} entries={entries} bestBall={false} />
+  );
+  expect(screen.queryByTestId('suggestion-call-shot')).not.toBeInTheDocument();
+});
+
+test('no standing line when the payload carries no shot', () => {
+  render(<StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: null }} entries={entries} bestBall={false} />);
+  expect(screen.queryByTestId('called-shot-line')).not.toBeInTheDocument();
+});
+
+test('a pending shot shows the pair, the numbers as called and Withdraw', async () => {
+  const user = userEvent.setup();
+  const onWithdrawShot = jest.fn();
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [], movePlan: [], calledShot: shot() }}
+      entries={entries}
+      bestBall={false}
+      onWithdrawShot={onWithdrawShot}
+    />
+  );
+  const line = screen.getByTestId('called-shot-line');
+  expect(line).toHaveAttribute('data-state', 'pending');
+  expect(line).toHaveTextContent('Your called shot');
+  expect(screen.getByTestId('called-shot-pair')).toHaveTextContent('Sit Guy over Start Guy');
+  expect(screen.getByTestId('called-shot-numbers')).toHaveTextContent('Proj 8.0 vs 14.5');
+  expect(screen.getByTestId('called-shot-numbers')).toHaveTextContent('92% lean to Start Guy');
+  await user.click(screen.getByTestId('called-shot-withdraw'));
+  expect(onWithdrawShot).toHaveBeenCalledTimes(1);
+});
+
+test('a locked shot says so and offers no Withdraw', () => {
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [], movePlan: [], calledShot: shot({ status: 'locked', canWithdraw: false }) }}
+      entries={entries}
+      bestBall={false}
+      onWithdrawShot={() => {}}
+    />
+  );
+  expect(screen.getByTestId('called-shot-line')).toHaveAttribute('data-state', 'locked');
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Locked');
+  expect(screen.queryByTestId('called-shot-withdraw')).not.toBeInTheDocument();
+});
+
+test.each([
+  ['hit', 'Hit: Sit Guy scored 12.5, Start Guy 9.0'],
+  ['miss', 'Miss: Sit Guy scored 12.5, Start Guy 9.0'],
+  ['void', 'Void'],
+])('a resolved %s shot reads its outcome and offers no Withdraw', (outcome, text) => {
+  render(
+    <StartSitPanel
+      advice={{
+        suggestions: [],
+        movePlan: [],
+        calledShot: shot({
+          status: 'resolved',
+          outcome,
+          canWithdraw: false,
+          starter: { playerId: 1, name: 'Sit Guy', projection: 8, points: 12.5 },
+          benched: { playerId: 2, name: 'Start Guy', projection: 14.5, points: 9 },
+        }),
+      }}
+      entries={entries}
+      bestBall={false}
+      onWithdrawShot={() => {}}
+    />
+  );
+  expect(screen.getByTestId('called-shot-line')).toHaveAttribute('data-state', `resolved-${outcome}`);
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent(text);
+  expect(screen.queryByTestId('called-shot-withdraw')).not.toBeInTheDocument();
+});
+
+test('the shot adds no client filter: Apply still passes the payload plan minus dismissed pairs only', async () => {
+  const user = userEvent.setup();
+  const onApply = jest.fn();
+  const plan = [{ playerId: 5, fromSlot: 'BENCH', toSlot: 'WR' }];
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [], movePlan: plan, calledShot: shot() }}
+      entries={entries}
+      bestBall={false}
+      onApply={onApply}
+    />
+  );
+  await user.click(screen.getByTestId('start-sit-apply'));
+  expect(onApply).toHaveBeenCalledWith(plan);
+});
+
+test('while a shot request is in flight the actions stay mounted, aria-disabled, and ignore clicks (#1856)', async () => {
+  const user = userEvent.setup();
+  const onCallShot = jest.fn();
+  const onWithdrawShot = jest.fn();
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ probabilityBetter: 0.9 })], movePlan: [], calledShot: shot() }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={onCallShot}
+      onWithdrawShot={onWithdrawShot}
+      shotBusy
+    />
+  );
+  const call = screen.getByTestId('suggestion-call-shot');
+  const withdraw = screen.getByTestId('called-shot-withdraw');
+  expect(call).toHaveAttribute('aria-disabled', 'true');
+  expect(withdraw).toHaveAttribute('aria-disabled', 'true');
+  await user.click(call);
+  await user.click(withdraw);
+  expect(onCallShot).not.toHaveBeenCalled();
+  expect(onWithdrawShot).not.toHaveBeenCalled();
+});
+
+test('an accepted shot moves focus to the card and announces it; a refused one does neither (#1856)', async () => {
+  const user = userEvent.setup();
+  const onCallShot = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [suggestion({ probabilityBetter: 0.9 })], movePlan: [] }}
+      entries={entries}
+      bestBall={false}
+      onCallShot={onCallShot}
+    />
+  );
+  const call = screen.getByTestId('suggestion-call-shot');
+  await user.click(call);
+  expect(screen.getByRole('status')).toHaveTextContent('');
+  expect(screen.getByTestId('start-sit-panel-content')).not.toHaveFocus();
+
+  await user.click(call);
+  expect(await screen.findByText('Shot called: Sit Guy over Start Guy')).toBeInTheDocument();
+  expect(screen.getByTestId('start-sit-panel-content')).toHaveFocus();
+});
+
+test('the standing line is a labelled group and Withdraw names the shot (#1856)', () => {
+  render(
+    <StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: shot() }} entries={entries} bestBall={false} onWithdrawShot={() => {}} />
+  );
+  expect(screen.getByRole('group', { name: 'Your called shot' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Withdraw your called shot: Sit Guy over Start Guy' })).toBeInTheDocument();
+});

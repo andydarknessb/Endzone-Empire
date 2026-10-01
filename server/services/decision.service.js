@@ -34,6 +34,10 @@ const decisionCardContext = require('./decisionCardContext.service');
 // `fantasy_points` column, which is the DEFAULT-rules price.
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { countedRoster } = require('./countedRoster.service');
+// The called shot's rows and rules (#1856). This module reads shots to pin
+// their pairs; it never asks lineupOverride.service for advice (the router
+// hands the declare path an advice loader), so the two do not require each other.
+const lineupOverrideService = require('./lineupOverride.service');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -93,6 +97,8 @@ function finiteNumber(value) {
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
+ * options.calledShot (#1856): `{ starterId, benchedId }` of the team's open
+ * called shot, pinned as described above.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
  * opponentApplied, line, weather, weatherApplied, marketApplied } (#1853: the
  * game's Line and weather for the start/sit card's fact chips, each with the
@@ -106,8 +112,25 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const lineupRanking = (options && options.lineupRanking)
     || (projectionModel.MODEL_CONSTANTS.decision || {}).lineupRanking
     || 'median';
-  const entries = (lineupEntries || []).map((e) => ({ ...e, locked: Boolean(e.locked) }));
   const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
+  // An open called shot (#1856) is treated exactly as a locked pair: its starter
+  // keeps his slot and its benched player is never a candidate, so neither
+  // player reaches a suggestion or the movePlan. It holds only while the
+  // lineup still matches the shot (starter starting, benched player benched).
+  const heldByShot = new Set();
+  const shot = options && options.calledShot;
+  if (shot) {
+    const starterEntry = (lineupEntries || []).find((e) => e.playerId === shot.starterId);
+    const benchedEntry = (lineupEntries || []).find((e) => e.playerId === shot.benchedId);
+    if (starterEntry && benchedEntry && isStarter(starterEntry) && benchedEntry.slot === BENCH) {
+      heldByShot.add(shot.starterId);
+      heldByShot.add(shot.benchedId);
+    }
+  }
+  const entries = (lineupEntries || []).map((e) => ({
+    ...e,
+    locked: Boolean(e.locked) || heldByShot.has(e.playerId),
+  }));
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
@@ -346,7 +369,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
  * legacy `opponent` / `opponentPointsAllowed` display fields are still
  * populated from getPositionDefense so no client field changes type.
  */
-async function startSitAdvice({ leagueId, userId, week }) {
+async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
@@ -431,12 +454,32 @@ async function startSitAdvice({ leagueId, userId, week }) {
   // off the run's modelVersion, so a successor run ranks and displays the
   // same number and a v3.1 run keeps ranking on the median.
   const runConstants = projectionModel.constantsForVersion(run.modelVersion) || projectionModel.MODEL_CONSTANTS;
+  // The team's called shot for the week (#1856), read BEFORE the suggestions
+  // and the plan are built so the server pins its pair (the declare path asks
+  // for the advice with the shot ignored, so a pair can be re-called). A shot
+  // is a convenience on top of the advice: a failed read degrades to no shot
+  // and no pin, never to no advice.
+  let calledShot = null;
+  if (!ignoreCalledShot && lineup.teamId != null) {
+    try {
+      calledShot = await lineupOverrideService.loadCalledShot(pool, {
+        league, teamId: lineup.teamId, season: effectiveSeason, week: effectiveWeek,
+      });
+    } catch (err) {
+      console.error('start/sit advice: called shot lookup failed, continuing without it:', err.message);
+    }
+  }
   const plan = buildSuggestions(
     lineupEntries,
     run,
     defenseByPlayer,
     lineup.rosterSlots,
-    { lineupRanking: (runConstants.decision || {}).lineupRanking }
+    {
+      lineupRanking: (runConstants.decision || {}).lineupRanking,
+      calledShot: calledShot && calledShot.status !== 'resolved'
+        ? { starterId: calledShot.starter.playerId, benchedId: calledShot.benched.playerId }
+        : null,
+    }
   );
 
   const players = lineupEntries.map((entry) => {
@@ -479,6 +522,9 @@ async function startSitAdvice({ leagueId, userId, week }) {
     openSlotFills: plan.openSlotFills,
     movePlan: plan.movePlan,
     unavailable: plan.unavailable,
+    // The team's called shot for the week, or null (#1856): the pair, the
+    // numbers as called and a status of pending, locked or resolved.
+    calledShot,
     players,
   };
 }
