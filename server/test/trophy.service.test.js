@@ -37,6 +37,8 @@ function awardWorld({
   // #1861: the stored points-left rows (every week of the season, the advanced
   // week included) the season total and the season trophy read.
   pointsLeftRows = [],
+  // #1864: backfill dry-run probes and whether the points-left insert is new.
+  trophyExists = false, analyticsExists = false, analyticsInsertsNew = true,
 }) {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
@@ -71,10 +73,13 @@ function awardWorld({
     // week's high is updated in place, not re-inserted or deleted.
     // 'client'-scoped for the same reason the SELECT and DELETE above are.
     [/^UPDATE "trophies"/, () => ({ rows: [] }), 'client'],
+    // #1864: the backfill dry-run probes for an existing row instead of inserting.
+    [/^SELECT 1 FROM "trophies"/, () => ({ rows: trophyExists ? [{ '?column?': 1 }] : [] })],
+    [/^SELECT 1 FROM "league_analytics"/, () => ({ rows: analyticsExists ? [{ '?column?': 1 }] : [] })],
     [/^SELECT "week", "data" FROM "league_analytics"/, (text, params) => ({
       rows: pointsLeftRows.filter((r) => r.week <= params[3]),
     })],
-    [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
+    [/^INSERT INTO "league_analytics"/, () => ({ rows: analyticsInsertsNew ? [{ week: 1 }] : [] })],
     [/^SELECT .* FROM "lineup_overrides"/, () => ({ rows: overrides })],
     [/^UPDATE "lineup_overrides"/, (text, params) => ({ rows: shotStillPending ? [{ id: params[0] }] : [] })],
     [/^INSERT INTO "trophies"/, () => ({ rows: newInserts ? [{ id: 1 }] : [] })],
@@ -862,4 +867,60 @@ test('#1861: the season total is the sum of the stored rows, rounded to two plac
   const totals = await seasonPointsLeft(require('../modules/pool'), { leagueId: L, season: S, throughWeek: 14 });
 
   assert.deepEqual([...totals], [[10, 0.3], [20, 7]]);
+});
+
+// ---- #1864: the backfill drives the same lineup pass, weekly only ----------
+//
+// `awardLineupTrophies({ backfill })` is the one door the owner-run script uses
+// for a past week: the same Hindsight reads and the same writes as the Advance
+// week pass, minus the season trophy (a partial backfill would judge it on an
+// incomplete season), with a dry-run that writes nothing and reports each row
+// it would write through `onRow`.
+
+const PERFECT_AND_LOSS = {
+  10: { actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0, counted: startersFor() },
+  20: { actualPoints: 110, optimalPoints: 118.25, pointsLeftOnBench: 8.25, counted: [] },
+};
+
+async function backfillWeek(t, { backfill, seasonStatus = 'in_season', ...world }) {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, hindsight: PERFECT_AND_LOSS, seasonStatus,
+    pointsLeftRows: [weekRow(1, { 10: 0, 20: 1 })], ...world,
+  });
+  fake.install(t);
+  const rows = [];
+  const league = (await fake.query('SELECT * FROM "leagues" WHERE "id" = $1', [L])).rows[0];
+  const awarded = await trophySvc.awardLineupTrophies({
+    league, leagueId: L, season: S, week: W, backfill: { ...backfill, onRow: (r) => rows.push(r) },
+  });
+  return { fake, rows, awarded };
+}
+
+test('#1864: a backfill run writes Perfect Lineup and the points-left row through the Advance week writes, and reports each', async (t) => {
+  const { fake, rows, awarded } = await backfillWeek(t, { backfill: {} });
+  assert.equal(trophyInserts(fake, 'perfect_lineup').length, 1);
+  assert.deepEqual(awarded.map((a) => a.type), ['perfect_lineup']);
+  assert.equal(analyticsInserts(fake).length, 1);
+  assert.deepEqual(rows.map((r) => [r.table, r.type, r.week]), [
+    ['trophies', 'perfect_lineup', W],
+    ['league_analytics', 'points_left', W],
+  ]);
+});
+
+test('#1864: a backfill never awards the season trophy, even for a completed league', async (t) => {
+  const { fake } = await backfillWeek(t, { backfill: {}, seasonStatus: 'complete' });
+  assert.equal(trophyInserts(fake, 'fewest_left_on_bench').length, 0);
+});
+
+test('#1864: a dry run writes nothing and reports the rows it would write', async (t) => {
+  const { fake, rows } = await backfillWeek(t, { backfill: { dryRun: true } });
+  assert.equal(fake.matching(/^INSERT INTO/).length, 0);
+  assert.deepEqual(rows.map((r) => [r.table, r.type]), [['trophies', 'perfect_lineup'], ['league_analytics', 'points_left']]);
+});
+
+test('#1864: a dry run reports no row that already exists, and a real re-run writes nothing new', async (t) => {
+  const dry = await backfillWeek(t, { backfill: { dryRun: true }, trophyExists: true, analyticsExists: true });
+  assert.deepEqual(dry.rows, []);
+  const real = await backfillWeek(t, { backfill: {}, newInserts: false, analyticsInsertsNew: false });
+  assert.deepEqual(real.rows, []);
 });
