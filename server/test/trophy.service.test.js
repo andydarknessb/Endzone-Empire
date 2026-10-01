@@ -71,7 +71,9 @@ function awardWorld({
     // week's high is updated in place, not re-inserted or deleted.
     // 'client'-scoped for the same reason the SELECT and DELETE above are.
     [/^UPDATE "trophies"/, () => ({ rows: [] }), 'client'],
-    [/^SELECT "week", "data" FROM "league_analytics"/, () => ({ rows: pointsLeftRows })],
+    [/^SELECT "week", "data" FROM "league_analytics"/, (text, params) => ({
+      rows: pointsLeftRows.filter((r) => r.week <= params[3]),
+    })],
     [/^INSERT INTO "league_analytics"/, () => ({ rows: [] })],
     [/^SELECT .* FROM "lineup_overrides"/, () => ({ rows: overrides })],
     [/^UPDATE "lineup_overrides"/, (text, params) => ({ rows: shotStillPending ? [{ id: params[0] }] : [] })],
@@ -746,7 +748,7 @@ test('#1861: best ball writes no points-left row', async (t) => {
   assert.equal(analyticsInserts(fake).length, 0);
 });
 
-test('#1861: a team whose Hindsight cannot be read leaves no row, so the next pass can write the whole week', async (t) => {
+test('#1861: a team whose Hindsight cannot be read leaves no row, rather than a partial one frozen for good', async (t) => {
   const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110 });
   fake.install(t);
   t.mock.method(decisionSvc, 'weekHindsightRoster', async ({ teamId }) => {
@@ -758,6 +760,41 @@ test('#1861: a team whose Hindsight cannot be read leaves no row, so the next pa
   await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
 
   assert.equal(analyticsInserts(fake).length, 0);
+});
+
+test('#1861: the season trophy counts the regular season only: a playoff row holds just the teams still alive', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [
+      weekRow(13, { 10: 10, 20: 12, 30: 11 }),
+      // Playoff weeks (league has 14 regular-season weeks): only 10 and 20 play.
+      weekRow(15, { 10: 30, 20: 30 }),
+      weekRow(16, { 10: 30, 20: 30 }),
+    ],
+  });
+  fake.install(t);
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: 16 });
+
+  const season = trophyInserts(fake, 'fewest_left_on_bench');
+  assert.equal(season.length, 1);
+  assert.equal(season[0].params[1], 10, 'team 30 played no playoff week and is not rewarded for it');
+  assert.equal(season[0].params[5], 'Fewest Left on the Bench (10.0)');
+});
+
+test('#1861: the season trophy is awarded even when the final week\'s Hindsight could not be read', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, seasonStatus: 'complete',
+    pointsLeftRows: [weekRow(13, { 10: 10, 20: 12 })],
+  });
+  fake.install(t);
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('hindsight down'); });
+  t.mock.method(console, 'error', () => {});
+
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: 16 });
+
+  assert.equal(analyticsInserts(fake).length, 0, 'no partial row for the unread week');
+  assert.equal(trophyInserts(fake, 'fewest_left_on_bench')[0].params[1], 10);
 });
 
 test('#1861: a league that is still in season awards no points-left trophy', async (t) => {
@@ -817,7 +854,7 @@ test('#1861: the season total is the sum of the stored rows, rounded to two plac
   });
   fake.install(t);
 
-  const totals = await seasonPointsLeft(require('../modules/pool'), { leagueId: L, season: S });
+  const totals = await seasonPointsLeft(require('../modules/pool'), { leagueId: L, season: S, throughWeek: 14 });
 
   assert.deepEqual([...totals], [[10, 0.3], [20, 7]]);
 });

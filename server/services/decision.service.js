@@ -490,7 +490,9 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let pointsLeft = null;
   if (lineup.teamId != null) {
     try {
-      pointsLeft = await pointsLeftStanding(pool, { leagueId, season: effectiveSeason, teamId: lineup.teamId });
+      pointsLeft = await pointsLeftStanding(pool, {
+        leagueId, season: effectiveSeason, teamId: lineup.teamId, throughWeek: league.regular_season_weeks,
+      });
     } catch (err) {
       console.error('start/sit advice: points left lookup failed, continuing without it:', err.message);
     }
@@ -676,13 +678,15 @@ const POINTS_LEFT_TYPE = 'points_left';
  * per-week rows (`{ teams: [{ teamId, pointsLeft }] }`), never recomputed from
  * Hindsight: a stored number is judged once and a correction never revisits it.
  * Returns Map(teamId -> total, two places); empty when no week has a row (best
- * ball and pick'em-only leagues never write one).
+ * ball and pick'em-only leagues never write one). Only weeks through
+ * `throughWeek` count: the regular season, the weeks every team plays (a
+ * playoff row holds only the teams still alive).
  */
-async function seasonPointsLeft(db, { leagueId, season }) {
+async function seasonPointsLeft(db, { leagueId, season, throughWeek }) {
   const { rows } = await db.query(
     `SELECT "week", "data" FROM "league_analytics"
-     WHERE "league_id" = $1 AND "season" = $2 AND "type" = $3`,
-    [leagueId, season, POINTS_LEFT_TYPE]
+     WHERE "league_id" = $1 AND "season" = $2 AND "type" = $3 AND "week" <= $4`,
+    [leagueId, season, POINTS_LEFT_TYPE, throughWeek]
   );
   const totals = new Map();
   for (const { data } of rows) {
@@ -698,8 +702,8 @@ async function seasonPointsLeft(db, { leagueId, season }) {
  * first (a tie shares the better rank): `{ total, rank, teams }`, or null when
  * the team has no stored week (nothing is stored in best ball or pick'em-only).
  */
-async function pointsLeftStanding(db, { leagueId, season, teamId }) {
-  const totals = await seasonPointsLeft(db, { leagueId, season });
+async function pointsLeftStanding(db, { leagueId, season, teamId, throughWeek }) {
+  const totals = await seasonPointsLeft(db, { leagueId, season, throughWeek });
   const total = totals.get(Number(teamId));
   if (total === undefined) return null;
   return { total, rank: 1 + [...totals.values()].filter((v) => v < total).length, teams: totals.size };

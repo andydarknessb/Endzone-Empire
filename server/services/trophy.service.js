@@ -385,8 +385,8 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
 
     // Points left (#1861, ADR 0054): every team's Hindsight gap for the week,
     // stored once and never revisited (DO NOTHING; a correction runs only the
-    // high-score reconcile). Written only when every team read, so a replay can
-    // still store the whole week; a partial row would freeze a missing team.
+    // high-score reconcile). Written only when every team read: a partial row
+    // would freeze a missing team's number for good.
     if (weekRead && pointsLeft.length > 0) {
       await pool.query(
         `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
@@ -395,11 +395,17 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
          DO NOTHING`,
         [leagueId, season, week, POINTS_LEFT_TYPE, JSON.stringify({ teams: pointsLeft })]
       );
-      if (deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE) {
-        // Fewest over the settled weeks; a tie goes to the lowest team id, the
-        // weekly high score's own tiebreak.
-        const [teamId, total] = [...(await seasonPointsLeft(pool, { leagueId, season }))]
-          .sort((a, b) => a[1] - b[1] || a[0] - b[0])[0];
+    }
+    if (deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE) {
+      // Fewest over the regular season, the weeks every team plays (a playoff
+      // row holds only the teams still alive, so summing it would reward a team
+      // for being eliminated). Independent of this week's own row: a week that
+      // could not be read drops out for every team alike. A tie goes to the
+      // lowest team id, the weekly high score's own tiebreak.
+      const totals = await seasonPointsLeft(pool, { leagueId, season, throughWeek: league.regular_season_weeks });
+      const [best] = [...totals].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+      if (best) {
+        const [teamId, total] = best;
         const label = `Fewest Left on the Bench (${total.toFixed(1)})`;
         if (await award(pool, { leagueId, teamId, season, week: 0, type: 'fewest_left_on_bench', label, data: { pointsLeft: total } })) {
           awarded.push({ type: 'fewest_left_on_bench', teamId, label });
