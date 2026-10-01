@@ -34,12 +34,12 @@ function withUserAgent(t) {
   });
 }
 
-function mockNws(t, { fail = false } = {}) {
+function mockNws(t, { fail = false, failUrl = null } = {}) {
   const calls = [];
   const transport = {
     async get(url) {
       calls.push(url);
-      if (fail) throw new Error('timeout of 3500ms exceeded');
+      if (fail || (failUrl && url.includes(failUrl))) throw new Error('timeout of 3500ms exceeded');
       if (url.includes('/points/')) {
         return { data: { properties: { forecastHourly: 'https://api.weather.gov/gridpoints/BUF/40,60/forecast/hourly' } } };
       }
@@ -207,17 +207,23 @@ test('weather-snapshots keeps an unconfigured NWS_USER_AGENT an ok run and says 
   assert.deepEqual(nwsCalls, []);
   assert.equal(world.syncRuns.length, 1);
   assert.equal(world.syncRuns[0].ok, true);
-  assert.match(world.syncRuns[0].detail.reason, /NWS_USER_AGENT/);
+  assert.equal(world.syncRuns[0].detail.reason, 'NWS_USER_AGENT not configured');
 });
 
-test('weather-snapshots stays an ok run when at least one forecast was fetched and saved', async (t) => {
+test('weather-snapshots stays an ok run when one forecast was fetched and saved and another lookup failed', async (t) => {
   withUserAgent(t);
-  mockNws(t);
+  // Soldier Field (41.8623,-87.6167) fails; Highmark Stadium answers.
+  mockNws(t, { failUrl: '41.8623' });
   stubGate(t);
-  const world = weatherWorld(t);
+  const other = { ...GAME_ROW, game_key: '2026_06_MIN_CHI', venue: 'Soldier Field' };
+  const world = weatherWorld(t, { games: [GAME_ROW, other] });
+  t.mock.method(console, 'error', () => {});
 
   const result = await scheduler.runWeatherSnapshotSync({ now: T0 });
+  assert.equal(result.requests, 2);
   assert.equal(result.fetched, 1);
+  assert.equal(result.saved, 1);
+  assert.equal(world.writes.length, 1);
   assert.equal(world.syncRuns[0].ok, true);
 });
 
@@ -293,9 +299,12 @@ test('weather-snapshots gate: an ok row holds it for 6 hours, a failed row leave
   assert.equal(world.syncRuns.length, 1);
   assert.equal(world.syncRuns[0].ok, true);
   const quiet = nwsCalls.length;
+  const gamesReads = () => world.fake.calls.filter((c) => /FROM "nfl_games"/.test(c.text)).length;
+  const readsBefore = gamesReads();
   clock = new Date(clock.getTime() + 1 * HOUR);
   assert.equal(await scheduler.runWeatherSnapshotSync({ now: clock }), null);
   assert.equal(nwsCalls.length, quiet);
+  assert.equal(gamesReads(), readsBefore, 'no nfl_games read inside the 6 hours');
   assert.equal(world.syncRuns.length, 1, 'held by the empty-window ok row');
 });
 
