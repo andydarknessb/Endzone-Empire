@@ -2,7 +2,7 @@ import { useState } from 'react';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
-import { clearWeekMatchupsCache } from '../../../entities/matchup';
+import { clearWeekMatchupsCache } from '../../../entities/matchup/model/weekMatchupsCache';
 
 /**
  * drop-player feature (#1237, ADR 0019): drop with a confirmation dialog and

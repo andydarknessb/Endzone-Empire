@@ -3,7 +3,7 @@ import useResilientLineupMutation from '../../../hooks/useResilientLineupMutatio
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { locked, slotsFor, parseRosterTemplate } from '../../../entities/roster';
-import { clearWeekMatchupsCache } from '../../../entities/matchup';
+import { clearWeekMatchupsCache } from '../../../entities/matchup/model/weekMatchupsCache';
 
 /**
  * Whether `entry` may occupy `slotKey` (#1500): delegates to the Roster

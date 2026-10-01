@@ -1,7 +1,7 @@
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { clearWeekMatchupsCache } from '../../../entities/matchup';
+import { clearWeekMatchupsCache } from '../../../entities/matchup/model/weekMatchupsCache';
 
 /**
  * apply-advice feature (#1238, ADR 0037 AC2): applies the Start/sit advice's
