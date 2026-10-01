@@ -34,12 +34,12 @@ function withUserAgent(t) {
   });
 }
 
-function mockNws(t, { fail = false } = {}) {
+function mockNws(t, { fail = false, failUrl = null } = {}) {
   const calls = [];
   const transport = {
     async get(url) {
       calls.push(url);
-      if (fail) throw new Error('timeout of 3500ms exceeded');
+      if (fail || (failUrl && url.includes(failUrl))) throw new Error('timeout of 3500ms exceeded');
       if (url.includes('/points/')) {
         return { data: { properties: { forecastHourly: 'https://api.weather.gov/gridpoints/BUF/40,60/forecast/hourly' } } };
       }
@@ -162,18 +162,150 @@ test('weather-snapshots waits out an open game window so it never holds live sco
   assert.equal(world.syncRuns.length, 0, 'no row, so the gate is still due on the next tick');
 });
 
-test('weather-snapshots never throws into the tick: an NWS failure is recorded as a normal run with no snapshot', async (t) => {
+test('weather-snapshots never throws into the tick: an NWS outage records a failed run so the next tick retries', async (t) => {
   withUserAgent(t);
   mockNws(t, { fail: true });
   stubGate(t);
   const world = weatherWorld(t);
   t.mock.method(console, 'error', () => {});
 
-  const result = await scheduler.runWeatherSnapshotSync({ now: T0 });
-  assert.ok(result, 'resolves');
+  assert.equal(await scheduler.runWeatherSnapshotSync({ now: T0 }), null, 'resolves, never throws');
   assert.equal(world.writes.length, 0);
   assert.equal(world.syncRuns.length, 1);
   assert.equal(world.syncRuns[0].job, 'weather-snapshots');
+  assert.equal(world.syncRuns[0].ok, false);
+});
+
+test('weather-snapshots fails the run when forecasts were fetched and none was saved', async (t) => {
+  withUserAgent(t);
+  mockNws(t);
+  stubGate(t);
+  const world = weatherWorld(t);
+  const original = require('../modules/pool').query;
+  t.mock.method(require('../modules/pool'), 'query', async (sql, params) => {
+    if (/^INSERT INTO "game_weather_snapshots"/.test(String(sql).replace(/\s+/g, ' ').trim())) throw new Error('disk full');
+    return original(sql, params);
+  });
+  t.mock.method(console, 'error', () => {});
+
+  assert.equal(await scheduler.runWeatherSnapshotSync({ now: T0 }), null);
+  assert.equal(world.writes.length, 0);
+  assert.equal(world.syncRuns.length, 1);
+  assert.equal(world.syncRuns[0].ok, false);
+});
+
+test('weather-snapshots keeps an unconfigured NWS_USER_AGENT an ok run and says why nothing was fetched', async (t) => {
+  const previous = process.env.NWS_USER_AGENT;
+  delete process.env.NWS_USER_AGENT;
+  t.after(() => { if (previous !== undefined) process.env.NWS_USER_AGENT = previous; });
+  const nwsCalls = mockNws(t);
+  stubGate(t);
+  const world = weatherWorld(t);
+
+  const result = await scheduler.runWeatherSnapshotSync({ now: T0 });
+  assert.ok(result);
+  assert.deepEqual(nwsCalls, []);
+  assert.equal(world.syncRuns.length, 1);
+  assert.equal(world.syncRuns[0].ok, true);
+  assert.equal(world.syncRuns[0].detail.reason, 'NWS_USER_AGENT not configured');
+});
+
+test('weather-snapshots stays an ok run when one forecast was fetched and saved and another lookup failed', async (t) => {
+  withUserAgent(t);
+  // Soldier Field (41.8623,-87.6167) fails; Highmark Stadium answers.
+  mockNws(t, { failUrl: '41.8623' });
+  stubGate(t);
+  const other = { ...GAME_ROW, game_key: '2026_06_MIN_CHI', venue: 'Soldier Field' };
+  const world = weatherWorld(t, { games: [GAME_ROW, other] });
+  t.mock.method(console, 'error', () => {});
+
+  const result = await scheduler.runWeatherSnapshotSync({ now: T0 });
+  assert.equal(result.requests, 2);
+  assert.equal(result.fetched, 1);
+  assert.equal(result.saved, 1);
+  assert.equal(world.writes.length, 1);
+  assert.equal(world.syncRuns[0].ok, true);
+});
+
+test('tickUnlocked registers the weather snapshots duty', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+
+  assert.match(tickBody, /await runWeatherSnapshotSync\(\);/);
+});
+
+test('weather-snapshots gate: an ok row holds it for 6 hours, a failed row leaves it due, an empty window still holds it', async (t) => {
+  withUserAgent(t);
+  const nwsCalls = mockNws(t);
+  const games = [GAME_ROW];
+  const world = weatherWorld(t, { games });
+  // The real gate (cadence.due is NOT stubbed) reads data_sync_runs through
+  // syncRun.lastRun; answer it from the rows the job itself recorded.
+  let clock = T0;
+  const pool = require('../modules/pool');
+  const original = pool.query;
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql).replace(/\s+/g, ' ').trim();
+    if (/^SELECT \(SELECT row_to_json\(r\).*FROM "data_sync_runs"/.test(text)) {
+      const mine = world.syncRuns.filter((r) => r.job === params[0]);
+      const toJson = (r) => ({ id: r.id, finished_at: r.finishedAt, ok: r.ok, detail: r.detail });
+      const latest = mine[mine.length - 1];
+      const latestOk = [...mine].reverse().find((r) => r.ok);
+      return { rows: [{ latest: latest ? toJson(latest) : null, latestOk: latestOk ? toJson(latestOk) : null }] };
+    }
+    const res = await original(sql, params);
+    if (/^INSERT INTO "data_sync_runs"/.test(text)) {
+      const row = world.syncRuns[world.syncRuns.length - 1];
+      row.id = world.syncRuns.length;
+      row.finishedAt = clock;
+    }
+    return res;
+  });
+  t.mock.method(console, 'error', () => {});
+
+  // 1. First run: never run, due. It fetches and records an ok row.
+  await scheduler.runWeatherSnapshotSync({ now: clock });
+  assert.equal(world.syncRuns.length, 1);
+  assert.equal(world.syncRuns[0].ok, true);
+  const callsAfterFirst = nwsCalls.length;
+  assert.ok(callsAfterFirst > 0);
+
+  // 2. Inside 6 hours of the ok row: not due, no NWS request, no new row.
+  clock = new Date(T0.getTime() + 5 * HOUR);
+  assert.equal(await scheduler.runWeatherSnapshotSync({ now: clock }), null);
+  assert.equal(nwsCalls.length, callsAfterFirst);
+  assert.equal(world.syncRuns.length, 1);
+
+  // 3. A failed row never moves the gate: the next call is still due.
+  world.syncRuns.length = 0;
+  world.snapshots.clear();
+  world.syncRuns.push({ job: 'weather-snapshots', ok: false, detail: null, id: 1, finishedAt: T0 });
+  clock = new Date(T0.getTime() + 1 * HOUR);
+  const before = nwsCalls.length;
+  await scheduler.runWeatherSnapshotSync({ now: clock });
+  assert.ok(nwsCalls.length > before, 'a failed row leaves the next call due');
+  assert.equal(world.syncRuns[world.syncRuns.length - 1].ok, true);
+
+  // 4. A run with no games in the window records an ok row that holds the gate.
+  games.length = 0;
+  world.syncRuns.length = 0;
+  clock = new Date(T0.getTime() + 20 * HOUR);
+  await scheduler.runWeatherSnapshotSync({ now: clock });
+  assert.equal(world.syncRuns.length, 1);
+  assert.equal(world.syncRuns[0].ok, true);
+  const quiet = nwsCalls.length;
+  const gamesReads = () => world.fake.calls.filter((c) => /FROM "nfl_games"/.test(c.text)).length;
+  const readsBefore = gamesReads();
+  clock = new Date(clock.getTime() + 1 * HOUR);
+  assert.equal(await scheduler.runWeatherSnapshotSync({ now: clock }), null);
+  assert.equal(nwsCalls.length, quiet);
+  assert.equal(gamesReads(), readsBefore, 'no nfl_games read inside the 6 hours');
+  assert.equal(world.syncRuns.length, 1, 'held by the empty-window ok row');
 });
 
 test('weather-snapshots swallows a failed games read and records the failed run', async (t) => {

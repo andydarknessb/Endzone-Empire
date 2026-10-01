@@ -657,14 +657,23 @@ const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * its whole duration. Waiting costs nothing: no row is written, so the gate is
  * still due on the first tick after the window closes. It never throws: a
  * failed run is already recorded by `runSyncJob` and is retried next tick (a
- * failed row never moves the gate), and `getForecastsForGames` itself fails
- * open per game, so one dead NWS lookup does not fail the run.
+ * failed row never moves the gate). `getForecastsForGames` fails open per
+ * game, so one dead NWS lookup does not fail the run on its own; `apply`
+ * fails the unit when it asked NWS and got nothing (`requests > 0` and
+ * `fetched === 0`) or fetched forecasts and saved none, so an outage records
+ * ok: false and retries on the next tick instead of holding the gate for 6
+ * hours. A partial result stays an ok run, and an unset `NWS_USER_AGENT` stays
+ * an ok run whose row carries the `reason`.
  *
  * `apply` deliberately does not pass its transactional `client` into
  * `getForecastsForGames` (same reason as `runNightlyProjectionFill`): the
  * weather lookup and its snapshot write log-and-continue on a failed query,
- * which only holds in autocommit, and the NWS HTTP fetches stay off a
- * transaction (ADR 0036).
+ * which only holds in autocommit. It does NOT keep the NWS HTTP fetches off a
+ * transaction: `runSyncJob` runs `apply` inside its per-unit transaction, so
+ * the client is simply unused while that transaction stays open across the
+ * week's sequential NWS requests. That departs from ADR 0036 ("a feed call
+ * never runs inside a transaction"); running a unit with no transaction is a
+ * change to `runSyncJob` and the ADR, not made here.
  */
 async function runWeatherSnapshotSync({ now = new Date() } = {}) {
   try {
@@ -697,12 +706,31 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
       },
       apply: async (_client, { season, week, games }) => {
         const { coverage } = await getForecastsForGames({ season, week, games, now });
+        const requests = coverage.requests || 0;
+        const fetched = coverage.fetched || 0;
+        const saved = coverage.saved || 0;
+        // A unit that asked NWS and got nothing, or got forecasts and saved
+        // none, did not do its job: throw so `runSyncJob` records ok: false,
+        // the gate stays due and the next tick retries (a game already saved
+        // in the bucket is read from the cache, so only the missing games are
+        // asked again). A partial result (one forecast fetched and saved)
+        // stays an ok run.
+        if (requests > 0 && fetched === 0) {
+          throw new Error(`NWS answered none of ${requests} forecast request(s) for ${season} week ${week}`);
+        }
+        if (fetched > 0 && saved === 0) {
+          throw new Error(`fetched ${fetched} NWS forecast(s) for ${season} week ${week} and saved none`);
+        }
         return {
           season,
           week,
           games: games.length,
-          requests: coverage.requests || 0,
-          fetched: coverage.fetched || 0,
+          requests,
+          fetched,
+          saved,
+          // An unset NWS_USER_AGENT is an unconfigured optional integration,
+          // an ok run: the row says why nothing was fetched.
+          ...(coverage.reason ? { reason: coverage.reason } : {}),
         };
       },
     });
@@ -1047,9 +1075,13 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * against the pool instead, autocommitting per statement exactly as it does
  * on the live request path and as it did before this file routed through
  * `runSyncJob`; each week's cache row is already an idempotent upsert, so
- * nothing here needs the unit's transaction anyway. The weather provider's
- * own HTTP fetches also stay off that transaction this way, matching ADR
- * 0036's "fetch outside any transaction" for the same reason.
+ * nothing here needs the unit's transaction anyway. That does NOT keep the
+ * weather provider's HTTP fetches off a transaction: `runSyncJob` runs
+ * `apply` inside its per-unit transaction, so the client is unused while the
+ * transaction stays open across those fetches, which departs from ADR 0036's
+ * "a feed call never runs inside a transaction" (as does
+ * `runWeatherSnapshotSync`; running a unit with no transaction is its own
+ * change to `runSyncJob` and the ADR).
  *
  * Runs at most once per UTC calendar day inside
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
