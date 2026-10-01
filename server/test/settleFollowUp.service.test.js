@@ -202,7 +202,12 @@ test('#1860 advance twice: the second run judges nothing again and the trophy st
 });
 
 test('#1860 correction: outcomes, trophies and the shot\'s Recap facts are left as judged', async (t) => {
-  const shots = [shotRow({ id: 1, week: 5, outcome: 'hit', starter_points_actual: 11.4, benched_points_actual: 6.2 })];
+  // One frozen hit, and one row still pending (as if the judge had been skipped): a
+  // correction must neither judge the pending row nor touch the hit.
+  const shots = [
+    shotRow({ id: 1, week: 5, outcome: 'hit', starter_points_actual: 11.4, benched_points_actual: 6.2 }),
+    shotRow({ id: 2, week: 5, team_id: 20, team_name: 'Team B' }),
+  ];
   const { fake, stored } = shotWorld(t, shots);
   // A correction moved the live stat lines: nothing may be re-read from them.
   decisionSvc.weekHindsightRoster.mock.mockImplementation(async () => { throw new Error('a correction must not re-judge'); });
@@ -211,6 +216,6 @@ test('#1860 correction: outcomes, trophies and the shot\'s Recap facts are left 
 
   assert.equal(fake.matching(/^UPDATE "lineup_overrides"/).length, 0);
   assert.equal(calledTrophies(fake).length, 0);
-  assert.equal(shots[0].outcome, 'hit');
+  assert.deepEqual(shots.map((x) => x.outcome), ['hit', 'pending']);
   assert.equal(stored[0].facts.calledShots[0].starterPoints, 11.4, 'the rebuilt Recap reads the frozen numbers');
 });

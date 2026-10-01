@@ -33,12 +33,12 @@ function awardWorld({
   bestBall = false, hindsight = {}, newInserts = true, calls: hindsightCalls = [], rosterSlots,
   // #1860: the pending lineup_overrides rows the judge reads, and whether its
   // UPDATE still finds each one pending (false = someone resolved it first).
-  overrides = [], shotStillPending = true,
+  overrides = [], shotStillPending = true, seasonStatus = 'in_season',
 }) {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
       rows: [{
-        id: leagueId, draft_status: 'complete', season_status: 'in_season', regular_season_weeks: 14,
+        id: leagueId, draft_status: 'complete', season_status: seasonStatus, regular_season_weeks: 14,
         best_ball: bestBall,
         ...(rosterSlots ? { roster_slots: rosterSlots } : {}),
       }],
@@ -49,6 +49,11 @@ function awardWorld({
     // shape). Scoping the matcher this way means a pool-side lock throws
     // "unexpected query" instead of silently satisfying the assertions below.
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [] }), 'client'],
+    // The season-level set (a complete league) reads these; empty is enough here.
+    [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2$/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "id", "name" FROM "teams"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "champion_team_id" FROM "league_history"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT "data" FROM "league_analytics"/, () => ({ rows: [] }), 'client'],
     [/^SELECT \* FROM "matchups" WHERE "league_id" = \$1 AND "season" = \$2 AND "week" = \$3 AND "final" = true/, () => ({
       rows: [{ id: 1, home_team_id: homeTeamId, away_team_id: awayTeamId, home_score: homeScore, away_score: awayScore }],
     })],
@@ -571,8 +576,6 @@ for (const [name, roster] of [
   ['the benched player was started', shotRoster({ benched: { slot: 'FLEX' } })],
   ['the starter is not in the lineup as played', shotRoster({ omit: [7] })],
   ['the benched player is not on the bench (not held, or on IR)', shotRoster({ omit: [21] })],
-  ['the starter made no Appearance', shotRoster({ starter: { appeared: false } })],
-  ['the benched player made no Appearance', shotRoster({ benched: { appeared: false } })],
 ]) {
   test(`#1860: void when ${name}; a void writes no trophy`, async (t) => {
     const { fake } = await judge(t, { roster });
@@ -643,4 +646,54 @@ test('#1860: a stat correction never judges, rejudges or revokes a called shot',
   await trophySvc.reconcileWeeklyHighScoreTrophy({ leagueId: L, season: S, week: W });
   assert.equal(fake.matching(/"lineup_overrides"/).length, 0, 'the reconcile never touches called shots');
   assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+// ---- #1860 (D): a no-Appearance row is deferred once, at its own week's Advance
+//
+// Week N's snap counts, the only participation data for a zero-line player,
+// arrive only after week N is advanced. So at week N's Advance a week-N row whose
+// starter or benched player shows no Appearance stays pending (no outcome, no
+// points, no trophy); the catch-up judges it at the next Advance, where no
+// Appearance is void. When the Advance completes the season nothing is deferred.
+
+for (const [who, patch] of [['starter', { starter: { appeared: false } }], ['benched player', { benched: { appeared: false } }]]) {
+  test(`#1860 (D): at its own week's Advance a row whose ${who} shows no Appearance stays pending: no UPDATE, no trophy`, async (t) => {
+    const { fake, awarded } = await judge(t, { roster: shotRoster(patch) });
+    assert.equal(shotUpdates(fake).length, 0);
+    assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+    assert.equal(awarded.some((a) => a.type === 'called_shot'), false);
+  });
+}
+
+test('#1860 (D): the next Advance voids the row when the line is still all zero', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W })],
+    hindsight: { 10: shotRoster({ starter: { appeared: false, points: 0 } }) },
+  });
+  fake.install(t);
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W + 1 });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'void', starter: 0, benched: 6.2 }]);
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860 (D): the next Advance judges the deferred row by its points once the snap counts are in: a miss when the benched player outscored him', async (t) => {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W })],
+    hindsight: { 10: shotRoster({ starter: { appeared: true, points: 0 }, benched: { points: 14 } }) },
+  });
+  fake.install(t);
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W + 1 });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'miss', starter: 0, benched: 14 }]);
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860 (D): the Advance that completes the season defers nothing: the no-Appearance row is void at once', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { appeared: false } }), seasonStatus: 'complete' });
+  assert.equal(judged(fake).length, 1);
+  assert.equal(judged(fake)[0].outcome, 'void');
+});
+
+test('#1860 (D): a lineup void is written at once even when a player also shows no Appearance', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { slot: 'BENCH', appeared: false } }) });
+  assert.equal(judged(fake)[0].outcome, 'void');
 });

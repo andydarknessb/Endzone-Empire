@@ -604,14 +604,16 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
 
 /**
  * weekHindsight's one read, plus the counted roster it priced: every
- * held-as-played, non-IR row as `{ playerId, position, slot, points, name }`,
+ * held-as-played, non-IR row as `{ playerId, position, slot, points, name, appeared }`,
  * BENCH rows included. The Captain Hindsight trophy (#1854) prices single
  * bench-for-starter moves over exactly this population and pricer, so it reads
  * the rows here rather than re-deriving them. `weekHindsight` returns the same
  * object minus `counted`, so its wire shape is unchanged.
+ *
+ * Each counted row also carries `appeared` (#1860): whether his stat line
+ * records an Appearance (`madeAppearance`), which the Called shot judge reads.
  */
 async function weekHindsightRoster({ leagueId, teamId, season, week }) {
-  // (#1860: each counted row also carries `appeared`, see madeAppearance.)
   const league = await assertLeagueAndTeam({ leagueId, teamId });
   if (!(await isWeekFinal({ leagueId, season, week }))) {
     throw new DecisionError(409, `week ${week} is not final yet`);

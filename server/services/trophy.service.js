@@ -40,6 +40,10 @@ function comebackTeam(standingsAtMidpoint, qualifierIds) {
   return worst && worst.winPct < 0.5 ? worst : null;
 }
 
+// A Called shot made against a start/sit probability at or above this is bold
+// (ADR 0054); the Recap reads the same line.
+const CALLED_SHOT_BOLD_PROBABILITY = 0.8;
+
 /** Insert one trophy; returns true when newly awarded (false = already existed). */
 async function award(client, { leagueId, teamId, season, week, type, label, data }) {
   const result = await client.query(
@@ -253,7 +257,9 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
 
   // Called shots (#1860, ADR 0054): judged here, once, before the Recap that
   // narrates them. Same post-commit footing as the lineup trophies.
-  awarded.push(...(await judgeCalledShots({ leagueId, season, week })));
+  awarded.push(...(await judgeCalledShots({
+    leagueId, season, week, seasonComplete: deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE,
+  })));
 
   await notifyAwardedOwners({ leagueId, awarded });
   return awarded;
@@ -388,7 +394,7 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
  * Rules, in order, read from Hindsight's counted roster for the shot's week (the
  * lineup as played, each player's Appearance, and his league-priced points):
  *   void - the starter is not in a starting slot, or the benched player is not
- *          on the bench, or either made no Appearance;
+ *          on the bench, or either made no Appearance (but see below);
  *   hit  - the starter strictly outscored the benched player (rounded to the
  *          stored two places);
  *   miss - otherwise (a tie is a miss).
@@ -397,10 +403,18 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
  * `called_shot` trophy; an Override settles with no trophy. A week Hindsight
  * cannot read (not final) leaves its rows pending for the next Advance week.
  *
+ * Deferral (second Ruling of 2026-10-01): week N's snap counts, the only
+ * participation data for a player with an all-zero stat line, are fetched only
+ * after week N is advanced. So at week N's own Advance a row of week N with a
+ * no-Appearance player is left pending (a lineup void is still written at once),
+ * and the catch-up judges it at the next Advance, where no Appearance is void:
+ * deferred at most once. The Advance that completes the season defers nothing,
+ * since no later Advance exists.
+ *
  * Returns `[{ type, teamId, label }]` newly awarded. Never throws: a failure is
  * logged and the row stays pending.
  */
-async function judgeCalledShots({ leagueId, season, week }) {
+async function judgeCalledShots({ leagueId, season, week, seasonComplete = false }) {
   const awarded = [];
   try {
     const { weekHindsightRoster } = require('./decision.service');
@@ -426,7 +440,10 @@ async function judgeCalledShots({ leagueId, season, week }) {
 
         let outcome;
         if (!starter || !benched || starter.slot === 'BENCH' || benched.slot !== 'BENCH') outcome = 'void';
-        else if (!starter.appeared || !benched.appeared) outcome = 'void';
+        else if (!starter.appeared || !benched.appeared) {
+          if (shot.week === week && !seasonComplete) continue;
+          outcome = 'void';
+        }
         else outcome = starterPoints > benchedPoints ? 'hit' : 'miss';
 
         // The outcome and its trophy commit together: a hit that resolved but
@@ -447,7 +464,7 @@ async function judgeCalledShots({ leagueId, season, week }) {
             const data = {
               starterPlayerId: starter.playerId, starter: starter.name, starterPoints,
               benchedPlayerId: benched.playerId, benched: benched.name, benchedPoints,
-              probability, bold: probability >= 0.8,
+              probability, bold: probability >= CALLED_SHOT_BOLD_PROBABILITY,
             };
             const written = await award(client, { leagueId, teamId: shot.team_id, season, week: shot.week, type: 'called_shot', label, data });
             return written ? { type: 'called_shot', teamId: shot.team_id, label } : null;
@@ -753,6 +770,7 @@ module.exports = {
   longestWinStreak,
   comebackTeam,
   bestCaptainMove,
+  CALLED_SHOT_BOLD_PROBABILITY,
   awardWeeklyTrophies,
   reconcileWeeklyHighScoreTrophy,
   awardPickemChampions,

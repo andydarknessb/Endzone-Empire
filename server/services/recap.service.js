@@ -5,6 +5,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 // league's rules, the identical formula the score of record uses, not the
 // stored default-rules `fantasy_points` column (#739, ADR 0024).
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
+const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
 
 /**
  * Weekly league recaps: after a week is finalized, gather its storylines
@@ -110,7 +111,7 @@ function lineupTrophyFacts(rows) {
  * Pure: the Recap's Called shot facts (#1860), read from the week's resolved
  * `lineup_overrides` rows and never recomputed: the judge at Advance week is the
  * one place a shot is decided. A void is a non-event and adds nothing. A week
- * with no hit or miss adds no key. Bold is a call made at probability >= 0.8.
+ * with no hit or miss adds no key. Bold is a call made at or above the trophy's bold probability.
  */
 function calledShotFacts(rows) {
   const calledShots = (rows || [])
@@ -122,7 +123,7 @@ function calledShotFacts(rows) {
       starterPoints: Number(r.starter_points_actual),
       benchedPoints: Number(r.benched_points_actual),
       outcome: r.outcome,
-      bold: Number(r.probability) >= 0.8,
+      bold: Number(r.probability) >= CALLED_SHOT_BOLD_PROBABILITY,
     }));
   return calledShots.length > 0 ? { calledShots } : {};
 }
