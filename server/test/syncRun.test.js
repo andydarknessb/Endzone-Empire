@@ -61,6 +61,82 @@ test('runSyncJob with no lock never queries pg_advisory_xact_lock', async (t) =>
   fake.assertClean();
 });
 
+test('runSyncJob with transaction: false runs apply(null, unit) with no BEGIN or COMMIT and records one ok row (#1913)', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+  const seen = [];
+
+  const result = await runSyncJob({
+    job: 'widgets',
+    transaction: false,
+    fetch: async () => [{ id: 'w1' }],
+    apply: async (client, unit) => {
+      seen.push([client, unit.id]);
+      return { written: 1 };
+    },
+  });
+
+  assert.deepEqual(seen, [[null, 'w1']], 'apply gets null as its client');
+  assert.deepEqual(result, { written: 1 });
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN' || c.text === 'COMMIT').length, 0);
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].params[2], true, 'ok is true');
+  fake.assertClean();
+});
+
+test('runSyncJob with transaction: false still tags a throwing unit write_failed and runs the next unit (#1913)', async (t) => {
+  const boom = new Error('unit blew up');
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+  const ran = [];
+
+  const error = await runSyncJob({
+    job: 'widgets',
+    transaction: false,
+    fetch: async () => [{ id: 'w1' }, { id: 'w2' }],
+    apply: async (client, unit) => {
+      ran.push(unit.id);
+      if (unit.id === 'w1') throw boom;
+      return { written: 1 };
+    },
+  }).catch((e) => e);
+
+  assert.equal(error, boom);
+  assert.deepEqual(ran, ['w1', 'w2'], 'a later unit still runs');
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].params[2], false);
+  const detail = JSON.parse(records[0].params[3]);
+  assert.equal(detail.reason, 'write_failed');
+  assert.equal(detail.failed[0].reason, 'write_failed');
+  assert.equal(detail.failed[0].unit, 0);
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0);
+  fake.assertClean();
+});
+
+test('runSyncJob rejects transaction: false together with a lock before fetch runs and records no row (#1913)', async (t) => {
+  const fake = createFakePool([]).install(t);
+  let fetched = false;
+
+  await assert.rejects(
+    runSyncJob({
+      job: 'widgets',
+      lock: 12345,
+      transaction: false,
+      fetch: async () => { fetched = true; return []; },
+      apply: async () => ({}),
+    }),
+    /lock/
+  );
+
+  assert.equal(fetched, false, 'fetch was never called');
+  assert.equal(fake.calls.length, 0, 'no row, no query');
+  fake.assertClean();
+});
+
 test('runSyncJob: an untagged fetch throw is recorded and rethrown as fetch_failed, no transaction opens', async (t) => {
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],

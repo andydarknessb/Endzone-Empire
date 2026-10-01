@@ -677,15 +677,12 @@ const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * hours. A partial result stays an ok run, and an unset `NWS_USER_AGENT` stays
  * an ok run whose row carries the `reason`.
  *
- * `apply` deliberately does not pass its transactional `client` into
- * `getForecastsForGames` (same reason as `runNightlyProjectionFill`): the
- * weather lookup and its snapshot write log-and-continue on a failed query,
- * which only holds in autocommit. It does NOT keep the NWS HTTP fetches off a
- * transaction: `runSyncJob` runs `apply` inside its per-unit transaction, so
- * the client is simply unused while that transaction stays open across the
- * week's sequential NWS requests. That departs from ADR 0036 ("a feed call
- * never runs inside a transaction"); running a unit with no transaction is a
- * change to `runSyncJob` and the ADR, not made here.
+ * The job runs with `transaction: false` (#1913): `apply` gets no client and
+ * the unit runs with no transaction and no lock, so the week's sequential NWS
+ * requests never sit inside one (ADR 0036, "a feed call never runs inside a
+ * transaction"). That is also what the weather lookup and its snapshot write
+ * need: they log-and-continue on a failed query, which only holds in
+ * autocommit.
  */
 async function runWeatherSnapshotSync({ now = new Date() } = {}) {
   try {
@@ -698,6 +695,7 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
     const horizonEnd = new Date(now.getTime() + MAX_HORIZON_HOURS * 3600000);
     return await runSyncJob({
       job: 'weather-snapshots',
+      transaction: false,
       fetch: async () => {
         const result = await pool.query(
           `SELECT DISTINCT ON ("game_key") "game_key", "season", "week", "kickoff_at", "roof", "venue"
@@ -1092,13 +1090,10 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * against the pool instead, autocommitting per statement exactly as it does
  * on the live request path and as it did before this file routed through
  * `runSyncJob`; each week's cache row is already an idempotent upsert, so
- * nothing here needs the unit's transaction anyway. That does NOT keep the
- * weather provider's HTTP fetches off a transaction: `runSyncJob` runs
- * `apply` inside its per-unit transaction, so the client is unused while the
- * transaction stays open across those fetches, which departs from ADR 0036's
- * "a feed call never runs inside a transaction" (as does
- * `runWeatherSnapshotSync`; running a unit with no transaction is its own
- * change to `runSyncJob` and the ADR).
+ * nothing here needs the unit's transaction anyway. The job runs with
+ * `transaction: false` (#1913), so the unit runs with no transaction and no
+ * lock and the weather provider's HTTP fetches never sit inside one (ADR
+ * 0036, "a feed call never runs inside a transaction").
  *
  * Runs at most once per UTC calendar day inside
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
@@ -1138,6 +1133,7 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   try {
     outcome = await runSyncJob({
       job: 'nightly-projection-run',
+      transaction: false,
       fetch: async () => {
         // The WHOLE row, not an enumerated column list: getWeeklyProjections
         // hashes `rulesForLeague(league)` to pick the run it fills, and a
@@ -1158,9 +1154,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
         for (const league of leaguesResult.rows) units.push({ league, playerIds });
         return units;
       },
-      // The unit's transactional client is intentionally unused here (#1305
-      // f5, see docblock above): getWeeklyProjections must run against the
-      // pool, in autocommit, not inside this transaction.
+      // `transaction: false` hands no client (#1305 f5, see docblock above):
+      // getWeeklyProjections must run against the pool, in autocommit.
       apply: async (_client, { league, playerIds }) => {
         const projection = require('../services/projection.service');
         const { lastPlayoffWeek } = require('../services/season.service');
