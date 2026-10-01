@@ -251,6 +251,10 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
   const lineupAwarded = await awardLineupTrophies({ league, leagueId, season, week });
   awarded.push(...lineupAwarded);
 
+  // Called shots (#1860, ADR 0054): judged here, once, before the Recap that
+  // narrates them. Same post-commit footing as the lineup trophies.
+  awarded.push(...(await judgeCalledShots({ leagueId, season, week })));
+
   await notifyAwardedOwners({ leagueId, awarded });
   return awarded;
 }
@@ -370,6 +374,93 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
     }
   } catch (err) {
     console.error('lineup trophies failed for league %s week %s:', leagueId, week, err.message);
+  }
+  return awarded;
+}
+
+/**
+ * Judge every pending `lineup_overrides` row of the league and season whose week
+ * is the advanced week or earlier (#1860, ADR 0054). The earlier weeks are the
+ * catch-up for shots stranded before this judge existed: each is judged by the
+ * same rules against its own week's lineup as played, once, and a hit is written
+ * under the shot's own week. A league that never advances again keeps them.
+ *
+ * Rules, in order, read from Hindsight's counted roster for the shot's week (the
+ * lineup as played, each player's Appearance, and his league-priced points):
+ *   void - the starter is not in a starting slot, or the benched player is not
+ *          on the bench, or either made no Appearance;
+ *   hit  - the starter strictly outscored the benched player (rounded to the
+ *          stored two places);
+ *   miss - otherwise (a tie is a miss).
+ * The UPDATE is guarded on `outcome = 'pending'`, so a row is judged once and a
+ * hit awards only for the writer that resolved it. Only a called hit writes the
+ * `called_shot` trophy; an Override settles with no trophy. A week Hindsight
+ * cannot read (not final) leaves its rows pending for the next Advance week.
+ *
+ * Returns `[{ type, teamId, label }]` newly awarded. Never throws: a failure is
+ * logged and the row stays pending.
+ */
+async function judgeCalledShots({ leagueId, season, week }) {
+  const awarded = [];
+  try {
+    const { weekHindsightRoster } = require('./decision.service');
+    const pending = await pool.query(
+      `SELECT "id", "team_id", "week", "called", "probability", "starter_player_id", "benched_player_id"
+       FROM "lineup_overrides"
+       WHERE "league_id" = $1 AND "season" = $2 AND "week" <= $3 AND "outcome" = 'pending'
+       ORDER BY "week", "id"`,
+      [leagueId, season, week]
+    );
+    const rosters = new Map();
+    for (const shot of pending.rows) {
+      try {
+        const key = `${shot.team_id}:${shot.week}`;
+        if (!rosters.has(key)) {
+          rosters.set(key, weekHindsightRoster({ leagueId, teamId: shot.team_id, season, week: shot.week }));
+        }
+        const { counted = [] } = await rosters.get(key);
+        const starter = counted.find((r) => r.playerId === shot.starter_player_id);
+        const benched = counted.find((r) => r.playerId === shot.benched_player_id);
+        const starterPoints = starter ? round2(starter.points) : null;
+        const benchedPoints = benched ? round2(benched.points) : null;
+
+        let outcome;
+        if (!starter || !benched || starter.slot === 'BENCH' || benched.slot !== 'BENCH') outcome = 'void';
+        else if (!starter.appeared || !benched.appeared) outcome = 'void';
+        else outcome = starterPoints > benchedPoints ? 'hit' : 'miss';
+
+        // The outcome and its trophy commit together: a hit that resolved but
+        // lost its trophy to a failure would never be judged again.
+        const newlyAwarded = await withTransaction(
+          pool,
+          async (client) => {
+            const resolved = await client.query(
+              `UPDATE "lineup_overrides"
+               SET "outcome" = $2, "starter_points_actual" = $3, "benched_points_actual" = $4, "resolved_at" = now()
+               WHERE "id" = $1 AND "outcome" = 'pending'
+               RETURNING "id"`,
+              [shot.id, outcome, starterPoints, benchedPoints]
+            );
+            if (outcome !== 'hit' || !shot.called || !resolved.rows[0]) return null;
+            const probability = Number(shot.probability);
+            const label = 'Called Shot';
+            const data = {
+              starterPlayerId: starter.playerId, starter: starter.name, starterPoints,
+              benchedPlayerId: benched.playerId, benched: benched.name, benchedPoints,
+              probability, bold: probability >= 0.8,
+            };
+            const written = await award(client, { leagueId, teamId: shot.team_id, season, week: shot.week, type: 'called_shot', label, data });
+            return written ? { type: 'called_shot', teamId: shot.team_id, label } : null;
+          },
+          { label: 'called-shot' }
+        );
+        if (newlyAwarded) awarded.push(newlyAwarded);
+      } catch (err) {
+        console.error('called shot %s skipped (league %s week %s):', shot.id, leagueId, shot.week, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('called shots failed for league %s week %s:', leagueId, week, err.message);
   }
   return awarded;
 }

@@ -31,6 +31,9 @@ const NORMAL_WEEK = { actualPoints: 50, optimalPoints: 55, pointsLeftOnBench: 5,
 function awardWorld({
   leagueId, homeScore, awayScore, homeTeamId = 10, awayTeamId = 20, existingTrophies = [],
   bestBall = false, hindsight = {}, newInserts = true, calls: hindsightCalls = [], rosterSlots,
+  // #1860: the pending lineup_overrides rows the judge reads, and whether its
+  // UPDATE still finds each one pending (false = someone resolved it first).
+  overrides = [], shotStillPending = true,
 }) {
   const fake = createFakePool([
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1/, () => ({
@@ -60,6 +63,8 @@ function awardWorld({
     // week's high is updated in place, not re-inserted or deleted.
     // 'client'-scoped for the same reason the SELECT and DELETE above are.
     [/^UPDATE "trophies"/, () => ({ rows: [] }), 'client'],
+    [/^SELECT .* FROM "lineup_overrides"/, () => ({ rows: overrides })],
+    [/^UPDATE "lineup_overrides"/, (text, params) => ({ rows: shotStillPending ? [{ id: params[0] }] : [] })],
     [/^INSERT INTO "trophies"/, () => ({ rows: newInserts ? [{ id: 1 }] : [] })],
     [/^SELECT "owner_id" FROM "teams" WHERE "id" = \$1/, (text, params) => ({
       rows: [{ owner_id: 1000 + Number(params[0]) }],
@@ -490,4 +495,152 @@ test('#1854: a stat correction awards, revokes and changes no lineup trophy', as
   const selects = fake.matching(/^SELECT "id", "team_id", "data" FROM "trophies"/);
   assert.ok(selects.every((c) => /"type" = 'top_scorer'/.test(c.text)), 'only the weekly high score row is ever read for change');
   fake.assertClean();
+});
+
+// ---- #1860: Called shots are judged once, at Advance week ------------------
+//
+// Inside the award pass, after the lineup trophies. Each pending row is read
+// against its own week's lineup as played (Hindsight's counted roster, which
+// also carries each player's Appearance and league-priced points): void when the
+// starter is not in a starting slot or the benched player is not on the bench,
+// or when either made no Appearance; else a hit when the starter strictly
+// outscored, else a miss (a tie is a miss). Only a called hit writes a trophy.
+
+const shotRow = (over = {}) => ({
+  id: 501, team_id: 10, week: W, called: true, probability: '0.65',
+  starter_player_id: 7, benched_player_id: 21, ...over,
+});
+const shotRoster = ({ starter = {}, benched = {}, omit = [] } = {}) => ({
+  actualPoints: 98, optimalPoints: 98, pointsLeftOnBench: 0,
+  counted: [
+    { playerId: 7, name: 'Flex Guy', position: 'WR', slot: 'FLEX', points: 11.4, appeared: true, ...starter },
+    { playerId: 21, name: 'Ben Bench', position: 'WR', slot: 'BENCH', points: 6.2, appeared: true, ...benched },
+  ].filter((r) => !omit.includes(r.playerId)),
+});
+const shotUpdates = (fake) => fake.matching(/^UPDATE "lineup_overrides"/);
+const judged = (fake) => shotUpdates(fake).map((c) => ({ id: c.params[0], outcome: c.params[1], starter: c.params[2], benched: c.params[3] }));
+
+async function judge(t, { row = shotRow(), roster = shotRoster(), ...world } = {}) {
+  const fake = awardWorld({
+    leagueId: L, homeScore: 98, awayScore: 110, overrides: [row], hindsight: { [row.team_id]: roster }, ...world,
+  });
+  fake.install(t);
+  const awarded = await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  return { fake, awarded };
+}
+
+test('#1860: a pending called row whose starter strictly outscored is a hit: points stored, Called Shot trophy written', async (t) => {
+  const { fake, awarded } = await judge(t);
+
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'hit', starter: 11.4, benched: 6.2 }]);
+  const trophy = trophyInserts(fake, 'called_shot');
+  assert.equal(trophy.length, 1);
+  assert.deepEqual(trophy[0].params.slice(0, 6), [L, 10, S, W, 'called_shot', 'Called Shot']);
+  assert.deepEqual(JSON.parse(trophy[0].params[6]), {
+    starterPlayerId: 7, starter: 'Flex Guy', starterPoints: 11.4,
+    benchedPlayerId: 21, benched: 'Ben Bench', benchedPoints: 6.2,
+    probability: 0.65, bold: false,
+  });
+  assert.ok(awarded.some((a) => a.type === 'called_shot' && a.teamId === 10 && a.label === 'Called Shot'), 'announced and notified like any trophy');
+  // The pending read is league/season/<= week, judged inside the trophy pass.
+  const read = fake.matching(/^SELECT .* FROM "lineup_overrides"/)[0];
+  assert.deepEqual(read.params, [L, S, W]);
+  assert.match(read.text, /"week" <= \$3/);
+  assert.match(read.text, /"outcome" = 'pending'/);
+});
+
+test('#1860: a miss stores both players\' points and writes no trophy', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { points: 4 } }) });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'miss', starter: 4, benched: 6.2 }]);
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860: a tie is a miss', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { points: 6.2 } }) });
+  assert.equal(judged(fake)[0].outcome, 'miss');
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860: points are the league-priced values rounded to two places', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { points: 6.204 }, benched: { points: 6.196 } }) });
+  assert.deepEqual(judged(fake), [{ id: 501, outcome: 'miss', starter: 6.2, benched: 6.2 }], 'equal once rounded, so a tie');
+});
+
+for (const [name, roster] of [
+  ['the starter was moved to the bench', shotRoster({ starter: { slot: 'BENCH' } })],
+  ['the benched player was started', shotRoster({ benched: { slot: 'FLEX' } })],
+  ['the starter is not in the lineup as played', shotRoster({ omit: [7] })],
+  ['the benched player is not on the bench (not held, or on IR)', shotRoster({ omit: [21] })],
+  ['the starter made no Appearance', shotRoster({ starter: { appeared: false } })],
+  ['the benched player made no Appearance', shotRoster({ benched: { appeared: false } })],
+]) {
+  test(`#1860: void when ${name}; a void writes no trophy`, async (t) => {
+    const { fake } = await judge(t, { roster });
+    assert.equal(judged(fake).length, 1);
+    assert.equal(judged(fake)[0].outcome, 'void');
+    assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+  });
+}
+
+test('#1860: the lineup is checked before Appearance and points: a moved starter who also did not appear is void on the lineup', async (t) => {
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { slot: 'BENCH', appeared: false, points: 99 } }) });
+  assert.equal(judged(fake)[0].outcome, 'void');
+  assert.equal(judged(fake)[0].starter, 99, 'points are still stored where the player was in the lineup');
+});
+
+test('#1860: a call made at probability 0.8 or higher is bold; below it is not', async (t) => {
+  const bold = await judge(t, { row: shotRow({ probability: '0.8' }) });
+  assert.equal(JSON.parse(trophyInserts(bold.fake, 'called_shot')[0].params[6]).bold, true);
+  const notBold = await judge(t, { row: shotRow({ probability: '0.79' }) });
+  assert.equal(JSON.parse(trophyInserts(notBold.fake, 'called_shot')[0].params[6]).bold, false);
+});
+
+test('#1860: a hit on a row that is not a called shot (an Override) settles but writes no trophy', async (t) => {
+  const { fake } = await judge(t, { row: shotRow({ called: false }) });
+  assert.equal(judged(fake)[0].outcome, 'hit');
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
+});
+
+test('#1860: judged once: a row someone resolved first is not re-judged and awards nothing; no pending rows means no writes', async (t) => {
+  const raced = await judge(t, { shotStillPending: false });
+  assert.equal(shotUpdates(raced.fake).length, 1, 'the UPDATE is guarded on outcome = pending');
+  assert.match(shotUpdates(raced.fake)[0].text, /"outcome" = 'pending'/);
+  assert.equal(trophyInserts(raced.fake, 'called_shot').length, 0);
+
+  const none = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [] });
+  none.install(t);
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  assert.equal(shotUpdates(none).length, 0);
+});
+
+test('#1860: awarding twice never duplicates the trophy: the insert rides ON CONFLICT DO NOTHING', async (t) => {
+  const { fake, awarded } = await judge(t, { newInserts: false });
+  assert.ok(trophyInserts(fake, 'called_shot').every((c) => /ON CONFLICT \("league_id", "season", "week", "team_id", "type"\) DO NOTHING/.test(c.text)));
+  assert.equal(awarded.some((a) => a.type === 'called_shot'), false);
+});
+
+test('#1860: catch-up: a pending row of an earlier week is judged against its own week and its hit is written under that week', async (t) => {
+  const calls = [];
+  const { fake } = await judge(t, { row: shotRow({ week: W - 1 }), calls });
+  assert.ok(calls.some((c) => c.teamId === 10 && c.week === W - 1), "Hindsight read for the shot's own week");
+  assert.equal(judged(fake)[0].outcome, 'hit');
+  assert.equal(trophyInserts(fake, 'called_shot')[0].params[3], W - 1);
+});
+
+test('#1860: a week whose Hindsight cannot be read leaves its row pending and never rolls back the week', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow({ week: W - 1 })] });
+  fake.install(t);
+  t.mock.method(decisionSvc, 'weekHindsightRoster', async () => { throw new Error('week 4 is not final yet'); });
+  t.mock.method(console, 'error', () => {});
+  await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  assert.equal(shotUpdates(fake).length, 0);
+  assert.equal(trophyInserts(fake, 'top_scorer').length, 1);
+});
+
+test('#1860: a stat correction never judges, rejudges or revokes a called shot', async (t) => {
+  const fake = awardWorld({ leagueId: L, homeScore: 98, awayScore: 110, overrides: [shotRow()], hindsight: { 10: shotRoster() } });
+  fake.install(t);
+  await trophySvc.reconcileWeeklyHighScoreTrophy({ leagueId: L, season: S, week: W });
+  assert.equal(fake.matching(/"lineup_overrides"/).length, 0, 'the reconcile never touches called shots');
+  assert.equal(trophyInserts(fake, 'called_shot').length, 0);
 });

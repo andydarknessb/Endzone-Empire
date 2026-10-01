@@ -611,6 +611,7 @@ async function weekHindsight({ leagueId, teamId, season, week }) {
  * object minus `counted`, so its wire shape is unchanged.
  */
 async function weekHindsightRoster({ leagueId, teamId, season, week }) {
+  // (#1860: each counted row also carries `appeared`, see madeAppearance.)
   const league = await assertLeagueAndTeam({ leagueId, teamId });
   if (!(await isWeekFinal({ leagueId, season, week }))) {
     throw new DecisionError(409, `week ${week} is not final yet`);
@@ -646,9 +647,25 @@ async function weekHindsightRoster({ leagueId, teamId, season, week }) {
   const { counted, teamScore, optimalPoints, optimalStarters, pointsLeftOnBench } =
     countedRoster({ rows: asPlayed, league, price });
 
+  const statsById = new Map(asPlayed.map((r) => [r.player_id, r.stats]));
   return {
-    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters, counted,
+    teamId, week, actualPoints: teamScore, optimalPoints, pointsLeftOnBench, optimalStarters,
+    counted: counted.map((c) => ({ ...c, appeared: madeAppearance(statsById.get(c.playerId)) })),
   };
+}
+
+/**
+ * Pure: did this player-week's stat line record an Appearance (CONTEXT.md
+ * "Appearance"; #1860)? A stat row alone is not one: rows exist for rostered
+ * players who never took the field, and the box writes its zeros. An Appearance
+ * is a snap (nflverse snap_counts, offense or defense) or any non-zero figure in
+ * the line. ponytail: the box and snap feed are the only participation data
+ * there is (no active/inactive flag), so a blocking tight end whose snaps have
+ * not been published yet reads as no Appearance; upgrade to a game-level active
+ * list if the feed ever carries one.
+ */
+function madeAppearance(stats) {
+  return Object.values(stats || {}).some((v) => typeof v === 'number' && Number.isFinite(v) && v !== 0);
 }
 
 /**
@@ -1118,6 +1135,7 @@ module.exports = {
   startSitAdvice,
   weekHindsight,
   weekHindsightRoster,
+  madeAppearance,
   liveWhatIf,
   seasonHindsight,
   fitAdjustedValue,

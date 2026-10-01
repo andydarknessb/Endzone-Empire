@@ -6,6 +6,7 @@ const {
   tradeVerdict,
   tradeFairnessSummary,
   upgradeFor,
+  madeAppearance,
 } = require('../services/decision.service');
 const { DEFAULT_ROSTER_SLOTS, slotEligible } = require('../services/lineup.service');
 const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
@@ -767,4 +768,16 @@ test('buildSuggestions: each side carries the volatility its context holds, null
   const bare = buildSuggestions(lineup, projections, new Map(), RB1).suggestions[0];
   assert.equal(bare.current.volatility, null);
   assert.equal(bare.suggested.volatility, null);
+});
+
+// #1860: Appearance (CONTEXT.md). A stat row alone is not one: the box writes
+// zeros for rostered players who never took the field.
+test('#1860 madeAppearance: a snap or any non-zero figure is an Appearance; a row of zeros or nulls is not', () => {
+  assert.equal(madeAppearance({ usageOffenseSnaps: 12 }), true, 'a blocking tight end with snaps and no touches');
+  assert.equal(madeAppearance({ usageDefenseSnaps: 30, usageOffenseSnaps: 0 }), true);
+  assert.equal(madeAppearance({ fieldGoal: 2, usageOffenseSnaps: 0 }), true, 'a kicker has no offense snaps');
+  assert.equal(madeAppearance({ receptions: 0, passingYards: 0, usageOffenseSnaps: null, gameTeam: 'KC' }), false, 'a zero stat row');
+  assert.equal(madeAppearance({ usageOffenseSnaps: 0, usageOffenseSnapPct: 0 }), false);
+  assert.equal(madeAppearance({}), false);
+  assert.equal(madeAppearance(null), false, 'no stat row at all (a bye week)');
 });
