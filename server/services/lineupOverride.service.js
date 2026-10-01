@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { withTransaction } = require('../modules/withTransaction');
 const lineupService = require('./lineup.service');
+const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
 
 /**
  * Called shots (spec #1846, #1856; CONTEXT.md "Start/sit advice"): a Manager
@@ -73,6 +74,8 @@ function shotPayload(row, lockedIds) {
     verdict: row.verdict,
     declaredAt: row.declared_at,
     status,
+    // Both games have kicked off: the line shows live points (#1857).
+    bothLocked: lockedIds.has(row.starter_player_id) && lockedIds.has(row.benched_player_id),
     outcome: resolved ? row.outcome : null,
     resolvedAt: row.resolved_at,
     canWithdraw: status === 'pending',
@@ -92,15 +95,68 @@ async function lockedAmong(db, row, now) {
 }
 
 /**
+ * Both players' points so far this week under the league's scoring: a map of
+ * player id to points (0 for a player with no stat line yet).
+ */
+async function currentPoints(db, { league, row }) {
+  const ids = [row.starter_player_id, row.benched_player_id];
+  const result = await db.query(
+    `SELECT "player_id", "stats" FROM "player_stats"
+     WHERE "season" = $1 AND "week" = $2 AND "player_id" = ANY($3::int[])`,
+    [row.season, row.week, ids]
+  );
+  const rules = rulesForLeague(league);
+  const byId = new Map(result.rows.map((r) => [r.player_id, r.stats]));
+  return new Map(ids.map((id) => [id, byId.get(id) ? calculateFantasyPoints(byId.get(id), rules) : 0]));
+}
+
+/**
  * The team's called shot for the week as the wire carries it, or null.
  * Reads the stored outcome only: a shot is judged once, at Advance week, by the
  * settle follow-up (ADR 0054, #1860).
  */
-async function loadCalledShot(db, { teamId, season, week, now = new Date() }) {
+async function loadCalledShot(db, { league, teamId, season, week, now = new Date() }) {
   const row = await readCalledRow(db, { teamId, season, week });
   if (!row) return null;
   const lockedIds = await lockedAmong(db, row, now);
-  return shotPayload(row, lockedIds);
+  const payload = shotPayload(row, lockedIds);
+  // Once both players have locked their points are moving: the standing line
+  // shows them live (#1857). Judged numbers stay as stored.
+  if (payload.bothLocked && payload.status !== 'resolved') {
+    const points = await currentPoints(db, { league, row });
+    payload.starter.points = points.get(row.starter_player_id);
+    payload.benched.points = points.get(row.benched_player_id);
+  }
+  return payload;
+}
+
+/**
+ * What the rest of the league may see of a team's called shot (#1857, ADR 0054
+ * ruling 7): nothing until both players have locked, then the pair, both
+ * players' points (live while open, the judged numbers once resolved) and the
+ * outcome (null while open). Only `called` rows are ever read, so an
+ * automatically captured Override is never here. Carries no projection,
+ * probability or declaration time: those stay the calling manager's own.
+ */
+async function loadPublicCalledShot(db, { league, teamId, season, week, now = new Date() }) {
+  const row = await readCalledRow(db, { teamId, season, week });
+  if (!row) return null;
+  if ((await lockedAmong(db, row, now)).size < 2) return null;
+  const resolved = row.outcome !== 'pending';
+  const live = resolved ? null : await currentPoints(db, { league, row });
+  return {
+    starter: {
+      playerId: row.starter_player_id,
+      name: row.starter_name,
+      points: resolved ? num(row.starter_points_actual) : live.get(row.starter_player_id),
+    },
+    benched: {
+      playerId: row.benched_player_id,
+      name: row.benched_name,
+      points: resolved ? num(row.benched_points_actual) : live.get(row.benched_player_id),
+    },
+    outcome: resolved ? row.outcome : null,
+  };
 }
 
 async function loadLeagueAndTeam(leagueId, userId) {
@@ -256,6 +312,7 @@ async function voidShotContradictedBySave(db, { teamId, season, week }) {
 module.exports = {
   CalledShotError,
   loadCalledShot,
+  loadPublicCalledShot,
   declareCalledShot,
   withdrawCalledShot,
   voidShotContradictedBySave,

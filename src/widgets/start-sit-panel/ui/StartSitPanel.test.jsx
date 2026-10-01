@@ -507,3 +507,41 @@ test('the standing line is a labelled group and Withdraw names the shot (#1856)'
   expect(screen.getByRole('group', { name: 'Your called shot' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Withdraw your called shot: Sit Guy over Start Guy' })).toBeInTheDocument();
 });
+
+// #1857: once both players have locked the standing line shows live points.
+const bothLocked = (over = {}) => shot({
+  status: 'locked',
+  bothLocked: true,
+  canWithdraw: false,
+  starter: { playerId: 1, name: 'Sit Guy', projection: 8, points: 11.4 },
+  benched: { playerId: 2, name: 'Start Guy', projection: 14.5, points: 6.2 },
+  ...over,
+});
+
+test('with both players locked the standing line reads their live points off the lineup entries', () => {
+  const live = [
+    { playerId: 1, position: 'RB', points: 12.9 },
+    { playerId: 2, position: 'RB', points: 7 },
+  ];
+  render(<StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: bothLocked() }} entries={live} bestBall={false} />);
+  expect(screen.getByTestId('called-shot-line')).toHaveAttribute('data-state', 'locked');
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Live: Sit Guy 12.9 to Start Guy 7.0');
+});
+
+test('with both players locked and no live entry points, the payload points stand', () => {
+  render(<StartSitPanel advice={{ suggestions: [], movePlan: [], calledShot: bothLocked() }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Live: Sit Guy 11.4 to Start Guy 6.2');
+});
+
+test('with only one player locked the standing line shows no live points', () => {
+  const live = [{ playerId: 1, position: 'RB', points: 12.9 }, { playerId: 2, position: 'RB', points: 7 }];
+  render(
+    <StartSitPanel
+      advice={{ suggestions: [], movePlan: [], calledShot: shot({ status: 'locked', bothLocked: false, canWithdraw: false }) }}
+      entries={live}
+      bestBall={false}
+    />
+  );
+  expect(screen.getByTestId('called-shot-status')).toHaveTextContent('Locked: one of the two games has started');
+  expect(screen.getByTestId('called-shot-status')).not.toHaveTextContent('Live');
+});

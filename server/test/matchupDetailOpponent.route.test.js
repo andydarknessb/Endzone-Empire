@@ -9,6 +9,7 @@ const projectionService = require('../services/projection.service');
 const lineupService = require('../services/lineup.service');
 const scoringService = require('../services/scoringRules');
 const decisionService = require('../services/decision.service');
+const lineupOverrideService = require('../services/lineupOverride.service');
 
 /**
  * #425: GET /api/league/:id/matchups/:matchupId keys its `nfl_team -> opponent`
@@ -67,7 +68,7 @@ const MATCHUP_ROW = {
  * and one week of schedule (`scheduleRows`); everything else (bench, the away
  * team's lineup) comes back empty. Returns the home team's lone starter.
  */
-async function getHomeStarter(t, { starterRow, scheduleRows }) {
+async function getDetail(t, { starterRow, scheduleRows }) {
   t.mock.method(scoringService, 'rulesForLeague', () => ({}));
   // The route reads the weekly (league-aware) run through expectedFinal.service
   // (every row, starter and bench, since #883); it does not matter to the
@@ -99,7 +100,11 @@ async function getHomeStarter(t, { starterRow, scheduleRows }) {
     .get(`/api/league/${LEAGUE_ID}/matchups/7`)
     .set('Authorization', authed(VIEWER.userId));
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  const [starter] = res.body.home.starters;
+  return res.body;
+}
+
+async function getHomeStarter(t, args) {
+  const [starter] = (await getDetail(t, args)).home.starters;
   assert.ok(starter, 'expected exactly one home starter');
   return starter;
 }
@@ -143,4 +148,33 @@ test('a starter with no game row in the week\'s schedule carries opponent: null 
   const scheduleRows = [{ nfl_team: 'DAL', opponent: 'WSH' }];
   const starter = await getHomeStarter(t, { starterRow, scheduleRows });
   assert.equal(starter.opponent, null);
+});
+
+// #1857: each team's called shot rides on its side of the detail body once the
+// service says both of its players have locked (the visibility rule lives in
+// lineupOverride.service and is tested there).
+const SHOT_INPUT = {
+  starterRow: { id: 105, name: 'Some Runner', position: 'RB', nfl_team: 'DAL', injury_status: null, slot: 'RB', stats: null },
+  scheduleRows: [{ nfl_team: 'DAL', opponent: 'NYG' }],
+};
+const SHOT = { starter: { playerId: 105, name: 'Some Runner', points: 11.4 }, benched: { playerId: 9, name: 'Bench Guy', points: 6.2 }, outcome: null };
+
+test('each side carries the called shot the service reveals, and null otherwise (#1857)', async (t) => {
+  const asked = [];
+  t.mock.method(lineupOverrideService, 'loadPublicCalledShot', async (db, args) => {
+    asked.push(args);
+    return args.teamId === VIEWER.teamId ? SHOT : null;
+  });
+  const body = await getDetail(t, SHOT_INPUT);
+  assert.deepEqual(body.home.calledShot, SHOT);
+  assert.equal(body.away.calledShot, null);
+  assert.deepEqual(asked.map((a) => [a.teamId, a.season, a.week]), [[11, 2026, 1], [12, 2026, 1]]);
+});
+
+test('a failed called-shot read is no shot, never a failed page (#1857)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(lineupOverrideService, 'loadPublicCalledShot', async () => { throw new Error('db down'); });
+  const body = await getDetail(t, SHOT_INPUT);
+  assert.equal(body.home.calledShot, null);
+  assert.equal(body.away.calledShot, null);
 });

@@ -1057,6 +1057,24 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
       }
     }
 
+    // Each team's called shot, once both of its players have locked (#1857, ADR
+    // 0054 ruling 7); null before that and in a best-ball league. The service
+    // owns the visibility rule and reads called rows only, so an Override is
+    // never here. A supplementary read: a failure is no shot, never a failed page.
+    const publicShot = async (teamId) => {
+      if (leagueRow.best_ball) return null;
+      try {
+        return await require('../services/lineupOverride.service').loadPublicCalledShot(pool, {
+          league: leagueRow, teamId, season: matchup.season, week: matchup.week, now: clock.now(),
+        });
+      } catch (shotErr) {
+        console.error('matchup called shot unavailable', shotErr.message);
+        return null;
+      }
+    };
+    const homeCalledShot = await publicShot(matchup.home_team_id);
+    const awayCalledShot = await publicShot(matchup.away_team_id);
+
     res.json({
       viewerTeamId: viewerTeamId || null,
       viewerWhatIf,
@@ -1069,6 +1087,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         bench: homeTeam.bench,
         expectedFinal: homeTeam.expectedFinal,
         playersRemaining: homeTeam.playersRemaining,
+        calledShot: homeCalledShot,
       },
       away: {
         teamId: matchup.away_team_id,
@@ -1077,6 +1096,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
         bench: awayTeam.bench,
         expectedFinal: awayTeam.expectedFinal,
         playersRemaining: awayTeam.playersRemaining,
+        calledShot: awayCalledShot,
       },
     });
   } catch (error) {
