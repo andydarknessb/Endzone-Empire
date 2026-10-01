@@ -155,10 +155,10 @@ the four keys, so the conversions nflverse had written were erased and
 `server/services/scoringRules.js`). Now the four keys survive with the values
 the correction wrote; the keys the box does own (yards, touchdowns,
 receptions) are still replaced by the box values on a late re-apply, exactly
-as before. A box apply lands after
-a correction only on a recap regeneration (`gameRecap.service.js`), an admin
-re-sync, or a Final-box stamp that runs late; a game whose Final box applied
-before its correction never hit the old loss. `MODEL_VERSION`,
+as before. A box apply lands after a correction only on a recap regeneration
+(`gameRecap.service.js`), an admin re-sync, or a Final-box stamp that runs
+late; a game whose Final box applied before its correction never hit the old
+loss. `MODEL_VERSION`,
 `MODEL_CONSTANTS` and the pinned hash are untouched (the merge changes no
 file under the projection engine, the holdout capture or `scripts/holdout`),
 and the change rewrites no `player_stats` row by itself: a row that lost its
@@ -171,9 +171,8 @@ regenerate"; the three conversion keys met that rule and were missing from
 it, so the old behaviour was a data loss, not a scoring decision. Whether
 this file needed an entry was raised on PR #1803 (formal-001 f1) and ruled
 on 2026-10-01 on #1760 (issuecomment-5933241837): yes, because entry 3 rests
-on "none is added to
-`STAT_KEY_PATHS` ... never change `fantasy_points`", and this is the first
-carried key that is scored; without this entry the file would misdescribe
+on "none is added to `STAT_KEY_PATHS` ... never change `fantasy_points`", and
+this is the first carried key that is scored; without this entry the file would misdescribe
 what a box re-apply carries.
 
 **Which claims it touches.** None of the gates. Section 5 outcome truth is
@@ -196,5 +195,6 @@ own actuals and so sees the kept keys; the #1439 ruling (point 2) already
 takes `player_stats` as it stands, corrections included, and every column it
 reports is scored against the same actuals, so the change is symmetric
 across the arms it compares. Recorded as an input correction of the purely
-mechanical class, as entry 1 was (#1760 ruling); it voids nothing. Captures made before the release retain the priors they read; no
-ledger row, snapshot or release_sha is rewritten.
+mechanical class, as entry 1 was (#1760 ruling); it voids nothing. Captures
+made before the release retain the priors they read; no ledger row, snapshot
+or release_sha is rewritten.
