@@ -23,8 +23,8 @@ const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
 const { getWeekOpponents } = require('./nflWeekOpponents');
-// The Decision card's Line and weather loaders, reused for the start/sit
-// card's fact chips (#1853) rather than read a second way.
+// The Decision card's Line, weather and Volatility loaders, reused for the
+// start/sit card's fact chips (#1853) and tags (#1858) rather than read a second way.
 const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
 // live what-if price a player-week the identical way the score of record does
@@ -38,9 +38,6 @@ const { countedRoster } = require('./countedRoster.service');
 // their pairs; it never asks lineupOverride.service for advice (the router
 // hands the declare path an advice loader), so the two do not require each other.
 const lineupOverrideService = require('./lineupOverride.service');
-// The Volatility tag (spec #1845): the Interval reading module the Decision card
-// uses, so a tag here and there cannot disagree (#1858).
-const intervalReading = require('./intervalReading');
 
 class DecisionError extends Error {
   constructor(statusCode, message) {
@@ -366,52 +363,6 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
 }
 
 /**
- * The Volatility tag of every player in the run at `positions` (#1858):
- * `Map<playerId, 'steady' | 'boom_or_bust' | null>`. The reference set is the
- * run's own rows at each position, read ONCE here (one query, whatever the
- * roster), and tagged by the Interval reading module with its constants, the
- * same call the Decision card makes. A position with no reading (K, DEF) is not
- * read; with none left there is no query at all.
- *
- * `run` is the Weekly projection result the advice already reads (its season,
- * week, scoringHash and modelVersion name the run row).
- */
-async function loadVolatilityTags({ run, positions, client = pool }) {
-  const wanted = [...new Set(positions)].filter((p) => intervalReading.CONSTANTS.positions.includes(p));
-  if (wanted.length === 0) return new Map();
-  const result = await client.query(
-    `SELECT w."player_id", p."position", w."mean", w."median", w."p10", w."p25",
-            w."p75", w."p90", w."sample_size", w."factors"
-     FROM "player_week_projections" w
-     JOIN "players" p ON p."id" = w."player_id"
-     WHERE w."run_id" = (
-       SELECT "id" FROM "projection_runs"
-       WHERE "season" = $1 AND "week" = $2 AND "scoring_hash" = $3 AND "model_version" = $4
-     ) AND p."position" = ANY($5::text[])`,
-    [run.season, run.week, run.scoringHash, run.modelVersion, wanted]
-  );
-  const num = (v) => (v == null ? null : Number(v));
-  const rows = result.rows.map((r) => {
-    const mean = num(r.mean);
-    const median = num(r.median);
-    return {
-      playerId: r.player_id,
-      position: r.position,
-      mean,
-      median,
-      p10: num(r.p10),
-      p25: num(r.p25),
-      p75: num(r.p75),
-      p90: num(r.p90),
-      sampleSize: Number(r.sample_size) || 0,
-      factors: r.factors || {},
-      pointEstimate: projectionService.pointEstimateFor({ mean, median, modelVersion: run.modelVersion }),
-    };
-  });
-  return intervalReading.volatilityTags(rows);
-}
-
-/**
  * Start/sit advice for the caller's team.
  *
  * Projections come from `free_baseline_v2`, scoped to the roster's player ids
@@ -462,8 +413,11 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   // remap: read `defense` directly with the already-canonical opponent.
   // The Volatility tags (#1858), one read of the run's rows for the roster's
   // positions. Optional context: a failed read degrades to no tags, not no advice.
-  const volatilityByPlayer = await loadVolatilityTags({
-    run,
+  // The Decision card's own loader, so a player carries the same tag on both.
+  const volatilityByPlayer = await decisionCardContext.loadVolatilityTags({
+    season: effectiveSeason,
+    week: effectiveWeek,
+    rules: rulesForLeague(league),
     positions: lineup.entries.map((e) => e.position),
   }).catch((err) => {
     console.error('start/sit advice: volatility lookup failed, continuing without tags:', err.message);
@@ -1161,7 +1115,6 @@ function upgradeFor(candidate, currentStarters, rosterSlots) {
 module.exports = {
   DecisionError,
   buildSuggestions,
-  loadVolatilityTags,
   startSitAdvice,
   weekHindsight,
   weekHindsightRoster,

@@ -399,3 +399,37 @@ test('loadVolatility: no run for the week, or a reference set under ten, shows n
   mockRun(t, rows.slice(0, 9));
   assert.equal(await tagFor(rows, 1), null);
 });
+test('loadVolatilityTags: one run lookup and one read per distinct position, tags merged across positions (#1858)', async (t) => {
+  const wr = wrRun();
+  const rb = [];
+  for (let id = 101; id <= 112; id += 1) rb.push(runRow(id, 'RB', id - 90, 8));
+  rb[0] = runRow(101, 'RB', 11, 20);
+  const fake = createFakePool([
+    [/FROM "projection_runs"/, () => ({ rows: [{ id: 77 }] })],
+    [/FROM "player_week_projections"/, (text, params) => ({ rows: params[1] === 'WR' ? wr : rb })],
+  ]);
+  fake.install(t);
+  const { loadVolatilityTags } = require('../services/decisionCardContext.service');
+
+  const tags = await loadVolatilityTags({
+    season: 2026, week: 6, rules: SCORING_RULES, positions: ['WR', 'RB', 'WR', 'K'],
+  });
+
+  assert.equal(tags.get(1), 'boom_or_bust');
+  assert.equal(tags.get(2), 'steady');
+  assert.equal(tags.get(101), 'boom_or_bust');
+  assert.equal(fake.calls.filter((q) => q.text.includes('FROM "projection_runs"')).length, 1);
+  assert.deepEqual(
+    fake.calls.filter((q) => q.text.includes('FROM "player_week_projections"')).map((q) => q.params),
+    [[77, 'WR'], [77, 'RB']],
+  );
+});
+
+test('loadVolatilityTags: no taggable position reads nothing; no run for the week reads an empty map (#1858)', async (t) => {
+  const fake = createFakePool([[/FROM "projection_runs"/, () => ({ rows: [] })]]);
+  fake.install(t);
+  const { loadVolatilityTags } = require('../services/decisionCardContext.service');
+  assert.equal((await loadVolatilityTags({ season: 2026, week: 6, rules: SCORING_RULES, positions: ['K', 'DEF'] })).size, 0);
+  assert.equal(fake.calls.length, 0);
+  assert.equal((await loadVolatilityTags({ season: 2026, week: 6, rules: SCORING_RULES, positions: ['WR'] })).size, 0);
+});

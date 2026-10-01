@@ -752,8 +752,6 @@ test('buildSuggestions: a called shot no longer pins once the lineup stopped mat
 // Volatility tag on each suggestion side (#1858)
 // ---------------------------------------------------------------------------
 
-const projectionModel = require('../services/projectionModel');
-const { loadVolatilityTags } = require('../services/decision.service');
 
 test('buildSuggestions: each side carries the volatility its context holds, null when it holds none', () => {
   const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
@@ -769,47 +767,4 @@ test('buildSuggestions: each side carries the volatility its context holds, null
   const bare = buildSuggestions(lineup, projections, new Map(), RB1).suggestions[0];
   assert.equal(bare.current.volatility, null);
   assert.equal(bare.suggested.volatility, null);
-});
-
-// A whole-run row as the loader reads it: width centred on the Point estimate.
-const runRow = (id, position, pe, width, extra = {}) => ({
-  player_id: id,
-  position,
-  mean: pe,
-  median: pe,
-  p10: pe - width / 2,
-  p25: pe - width / 4,
-  p75: pe + width / 4,
-  p90: pe + width / 2,
-  sample_size: 16,
-  factors: { availability: { available: true }, dataQuality: { residualSource: 'player', reasons: [] } },
-  ...extra,
-});
-
-test('loadVolatilityTags: one read of the run, tags per position from the reference set, ineligible null', async () => {
-  // 15 RBs on a width line (width = 2 x Point estimate); #1 far wider, #2 far narrower.
-  const rows = [];
-  for (let i = 1; i <= 15; i++) rows.push(runRow(i, 'RB', 6 + i, 2 * (6 + i)));
-  rows[0] = runRow(1, 'RB', 7, 30);
-  rows[1] = runRow(2, 'RB', 8, 2);
-  rows.push(runRow(99, 'RB', 12, 24, { sample_size: 3 })); // too few games: ineligible
-  const calls = [];
-  const client = { query: async (sql, params) => { calls.push({ sql, params }); return { rows }; } };
-  const run = { season: 2026, week: 5, modelVersion: projectionModel.MODEL_VERSION, scoringHash: 'h' };
-
-  const tags = await loadVolatilityTags({ run, positions: ['RB', 'TE', 'K'], client });
-
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].params.slice(0, 4), [2026, 5, 'h', projectionModel.MODEL_VERSION]);
-  assert.deepEqual(calls[0].params[4], ['RB', 'TE']); // only positions with a reading
-  assert.equal(tags.get(1), 'boom_or_bust');
-  assert.equal(tags.get(2), 'steady');
-  assert.equal(tags.get(99), null);
-});
-
-test('loadVolatilityTags: no taggable position means no read at all', async () => {
-  const client = { query: async () => { throw new Error('must not read'); } };
-  const run = { season: 2026, week: 5, modelVersion: projectionModel.MODEL_VERSION, scoringHash: 'h' };
-  const tags = await loadVolatilityTags({ run, positions: ['K', 'DEF'], client });
-  assert.equal(tags.size, 0);
 });
