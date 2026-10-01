@@ -386,59 +386,87 @@ async function loadOpponents({ leagueId, player, season, week, rules }) {
 }
 
 /**
- * The Volatility tag (#1849, spec #1845) for one player's card: `steady`,
- * `boom_or_bust` or null, read by the Interval reading module off the SAME run
- * the card reads (`entry` is the player's own entry from it) under the league's
- * scoring. The position's rows are loaded once per request, in one read of that
- * run; an ineligible entry (Unavailable, Position-baseline, pooled residual,
- * under 8 games, K/DEF/IDP) short-circuits before any query. No run for the
- * week, or a reference set under ten, reads null.
- * ponytail: no cache by run id; add one if the per-open position read shows up in load.
+ * The Volatility tag of every player in the run at `positions`:
+ * `Map<playerId, 'steady' | 'boom_or_bust' | null>`, read by the Interval
+ * reading module off the run of (season, week, the league's scoring). The ONE
+ * loader of the reading's reference set: the Decision card (`loadVolatility`)
+ * and the start/sit advice (#1858) both call it, so a player carries the same tag
+ * on both. One run lookup, then one read of the run per distinct position; a
+ * position with no reading (K, DEF, IDP) is not read, no run for the week reads
+ * an empty map, and a reference set under ten gives every player null.
+ * ponytail: no cache by run id; add one if the per-request position read shows up in load.
  */
-async function loadVolatility({ season, week, rules, player, entry }) {
-  if (!entry) return null;
+async function loadVolatilityTags({ season, week, rules, positions }) {
+  const tags = new Map();
   const reading = require('./intervalReading');
+  const wanted = [...new Set(positions)].filter((p) => reading.CONSTANTS.positions.includes(p));
+  if (wanted.length === 0) return tags;
   const model = require('./projectionModel');
   const { pointEstimateFor } = require('./projection.service');
   const withPoint = (row) => ({ ...row, pointEstimate: pointEstimateFor({ mean: row.mean, median: row.median, modelVersion: model.MODEL_VERSION }) });
-  const own = withPoint({ ...entry, playerId: player.id, position: player.position });
-  if (!reading.isEligible(own)) return null;
 
   const run = await pool.query(
     `SELECT "id" FROM "projection_runs"
      WHERE "season" = $1 AND "week" = $2 AND "scoring_hash" = $3 AND "model_version" = $4`,
     [season, week, model.scoringHash(rules), model.MODEL_VERSION]
   );
-  if (run.rows.length === 0) return null;
-  // Only the two factors the reading looks at: the full factors blob is large.
-  const result = await pool.query(
-    `SELECT w."player_id", p."position", w."mean", w."median", w."p10", w."p25", w."p75", w."p90",
-            w."sample_size",
-            jsonb_build_object('availability', w."factors" -> 'availability',
-                               'dataQuality', w."factors" -> 'dataQuality') AS "factors"
-     FROM "player_week_projections" w
-     JOIN "players" p ON p."id" = w."player_id"
-     WHERE w."run_id" = $1 AND p."position" = $2`,
-    [run.rows[0].id, player.position]
-  );
+  if (run.rows.length === 0) return tags;
   const num = (v) => (v == null ? null : Number(v));
-  const rows = result.rows.map((r) => withPoint({
-    playerId: r.player_id,
-    position: r.position,
-    mean: num(r.mean),
-    median: num(r.median),
-    p10: num(r.p10),
-    p25: num(r.p25),
-    p75: num(r.p75),
-    p90: num(r.p90),
-    sampleSize: Number(r.sample_size) || 0,
-    factors: r.factors || {},
-  }));
-  return reading.volatilityTags(rows).get(player.id) ?? null;
+  for (const position of wanted) {
+    // Only the two factors the reading looks at: the full factors blob is large.
+    const result = await pool.query(
+      `SELECT w."player_id", p."position", w."mean", w."median", w."p10", w."p25", w."p75", w."p90",
+              w."sample_size",
+              jsonb_build_object('availability', w."factors" -> 'availability',
+                                 'dataQuality', w."factors" -> 'dataQuality') AS "factors"
+       FROM "player_week_projections" w
+       JOIN "players" p ON p."id" = w."player_id"
+       WHERE w."run_id" = $1 AND p."position" = $2`,
+      [run.rows[0].id, position]
+    );
+    const rows = result.rows.map((r) => withPoint({
+      playerId: r.player_id,
+      position: r.position,
+      mean: num(r.mean),
+      median: num(r.median),
+      p10: num(r.p10),
+      p25: num(r.p25),
+      p75: num(r.p75),
+      p90: num(r.p90),
+      sampleSize: Number(r.sample_size) || 0,
+      factors: r.factors || {},
+    }));
+    for (const [playerId, tag] of reading.volatilityTags(rows)) tags.set(playerId, tag);
+  }
+  return tags;
+}
+
+/**
+ * The Volatility tag (#1849, spec #1845) for one player's card: `steady`,
+ * `boom_or_bust` or null, off the SAME run the card reads (`entry` is the
+ * player's own entry from it) under the league's scoring. An ineligible entry
+ * (Unavailable, Position-baseline, pooled residual, under 8 games, K/DEF/IDP)
+ * short-circuits before any query.
+ */
+async function loadVolatility({ season, week, rules, player, entry }) {
+  if (!entry) return null;
+  const reading = require('./intervalReading');
+  const model = require('./projectionModel');
+  const { pointEstimateFor } = require('./projection.service');
+  const own = {
+    ...entry,
+    playerId: player.id,
+    position: player.position,
+    pointEstimate: pointEstimateFor({ mean: entry.mean, median: entry.median, modelVersion: model.MODEL_VERSION }),
+  };
+  if (!reading.isEligible(own)) return null;
+  const tags = await loadVolatilityTags({ season, week, rules, positions: [player.position] });
+  return tags.get(player.id) ?? null;
 }
 
 module.exports = {
   loadVolatility,
+  loadVolatilityTags,
   LEAGUE_CONTEXT_TTL_MS,
   clearLeagueContextMemo,
   leagueContextMemoSize,

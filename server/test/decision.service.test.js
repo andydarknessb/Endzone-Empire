@@ -747,3 +747,24 @@ test('buildSuggestions: a called shot no longer pins once the lineup stopped mat
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.playerId, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Volatility tag on each suggestion side (#1858)
+// ---------------------------------------------------------------------------
+
+
+test('buildSuggestions: each side carries the volatility its context holds, null when it holds none', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 15 }]]));
+  const context = new Map([
+    [1, { opponent: null, opponentPointsAllowed: null, volatility: 'steady' }],
+    [2, { opponent: null, opponentPointsAllowed: null, volatility: 'boom_or_bust' }],
+  ]);
+  const tagged = buildSuggestions(lineup, projections, context, RB1).suggestions[0];
+  assert.equal(tagged.current.volatility, 'steady');
+  assert.equal(tagged.suggested.volatility, 'boom_or_bust');
+
+  const bare = buildSuggestions(lineup, projections, new Map(), RB1).suggestions[0];
+  assert.equal(bare.current.volatility, null);
+  assert.equal(bare.suggested.volatility, null);
+});

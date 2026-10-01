@@ -35,6 +35,7 @@ import {
   ordinal,
   hasNoHistory,
   projectionLabel,
+  VOLATILITY_LABELS,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
 import {
@@ -1221,8 +1222,6 @@ function GameSection({ entry, line, weather, level }) {
 // from the card payload's `decision.volatility` (`steady` | `boom_or_bust`);
 // anything else (null, absent, a tag this build does not know) renders nothing,
 // never an "unavailable" (ADR 0040).
-const VOLATILITY_LABELS = { steady: 'Steady', boom_or_bust: 'Boom or bust' };
-
 function ProjectionSection({ entry, level, volatility }) {
   const factorText = entry.factorExplanation || null;
   const volatilityLabel = VOLATILITY_LABELS[volatility] ?? null;

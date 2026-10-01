@@ -7,7 +7,7 @@
  * unit-tested directly.
  */
 
-import { finite } from '../../../shared/lib';
+import { finite, VOLATILITY_LABELS } from '../../../shared/lib';
 
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
@@ -110,6 +110,7 @@ function sideView(side, entriesById) {
     // carries the player's designation (O, IR, D, Q or null), the same field
     // the Ledger row's tag reads off the lineup entry.
     injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
+    volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
     opponentContext: opponentContextText({

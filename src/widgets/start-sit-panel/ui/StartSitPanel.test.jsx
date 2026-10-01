@@ -313,6 +313,40 @@ describe('fact chips (#1853)', () => {
   });
 });
 
+describe('Volatility tag (#1858)', () => {
+  const withTags = (current, suggested) => suggestion({
+    current: { ...suggestion().current, volatility: current },
+    suggested: { ...suggestion().suggested, volatility: suggested },
+  });
+  const renderPanel = (s) => render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+
+  test('a tagged pair shows each tag beside its own player', () => {
+    renderPanel(withTags('steady', 'boom_or_bust'));
+    const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+    expect(within(sitColumn).getByTestId('suggestion-volatility')).toHaveTextContent('Steady');
+    expect(within(startColumn).getByTestId('suggestion-volatility')).toHaveTextContent('Boom or bust');
+  });
+
+  test('an untagged pair shows no tag', () => {
+    renderPanel(withTags(null, null));
+    expect(screen.queryByTestId('suggestion-volatility')).not.toBeInTheDocument();
+  });
+
+  test('a mixed pair tags only the tagged side', () => {
+    renderPanel(withTags(null, 'steady'));
+    const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+    expect(within(sitColumn).queryByTestId('suggestion-volatility')).not.toBeInTheDocument();
+    expect(within(startColumn).getByTestId('suggestion-volatility')).toHaveTextContent('Steady');
+  });
+
+  test('the copy has no emoji and no em-dash', () => {
+    renderPanel(withTags('steady', 'boom_or_bust'));
+    for (const tag of screen.getAllByTestId('suggestion-volatility')) {
+      expect(tag.textContent).toMatch(/^[A-Za-z ]+$/);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // #1856: Call your shot
 // ---------------------------------------------------------------------------

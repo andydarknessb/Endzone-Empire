@@ -282,6 +282,9 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
           <Typography sx={NAME_SX}>{player.name}</Typography>
         )}
         <InjuryTag status={player.injuryStatus} />
+        {player.volatility && (
+          <Badge variant="neutral" data-testid="suggestion-volatility">{player.volatility}</Badge>
+        )}
       </Box>
       <RangeBar
         label={player.name}

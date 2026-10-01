@@ -23,8 +23,8 @@ const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
 const { getWeekOpponents } = require('./nflWeekOpponents');
-// The Decision card's Line and weather loaders, reused for the start/sit
-// card's fact chips (#1853) rather than read a second way.
+// The Decision card's Line, weather and Volatility loaders, reused for the
+// start/sit card's fact chips (#1853) and tags (#1858) rather than read a second way.
 const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
 // live what-if price a player-week the identical way the score of record does
@@ -102,7 +102,9 @@ function finiteNumber(value) {
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
  * opponentApplied, line, weather, weatherApplied, marketApplied } (#1853: the
  * game's Line and weather for the start/sit card's fact chips, each with the
- * Factor's applied flag that decides the "context only" label).
+ * Factor's applied flag that decides the "context only" label; and #1858's
+ * `volatility`, the player's Volatility tag or null, which rides to both sides
+ * of every suggestion through the same spread).
  */
 function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(), rosterSlots = undefined, options = undefined) {
   const slots = rosterSlots && rosterSlots.length > 0 ? rosterSlots : DEFAULT_ROSTER_SLOTS;
@@ -134,7 +136,8 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
-    defenseByPlayer.get(playerId) || { opponent: null, opponentPointsAllowed: null, line: null, weather: null };
+    defenseByPlayer.get(playerId)
+    || { opponent: null, opponentPointsAllowed: null, line: null, weather: null, volatility: null };
 
   const availabilityById = new Map();
   const pinned = new Map();
@@ -404,6 +407,18 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       return new Map();
     }),
   ]);
+  // The Volatility tags (#1858), one read of the run's rows for the roster's
+  // positions. Optional context: a failed read degrades to no tags, not no advice.
+  // The Decision card's own loader, so a player carries the same tag on both.
+  const volatilityByPlayer = await decisionCardContext.loadVolatilityTags({
+    season: effectiveSeason,
+    week: effectiveWeek,
+    rules: rulesForLeague(league),
+    positions: lineup.entries.map((e) => e.position),
+  }).catch((err) => {
+    console.error('start/sit advice: volatility lookup failed, continuing without tags:', err.message);
+    return new Map();
+  });
   // `defense` (getPositionDefense) keys itself by Team code (#1154,
   // projection.service.js), the same vocabulary `opponents` above already
   // folds into (#1136), so this pairing is folded-on-folded with no local
@@ -434,6 +449,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       weather: game ? game.weather : null,
       weatherApplied: run.weatherAppliedFor(entry.id),
       marketApplied: run.marketAppliedFor(entry.id),
+      volatility: volatilityByPlayer.get(entry.id) ?? null,
     });
   }
 
