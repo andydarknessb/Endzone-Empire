@@ -136,3 +136,60 @@ every player Active exactly as before and no replayed week changes. Recorded
 as an input correction touching no gate (ADR 0044, the #1589 precedent); it
 voids nothing. Captures made before the merge retain activeProbability 1 on
 the affected rows; no ledger row, snapshot or release_sha is rewritten.
+
+## 5. 2026-09-29: input correction, a box re-apply keeps the stored two-point conversion keys (#1760, PR #1803, commit 655a41766c118b6547b14aaf2db496fec5f57238, released in b1ac61b0)
+
+**What changed.** The Stat line write now runs through one ownership table
+(`STAT_KEY_OWNERSHIP`, `server/services/playerStatsWrite.service.js`): a
+replace-kind source is authoritative for the keys it owns and carries every
+key it does not own from the prior stored line. The `box` source (the Tank01
+and ESPN Live/Final box) does not own `passingTwoPt`, `rushingTwoPt`,
+`receivingTwoPt` or `kickReturns`, because no box builder emits them (the
+boxes carry only the defensive `twoPointReturn`); nflverse's Tue/Wed
+correction (`nflverse-correction`, `CORRECTION_KEYS`) writes all four. Under
+the old box path a box apply that landed after a correction stored the box
+line plus the 22-key `NFLVERSE_ONLY_STAT_KEYS` carry list, which did not hold
+the four keys, so the conversions nflverse had written were erased and
+`fantasy_points` dropped by 2 per conversion under the default rules
+(`passingTwoPt`, `rushingTwoPt` and `receivingTwoPt` are in `STAT_KEY_PATHS`,
+`server/services/scoringRules.js`). Now they survive, and the stored line and
+its `fantasy_points` match what the correction wrote. A box apply lands after
+a correction only on a recap regeneration (`gameRecap.service.js`), an admin
+re-sync, or a Final-box stamp that runs late; a game whose Final box applied
+before its correction never hit the old loss. `MODEL_VERSION`,
+`MODEL_CONSTANTS` and the pinned hash are untouched (the merge changes no
+file under the projection engine, the holdout capture or `scripts/holdout`),
+and the change rewrites no `player_stats` row by itself: a row that lost its
+conversions before the release keeps the loss until the next correction pass
+rewrites that week.
+
+**Why.** Spec #1758 / #1760 replaced four caller-chosen carry lists with one
+table. The old list's own rule was "only keys the live feed cannot
+regenerate"; the three conversion keys met that rule and were missing from
+it, so the old behaviour was a data loss, not a scoring decision. Whether
+this file needed an entry was raised on PR #1803 (formal-001 f1) and ruled
+on 2026-10-01: yes, because entry 3 rests on "none is added to
+`STAT_KEY_PATHS` ... never change `fantasy_points`", and this is the first
+carried key that is scored; without this entry the file would misdescribe
+what a box re-apply carries.
+
+**Which claims it touches.** None of the gates. Section 5 outcome truth is
+the pinned nflverse bytes re-scored by `calculateFantasyPoints`; no stored
+fantasy-point column is consumed, and the evaluator is pure over ledger rows
+and those actuals (`scripts/holdout/lib/evaluate.js`, `regret.js`
+`actualPoints`, `coverage.js`, `rosters.js` `preWeekRanking`), so no outcome
+and no roster ranking moves. The effect is on capture input only: the engine
+reads prior-week `player_stats.stats` (`scripts/backtest/lib/sqlSurface.js`
+`priorPlayerStats`, SQL text unchanged) and re-prices each line with
+`calculateFantasyPoints(stats, rules)` (`server/services/projectionFeatures.js`
+invariant 2), so from the first capture after the 2026-09-29 release a prior
+week that would have lost a conversion to a late box apply now carries it,
+which is the value the pinned nflverse source gives that week. No section 9
+void condition fires: `model_version` and `constants_hash` stay their season
+majority and the arms still share one feature snapshot. The successor
+evaluator (`server/scripts/run-successor-eval.js`) re-prices `player_stats`
+as its own actuals and so sees the kept keys; it is advisory (#1439, ADR
+0044), not a gate. Recorded as an input correction of the purely mechanical
+class, the same class as entries 1 and 3 (ADR 0044; #1760 ruling); it voids
+nothing. Captures made before the release retain the priors they read; no
+ledger row, snapshot or release_sha is rewritten.
