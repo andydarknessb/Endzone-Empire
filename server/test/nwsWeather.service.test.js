@@ -159,6 +159,8 @@ test('an outdoor game resolves the gridpoint then the period nearest kickoff', a
   assert.equal(forecast.windGustMph, 30);
   assert.equal(forecast.precipitationProbability, 40);
   assert.equal(client.writes.length, 1, 'the snapshot is cached for the next reader');
+  assert.equal(result.coverage.fetched, 1);
+  assert.equal(result.coverage.saved, 1, 'saved counts the snapshot writes that succeeded');
 });
 
 test('a cached snapshot in the same horizon bucket prevents a duplicate request', async (t) => {
@@ -358,6 +360,8 @@ test('a snapshot cache failure still returns the forecast it fetched', async (t)
     transport: recordingTransport(calls), client: brokenClient,
   });
   assert.equal(result.byGame.get('2026_06_NYJ_BUF').shortForecast, 'Windy');
+  assert.equal(result.coverage.fetched, 1);
+  assert.equal(result.coverage.saved, 0, 'a failed write is fetched but not saved');
 });
 
 test('no games means no work and no request', async (t) => {

@@ -281,6 +281,10 @@ async function getForecastsForGames({
 
   let requests = 0;
   let fetched = 0;
+  // `saved` counts the fetched forecasts whose snapshot write succeeded: a
+  // caller that must know the cache was actually filled (the weather-snapshots
+  // Sync run) reads it, because `fetched` is counted before the write.
+  let saved = 0;
   for (const game of locatable) {
     const hoursAway = (new Date(game.kickoffAt).getTime() - new Date(now).getTime()) / 3600000;
     // No forecast exists for a kickoff past NWS's reach, and none is useful
@@ -310,6 +314,7 @@ async function getForecastsForGames({
         await saveSnapshot({
           season, week, gameKey: game.gameKey, horizonHours: bucket, forecast, client,
         });
+        saved += 1;
       } catch (err) {
         // A cache write failure must not lose the forecast we already have.
         console.error('weather: snapshot write failed for %s:', game.gameKey, err.message);
@@ -328,6 +333,7 @@ async function getForecastsForGames({
       indoorGames: indoorCount,
       requests,
       fetched,
+      saved,
     },
   };
 }

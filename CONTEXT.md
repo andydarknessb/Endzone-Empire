@@ -330,6 +330,8 @@ _Avoid_: stadium (fine in copy, not as the term), location
 
 **Weather**:
 A game's forecast, read from `game_weather_snapshots` at the nearest horizon.
+That table is refreshed by the weather snapshots Sync run (every 6 hours, one
+horizon bucket); a run where NWS answered nothing fails and retries next tick.
 The Decision card, Pick'em and the start/sit card each read it independently
 (#1294, no shared shape): the Decision card's wire carries six fields (`indoor`, `temperatureF`,
 `windSpeedMph`, `windGustMph`, `precipitationProbability`, `shortForecast`),
@@ -422,9 +424,10 @@ dropped (a fantasy-roster word, ambiguous here)
 **Sync run**:
 One execution of a feed sync (injuries, ADP, schedule, players, week stats)
 or of a scheduled maintenance pass that must run once a day across worker
-restarts (the nightly projection fill, the Tue/Wed stat-correction pass),
-recorded whether it succeeded, was refused, or failed, and with the reason
-when it did not succeed. The scheduler status and the health probe read the
+restarts (the nightly projection fill, the Tue/Wed stat-correction pass) or
+on its own interval (the weather snapshots refresh, every 6 hours), recorded
+whether it succeeded, was refused, or failed, and with the reason when it did
+not succeed. The scheduler status and the health probe read the
 latest Sync run for a job; "last successful sync" means the latest one that
 succeeded, not the latest one that ran (ADR 0036). The stat-correction pass
 wipes every Weekly projection run from the corrected week+1 onward, so a
