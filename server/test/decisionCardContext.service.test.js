@@ -400,7 +400,7 @@ test('loadVolatility: no run for the week, or a reference set under ten, shows n
   assert.equal(await tagFor(rows, 1), null);
 });
 test('loadVolatilityTags: one run lookup and one read per distinct position, tags merged across positions (#1858)', async (t) => {
-  const wr = wrRun();
+  const wr = [...wrRun(), runRow(13, 'WR', 15, 8, { sample_size: 3 })]; // too few games
   const rb = [];
   for (let id = 101; id <= 112; id += 1) rb.push(runRow(id, 'RB', id - 90, 8));
   rb[0] = runRow(101, 'RB', 11, 20);
@@ -418,6 +418,7 @@ test('loadVolatilityTags: one run lookup and one read per distinct position, tag
   assert.equal(tags.get(1), 'boom_or_bust');
   assert.equal(tags.get(2), 'steady');
   assert.equal(tags.get(101), 'boom_or_bust');
+  assert.equal(tags.get(13), null, 'an ineligible row reads null, never a tag');
   assert.equal(fake.calls.filter((q) => q.text.includes('FROM "projection_runs"')).length, 1);
   assert.deepEqual(
     fake.calls.filter((q) => q.text.includes('FROM "player_week_projections"')).map((q) => q.params),

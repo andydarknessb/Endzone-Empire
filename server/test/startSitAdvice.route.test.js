@@ -109,6 +109,11 @@ function mockAdviceDependencies(t, {
   queryLog = [],
   // #1853: make every odds read reject, to pin the degrade-to-no-chips path.
   failOdds = false,
+  // #1858: the run's stored rows (player_week_projections shape, with position)
+  // the Volatility read tags against; none means no run for the week. A test can
+  // make that read reject to pin the degrade-to-no-tags path.
+  volatilityRows = null,
+  failVolatility = false,
 } = {}) {
   const projectionCalls = [];
   t.mock.method(pool, 'query', async (sql, params) => {
@@ -117,6 +122,11 @@ function mockAdviceDependencies(t, {
     if (failOdds && text.includes('FROM "game_odds_snapshots"')) throw new Error('pool timeout');
     if (text.includes('FROM "leagues"')) return { rows: [league] };
     if (text.includes('FROM "lineup_overrides"')) return { rows: [] }; // #1856: no called shot here
+    if (text.includes('FROM "projection_runs"')) return { rows: volatilityRows ? [{ id: 77 }] : [] };
+    if (text.includes('FROM "player_week_projections"')) {
+      if (failVolatility) throw new Error('pool timeout');
+      return { rows: (volatilityRows || []).filter((r) => r.position === params[1]) };
+    }
     if (text.includes('FROM "game_odds_snapshots"')) return { rows: oddsByGame[params[0]] ? [oddsByGame[params[0]]] : [] };
     if (text.includes('FROM "game_weather_snapshots"')) return { rows: weatherByGame[params[0]] ? [weatherByGame[params[0]]] : [] };
     if (text.includes('FROM "nfl_games"')) {
@@ -552,4 +562,115 @@ test('a rejected Line or weather read still answers the advice, with null line a
     assert.equal(side.weather, null);
   }
   assert.equal(current.opponent, 'NYJ', 'the rest of the advice is unchanged');
+});
+
+// ---------------------------------------------------------------------------
+// #1858: the Volatility tag on each suggestion side
+// ---------------------------------------------------------------------------
+
+const OWN_FACTORS = {
+  availability: { available: true },
+  dataQuality: { residualSource: 'player', reasons: [] },
+};
+
+// A stored run row: Point estimate `point`, a p10..p90 Interval `width` wide.
+const runRow = (id, position, point, width, over = {}) => ({
+  player_id: id,
+  position,
+  mean: point,
+  median: point,
+  p10: point - width / 2,
+  p25: point - width / 4,
+  p75: point + width / 4,
+  p90: point + width / 2,
+  sample_size: 16,
+  factors: OWN_FACTORS,
+  ...over,
+});
+
+// Twelve RBs of one width, plus id 3 far wider (boom or bust) and id 1 far
+// narrower (steady); twelve WRs, with id 5 on too few games to be eligible.
+function volatilityRun() {
+  const rows = [runRow(3, 'RB', 11, 20), runRow(1, 'RB', 12, 2), runRow(5, 'WR', 15, 8, { sample_size: 3 })];
+  for (let id = 101; id <= 110; id += 1) rows.push(runRow(id, 'RB', 10 + (id - 100), 8));
+  for (let id = 201; id <= 211; id += 1) rows.push(runRow(id, 'WR', 10 + (id - 200), 8));
+  return rows;
+}
+
+const volatilityEntries = () => [
+  lineupEntry(1, 'RB', 'RB', { nfl_team: 'BUF' }),
+  lineupEntry(3, 'RB', 'BENCH', { nfl_team: 'NYJ' }),
+  lineupEntry(5, 'WR', 'BENCH', { nfl_team: 'NYJ' }),
+];
+const RB_ONLY = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
+const volatilityProjections = () => [
+  [1, projectionFor(1, 6)], [3, projectionFor(3, 18)], [5, projectionFor(5, 4)],
+];
+
+test('each suggestion side carries its Volatility tag from one run lookup and one read per position (#1858)', async (t) => {
+  const queryLog = [];
+  mockAdviceDependencies(t, {
+    entries: volatilityEntries(),
+    rosterSlots: RB_ONLY,
+    projections: volatilityProjections(),
+    volatilityRows: volatilityRun(),
+    queryLog,
+  });
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  const { current, suggested } = response.body.suggestions[0];
+  assert.equal(current.playerId, 1);
+  assert.equal(current.volatility, 'steady');
+  assert.equal(suggested.playerId, 3);
+  assert.equal(suggested.volatility, 'boom_or_bust');
+  // An ineligible player (too few games) and a player on the roster at another
+  // position read null, never a guessed tag.
+  assert.equal(response.body.players.find((p) => p.playerId === 5).volatility, null);
+
+  assert.equal(queryLog.filter((q) => q.text.includes('FROM "projection_runs"')).length, 1);
+  assert.deepEqual(
+    queryLog.filter((q) => q.text.includes('FROM "player_week_projections"')).map((q) => q.params),
+    [[77, 'RB'], [77, 'WR']],
+    'one read per distinct taggable position on the roster, per advice call'
+  );
+});
+
+test('a failed Volatility read still returns the advice, with null tags (#1858)', async (t) => {
+  mockAdviceDependencies(t, {
+    entries: volatilityEntries(),
+    rosterSlots: RB_ONLY,
+    projections: volatilityProjections(),
+    volatilityRows: volatilityRun(),
+    failVolatility: true,
+  });
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
+
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+
+  assert.equal(response.status, 200);
+  const { current, suggested } = response.body.suggestions[0];
+  assert.equal(current.volatility, null);
+  assert.equal(suggested.volatility, null);
+  assert.ok(logged.some((line) => line.includes('volatility lookup failed')));
+});
+
+test('no run for the week reads null tags on both sides (#1858)', async (t) => {
+  mockAdviceDependencies(t, {
+    entries: volatilityEntries(),
+    rosterSlots: RB_ONLY,
+    projections: volatilityProjections(),
+  });
+  const response = await request(app)
+    .get('/api/team/lineup/advice?leagueId=3')
+    .set('Authorization', `Bearer ${token()}`);
+  const { current, suggested } = response.body.suggestions[0];
+  assert.equal(current.volatility, null);
+  assert.equal(suggested.volatility, null);
 });

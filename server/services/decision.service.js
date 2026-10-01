@@ -407,10 +407,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       return new Map();
     }),
   ]);
-  // `defense` (getPositionDefense) keys itself by Team code (#1154,
-  // projection.service.js), the same vocabulary `opponents` above already
-  // folds into (#1136), so this pairing is folded-on-folded with no local
-  // remap: read `defense` directly with the already-canonical opponent.
   // The Volatility tags (#1858), one read of the run's rows for the roster's
   // positions. Optional context: a failed read degrades to no tags, not no advice.
   // The Decision card's own loader, so a player carries the same tag on both.
@@ -423,6 +419,10 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     console.error('start/sit advice: volatility lookup failed, continuing without tags:', err.message);
     return new Map();
   });
+  // `defense` (getPositionDefense) keys itself by Team code (#1154,
+  // projection.service.js), the same vocabulary `opponents` above already
+  // folds into (#1136), so this pairing is folded-on-folded with no local
+  // remap: read `defense` directly with the already-canonical opponent.
   const defenseByPlayer = new Map();
   for (const entry of lineup.entries) {
     const opponent = opponents.get(normalizeNflTeam(entry.nfl_team)) || null;

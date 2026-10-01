@@ -7,7 +7,7 @@
  * unit-tested directly.
  */
 
-import { finite } from '../../../shared/lib';
+import { finite, VOLATILITY_LABELS } from '../../../shared/lib';
 
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
@@ -86,10 +86,6 @@ export function earlierKickoff(a, b) {
   if (bTime == null) return a;
   return aTime <= bTime ? a : b;
 }
-
-// The Volatility tag's wire values and their card copy (#1858): the Interval
-// reading's `steady` and `boom_or_bust`. Anything else reads as no tag.
-const VOLATILITY_LABELS = { steady: 'Steady', boom_or_bust: 'Boom or bust' };
 
 /**
  * One suggestion side (the advice's `current` or `suggested`), enriched with
