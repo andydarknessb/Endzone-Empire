@@ -174,6 +174,9 @@ test('weather-snapshots never throws into the tick: an NWS outage records a fail
   assert.equal(world.syncRuns.length, 1);
   assert.equal(world.syncRuns[0].job, 'weather-snapshots');
   assert.equal(world.syncRuns[0].ok, false);
+  // The unit says the feed failed; the run-level reason stays ADR 0036's `write_failed`.
+  assert.equal(world.syncRuns[0].detail.failed[0].reason, 'fetch_failed');
+  assert.equal(world.syncRuns[0].detail.reason, 'write_failed');
 });
 
 test('weather-snapshots fails the run when forecasts were fetched and none was saved', async (t) => {
@@ -192,6 +195,7 @@ test('weather-snapshots fails the run when forecasts were fetched and none was s
   assert.equal(world.writes.length, 0);
   assert.equal(world.syncRuns.length, 1);
   assert.equal(world.syncRuns[0].ok, false);
+  assert.equal(world.syncRuns[0].detail.failed[0].reason, 'write_failed');
 });
 
 test('weather-snapshots keeps an unconfigured NWS_USER_AGENT an ok run and says why nothing was fetched', async (t) => {
