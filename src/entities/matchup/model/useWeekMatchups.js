@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useResource } from '../../../hooks/useResource';
 import { matchupFromListRow } from './matchupModel';
 
+const TTL_MS = 30000;
+
 /**
  * One league week's Matchups as read models (#1872, ADR 0004 / ADR 0029): the
  * shared, cached read of the league's matchups list for one week, which is on the
@@ -14,7 +16,12 @@ import { matchupFromListRow } from './matchupModel';
  * Keyed by league and week, so a surface on a different week (the page reads the
  * viewed week, both widgets read the league's current week) keeps reading the
  * week it always did, and they coincide on one request only when the weeks do.
- * No TTL: a mount always reloads, and only mounts in flight together share.
+ * A 30 s TTL (the same as `useStandings`, the other score-bearing list): the
+ * store dedupes only a request in flight, so without it a mount arriving after
+ * the first read settled (the page waits on the lineup's week, the widgets do
+ * not) would fetch the same URL again. Live scores still move inside the TTL
+ * because the strip applies the `scores:updated` socket payload on top of this
+ * list, which never polls on its own.
  *
  * A null `leagueId` or `week` never fetches (the same null-URL contract the plain
  * reads it replaces relied on), and `enabled: false` is the same for a caller
@@ -28,7 +35,8 @@ export function useWeekMatchups(leagueId, week, { enabled = true } = {}) {
   const active = enabled && leagueId != null && week != null;
   const { data, loading, error } = useResource(
     active ? ['league-matchups', leagueId, week] : null,
-    active ? `/api/league/${leagueId}/matchups?week=${week}` : null
+    active ? `/api/league/${leagueId}/matchups?week=${week}` : null,
+    { ttl: TTL_MS }
   );
   const matchups = useMemo(
     () => (Array.isArray(data) ? data.map(matchupFromListRow) : []),
