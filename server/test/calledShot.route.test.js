@@ -249,15 +249,13 @@ test('the advice reports the shot as locked once either player has kicked off (#
   assert.equal(response.body.calledShot.canWithdraw, false);
 });
 
-test('the advice resolves a settled week\'s shot: a hit when the starter outscored the benched player (#1856)', async (t) => {
-  const { world } = mountWorld(t, {
-    calledRow: joinedRow(),
-    settled: true,
+test('the advice carries a stored hit as resolved and never rewrites it (#1860)', async (t) => {
+  const { fake, world } = mountWorld(t, {
+    calledRow: joinedRow({
+      outcome: 'hit', starter_points_actual: '20.00', benched_points_actual: '2.00',
+      resolved_at: '2026-10-13T15:00:00.000Z',
+    }),
     kickedOff: ['BUF'],
-    actualStats: [
-      { player_id: 1, stats: { rushingYards: 100 } },
-      { player_id: 3, stats: { rushingYards: 20 } },
-    ],
   });
   const response = await request(app).get('/api/team/lineup/advice?leagueId=3').set(auth());
   const shot = response.body.calledShot;
@@ -265,15 +263,21 @@ test('the advice resolves a settled week\'s shot: a hit when the starter outscor
   assert.equal(shot.outcome, 'hit');
   assert.ok(shot.starter.points > shot.benched.points);
   assert.equal(world.calledRow.outcome, 'hit');
+  assert.equal(fake.matching(/^UPDATE "lineup_overrides"/).length, 0);
 });
 
-test('a settled shot whose player never played resolves void (#1856)', async (t) => {
-  mountWorld(t, {
+test('the advice leaves a pending shot pending when the week\'s matchups are all final (#1860, ruling on #1879)', async (t) => {
+  const { world } = mountWorld(t, {
     calledRow: joinedRow(), settled: true, kickedOff: ['BUF'],
-    actualStats: [{ player_id: 1, stats: { rushingYards: 100 } }],
+    actualStats: [
+      { player_id: 1, stats: { rushingYards: 100 } },
+      { player_id: 3, stats: { rushingYards: 20 } },
+    ],
   });
   const response = await request(app).get('/api/team/lineup/advice?leagueId=3').set(auth());
-  assert.equal(response.body.calledShot.outcome, 'void');
+  assert.equal(response.body.calledShot.status, 'locked');
+  assert.equal(response.body.calledShot.outcome, null);
+  assert.equal(world.calledRow.outcome, 'pending');
 });
 
 test('the advice still answers when the shot read fails (#1856)', async (t) => {

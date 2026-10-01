@@ -70,6 +70,39 @@ test('loadCalledShot carries the numbers as called and is null without a shot', 
   assert.equal(await loadCalledShot(none, { league, teamId: 10, season: 2026, week: 6 }), null);
 });
 
+test('loadCalledShot never writes an outcome: a pending row stays pending in a week whose matchups are all final (#1860, ruling on #1879)', async () => {
+  const fake = createFakePool([
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [row()] })],
+    [/FROM "matchups"/, () => ({ rows: [{ n: 1, all_final: true }] })],
+    [/FROM "player_stats"/, () => ({ rows: [
+      { player_id: 1, stats: { rushingYards: 100 } },
+      { player_id: 3, stats: { rushingYards: 20 } },
+    ] })],
+    [/^UPDATE "lineup_overrides"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+  ]);
+  const shot = await loadCalledShot(fake, { league: { id: 3 }, teamId: 10, season: 2026, week: 6 });
+  assert.equal(fake.matching(/^UPDATE "lineup_overrides"/).length, 0);
+  assert.equal(shot.status, 'pending');
+  assert.equal(shot.outcome, null);
+  assert.equal(shot.resolvedAt, null);
+});
+
+test('loadCalledShot reads a stored outcome as resolved with both players\' points', async () => {
+  const fake = createFakePool([
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [row({
+      outcome: 'miss', starter_points_actual: '4.50', benched_points_actual: '12.00',
+      resolved_at: '2026-10-13T15:00:00.000Z',
+    })] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+  ]);
+  const shot = await loadCalledShot(fake, { league: { id: 3 }, teamId: 10, season: 2026, week: 6 });
+  assert.equal(shot.status, 'resolved');
+  assert.equal(shot.outcome, 'miss');
+  assert.deepEqual([shot.starter.points, shot.benched.points], [4.5, 12]);
+  assert.equal(shot.canWithdraw, false);
+});
+
 test('declareCalledShot refuses a malformed pair before touching the database', async () => {
   for (const pair of [{}, { starterId: 1 }, { starterId: 1, benchedId: 1 }, { starterId: '1', benchedId: 2 }]) {
     await assert.rejects(
