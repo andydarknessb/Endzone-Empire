@@ -12,14 +12,15 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * does, rather than fetching the advice itself).
  *
  * `apply(movePlan)` takes a `movePlan` in the advice response's shape
- * (`[{ playerId, fromSlot, toSlot }]`, `server/services/decision.service.js`)
- * and converts it to the write endpoint's `moves` shape
- * (`[{ playerId, slot }]`) with no re-derivation of its own. The caller may
- * pass the response's plan reduced by the suggestions the manager dismissed
- * (the Start/sit panel does); the hook neither knows nor cares, and it never
- * re-assigns a slot the advice did not name (AC2), because the only slots it
- * ever writes are the ones the plan it is given already names. A refused write rolls
- * the optimistic patch back to the exact snapshot taken before it, the same
+ * (`[{ playerId, fromSlot, toSlot }]`,
+ * `server/services/decision.service.js`) and converts it to the write
+ * endpoint's `moves` shape (`[{ playerId, slot }]`) with no re-derivation
+ * of its own. The caller may pass the response's plan reduced by the
+ * suggestions the manager dismissed;
+ * the hook neither knows nor cares, and it never re-assigns a slot the
+ * advice did not name (AC2), because the only slots it ever writes are the
+ * ones the plan it is given already names. A refused write rolls the
+ * optimistic patch back to the exact snapshot taken before it, the same
  * rollback contract swap-players and drop-player both already give a
  * manager today.
  *
