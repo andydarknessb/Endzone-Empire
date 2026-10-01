@@ -1,7 +1,6 @@
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { readHttpFailure } from '../../../lib/httpFailure';
-import { clearWeekMatchupsCache } from '../../../entities/matchup/model/weekMatchupsCache';
 
 /**
  * apply-advice feature (#1238, ADR 0037 AC2): applies the Start/sit advice's
@@ -21,13 +20,18 @@ import { clearWeekMatchupsCache } from '../../../entities/matchup/model/weekMatc
  * the optimistic patch back to the exact snapshot taken before it, the same
  * rollback contract swap-players and drop-player both already give a
  * manager today.
+ *
+ * `onLanded` (#1881, optional): called with no arguments once a write has
+ * landed on the server, either right after `saveLineup` resolves unqueued or
+ * when a queued write replays. Never on a refused or still-queued save. The
+ * page supplies it to refresh whatever read the write made stale.
  */
-export function useApplyAdvice({ leagueId, raw, setRaw }) {
+export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
   const notify = useSnackbar();
   // #1881: a save that lands (now, or when a queued one replays) changes Expected final.
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: () => {
-      clearWeekMatchupsCache(leagueId);
+      onLanded?.();
       notify('Lineup saved');
     },
   });
@@ -47,7 +51,7 @@ export function useApplyAdvice({ leagueId, raw, setRaw }) {
     );
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
-      if (!result.queued) clearWeekMatchupsCache(leagueId);
+      if (!result.queued) onLanded?.();
       notify(
         result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
         { severity: result.queued ? 'info' : 'success' }

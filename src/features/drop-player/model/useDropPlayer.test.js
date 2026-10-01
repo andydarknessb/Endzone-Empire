@@ -1,6 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
-import { read, setResource, invalidate } from '../../../lib/resourceCache';
 import { useDropPlayer } from './useDropPlayer';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -14,7 +13,6 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 }));
 
 afterEach(() => {
-  invalidate(undefined, { reload: false });
   jest.clearAllMocks();
 });
 
@@ -78,48 +76,61 @@ test('confirmDrop with no candidate is a no-op', async () => {
 });
 
 // #1881: a drop or an undo changes the roster behind Expected final, so the
-// cached week Matchups list (30 s TTL, #1877) is cleared once the write lands.
-describe('matchups list cache after a drop or undo (#1881)', () => {
-  const MATCHUPS_KEY = ['league-matchups', 7, 4];
-
-  test('a confirmed drop whose DELETE resolves clears the cached list; the Undo POST clears it again', async () => {
+// page's `onLanded` runs once the write has landed, never on a failure.
+describe('onLanded after a drop or undo (#1881)', () => {
+  test('a confirmed drop whose DELETE resolves calls it once; the Undo POST brings it to two', async () => {
     apiClient.delete.mockResolvedValue({});
     apiClient.post.mockResolvedValue({});
-    setResource(MATCHUPS_KEY, []);
-    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue() }));
+    const onLanded = jest.fn();
+    const { result } = renderHook(() =>
+      useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue(), onLanded })
+    );
     act(() => result.current.requestDrop(entry));
     await act(async () => result.current.confirmDrop());
-    expect(read(MATCHUPS_KEY)).toBeUndefined();
+    expect(onLanded).toHaveBeenCalledTimes(1);
 
-    setResource(MATCHUPS_KEY, []);
     const [, options] = mockNotify.mock.calls[0];
     await act(async () => options.onAction());
 
     expect(apiClient.post).toHaveBeenCalled();
-    expect(read(MATCHUPS_KEY)).toBeUndefined();
+    expect(onLanded).toHaveBeenCalledTimes(2);
   });
 
-  test('a drop whose DELETE is rejected leaves the cached list', async () => {
-    apiClient.delete.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
-    setResource(MATCHUPS_KEY, []);
-    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn() }));
-    act(() => result.current.requestDrop(entry));
-    await act(async () => result.current.confirmDrop());
-
-    expect(read(MATCHUPS_KEY)).toBeDefined();
-  });
-
-  test('an Undo whose POST is rejected leaves the cached list', async () => {
+  test('a drop and an undo with no onLanded passed do not throw', async () => {
     apiClient.delete.mockResolvedValue({});
-    apiClient.post.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
-    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue() }));
+    apiClient.post.mockResolvedValue({});
+    const refresh = jest.fn().mockResolvedValue();
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh }));
     act(() => result.current.requestDrop(entry));
     await act(async () => result.current.confirmDrop());
-
-    setResource(MATCHUPS_KEY, []);
     const [, options] = mockNotify.mock.calls[0];
     await act(async () => options.onAction());
 
-    expect(read(MATCHUPS_KEY)).toBeDefined();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  test('a drop whose DELETE is rejected never calls it', async () => {
+    apiClient.delete.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    const onLanded = jest.fn();
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn(), onLanded }));
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+
+    expect(onLanded).not.toHaveBeenCalled();
+  });
+
+  test('an Undo whose POST is rejected does not call it again', async () => {
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
+    const onLanded = jest.fn();
+    const { result } = renderHook(() =>
+      useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue(), onLanded })
+    );
+    act(() => result.current.requestDrop(entry));
+    await act(async () => result.current.confirmDrop());
+    const [, options] = mockNotify.mock.calls[0];
+    await act(async () => options.onAction());
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,12 +1,25 @@
 import { useMemo } from 'react';
 import { useResource } from '../../../hooks/useResource';
+import { invalidate } from '../../../lib/resourceCache';
 import { matchupFromListRow } from './matchupModel';
 
-// The clear helper lives in its own file (see weekMatchupsCache.js for why) and
-// is re-exported here so it sits beside the hook whose key it clears.
-export { clearWeekMatchupsCache } from './weekMatchupsCache';
-
 const TTL_MS = 30000;
+
+/**
+ * Drops the cached week Matchups for one league (every week), or for every
+ * league when called with no id, and reloads the mounts already reading them
+ * (#1881). The list carries each Matchup's Expected final, which the server
+ * recomputes from the live lineup rows on every request, so a write that
+ * changes the lineup or the roster (a saved move, an applied advice plan, a
+ * drop or an undo) leaves the cached figure stale for the rest of the 30 s TTL
+ * until this runs. The Lineup page calls it from the `onLanded` callback it
+ * hands those features, since a feature may not import this entity (ADR 0029,
+ * ADR 0031). The reload is stale-while-revalidate: a mounted Lineup page keeps
+ * its current figure on screen until the new response arrives.
+ */
+export function clearWeekMatchupsCache(leagueId) {
+  invalidate(leagueId == null ? ['league-matchups'] : ['league-matchups', leagueId]);
+}
 
 /**
  * One league week's Matchups as read models (#1872, ADR 0004 / ADR 0029): the

@@ -3,7 +3,6 @@ import useResilientLineupMutation from '../../../hooks/useResilientLineupMutatio
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { locked, slotsFor, parseRosterTemplate } from '../../../entities/roster';
-import { clearWeekMatchupsCache } from '../../../entities/matchup/model/weekMatchupsCache';
 
 /**
  * Whether `entry` may occupy `slotKey` (#1500): delegates to the Roster
@@ -151,13 +150,18 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * this hook makes (`isEligibleTarget`, `quickPickEligible`) so they delegate
  * to the Roster template entity's `slotsFor` rather than re-deriving
  * eligibility from `entries[].eligibleSlots` a second time.
+ *
+ * `onLanded` (#1881, optional): called with no arguments once a write has
+ * landed on the server, either right after `saveLineup` resolves unqueued or
+ * when a queued write replays. Never on a refused or still-queued save. The
+ * page supplies it to refresh whatever read the write made stale.
  */
-export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
+export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, onLanded }) {
   const notify = useSnackbar();
   // #1881: a save that lands (now, or when a queued one replays) changes Expected final.
   const { saveLineup } = useResilientLineupMutation({
     onReplaySuccess: () => {
-      clearWeekMatchupsCache(leagueId);
+      onLanded?.();
       notify('Lineup saved');
     },
   });
@@ -178,7 +182,7 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
     );
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
-      if (!result.queued) clearWeekMatchupsCache(leagueId);
+      if (!result.queued) onLanded?.();
       notify(
         result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
         { severity: result.queued ? 'info' : 'success' }

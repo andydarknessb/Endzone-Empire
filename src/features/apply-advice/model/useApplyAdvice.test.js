@@ -5,7 +5,6 @@ import {
   PENDING_LINEUP_MUTATIONS_KEY,
   readPendingLineupMutations,
 } from '../../../lib/pendingLineupMutations';
-import { read, setResource, invalidate } from '../../../lib/resourceCache';
 import { useApplyAdvice } from './useApplyAdvice';
 
 jest.mock('../../../api/apiClient', () => ({
@@ -19,17 +18,16 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 }));
 
 afterEach(() => {
-  invalidate(undefined, { reload: false });
   jest.clearAllMocks();
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
 });
 
-function setup(raw) {
+function setup(raw, onLanded) {
   let currentRaw = raw;
   const setRaw = jest.fn((updater) => {
     currentRaw = typeof updater === 'function' ? updater(currentRaw) : updater;
   });
-  const { result } = renderHook(() => useApplyAdvice({ leagueId: 7, raw: currentRaw, setRaw }));
+  const { result } = renderHook(() => useApplyAdvice({ leagueId: 7, raw: currentRaw, setRaw, onLanded }));
   return { result, setRaw, getRaw: () => currentRaw };
 }
 
@@ -87,51 +85,61 @@ test('a refused apply rolls the optimistic state back to the exact snapshot', as
   expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' });
 });
 
-// #1881: the week's Matchups list carries Expected final, which an applied
-// plan changes, so a save that lands clears the cached list (30 s TTL, #1877).
-describe('matchups list cache after an apply (#1881)', () => {
-  const MATCHUPS_KEY = ['league-matchups', 7, 4];
+// #1881: a save that lands changes Expected final, so the page's `onLanded`
+// runs once it has (now, or when a queued write replays), never otherwise.
+describe('onLanded after an apply (#1881)', () => {
   const PLAN = [{ playerId: 1, fromSlot: 'BENCH', toSlot: 'WR' }];
 
-  test('a save whose PUT resolves clears the cached list', async () => {
+  test('a save whose PUT resolves calls it once', async () => {
     apiClient.put.mockResolvedValue({ data: {} });
-    setResource(MATCHUPS_KEY, []);
+    const onLanded = jest.fn();
+    const { result } = setup(RAW, onLanded);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+
+  test('a resolved save with no onLanded passed does not throw', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
     const { result } = setup(RAW);
 
     await act(async () => {
       await result.current.apply(PLAN);
     });
 
-    expect(read(MATCHUPS_KEY)).toBeUndefined();
+    expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' });
   });
 
-  test('a save refused with an HTTP error leaves the cached list', async () => {
+  test('a save refused with an HTTP error never calls it', async () => {
     apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
-    setResource(MATCHUPS_KEY, []);
-    const { result } = setup(RAW);
+    const onLanded = jest.fn();
+    const { result } = setup(RAW, onLanded);
 
     await act(async () => {
       await result.current.apply(PLAN);
     });
 
-    expect(read(MATCHUPS_KEY)).toBeDefined();
+    expect(onLanded).not.toHaveBeenCalled();
   });
 
-  test('a save queued offline leaves the cached list until the replay lands', async () => {
+  test('a save queued offline calls it only once the replay lands', async () => {
     apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
-    setResource(MATCHUPS_KEY, []);
-    const { result } = setup(RAW);
+    const onLanded = jest.fn();
+    const { result } = setup(RAW, onLanded);
 
     await act(async () => {
       await result.current.apply(PLAN);
     });
 
     expect(readPendingLineupMutations()).toHaveLength(1);
-    expect(read(MATCHUPS_KEY)).toBeDefined();
+    expect(onLanded).not.toHaveBeenCalled();
 
     act(() => {
       window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
     });
-    expect(read(MATCHUPS_KEY)).toBeUndefined();
+    expect(onLanded).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { LINEUP_MUTATION_REPLAYED_EVENT, PENDING_LINEUP_MUTATIONS_KEY, readPendingLineupMutations } from '../../../lib/pendingLineupMutations';
-import { read, setResource, invalidate } from '../../../lib/resourceCache';
 import { DEFAULT_ROSTER_SLOTS } from '../../../entities/roster';
 import { isEligibleMove, useSwapPlayers } from './useSwapPlayers';
 
@@ -16,7 +15,6 @@ jest.mock('../../../components/Snackbar/SnackbarProvider', () => ({
 }));
 
 afterEach(() => {
-  invalidate(undefined, { reload: false });
   jest.clearAllMocks();
   window.localStorage.removeItem(PENDING_LINEUP_MUTATIONS_KEY);
 });
@@ -40,7 +38,7 @@ const entry = (overrides = {}) => ({
 // `eligibleSlots` on its fixtures for the standalone `isEligibleMove` describe
 // block below, which calls the exported function directly with no template
 // and so exercises its fallback.
-function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget } = {}) {
+function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget, onLanded } = {}) {
   let currentRaw =
     raw ?? { week: 4, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
   const setRaw = jest.fn((updater) => {
@@ -48,7 +46,7 @@ function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEli
   });
   const { result, rerender } = renderHook(
     (props) =>
-      useSwapPlayers({ leagueId: 7, raw: currentRaw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, ...props })
+      useSwapPlayers({ leagueId: 7, raw: currentRaw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, onLanded, ...props })
   );
   return { result, rerender, setRaw, getRaw: () => currentRaw };
 }
@@ -411,50 +409,58 @@ test('a queued mutation replaying on reconnect notifies "Lineup saved"', () => {
   expect(mockNotify).toHaveBeenCalledWith('Lineup saved');
 });
 
-// #1881: the week's Matchups list carries Expected final, which a lineup save
-// changes, so a save that lands clears the cached list (30 s TTL, #1877).
-describe('matchups list cache after a save (#1881)', () => {
-  const MATCHUPS_KEY = ['league-matchups', 7, 4];
+// #1881: a save that lands changes Expected final, so the page's `onLanded`
+// runs once it has (now, or when a queued write replays), never otherwise.
+describe('onLanded after a save (#1881)', () => {
   const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
   const move = (result) => {
     act(() => result.current.onRowClick(bench, 'BENCH'));
     act(() => result.current.onRowClick(null, 'BENCH'));
   };
 
-  test('a save whose PUT resolves clears the cached list', async () => {
+  test('a save whose PUT resolves calls it once', async () => {
     apiClient.put.mockResolvedValue({ data: {} });
-    setResource(MATCHUPS_KEY, []);
+    const onLanded = jest.fn();
+    const { result } = setup({ entries: [entry(), bench], onLanded });
+
+    move(result);
+
+    await waitFor(() => expect(onLanded).toHaveBeenCalledTimes(1));
+  });
+
+  test('a resolved save with no onLanded passed does not throw', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
     const { result } = setup({ entries: [entry(), bench] });
 
     move(result);
 
-    await waitFor(() => expect(read(MATCHUPS_KEY)).toBeUndefined());
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' }));
   });
 
-  test('a save refused with an HTTP error leaves the cached list', async () => {
+  test('a save refused with an HTTP error never calls it', async () => {
     apiClient.put.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
-    setResource(MATCHUPS_KEY, []);
-    const { result } = setup({ entries: [entry(), bench] });
+    const onLanded = jest.fn();
+    const { result } = setup({ entries: [entry(), bench], onLanded });
 
     move(result);
 
     await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
-    expect(read(MATCHUPS_KEY)).toBeDefined();
+    expect(onLanded).not.toHaveBeenCalled();
   });
 
-  test('a save queued offline leaves the cached list until the replay lands', async () => {
+  test('a save queued offline calls it only once the replay lands', async () => {
     apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
-    setResource(MATCHUPS_KEY, []);
-    const { result } = setup({ entries: [entry(), bench] });
+    const onLanded = jest.fn();
+    const { result } = setup({ entries: [entry(), bench], onLanded });
 
     move(result);
 
     await waitFor(() => expect(readPendingLineupMutations()).toHaveLength(1));
-    expect(read(MATCHUPS_KEY)).toBeDefined();
+    expect(onLanded).not.toHaveBeenCalled();
 
     act(() => {
       window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
     });
-    expect(read(MATCHUPS_KEY)).toBeUndefined();
+    expect(onLanded).toHaveBeenCalledTimes(1);
   });
 });

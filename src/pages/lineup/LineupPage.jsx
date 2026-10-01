@@ -3,7 +3,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates, useWeekMatchups, viewerMatchupOf } from '../../entities/matchup';
+import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
@@ -187,6 +187,11 @@ export default function LineupPage() {
     });
   };
 
+  // A lineup or roster write that lands (#1881) changes the viewer's Expected
+  // final, which the week's cached Matchups list carries for 30 s. The features
+  // may not import the Matchup entity (ADR 0029/0031, and swap-players is in the
+  // Draft room's import closure), so the page hands them this callback.
+  const onLanded = () => clearWeekMatchupsCache(selectedLeagueId);
   const swap = useSwapPlayers({
     leagueId: selectedLeagueId,
     raw,
@@ -195,8 +200,9 @@ export default function LineupPage() {
     bestBall,
     leagueUnsettled,
     hasEligibleTarget,
+    onLanded,
   });
-  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
+  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded });
 
   // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
   // start-sit-panel widget, the team-summary-strip widget's advice tile and
@@ -204,7 +210,7 @@ export default function LineupPage() {
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
-  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw });
+  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
   const calledShot = useCalledShot({ leagueId: selectedLeagueId, week: lineup?.week, onChanged: advice.reload });
