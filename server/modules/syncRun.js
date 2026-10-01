@@ -118,8 +118,8 @@ async function runSyncJob({ job, lock, transaction = true, fetch, apply }) {
   for (let i = 0; i < list.length; i++) {
     const unit = list[i];
     try {
-      // Sequential by design: each unit is its own transaction and must
-      // commit or roll back before the next one starts (ADR 0036).
+      // Sequential by design: each unit (its own transaction unless
+      // `transaction: false`) must finish before the next one starts (ADR 0036).
       const result = transaction === false
         ? await apply(null, unit)
         : await withTransaction(

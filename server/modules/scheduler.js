@@ -1191,8 +1191,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   // 48h practice-squad expiry and a No NFL team clear, and this job runs
   // regardless of either. A full sweep (no id list: the fill just touched
   // every live league's players, not a "who changed" set) on the pool, after
-  // `runSyncJob` has already committed every unit's own transaction above -
-  // same reasoning as the roster-status sync's sweep, no ambient transaction
+  // `runSyncJob` has already finished every unit above (none ran in a
+  // transaction, #1913) - same reasoning as the roster-status sync's sweep, no ambient transaction
   // to protect with a SAVEPOINT. Logged and swallowed, never thrown: a
   // reconcile failure must not turn a real fill into a failed run the
   // cadence gate retries.

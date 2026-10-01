@@ -17,7 +17,7 @@ try/catch around the run.
 ## Decision
 
 A feed sync is a Sync run (CONTEXT.md) executed through one module,
-`runSyncJob({ job, lock, fetch, apply })` in `server/modules/`, and the shape
+`runSyncJob({ job, lock, transaction, fetch, apply })` in `server/modules/`, and the shape
 is written in code once, there.
 
 - `fetch` runs first, outside any transaction and outside any lock, and
