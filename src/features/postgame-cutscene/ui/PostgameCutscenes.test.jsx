@@ -255,6 +255,75 @@ describe('queue', () => {
   });
 });
 
+describe('awards card (#1863)', () => {
+  const awards = [
+    { type: 'called_shot', label: 'CALLED SHOT: HIT', detail: 'KELCE OVER HILL, 18.4 TO 9.1' },
+    { type: 'perfect_lineup', label: 'PERFECT LINEUP', detail: '131.2 PTS' },
+    { type: 'captain_hindsight', label: 'CAPTAIN HINDSIGHT', detail: null },
+  ];
+  const card = () => screen.getByTestId('postgame-awards-card');
+
+  test('one static card follows the result scene, listing each award, and a tap moves on', async () => {
+    await show([item(1, { awards }), item(2)]);
+    startFromTitle();
+    expect(screen.queryByTestId('postgame-awards-card')).not.toBeInTheDocument();
+    fireEvent.click(dialog()); // the result scene ends
+    expect(within(card()).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'CALLED SHOT: HITKELCE OVER HILL, 18.4 TO 9.1',
+      'PERFECT LINEUP131.2 PTS',
+      'CAPTAIN HINDSIGHT',
+    ]);
+    expect(screen.getByTestId('postgame-live')).toHaveTextContent('Mine 1 earned CALLED SHOT: HIT, PERFECT LINEUP, CAPTAIN HINDSIGHT');
+    fireEvent.click(dialog());
+    expect(screen.queryByTestId('postgame-awards-card')).not.toBeInTheDocument();
+    onScreen(2);
+  });
+
+  test('no card for an empty or missing list', async () => {
+    await show([item(1, { awards: [] }), item(2)]);
+    startFromTitle();
+    onScreen(1);
+    fireEvent.click(dialog());
+    expect(screen.queryByTestId('postgame-awards-card')).not.toBeInTheDocument();
+    onScreen(2);
+  });
+
+  test('the card is a timed static step, and the MORE RESULTS line still follows it', async () => {
+    jest.useFakeTimers();
+    render(<PostgameCutscenes cutscenes={[
+      item(1), item(2), item(3, { awards }), item(4, { outcome: 'loss' }),
+    ]}
+    />);
+    await screen.findByRole('alertdialog');
+    startFromTitle();
+    fireEvent.click(dialog());
+    fireEvent.click(dialog());
+    fireEvent.click(dialog()); // scene 3 ends
+    expect(card()).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(3500); });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('1 MORE RESULTS: 0-1');
+  });
+
+  test('under reduced motion the card follows the still result card', async () => {
+    setReducedMotion(true);
+    await show([item(1, { awards })]);
+    expect(screen.getByTestId('postgame-result-card')).toBeInTheDocument();
+    fireEvent.click(dialog());
+    expect(card()).toBeInTheDocument();
+    fireEvent.click(dialog());
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  test('Escape on the card ends the queue', async () => {
+    await show([item(1, { awards })]);
+    startFromTitle();
+    fireEvent.click(dialog());
+    press('Escape');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
 describe('sound', () => {
   let calls;
   beforeEach(() => {

@@ -29,6 +29,21 @@ export function planQueue(cutscenes) {
 }
 
 /**
+ * The steps the stage walks: each queued result is a scene, followed by one
+ * static awards card when the server sent any awards (#1863).
+ */
+export function planSteps(scenes) {
+  return scenes.flatMap((item) => (item.awards && item.awards.length
+    ? [{ kind: 'scene', item }, { kind: 'awards', item }]
+    : [{ kind: 'scene', item }]));
+}
+
+/** The awards card as a sentence, for the live region and the dialog name. */
+export function awardsSentence(item) {
+  return `${item.me.name || 'You'} earned ${item.awards.map((a) => a.label).join(', ')}`;
+}
+
+/**
  * The Record line under the score: "RECORD 3-1 · 4TH OF 12" (the Record string is
  * the standings entity's), "PLAYOFF WEEK" in a playoff week, or null when the
  * server sent no standing.

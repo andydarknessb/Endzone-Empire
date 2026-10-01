@@ -66,6 +66,8 @@ function fakeFor(world) {
     [/FROM "matchups" WHERE "id"/, (text, params) => ({ rows: world.matchups.filter((m) => m.id === params[0]) })],
     [/FROM "postgame_cutscene_views"/, () => ({ rows: world.seen })],
     [/FROM "nfl_games"/, () => ({ rows: world.nflGames })],
+    [/FROM "trophies"/, () => ({ rows: world.trophies || [] })],
+    [/FROM "lineup_overrides"/, () => ({ rows: world.calledShots || [] })],
     [/^INSERT INTO "postgame_cutscene_views"/, () => ({ rows: [], rowCount: 1 })],
   ]);
 }
@@ -89,7 +91,66 @@ test('a final, unseen Matchup is due, shaped exactly as the wire contract', asyn
     opponent: { teamId: 488, name: 'Ham Lake Hitmen', avatarUrl: null, avatarStaticUrl: null, score: 98.2 },
     record: { wins: 3, losses: 1, ties: 0 },
     standing: { rank: 1, of: 3 },
+    awards: [],
   }]);
+});
+
+// ADR 0052 amendment (#1863): the awards ride the payload, read from the frozen
+// trophy rows and the team's resolved called row for the Matchup's own week.
+const trophy = (teamId, week, type, data = {}, extra = {}) => ({
+  league_id: 71, team_id: teamId, season: 2026, week, type, data, ...extra,
+});
+const calledRow = (teamId, week, outcome, extra = {}) => ({
+  league_id: 71, team_id: teamId, season: 2026, week, outcome,
+  starter_name: 'Kelce', benched_name: 'Hill', starter_points_actual: '18.40', benched_points_actual: '9.10', ...extra,
+});
+
+test('awards list the called shot, Perfect Lineup and Captain Hindsight for the week, in that order', async () => {
+  const world = baseWorld();
+  world.trophies = [
+    trophy(248, 4, 'captain_hindsight', { benchPlayer: 'Pacheco', gain: 7.5 }),
+    trophy(248, 4, 'perfect_lineup', { points: 131.2 }),
+    trophy(248, 4, 'called_shot'), // the hit is read from the called row, never twice
+  ];
+  world.calledShots = [calledRow(248, 4, 'hit')];
+  const { cutscenes } = await listDue(world);
+  assert.deepEqual(cutscenes[0].awards, [
+    { type: 'called_shot', label: 'CALLED SHOT: HIT', detail: 'KELCE OVER HILL, 18.4 TO 9.1' },
+    { type: 'perfect_lineup', label: 'PERFECT LINEUP', detail: '131.2 PTS' },
+    { type: 'captain_hindsight', label: 'CAPTAIN HINDSIGHT', detail: 'PACHECO WAS +7.5' },
+  ]);
+});
+
+test('a missed called shot is an award too', async () => {
+  const world = baseWorld();
+  world.calledShots = [calledRow(248, 4, 'miss', { starter_points_actual: '4.00', benched_points_actual: '12.50' })];
+  const { cutscenes } = await listDue(world);
+  assert.deepEqual(cutscenes[0].awards, [
+    { type: 'called_shot', label: 'CALLED SHOT: MISS', detail: 'KELCE OVER HILL, 4 TO 12.5' },
+  ]);
+});
+
+test("awards are the viewer's own team and the Matchup's own week only", async () => {
+  const world = baseWorld();
+  world.trophies = [
+    trophy(488, 4, 'perfect_lineup', { points: 100 }), // the opponent's
+    trophy(248, 3, 'perfect_lineup', { points: 100 }), // another week
+    trophy(248, 4, 'perfect_lineup', { points: 100 }, { season: 2025 }), // another season
+    trophy(248, 4, 'top_scorer'), // not an award of this card
+  ];
+  world.calledShots = [calledRow(488, 4, 'hit'), calledRow(248, 3, 'hit')];
+  const { cutscenes } = await listDue(world);
+  assert.deepEqual(cutscenes[0].awards, []);
+});
+
+test('an award read that fails leaves the cutscene without a card, not without a result', async () => {
+  const world = baseWorld();
+  const db = fakeFor(world);
+  const query = db.query.bind(db);
+  db.query = (sql, params) => (/"trophies"/.test(sql) ? Promise.reject(new Error('boom')) : query(sql, params));
+  const cutscenes = await postgameCutscene.listDue({ userId: 7, now: NOW, db });
+  assert.equal(cutscenes.length, 1);
+  assert.deepEqual(cutscenes[0].awards, []);
 });
 
 test('the viewer on the away side is still "me" and a lower score is a loss', async () => {

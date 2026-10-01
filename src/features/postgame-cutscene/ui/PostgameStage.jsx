@@ -5,11 +5,14 @@ import PropTypes from 'prop-types';
 import apiClient from '../../../api/apiClient';
 import { Sprite } from '../../../shared/ui';
 import ResultCard from './ResultCard';
+import AwardsCard from './AwardsCard';
 import WinScene from './WinScene';
 import LossScene from './LossScene';
 import TieScene from './TieScene';
 import useOverlayFocus from './useOverlayFocus';
-import { planQueue, resultSentence } from '../model/plan';
+import {
+  planQueue, planSteps, resultSentence, awardsSentence,
+} from '../model/plan';
 import { kitForTeam } from '../model/teamKit';
 import { sfx } from '../model/sfx';
 import { readPostgameSoundOn, writePostgameSoundOn } from '../model/soundPreference';
@@ -116,6 +119,7 @@ TitleCard.propTypes = {
 function PostgameStage({ cutscenes, onFinish }) {
   const reduced = useMemo(prefersReducedMotion, []);
   const plan = useMemo(() => planQueue(cutscenes), [cutscenes]);
+  const steps = useMemo(() => planSteps(plan.scenes), [plan]);
   const [phase, setPhase] = useState(reduced ? 'scenes' : 'title');
   const [index, setIndex] = useState(0);
   const [muted, setMuted] = useState(() => !readPostgameSoundOn());
@@ -168,19 +172,21 @@ function PostgameStage({ cutscenes, onFinish }) {
     sfx.startLoop('title');
   }, [phase]);
 
-  const item = plan.scenes[index];
-  const Scene = reduced ? null : SCENES[item.outcome];
+  const step = steps[index];
+  const { item } = step;
+  const onAwards = step.kind === 'awards';
+  const Scene = reduced || onAwards ? null : SCENES[item.outcome];
 
   // Following a link (a loss's waiver wire) ends the queue behind the navigation.
   const leave = useCallback(() => { finish(false); }, [finish]);
 
   const nextScene = useCallback(() => {
-    if (index + 1 < plan.scenes.length) {
+    if (index + 1 < steps.length) {
       // A scene leaves its loops running when a tap or its own end moves on.
       if (Scene) sfx.stopAll({ fadeMs: DISMISS_FADE_MS });
       setIndex(index + 1);
     } else finish(true);
-  }, [index, plan, finish, Scene]);
+  }, [index, steps, finish, Scene]);
 
   useEffect(() => {
     // A scene ends itself (`onDone`); only a card runs on the fixed timer.
@@ -244,7 +250,8 @@ function PostgameStage({ cutscenes, onFinish }) {
     advance();
   };
 
-  const label = phase === 'title' ? titleFor(cutscenes) : resultSentence(item);
+  let label = titleFor(cutscenes);
+  if (phase !== 'title') label = onAwards ? awardsSentence(item) : resultSentence(item);
 
   return (
     <div
@@ -268,6 +275,8 @@ function PostgameStage({ cutscenes, onFinish }) {
           />
         ) : Scene ? (
           <Scene key={item.matchupId} cutscene={item} sfx={sfx} onDone={nextScene} onLeave={leave} />
+        ) : onAwards ? (
+          <AwardsCard key={`awards-${item.matchupId}`} item={item} />
         ) : (
           <ResultCard key={item.matchupId} item={item} onLeave={leave} />
         )}
