@@ -66,19 +66,51 @@ function pointsValue(projection) {
  * Pure: the availability wrapper's candidate filter, reproducing
  * `buildSuggestions` (:117-134).
  *
- * Four exclusions, in production's order:
+ * Production's `unavailableFor` applies five exclusions, in this order:
+ *   1. bye;
+ *   2. No NFL team;
+ *   3. Practice squad;
+ *   4. Out / IR designation;
+ *   5. the autoRecommend branch: a Doubtful player, or a Position-baseline
+ *      player (reason `no_history`, ADR 0053), is available but not
+ *      auto-recommended.
+ * Exclusions 1, 4 and 5 are reconstructed here. 2 and 3 are deliberately not:
+ *   - `noTeam` reads today's `players.nfl_team`, which would leak present
+ *     roster status into a historical week (the cohort's `roster_weekly` team
+ *     is the fact used instead);
+ *   - `nflRosterStatus` has no history before 2026-09, and DEVIATIONS.md entry
+ *     4 records that replays pass no Map.
+ *
+ * On top of that, the wrapper's own candidate filter, in production's order:
  *   - an IR-slot player is never a candidate;
  *   - a locked starter is PINNED to his slot; a locked bench player can never
  *     be started;
  *   - an unavailable player (bye / Out / IR designation) is removed AND worth
  *     zero;
- *   - a Doubtful player ON THE BENCH is never auto-promoted, while a Doubtful
- *     player already STARTING keeps his slot. That asymmetry is production's,
- *     and it is the one the preregistration names as a required fixture.
+ *   - a Doubtful or Position-baseline player ON THE BENCH is never
+ *     auto-promoted (`doubtful-on-bench`, `no-history-on-bench`), while one
+ *     already STARTING keeps his slot and his number. That asymmetry is
+ *     production's, and it is the one the preregistration names as a required
+ *     fixture.
+ *
+ * The two autoRecommend causes differ in where the fact lives. Doubtful is an
+ * ENTRY fact (his injury designation), so it applies to every lineup built from
+ * the entries. The Position-baseline marker is a property of the PROJECTION
+ * ROW (`factors.dataQuality.reasons`, read through the injected
+ * `positionBaselineFor(projectionEntry)`), so it applies only to a lineup built
+ * from projection rows. The started lineup is, and never auto-promotes the
+ * player; the hindsight-best lineup is built from ACTUAL points (bare numbers,
+ * no rows), reads the marker false, and keeps him as a candidate, because under
+ * hindsight he is a legal start (ADR 0053 item 3). Regret stays non-negative.
  */
-function partitionCandidates({ entries, availabilityFor, label = 'wrapper' }) {
+function partitionCandidates({
+  entries, projections, availabilityFor, positionBaselineFor, label = 'wrapper',
+}) {
   if (typeof availabilityFor !== 'function') {
     throw new Error(`${label}: the production availabilityFor must be injected`);
+  }
+  if (typeof positionBaselineFor !== 'function') {
+    throw new Error(`${label}: the production positionBaselineFor must be injected`);
   }
   const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
   const availabilityById = new Map();
@@ -87,11 +119,15 @@ function partitionCandidates({ entries, availabilityFor, label = 'wrapper' }) {
   const removed = [];
 
   for (const entry of entries) {
+    const projectionEntry = projections instanceof Map
+      ? projections.get(entry.playerId)
+      : (projections || {})[entry.playerId];
     const availability = availabilityFor({
       injuryStatus: entry.injuryStatus ?? null,
       onBye: Boolean(entry.onBye),
       locked: Boolean(entry.locked),
       lockedSlot: entry.slot,
+      positionBaseline: positionBaselineFor(projectionEntry ?? null),
     });
     availabilityById.set(entry.playerId, availability);
     if (entry.slot === IR) { removed.push({ playerId: entry.playerId, reason: 'ir-slot' }); continue; }
@@ -105,7 +141,10 @@ function partitionCandidates({ entries, availabilityFor, label = 'wrapper' }) {
       continue;
     }
     if (availability.autoRecommend === false && !isStarter(entry)) {
-      removed.push({ playerId: entry.playerId, reason: 'doubtful-on-bench' });
+      removed.push({
+        playerId: entry.playerId,
+        reason: availability.reason === 'no_history' ? 'no-history-on-bench' : 'doubtful-on-bench',
+      });
       continue;
     }
     candidates.push({
@@ -150,6 +189,7 @@ function deployedPolicyLineup({
   ranks,
   rosterSlots,
   availabilityFor,
+  positionBaselineFor,
   optimize,
   ordering = ORDERINGS.PRIMARY,
   shuffleSeed = 1,
@@ -159,7 +199,7 @@ function deployedPolicyLineup({
     throw new Error(`${label}: the production optimizer must be injected`);
   }
   const { candidates, pinned, removed, availabilityById } = partitionCandidates({
-    entries, availabilityFor, label,
+    entries, projections, availabilityFor, positionBaselineFor, label,
   });
   const ordered = orderCandidates({ candidates, ranks, ordering, shuffleSeed, label });
   const effective = effectiveProjections({ entries, projections, availabilityById });
@@ -201,6 +241,7 @@ function forceFillLineup({
   ranks,
   rosterSlots,
   availabilityFor,
+  positionBaselineFor,
   optimize,
   ordering = ORDERINGS.PRIMARY,
   shuffleSeed = 1,
@@ -210,7 +251,7 @@ function forceFillLineup({
     throw new Error(`${label}: the production optimizer must be injected`);
   }
   const { candidates, pinned, removed, availabilityById } = partitionCandidates({
-    entries, availabilityFor, label,
+    entries, projections, availabilityFor, positionBaselineFor, label,
   });
   const ordered = orderCandidates({ candidates, ranks, ordering, shuffleSeed, label });
 

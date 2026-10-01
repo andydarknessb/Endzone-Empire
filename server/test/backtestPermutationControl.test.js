@@ -7,6 +7,9 @@ const permutationControl = require('../../scripts/backtest/lib/permutationContro
 
 const { optimalAssignment } = require('../../server/services/lineupOptimizer');
 const { availabilityFor } = require('../../server/services/projectionModel');
+const { isPositionBaselineEntry } = require('../../server/services/projection.service');
+// The real marker predicate, injected beside availabilityFor.
+const positionBaselineFor = isPositionBaselineEntry;
 const { DEFAULT_ROSTER_SLOTS } = require('../../server/services/lineup.service');
 const { ORDERINGS } = require('../../scripts/backtest/lib/ordering');
 
@@ -34,7 +37,7 @@ function policyInputs(playerIds) {
     positionRank: new Map(metrics.MACRO_POSITIONS.map((position, i) => [position, i + 1])),
     nameRankById: new Map(metrics.MACRO_POSITIONS.flatMap((position) => ids.map((id) => [playerKey(position, id), playerKey(position, id)]))),
     rosterSlots: DEFAULT_ROSTER_SLOTS,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
     // Injected machinery, like the optimizer: the module fails closed on a
     // missing ordering rather than riding policy.js's default (round 3).

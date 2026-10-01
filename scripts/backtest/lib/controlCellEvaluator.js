@@ -49,7 +49,7 @@
  *      against the best legal lineup under ACTUAL points (the same wrapper and
  *      optimizer, run with actual points standing in for "projections" - i.e.
  *      the assignment a perfectly-informed manager would have made). Both are
- *      injected (`availabilityFor`, `optimize`), because nothing in
+ *      injected (`availabilityFor`, `positionBaselineFor`, `optimize`), because nothing in
  *      `scripts/backtest` may require `server/services`; the real production
  *      wrapper is what the caller supplies.
  *
@@ -180,12 +180,14 @@ function evaluateControlWeek({
   nameRankById,
   rosterSlots = rosters.DEFAULT_ROSTER_SLOTS,
   availabilityFor,
+  positionBaselineFor,
   optimize,
   ordering = ORDERINGS.PRIMARY,
   label = 'control evaluator',
 }) {
   const where = `${label} ${season}w${week}`;
   if (typeof availabilityFor !== 'function') throw new Error(`${where}: availabilityFor must be injected`);
+  if (typeof positionBaselineFor !== 'function') throw new Error(`${where}: positionBaselineFor must be injected`);
   if (typeof optimize !== 'function') throw new Error(`${where}: optimize must be injected`);
   cohort.assertNotQuarantined(season, { label: where });
   if (Number(rosterWeek.season) !== Number(season) || Number(rosterWeek.week) !== Number(week)) {
@@ -222,14 +224,14 @@ function evaluateControlWeek({
   for (const roster of rosterWeek.rosters) {
     const entries = rosterEntries({ roster, cohortByPlayerId, label: where });
     const started = policy.deployedPolicyLineup({
-      entries, projections: projectionsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, label: where,
+      entries, projections: projectionsMap, ranks, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, label: where,
     });
     // The best legal lineup under ACTUAL points: the SAME wrapper and optimizer,
     // fed actual points where they would otherwise read a projection. This is
     // "what a perfectly-informed manager would have started" - not a different
     // solver, the same one asked a different question (prereg 5.2).
     const best = policy.deployedPolicyLineup({
-      entries, projections: actualsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, label: where,
+      entries, projections: actualsMap, ranks, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, label: where,
     });
     const regret = policy.regretFor({
       startedPlayerIds: started.started, bestPlayerIds: best.started, actualPoints: actualsMap, label: where,
@@ -267,6 +269,7 @@ async function evaluateControlCell({
   baseConstants,
   projectPoints,
   availabilityFor,
+  positionBaselineFor,
   optimize,
   rosterSlots = rosters.DEFAULT_ROSTER_SLOTS,
   ordering = ORDERINGS.PRIMARY,
@@ -301,6 +304,7 @@ async function evaluateControlCell({
       nameRankById,
       rosterSlots,
       availabilityFor,
+      positionBaselineFor,
       optimize,
       ordering,
       label,

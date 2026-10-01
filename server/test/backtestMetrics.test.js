@@ -605,6 +605,20 @@ test('permutation control permits raw observations only', () => {
   assert.throws(() => metrics.assertPermutationControl({ regretP: -0.01, pairwiseP: 0.001 }), /within \[0, 1\]/);
 });
 
+test('permutation control requires positionBaselineFor beside the optimizer and availability rule', () => {
+  const machinery = { optimize: () => {}, availabilityFor: () => {} };
+  assert.throws(() => metrics.computePermutationControl({ observations: [], rosterRows: [], ...machinery }),
+    /positionBaselineFor must be injected/);
+  // It is a permitted key, so supplying it is not read as a caller-supplied statistic.
+  assert.doesNotThrow(() => {
+    try {
+      metrics.computePermutationControl({ observations: [], rosterRows: [], ...machinery, positionBaselineFor: () => false });
+    } catch (error) {
+      if (/caller-supplied permutation statistics|positionBaselineFor must be injected/.test(error.message)) throw error;
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Split-salt SD
 // ---------------------------------------------------------------------------

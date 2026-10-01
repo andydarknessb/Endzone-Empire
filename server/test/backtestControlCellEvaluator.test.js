@@ -10,6 +10,9 @@ const metrics = require('../../scripts/backtest/lib/metrics');
 // them: the whole point of the deployed-policy estimand is that it runs
 // production's own availability rule and optimizer.
 const { availabilityFor } = require('../services/projectionModel');
+const { isPositionBaselineEntry } = require('../services/projection.service');
+// The real marker predicate, injected beside availabilityFor.
+const positionBaselineFor = isPositionBaselineEntry;
 const { optimalAssignment } = require('../services/lineupOptimizer');
 
 const SLOTS = rosters.DEFAULT_ROSTER_SLOTS;
@@ -165,7 +168,7 @@ test('evaluateControlWeek computes non-negative regret and a pairwise score usin
     positionRank,
     nameRankById,
     rosterSlots: SLOTS,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
 
@@ -192,7 +195,7 @@ test('evaluateControlWeek fails closed on mismatched season/week between roster 
     projectionsByPlayerId: new Map(),
     positionRank,
     nameRankById,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   }), /cohortWeek is for 2025w6, not this week/);
 });
@@ -209,7 +212,7 @@ test('evaluateControlWeek refuses the 2026 quarantine boundary', () => {
     projectionsByPlayerId: new Map(),
     positionRank,
     nameRankById,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   }), /prospective holdout/);
 });
@@ -224,8 +227,12 @@ test('evaluateControlWeek requires availabilityFor and optimize to be injected',
   }), /availabilityFor must be injected/);
   assert.throws(() => controlCellEvaluator.evaluateControlWeek({
     season: 2025, week: 5, rosterWeek, cohortWeek, projectionsByPlayerId: new Map(), positionRank, nameRankById,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
   }), /optimize must be injected/);
+  assert.throws(() => controlCellEvaluator.evaluateControlWeek({
+    season: 2025, week: 5, rosterWeek, cohortWeek, projectionsByPlayerId: new Map(), positionRank, nameRankById,
+    availabilityFor, optimize: optimalAssignment,
+  }), /positionBaselineFor must be injected/);
 });
 
 test('a bye player is excluded from the pairwise rows, per preregistration 4.1', () => {
@@ -271,7 +278,7 @@ test('evaluateControlCell runs all 17 primary 2025 weeks and returns series mde.
     weekArtifacts,
     baseConstants: BASE_CONSTANTS,
     projectPoints,
-    availabilityFor,
+    availabilityFor, positionBaselineFor,
     optimize: optimalAssignment,
   });
 
@@ -309,7 +316,7 @@ test('evaluateControlCell requires all 17 primary weeks - a missing week is refu
       weekArtifacts,
       baseConstants: BASE_CONSTANTS,
       projectPoints: async ({ playerIds }) => new Map(playerIds.map((id) => [id, { median: 5 }])),
-      availabilityFor,
+      availabilityFor, positionBaselineFor,
       optimize: optimalAssignment,
     }),
     /no roster\/cohort artifacts supplied for 2025:3/
@@ -319,7 +326,7 @@ test('evaluateControlCell requires all 17 primary weeks - a missing week is refu
 test('evaluateControlCell requires projectPoints to be injected', async () => {
   await assert.rejects(
     controlCellEvaluator.evaluateControlCell({
-      weekArtifacts: new Map(), baseConstants: BASE_CONSTANTS, availabilityFor, optimize: optimalAssignment,
+      weekArtifacts: new Map(), baseConstants: BASE_CONSTANTS, availabilityFor, positionBaselineFor, optimize: optimalAssignment,
     }),
     /projectPoints must be injected/
   );

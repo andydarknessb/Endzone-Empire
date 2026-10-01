@@ -37,7 +37,7 @@
  *   1. **Regret** (6.1, prereg 5.2): the deployed-policy machinery of
  *      `controlCellEvaluator.evaluateControlWeek`, byte-for-byte - the
  *      arm's started lineup vs the perfectly-informed lineup, both through
- *      the injected production wrapper (`availabilityFor`, `optimize`),
+ *      the injected production wrapper (`availabilityFor`, `positionBaselineFor`, `optimize`),
  *      mean over the week's rosters.
  *   2. **Pairwise** (6.2): `controlCellEvaluator.pairwiseRowsByPosition`
  *      (REUSED, so the eligibility rule cannot diverge from the approved
@@ -156,6 +156,7 @@ function evaluateArmWeek({
   nameRankById,
   rosterSlots = rosters.DEFAULT_ROSTER_SLOTS,
   availabilityFor,
+  positionBaselineFor,
   optimize,
   ordering = ORDERINGS.PRIMARY,
   estimand = policy.ESTIMANDS.DEPLOYED_POLICY,
@@ -163,6 +164,7 @@ function evaluateArmWeek({
 }) {
   const where = `${label} ${season}w${week}`;
   if (typeof availabilityFor !== 'function') throw new Error(`${where}: availabilityFor must be injected`);
+  if (typeof positionBaselineFor !== 'function') throw new Error(`${where}: positionBaselineFor must be injected`);
   if (typeof optimize !== 'function') throw new Error(`${where}: optimize must be injected`);
   if (!Object.values(policy.ESTIMANDS).includes(estimand)) {
     throw new Error(`${where}: unknown regret estimand ${JSON.stringify(estimand)} - must be one of ${Object.values(policy.ESTIMANDS).join(', ')}`);
@@ -257,12 +259,12 @@ function evaluateArmWeek({
   for (const roster of rosterWeek.rosters) {
     const entries = controlCellEvaluator.rosterEntries({ roster, cohortByPlayerId, label: where });
     const started = lineupFor({
-      entries, projections: projectionsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, shuffleSeed: DUPLICATE_SHUFFLE_SEED, label: where,
+      entries, projections: projectionsMap, ranks, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, shuffleSeed: DUPLICATE_SHUFFLE_SEED, label: where,
     });
     // The perfectly-informed lineup: the SAME wrapper and optimizer, fed
     // actual points where they would otherwise read a projection (prereg 5.2).
     const best = lineupFor({
-      entries, projections: actualsMap, ranks, rosterSlots, availabilityFor, optimize, ordering, shuffleSeed: DUPLICATE_SHUFFLE_SEED, label: where,
+      entries, projections: actualsMap, ranks, rosterSlots, availabilityFor, positionBaselineFor, optimize, ordering, shuffleSeed: DUPLICATE_SHUFFLE_SEED, label: where,
     });
     const regret = policy.regretFor({
       startedPlayerIds: started.started, bestPlayerIds: best.started, actualPoints: actualsMap, label: where,
