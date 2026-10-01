@@ -154,14 +154,6 @@ async function tickUnlocked() {
     } catch (err) {
       console.error('kickoff waiver hold failed (will retry next tick):', err.message);
     }
-    // Override capture (#1862, ADR 0054): the same kickoff, the advice as of a
-    // minute before it. Contained so a failure never delays claims; it logs
-    // per league itself and the next ticks retry the pairs still unwritten.
-    try {
-      await captureOverrides({ loadAdvice: startSitAdvice });
-    } catch (err) {
-      console.error('override capture failed (will retry next tick):', err.message);
-    }
     const waivers = await processAllDueWaivers();
     if (waivers.length > 0) {
       console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
@@ -215,6 +207,15 @@ async function tickUnlocked() {
     if (ticksSinceSync >= (await syncEveryTicks())) {
       const synced = await syncAndScoreLiveWeeks();
       if (synced) ticksSinceSync = 0;
+    }
+    // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
+    // minute before it. After every time-sensitive duty above, since it asks for
+    // advice per team and its run time must never delay claims, reminders,
+    // trades or scheduled drafts; contained, and it logs per league itself.
+    try {
+      await captureOverrides({ loadAdvice: startSitAdvice });
+    } catch (err) {
+      console.error('override capture failed (will retry next tick):', err.message);
     }
     await runRetention();
     // Weather snapshots (#1883): after live scoring and every deadline duty,

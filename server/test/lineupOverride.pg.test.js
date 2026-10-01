@@ -153,13 +153,12 @@ if (!ENABLED) {
   // #1862: the capture's own write, against the real pair key.
   test('writeOverride is idempotent on the pair key, and a pair matching the called row updates it once instead of adding one', async () => {
     const { writeOverride } = require('../services/lineupOverride.service');
-    const kickoff = new Date('2030-01-01T17:00:00.000Z');
     const suggestion = (starter, benched) => ({
       slot: 'RB', current: { playerId: starter, projection: 6 }, suggested: { playerId: benched, projection: 18 },
       probabilityBetter: 0.92, verdict: 'start',
     });
     const write = (starter, benched, capturedAt) => writeOverride(pool, {
-      leagueId: world.leagueId, teamId: world.teamId, season: 2026, week: 9, suggestion: suggestion(starter, benched), capturedAt, kickoff,
+      leagueId: world.leagueId, teamId: world.teamId, season: 2026, week: 9, suggestion: suggestion(starter, benched), capturedAt,
     });
     const rows = (called) => pool.query(
       `SELECT "captured_at", "called" FROM "lineup_overrides"

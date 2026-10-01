@@ -204,11 +204,11 @@ function captureWorld({ leagues = [{ id: 3, current_season: 2026, current_week: 
       { id: 1, nfl_team: 'BUF' }, { id: 3, nfl_team: 'KC' }, { id: 5, nfl_team: 'KC' }, { id: 6, nfl_team: 'KC' },
     ] })],
     [/^INSERT INTO "lineup_overrides"/, (text, params) => {
-      const [leagueId, teamId, season, week, slot, starter, benched, , , , , capturedAt, kickoff] = params;
+      const [leagueId, teamId, season, week, slot, starter, benched, , , , , capturedAt] = params;
       const key = [leagueId, season, week, teamId, slot, starter, benched].join(':');
       const existing = world.rows.find((r) => r.key === key);
       if (!existing) world.rows.push({ key, called: false, starter, benched, captured_at: capturedAt });
-      else if (existing.called && existing.captured_at < kickoff) existing.captured_at = capturedAt;
+      else if (existing.called && existing.captured_at === existing.declared_at) existing.captured_at = capturedAt;
       return { rows: [] };
     }],
   ]);
@@ -220,6 +220,7 @@ test('capture writes one row per pair above the tossup line with a locking playe
   const world = captureWorld();
   const asked = [];
   await captureOverrides({
+    seen: new Map(),
     db: world.fake,
     now: TICK,
     loadAdvice: async (args) => {
@@ -241,18 +242,20 @@ test('capture writes one row per pair above the tossup line with a locking playe
 
 test('capture takes a pair whose benched player is the one locking', async () => {
   const world = captureWorld({ games: [{ nfl_team: 'KC', kickoff_at: T }] });
-  await captureOverrides({ db: world.fake, now: TICK, loadAdvice: adviceOf([suggestion(1, 3, 0.9)]) });
+  await captureOverrides({ seen: new Map(), db: world.fake, now: TICK, loadAdvice: adviceOf([suggestion(1, 3, 0.9)]) });
   assert.equal(world.rows.length, 1);
 });
 
 test('a second tick writes nothing new, and a pair matching the called row updates it instead', async () => {
   const calledKey = '3:2026:6:10:RB:1:3';
-  const world = captureWorld({ rows: [{ key: calledKey, called: true, starter: 1, benched: 3, captured_at: new Date('2026-10-09T12:00:00.000Z') }] });
+  const declared = new Date('2026-10-09T12:00:00.000Z');
+  const world = captureWorld({ rows: [{ key: calledKey, called: true, starter: 1, benched: 3, declared_at: declared, captured_at: declared }] });
   const loadAdvice = adviceOf([suggestion(1, 3, 0.92), suggestion(1, 5, 0.9)]);
-  await captureOverrides({ db: world.fake, now: TICK, loadAdvice });
+  const seen = new Map();
+  await captureOverrides({ seen, db: world.fake, now: TICK, loadAdvice });
   assert.equal(world.rows.length, 2, 'the called pair is not duplicated; the other is added');
   assert.deepEqual(world.rows.find((r) => r.key === calledKey).captured_at, TICK);
-  await captureOverrides({ db: world.fake, now: new Date(TICK.getTime() + 5 * 60000), loadAdvice });
+  await captureOverrides({ seen, db: world.fake, now: new Date(TICK.getTime() + 5 * 60000), loadAdvice });
   assert.equal(world.rows.length, 2);
   assert.deepEqual(world.rows.find((r) => r.key === calledKey).captured_at, TICK, 'and the called row is not touched again');
 });
@@ -260,7 +263,7 @@ test('a second tick writes nothing new, and a pair matching the called row updat
 test('capture asks nothing of a league with no kickoff in the lookback window', async () => {
   const world = captureWorld();
   const late = new Date(T.getTime() + 3 * 3600 * 1000);
-  await captureOverrides({ db: world.fake, now: late, loadAdvice: async () => assert.fail('no advice') });
+  await captureOverrides({ seen: new Map(), db: world.fake, now: late, loadAdvice: async () => assert.fail('no advice') });
   assert.equal(world.fake.matching(/^INSERT/).length, 0);
 });
 
@@ -269,16 +272,17 @@ test('a failing league is logged and never stops the next one; the next tick ret
   const world = captureWorld({ leagues: [
     { id: 3, current_season: 2026, current_week: 6 }, { id: 4, current_season: 2026, current_week: 6 },
   ] });
+  const seen = new Map();
   let failing = true;
   const loadAdvice = async ({ leagueId }) => {
     if (leagueId === 3 && failing) throw new Error('projection read failed');
     return { season: 2026, week: 6, suggestions: [suggestion(1, 3, 0.92)] };
   };
-  await captureOverrides({ db: world.fake, now: TICK, loadAdvice }); // does not throw
+  await captureOverrides({ seen, db: world.fake, now: TICK, loadAdvice }); // does not throw
   assert.equal(world.rows.length, 1, "league 4's pair was written");
   assert.deepEqual(errors.mock.calls[0].arguments.slice(1), [3, 'projection read failed']);
   failing = false;
-  await captureOverrides({ db: world.fake, now: new Date(TICK.getTime() + 5 * 60000), loadAdvice });
+  await captureOverrides({ seen, db: world.fake, now: new Date(TICK.getTime() + 5 * 60000), loadAdvice });
   assert.equal(world.rows.length, 2, "league 3's pair was written on the next tick");
 });
 
@@ -299,4 +303,30 @@ test('loadSeasonRecord is null on a side with nothing resolved', async () => {
   assert.deepEqual(await loadSeasonRecord(recordFake([]), { leagueId: 3, teamId: 10, season: 2026 }), { overrides: null, calledShots: null });
   const onlyCalled = await loadSeasonRecord(recordFake([{ called: true, outcome: 'miss' }]), { leagueId: 3, teamId: 10, season: 2026 });
   assert.deepEqual(onlyCalled, { overrides: null, calledShots: { hits: 0, resolved: 1, streak: 0 } });
+});
+
+test('f1: a kickoff is captured once, so a later tick whose advice names a new pair inserts nothing', async () => {
+  const world = captureWorld();
+  const seen = new Map();
+  await captureOverrides({ seen, db: world.fake, now: TICK, loadAdvice: adviceOf([suggestion(1, 3, 0.92)]) });
+  assert.equal(world.rows.length, 1);
+  // The manager changes his lineup after the kickoff: the next tick's advice names a different pair.
+  const changed = async () => assert.fail('a captured kickoff is not asked again');
+  await captureOverrides({ seen, db: world.fake, now: new Date(TICK.getTime() + 5 * 60000), loadAdvice: changed });
+  assert.equal(world.fake.matching(/^INSERT INTO "lineup_overrides"/).length, 1);
+  assert.equal(world.rows.length, 1);
+});
+
+test('the called row moves its capture time at the first kickoff only, not again at a later one the same week', async () => {
+  const declared = new Date('2026-10-09T12:00:00.000Z');
+  const world = captureWorld({
+    games: [{ nfl_team: 'BUF', kickoff_at: T }, { nfl_team: 'KC', kickoff_at: new Date(T.getTime() + 3 * 3600000) }],
+    rows: [{ key: '3:2026:6:10:RB:1:3', called: true, starter: 1, benched: 3, declared_at: declared, captured_at: declared }],
+  });
+  const seen = new Map();
+  const loadAdvice = adviceOf([suggestion(1, 3, 0.92)]);
+  await captureOverrides({ seen, db: world.fake, now: TICK, loadAdvice }); // BUF kicks off
+  await captureOverrides({ seen, db: world.fake, now: new Date(T.getTime() + 3 * 3600000 + 180000), loadAdvice }); // KC, same pair
+  assert.deepEqual(world.rows[0].captured_at, TICK);
+  assert.equal(world.rows.length, 1);
 });

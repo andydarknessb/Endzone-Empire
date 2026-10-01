@@ -32,6 +32,9 @@ const isStartingSlot = (slot) => slot != null && slot !== BENCH && slot !== IR;
 
 const num = (value) => (value == null ? null : Number(value));
 
+/** A suggestion with a start/sit probability above the tossup line (ADR 0054 ruling 4): the one rule a Called shot and an Override share. */
+const aboveTossupLine = (suggestion) => suggestion.probabilityBetter != null && suggestion.verdict !== 'tossup';
+
 const SHOT_COLUMNS = `"lineup_overrides"."id", "lineup_overrides"."team_id", "lineup_overrides"."season",
   "lineup_overrides"."week", "lineup_overrides"."slot",
   "lineup_overrides"."starter_player_id", "lineup_overrides"."benched_player_id",
@@ -230,7 +233,7 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
   if (!suggestion) {
     throw new CalledShotError(409, 'the advice does not name that pair as a suggestion, so there is no shot to call');
   }
-  if (suggestion.probabilityBetter == null || suggestion.verdict === 'tossup') {
+  if (!aboveTossupLine(suggestion)) {
     throw new CalledShotError(409, 'that pair is too close to call, so there is no edge to call a shot against');
   }
 
@@ -247,8 +250,8 @@ async function declareCalledShot({ leagueId, userId, week, starterId, benchedId,
         await client.query(
           `INSERT INTO "lineup_overrides"
              ("league_id", "team_id", "season", "week", "slot", "starter_player_id", "benched_player_id",
-              "starter_point_estimate", "benched_point_estimate", "probability", "verdict", "called", "declared_at")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12)`,
+              "starter_point_estimate", "benched_point_estimate", "probability", "verdict", "called", "declared_at", "captured_at")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $12)`,
           [
             leagueId, team.id, advice.season, advice.week, suggestion.slot, starterId, benchedId,
             suggestion.current.projection, suggestion.suggested.projection, suggestion.probabilityBetter,
@@ -343,19 +346,25 @@ async function loadSeasonRecord(db, { leagueId, teamId, season }) {
   };
 }
 
-// A kickoff is captured on the first tick that sees it; a tick that failed is
-// retried by the ticks after it for this long. ponytail: a fixed lookback
-// stands in for a per-team-week "captured" marker (no table for one); a
-// capture still failing after 30 minutes is lost, add the marker if that bites.
+// A kickoff is captured ONCE per team, on the tick that first sees it: the
+// advice rewinds only the lock time, so a later run would read a lineup changed
+// since the kickoff and could write pairs the advice never made at lock. A
+// unit (league, kickoff, team) is remembered once captured and a failed one is
+// retried by the ticks after it, for this long. ponytail: the memory is
+// in-process (no table for a per-team-week marker), so a restart inside the
+// window captures its kickoffs once more and a unit still failing after 30
+// minutes is lost; add the marker if either bites.
 const CAPTURE_LOOKBACK_MS = 30 * 60 * 1000;
+const capturedUnits = new Map(); // "league:kickoff:team" -> kickoff ms
 const ADVICE_LEAD_MS = 60 * 1000; // the advice is read as of a minute before kickoff
 
 /**
  * One captured pair: an Override row (`called = false`), idempotent on the pair
  * key. A pair matching the team's Called shot updates that row's capture time
- * once (only while it still predates the kickoff) instead of adding a row.
+ * instead of adding a row, once: the declaration stamps `captured_at` equal to
+ * `declared_at`, and the update only fires while the two are still equal.
  */
-function writeOverride(db, { leagueId, teamId, season, week, suggestion, capturedAt, kickoff }) {
+function writeOverride(db, { leagueId, teamId, season, week, suggestion, capturedAt }) {
   return db.query(
     `INSERT INTO "lineup_overrides"
        ("league_id", "team_id", "season", "week", "slot", "starter_player_id", "benched_player_id",
@@ -363,16 +372,16 @@ function writeOverride(db, { leagueId, teamId, season, week, suggestion, capture
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, $12)
      ON CONFLICT ON CONSTRAINT "lineup_overrides_pair_unique" DO UPDATE
        SET "captured_at" = EXCLUDED."captured_at"
-       WHERE "lineup_overrides"."called" AND "lineup_overrides"."captured_at" < $13`,
+       WHERE "lineup_overrides"."called" AND "lineup_overrides"."captured_at" = "lineup_overrides"."declared_at"`,
     [
       leagueId, teamId, season, week, suggestion.slot, suggestion.current.playerId, suggestion.suggested.playerId,
       suggestion.current.projection, suggestion.suggested.projection, suggestion.probabilityBetter,
-      suggestion.verdict, capturedAt, kickoff,
+      suggestion.verdict, capturedAt,
     ]
   );
 }
 
-async function captureLeague(db, { league, loadAdvice, now }) {
+async function captureLeague(db, { league, loadAdvice, now, seen }) {
   const { id: leagueId, current_season: season, current_week: week } = league;
   const kicked = await db.query(
     `SELECT "nfl_team", "kickoff_at" FROM "nfl_games"
@@ -396,8 +405,9 @@ async function captureLeague(db, { league, loadAdvice, now }) {
   );
   let firstError = null;
   for (const [instant, nflTeams] of byKickoff) {
-    const kickoff = new Date(instant);
     for (const team of teams.rows) {
+      const unit = `${leagueId}:${instant}:${team.id}`;
+      if (seen.has(unit)) continue;
       try {
         // As of a minute before the kickoff, so the players locking now are
         // still movable; the open Called shot is ignored so its own pair shows
@@ -405,15 +415,17 @@ async function captureLeague(db, { league, loadAdvice, now }) {
         const advice = await loadAdvice({
           leagueId, userId: team.owner_id, week, ignoreCalledShot: true, now: new Date(instant - ADVICE_LEAD_MS),
         });
-        const standing = (advice.suggestions || []).filter((s) => s.verdict !== 'tossup' && s.probabilityBetter != null);
-        if (standing.length === 0) continue;
-        const ids = [...new Set(standing.flatMap((s) => [s.current.playerId, s.suggested.playerId]))];
-        const players = await db.query(`SELECT "id", "nfl_team" FROM "players" WHERE "id" = ANY($1::int[])`, [ids]);
-        const locking = new Set(players.rows.filter((p) => nflTeams.has(normalizeNflTeam(p.nfl_team))).map((p) => p.id));
-        for (const suggestion of standing) {
-          if (!locking.has(suggestion.current.playerId) && !locking.has(suggestion.suggested.playerId)) continue;
-          await writeOverride(db, { leagueId, teamId: team.id, season: advice.season, week: advice.week, suggestion, capturedAt: now, kickoff });
+        const standing = (advice.suggestions || []).filter(aboveTossupLine);
+        if (standing.length > 0) {
+          const ids = [...new Set(standing.flatMap((s) => [s.current.playerId, s.suggested.playerId]))];
+          const players = await db.query(`SELECT "id", "nfl_team" FROM "players" WHERE "id" = ANY($1::int[])`, [ids]);
+          const locking = new Set(players.rows.filter((p) => nflTeams.has(normalizeNflTeam(p.nfl_team))).map((p) => p.id));
+          for (const suggestion of standing) {
+            if (!locking.has(suggestion.current.playerId) && !locking.has(suggestion.suggested.playerId)) continue;
+            await writeOverride(db, { leagueId, teamId: team.id, season: advice.season, week: advice.week, suggestion, capturedAt: now });
+          }
         }
+        seen.set(unit, instant); // captured: never asked again, whatever the lineup does next
       } catch (err) {
         firstError = firstError || err; // one team's failure never costs the others their pairs
       }
@@ -429,9 +441,12 @@ async function captureLeague(db, { league, loadAdvice, now }) {
  * involves a locking player written as an Override. `loadAdvice` is the advice
  * loader (the scheduler hands it `startSitAdvice`; this module never requires
  * the decision service). A league's failure is logged and the rest go on; the
- * next tick tries the pairs still unwritten.
+ * next tick retries only the units (league, kickoff, team) that failed.
  */
-async function captureOverrides({ loadAdvice, db = pool, now = new Date() }) {
+async function captureOverrides({ loadAdvice, db = pool, now = new Date(), seen = capturedUnits }) {
+  for (const [unit, instant] of seen) {
+    if (instant <= now.getTime() - CAPTURE_LOOKBACK_MS) seen.delete(unit); // out of the window: nothing will ask again
+  }
   const leagues = await db.query(
     `SELECT "id", "current_season", "current_week" FROM "leagues"
      WHERE ${fantasySeasonLiveWhereSql()} AND NOT "best_ball"`
@@ -439,7 +454,7 @@ async function captureOverrides({ loadAdvice, db = pool, now = new Date() }) {
   for (const league of leagues.rows) {
     if (league.current_season == null || league.current_week == null) continue;
     try {
-      await captureLeague(db, { league, loadAdvice, now });
+      await captureLeague(db, { league, loadAdvice, now, seen });
     } catch (err) {
       console.error('override capture failed for league %s:', league.id, err.message);
     }
