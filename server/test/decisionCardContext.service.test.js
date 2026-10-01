@@ -295,6 +295,7 @@ test('loadGameChipContext: rejected reads in several games reject once and leave
 // Volatility tag (#1849): the card's tag off the run the card already reads
 // ---------------------------------------------------------------------------
 
+const { createFakePool } = require('./helpers/fakePool');
 const { loadVolatility } = require('../services/decisionCardContext.service');
 const { SCORING_RULES } = require('../services/scoringRules');
 
@@ -344,15 +345,12 @@ function wrRun() {
 }
 
 function mockRun(t, rows, { runs = [{ id: 77 }] } = {}) {
-  const queries = [];
-  t.mock.method(pool, 'query', async (sql, params) => {
-    const text = String(sql);
-    queries.push({ text, params });
-    if (text.includes('FROM "projection_runs"')) return { rows: runs };
-    if (text.includes('FROM "player_week_projections"')) return { rows };
-    throw new Error(`unexpected query: ${text.slice(0, 80)}`);
-  });
-  return queries;
+  const fake = createFakePool([
+    [/FROM "projection_runs"/, () => ({ rows: runs })],
+    [/FROM "player_week_projections"/, () => ({ rows })],
+  ]);
+  fake.install(t);
+  return fake.calls;
 }
 
 async function tagFor(rows, id, position = 'WR') {
