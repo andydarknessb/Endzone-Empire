@@ -1642,10 +1642,13 @@ judged on the Forecast's numbers as they stood when it was called. It is
 settled at Advance week as a hit (the starter strictly outscored), a miss (a
 tie is a miss) or void (the lineup as played no longer reflected it, or
 either player made no Appearance), and never revisited (ADR 0054). The
-league sees it once both players have locked, hit or miss alike; a hit is a
-Trophy; a call made against a start/sit probability of 0.8 or higher is bold
-(spec #1846). The card shows it as "Your called shot": pending, locked once
-the first of the two games kicks off, then resolved. A failure anywhere in the
+league sees it once both players have locked, hit or miss alike: the Matchup
+page's Bench card prints "Called shot: {starter} over {benched} · 11.4 to 6.2"
+under the team's bench with both players' live points, then Hit or Miss once
+final (a void shows no word); a hit is a Trophy; a call made against a
+start/sit probability of 0.8 or higher is bold (spec #1846). The card shows it
+as "Your called shot": pending, locked once the first of the two games kicks
+off, live points once both have, then resolved. A failure anywhere in the
 shot path never blocks saving a lineup. Stored in `lineup_overrides`, which
 also holds Overrides.
 _Avoid_: bet, wager, prediction, pick (that is pick'em), Maverick, lock in
