@@ -111,7 +111,7 @@ function renderPositionTable({ season, week, source, profile, position, rows, no
     `# ${season} week ${week}, ${source}, ${profile}, ${position}`,
     '',
     `- Rows: ${rows.length}; eligible: ${rows.filter(reading.isEligible).length}; reference set ` +
-      `(eligible, Point estimate >= ${reading.CONSTANTS.minPointEstimate}): ${reference.length}`,
+      `(eligible, Point estimate >= ${reading.CONSTANTS.minPointEstimate[position]}): ${reference.length}`,
   ];
   if (reference.length < reading.CONSTANTS.minReferenceSetSize) {
     lines.push(`- No tags: the reference set is smaller than ${reading.CONSTANTS.minReferenceSetSize}.`);
@@ -246,9 +246,13 @@ async function main(argv) {
     await client.query('BEGIN READ ONLY');
     for (const [profile, rules] of Object.entries(SCORING_PRESETS)) {
       const ctx = { client, season: args.season, currentWeek: args.currentWeek, rules, model, pointEstimateFor };
+      const liveWeek = await loadLiveWeek(ctx);
+      if (!liveWeek) {
+        console.log(`print-interval-readings: no live run for ${profile}, week ${args.currentWeek}, model ${model.MODEL_VERSION}`);
+      }
       const sources = [
         [SOURCE_LEDGER, await loadLedgerWeeks({ ...ctx, profile })],
-        [SOURCE_LIVE, [await loadLiveWeek(ctx)].filter(Boolean)],
+        [SOURCE_LIVE, [liveWeek].filter(Boolean)],
       ];
       for (const [source, weeks] of sources) {
         for (const { week, modelVersion, note, rows } of weeks) {

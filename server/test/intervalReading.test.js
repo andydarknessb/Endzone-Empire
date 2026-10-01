@@ -83,6 +83,22 @@ test('missing factors or a missing quantile is ineligible, never a throw', () =>
   assert.equal(reading.isEligible(null), false);
 });
 
+test('a zero-width Interval is ineligible', () => {
+  const flat = row(1, { floor: 5.2, point: 5.2, ceiling: 5.2 }); // Floor = Point = Ceiling
+  const inverted = row(1, { floor: 10, point: 8, ceiling: 6 }); // p90 below p10
+  for (const degenerate of [flat, inverted]) {
+    assert.equal(reading.isEligible(degenerate), false);
+    assert.equal(reading.thresholdProbabilities(degenerate), null);
+    assert.equal(reading.thresholdProbability(degenerate, 10), null);
+    // Inside an otherwise full reference set he reads null and moves no tag.
+    const ten = lineRun([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]);
+    const without = reading.volatilityTags(ten);
+    const withHim = reading.volatilityTags([...ten, { ...degenerate, playerId: 99, pointEstimate: 12 }]);
+    assert.equal(withHim.get(99), null);
+    for (const r of ten) assert.equal(withHim.get(r.playerId), without.get(r.playerId));
+  }
+});
+
 test('an ineligible row reads null on every reading', () => {
   const ineligible = row(1, { sampleSize: 3 });
   assert.equal(reading.volatilityTags([ineligible]).get(1), null);
@@ -141,16 +157,44 @@ test('exactly ten eligible players is enough', () => {
 
 test('players below the minimum Point estimate stay out of the reference set and read null', () => {
   const rows = lineRun([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]);
-  const low = row(99, { point: CONSTANTS.minPointEstimate - 0.5, floor: 0, ceiling: 40 });
+  const low = row(99, { point: CONSTANTS.minPointEstimate.WR - 0.5, floor: 0, ceiling: 40 });
   const tags = reading.volatilityTags([...rows, low]);
   assert.equal(tags.get(99), null);
   // The far-out low player did not move the fit: the tagged set is unchanged.
   assert.equal([...tags.values()].filter(Boolean).length, 4);
 });
 
+test('minPointEstimate is per position and frozen', () => {
+  assert.deepEqual(CONSTANTS.minPointEstimate, { QB: 10, RB: 5, WR: 5, TE: 5 });
+  assert.ok(Object.isFrozen(CONSTANTS.minPointEstimate));
+});
+
+test('the minimum Point estimate is per position', () => {
+  // Ten QBs at 10 or more points on the line width = 2 * point.
+  const ten = Array.from({ length: 10 }, (_, i) => {
+    const point = 10 + i;
+    const width = 2 * point + [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5][i];
+    return row(i + 1, { position: 'QB', point, floor: point - width / 2, ceiling: point + width / 2 });
+  });
+  const backup = { position: 'QB', point: 9.9, floor: 0, ceiling: 60 }; // 0.1 under the QB minimum, extreme width
+  const without = reading.volatilityTags(ten);
+  const withBackup = reading.volatilityTags([...ten, row(99, backup)]);
+  assert.equal(withBackup.get(99), null);
+  assert.equal(reading.referenceSet([...ten, row(99, backup)]).length, 10);
+  for (const r of ten) assert.equal(withBackup.get(r.playerId), without.get(r.playerId));
+  assert.ok([...without.values()].some(Boolean), 'the ten do tag');
+  // The same 9.9 row as a WR clears the WR minimum of 5.
+  const wr = row(99, { ...backup, position: 'WR' });
+  assert.ok(reading.referenceSet([wr]).includes(wr));
+  assert.ok(!reading.referenceSet([row(98, { ...backup, point: 4.9, position: 'WR' })]).length);
+  // Each position's minimum is inclusive.
+  assert.equal(reading.referenceSet([row(1, { position: 'QB', point: 10 })]).length, 1);
+  assert.equal(reading.referenceSet([row(1, { position: 'TE', point: 5 })]).length, 1);
+});
+
 test('the minimum Point estimate is inclusive', () => {
   const rows = lineRun([-5, -4, -3, -2, -1, 1, 2, 3, 4, 5]).map((r, i) =>
-    i === 0 ? row(1, { point: CONSTANTS.minPointEstimate, floor: 0, ceiling: 40 }) : r
+    i === 0 ? row(1, { point: CONSTANTS.minPointEstimate.WR, floor: 0, ceiling: 40 }) : r
   );
   // Nine others plus the boundary player make ten; dropping the boundary
   // player would leave nine and no tags at all.
@@ -310,7 +354,8 @@ test('every constant lives in CONSTANTS', () => {
   assert.equal(CONSTANTS.tossupMax, 0.6);
   assert.equal(CONSTANTS.strongMin, 0.8);
   assert.equal(CONSTANTS.taggedFractionDenominator, 5);
-  assert.ok(Number.isFinite(CONSTANTS.minPointEstimate));
+  for (const position of CONSTANTS.positions) assert.ok(Number.isFinite(CONSTANTS.minPointEstimate[position]), position);
+  assert.ok(Object.isFrozen(CONSTANTS.minPointEstimate));
   assert.ok(Object.isFrozen(CONSTANTS));
 });
 
@@ -354,6 +399,13 @@ test('print: a position with a full reference set lists its tagged players, boom
   assert.match(md, /\| Player \| Tag \| Point estimate \| Floor \| Ceiling \| Width \|/);
   assert.ok(md.indexOf('boom_or_bust') < md.indexOf('steady'));
   assert.equal(md.split('\n').filter((l) => /^\| Player \d/.test(l)).length, 4);
+});
+
+test('print: the header names the position\'s own minimum Point estimate (#1896)', () => {
+  const qb = print.renderPositionTable({ season: 2026, week: 3, source: 'ledger', profile: 'ppr', position: 'QB', rows: [] });
+  const wr = print.renderPositionTable({ season: 2026, week: 3, source: 'ledger', profile: 'ppr', position: 'WR', rows: [] });
+  assert.match(qb, /Point estimate >= 10\)/);
+  assert.match(wr, /Point estimate >= 5\)/);
 });
 
 test('print: a too-small reference set says so and lists nobody', () => {
