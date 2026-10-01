@@ -1644,7 +1644,10 @@ settled; replaceable or withdrawn until the first of the two players locks;
 judged on the Forecast's numbers as they stood when it was called. It is
 settled at Advance week as a hit (the starter strictly outscored), a miss (a
 tie is a miss) or void (the lineup as played no longer reflected it, or
-either player made no Appearance), and never revisited (ADR 0054). The
+either player made no Appearance), and never revisited (ADR 0054). A shot
+with a player who shows no Appearance at its own week's Advance is settled at
+the league's next Advance week, once the snap counts are in (the Advance that
+completes the season settles it at once). The
 league sees it once both players have locked, hit or miss alike: the Matchup
 page's Bench card prints "Called shot: {starter} over {benched} · 11.4 to 6.2"
 under the team's bench with both players' live points, then Hit or Miss once

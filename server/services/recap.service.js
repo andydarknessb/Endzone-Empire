@@ -5,6 +5,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 // league's rules, the identical formula the score of record uses, not the
 // stored default-rules `fantasy_points` column (#739, ADR 0024).
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
+const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
 
 /**
  * Weekly league recaps: after a week is finalized, gather its storylines
@@ -106,6 +107,27 @@ function lineupTrophyFacts(rows) {
   return facts;
 }
 
+/**
+ * Pure: the Recap's Called shot facts (#1860), read from the week's resolved
+ * `lineup_overrides` rows and never recomputed: the judge at Advance week is the
+ * one place a shot is decided. A void is a non-event and adds nothing. A week
+ * with no hit or miss adds no key. Bold is a call made at or above the trophy's bold probability.
+ */
+function calledShotFacts(rows) {
+  const calledShots = (rows || [])
+    .filter((r) => r.outcome === 'hit' || r.outcome === 'miss')
+    .map((r) => ({
+      team: r.team_name,
+      starter: r.starter_name,
+      benched: r.benched_name,
+      starterPoints: Number(r.starter_points_actual),
+      benchedPoints: Number(r.benched_points_actual),
+      outcome: r.outcome,
+      bold: Number(r.probability) >= CALLED_SHOT_BOLD_PROBABILITY,
+    }));
+  return calledShots.length > 0 ? { calledShots } : {};
+}
+
 /** Pure: render the fallback narrative from recap facts. */
 function templateNarrative(facts) {
   const lines = [];
@@ -144,6 +166,13 @@ function templateNarrative(facts) {
     const result = c.margin > 0 ? `lost by ${c.margin}` : 'tied';
     const move = c.starter ? `starting ${c.bench} over ${c.starter} at ${c.slot}` : `filling ${c.slot} with ${c.bench}`;
     lines.push(`Captain Hindsight: ${c.team} ${result}; ${move} would have won it.`);
+  }
+  for (const c of facts.calledShots || []) {
+    const score = `${c.starterPoints} to ${c.benchedPoints}`;
+    const line = c.outcome === 'hit'
+      ? `${c.team} called it: ${c.starter} over ${c.benched}, ${score}.`
+      : `${c.team} called ${c.starter} over ${c.benched} and missed, ${score}.`;
+    lines.push(c.bold ? `${line} A bold call.` : line);
   }
   if (facts.waiverSteal) {
     lines.push(
@@ -313,11 +342,35 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
     console.error('recap: lineup trophy lookup failed:', err.message);
   }
 
+  // Called shots (#1860): the week's own resolved rows, judged by the same
+  // trophy step. A catch-up row of an earlier week gets no line here.
+  let calledFacts = {};
+  try {
+    const shotRows = await pool.query(
+      `SELECT "teams"."name" AS "team_name", "lineup_overrides"."outcome", "lineup_overrides"."probability",
+              "lineup_overrides"."starter_points_actual", "lineup_overrides"."benched_points_actual",
+              "starter"."name" AS "starter_name", "benched"."name" AS "benched_name"
+       FROM "lineup_overrides"
+       JOIN "teams" ON "teams"."id" = "lineup_overrides"."team_id"
+       JOIN "players" AS "starter" ON "starter"."id" = "lineup_overrides"."starter_player_id"
+       JOIN "players" AS "benched" ON "benched"."id" = "lineup_overrides"."benched_player_id"
+       WHERE "lineup_overrides"."league_id" = $1 AND "lineup_overrides"."season" = $2
+         AND "lineup_overrides"."week" = $3 AND "lineup_overrides"."called"
+         AND "lineup_overrides"."outcome" IN ('hit', 'miss')
+       ORDER BY "lineup_overrides"."id"`,
+      [leagueId, season, week]
+    );
+    calledFacts = calledShotFacts(shotRows.rows);
+  } catch (err) {
+    console.error('recap: called shot lookup failed:', err.message);
+  }
+
   const facts = buildRecapFacts(week, matchupsResult.rows, {
     benchBlunder,
     waiverSteal,
     playoffOdds,
     ...lineupFacts,
+    ...calledFacts,
   });
   const narrative = (await llmNarrative(facts)) || templateNarrative(facts);
 
@@ -394,6 +447,7 @@ module.exports = {
   buildRecapFacts,
   pickWaiverSteal,
   lineupTrophyFacts,
+  calledShotFacts,
   templateNarrative,
   llmNarrative,
   computeAndStoreWeeklyRecap,

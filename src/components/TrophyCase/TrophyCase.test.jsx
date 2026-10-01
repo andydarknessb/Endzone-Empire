@@ -128,6 +128,23 @@ test('shows Perfect Lineup and Captain Hindsight as chips with team and week', a
   expect(iconOf('trophy-6')).toHaveAttribute('data-icon', 'rebound');
 });
 
+// #1860: a hit Called shot is a weekly trophy: "team · Week N" and its own glyph.
+test('shows Called Shot as a weekly chip with team and week', async () => {
+  apiClient.get.mockResolvedValue({
+    data: [
+      { ...trophies[0], id: 7, type: 'called_shot', label: 'Called Shot', week: 8, team_name: 'Sunday Ballers', data: { bold: true } },
+    ],
+  });
+
+  renderWithProviders(<TrophyCase leagueId={1} />);
+  await screen.findByTestId('trophy-case');
+
+  expect(screen.getByTestId('trophy-7')).toHaveTextContent('Called Shot');
+  expect(screen.getByTestId('trophy-7')).toHaveTextContent('Sunday Ballers · Week 8');
+  // eslint-disable-next-line testing-library/no-node-access -- the glyph is aria-hidden by design
+  expect(screen.getByTestId('trophy-7').querySelector('svg[data-icon]')).toHaveAttribute('data-icon', 'target');
+});
+
 test('renders nothing while loading', () => {
   apiClient.get.mockReturnValue(new Promise(() => {}));
   renderWithProviders(<TrophyCase leagueId={1} />);
