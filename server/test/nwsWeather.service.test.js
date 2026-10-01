@@ -188,6 +188,65 @@ test('a cached snapshot in the same horizon bucket prevents a duplicate request'
   assert.equal(result.coverage.requests, 0);
 });
 
+// #1883: a kickoff past the forecast's reach used to clamp into bucket 168 and
+// save the LAST hourly period NWS returned as that game's forecast, which the
+// Decision card then showed as if it were real.
+test('a kickoff beyond the forecast horizon makes no request and writes no row', async (t) => {
+  withUserAgent(t);
+  forbidRealNetwork(t);
+  const calls = [];
+  const client = stubClient();
+  const result = await weather.getForecastsForGames({
+    season: 2026,
+    week: 17,
+    games: [outdoorGame({ gameKey: '2026_17_PHI_SF', kickoffAt: '2027-01-04T01:20:00.000Z' })],
+    now: NOW,
+    transport: recordingTransport(calls),
+    client,
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(client.writes.length, 0);
+  assert.equal(result.byGame.get('2026_17_PHI_SF'), null);
+  assert.equal(result.coverage.requests, 0);
+});
+
+test('a kickoff that has already passed makes no request and writes no row', async (t) => {
+  withUserAgent(t);
+  forbidRealNetwork(t);
+  const calls = [];
+  const client = stubClient();
+  const result = await weather.getForecastsForGames({
+    season: 2026,
+    week: 6,
+    games: [outdoorGame({ kickoffAt: '2026-10-09T16:59:59.000Z' })],
+    now: NOW,
+    transport: recordingTransport(calls),
+    client,
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(client.writes.length, 0);
+  assert.equal(result.byGame.get('2026_06_NYJ_BUF'), null);
+});
+
+test('a kickoff exactly MAX_HORIZON_HOURS away is still forecast', async (t) => {
+  withUserAgent(t);
+  forbidRealNetwork(t);
+  const calls = [];
+  const client = stubClient();
+  const kickoffAt = new Date(NOW.getTime() + weather.MAX_HORIZON_HOURS * 3600000).toISOString();
+  const result = await weather.getForecastsForGames({
+    season: 2026, week: 6, games: [outdoorGame({ kickoffAt })], now: NOW,
+    transport: recordingTransport(calls), client,
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(client.writes.length, 1);
+  assert.equal(client.writes[0].params[3], weather.MAX_HORIZON_HOURS);
+  assert.ok(result.byGame.get('2026_06_NYJ_BUF'));
+});
+
 test('an unset NWS_USER_AGENT skips cleanly with no request and an honest reason', async (t) => {
   const previous = process.env.NWS_USER_AGENT;
   delete process.env.NWS_USER_AGENT;
