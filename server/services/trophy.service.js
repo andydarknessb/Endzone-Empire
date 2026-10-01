@@ -335,10 +335,29 @@ function bestCaptainMove({ counted, rosterSlots, margin }) {
  * All read Hindsight (`weekHindsightRoster`), so they share its population and
  * pricer. Returns `[{ type, teamId, label }]` newly awarded. Never throws: a
  * team whose Hindsight cannot be read is logged and skipped.
+ *
+ * `backfill` (#1864) is the owner-run script's door for an already-advanced
+ * week: the same reads and writes, weekly only (the season trophy waits for the
+ * league's own completion pass, since a half-backfilled season would judge it on
+ * partial rows). `onRow` hears every row newly written, or with `dryRun` every
+ * row that would be, as `{ table, leagueId, season, week, type, ... }`; a dry
+ * run writes nothing and, like the insert, skips a row that already exists.
  */
-async function awardLineupTrophies({ league, leagueId, season, week }) {
+async function awardLineupTrophies({ league, leagueId, season, week, backfill = null }) {
   if (league.best_ball) return [];
+  const { dryRun = false, onRow = () => {} } = backfill || {};
   const awarded = [];
+  const putTrophy = async (row) => {
+    const written = dryRun
+      ? (await pool.query(
+        `SELECT 1 FROM "trophies"
+         WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "team_id" = $4 AND "type" = $5`,
+        [row.leagueId, row.season, row.week, row.teamId, row.type]
+      )).rows.length === 0
+      : await award(pool, row);
+    if (written) onRow({ table: 'trophies', ...row });
+    return written;
+  };
   try {
     const { weekHindsightRoster, POINTS_LEFT_TYPE, seasonPointsLeft } = require('./decision.service');
     const { rosterSlots } = parseLineupSettings(league);
@@ -378,7 +397,7 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
           if (move) toAward.push({ type: 'captain_hindsight', label: 'Captain Hindsight', data: move });
         }
         for (const { type, label, data } of toAward) {
-          if (await award(pool, { leagueId, teamId, season, week, type, label, data })) {
+          if (await putTrophy({ leagueId, teamId, season, week, type, label, data })) {
             awarded.push({ type, teamId, label });
           }
         }
@@ -393,15 +412,24 @@ async function awardLineupTrophies({ league, leagueId, season, week }) {
     // high-score reconcile). Written only when every team read: a partial row
     // would freeze a missing team's number for good.
     if (weekRead && pointsLeft.length > 0) {
-      await pool.query(
-        `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT ("league_id", "season", "week", "type")
-         DO NOTHING`,
-        [leagueId, season, week, POINTS_LEFT_TYPE, JSON.stringify({ teams: pointsLeft })]
-      );
+      const key = [leagueId, season, week, POINTS_LEFT_TYPE];
+      const written = dryRun
+        ? (await pool.query(
+          `SELECT 1 FROM "league_analytics"
+           WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3 AND "type" = $4`,
+          key
+        )).rows.length === 0
+        : Boolean((await pool.query(
+          `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT ("league_id", "season", "week", "type")
+           DO NOTHING
+           RETURNING "week"`,
+          [...key, JSON.stringify({ teams: pointsLeft })]
+        )).rows[0]);
+      if (written) onRow({ table: 'league_analytics', leagueId, season, week, type: POINTS_LEFT_TYPE, data: { teams: pointsLeft } });
     }
-    if (deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE) {
+    if (!backfill && deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE) {
       // Fewest over the regular season, the weeks every team plays (a playoff
       // row holds only the teams still alive, so summing it would reward a team
       // for being eliminated). Independent of this week's own row: a week that
@@ -809,6 +837,7 @@ module.exports = {
   longestWinStreak,
   comebackTeam,
   bestCaptainMove,
+  awardLineupTrophies,
   CALLED_SHOT_BOLD_PROBABILITY,
   awardWeeklyTrophies,
   reconcileWeeklyHighScoreTrophy,
