@@ -501,11 +501,13 @@ const openSheet = async (name = 'Breece Hall') => {
   await userEvent.click(await screen.findByRole('button', { name: `Claim ${name}` }));
   return screen.findByRole('dialog', { name: `Claim ${name}` });
 };
+// #1912: the sheet preselects the players read's `context.dropSuggestion`, never `overPlayer`.
+const WITH_SUGGESTION = (id, name) => ({ rosterCount: 18, rosterCapacity: 20, dropSuggestion: { id, name } });
 const submitBtn = (sheet) => within(sheet).getByRole('button', { name: 'Submit claim' });
 const claimReads = () => apiClient.get.mock.calls.filter(([url]) => url.startsWith('/api/waivers') && !url.includes('claim-target')).length;
 
 test('Claim on a row opens the sheet; submitting files the claim, closes it and refreshes claims', async () => {
-  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER, context: WITH_SUGGESTION(2, 'Starter Two') });
   apiClient.post.mockResolvedValue({ data: {} });
   renderPage();
   const sheet = await openSheet();
@@ -537,8 +539,8 @@ test('no Upgrade means no swap preview and no preselected drop', async () => {
   expect(within(sheet).getByRole('radio', { name: /No drop/ })).toBeChecked();
 });
 
-test('drops sort weakest first with projections and the replaced starter is preselected', async () => {
-  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER });
+test('drops sort weakest first with projections and the suggested drop, not the replaced starter, is preselected', async () => {
+  setup({ players: [cardsPlayer({ upgrade: upgradeFor() })], roster: SHEET_ROSTER, context: WITH_SUGGESTION(1, 'Worst Guy') });
   renderPage();
   const sheet = await openSheet();
   const radios = within(sheet).getAllByRole('radio');
@@ -546,7 +548,8 @@ test('drops sort weakest first with projections and the replaced starter is pres
   ['No drop', 'Worst Guy (RB) · 2.0 proj', 'Starter Two', 'Best Bench', 'No Proj'].forEach((name, i) =>
     expect(radios[i]).toHaveAccessibleName(expect.stringContaining(name))
   );
-  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /Worst Guy/ })).toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).not.toBeChecked();
 });
 
 // Ruling on #1793 (option B): the swap preview reads the replaced starter's
@@ -585,13 +588,13 @@ test('an Unavailable replaced starter is on the roster but is NOT preselected; "
 // roster's Pool value for Starter Two (SHEET_ROSTER's 8.6), so a regression
 // back to the old roster lookup would fail the swap-preview assertion below
 // even though the radio assertions alone could not tell the two apart.
-test('a healthy replaced starter still IS preselected as the drop, and the swap preview reads overPlayer.points, not the roster Pool number', async () => {
+test('a healthy replaced starter is NOT preselected as the drop (#1912), and the swap preview reads overPlayer.points, not the roster Pool number', async () => {
   const over = { id: 2, name: 'Starter Two', points: 5.4, unavailable: null };
   setup({ players: [cardsPlayer({ upgrade: upgradeFor(over) })], roster: SHEET_ROSTER });
   renderPage();
   const sheet = await openSheet();
-  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
-  expect(within(sheet).getByRole('radio', { name: /No drop/ })).not.toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).not.toBeChecked();
+  expect(within(sheet).getByRole('radio', { name: /No drop/ })).toBeChecked();
   const swap = within(sheet).getByTestId('claim-sheet-swap');
   expect(swap).toHaveTextContent('Starter Two 5.4');
   expect(swap).not.toHaveTextContent('8.6');
@@ -604,7 +607,7 @@ test('a healthy replaced starter still IS preselected as the drop, and the swap 
 // `mine - upgrade.points` fallback, not the roster's stale Pool number), and
 // the drop preselect must treat the missing `unavailable` field exactly as
 // today: preselected when he is on the roster.
-test('an old-shape overPlayer (no points/unavailable, a client ahead of the API) still shows a number and still preselects', async () => {
+test('an old-shape overPlayer (no points/unavailable, a client ahead of the API) still shows a number', async () => {
   const over = { id: 2, name: 'Starter Two' };
   setup({ players: [cardsPlayer({ upgrade: upgradeFor(over, 4.0) })], roster: SHEET_ROSTER });
   renderPage();
@@ -614,8 +617,6 @@ test('an old-shape overPlayer (no points/unavailable, a client ahead of the API)
   // the roster's Pool value (8.6) and not "-" (a missing fallback).
   expect(swap).toHaveTextContent('Starter Two 8.1');
   expect(swap).not.toHaveTextContent('8.6');
-  expect(within(sheet).getByRole('radio', { name: /Starter Two/ })).toBeChecked();
-  expect(within(sheet).getByRole('radio', { name: /No drop/ })).not.toBeChecked();
 });
 
 test('a replaced starter who is not on the roster is not preselected', async () => {

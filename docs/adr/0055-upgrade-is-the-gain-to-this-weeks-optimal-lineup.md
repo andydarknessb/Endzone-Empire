@@ -48,3 +48,18 @@ preselect and reads a drop suggestion instead. That client change is slice C
 (#1912); until it ships, the sheet still preselects `overPlayer` when he is
 available this week. ADR 0040 is not contradicted: the Upgrade still reads
 the Weekly projection under league scoring.
+
+## Amendment (2026-10-02): the drop preselect (slice C, #1912)
+
+The claim sheet no longer reads `overPlayer` for its drop preselect. After
+this ADR `overPlayer` is the player who leaves this week's optimal lineup,
+usually a starter-grade player moved to the bench, which is the wrong default
+drop. The players read's `context` now carries `dropSuggestion: { id, name }
+| null`: when the viewer's team is at capacity (`rosterCount >=
+rosterCapacity`), the roster player with the lowest Rest of season total from
+a read over the roster's own ids, ties by lower id; `null` when a spot is free
+or when that read fails. A player in an IR slot this week is not considered,
+because roster capacity is earned by the stash and dropping him frees no spot.
+The sheet preselects the suggestion when he is in the roster list it shows,
+otherwise no drop; an edited claim still opens on its own drop, and the swap
+preview still reads `upgrade`.
