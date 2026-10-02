@@ -77,10 +77,6 @@ page itself, which stays under `src/components` for now; two nullable columns
 on `waiver_claims` and a larger `myClaims` shape on `GET /api/waivers`; and a
 transaction log line that names the Winning bid.
 
-Superseded in part by ADR 0055: the Upgrade is the gain to this week's
-optimal lineup, and the replaced starter is no longer what the claim sheet
-preselects.
-
 ## Amendment (2026-09-29): the replaced starter is preselected only when available this week
 
 #1793 zeroed an Unavailable starter's Weekly projection in the Upgrade
@@ -91,3 +87,9 @@ above) preselect him only when he carries no Unavailable reason; over an
 Unavailable starter the sheet preselects no drop. At roster capacity this
 changes nothing: a drop is still required and Submit stays disabled until
 one is chosen.
+
+## Amendment (2026-10-02): the Upgrade is the gain to the optimal lineup
+
+ADR 0055 redefines the Upgrade as the gain to this week's optimal lineup and
+supersedes the "replaced starter preselected" sentence above and the
+2026-09-29 amendment.
