@@ -192,6 +192,39 @@ test('buildStatUpdates: a row with only target_share/wopr/EPA data (no idp yarda
   assert.equal(updates[0].patch.usageAirYardsShare, 0, 'a real 0 in the file is still a real 0');
 });
 
+test('buildStatUpdates carries gameTeam/gameOpponent in nflverse spelling, so the nightly pass finalizes them', () => {
+  const defRows = [{ player_id: '00-0039924', team: 'WAS', opponent_team: 'DAL', def_sack_yards: '9' }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  assert.equal(updates[0].patch.gameTeam, 'WAS');
+  assert.equal(updates[0].patch.gameOpponent, 'DAL');
+});
+
+test('buildStatUpdates: a zero-stat row that has a team is not skipped (it is how a box-only line gets its gameTeam)', () => {
+  const defRows = [{ player_id: '00-0011111', team: 'KC', opponent_team: 'DEN', def_sack_yards: '0', def_safeties: '0' }];
+  const updates = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0011111', '5555']]),
+    knownPlayersByExternalId: new Map([['5555', 7]]),
+  });
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].patch.gameTeam, 'KC');
+});
+
+test('buildStatUpdates leaves gameTeam/gameOpponent out of the patch when the file cell is blank (never wipes a stored team)', () => {
+  const defRows = [{ player_id: '00-0039924', team: '', opponent_team: ' ', def_sack_yards: '9' }];
+  const [update] = buildStatUpdates({
+    defRows,
+    crosswalk: new Map([['00-0039924', '4429795']]),
+    knownPlayersByExternalId: new Map([['4429795', 42]]),
+  });
+  assert.equal('gameTeam' in update.patch, false);
+  assert.equal('gameOpponent' in update.patch, false);
+});
+
 test('buildStatUpdates skips all-zero patches — the combined file lists every offensive player too', () => {
   const defRows = [{ player_id: '00-0011111', def_sack_yards: '0', def_safeties: '0' }];
   const updates = buildStatUpdates({

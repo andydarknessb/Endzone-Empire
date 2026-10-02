@@ -186,6 +186,33 @@ test('week patch against an nflverse-only prior replaces its own keys and keeps 
   assert.deepEqual(out, { ...NFLVERSE_ONLY_PRIOR, idpSackYards: 11, usageTargetShare: 0.5, epaReceiving: null });
 });
 
+test('week patch writes gameTeam/gameOpponent onto a box-only prior that lacks them (the nightly pass, not only the Tue/Wed correction)', () => {
+  const out = stats(storedStatLine({
+    source: 'nflverse-week', fresh: { idpSackYards: 0, gameTeam: 'WAS', gameOpponent: 'DAL' }, prior: BOX_ONLY_PRIOR,
+  }));
+  assert.equal(out.gameTeam, 'WAS');
+  assert.equal(out.gameOpponent, 'DAL');
+  assert.equal(out.passingYards, 100, 'no scored key moves');
+});
+
+test('week patch carries gameTeam/gameOpponent into a line it creates from yardage', () => {
+  const out = stats(storedStatLine({
+    source: 'nflverse-week', fresh: { idpSackYards: 9, gameTeam: 'KC', gameOpponent: 'DEN' }, prior: null,
+  }));
+  assert.equal(out.gameTeam, 'KC');
+  assert.equal(out.gameOpponent, 'DEN');
+});
+
+test('week patch with gameTeam alone and no prior still creates nothing', () => {
+  assert.equal(storedStatLine({ source: 'nflverse-week', fresh: { gameTeam: 'KC', gameOpponent: 'DEN' }, prior: null }), null);
+});
+
+test('week patch that omits gameTeam keeps the stored one', () => {
+  const out = stats(storedStatLine({ source: 'nflverse-week', fresh: { idpSackYards: 1 }, prior: NFLVERSE_ONLY_PRIOR }));
+  assert.equal(out.gameTeam, 'KC');
+  assert.equal(out.gameOpponent, 'DEN');
+});
+
 test('week patch ignores a fresh key it does not own', () => {
   const out = stats(storedStatLine({ source: 'nflverse-week', fresh: { idpSackYards: 1, passingYards: 999 }, prior: BOX_ONLY_PRIOR }));
   assert.equal(out.passingYards, 100);

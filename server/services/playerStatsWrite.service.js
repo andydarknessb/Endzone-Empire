@@ -74,7 +74,11 @@ const WEEK_YARDAGE_KEYS = [
 const WEEK_SHARE_EPA_KEYS = [
   'usageTargetShare', 'usageAirYardsShare', 'usageWopr', 'epaPassing', 'epaRushing', 'epaReceiving',
 ];
-const WEEK_KEYS = [...WEEK_YARDAGE_KEYS, ...WEEK_SHARE_EPA_KEYS];
+// Who the line was earned for and against (nflverse spelling). The finalization
+// pass owns them too, so a box-written line is self-describing the night
+// nflverse has it rather than only once the Tue/Wed correction runs.
+const WEEK_TEAM_KEYS = ['gameTeam', 'gameOpponent'];
+const WEEK_KEYS = [...WEEK_YARDAGE_KEYS, ...WEEK_SHARE_EPA_KEYS, ...WEEK_TEAM_KEYS];
 
 // Everything the wholesale nflverse rewrite emits (normalizeNflversePlayerStats
 // and buildDstStatUpdates). Not the TD-length lists (play-by-play only) and not

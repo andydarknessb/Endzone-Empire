@@ -144,7 +144,7 @@ test('nflverse-week owns every key the finalization patch emits', () => {
     defRows: [{
       player_id: '00-1', def_sack_yards: '1', def_tackles_for_loss_yards: '1', fumble_recovery_yards_opp: '1',
       def_interception_yards: '1', def_safeties: '1', target_share: '0.1', air_yards_share: '0.1', wopr: '0.1',
-      passing_epa: '1', rushing_epa: '1', receiving_epa: '1',
+      passing_epa: '1', rushing_epa: '1', receiving_epa: '1', team: 'KC', opponent_team: 'DEN',
     }],
     crosswalk: new Map([['00-1', '9']]),
     knownPlayersByExternalId: new Map([['9', 1]]),

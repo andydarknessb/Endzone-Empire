@@ -330,6 +330,14 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
       idpSafety: num(row.def_safeties ?? row.def_safety),
       ...readNflverseShareAndEpa(row),
     };
+    // gameTeam/gameOpponent ride the patch only when the file has them, so a
+    // blank cell never overwrites a stored team with null. They count as data
+    // for the no-op test below: a zero-stat box line is exactly the row that
+    // lacks them.
+    const team = optionalTeamAbbr(row.team);
+    const opponent = optionalTeamAbbr(row.opponent_team);
+    if (team) patch.gameTeam = team;
+    if (opponent) patch.gameOpponent = opponent;
     // The combined file has a row for EVERY player, not just defenders (the
     // old def-only file didn't) — a patch with nothing but zero idp yardage
     // and null optional fields is a no-op merge, so skipping it keeps the
