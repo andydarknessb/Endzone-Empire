@@ -1523,8 +1523,12 @@ function stopScheduler() {
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
   'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'nflverse-practice', 'nflverse-snaps', 'nflverse-correction', 'odds', 'game-context',
-  'espn-depth-chart', 'espn-ownership', 'espn-roster-status',
+  'espn-depth-chart', 'espn-ownership', 'espn-roster-status', 'weather-snapshots',
 ];
+
+// An ok run that wrote nothing because NWS_USER_AGENT is unset (#1930): it stays
+// ok (a failed row would not move the cadence gate), but the report names it.
+const NWS_UNCONFIGURED_REASON = 'NWS_USER_AGENT not configured';
 
 // The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
 // syncRun.js). Anything else - a legacy row written before that module
@@ -1550,7 +1554,9 @@ function toLatestStatus(latest) {
   return {
     finishedAt: latest.finishedAt,
     ok: latest.ok,
-    outcome: latest.ok ? 'ok' : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
+    outcome: latest.ok
+      ? (reason === NWS_UNCONFIGURED_REASON ? 'unconfigured' : 'ok')
+      : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
     failedWeeks,
   };
 }

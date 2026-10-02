@@ -608,7 +608,7 @@ test('each suggestion side carries the Line, the weather and the applied flags, 
     oddsByGame: { g1: { total: '49.5', spread: '-7.5', observed_at: '2026-10-08T00:00:00.000Z' } },
     weatherByGame: { g1: {
       temperature_f: '40', wind_speed_mph: '22', wind_gust_mph: '30',
-      precipitation_probability: '70', short_forecast: 'Rain',
+      precipitation_probability: '70', short_forecast: 'Rain', fetched_at: new Date(),
     } },
     queryLog,
   });

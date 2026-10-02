@@ -101,8 +101,15 @@ async function loadLine(gameKey, homeAway) {
   };
 }
 
-/** The weather context for a game: fields-null once a game exists, per the ADR — never bare null. */
-async function loadWeather(gameKey, roof) {
+// A healthy Sunday leaves a snapshot ~18h old (the job waits out an open game
+// window), so 24h: older is a feed that stopped, and is withheld (#1930).
+const WEATHER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The weather context for a game: fields-null once a game exists, per the ADR — never bare null.
+ * A snapshot older than 24h (or with no usable `fetched_at`) reads as no forecast.
+ */
+async function loadWeather(gameKey, roof, now = Date.now()) {
   if (isIndoorGame({ roof })) {
     return {
       indoor: true,
@@ -114,11 +121,13 @@ async function loadWeather(gameKey, roof) {
     };
   }
   const result = await pool.query(
-    `SELECT "temperature_f", "wind_speed_mph", "wind_gust_mph", "precipitation_probability", "short_forecast"
+    `SELECT "temperature_f", "wind_speed_mph", "wind_gust_mph", "precipitation_probability", "short_forecast", "fetched_at"
      FROM "game_weather_snapshots" WHERE "game_key" = $1 ORDER BY "horizon_hours" ASC LIMIT 1`,
     [gameKey]
   );
-  const snap = result.rows[0];
+  const row = result.rows[0];
+  // A NaN age (no `fetched_at`) fails the comparison, so it is withheld too.
+  const snap = row && +now - new Date(row.fetched_at) <= WEATHER_MAX_AGE_MS ? row : null;
   return {
     indoor: false,
     temperatureF: snap && snap.temperature_f != null ? Number(snap.temperature_f) : null,
