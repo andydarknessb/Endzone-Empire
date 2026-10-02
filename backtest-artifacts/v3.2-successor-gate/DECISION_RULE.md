@@ -9,7 +9,7 @@ comment of 2026-10-02 there.
 
 Whether the engine changes under spec #1438 ship as `free_baseline_v3.2`.
 
-Two things sit outside it:
+Two qualifications:
 
 - `simulation.smoothingBandwidth` and `simulation.intervalScale` follow
   holdout-confirm-2026 Candidate B (PREREGISTRATION section 8.3).
@@ -23,19 +23,24 @@ Two things sit outside it:
 
 ## 1. The bundle
 
-Fixed today: #1440, #1441, #1442, #1443, #1483, #1485, #1769 and, if its
-screen passes, #1484. A new engine change goes to the next successor spec.
+Fixed as of 2026-10-02: #1440, #1441, #1442, #1443, #1483, #1485, #1769 and,
+if its screen passes, #1484. A new engine change goes to the next successor
+spec.
 
 Each remaining child is built to its ticket and merges inert behind a
-`MODEL_CONSTANTS_V3_2` key (the #1442 ruling, point 4). By 2026-10-16 every
-choice a child's ticket leaves open, or settles differently from another
-child's ticket, is written in that ticket's body, whether a number, a
-window, a curve family or an edge case. "Its ticket" means the body as it
-reads at the end of that day; GitHub keeps each body's edit history. Where a
-ticket and this file differ, this file governs: a rate that a ticket says
-shrinks a projection is stored as the active probability, never folded into
-the mean. Every tunable is fitted on 2024 and 2025 only. A child not merged
-by the freeze is left out, never for a reason read from a 2026 outcome.
+`MODEL_CONSTANTS_V3_2` key (the #1442 ruling, point 4). By
+2026-10-16T23:59:59Z every choice a child's ticket leaves open, or settles
+differently from another child's ticket, is written in that ticket's body,
+whether a number, a window, a curve family or an edge case. A ruling in a
+comment binds only once it is copied into the body. The SHA-256 of each
+body is posted on #1438 on 2026-10-02 and again by whoever changes one, and
+"its ticket" means the body whose hash was last posted there by that
+instant. A choice still open after it is settled on #1438 before the child
+is built, with its reason, never by a 2026 outcome. Where a ticket and this
+file differ, this file governs: a rate that a ticket says shrinks a
+projection is stored as the active probability, never folded into the mean.
+Every tunable is fitted on 2024 and 2025 only. A child not merged by the
+freeze is left out, never for a reason read from a 2026 outcome.
 
 The evaluator that applies this rule (#1938) merges before any of #1440 to
 #1443.
@@ -65,16 +70,19 @@ deciding read. A v3.2 defect found before that read is fixed only by a new
 freeze commit recorded on #1438. An evaluator defect found after it makes
 the gate unevaluable; the read is not repeated.
 
-The children must leave v3.1 untouched. For each of #1440 to #1443 that
-merged, the same session rebuilds v3.1 at that child's merge commit and at
-its first parent, over the `half_ppr` weeks of section 3, and compares the
-SHA-256 of the rebuilt rows (player id, mean, median, p10, p25, p75, p90 and
-active probability, ordered by week and player id). A difference at any
-child makes the gate unevaluable. A change to v3.1 from any other commit is
-rebuild drift, which the error bars of section 5 carry.
+The children must leave v3.1 untouched. When a merge carrying code for any
+of #1440 to #1443 lands, one operator session rebuilds v3.1 at that merge
+commit and at its first parent over every `half_ppr` week captured by then,
+and posts on #1438 the SHA-256 of each set of rebuilt rows (player id, mean,
+median, p10, p25, p75, p90 and active probability, ordered by week and
+player id). A comparison not posted then is run in the deciding session
+instead. A difference, or a comparison that cannot be run, makes the gate
+unevaluable. A change to v3.1 from any other commit is rebuild drift, which
+the error bars of section 5 carry.
 
 The deciding run reads `player_stats` as it stands at that run and records
-each profile's actuals SHA-256.
+the SHA-256 of each profile's actuals (season, week, player id and points,
+ordered by week and player id).
 
 ## 3. Weeks
 
@@ -91,8 +99,8 @@ is unevaluable.
 Every column is scored on its mean, not on the statistic it displayed.
 
 - **Served.** A column serves a row when it has a mean for it, its active
-  probability is not 0, and its projection is not a Position-baseline
-  projection (ADR 0053; `isPositionBaselineEntry` in
+  probability is not 0, and the row is not a Position-baseline projection
+  (ADR 0053; `isPositionBaselineEntry` in
   `server/services/projection.service.js`). That projection carries no
   evidence for the player and surfaces show it as no history, so here it
   counts as unserved.
@@ -130,7 +138,8 @@ All four:
    section 3 leaves for pairwise accuracy. The bound is the sealed study's
    cluster bootstrap over those weeks (PREREGISTRATION section 10: 100,000
    draws, seed 2579717975, the exact sign test under 12 clusters or on a
-   degenerate bootstrap) at test alpha 0.0125, for a family level of 0.05.
+   degenerate bootstrap) at test alpha 0.0125, for a family level of about
+   0.05.
    A simulation of this percentile bound (4,000 resamples, 6,000 simulated
    seasons per case, at 14 and 18 weeks, on normal and on moderately
    left-skewed weekly differences) rejected a true null at 0.024 to 0.052 at
@@ -155,8 +164,9 @@ metric, the comparison the #1439 ruling set (point 4). Rebuilt v3.1 is the
 comparator because it shares every input with rebuilt v3.2, so drift in
 those inputs cancels. Where a child reads an input differently (the week 4
 rows of DEVIATIONS entry 6, which #1440 would filter), the drift hides that
-child's effect on those rows. The #1439 calibration share (point 3) stays
-reported and selects nothing.
+child's effect on those rows, and it can flatter a child that reads data
+less complete at capture than at the rebuild. The #1439 calibration share
+(point 3) stays reported and selects nothing.
 
 ## 7. Reported, selecting nothing
 
@@ -189,8 +199,8 @@ bytes, posted on #1438, and the deciding report prints the SHA-256 of this
 file at the freeze commit.
 
 This rule changes only by a dated amendment to this file that states its
-reason. Until 2026-10-16 the owner may amend any part. After that an
-amendment may only repair something that stops the rule being computed. A
+reason. Until 2026-10-16T23:59:59Z the owner may amend any part. After that
+an amendment may only repair something that stops the rule being computed. A
 repair after the freeze takes effect only through a new freeze commit
 recorded on #1438, and changes no more than the rule needs to be computed.
 Nothing changes after a v3.2 column has been read.
