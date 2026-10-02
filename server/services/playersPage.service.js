@@ -223,13 +223,16 @@ async function attachProjectedPoints(
 // itself (not a post-hoc `.reverse()`, which would also flip the nulls to
 // the front on a descending sort). Shared by every computed-field sort below
 // (mirrors the harness's own simulation in draftHarness.ts).
-const nullsLastComparator = (getValue, direction) => (a, b) => {
+// `tieBreak` orders two rows that both have an equal value; it never applies
+// to two missing values, which stay in id order.
+const nullsLastComparator = (getValue, direction, tieBreak) => (a, b) => {
   const av = getValue(a);
   const bv = getValue(b);
   const aMissing = av == null || !Number.isFinite(av);
   const bMissing = bv == null || !Number.isFinite(bv);
   if (aMissing !== bMissing) return aMissing ? 1 : -1;
   if (!aMissing && av !== bv) return direction * (av - bv);
+  if (!aMissing && tieBreak) return tieBreak(a, b);
   return a.id - b.id;
 };
 
@@ -629,14 +632,16 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // (ADR 0040), so it falls back to the projected_points ordering above,
   // still computed for ordering only and never returned (item 7). Outside
   // best ball, the full eligible pool's ids go to `upgradesFor` in ONE
-  // call; rows sort by upgrade.points descending, nulls last, then id -
-  // never toggled by `dir`.
+  // call; rows sort by upgrade.points descending, nulls last, then the
+  // candidate's own Weekly projection descending (the number `upgradeFor`
+  // got as `candidate.projection`, read from that same call and used for
+  // ordering only), then id - never toggled by `dir`.
   const upgradeBestBallFallback = upgradeSort && Boolean(league && league.best_ball);
   if (upgradeBestBallFallback) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
     settled.sort(nullsLastComparator((p) => Number(p.projected_points), -1));
   } else if (upgradeSort) {
-    const upgrades = await playerCardService.upgradesFor({
+    const { upgrades, projections } = await playerCardService.loadUpgradeContext({
       league,
       team: memberTeam,
       season: currentSeasonYear,
@@ -644,7 +649,11 @@ async function readPlayersPage(query, { db = pool } = {}) {
       playerIds: settled.map((p) => p.id),
     });
     for (const p of settled) p.upgrade = upgrades.get(p.id) ?? null;
-    settled.sort(nullsLastComparator((p) => p.upgrade?.points, -1));
+    settled.sort(nullsLastComparator(
+      (p) => p.upgrade?.points,
+      -1,
+      nullsLastComparator((p) => projections.pointsFor(p.id), -1),
+    ));
   }
 
   const pagePlayers = needsFullPool
