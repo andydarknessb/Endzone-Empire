@@ -199,56 +199,31 @@ mechanical class, as entry 1 was (#1760 ruling); it voids nothing. Captures
 made before the release retain the priors they read; no ledger row, snapshot
 or release_sha is rewritten.
 
-## 6. 2026-10-02: input correction, `stats.gameTeam` / `stats.gameOpponent` on 2026 player_stats rows that lack them (ruling 2026-10-02 R4) - PENDING APPLY
+## 6. 2026-10-02: input finding, 2026 player_stats rows without `stats.gameTeam`; nightly pass now owns the team keys (ruling 2026-10-02 R4, G1-G4)
 
-**What changed.** Forty-eight `player_stats` rows for season 2026 carry no
-`stats.gameTeam` (the dry run read production on 2026-10-02 after 15:48 GMT):
-week 1, ids 118291, 118993, 118994, 120962, 127578, 128756, 132202, 140420,
-151393, 162383, 164474, 168454, 173639, 179628, 184575, 188680, 192808,
-210714, 216159, 217091, 222747; week 2, ids 243827, 244209, 245540, 267115,
-267836, 271884, 296714, 297203, 302051, 319520, 340979, 341534, 341721; week 3,
-ids 351079, 351827, 357455, 357782, 361736, 367175, 388280, 397838, 409246,
-411115, 446191, 466285, 478404, 493455. The correction writes `gameTeam`, and
-`gameOpponent` where it is also missing, onto those rows from the nflverse
-`stats_player_week` row for that player's (season, week), in nflverse spelling
-(WAS, not WSH), exactly as `optionalTeamAbbr(row.team)` writes it; never from
-`players.nfl_team`. It goes through the one write funnel (`upsertPlayerStats`,
-`STAT_KEY_OWNERSHIP`, `server/services/playerStatsWrite.service.js`), touches
-no scored key and no row count, and recomputes `fantasy_points` with the same
-function every writer uses (a row whose points would move is refused). The
-script is `scripts/backfill-stats-gameteam.js` (dry run by default). The
-dry-run list is `E:/ee-datafix/backfill-dryrun.txt` and the pre-correction
-rows (id, full stats jsonb) are held outside the repository at
-`E:/ee-datafix/pre-correction-rows.json`. Source file:
-`stats_player_week_2026.csv`, Last-Modified Fri, 02 Oct 2026 15:48:18 GMT
-(ETag `0x8DF209C945FF8F0`). The same change makes the nightly nflverse-week
-pass own `gameTeam` / `gameOpponent` (`WEEK_TEAM_KEYS`, `buildStatUpdates`),
-so a current-week line gets them the night nflverse has it instead of at the
-Tue/Wed correction; a blank file cell is left out of the patch and never
-overwrites a stored team.
+**What changed.** No row was written. Forty-eight 2026 `player_stats` rows
+carry no `stats.gameTeam` (read 2026-10-02 after 15:48 GMT): week 1, ids
+118291, 118993, 118994, 120962, 127578, 128756, 132202, 140420, 151393, 162383,
+164474, 168454, 173639, 179628, 184575, 188680, 192808, 210714, 216159, 217091,
+222747; week 2, ids 243827, 244209, 245540, 267115, 267836, 271884, 296714,
+297203, 302051, 319520, 340979, 341534, 341721; week 3, ids 351079, 351827,
+357455, 357782, 361736, 367175, 388280, 397838, 409246, 411115, 446191, 466285,
+478404, 493455. They are left null by ruling. Going forward the nightly
+nflverse-week pass owns `gameTeam` / `gameOpponent` (`WEEK_TEAM_KEYS`,
+`buildStatUpdates`), so a current-week line gets them the night nflverse has
+it instead of at the Tue/Wed correction; a blank file cell never overwrites a
+stored team.
 
-**Why (cause).** `gameTeam` is written only from an nflverse row. Every row
-that nflverse has and our crosswalk resolves already carried it (all 1001,
-1004 and 1009 matched rows in weeks 1-3). The rows above are box lines the
-Tank01 box credited (tackles and fumble recoveries; 47 of the 48 carry a
-non-zero scored key) for players who have no `stats_player_week` row that week, so the
-nflverse pass had nothing to finalize them with. It is neither a crosswalk
-collision (the `nflverseSync.service.js` collision drop counts snap patches,
-not `gameTeam`) nor a blank team in the source. Three rows (118994, 128756,
-302051) have an nflverse row under a `players.csv` id with a blank `espn_id`,
-which the crosswalk cannot join. Against the ruled source the plan is zero
-rows; applying this entry therefore writes nothing until a source for these
-48 rows is ruled (the 2026 `snap_counts` file carries nflverse `team` and
-`opponent` for 198 of the original 204).
+**Why (cause).** `gameTeam` is written only from an nflverse row, and every row
+nflverse has and our crosswalk resolves already carried it. The rows above are
+Tank01 box lines (47 of 48 carry a scored tackle or fumble recovery) for
+players with no nflverse `stats_player_week` row that week, so the ruled source
+plans zero rows. Three (118994, 128756, 302051) have an nflverse row under a
+`players.csv` id with a blank `espn_id`, filed separately as a crosswalk bug.
 
-**Which claims it touches.** None of the gates. Same-season `stats.gameTeam`
-is never read by the engine (`projectionFeatures.js`), so no 2026 projection
-moves, and `MODEL_VERSION`, `MODEL_CONSTANTS` and the pinned hash are
-untouched. The readers that change are the Decision card Usage target-share
-denominator (`decisionCardContext.service.js`, a player's own week now finds
-its team's pass attempts) and backtest snapshot joins that read `gameTeam` /
-`gameOpponent`. Recorded as an input correction of the purely mechanical
-class, as entries 1 and 5 were; it voids nothing. Purely mechanical, voids
-nothing; no ledger row, snapshot or release_sha is rewritten. No cache
-invalidation and no re-capture. WSH / WAS: the read side already folds, so no
-rewrite is needed.
+**Which claims it touches.** None of the gates. Same-season `stats.gameTeam` is
+never read by the engine, so no 2026 projection moves, and `MODEL_VERSION`,
+`MODEL_CONSTANTS` and the pinned hash are untouched. The forward change reaches
+the Decision card Usage target-share denominator and backtest snapshot joins
+only. Purely mechanical, voids nothing; no ledger row, snapshot or release_sha
+is rewritten.
