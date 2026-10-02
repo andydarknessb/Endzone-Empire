@@ -248,6 +248,44 @@ function collectNoHistory(weekly, list, into) {
 }
 
 /**
+ * The claim sheet's suggested drop (#1912, #1800 Ruling items 4-5): the team's
+ * roster player with the lowest Rest of season total, ties by lower id. A
+ * player in an IR slot this week is not considered: capacity is earned by the
+ * stash, so dropping him frees no spot. Its own `getRestOfSeason` call over
+ * the roster's ids: `positionRank` ranks within the ids passed, and the
+ * page's `runsByWeek` hold only the page's players, so none is reused here.
+ * A failed read is `null`, never a failed players read.
+ */
+async function dropSuggestionFor(db, { league, teamId }) {
+  try {
+    const { rows } = await db.query(
+      `SELECT "players"."id", "players"."name" FROM "team_players"
+         JOIN "players" ON "players"."id" = "team_players"."player_id"
+        WHERE "team_players"."team_id" = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM "lineup_entries"
+             WHERE "lineup_entries"."team_id" = "team_players"."team_id"
+               AND "lineup_entries"."player_id" = "team_players"."player_id"
+               AND "lineup_entries"."season" = $2
+               AND "lineup_entries"."week" = (
+                 SELECT MAX("latest"."week") FROM "lineup_entries" AS "latest"
+                  WHERE "latest"."team_id" = "team_players"."team_id"
+                    AND "latest"."season" = $2
+                    AND "latest"."week" <= $3)
+               AND "lineup_entries"."slot" = 'IR')`,
+      [teamId, league.current_season, league.current_week],
+    );
+    if (rows.length === 0) return null;
+    const ros = await projectionService.getRestOfSeason(rows.map((r) => r.id), league.id);
+    const total = (r) => ros.get(r.id)?.total ?? 0;
+    const [lowest] = [...rows].sort((a, b) => total(a) - total(b) || a.id - b.id);
+    return { id: lowest.id, name: lowest.name };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The Players page's whole read. `query` is the typed request the route
  * already coerced from strings (see player.router.js's `GET /`):
  *
@@ -786,11 +824,13 @@ async function readPlayersPage(query, { db = pool } = {}) {
       league,
       teamId: memberTeam.id,
     });
+    const rosterCount = Number(rosterCountResult.rows[0]?.roster_count || 0);
     context = {
       leagueId: leagueIdNum,
       leagueName: league.name,
-      rosterCount: Number(rosterCountResult.rows[0]?.roster_count || 0),
+      rosterCount,
       rosterCapacity,
+      dropSuggestion: rosterCount < rosterCapacity ? null : await dropSuggestionFor(db, { league, teamId: memberTeam.id }),
       waiverType: league.waiver_type || null,
       faabRemaining:
         league.waiver_type === 'faab' ? memberTeam.faab_remaining : null,
