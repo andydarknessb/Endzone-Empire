@@ -168,6 +168,7 @@ const {
   chipLine,
   chipWeather,
   loadGameChipContext,
+  loadWeather,
 } = require('../services/decisionCardContext.service');
 
 test('favoredByForTeam: a negative spread favours the home team, a positive one the away team', () => {
@@ -227,7 +228,7 @@ test('loadGameChipContext: one odds and one weather read per game, keyed by fold
       return {
         rows: [{
           temperature_f: '40', wind_speed_mph: '22', wind_gust_mph: '30',
-          precipitation_probability: '70', short_forecast: 'Rain',
+          precipitation_probability: '70', short_forecast: 'Rain', fetched_at: new Date(),
         }],
       };
     }
@@ -243,6 +244,46 @@ test('loadGameChipContext: one odds and one weather read per game, keyed by fold
   assert.equal(byTeam.get('BUF').weather.windSpeedMph, 22);
   assert.equal(byTeam.get('DAL').weather.indoor, true);
   assert.equal(byTeam.has('PHI'), false, 'not in the lineup');
+});
+
+test('loadWeather: a snapshot more than 24 hours old is withheld, a fresher one is served (#1930)', async (t) => {
+  const now = new Date('2026-09-10T12:00:00.000Z');
+  const hoursAgo = (h) => new Date(now.getTime() - h * 3600 * 1000);
+  let fetchedAt;
+  t.mock.method(pool, 'query', async () => ({
+    rows: [{
+      temperature_f: '65', wind_speed_mph: null, wind_gust_mph: null,
+      precipitation_probability: null, short_forecast: 'Rain Showers Likely', fetched_at: fetchedAt,
+    }],
+  }));
+
+  fetchedAt = hoursAgo(71);
+  assert.deepEqual(await loadWeather('g1', 'outdoors', now), {
+    indoor: false, temperatureF: null, windSpeedMph: null, windGustMph: null,
+    precipitationProbability: null, shortForecast: null,
+  });
+  fetchedAt = hoursAgo(18);
+  const fresh = await loadWeather('g1', 'outdoors', now);
+  assert.equal(fresh.temperatureF, 65);
+  assert.equal(fresh.shortForecast, 'Rain Showers Likely');
+});
+
+test('loadGameChipContext: a one-line fixture can be set stale too, so the chips read unavailable (#1930)', async (t) => {
+  t.mock.method(pool, 'query', async (sql) => {
+    if (String(sql).includes('FROM "nfl_games"')) {
+      return { rows: [{ nfl_team: 'BUF', game_key: 'g1', roof: 'outdoors', home_away: 'home' }] };
+    }
+    if (String(sql).includes('FROM "game_odds_snapshots"')) return { rows: [] };
+    return {
+      rows: [{
+        temperature_f: '40', wind_speed_mph: '22', wind_gust_mph: '30', precipitation_probability: '70',
+        short_forecast: 'Rain', fetched_at: new Date(Date.now() - 72 * 3600 * 1000),
+      }],
+    };
+  });
+  const byTeam = await loadGameChipContext({ season: 2026, week: 6, nflTeams: ['BUF'] });
+  assert.equal(byTeam.get('BUF').weather.windSpeedMph, null);
+  assert.equal(byTeam.get('BUF').weather.shortForecast, null);
 });
 
 test('loadGameChipContext: a team with no game (bye) or a row with no game_key has no entry', async (t) => {
