@@ -6,7 +6,7 @@ const meta = {
   author: 'Andy Darkness',
   excerpt:
     'All 15 Sunday and Monday games, one card each: start, flex and sit calls, game-time decision callouts, plus a slate board of lines and implied points, an injury board with inactive windows, position tiers, sleepers, the Darkness Rulings and the inactives checklist.',
-  readMinutes: 30,
+  readMinutes: 45,
   date: '2026-10-02',
 };
 

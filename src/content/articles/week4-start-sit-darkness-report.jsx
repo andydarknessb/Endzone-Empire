@@ -16,9 +16,10 @@ import {
 
 const POS_COLOR = {
   QB: 'var(--pos-qb)', RB: 'var(--pos-rb)', WR: 'var(--pos-wr)', TE: 'var(--pos-te)',
-  K: 'var(--pos-k)', DEF: 'var(--pos-def)',
+  DEF: 'var(--pos-def)', CB: 'var(--pos-idp)', S: 'var(--pos-idp)', LB: 'var(--pos-idp)', DL: 'var(--pos-idp)',
 };
-const posColor = (pos) => POS_COLOR[pos] || 'var(--text-muted)';
+// 'CB/DT' takes the color of its first position.
+const posColor = (pos) => POS_COLOR[String(pos).split('/')[0]] || 'var(--text-muted)';
 
 const TONE = {
   start: { label: 'Start', color: 'var(--success)' },
@@ -170,7 +171,7 @@ function SplitBar({ away, home, awayPts, homePts }) {
 // 'smash' draws a badge; 'C4' links to the matching Darkness Ruling.
 function Flag({ flag }) {
   if (flag === 'smash') {
-    return <Box component="span" sx={{ ml: 0.75, px: 0.75, borderRadius: '4px', bgcolor: 'var(--accent)', color: 'var(--on-accent, var(--text-inverse))', fontSize: '0.65rem', fontWeight: 900, letterSpacing: '0.08em', verticalAlign: 'middle' }}>SMASH</Box>;
+    return <Box component="span" sx={{ ml: 0.75, px: 0.75, borderRadius: '4px', bgcolor: 'var(--pos-k)', color: 'var(--text-inverse)', fontSize: '0.65rem', fontWeight: 900, letterSpacing: '0.08em', verticalAlign: 'middle' }}>SMASH</Box>;
   }
   if (/^C\d+$/.test(flag || '')) {
     return (
@@ -346,7 +347,7 @@ function InjuryGroup({ title, when, rows }) {
               <Box sx={{ lineHeight: 1.5 }}>
                 <Pill color={t.color}>{t.label}</Pill>
                 <strong>{name}</strong>
-                <Box component="span" sx={{ ml: 0.75, fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)' }}>{pos}, {team}</Box>
+                <Box component="span" sx={{ ml: 0.75, fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{pos}, {team}</Box>
                 <Flag flag={ruling} />
               </Box>
               <Box sx={{ fontSize: '0.88rem', color: 'var(--text-muted)', mt: 0.4, lineHeight: 1.5 }}>{status}</Box>
@@ -361,9 +362,9 @@ function InjuryGroup({ title, when, rows }) {
 
 // One position board in SMASH / START / FLEX bands. Rows are [rank, name, team, proj, note].
 const BANDS = [
-  { key: 'smash', label: 'SMASH', color: 'var(--accent)' },
+  { key: 'smash', label: 'SMASH', color: 'var(--pos-k)' },
   { key: 'start', label: 'START', color: 'var(--success)' },
-  { key: 'flex', label: 'FLEX', color: 'var(--warning)' },
+  { key: 'flex', label: 'FLEX', color: 'var(--accent)' },
 ];
 function TierBoard({ pos, rows, smashMax, startMax, projLabel = 'Proj', next }) {
   const bandOf = (rk) => (rk <= smashMax ? 'smash' : rk <= startMax ? 'start' : 'flex');
@@ -504,7 +505,6 @@ const GAMES = [
     ],
     watch: [
       ['Jayden Daniels', 'QB', 'Quinn decides "by Friday"; clarity may not come until late Saturday or early Sunday. Check 7:00a CT inactives for Daniels and Mariota both.', null, 'C1'],
-      ['Rachaad White', 'RB', 'OUT. Shoulder, DNP/DNP, 8:30a game. Croskey-Merritt is the beneficiary.'],
       ['Mo Alie-Cox', 'TE', 'Illness, DNP Thursday. Warren soaks up the work.'],
     ],
     sit: [
@@ -513,7 +513,7 @@ const GAMES = [
       ['IND D/ST', 'DEF', 'Proj 3.4.'],
       ['WSH D/ST', 'DEF', 'Proj 4.1.'],
     ],
-    also: 'McGowan (c4 in wk3), Treadwell (t1), A. Williams (t4/3/4), Burks, Kaytron Allen (placeholder projection), and the WSH tight ends (Bates 2.5, Yankoff 1.6, Okonkwo 6.54, Sinnott 2.34; Okonkwo and Sinnott are Q with LP/LP).',
+    also: 'McGowan (c4 in wk3), Treadwell (t1), A. Williams (t4/3/4), Burks, Kaytron Allen (placeholder projection), Mo Alie-Cox (illness, DNP Thursday), and the WSH tight ends (Bates 2.5, Yankoff 1.6, Okonkwo 6.54, Sinnott 2.34; Okonkwo and Sinnott are Q with LP/LP).',
   },
   {
     id: 'ari-nyg', slot: 'early', title: 'Cardinals at Giants', kick: 'Sun 12:00', when: 'Sun 12:00 CT',
@@ -530,7 +530,7 @@ const GAMES = [
       ['Jacoby Brissett', 'QB', 'Streamer: 16.5/6.5/25.6, 52 attempts in wk3, proj 16.9, NYG QB rank 16, rain. Superflex START.'],
       ['Malik Nabers', 'WR', 't9/4/6, 74-78% snaps, proj 9.7 (low). ARI WR rank 2 helps; Winston hurts.'],
       ['Isaiah Likely', 'TE', '23.8/5.8/2.3, t8/10/5, 84% snaps in wk3, proj 9.0, ARI TE rank 5.', 'TE10'],
-      ['ARI D/ST', 'DEF', 'DB proj 3.4 and a -3 in wk3, but Winston and a 21.0 implied. The DST8 slot is a context call.', 'DST8'],
+      ['ARI D/ST', 'DEF', 'Proj 3.4 and a -3 in wk3, but Winston and a 21.0 implied. The DST8 slot is a context call.', 'DST8'],
     ],
     watch: [
       ['Tyrone Tracy Jr.', 'RB', 'Knee, DNP/LP, Q. SIT either way; Skattebo starts.', null, 'C10'],
@@ -566,7 +566,7 @@ const GAMES = [
     watch: [
       ['Nico Collins', 'WR', 'START if active as WR2/3, below Nacua. 17.7 on t10 in wk1, missed wk2-3, LP/LP, proj 16.2 (low). Q + Friday LP: start him with a bench swap that plays noon or later, ready at 10:30a CT. Doubtful, or no bench cover: Pickens or Golden is your safe WR3.', 'WR11', 'C5'],
       ['British Brooks', 'RB', 'HOU, DNP Thursday. Out-ish. Marks and Montgomery.'],
-      ['Cowboys CB Durant', 'DEF', 'Hamstring, DNP Thursday, doubtful per CBS. HOU pass catchers up.'],
+      ['Cowboys CB Durant', 'CB', 'Hamstring, DNP Thursday, doubtful per CBS. HOU pass catchers up.'],
     ],
     sit: [
       ['DAL D/ST', 'DEF', 'AVOID. Proj 2.6.'],
@@ -584,7 +584,7 @@ const GAMES = [
       ['Christian Watson', 'WR', '29.7/12.1/19.1, t8/11/10, 80-90% snaps, proj 17.1, 17-284-4 (web). Reed is on IR. The 38.5 total is the only drag.', 'WR7'],
       ['Matthew Golden', 'WR', '12.5/7.8/18.5, t12/6/12, 82-86% snaps, proj 10.3.', 'WR19'],
       ['Bucky Irving', 'RB', 'Start as RB2, firm. 16.8/11.0/6.8, c8/17/15, 78% then 52% snaps, proj 12.9 (low), LP/LP. GB RB rank 1 (29.8) is the best RB matchup on the slate and outweighs 17.5 implied and a rookie QB.', 'RB14', 'C12'],
-      ['GB D/ST', 'DEF', 'Explicit override of the DB proj 3.4 and a -5 in wk3: a UDFA rookie\'s first start and TB at 17.5 implied outweigh them.', 'DST5', 'C19'],
+      ['GB D/ST', 'DEF', 'Explicit override of the 3.4 projection and a -5 in wk3: a UDFA rookie\'s first start and TB at 17.5 implied outweigh them.', 'DST5', 'C19'],
     ],
     flex: [
       ['Jordan Love', 'QB', 'Streamer only: 20.5/13.8/18.5 on 42/29/53 attempts, proj 16.9. Fourth-lowest passing success rate (web) in a 38.5 total.'],
@@ -598,7 +598,7 @@ const GAMES = [
       ['Baker Mayfield', 'QB', 'Thumb, out 3+ weeks, not on IR. Jalon Daniels makes his first start.'],
     ],
     sit: [
-      ['Jalon Daniels', 'QB', 'AVOID. UDFA rookie, first start, no DB row, projection unknown.'],
+      ['Jalon Daniels', 'QB', 'AVOID. UDFA rookie, first start, no row in our data, projection unknown.'],
       ['Chris Godwin Jr.', 'WR', 'SIT even though he plays: t4/3/4, proj 8.4.', null, 'C11'],
       ['GB RBs', 'RB', 'Jacobs is on the Commissioner\'s Exempt list. Lloyd (c13/6/4, 23-27% snaps, proj 5.4), Brooks (proj 3.1), Kaleb Johnson (AVOID, proj 2.3). A committee with no fantasy role, even against TB at RB rank 24.'],
       ['TB D/ST', 'DEF', 'Proj 5.4.'],
@@ -630,21 +630,21 @@ const GAMES = [
     ],
     sit: [
       ['Travis Hunter', 'WR', 't1/0/0 and 8-10% snaps (6 and 5 snaps). The 5.0 and 9.5 points on zero targets in wk2-3 are non-offensive artifacts, not a role.', null, 'C8'],
-      ['JAX D/ST', 'DEF', 'DB proj 9.1 and 17/3/16 in weeks 1-3, but CIN is 27.0 implied in a 51.5 total. A sit, not a flex.', null, 'C19'],
+      ['JAX D/ST', 'DEF', 'Proj 9.1 and 17/3/16 in weeks 1-3, but CIN is 27.0 implied in a 51.5 total. A sit, not a flex.', null, 'C19'],
       ['CIN D/ST', 'DEF', 'Proj 6.4.'],
       ['Josh Cameron', 'WR', '9.5/0/10.2 on t2/0/2, proj 6.0 (n=3). The points did not come from usage.'],
     ],
-    also: 'Perine, D. Meyers, Sample, Chris Rodriguez Jr. (c8 in wk3, 21% snaps), Abdullah, Morris. Iosivas is on IR to Wk8.',
+    also: 'Perine, D. Meyers, Sample, LeQuint Allen Jr. (proj 2.09), Chris Rodriguez Jr. (c8 in wk3, 21% snaps), Abdullah, Morris. Iosivas is on IR to Wk8.',
   },
   {
     id: 'lar-phi', slot: 'early', title: 'Rams at Eagles', kick: 'Sun 12:00', when: 'Sun 12:00 CT',
     away: 'LAR', home: 'PHI', awayPts: 23, homePts: 19.5, line: 'LAR -3.5', total: 42.5, weather: '65F, rain 57%', rain: true,
-    read: 'Philadelphia\'s skill group is gutted: Smith and Brown are out and Goedert is gone for weeks. The Rams lean on Stafford, Adams and Kyren, with Nacua a WR2 if he plays.',
+    read: 'Philadelphia\'s skill group is gutted: Smith and Brown are treated as out and Goedert is gone for weeks. The Rams lean on Stafford, Adams and Kyren, with Nacua a WR2 if he plays.',
     fpa: 'LAR offense vs PHI D: QB 6, RB 21, WR 13, TE 31 · PHI offense vs LAR D: QB 21, RB 27, WR 17, TE 27',
     start: [
       ['Davante Adams', 'WR', '4.1/36.5/17.2, t6/10/13, 83% snaps in wk3, proj 18.3, PHI WR rank 13. Rest DNP/FP, no downgrade.', 'WR6', 'smash'],
       ['Matthew Stafford', 'QB', '4.1/27.0/20.9 on 25/31/55 attempts, proj 19.8 (high quality), PHI QB rank 6. Rain is the only flag.', 'QB7'],
-      ['Kyren Williams', 'RB', 'c11/12/15, t3/2/7, 55% then 71% snaps, proj 15.8 (high quality). The wk3 split was 71/29 snaps and 15 carries to 6; weeks 1-2 were even (11/10 and 12/12).', 'RB8', 'C13'],
+      ['Kyren Williams', 'RB', 'c11/12/15, t3/2/7, 55% then 71% snaps, proj 15.8 (high quality). The wk3 split was 71/29 snaps and 15 carries to 6; weeks 1-2 were close to even (11/10 and 12/12).', 'RB8', 'C13'],
       ['Jalen Hurts', 'QB', '24.7/16.2/12.6, rush c7/5/4, proj 18.3, LAR QB rank 21. Thin WR group; the rush floor holds him.', 'QB12'],
       ['LAR D/ST', 'DEF', 'Proj 6.2, PHI at 19.5 implied, PHI scored 7 in wk3.', 'DST6'],
     ],
@@ -687,8 +687,8 @@ const GAMES = [
     ],
     watch: [
       ['Keon Coleman', 'WR', 'Ankle, DNP/LP, likely plays. If he is out, Shakir flexes and Palmer is still a sit (no wk3 row).', null, 'C21'],
-      ['BUF CB Benford', 'DEF', 'Toe, DNP/DNP, likely out. NE receivers (Hollins, Doubs) get a lift.'],
-      ['NE CB Gonzalez / DT Barmore', 'DEF', 'DNP/DNP, likely out. BUF offense upgrade.'],
+      ['BUF CB Benford', 'CB', 'Toe, DNP/DNP, likely out. NE receivers (Hollins, Doubs) get a lift.'],
+      ['NE CB Gonzalez / DT Barmore', 'CB/DT', 'DNP/DNP, likely out. BUF offense upgrade.'],
     ],
     sit: [
       ['Keon Coleman', 'WR', 'DNP/LP, t1/6/2, flat 6.9 projection.', null, 'C21'],
@@ -701,8 +701,8 @@ const GAMES = [
   {
     id: 'nyj-chi', slot: 'early', title: 'Jets at Bears', kick: 'Sun 12:00', when: 'Sun 12:00 CT',
     away: 'NYJ', home: 'CHI', awayPts: 20, homePts: 23.5, line: 'CHI -3.5', total: 43.5, weather: '61F sunny', rain: false,
-    read: 'Caleb Williams is out and Keenum is the Chicago quarterback. Swift is out by default, so Monangai starts, and Hall is out for the Jets. Nobody here gets ranked by a placeholder projection.',
-    fpa: 'CHI offense vs NYJ D: QB 23, RB 9, WR 25, TE 30 · NYJ offense vs CHI D: QB 17, RB 16, WR 27, TE 26',
+    read: 'Caleb Williams is out and Keenum is my call at quarterback for Chicago. Swift is out by default, so Monangai starts, and Hall is out for the Jets. Nobody here gets ranked by a placeholder projection.',
+    fpa: 'NYJ offense vs CHI D: QB 17, RB 16, WR 27, TE 26 · CHI offense vs NYJ D: QB 23, RB 9, WR 25, TE 30',
     start: [
       ['Kyle Monangai', 'RB', 'RB2/FLEX start with Swift out by default. c10/10/10, 19.4/6.8/3.1, 31-34% snaps, proj 9.4, NYJ RB rank 9.', 'RB18', 'C9'],
       ['Garrett Wilson', 'WR', '10.9/14.2/21.7, t7/7/13, 88-94% snaps, proj 16.2 (low), CHI WR rank 27. Mitchell doubtful pushes more share his way.', 'WR8'],
@@ -718,8 +718,7 @@ const GAMES = [
       ['Case Keenum', 'QB', 'Superflex flex only (QB18-20). 24.48 on 34 attempts in wk3; his 20.9 projection is a placeholder and ignored.', null, 'C3'],
     ],
     watch: [
-      ['D\'Andre Swift', 'RB', 'Out by default. 31.9/10.4/9.8, c18/16/20, proj 15.4 (high). DNP Wednesday (web) and Thursday (DB, knee), no Friday report yet. Friday LP + Q: start Swift with Monangai or another noon-or-later RB on the bench and swap at 10:30a CT. Friday DNP: Monangai starts. If active he sits near RB14.', null, 'C9'],
-      ['Mason Taylor', 'TE', 'Thumb, DNP/DNP; DB lists him D. Sadiq and Ruckert (knee, Q, LP Thursday) get the work.'],
+      ['D\'Andre Swift', 'RB', 'Out by default. 31.9/10.4/9.8, c18/16/20, proj 15.4 (high). DNP Wednesday (web) and Thursday (our injury feed, knee), no Friday report yet. Friday LP + Q: start Swift with Monangai or another noon-or-later RB on the bench and swap at 10:30a CT. Friday DNP: Monangai starts. If active he sits near RB14.', null, 'C9'],
     ],
     sit: [
       ['Caleb Williams', 'QB', 'AVOID. Grade 2 hamstring, out.', 'OUT', 'C3'],
@@ -736,14 +735,14 @@ const GAMES = [
   {
     id: 'ten-bal', slot: 'early', title: 'Titans at Ravens', kick: 'Sun 12:00', when: 'Sun 12:00 CT',
     away: 'TEN', home: 'BAL', awayPts: 15.5, homePts: 27, line: 'BAL -11.5', total: 42.5, weather: '66F, rain 59%', rain: true,
-    read: 'The biggest spread on the slate. Henry has the script, the Baltimore defense has the script (the DB projection of 5.3 understates it), and the Tennessee offense is capped.',
-    fpa: 'BAL offense vs TEN D: QB 31, RB 10, WR 15, TE 29 · TEN offense vs BAL D: QB 18, RB 15, WR 11, TE 19',
+    read: 'The biggest spread on the slate. Henry has the script, the Baltimore defense has the script (the projection of 5.3 understates it), and the Tennessee offense is capped.',
+    fpa: 'TEN offense vs BAL D: QB 18, RB 15, WR 11, TE 19 · BAL offense vs TEN D: QB 31, RB 10, WR 15, TE 29',
     start: [
       ['Derrick Henry', 'RB', '34.8/16.2/21.4, c24/16/26, 72.4 points, proj 20.2 (high quality), BAL -11.5 at 27.0. Upgrade in standard for the touchdown volume.', 'RB3', 'smash'],
       ['Lamar Jackson', 'QB', '25.0/14.8/20.4, rush c7/4/6, proj 18.2, LP/FP. TEN QB rank 31 and the spread cap his passing volume (20 attempts in wk3). The floor is the rush.', 'QB10'],
       ['Zay Flowers', 'WR', 'Start as WR2, not WR9. 23.5 on t6 in wk1; wk3 12.9 on t6 but only 21 snaps (33%). Hamstring, LP/FP, proj 16.0, rain 59%.', 'WR12', 'C17'],
       ['Wan\'Dale Robinson', 'WR', '6.3/1.4/15.2, t6/1/11, 63% snaps in wk3, proj 11.7. A trailing script gives him volume.', 'WR22'],
-      ['BAL D/ST', 'DEF', 'TEN at 15.5 implied, BAL -11.5. DB proj 5.3 understates it; 10/7/3 in weeks 1-3.', 'DST2'],
+      ['BAL D/ST', 'DEF', 'TEN at 15.5 implied, BAL -11.5. Proj 5.3 understates it; 10/7/3 in weeks 1-3.', 'DST2'],
     ],
     flex: [
       ['Pollard', 'RB', 'c7/14/17, 53-55% snaps, proj 9.9, foot, DNP/FP. A negative script is the risk. Spears moves up if he is out.'],
@@ -768,7 +767,7 @@ const GAMES = [
     read: 'Miami\'s 14.0 implied is the lowest on the slate and the Minnesota defense is DST1. Justin Jefferson is default OUT in my rankings, and the quarterback is Kyler Murray, not Wentz.',
     fpa: 'MIA offense vs MIN D: QB 26, RB 29, WR 10, TE 25 · MIN offense vs MIA D: QB 9, RB 3, WR 29, TE 6',
     start: [
-      ['MIN D/ST', 'DEF', 'DST1. DB proj 10.1, 7/21/15 in weeks 1-3, MIA at 14.0 implied, in a dome.', 'DST1'],
+      ['MIN D/ST', 'DEF', 'DST1. Proj 10.1, 7/21/15 in weeks 1-3, MIA at 14.0 implied, in a dome.', 'DST1'],
       ['Aaron Jones', 'RB', 'c12/23/17, t1/0/6, 80-81% snaps, proj 11.0, MIA RB rank 3. Mason is on IR (eligible Wk7). MIN -10.5 means a lead-protecting script. Rest LP, no downgrade.', 'RB16'],
     ],
     flex: [
@@ -807,12 +806,12 @@ const GAMES = [
       ['Jaylen Waddle', 'WR', '0.7/17.8/5.4, t3/10/7, 73% snaps in wk3, proj 10.5, SF WR rank 23.', 'WR29'],
       ['J.K. Dobbins', 'RB', 'c8/10/17, 49% snaps in wk3, 13.0 total, proj 7.5 (flat), FP/FP. Just outside the top 24. In standard he sits above Harvey.'],
       ['Courtland Sutton', 'WR', 't5/4/7, 87% snaps in wk3, proj 9.4.'],
-      ['DEN D/ST', 'DEF', 'DB proj 8.6 and 3/12/11, but SF at 25.25 implied is a negative matchup for a defense.'],
+      ['DEN D/ST', 'DEF', 'Proj 8.6 and 3/12/11, but SF at 25.25 implied is a negative matchup for a defense.'],
     ],
     watch: [
       ['Mike Evans', 'WR', 'Ribs, DNP/DNP, "shouldn\'t be long-term". SIT regardless of Friday: 33% of snaps in wk3. Inactives about 1:55p CT.', null, 'C6'],
-      ['Brandon Aiyuk', 'WR', 'Listed Out on the ESPN depth chart; no DB row and no report. Unknown.'],
-      ['Nick Bosa / James Thompson Jr.', 'DEF', 'Out. A lift for Nix and the Denver offense.'],
+      ['Brandon Aiyuk', 'WR', 'Listed Out on the ESPN depth chart; no row in our data and no report. Unknown.'],
+      ['Nick Bosa / James Thompson Jr.', 'DL', 'Out. A lift for Nix and the Denver offense.'],
     ],
     sit: [
       ['Mike Evans', 'WR', '13.9/6.9/10.9, t7/3/6, only 33% snaps in wk3, proj 11.6 (low). Deep-league flex only.', null, 'C6'],
@@ -825,7 +824,7 @@ const GAMES = [
   {
     id: 'kc-lv', slot: 'late', title: 'Chiefs at Raiders', kick: 'Sun 3:25p', when: 'Sun 3:25p CT · Dome',
     away: 'KC', home: 'LV', awayPts: 26, homePts: 21.5, line: 'KC -4.5', total: 47.5, weather: 'Dome', rain: false,
-    read: 'Tough on receivers both ways: Las Vegas allows the second-fewest points to wide receivers (rank 31) and Kansas City the fewest to quarterbacks (rank 32). The soft spot is tight end, where the Raiders rank 3. That is Kelce.',
+    read: 'Tough on receivers both ways: Las Vegas allows the second-fewest points to wide receivers (rank 31) and Kansas City the fewest to both wide receivers and quarterbacks (rank 32 on both). The soft spot is tight end, where the Raiders rank 3. That is Kelce.',
     fpa: 'KC offense vs LV D: QB 19, RB 23, WR 31, TE 3 · LV offense vs KC D: QB 32, RB 19, WR 32, TE 13',
     start: [
       ['Patrick Mahomes', 'QB', '21.7/29.0/15.9 on 27/47/24 attempts, proj 21.1 (high quality), KC at 26.0.', 'QB3', 'smash'],
@@ -836,7 +835,7 @@ const GAMES = [
       ['Travis Kelce', 'TE', '8.6/20.6/12.9, t5/11/2, 79-85% snaps, proj 13.0, LV TE rank 3 (18.7). The wk3 12.9 came on only t2, so it was likely touchdown-dependent.', 'TE5'],
     ],
     flex: [
-      ['LV D/ST', 'DEF', 'DB proj 8.5 and 17/13/12, but KC at 26.0 implied.'],
+      ['LV D/ST', 'DEF', 'Proj 8.5 and 17/13/12, but KC at 26.0 implied.'],
     ],
     watch: [
       ['KC LT Simmons / LV G Powers-Johnson', 'OL', 'DNP/DNP, likely out. Line downgrades on both sides.'],
@@ -857,7 +856,7 @@ const GAMES = [
     fpa: 'LAC offense vs SEA D: QB 28, RB 28, WR 30, TE 18 · SEA offense vs LAC D: QB 12, RB 14, WR 16, TE 20',
     start: [
       ['Jaxon Smith-Njigba', 'WR', '22.2/38.0/30.4, t11/11/14, 87% snaps in wk3, 90.6 points, proj 25.6.', 'WR1', 'smash'],
-      ['SEA D/ST', 'DEF', 'DB proj 8.0 and 17/15/5 in weeks 1-3, LAC at 17.75 implied.', 'DST3'],
+      ['SEA D/ST', 'DEF', 'Proj 8.0 and 17/15/5 in weeks 1-3, LAC at 17.75 implied.', 'DST3'],
     ],
     flex: [
       ['Sam Darnold', 'QB', 'Flex or streamer. Glute in wk1, Lock started wk1-2, Darnold back in wk3: 27.66 on 45 attempts, 100% snaps; proj 15.18 (flat, n=36). 1QB start only if your starter is out or ranks below QB12; otherwise sit. Superflex START.', 'QB14', 'C15'],
@@ -867,8 +866,9 @@ const GAMES = [
     ],
     watch: [
       ['Ladd McConkey', 'WR', 'Foot, LP Wednesday, DNP Thursday with a limp. Late game, but the ruling is pivot now, not hold. Pivots: Tre\' Harris (flat 6.7, flex only if McConkey is out) and Quentin Johnston, deep flex at most.', null, 'C7'],
-      ['Derwin James', 'DEF', 'LAC safety, LP/DNP, doubtful-ish. A lift for the SEA passing game.'],
-      ['Charlie Kolar / Brenen Thompson', 'TE', 'DNP/DNP, likely out. Njoku is on IR, so Gadsden is the tight end.'],
+      ['Derwin James', 'S', 'LAC safety, LP/DNP, doubtful-ish. A lift for the SEA passing game.'],
+      ['Charlie Kolar', 'TE', 'DNP/DNP, likely out. Njoku is on IR, so Gadsden is the tight end.'],
+      ['Brenen Thompson', 'WR', 'DNP/DNP, likely out.'],
     ],
     sit: [
       ['Ladd McConkey', 'WR', '16.7/5.0/8.6, t7/3/5, 88% snaps in wk3, proj 11.1. Removed from the WR top 30. SEA WR rank 30.', null, 'C7'],
@@ -881,7 +881,7 @@ const GAMES = [
   {
     id: 'det-car', slot: 'prime', title: 'Lions at Panthers', kick: 'Sun 7:20p', when: 'Sunday Night · 7:20p CT',
     away: 'DET', home: 'CAR', awayPts: 27, homePts: 23.5, line: 'DET -3.5', total: 50.5, weather: '70F, rain 56%', rain: true,
-    read: 'The second-highest total on the slate. Detroit allows the most points in the league to quarterbacks and tight ends (rank 1 on both), and Carolina allows the second-most to running backs with cornerbacks Horn and Jackson on IR. Everybody eats.',
+    read: 'The second-highest total on the slate. Detroit allows the most points in the league to quarterbacks and tight ends (rank 1 on both), and Carolina allows the second-most to running backs with cornerbacks Horn and Jackson on IR.',
     fpa: 'DET offense vs CAR D: QB 10, RB 2, WR 28, TE 12 · CAR offense vs DET D: QB 1, RB 18, WR 5, TE 1',
     start: [
       ['Jahmyr Gibbs', 'RB', '31.1/20.3/37.9, c29/16/20, t5/8/8, 83% then 69% snaps, 89.3 points, proj 25.6. Pacheco is on IR; CAR RB rank 2.', 'RB1', 'smash'],
@@ -894,7 +894,7 @@ const GAMES = [
     ],
     flex: [
       ['Jameson Williams', 'WR', 't9/4/4, 97% then 82% snaps, proj 10.5.', 'WR28'],
-      ['Darren Waller', 'TE', '3.8/16.8/7.6, t2/3/8, 44% then 51% snaps, proj 9.7 (n=12, low), DET TE rank 1 (29.4).', 'TE9', 'C20'],
+      ['Darren Waller', 'TE', '3.8/16.8/7.6, t2/3/8, 44% then 51% snaps, proj 9.7 (n=12, low), DET TE rank 1 (29.4).', 'TE9', 'C22'],
       ['Jalen Coker', 'WR', 'Flex if active. 29.8/10.6/2.8, t9/9/4, only 28 snaps (36%) in wk3, quad, DNP/LP, proj 12.3 (low).', null, 'C20'],
     ],
     watch: [
@@ -905,7 +905,7 @@ const GAMES = [
     sit: [
       ['Xavier Legette', 'WR', 'OUT. Knee, DNP/DNP, doubtful per ESPN.', 'OUT', 'C20'],
       ['DET D/ST', 'DEF', 'Proj 5.2.'],
-      ['CAR D/ST', 'DEF', 'DB 7.9, but DET is at 27.0 implied.'],
+      ['CAR D/ST', 'DEF', 'Proj 7.9, but DET is at 27.0 implied.'],
       ['Tremayne', 'WR', '10.3 in wk3 on t6, 81% snaps, proj 3.7.'],
       ['Metchie', 'WR', '8.9 in wk3 on t5, proj 5.7.'],
     ],
@@ -939,7 +939,7 @@ const GAMES = [
       ['NO D/ST', 'DEF', 'Proj 5.4, 2/9/2 in weeks 1-3.'],
       ['ATL D/ST', 'DEF', 'Proj 5.7.'],
     ],
-    also: 'Kendre Miller (c4 in wk3, 19% snaps), CJ Donaldson (c1, proj 2.0), Dotson, Zaccheaus, Blair, Hooper (t4/2, flat 5.5), Muse. Tyson (AVOID, IR-R).',
+    also: 'Kendre Miller (c4 in wk3, 19% snaps), CJ Donaldson (c1, proj 2.0), Lance, Austin, Dotson, Zaccheaus, Blair, Hooper (t4/2, flat 5.5), Muse. Tyson (AVOID, IR-R).',
   },
 ];
 
@@ -949,12 +949,12 @@ const SLOT = (slot) => GAMES.filter((g) => g.slot === slot).map((g) => <GameCard
 const INJ_OUT = [
   ['Rachaad White', 'RB', 'WSH', 'Shoulder, DNP/DNP. London, no pivot cover.', 'Croskey-Merritt (RB24 flex, low-end RB2). Ekeler is a sit.', 'default', 'C18'],
   ['DeVonta Smith', 'WR', 'PHI', 'Hamstring, DNP/DNP. ESPN: not expected to be available. Noon game.', 'Wicks (flex), Lemon, Cooper, E. Moore, Covey.', 'default'],
-  ['Marquise Brown', 'WR', 'PHI', 'Ankle, DNP/DNP. The DB lists him Q, DNP Thursday, proj 5.59. Noon game.', 'Wicks, Lemon.', 'default'],
-  ['Dallas Goedert', 'TE', 'PHI', 'MCL, out multiple weeks (DB: doubtful).', 'Mundt (proj 2.4), still a sit. Stowers is on IR.', 'out'],
+  ['Marquise Brown', 'WR', 'PHI', 'Ankle, DNP/DNP. Our injury feed lists him Q, DNP Thursday, proj 5.59. Noon game.', 'Wicks, Lemon.', 'default'],
+  ['Dallas Goedert', 'TE', 'PHI', 'MCL, out multiple weeks (our injury feed: doubtful).', 'Mundt (proj 2.4), still a sit. Stowers is on IR.', 'out'],
   ['Breece Hall', 'RB', 'NYJ', 'Quad, DNP/DNP, doubtful, week-to-week. Noon game.', 'Braelon Allen (flex), Isaiah Davis (sit).', 'default'],
   ['Adonai Mitchell', 'WR', 'NYJ', 'Finger, DNP/DNP, doubtful. Noon game.', 'Garrett Wilson picks up share. Isaiah Williams is a sit.', 'default'],
-  ['Mason Taylor', 'TE', 'NYJ', 'Thumb, DNP/DNP. The DB lists him D, proj 4.89. Noon game.', 'Sadiq (Q, back, LP Thursday), Ruckert (Q, knee, LP Thursday).', 'default'],
-  ['D\'Andre Swift', 'RB', 'CHI', 'Knee. DNP Wednesday (web), DNP Thursday (DB). No Friday report yet. Noon game.', 'Monangai starts. Friday LP + Q: Swift with a noon-or-later RB on your bench, swap at 10:30a CT.', 'default', 'C9'],
+  ['Mason Taylor', 'TE', 'NYJ', 'Thumb, DNP/DNP. Our injury feed lists him D, proj 4.89. Noon game.', 'Sadiq (Q, back, LP Thursday), Ruckert (Q, knee, LP Thursday).', 'default'],
+  ['D\'Andre Swift', 'RB', 'CHI', 'Knee. DNP Wednesday (web), DNP Thursday (our injury feed). No Friday report yet. Noon game.', 'Monangai starts. Friday LP + Q: Swift with a noon-or-later RB on your bench, swap at 10:30a CT.', 'default', 'C9'],
   ['Caleb Williams', 'QB', 'CHI', 'Grade 2 hamstring, DNP Thursday. Out.', 'Keenum (superflex flex only). Bagent is an avoid.', 'out', 'C3'],
   ['Xavier Legette', 'WR', 'CAR', 'Knee, DNP/DNP, doubtful per ESPN. SNF.', 'McMillan starts. Coker flexes if active.', 'default', 'C20'],
   ['Justin Jefferson', 'WR', 'MIN', 'Ankle sprain from wk3, DNP/DNP, MRI clean, day-to-day. 3:05p game.', 'Addison and Jennings. Friday LP + Q: hold only with a 3:05p-or-later swap (Waddle, Sutton, Addison). Friday DNP: pivot now.', 'default', 'C2'],
@@ -986,8 +986,8 @@ const INJ_LATE = [
   ['Mike Evans', 'WR', 'SF', 'Ribs, DNP/DNP, "shouldn\'t be long-term". 3:25p.', 'Samuel is the SF WR to hold. Kittle up, Watkins a sit.', 'sit', 'C6'],
   ['Ladd McConkey', 'WR', 'LAC', 'Foot, LP Wednesday, DNP Thursday, limped out. 3:25p.', 'Pivot now. Tre\' Harris and Johnston are deep flex only.', 'sit', 'C7'],
   ['Jadarian Price / George Holani', 'RB', 'SEA', 'Price (chest) LP/DNP, doubtful-ish. Holani (ribs) LP/LP, likely plays. Charbonnet is not eligible.', 'Nobody in the SEA backfield is a start.', 'sit', 'C16'],
-  ['Derwin James', 'DEF', 'LAC', 'Safety, LP/DNP. Doubtful-ish.', 'A modest lift for the SEA passing game.', 'gtd'],
-  ['Brandon Aiyuk', 'WR', 'SF', 'Listed Out on the ESPN depth chart. No DB row, no report. Unknown.', 'Samuel.', 'gtd'],
+  ['Derwin James', 'S', 'LAC', 'Safety, LP/DNP. Doubtful-ish.', 'A modest lift for the SEA passing game.', 'gtd'],
+  ['Brandon Aiyuk', 'WR', 'SF', 'Listed Out on the ESPN depth chart. No row in our data, no report. Unknown.', 'Samuel.', 'gtd'],
 ];
 
 const INJ_NIGHT = [
@@ -1105,22 +1105,22 @@ const TE_ROWS = [
 ];
 const TE_NEXT = 'Fant, Andrews, Barner, Kraft.';
 
-// No SMASH band for D/ST: the per-game calls start MIN through LAR and flex ARI.
+// No SMASH band for D/ST: the per-game calls start MIN through CHI and flex ARI.
 const DST_ROWS = [
   [1, 'MIN', 'vs MIA', '10.1', '-10.5, MIA implied 14.0, dome'],
-  [2, 'BAL', 'vs TEN', '5.3', '-11.5, TEN implied 15.5 (the DB projection understates it)'],
+  [2, 'BAL', 'vs TEN', '5.3', '-11.5, TEN implied 15.5 (the projection understates it)'],
   [3, 'SEA', 'vs LAC', '8.0', '-7, LAC implied 17.75'],
   [4, 'BUF', 'vs NE', '5.7', '-7, NE implied 20.75'],
-  [5, 'GB', 'at TB', '3.4', 'UDFA rookie QB\'s first start, TB implied 17.5. Explicit override of the DB number'],
+  [5, 'GB', 'at TB', '3.4', 'UDFA rookie QB\'s first start, TB implied 17.5. Explicit override of the projection'],
   [6, 'LAR', 'at PHI', '6.2', 'PHI implied 19.5, PHI scored 7 in wk3'],
   [7, 'CHI', 'vs NYJ', '7.5', 'NYJ implied 20.0, 3/11/16 in weeks 1-3'],
-  [8, 'ARI', 'at NYG', '3.4', 'Winston (QB31-32 last two weeks), NYG implied 21.0. The DB projection and the wk3 -3 are the doubt'],
+  [8, 'ARI', 'at NYG', '3.4', 'Winston (QB31-32 last two weeks), NYG implied 21.0. The projection and the wk3 -3 are the doubt'],
 ];
 
 const SLEEPERS = [
   ['Xavier Hutchinson', 't6/9/6, 81% snaps in wk2. Flex dart if Collins is out or doubtful.', 'WR'],
   ['Jacory Croskey-Merritt', 'c16/12/19, IND RB rank 4. RB24 flex either way, low-end RB2 if White is out at 7:00a CT.', 'RB'],
-  ['Dontayvion Wicks', '88% snaps in wk3. The PHI WR1 now that Smith is out.', 'WR'],
+  ['Dontayvion Wicks', '88% snaps in wk3. The PHI WR1 with Smith treated as out.', 'WR'],
   ['Wan\'Dale Robinson', 't11 in wk3, proj 11.7, BAL WR rank 11. The trailing script is his friend.', 'WR'],
   ['Bo Nix', '17.1 proj against a thin SF pass rush. QB13 streamer.', 'QB'],
   ['Darren Waller', 'DET TE rank 1, proj 9.7. TE9 flex.', 'TE'],
@@ -1140,10 +1140,11 @@ const FADES = [
   ['Dalton Kincaid', 'NE TE rank 32 (4.5), t3 and 2.8 points in wk3.', 'TE'],
   ['Drake Maye', '7.5 points a game actual; the flat projection is not credible, and NE is at 20.75 on the road.', 'QB'],
   ['Jordan Love', 'Fourth-lowest passing success rate (web), 38.5 total.', 'QB'],
-  ['Cam Ward', 'TEN at 15.5 implied at -11.5.', 'QB'],
+  ['Cam Ward', 'TEN at 15.5 implied as an 11.5-point road underdog.', 'QB'],
   ['Breece Hall', 'DNP/DNP, out.', 'RB'],
-  ['DeVonta Smith and Dallas Goedert', 'Out (Smith DNP/DNP, Goedert multiple weeks).', 'WR'],
-  ['JAX D/ST at CIN', 'DB proj 9.1 against CIN at 27.0 implied in a 51.5 total.', 'DEF'],
+  ['DeVonta Smith', 'Out, DNP/DNP.', 'WR'],
+  ['Dallas Goedert', 'Out multiple weeks.', 'TE'],
+  ['JAX D/ST at CIN', 'Proj 9.1 against CIN at 27.0 implied in a 51.5 total.', 'DEF'],
   ['Travis Hunter', '8-10% snaps. Points on zero targets are not a role.', 'WR'],
 ];
 
@@ -1173,26 +1174,26 @@ const PIVOTS = [
 const RULINGS = [
   ['C1', 'WSH quarterback: Daniels or Mariota (8:30a, no pivot cover)', 'Daniels is a flex/streamer (QB13-16) if active, not a start, and a superflex START. Mariota has real data (8.74 on 16 attempts in wk2; 20.42 on 31 attempts in wk3 at 100% snaps; proj 13.67, n=15): QB15-16 if Daniels sits, superflex START, 1QB streamer only.', 'Medium', 'Daniels is in a brace after an elbow dislocation and Quinn decides "by Friday", with clarity late Saturday or early Sunday. Check the 7:00a CT inactives before using either.'],
   ['C2', 'Justin Jefferson (MIN, 3:05p)', 'Default OUT in the rankings. If he is active he is a WR2, not a WR1.', 'Medium', 'Friday LP + Questionable: keep him only with a bench WR who plays 3:05p or later (Addison, Waddle, Sutton) to swap at 1:35p CT. Friday DNP: pivot now.'],
-  ['C3', 'CHI quarterback', 'Keenum starts (24.48 on 34 attempts in wk3; his 20.9 projection is a placeholder and ignored). 1QB avoid, superflex flex (QB18-20). Bagent (proj 4.12, 2.16 on 9 attempts in wk2) is an avoid.', 'Medium-high', 'Do not rank any CHI passer by projection.'],
+  ['C3', 'CHI quarterback', 'Keenum is the call (24.48 on 34 attempts in wk3; his 20.9 projection is a placeholder and ignored). 1QB avoid, superflex flex (QB18-20). Bagent (proj 4.12, 2.16 on 9 attempts in wk2) is an avoid.', 'Medium-high', 'Do not rank any CHI passer by projection.'],
   ['C4', 'Puka Nacua (LAR, noon)', 'START if active as WR2, ranked WR10-14, not WR7.', 'Medium', 'Questionable + Friday LP: start him with a bench WR who plays noon or later ready to swap at 10:30a CT. Doubtful: sit, Mumpfield flex.'],
   ['C5', 'Nico Collins (HOU, noon)', 'START if active as WR2/3, below Nacua (WR11).', 'Medium-low', 'Questionable + Friday LP: start him with a noon-or-later bench swap ready at 10:30a CT. Doubtful, or no bench cover: Pickens or Golden is your safe WR3, Hutchinson a flex dart.'],
   ['C6', 'Mike Evans (SF, 3:25p)', 'SIT regardless of Friday. Ribs, DNP/DNP, 33% of snaps in wk3. Deep-league flex only.', 'Medium-high', 'Samuel is the SF WR to hold, in superflex too.'],
   ['C7', 'Ladd McConkey (LAC, 3:25p)', 'SIT, pivot now. Removed from the WR top 30.', 'Medium-high', 'LP Wednesday, DNP Thursday with a limp, SEA WR rank 30, LAC at 17.75. No hold language.'],
   ['C8', 'Travis Hunter (JAX)', 'SIT.', 'High', '8-10% snaps (6 and 5 snaps). Points on zero targets are non-offensive artifacts, not a role.'],
-  ['C9', 'D\'Andre Swift (CHI, noon)', 'Default OUT. Monangai is printed as the RB2/flex start (RB18).', 'Medium', 'The Wednesday DNP comes from the web, the Thursday DNP from the DB. Friday LP + Questionable: start Swift with Monangai or another noon-or-later RB on your bench and swap at 10:30a CT. Friday DNP: Monangai starts.'],
+  ['C9', 'D\'Andre Swift (CHI, noon)', 'Default OUT. Monangai is printed as the RB2/flex start (RB18).', 'Medium', 'The Wednesday DNP comes from the web, the Thursday DNP from our injury feed. Friday LP + Questionable: start Swift with Monangai or another noon-or-later RB on your bench and swap at 10:30a CT. Friday DNP: Monangai starts.'],
   ['C10', 'Tyrone Tracy Jr. (NYG)', 'SIT. Skattebo starts either way.', 'High', 'Q, LP Thursday, proj 6.30, 2% snaps in wk2-3.'],
   ['C11', 'Chris Godwin Jr. (TB)', 'SIT, even though he plays. Egbuka is the only TB WR in play.', 'Medium-high', 'DNP/FP, t4/3/4, proj 8.4.'],
   ['C12', 'Bucky Irving (TB)', 'START as RB2, firm (RB14).', 'Medium', 'GB RB rank 1 (29.8) outweighs 17.5 implied and a rookie quarterback. If he is out, Gainwell is a PPR-only flex.'],
-  ['C13', 'Kyren Williams vs Corum (LAR)', 'Kyren START (RB8-10), Corum SIT.', 'Medium-high', 'The backfield trended to Kyren in wk3 (snaps 71/29, carries 15 to 6). That split is wk3 only: weeks 1-2 carries were 11/10 and 12/12.'],
+  ['C13', 'Kyren Williams vs Corum (LAR)', 'Kyren START (RB8-10), Corum SIT.', 'Medium-high', 'The backfield trended to Kyren in wk3 (snaps 71/29, carries 15 to 6). That split is wk3 only: weeks 1-2 carries were close to even (11/10 and 12/12).'],
   ['C14', 'MIN quarterback', 'Kyler Murray, named starter Aug 11. Concussion early in wk1, Wentz started wk2, Murray back in wk3 at 100% snaps (10.42 on 29 attempts; proj 11.1, n=24). Wentz is the backup. 1QB sit, superflex low flex.', 'High', null],
   ['C15', 'SEA quarterback', 'Sam Darnold (glute in wk1, Lock started wk1-2, Darnold back in wk3: 27.66 on 45 attempts, 100% snaps; proj 15.18, flat, n=36). QB14 flex/streamer.', 'Medium', '1QB start only for managers whose starter is out or ranks below QB12.'],
   ['C16', 'SEA running backs', 'Wilson SIT, Holani SIT (deep-PPR only), Price SIT. None is a start and none is on the just-outside list.', 'High', null],
   ['C17', 'Zay Flowers (BAL)', 'START as WR2, ranked WR12-15, not WR9.', 'Medium', 'LP/FP, but only 33% of snaps in wk3, and rain at 59%.'],
   ['C18', 'WSH running backs', 'Croskey-Merritt flex (RB20-24) either way, low-end RB2 if White is out at 7:00a CT. Ekeler SIT (proj 7.28, deep-PPR dart).', 'Medium-high', null],
-  ['C19', 'D/ST: GB and JAX', 'GB START at DST5 (behind MIN, BAL, SEA, BUF), a stated override of the DB proj 3.4: TB at 17.5 implied and a UDFA rookie\'s first start outweigh it. JAX SIT, not flex (CIN at 27.0 implied, 51.5 total).', 'Medium', 'Confidence is Medium on GB, High on JAX.'],
+  ['C19', 'D/ST: GB and JAX', 'GB START at DST5 (behind MIN, BAL, SEA, BUF), a stated override of the 3.4 projection: TB at 17.5 implied and a UDFA rookie\'s first start outweigh it. JAX SIT, not flex (CIN at 27.0 implied, 51.5 total).', 'Medium', 'Confidence is Medium on GB, High on JAX.'],
   ['C20', 'CAR receivers (SNF)', 'Legette OUT. McMillan START (WR2/3). Coker flex if active.', 'Medium', 'Hold Coker through the SNF inactives only if your bench alternative also plays Sunday night or Monday.'],
   ['C21', 'BUF receivers', 'DJ Moore flex (WR25-30), Coleman SIT.', 'Medium', 'If Coleman is out, Shakir flexes and Palmer is a sit (no wk3 row).'],
-  ['D3', 'Tight end order', 'LaPorta TE7 START, Schultz TE8 START, Waller TE9 FLEX.', 'Medium', null],
+  ['C22', 'Tight end order', 'LaPorta TE7 START, Schultz TE8 START, Waller TE9 FLEX.', 'Medium', null],
 ];
 
 // [who, what to do]
@@ -1258,7 +1259,8 @@ const Body = () => (
         ['Usage lines', 'read wk1/wk2/wk3. c = carries, t = targets, pa = pass attempts. Points lines (like 16.8/11.0/6.8) are PPR points by week.'],
         ['FPA rank', '1 means the defense allows the most points to that position (a good matchup), 32 the fewest (tough). Weeks 1 to 3 only, garbage time included.'],
         ['Tiers', 'QB 1-3 SMASH, 4-12 START, 13-18 FLEX. RB 1-6, 7-18, 19-30. WR 1-6, 7-24, 25-40. TE 1-3, 4-8, 9-14. A written reason beats the rank rule.'],
-        ['Ruling links', 'Where a call is contested, the card links to its Darkness Ruling (C1 to C21) with the confidence and the decision rule.'],
+        ['(n=…, low/medium/high quality)', 'n is the sample size behind a projection, and low, medium or high quality is how far to trust it. Low means lean on usage.'],
+        ['Ruling links', 'Where a call is contested, the card links to its Darkness Ruling (C1 to C22) with the confidence and the decision rule.'],
       ]}
     />
 
@@ -1305,7 +1307,7 @@ const Body = () => (
       <Chip tone="var(--accent)">MNF: about 5:45p CT Monday</Chip>
     </Box>
 
-    <InjuryGroup title="Out, or treat as out" when="No pivot cover for the noon games" rows={INJ_OUT} />
+    <InjuryGroup title="Out, or treat as out" when="Two DNPs, no Friday report: noon players have no pivot cover, late players listed with their window." rows={INJ_OUT} />
     <InjuryGroup title="London" when="Inactives 7:00a CT" rows={INJ_LONDON} />
     <InjuryGroup title="Noon games" when="Inactives 10:30a CT" rows={INJ_NOON} />
     <InjuryGroup title="Late window" when="Inactives about 1:35p / 1:55p CT" rows={INJ_LATE} />
@@ -1317,9 +1319,8 @@ const Body = () => (
 
     <H2>Early Window</H2>
     <P>
-      London at 8:30a CT, then nine noon games. Nothing kicks later than noon until the 3:05p games,
-      so a noon-game decision needs a noon-or-later swap on your bench, and the London game has no
-      pivot cover at all.
+      London at 8:30a CT, then eight noon games. Nothing kicks between noon and 3:05p, so a noon-game decision needs a
+      noon-or-later swap on your bench, and the London game has no pivot cover at all.
     </P>
     {SLOT('early')}
 
@@ -1353,7 +1354,7 @@ const Body = () => (
     <H3>Tight end, top 14</H3>
     <TierBoard pos="TE" rows={TE_ROWS} smashMax={3} startMax={8} next={TE_NEXT} />
     <H3>D/ST, top 8</H3>
-    <TierBoard pos="DST" rows={DST_ROWS} smashMax={0} startMax={7} projLabel="DB proj" />
+    <TierBoard pos="DST" rows={DST_ROWS} smashMax={0} startMax={7} projLabel="Proj" />
 
     <H2>Sleepers, Fades and Pivots</H2>
     <H3>Sleepers</H3>
@@ -1380,11 +1381,11 @@ const Body = () => (
       Inactives drop about 90 minutes before each kickoff. Windows are Central time. Set your pivots
       now so you are not guessing at 6:50 in the morning.
     </P>
-    <WindowChecklist title="London" time="7:00a CT" rows={CHECK_LONDON} />
-    <WindowChecklist title="Noon games" time="10:30a CT" rows={CHECK_NOON} />
-    <WindowChecklist title="3:05p and 3:25p games" time="about 1:35p and 1:55p CT" rows={CHECK_LATE} />
-    <WindowChecklist title="Sunday night" time="about 5:50p CT" rows={CHECK_SNF} />
-    <WindowChecklist title="Monday night" time="about 5:45p CT Monday" rows={CHECK_MNF} />
+    <WindowChecklist title="London inactives" time="7:00a CT" rows={CHECK_LONDON} />
+    <WindowChecklist title="Noon inactives" time="10:30a CT" rows={CHECK_NOON} />
+    <WindowChecklist title="3:05p and 3:25p inactives" time="about 1:35p and 1:55p CT" rows={CHECK_LATE} />
+    <WindowChecklist title="Sunday night inactives" time="about 5:50p CT" rows={CHECK_SNF} />
+    <WindowChecklist title="Monday night inactives" time="about 5:45p CT Monday" rows={CHECK_MNF} />
 
     <Quote>
       Start your studs, trust the usage over the name, and set your pivots before you go to bed
