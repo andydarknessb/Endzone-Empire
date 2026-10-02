@@ -94,3 +94,60 @@ test('unavailableFor (#1767): a missing, stale (49h), Active or Reserve status r
   assert.equal(healthy({ status: 'practice_squad', capturedAt: 'garbage' }).available, true, 'unparseable');
   assert.equal(healthy({ status: 'practice_squad' }).available, true, 'no timestamp');
 });
+
+// Practice participation (ADR 0056, ruling R2): a Questionable player who did
+// not practice all week is never auto-recommended. Observations are
+// `{ practiceStatus, practicePrimaryInjury, reportPrimaryInjury }`.
+const dnp = (extra = {}) => ({ practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring', reportPrimaryInjury: 'Hamstring', ...extra });
+const noPractice = (observations, facts = {}) => unavailableFor({ injuryStatus: 'Q', practice: { observations }, ...facts });
+
+test('unavailableFor (practice): Questionable with every observation did-not-participate reads no_practice', () => {
+  for (const observations of [[dnp()], [dnp(), dnp()], [dnp({ practiceStatus: 'did not participate' })]]) {
+    const verdict = noPractice(observations);
+    assert.equal(verdict.reason, 'no_practice');
+    assert.equal(verdict.status, 'Q');
+    assert.equal(verdict.available, true);
+    assert.equal(verdict.autoRecommend, false);
+    assert.equal(verdict.activeProbability, null);
+  }
+});
+
+test('unavailableFor (practice): no observations, a limited one, or a blank one leaves plain Questionable', () => {
+  assert.equal(noPractice([]).reason, 'questionable', 'no observation at all');
+  assert.equal(noPractice(undefined).reason, 'questionable');
+  assert.equal(unavailableFor({ injuryStatus: 'Q' }).reason, 'questionable', 'no practice input at all');
+  assert.equal(noPractice([dnp(), dnp({ practiceStatus: 'Limited Participation in Practice' })]).reason, 'questionable', 'DNP then limited');
+  assert.equal(noPractice([dnp({ practiceStatus: 'Full Participation in Practice' })]).reason, 'questionable');
+  assert.equal(noPractice([dnp({ practiceStatus: null })]).reason, 'questionable', 'blank is not did-not-participate');
+  assert.equal(noPractice([dnp({ practiceStatus: '' })]).reason, 'questionable');
+  assert.equal(noPractice([dnp(), dnp({ practiceStatus: null })]).reason, 'questionable', 'one blank observation defeats it');
+  assert.equal(noPractice([dnp()]).autoRecommend, false);
+  assert.equal(noPractice([]).autoRecommend, true);
+});
+
+test('unavailableFor (practice): a rest-related observation defeats no_practice', () => {
+  for (const injury of ['Not Injury Related - Resting Player', 'Rest', 'resting vet', 'NOT INJURY RELATED']) {
+    assert.equal(noPractice([dnp({ practicePrimaryInjury: injury })]).reason, 'questionable', `practice: ${injury}`);
+    assert.equal(noPractice([dnp({ reportPrimaryInjury: injury })]).reason, 'questionable', `report: ${injury}`);
+  }
+  assert.equal(noPractice([dnp(), dnp({ practicePrimaryInjury: 'Rest' })]).reason, 'questionable', 'any one observation');
+  assert.equal(noPractice([dnp({ practicePrimaryInjury: null, reportPrimaryInjury: null })]).reason, 'no_practice', 'no injury text is not rest');
+});
+
+test('unavailableFor (practice): only Questionable is affected; Doubtful, Out, IR and no designation keep their reasons', () => {
+  const observations = [dnp()];
+  assert.equal(unavailableFor({ injuryStatus: 'D', practice: { observations } }).reason, 'doubtful');
+  assert.equal(unavailableFor({ injuryStatus: 'O', practice: { observations } }).reason, 'out');
+  assert.equal(unavailableFor({ injuryStatus: 'IR', practice: { observations } }).reason, 'ir');
+  const healthy = unavailableFor({ practice: { observations } });
+  assert.equal(healthy.reason, null);
+  assert.equal(healthy.activeProbability, 1);
+});
+
+test('unavailableFor (practice): bye, no team, Practice squad and Position-baseline outrank no_practice', () => {
+  const ps = { status: 'practice_squad', capturedAt: new Date().toISOString() };
+  assert.equal(noPractice([dnp()], { onBye: true }).reason, 'bye');
+  assert.equal(noPractice([dnp()], { noTeam: true }).reason, 'no_team');
+  assert.equal(noPractice([dnp()], { nflRosterStatus: ps }).reason, 'practice_squad');
+  assert.equal(noPractice([dnp()], { positionBaseline: true }).reason, 'no_history', 'Position-baseline wins');
+});

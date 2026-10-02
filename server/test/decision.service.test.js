@@ -303,6 +303,36 @@ test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
   assert.equal(result.optimalTotal, 8);
 });
 
+// Practice participation (ADR 0056): a Questionable player with no practice all
+// week is never auto-promoted, and a starter keeps his slot, as Doubtful does.
+const DNP_WEEK = [{ practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring', reportPrimaryInjury: 'Hamstring' }];
+
+test('buildSuggestions: a no-practice Questionable bench player is not suggested, a plain Questionable one still is', () => {
+  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
+  const lineup = (practiceObservations) => [
+    entry(1, 'RB', 'RB'),
+    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'Q', practiceObservations },
+  ];
+  const held = buildSuggestions(lineup(DNP_WEEK), projections, new Map(), RB1);
+  assert.equal(held.suggestions.length, 0, 'no practice all week means no automatic promotion');
+  assert.equal(held.optimalTotal, 8);
+  const promoted = buildSuggestions(lineup([]), projections, new Map(), RB1);
+  assert.equal(promoted.suggestions.length, 1, 'no observations is the status quo');
+  assert.equal(promoted.suggestions[0].suggested.availability.reason, 'questionable');
+});
+
+test('buildSuggestions: a no-practice Questionable starter keeps his slot', () => {
+  const lineup = [
+    { ...entry(1, 'RB', 'RB'), injuryStatus: 'Q', practiceObservations: DNP_WEEK },
+    entry(2, 'RB', 'BENCH'),
+  ];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 15 }], [2, { points: 4 }]]));
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+  assert.equal(result.projectedTotal, 15, 'his projection still counts');
+  assert.deepEqual(result.noPractice, [1], 'the ids the card tags "No practice this week"');
+});
+
 // #1775: a Position-baseline projection (its data-quality reasons carry
 // `position baseline`) is the position's average, not the player's evidence.
 const POSITION_BASELINE = { dataQuality: { reasons: ['position baseline'] } };

@@ -25,6 +25,26 @@ function onPracticeSquad(nflRosterStatus, now) {
   return new Date(now).getTime() - capturedAt <= NFL_ROSTER_STATUS_FRESH_MS;
 }
 
+// Practice participation (CONTEXT.md; ADR 0056): the nflverse injury report's
+// practice_status reads "Did Not Participate In Practice" and its primary
+// injury text carries "Not injury related - resting player" for a vet's rest day.
+const DID_NOT_PARTICIPATE = /did not participate/i;
+const REST_RELATED = /not injury related|rest/i;
+
+/**
+ * Pure: true when `observations` (`[{ practiceStatus, practicePrimaryInjury,
+ * reportPrimaryInjury }]`, every Practice participation observation stored for
+ * the player this week) show no practice all week: at least one observation,
+ * every practice_status did-not-participate (blank is not), and no observation
+ * rest-related. No guessed practice days: the observations are the only input.
+ */
+function noPracticeAllWeek(observations) {
+  if (!Array.isArray(observations) || observations.length === 0) return false;
+  return observations.every((o) => DID_NOT_PARTICIPATE.test(String(o.practiceStatus || ''))
+    && !REST_RELATED.test(String(o.practicePrimaryInjury || ''))
+    && !REST_RELATED.test(String(o.reportPrimaryInjury || '')));
+}
+
 /**
  * Pure: hard availability, applied BEFORE optimization rather than as a
  * projection haircut.
@@ -40,10 +60,17 @@ function onPracticeSquad(nflRosterStatus, now) {
  * auto-recommended; passed only by readers that already hold a projection).
  * `nflRosterStatus` is the fact every reader passes from its own player read
  * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
+ *
+ * `practice` (`{ observations }`, ADR 0056) is passed ONLY by Start/sit advice:
+ * a Questionable player with no practice all week (`noPracticeAllWeek`) reads
+ * `no_practice`, never auto-recommended, after Position-baseline and Doubtful
+ * and before plain Questionable. Every other reader omits it, so its verdict
+ * and the stored active probability are unchanged. The active probability
+ * stays null.
  */
 function unavailableFor({
   injuryStatus = null, onBye = false, noTeam = false, nflRosterStatus = null, now = new Date(),
-  locked = false, lockedSlot = null, positionBaseline = false,
+  locked = false, lockedSlot = null, positionBaseline = false, practice = null,
 } = {}) {
   const status = injuryStatus ? String(injuryStatus).toUpperCase() : null;
   if (onBye) {
@@ -99,6 +126,17 @@ function unavailableFor({
     };
   }
   if (status === 'Q') {
+    if (practice && noPracticeAllWeek(practice.observations)) {
+      return {
+        available: true,
+        autoRecommend: false,
+        activeProbability: null,
+        reason: 'no_practice',
+        status,
+        locked,
+        lockedSlot,
+      };
+    }
     return {
       available: true,
       autoRecommend: true,

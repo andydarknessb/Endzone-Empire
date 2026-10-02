@@ -19,6 +19,7 @@ const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer')
 const projectionModel = require('./projectionModel');
 const { verdictBand } = require('./intervalReading');
 const { unavailableFor } = require('./unavailable');
+const practiceParticipation = require('./practiceParticipation.service');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
@@ -93,6 +94,8 @@ function finiteNumber(value) {
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
+ * Each entry may carry `practiceObservations` (this week's Practice
+ * participation, `loadWeekObservations`); see unavailableFor's `practice`.
  * options.calledShot (#1856): `{ starterId, benchedId }` of the team's open
  * called shot, pinned as described above.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
@@ -150,6 +153,10 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       // A Position-baseline projection is never auto-recommended (#1775),
       // through the same branch Doubtful uses below.
       positionBaseline: projections.positionBaselineFor(entry.playerId),
+      // This week's Practice participation (ADR 0056): a Questionable player
+      // with no practice all week is never auto-recommended, as Doubtful is.
+      // Only this reader passes it; no observations is the status quo.
+      practice: { observations: entry.practiceObservations || [] },
     });
     availabilityById.set(entry.playerId, availability);
     if (entry.slot === IR) continue; // IR is never a lineup candidate
@@ -159,7 +166,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       continue;
     }
     if (!availability.available) continue; // bye / Out / IR designation
-    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful or Position-baseline on the bench
+    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful, Position-baseline or no-practice on the bench
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
@@ -350,6 +357,11 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       reason: availabilityById.get(e.playerId).reason,
     }));
 
+  // The players whose Questionable tag carries "No practice this week".
+  const noPractice = entries
+    .filter((e) => availabilityById.get(e.playerId).reason === 'no_practice')
+    .map((e) => e.playerId);
+
   return {
     projectedTotal,
     optimalTotal,
@@ -357,6 +369,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     openSlotFills,
     movePlan,
     unavailable,
+    noPractice,
   };
 }
 
@@ -453,6 +466,18 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     });
   }
 
+  // This week's Practice participation (ADR 0056), one batched read for the
+  // roster. Optional context: a failed read degrades to no observations, which
+  // is the status quo (no player reads no_practice), not no advice.
+  const practiceByPlayer = await practiceParticipation.loadWeekObservations(pool, {
+    season: effectiveSeason,
+    week: effectiveWeek,
+    playerIds,
+  }).catch((err) => {
+    console.error('start/sit advice: practice participation lookup failed, continuing without it:', err.message);
+    return new Map();
+  });
+
   const lineupEntries = lineup.entries.map((e) => ({
     playerId: e.id,
     name: e.name,
@@ -464,6 +489,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     nflTeam: e.nfl_team ?? null,
     // getLineup's own player read carries it (#1767).
     nflRosterStatus: e.nfl_roster_status ?? null,
+    practiceObservations: practiceByPlayer.get(e.id) || [],
   }));
 
   // The ranking statistic comes from the RUN's constants (#1483), read back
@@ -523,6 +549,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     }
   );
 
+  const noPracticeIds = new Set(plan.noPractice);
   const players = lineupEntries.map((entry) => {
     // Read straight off the result object (#1703): `pointsFor`/`factorsFor`
     // for the two accessor-backed fields, `detailFor` for confidence/active
@@ -544,6 +571,8 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       confidence: (detail && detail.confidence) || null,
       activeProbability: (detail && detail.activeProbability) ?? null,
       factors: run.factorsFor(entry.playerId),
+      // The Questionable tag's "No practice this week" note (ADR 0056).
+      noPractice: noPracticeIds.has(entry.playerId),
       ...defenseByPlayer.get(entry.playerId),
     };
   });
