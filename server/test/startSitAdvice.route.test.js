@@ -357,12 +357,14 @@ test('a fresh Practice squad row on getLineup\'s entry reaches buildSuggestions 
 const DNP_ROW = (playerId) => ({
   player_id: playerId, practice_status: 'Did Not Participate In Practice',
   practice_primary_injury: 'Hamstring', report_primary_injury: 'Hamstring',
+  observed_at: new Date('2026-10-14T22:00:00Z'), // the Wednesday before
 });
+const SUNDAY_1PM = '2026-10-18T17:00:00Z';
 
-test('a Questionable bench player with no practice all week is not promoted and is flagged (ADR 0056)', async (t) => {
+test('a Questionable bench player with no practice all week is not promoted and his row carries the verdict (ADR 0056)', async (t) => {
   const entries = [
-    lineupEntry(1, 'RB', 'RB'),
-    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q' }),
+    lineupEntry(1, 'RB', 'RB', { kickoff: SUNDAY_1PM }),
+    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q', kickoff: SUNDAY_1PM }),
   ];
   const queryLog = [];
   mockAdviceDependencies(t, {
@@ -376,16 +378,16 @@ test('a Questionable bench player with no practice all week is not promoted and 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
 
   assert.deepEqual(advice.suggestions, []);
-  assert.deepEqual(advice.players.map((p) => [p.playerId, p.noPractice]), [[1, false], [3, true]]);
+  assert.deepEqual(advice.players.map((p) => [p.playerId, p.availability.reason, p.availability.status]), [[1, null, null], [3, 'no_practice', 'Q']]);
   const reads = queryLog.filter((q) => q.text.includes('FROM "player_practice_observations"'));
   assert.equal(reads.length, 1, 'one batched read for the roster');
   assert.deepEqual(reads[0].params, [2026, 6, [1, 3]]);
 });
 
-test('the same Questionable bench player with no observations is promoted as before (ADR 0056 self-gates)', async (t) => {
+test('the same Questionable bench player with no observations, or with coverage that began Friday, is promoted as before (ADR 0056 self-gates)', async (t) => {
   const entries = [
-    lineupEntry(1, 'RB', 'RB'),
-    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q' }),
+    lineupEntry(1, 'RB', 'RB', { kickoff: SUNDAY_1PM }),
+    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q', kickoff: SUNDAY_1PM }),
   ];
   mockAdviceDependencies(t, {
     entries,
@@ -397,7 +399,18 @@ test('the same Questionable bench player with no observations is promoted as bef
 
   assert.equal(advice.suggestions[0].suggested.playerId, 3);
   assert.equal(advice.suggestions[0].suggested.availability.reason, 'questionable');
-  assert.ok(advice.players.every((p) => p.noPractice === false));
+  assert.equal(advice.players.find((p) => p.playerId === 3).availability.reason, 'questionable');
+
+  t.mock.restoreAll();
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+    practiceRows: [{ ...DNP_ROW(3), observed_at: new Date('2026-10-16T20:00:00Z') }],
+  });
+  const late = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  assert.equal(late.suggestions[0].suggested.playerId, 3, 'one Friday observation is not a week');
+  assert.equal(late.players.find((p) => p.playerId === 3).availability.reason, 'questionable');
 });
 
 test('a failed practice-participation read still answers the advice, as if no one had observations', async (t) => {

@@ -15,9 +15,23 @@ the number cannot move in season. We decide, in the shape of ADR 0053, to
 change the verdict and leave the number:
 
 1. A Questionable player has had no practice this week when at least one
-   Practice participation observation exists for him in that week, every
-   observation reads did not participate, and none is rest-related. Any
-   other case, including no observation at all, keeps today's verdict.
+   Practice participation observation exists for him in that week, coverage
+   began in time, every observation reads did not participate, and none is
+   rest-related. Any other case, including no observation at all, keeps
+   today's verdict.
+   - Coverage began in time when his earliest observation that week was
+     observed by the end of the week's Thursday (Eastern time, the Thursday
+     on or before his game day: the last team practice-report day before a
+     Sunday or Monday game) and at least 48 hours before his kickoff (which
+     binds for a Thursday or Saturday game, whose practice days come
+     earlier; a Sunday game abroad keeps the Thursday). The published file
+     carries only the latest report, so one observation first seen Friday
+     says nothing about the days before it. With no kickoff on file the
+     rule never fires.
+   - Rest-related is the whole word "rest" or "resting" in either reported
+     reason ("Not injury related - resting player"). A not-injury-related
+     absence for any other reason (a personal matter, an illness, or no
+     reason given) is a real absence and counts as did not participate.
 2. Like Doubtful, he is startable if a manager insists but never
    auto-recommended; a starter keeps his slot. The verdict is taken by the
    one verdict function, read only by Start/sit advice. The engine's own
@@ -46,7 +60,17 @@ change the verdict and leave the number:
   entry. A capture-identity test proves the bytes are unchanged.
 - Practice days are approximate: we record when we observed a report, not
   the practice day it describes, so a report first seen a day late still
-  reads did not participate.
+  reads did not participate. The coverage deadline bounds that: a Wednesday
+  limited practice followed by a Thursday absence first seen Thursday still
+  reads as no practice, but a week first seen Friday never does.
+- Capture follows the NFL calendar (the week whose games have not all kicked
+  off, read off the schedule), not any league's current week, so the
+  Wednesday and Thursday reports are captured before a commissioner
+  advances. On the week the capture starts, nobody reads no practice: the
+  first observations land after the deadline.
+- A Thursday-game team's reports begin Monday, and its players need an
+  observation by Tuesday evening; a week whose capture began late in the
+  week, or lost its early polls, reads the status quo for everyone.
 - The Override capture (ADR 0054) records different Overrides from the first
   week the rule fires. That is a product consequence, not a study effect.
 - The rule needs no switch: with no observations it is the status quo, and

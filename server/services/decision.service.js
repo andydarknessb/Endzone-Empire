@@ -95,7 +95,8 @@ function finiteNumber(value) {
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
  * Each entry may carry `practiceObservations` (this week's Practice
- * participation, `loadWeekObservations`); see unavailableFor's `practice`.
+ * participation, `loadWeekObservations`) and `kickoff` (his game, the
+ * coverage deadline's anchor); see unavailableFor's `practice`.
  * options.calledShot (#1856): `{ starterId, benchedId }` of the team's open
  * called shot, pinned as described above.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
@@ -156,7 +157,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       // This week's Practice participation (ADR 0056): a Questionable player
       // with no practice all week is never auto-recommended, as Doubtful is.
       // Only this reader passes it; no observations is the status quo.
-      practice: { observations: entry.practiceObservations || [] },
+      practice: { observations: entry.practiceObservations || [], kickoffAt: entry.kickoff ?? null },
     });
     availabilityById.set(entry.playerId, availability);
     if (entry.slot === IR) continue; // IR is never a lineup candidate
@@ -357,11 +358,6 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       reason: availabilityById.get(e.playerId).reason,
     }));
 
-  // The players whose Questionable tag carries "No practice this week".
-  const noPractice = entries
-    .filter((e) => availabilityById.get(e.playerId).reason === 'no_practice')
-    .map((e) => e.playerId);
-
   return {
     projectedTotal,
     optimalTotal,
@@ -369,7 +365,9 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     openSlotFills,
     movePlan,
     unavailable,
-    noPractice,
+    // Every entry's verdict (the same object the suggestion sides carry), so
+    // the wire's players[] rows read the reason off it.
+    availabilityById,
   };
 }
 
@@ -399,7 +397,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   const effectiveWeek = lineup.week;
   const playerIds = lineup.entries.map((e) => e.id);
 
-  const [run, defense, opponents, gameChips] = await Promise.all([
+  const [run, defense, opponents, gameChips, practiceByPlayer] = await Promise.all([
     projectionService.getWeeklyProjections({
       season: effectiveSeason,
       week: effectiveWeek,
@@ -417,6 +415,17 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       nflTeams: lineup.entries.map((e) => e.nfl_team),
     }).catch((err) => {
       console.error('start/sit advice: game context lookup failed, continuing without chips:', err.message);
+      return new Map();
+    }),
+    // This week's Practice participation (ADR 0056), one batched read for the
+    // roster. Optional context: a failed read degrades to no observations,
+    // which is the status quo (no player reads no_practice), not no advice.
+    practiceParticipation.loadWeekObservations(pool, {
+      season: effectiveSeason,
+      week: effectiveWeek,
+      playerIds,
+    }).catch((err) => {
+      console.error('start/sit advice: practice participation lookup failed, continuing without it:', err.message);
       return new Map();
     }),
   ]);
@@ -466,18 +475,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     });
   }
 
-  // This week's Practice participation (ADR 0056), one batched read for the
-  // roster. Optional context: a failed read degrades to no observations, which
-  // is the status quo (no player reads no_practice), not no advice.
-  const practiceByPlayer = await practiceParticipation.loadWeekObservations(pool, {
-    season: effectiveSeason,
-    week: effectiveWeek,
-    playerIds,
-  }).catch((err) => {
-    console.error('start/sit advice: practice participation lookup failed, continuing without it:', err.message);
-    return new Map();
-  });
-
   const lineupEntries = lineup.entries.map((e) => ({
     playerId: e.id,
     name: e.name,
@@ -489,6 +486,9 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     nflTeam: e.nfl_team ?? null,
     // getLineup's own player read carries it (#1767).
     nflRosterStatus: e.nfl_roster_status ?? null,
+    // getLineup's schedule fields (#1235): his kickoff anchors the Practice
+    // participation coverage deadline (ADR 0056).
+    kickoff: e.kickoff ?? null,
     practiceObservations: practiceByPlayer.get(e.id) || [],
   }));
 
@@ -549,7 +549,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     }
   );
 
-  const noPracticeIds = new Set(plan.noPractice);
   const players = lineupEntries.map((entry) => {
     // Read straight off the result object (#1703): `pointsFor`/`factorsFor`
     // for the two accessor-backed fields, `detailFor` for confidence/active
@@ -571,8 +570,11 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       confidence: (detail && detail.confidence) || null,
       activeProbability: (detail && detail.activeProbability) ?? null,
       factors: run.factorsFor(entry.playerId),
-      // The Questionable tag's "No practice this week" note (ADR 0056).
-      noPractice: noPracticeIds.has(entry.playerId),
+      // The verdict the plan gave him (unavailableFor's object, the same one
+      // a suggestion side carries): the client reads `reason` off it, for
+      // "No practice this week" beside a Questionable tag (ADR 0056) among
+      // others.
+      availability: plan.availabilityById.get(entry.playerId) ?? null,
       ...defenseByPlayer.get(entry.playerId),
     };
   });

@@ -27,19 +27,72 @@ function onPracticeSquad(nflRosterStatus, now) {
 
 // Practice participation (CONTEXT.md; ADR 0056): the nflverse injury report's
 // practice_status reads "Did Not Participate In Practice" and its primary
-// injury text carries "Not injury related - resting player" for a vet's rest day.
+// injury text carries "Not injury related - resting player" for a vet's rest
+// day. Rest is the whole word "rest" or "resting" in either primary-injury
+// text, nothing broader: "Not injury related - personal matter" (or illness,
+// or no reason at all) is a real absence and counts as did not participate.
 const DID_NOT_PARTICIPATE = /did not participate/i;
-const REST_RELATED = /not injury related|rest/i;
+const REST_RELATED = /\brest(ing)?\b/i;
+
+// Coverage (ADR 0056): the nflverse file carries only the LATEST report, so one
+// observation first seen late in the week says nothing about the days before
+// it. A week's observations count only when the earliest was observed by the
+// end of the week's Thursday (ET, the Thursday on or before the game day: the
+// last team practice-report day for a Sunday or Monday game) AND at least 48
+// hours before the player's kickoff (which is what binds for a Thursday or
+// Saturday game, whose practice days come earlier).
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const COVERAGE_LEAD_MS = 48 * HOUR_MS;
+const ET_DATE_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+});
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function etParts(at) {
+  return Object.fromEntries(ET_DATE_PARTS.formatToParts(at).map((p) => [p.type, p.value]));
+}
+
+/** The instant of midnight (ET) starting the given calendar date: 05:00Z reads
+ * 00:00 under EST and 01:00 under EDT, so stepping back that hour lands on
+ * midnight either way. */
+function etMidnight(year, month, day) {
+  const guess = Date.UTC(year, month - 1, day, 5);
+  return guess - Number(etParts(new Date(guess)).hour) * HOUR_MS;
+}
+
+/**
+ * Pure: when Practice participation coverage must have begun for `kickoffAt`
+ * (a Date or ISO string): the earlier of the end of the Thursday (ET) on or
+ * before the kickoff's ET date and 48 hours before kickoff, as a Date; null
+ * when there is no readable kickoff.
+ */
+function practiceCoverageDeadline(kickoffAt) {
+  const kickoff = kickoffAt == null ? NaN : new Date(kickoffAt).getTime();
+  if (!Number.isFinite(kickoff)) return null;
+  const parts = etParts(new Date(kickoff));
+  const daysSinceThursday = (WEEKDAYS.indexOf(parts.weekday) - WEEKDAYS.indexOf('Thu') + 7) % 7;
+  const thursday = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) - daysSinceThursday * DAY_MS);
+  const endOfThursday = etMidnight(thursday.getUTCFullYear(), thursday.getUTCMonth() + 1, thursday.getUTCDate() + 1);
+  return new Date(Math.min(endOfThursday, kickoff - COVERAGE_LEAD_MS));
+}
 
 /**
  * Pure: true when `observations` (`[{ practiceStatus, practicePrimaryInjury,
- * reportPrimaryInjury }]`, every Practice participation observation stored for
- * the player this week) show no practice all week: at least one observation,
- * every practice_status did-not-participate (blank is not), and no observation
- * rest-related. No guessed practice days: the observations are the only input.
+ * reportPrimaryInjury, observedAt }]`, every Practice participation
+ * observation stored for the player this week) show no practice all week: at
+ * least one observation, coverage begun by `practiceCoverageDeadline(kickoffAt)`
+ * (the earliest observation, whatever order the list is in), every
+ * practice_status did-not-participate (blank is not), and no observation
+ * rest-related. No guessed practice days: the observations are the only input,
+ * and with no kickoff on file nothing fires.
  */
-function noPracticeAllWeek(observations) {
+function noPracticeAllWeek(observations, kickoffAt) {
   if (!Array.isArray(observations) || observations.length === 0) return false;
+  const deadline = practiceCoverageDeadline(kickoffAt);
+  if (deadline === null) return false;
+  const earliest = Math.min(...observations.map((o) => (o.observedAt == null ? NaN : new Date(o.observedAt).getTime())));
+  if (!Number.isFinite(earliest) || earliest >= deadline.getTime()) return false;
   return observations.every((o) => DID_NOT_PARTICIPATE.test(String(o.practiceStatus || ''))
     && !REST_RELATED.test(String(o.practicePrimaryInjury || ''))
     && !REST_RELATED.test(String(o.reportPrimaryInjury || '')));
@@ -61,12 +114,13 @@ function noPracticeAllWeek(observations) {
  * `nflRosterStatus` is the fact every reader passes from its own player read
  * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  *
- * `practice` (`{ observations }`, ADR 0056) is passed ONLY by Start/sit advice:
- * a Questionable player with no practice all week (`noPracticeAllWeek`) reads
- * `no_practice`, never auto-recommended, after Position-baseline and Doubtful
- * and before plain Questionable. Every other reader omits it, so its verdict
- * and the stored active probability are unchanged. The active probability
- * stays null.
+ * `practice` (`{ observations, kickoffAt }`, ADR 0056) is passed ONLY by
+ * Start/sit advice: a Questionable player with no practice all week
+ * (`noPracticeAllWeek`, with `kickoffAt` his game for the coverage deadline)
+ * reads `no_practice`, never auto-recommended, after Position-baseline and
+ * Doubtful and before plain Questionable. Every other reader omits it, so its
+ * verdict and the stored active probability are unchanged. The active
+ * probability stays null.
  */
 function unavailableFor({
   injuryStatus = null, onBye = false, noTeam = false, nflRosterStatus = null, now = new Date(),
@@ -126,7 +180,7 @@ function unavailableFor({
     };
   }
   if (status === 'Q') {
-    if (practice && noPracticeAllWeek(practice.observations)) {
+    if (practice && noPracticeAllWeek(practice.observations, practice.kickoffAt)) {
       return {
         available: true,
         autoRecommend: false,
@@ -150,4 +204,4 @@ function unavailableFor({
   return { available: true, autoRecommend: true, activeProbability: 1, reason: null, status, locked, lockedSlot };
 }
 
-module.exports = { unavailableFor, NFL_ROSTER_STATUS_FRESH_MS };
+module.exports = { unavailableFor, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };
