@@ -210,6 +210,17 @@ export default function LineupPage() {
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
+  // The Decision card's entries carry the advice's verdict reason
+  // (`verdictReason`, the same field the Players wire spells), so the card
+  // shows "No practice this week" beside a Questionable tag (ADR 0056) on the
+  // opened entry and on a compared one alike; the server's Start/sit advice
+  // owns the verdict, so no other opener has it. Decorated for every entry,
+  // never just the opened one, so compare mode reads the same fact.
+  const decisionCardEntries = (lineup?.entries || []).map((e) => {
+    const verdictReason = advice.verdictReasonById.get(e.playerId);
+    return verdictReason == null ? e : { ...e, verdictReason };
+  });
+  const decisionCardEntry = decisionCardEntries.find((e) => e.playerId === decisionCardEntryId) || null;
   const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
@@ -522,7 +533,7 @@ export default function LineupPage() {
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
         onClose={() => setDecisionCardEntryId(null)}
-        entry={(lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null}
+        entry={decisionCardEntry}
         leagueId={selectedLeagueId}
         week={lineup?.week}
         context={myTeam({
@@ -530,7 +541,7 @@ export default function LineupPage() {
           onSwap: swap.performMove,
           onRequestDrop: drop.requestDrop,
           canDropEntry,
-          entries: lineup?.entries || [],
+          entries: decisionCardEntries,
           bestBall,
           leagueUnsettled,
         })}

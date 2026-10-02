@@ -971,6 +971,62 @@ test('tickUnlocked runs the nflverse current-week pass in its own containment', 
   assert.match(tickBody, /try \{\s*await runNflverseCurrentWeek\(\);\s*\} catch/);
 });
 
+// ---- nflverse practice-participation poll (#1922) ----------------------------
+// The same 15-minute in-memory throttle as the current-week pass, in its own
+// stamp so one pass never satisfies the other.
+
+test('runNflversePractice checks at most every 15 minutes, at any hour', async (t) => {
+  const practiceParticipation = require('../services/practiceParticipation.service');
+  let calls = 0;
+  t.mock.method(practiceParticipation, 'syncCurrentWeeks', async () => {
+    calls += 1;
+    return { synced: [{ season: 2026, week: 5, inserted: 4, unmapped: 0 }] };
+  });
+
+  assert.deepEqual(
+    await scheduler.runNflversePractice({ now: new Date('2026-10-20T15:00:00Z') }),
+    { synced: [{ season: 2026, week: 5, inserted: 4, unmapped: 0 }] }
+  );
+  assert.equal(await scheduler.runNflversePractice({ now: new Date('2026-10-20T15:10:00Z') }), null, '10 minutes later is too soon');
+  assert.notEqual(await scheduler.runNflversePractice({ now: new Date('2026-10-20T15:15:00Z') }), null, '15 minutes later checks again');
+  assert.equal(calls, 2);
+});
+
+test('runNflversePractice waits 15 minutes after a failed check too', async (t) => {
+  const practiceParticipation = require('../services/practiceParticipation.service');
+  let calls = 0;
+  t.mock.method(practiceParticipation, 'syncCurrentWeeks', async () => {
+    calls += 1;
+    throw new Error('nflverse unreachable');
+  });
+
+  await assert.rejects(scheduler.runNflversePractice({ now: new Date('2026-10-27T15:00:00Z') }), /nflverse unreachable/);
+  assert.equal(await scheduler.runNflversePractice({ now: new Date('2026-10-27T15:05:00Z') }), null, 'not retried on the next tick');
+  assert.equal(calls, 1);
+});
+
+test('tickUnlocked runs the practice-participation poll in its own containment, after every deadline duty, and SYNC_RUN_JOBS lists it', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runNflversePractice\(\);\s*\} catch/);
+  // Up to ~90s of serial downloads: never ahead of the holdout capture, the
+  // kickoff hold, waivers, reminders, trades, live scoring or Override capture.
+  const poll = tickBody.indexOf('await runNflversePractice()');
+  for (const duty of [
+    'await runHoldoutSnapshots()', 'await holdKickedOffPlayers()', 'await processAllDueWaivers()',
+    'sendLineupReminders()', 'await processDueTrades()', 'await syncAndScoreLiveWeeks()', 'await captureOverrides(',
+  ]) {
+    const at = tickBody.indexOf(duty);
+    assert.ok(at > 0 && at < poll, `${duty} runs before the practice poll`);
+  }
+  assert.ok(scheduler.SYNC_RUN_JOBS.includes('nflverse-practice'));
+});
+
 // ---- hourly game-context Sync run (#1262, ADR 0038) ------------------------
 // Named for what it writes, not "Line" (pl-endzone formal review, #1262 f1):
 // CONTEXT.md's Line is the spread/total Sync run tested above as

@@ -1620,7 +1620,18 @@ from the Decision card's Line and Weather loaders (the Implied team total
 stays on the Decision card), and each reads "context only" while its Factor
 is not applied: the Line chips follow the game environment Factor, the
 weather chips the weather Factor. No chips on the Decision card or a Ledger
-row.
+row. A Questionable player with no practice all week is never
+auto-recommended, as a Doubtful player is: he is startable if a manager
+insists, a starter keeps his slot, and "No practice this week" shows beside
+his Questionable tag on the Start/sit card and the Decision card. A player
+has no practice when at least one Practice participation observation exists
+for him this week, coverage began in time (his earliest observation was
+observed by the end of the week's Thursday and at least 48 hours before his
+kickoff), every one reads did not participate, and none is rest-related
+(the whole word rest or resting in the reported reason; a not-injury-related
+absence for another reason, a personal matter say, still counts); with no
+observation, late coverage, or no kickoff on file the advice is unchanged.
+Only the advice reads this: no projection moves.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 
@@ -1689,6 +1700,27 @@ not. A stat row alone is not an Appearance; rows exist for rostered players
 who never took the field.
 _Avoid_: game played, games (as a count of stat rows), did not play (say "no
 Appearance")
+
+**Appearance probability**:
+The probability that a player makes an Appearance in a given week, derived
+from their Game status and, once enough history exists, their Practice
+participation. A pre-kickoff estimate, unlike an Appearance, which is the
+realized fact.
+_Avoid_: availability (a roster fact about one league), active probability,
+chance to play
+
+**Practice participation**:
+What a team reports a player did at practice in the week before a game: did
+not participate, limited, or full. A fact about the NFL world, distinct from
+Game status, which is the designation the player carries into the game. It is
+captured as observations: each time the published report changes for a player,
+we record the new report with the time we saw it, for the NFL week in play
+(read off the schedule's kickoffs, never a league's current week). The
+practice day is therefore approximate (a Wednesday report first published
+Thursday is observed Thursday), and a week's observations, not a single
+value, are what the Start/sit advice reads.
+_Avoid_: practice status, injury status, DNP (in prose, say "did not
+participate")
 
 **NFL roster status**:
 Where a player stands on their NFL team's roster: Active, Practice squad,

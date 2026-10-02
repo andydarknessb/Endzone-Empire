@@ -178,6 +178,17 @@ test.each([['Q', 'Questionable'], ['D', 'Doubtful'], ['O', 'Out']])(
   },
 );
 
+test('a Questionable player with no practice all week shows "No practice this week" beside the tag, and only he does (ADR 0056)', () => {
+  const s = suggestion();
+  s.current.availability = { available: true, status: 'Q', reason: 'no_practice' };
+  s.suggested.availability = { available: true, status: 'Q', reason: 'questionable' };
+  render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+  const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+  expect(within(sitColumn).getByTestId('suggestion-no-practice')).toHaveTextContent('No practice this week');
+  expect(within(sitColumn).getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(within(startColumn).queryByTestId('suggestion-no-practice')).not.toBeInTheDocument();
+});
+
 test('no injury tag when both players are healthy', () => {
   const s = suggestion();
   s.current.availability = { available: true, status: null };

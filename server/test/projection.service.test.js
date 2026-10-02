@@ -2359,6 +2359,42 @@ test('the engine never stores the Position-baseline verdict: availability and ac
   for (const id of [1, 2, 3]) assert.equal(read.positionBaselineFor(id), true, `player ${id}`);
 });
 
+// ADR 0056 (ruling R1): a Questionable player with no practice all week is a
+// Start/sit advice verdict only. The engine never reads Practice participation,
+// so his stored row (number, distribution, availability, active probability)
+// is exactly what it was before the rule. Red if the engine's pre-projection
+// unavailableFor call ever starts passing `practice` (or reading the table).
+test('the engine never sees Practice participation: a Q player with no practice all week projects as plain Questionable', async (t) => {
+  const touched = [];
+  mockPool(t, {
+    players: [player(1, 'RB', { injury_status: 'Q' }), player(2, 'RB', { injury_status: 'Q' })],
+    weeklyStats: [],
+    leagueScan: Array.from({ length: 5 }, (_, i) => ({
+      player_id: 9, week: i + 1, position: 'RB',
+      stats: { rushingYards: 100, rushingTDs: 1 },
+      defense: 'MIA', home_away: 'away',
+    })),
+    defenseGames: [{ team: 'MIA', games: 5 }],
+    onQuery: (text) => { if (text.includes('player_practice_observations')) touched.push(text); },
+  });
+  const result = await projection.generateProjections({
+    season: SEASON, week: 6, rules: SCORING_RULES, playerIds: [1, 2], hashValue: 'h', weatherService: false,
+  });
+  for (const id of [1, 2]) {
+    const row = result.projections.get(id);
+    assert.equal(row.factors.availability.reason, 'questionable', `player ${id}`);
+    assert.equal(row.factors.availability.autoRecommend, true);
+    assert.equal(row.activeProbability, null);
+    assert.ok(row.mean > 0);
+  }
+  assert.equal(
+    JSON.stringify(result.projections.get(1)).replaceAll('"playerId":1', ''),
+    JSON.stringify(result.projections.get(2)).replaceAll('"playerId":2', ''),
+    'two identical Q players project to identical bytes'
+  );
+  assert.deepEqual(touched, [], 'the engine never queries the observations table');
+});
+
 test('the engine: every row built on the position baseline alone carries the `position baseline` reason', () => {
   // usedPositionFallback = baseline used, sampleSize 0, no prior season. With no
   // games the recency weight sum is 0, so effectiveGames (0) is always below

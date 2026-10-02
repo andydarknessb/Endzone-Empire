@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
 import { PlayerNameLink } from '../../../entities/player';
-import { formatKickoff, formatPoints } from '../../../shared/lib';
+import { formatKickoff, formatPoints, NO_PRACTICE_LABEL } from '../../../shared/lib';
 import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLine, movePlanWithout, pointsLeftLine, projectedLeanLine } from '../lib/suggestionView';
 
 /**
@@ -296,13 +296,16 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
       <Typography sx={{ fontSize: '11px', fontWeight: 600, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
         {label}
       </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
         {onOpenDecisionCard ? (
           <PlayerNameLink name={player.name} playerId={player.playerId} onOpen={onOpenDecisionCard} sx={{ ...NAME_SX, minWidth: 0, display: 'block', lineHeight: 'inherit' }} />
         ) : (
           <Typography sx={NAME_SX}>{player.name}</Typography>
         )}
         <InjuryTag status={player.injuryStatus} />
+        {player.noPractice && (
+          <Badge variant="neutral" data-testid="suggestion-no-practice">{NO_PRACTICE_LABEL}</Badge>
+        )}
         {player.volatility && (
           <Badge variant="neutral" data-testid="suggestion-volatility">{player.volatility}</Badge>
         )}

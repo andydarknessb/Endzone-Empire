@@ -351,6 +351,34 @@ test('a capture records a Position-baseline row at its number: identical bytes t
   assert.equal(seeded.raw[FACTORS], JSON.stringify(MARKER), 'the stored factors are the engine output, verbatim');
 });
 
+// ADR 0056 (ruling R1): Practice participation reaches Start/sit advice only. A
+// capture of a Questionable player with no practice all week stores the
+// engine's output verbatim (his number, distribution, null active probability
+// and factors) and never reads the observations table, so it is byte-identical
+// to the same capture before the rule existed.
+test('a capture records a Questionable player at the engine output and never reads Practice participation', async (t) => {
+  withReleaseSha(t);
+  const FACTORS = { note: 'test', availability: { reason: 'questionable', autoRecommend: true } };
+  t.mock.method(projectionSvc, 'generateProjections', async (args) => ({
+    projections: new Map(args.playerIds.map((id) => [id, {
+      mean: id + 0.5, median: id + 0.25, p10: 1, p25: 2, p75: 8, p90: 9,
+      activeProbability: id === 9 ? null : 1, confidence: 'high', sampleSize: 4,
+      factors: id === 9 ? FACTORS : { note: 'test' },
+    }])),
+    inputCutoff: new Date('2077-09-09T11:00:00Z'),
+    sourceCoverage: { stats: 'ok' },
+  }));
+  const db = fakeDb(dbArgs());
+  await holdout.snapshotWeek(captureArgs(db));
+
+  const seeded = db.committed.players.find((p) => p.player_id === 9);
+  assert.equal(seeded.mean, 9.5);
+  assert.equal(seeded.median, 9.25);
+  assert.equal(seeded.raw[8], null, 'the stored active probability is still null');
+  assert.equal(seeded.raw[11], JSON.stringify(FACTORS), 'the stored factors are the engine output, verbatim');
+  assert.ok(!db.statements.some((s) => /player_practice_observations/.test(s.text)), 'no capture statement touches the observations table');
+});
+
 test('an injected mid-batch failure rolls back header AND children — nothing persists', async (t) => {
   withReleaseSha(t);
   mockGenerate(t);
