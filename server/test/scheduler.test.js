@@ -1166,6 +1166,22 @@ test('getSchedulerStatus.syncRuns maps outcome from detail.reason, not from ok a
   assert.equal(status.syncRuns.adp.latest.outcome, 'ok');
 });
 
+test('getSchedulerStatus.syncRuns reports weather-snapshots, `unconfigured` for an ok run with no NWS_USER_AGENT (#1930)', async (t) => {
+  const ok = (detail) => ({ id: 11, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail });
+  dataSyncRunsPool({
+    'weather-snapshots': {
+      latest: ok({ reason: 'NWS_USER_AGENT not configured', requests: 0 }),
+      latestOk: ok({ reason: 'NWS_USER_AGENT not configured', requests: 0 }),
+    },
+    adp: { latest: ok({ reason: 'something else' }), latestOk: null },
+  }).install(t);
+  const status = await scheduler.getSchedulerStatus();
+  assert.ok(scheduler.SYNC_RUN_JOBS.includes('weather-snapshots'));
+  assert.equal(status.syncRuns['weather-snapshots'].latest.outcome, 'unconfigured');
+  assert.equal(status.syncRuns['weather-snapshots'].latest.ok, true, 'the run stays ok');
+  assert.equal(status.syncRuns.adp.latest.outcome, 'ok', 'any other ok row, reason or not, stays ok');
+});
+
 test('getSchedulerStatus.syncRuns reports failedWeeks from detail.failedWeeks.length, independent of outcome (#1242)', async (t) => {
   dataSyncRunsPool({
     // ok: true with 13 skipped weeks still reports outcome: 'ok' - the count
