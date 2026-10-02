@@ -208,10 +208,15 @@ export default function StartSitPanel({
               <Badge
                 variant={view.tooCloseToCall ? 'warning' : 'live'}
                 data-testid="suggestion-verdict"
-                data-verdict={view.tooCloseToCall ? 'tossup' : 'lean'}
+                data-verdict={VERDICT_BADGE[view.verdict]?.attr ?? 'lean'}
               >
-                {view.tooCloseToCall ? 'Too close to call' : 'Lean start'}
+                {VERDICT_BADGE[view.verdict]?.text ?? 'Lean start'}
               </Badge>
+              {view.probabilityLabel && (
+                <Typography data-testid="suggestion-probability" sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}>
+                  {view.probabilityLabel}
+                </Typography>
+              )}
               {view.gain != null && (
                 <Typography sx={{ ml: 'auto', fontSize: '12px', color: 'var(--dash-faint)' }}>
                   {`+${formatPoints(view.gain)} pts`}
@@ -288,7 +293,13 @@ export default function StartSitPanel({
   );
 }
 
-const NAME_SX = { fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const VERDICT_BADGE = {
+  strong: { text: 'Strong start', attr: 'strong' },
+  start: { text: 'Lean start', attr: 'lean' },
+  tossup: { text: 'Too close to call', attr: 'tossup' },
+};
+
+const NAME_SX ={ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
 function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard }) {
   return (

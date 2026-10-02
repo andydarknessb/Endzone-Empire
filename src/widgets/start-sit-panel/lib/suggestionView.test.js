@@ -320,10 +320,38 @@ describe('canCallShot (#1856)', () => {
     expect(view.probability).toBe(0.9);
   });
 
+  test('a strong start can be called too (#1909)', () => {
+    expect(build({ verdict: 'strong', probabilityBetter: 0.85 }).canCallShot).toBe(true);
+  });
+
   test('a tossup or a missing probability cannot', () => {
     expect(build({ verdict: 'tossup', probabilityBetter: 0.55 }).canCallShot).toBe(false);
     expect(build({ probabilityBetter: null }).canCallShot).toBe(false);
     expect(build({ probabilityBetter: undefined }).canCallShot).toBe(false);
+  });
+});
+
+describe('verdict and probabilityLabel (#1909)', () => {
+  const side = (playerId) => ({ playerId, name: `p${playerId}`, projection: 10 });
+  const build = (over) => buildSuggestionView(
+    { slot: 'RB', current: side(1), suggested: side(2), verdict: 'start', probabilityBetter: 0.7, ...over },
+    new Map()
+  );
+
+  test('the verdict passes through, and only a tossup is too close to call', () => {
+    expect(build({ verdict: 'strong' })).toMatchObject({ verdict: 'strong', tooCloseToCall: false });
+    expect(build({ verdict: 'start' })).toMatchObject({ verdict: 'start', tooCloseToCall: false });
+    expect(build({ verdict: 'tossup' })).toMatchObject({ verdict: 'tossup', tooCloseToCall: true });
+  });
+
+  test('the label is "about N%" to the nearest 10%, never above 90%, none when null', () => {
+    expect(build({ probabilityBetter: 0.64 }).probabilityLabel).toBe('about 60%');
+    expect(build({ probabilityBetter: 0.66 }).probabilityLabel).toBe('about 70%');
+    expect(build({ probabilityBetter: 0.85 }).probabilityLabel).toBe('about 90%');
+    expect(build({ probabilityBetter: 0.926 }).probabilityLabel).toBe('about 90%');
+    expect(build({ probabilityBetter: 1 }).probabilityLabel).toBe('about 90%');
+    expect(build({ probabilityBetter: null }).probabilityLabel).toBeNull();
+    expect(build({ probabilityBetter: undefined }).probabilityLabel).toBeNull();
   });
 });
 
