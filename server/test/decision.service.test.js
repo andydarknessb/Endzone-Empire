@@ -654,7 +654,7 @@ test('upgradeFor: a bench player who would fill an Unavailable starter\'s slot i
   });
 });
 
-test('upgradeFor: points is the candidate projection minus the weakest starter, never below 0', () => {
+test('upgradeFor: points is the candidate projection over the starter he beats, never below 0', () => {
   const roster = [rosterRow(99, 'RB', 'RB', 10)];
   const points = [12, 20, 8].map((projection) => upgradeFor({ position: 'RB', projection }, roster, RB1).points);
   assert.deepEqual(points, [2, 10, 0]);
@@ -696,6 +696,26 @@ test('upgradeFor: a kicked-off starter is pinned and a kicked-off bench player i
   assert.deepEqual(upgradeFor({ position: 'RB', projection: 20 }, pinnedRoster, RB1), { points: 0, overPlayer: null, slot: null });
   const lockedBench = [rosterRow(1, 'RB', 'RB', 5), rosterRow(2, 'RB', 'BENCH', 30, { kickedOff: true })];
   assert.equal(upgradeFor({ position: 'RB', projection: 20 }, lockedBench, RB1).points, 15);
+});
+
+test('upgradeFor: overPlayer on a tie does not depend on the input order of the roster', () => {
+  const wr2 = [{ key: 'WR', label: 'WR', count: 2, eligiblePositions: ['WR'] }];
+  const starters = [
+    rosterRow(3, 'WR', 'WR', 0, { unavailable: 'bye' }),
+    rosterRow(4, 'WR', 'WR', 0, { unavailable: 'bye' }),
+  ];
+  const candidate = { position: 'WR', projection: 9 };
+  const forward = upgradeFor(candidate, starters, wr2);
+  const reversed = upgradeFor(candidate, [...starters].reverse(), wr2);
+  assert.equal(forward.points, 9);
+  assert.deepEqual(reversed, forward);
+  assert.ok([3, 4].includes(forward.overPlayer.id));
+  // A healthy tie: an RB starter at 8 and a bench RB at 8.
+  const rbs = [rosterRow(1, 'RB', 'RB', 8), rosterRow(2, 'RB', 'BENCH', 8)];
+  assert.deepEqual(
+    upgradeFor({ position: 'RB', projection: 12 }, [...rbs].reverse(), RB1),
+    upgradeFor({ position: 'RB', projection: 12 }, rbs, RB1),
+  );
 });
 
 test('upgradeFor: a gain that arrives through a FLEX chain is found', () => {

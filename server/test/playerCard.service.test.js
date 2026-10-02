@@ -366,7 +366,7 @@ test('upgradesFor (#1809): a Position-baseline candidate at 15.37 gets null, an 
   });
 });
 
-test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate over the weakest eligible starter', async (t) => {
+test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate over the starter he beats', async (t) => {
   createFakePool(upgradeHandlers()).install(t);
   mockServices(t, { weeklyProjection: upgradeProjection({ available: true }) });
 

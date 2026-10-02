@@ -1145,6 +1145,8 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 // 4. Upgrade (player card)
 // ---------------------------------------------------------------------------
 
+const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
+
 /**
  * Pure: the Upgrade (ADR 0055) - how much `candidate` (`{ position, projection }`)
  * adds to the caller's optimal lineup for the week: the optimal total with him
@@ -1161,10 +1163,14 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
  * candidate who is not in the one with him (`points` is his own effective
  * projection), null when the candidate fills an empty slot or gains nothing;
  * `slot` is the slot the candidate takes (null when he takes none).
+ *
+ * Order-invariant: the optimizer is deterministic only for a fixed input
+ * order, and the roster read has no ORDER BY, so `roster` is sorted by
+ * `playerId` here. Without it, which of two tied players `overPlayer` names
+ * would change between page loads.
  */
-const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
-
-function upgradeFor(candidate, roster, rosterSlots) {
+function upgradeFor(candidate, unsortedRoster, rosterSlots) {
+  const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
   const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
   pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
   const pinned = new Map();
