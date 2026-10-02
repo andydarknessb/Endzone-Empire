@@ -50,6 +50,12 @@ export function useAdvice({ leagueId, week, bestBall }) {
     // The team's called shot for the week, or null (#1856): rendered as the
     // standing "Your called shot" line.
     calledShot: data?.calledShot ?? null,
+    // Each player's verdict reason (`players[].availability.reason`, the
+    // server's unavailableFor): the Decision card reads 'no_practice' off it
+    // for "No practice this week" beside a Questionable tag (ADR 0056).
+    verdictReasonById: new Map(
+      (Array.isArray(data?.players) ? data.players : []).map((p) => [p.playerId, p.availability?.reason ?? null])
+    ),
     reload,
   };
 }

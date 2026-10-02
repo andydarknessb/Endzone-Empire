@@ -1156,8 +1156,7 @@ out. An Unavailable roster player counts as zero; a player whose game has
 kicked off is held, as the Start/sit advice holds him (a starter keeps his
 slot, a bench player is not a candidate). A candidate who adds nothing has an
 Upgrade of zero, which shows no pill or tile. The roster player the candidate
-displaces is the swap preview's other side; he is the claim sheet's suggested
-drop only when he is available this week. Undefined in a best ball league,
+displaces is the swap preview's other side. Undefined in a best ball league,
 where the column and tile are hidden, and for a player who is Unavailable
 this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
 who sorts last under the Upgrade sort. The same number for a free agent, a
@@ -1625,7 +1624,18 @@ from the Decision card's Line and Weather loaders (the Implied team total
 stays on the Decision card), and each reads "context only" while its Factor
 is not applied: the Line chips follow the game environment Factor, the
 weather chips the weather Factor. No chips on the Decision card or a Ledger
-row.
+row. A Questionable player with no practice all week is never
+auto-recommended, as a Doubtful player is: he is startable if a manager
+insists, a starter keeps his slot, and "No practice this week" shows beside
+his Questionable tag on the Start/sit card and the Decision card. A player
+has no practice when at least one Practice participation observation exists
+for him this week, coverage began in time (his earliest observation was
+observed by the end of the week's Thursday and at least 48 hours before his
+kickoff), every one reads did not participate, and none is rest-related
+(the whole word rest or resting in the reported reason; a not-injury-related
+absence for another reason, a personal matter say, still counts); with no
+observation, late coverage, or no kickoff on file the advice is unchanged.
+Only the advice reads this: no projection moves.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 
@@ -1704,10 +1714,15 @@ _Avoid_: availability (a roster fact about one league), active probability,
 chance to play
 
 **Practice participation**:
-What a team reports a player did at one practice day in the week before a
-game: did not participate, limited, or full. A fact about the NFL world,
-distinct from Game status, which is the designation the player carries into
-the game.
+What a team reports a player did at practice in the week before a game: did
+not participate, limited, or full. A fact about the NFL world, distinct from
+Game status, which is the designation the player carries into the game. It is
+captured as observations: each time the published report changes for a player,
+we record the new report with the time we saw it, for the NFL week in play
+(read off the schedule's kickoffs, never a league's current week). The
+practice day is therefore approximate (a Wednesday report first published
+Thursday is observed Thursday), and a week's observations, not a single
+value, are what the Start/sit advice reads.
 _Avoid_: practice status, injury status, DNP (in prose, say "did not
 participate")
 

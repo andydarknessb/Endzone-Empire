@@ -633,3 +633,69 @@ test('sort=upgrade: equal Upgrades order by the candidate\'s Weekly projection, 
   assert.equal(byId.get(2).upgrade.points, 0);
   assert.equal(byId.get(3).upgrade, null);
 });
+
+// #1912 (#1800 Ruling items 4-5): `context.dropSuggestion` is the roster player
+// with the lowest Rest of season total (ties by lower id) when the roster is
+// at capacity, null when a spot is free, and never a player in an IR slot.
+async function readDropSuggestionContext(t, { rosterCount, rosterRows, ros }) {
+  const playerCardService = require('../services/playerCard.service');
+  const league = {
+    id: 1, name: 'Drop League', roster_limit: 3, waiver_type: 'faab', current_season: 2026, current_week: 5,
+    best_ball: false,
+  };
+  const players = [{ id: 1, name: 'Candidate', position: 'QB', nfl_team: 'ARI', total_count: '1', identity_ids: [1] }];
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/^SELECT "players"\."id", "players"\."name" FROM "team_players"/, () => ({ rows: rosterRows })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: rosterCount }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "player_watchlist"/, () => ({ rows: [] })],
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
+  ]);
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async () => new Map());
+  t.mock.method(projectionService, 'getRestOfSeason', ros);
+  t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
+  t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
+  t.mock.method(playerCardService, 'upgradesFor', async () => new Map());
+  const result = await readPlayersPage(baseQuery({ leagueId: '1', view: 'cards' }), { db: fake });
+  return { context: result.context, fake };
+}
+
+const rosterOf = [{ id: 5, name: 'Star' }, { id: 9, name: 'Backup Nine' }, { id: 8, name: 'Backup Eight' }];
+const rosTotals = async () => new Map([[5, { total: 40 }], [9, { total: 12 }], [8, { total: 12 }]]);
+
+test('context.dropSuggestion is the roster player with the lowest Rest of season total, ties by lower id (#1912)', async (t) => {
+  const { context, fake } = await readDropSuggestionContext(t, { rosterCount: 3, rosterRows: rosterOf, ros: rosTotals });
+  assert.deepEqual(context.dropSuggestion, { id: 8, name: 'Backup Eight' });
+  // Its own read over the roster's ids: positionRank ranks within the ids passed,
+  // and the page's runs hold only the page's players, so none is reused.
+  const call = projectionService.getRestOfSeason.mock.calls.find((c) => c.arguments[0].includes(5));
+  assert.equal(call.arguments[2], undefined);
+  assert.equal(fake.matching(/^SELECT "players"\."id", "players"\."name" FROM "team_players"/).length, 1);
+});
+
+test('context.dropSuggestion is null when the roster has a free spot, and no roster read is made (#1912)', async (t) => {
+  const { context, fake } = await readDropSuggestionContext(t, { rosterCount: 2, rosterRows: rosterOf, ros: rosTotals });
+  assert.equal(context.dropSuggestion, null);
+  assert.equal(fake.matching(/^SELECT "players"\."id", "players"\."name" FROM "team_players"/).length, 0);
+});
+
+test('a failed Rest of season read leaves dropSuggestion null and never fails the players read (#1912)', async (t) => {
+  const { context } = await readDropSuggestionContext(t, {
+    rosterCount: 3, rosterRows: rosterOf, ros: async (ids) => { if (ids.includes(5)) throw new Error('projection down'); return new Map(); },
+  });
+  assert.equal(context.dropSuggestion, null);
+});
+
+test('the roster read leaves out a player in an IR slot this week (#1912)', async (t) => {
+  const { fake } = await readDropSuggestionContext(t, { rosterCount: 3, rosterRows: rosterOf, ros: rosTotals });
+  const [read] = fake.matching(/^SELECT "players"\."id", "players"\."name" FROM "team_players"/);
+  assert.match(read.text, /"lineup_entries"\."slot" = 'IR'/);
+  assert.match(read.text, /NOT EXISTS/);
+});

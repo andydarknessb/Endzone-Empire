@@ -393,6 +393,7 @@ export default function WaiversPage() {
         leagueId={leagueId}
         availability={availability}
         roster={rosterData}
+        dropSuggestion={context?.dropSuggestion}
         onClose={() => setClaimId(null)}
         onClaimed={refreshAfterAction}
       />
