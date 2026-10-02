@@ -181,10 +181,33 @@ async function loadActuals({
   return actuals;
 }
 
+/**
+ * Every captured `scheduled`-arm week in `{ header, rows }` shape. This is what
+ * `loadProfile` has always returned as `weeks`, and `compare-market-factor.js`
+ * still reads it: its screen numbers must not change.
+ */
+function scheduledWeeks({ season, ledger }) {
+  return ledger.filter((e) => e.arms.scheduled).map((e) => ({
+    header: {
+      season,
+      week: e.week,
+      scoringHash: e.arms.scheduled.scoringHash,
+      captureNotAfter: e.arms.scheduled.captureNotAfter,
+    },
+    rows: e.arms.scheduled.rows,
+  }));
+}
+
+/** The scheduled-arm weeks alone, for callers that do not apply the gate's survival rules. */
+async function loadCapturedWeeks({ season, profileName, client }) {
+  const { rules, ledger } = await loadCapturedLedger({ season, profileName, client });
+  return { rules, weeks: scheduledWeeks({ season, ledger }) };
+}
+
 async function loadProfile({ season, profileName, client }) {
   const { rules, ledger } = await loadCapturedLedger({ season, profileName, client });
   const base = {
-    name: profileName, rules, season, ledger,
+    name: profileName, rules, season, ledger, weeks: scheduledWeeks({ season, ledger }),
   };
   const scheduled = ledger.filter((e) => e.arms.scheduled);
   if (scheduled.length === 0) return { ...base, actuals: new Map() };
@@ -239,5 +262,5 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseArgs, resolveOutputPaths, loadCapturedLedger, loadActuals, loadProfile, main,
+  parseArgs, resolveOutputPaths, loadCapturedLedger, loadCapturedWeeks, scheduledWeeks, loadActuals, loadProfile, main,
 };

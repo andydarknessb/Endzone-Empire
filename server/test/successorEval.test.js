@@ -253,7 +253,7 @@ test('a free_baseline_v3.1 run is the calibration run: calibration share 1.0, no
   // Each profile's mock reproduces ITS OWN captured rows - generateProjections
   // has no notion of "profile", so the harness has to route by profile name;
   // a single generateProjections stand-in wraps the per-profile mocks by the
-  // rules object identity `evaluateProfile` forwards unchanged.
+  // rules object identity the evaluation forwards unchanged.
   const mocksByProfile = new Map(PROFILE_NAMES.map((name) => [name, makeMockGenerateProjections(captured, name)]));
   const routedGenerateProjections = async (args) => {
     const profileName = args.rules && args.rules.profile;
@@ -661,4 +661,38 @@ test('end to end a v3.2 run prints PASS for half_ppr, with the other profile rep
   // A target no better than the capture FAILs.
   const flat = await runGate(gateProfile({}), gateGenerate({ target: 'captured' }));
   assert.equal(flat.profiles.half_ppr.gate.verdict, 'FAIL');
+});
+
+// ---------------------------------------------------------------------------
+// The runner's loader keeps feeding compare-market-factor.js its `weeks`
+// ---------------------------------------------------------------------------
+
+test('loadProfile still returns the scheduled-arm weeks in the shape compare-market-factor.js reads, beside the sealed-shape ledger', async () => {
+  const runner = require('../scripts/run-successor-eval');
+  const header = (id, week, kind) => ({
+    id, week, capture_kind: kind, scoring_hash: 'h', constants_hash: 'c', model_version: 'v', cohort_hash: 'x', cohort_size: 1,
+    captured_at: 'a', capture_not_after: `nb-${week}`, is_late: false,
+  });
+  const child = { player_id: 7, position: 'WR', nfl_team: 'KC', injury_status: null, mean: '9.5', active_probability: '1', sample_size: 3 };
+  const client = {
+    async query(sql, params) {
+      if (sql.includes('FROM "projection_snapshots"')) {
+        return { rows: [header(1, 1, 'scheduled'), header(2, 1, 'candidate:bw-20'), header(3, 1, 'candidate:bw-15')] };
+      }
+      if (sql.includes('FROM "projection_snapshot_players"')) {
+        return { rows: params[0] === 1 ? [child] : [{ player_id: 7 }] };
+      }
+      return { rows: [{ player_id: 7, season: 2026, week: 1, stats: {} }] };
+    },
+  };
+  const profile = await runner.loadProfile({ season: 2026, profileName: 'half_ppr', client });
+  assert.equal(profile.weeks.length, 1);
+  assert.deepEqual(profile.weeks[0].header, {
+    season: 2026, week: 1, scoringHash: 'h', captureNotAfter: 'nb-1',
+  });
+  assert.equal(profile.weeks[0].rows[0].mean, '9.5');
+  assert.equal(profile.weeks[0].rows[0].playerId, 7);
+  assert.deepEqual(Object.keys(profile.ledger[0].arms).sort(), ['candidate:bw-15', 'candidate:bw-20', 'scheduled']);
+  assert.deepEqual(profile.ledger[0].arms['candidate:bw-20'].rows, [{ playerId: 7 }]);
+  assert.ok(profile.actuals.has('2026:1:7'));
 });
