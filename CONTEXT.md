@@ -1695,6 +1695,22 @@ who never took the field.
 _Avoid_: game played, games (as a count of stat rows), did not play (say "no
 Appearance")
 
+**Appearance probability**:
+The probability that a player makes an Appearance in a given week, derived
+from their Game status and, once enough history exists, their Practice
+participation. A pre-kickoff estimate, unlike an Appearance, which is the
+realized fact.
+_Avoid_: availability (a roster fact about one league), active probability,
+chance to play
+
+**Practice participation**:
+What a team reports a player did at one practice day in the week before a
+game: did not participate, limited, or full. A fact about the NFL world,
+distinct from Game status, which is the designation the player carries into
+the game.
+_Avoid_: practice status, injury status, DNP (in prose, say "did not
+participate")
+
 **NFL roster status**:
 Where a player stands on their NFL team's roster: Active, Practice squad,
 or Reserve. A fact about the NFL team, never about a league (that is
@@ -1818,6 +1834,13 @@ never served, judged against the Champion only at the preregistered
 checkpoints. Unlike a Candidate, it is a whole Model version rather than one
 constant flip, and its mean is expected to differ.
 _Avoid_: candidate (a Candidate is a sealed study's constant flip), variant
+
+**Editorial call**:
+A start, sit, or treat-as-out verdict on one player for one week, published
+in a Darkness Report and scored against actual points after the games. It
+is a judgment, never a Projection, and the engine never serves it; it is
+not a Challenger, which is always a Model version.
+_Avoid_: pick, ruling (outside the article), expert projection
 
 **Shadow arm**:
 The captured, unserved series of one Challenger: written pre-kickoff in the
