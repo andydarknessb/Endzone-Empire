@@ -24,6 +24,11 @@
 const model = require('../../../server/services/projectionModel');
 const metrics = require('../../backtest/lib/metrics');
 const coverage = require('./coverage');
+const inference = require('./inference');
+const { SEALED, survivingWeeks } = require('./evaluate');
+
+/** The one profile whose verdict is the gate (decision rule of 2026-10-02, #1438); the others are reported, selecting nothing. */
+const GATE_PROFILE = 'half_ppr';
 
 function isNum(v) {
   return typeof v === 'number' && Number.isFinite(v);
@@ -304,36 +309,26 @@ function aggregateWeekly(weekly) {
 }
 
 /**
- * One scoring profile's full report (ruling point 4): three columns -
- * captured v3.1 (the ledger's own numbers, scored against `actuals`),
- * rebuilt v3.1 (this checkout's engine at v3.1 constants, the calibration's
- * own numbers) and rebuilt MODEL_VERSION (the #1438 gate's own column, read
- * with rebuilt v3.1 as its error bar) - plus the v3.1 rebuild's calibration.
+ * The calibration run's profile report (`free_baseline_v3.1`): captured v3.1
+ * and rebuilt v3.1 on each column's own rows, plus the v3.1 rebuild's
+ * calibration. It computes NO v3.2 column and no verdict - the rebuild error
+ * bar is what this run exists to record, and it may run at any time (rule 1),
+ * so it takes every captured `scheduled` week rather than the gate's survivors.
  *
  * `weeks` is this profile's captured `scheduled`-arm weeks, each
- * `{ header, rows }`; `actuals` is THIS PROFILE's player_stats-scored map
- * (scoring differs by profile, so a shared map would be wrong for two of the
- * three columns on every profile but one).
+ * `{ header, rows }`; `actuals` is THIS PROFILE's player_stats-scored map.
  */
-async function evaluateProfile({
-  weeks, actuals, rules, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
+async function evaluateCalibrationProfile({
+  weeks, actuals, rules, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
 }) {
-  // Compared against the LITERAL v3.1 name (never `model.MODEL_VERSION`,
-  // adversarial review finding f1): the target run reuses the v3.1 rebuild
-  // only when IT IS the v3.1 run, regardless of what this checkout's HEAD
-  // currently ships.
-  const isBaselineRun = modelVersion === MODEL_VERSION_V3_1;
   const capturedWeekly = [];
   const rebuiltV31Weekly = [];
-  const rebuiltTargetWeekly = [];
   const calibrationByWeek = [];
-
   for (const { header, rows } of weeks) {
     capturedWeekly.push({
       week: header.week,
       ...metricsForArm({ rows, actuals, season: header.season, week: header.week }),
     });
-
     const rebuiltV31Rows = await reprojectWeek({
       header, rows, rules, modelVersion: MODEL_VERSION_V3_1, generateProjections, constantsByModelVersion,
     });
@@ -345,71 +340,340 @@ async function evaluateProfile({
       week: header.week,
       ...calibrateAgainstCaptured({ capturedRows: rows, rebuiltRows: rebuiltV31Rows }),
     });
-
-    // The v3.1 run's target column IS the v3.1 rebuild - recomputing it
-    // would call generateProjections twice for identical inputs.
-    const rebuiltTargetRows = isBaselineRun
-      ? rebuiltV31Rows
-      : await reprojectWeek({
-        header, rows, rules, modelVersion, generateProjections, constantsByModelVersion,
-      });
-    rebuiltTargetWeekly.push({
-      week: header.week,
-      ...metricsForArm({ rows: rebuiltTargetRows, actuals, season: header.season, week: header.week }),
-    });
   }
-
-  const calibrationChecked = calibrationByWeek.reduce((s, c) => s + c.checked, 0);
-  const calibrationWithin = calibrationByWeek.reduce((s, c) => s + c.withinTolerance, 0);
-  const calibrationSampleSizeDiffers = calibrationByWeek.reduce((s, c) => s + c.sampleSizeDiffers, 0);
-
   return {
     weeksScored: weeks.length,
-    columns: {
-      capturedV31: aggregateWeekly(capturedWeekly),
-      rebuiltV31: aggregateWeekly(rebuiltV31Weekly),
-      rebuiltTarget: { modelVersion, ...aggregateWeekly(rebuiltTargetWeekly) },
-    },
-    calibration: {
-      modelVersion: MODEL_VERSION_V3_1,
-      checked: calibrationChecked,
-      withinTolerance: calibrationWithin,
-      share: calibrationChecked > 0 ? calibrationWithin / calibrationChecked : null,
-      sampleSizeDiffers: calibrationSampleSizeDiffers,
-      byWeek: calibrationByWeek,
-    },
-    weekly: { captured: capturedWeekly, rebuiltV31: rebuiltV31Weekly, rebuiltTarget: rebuiltTargetWeekly },
+    columns: { capturedV31: aggregateWeekly(capturedWeekly), rebuiltV31: aggregateWeekly(rebuiltV31Weekly) },
+    calibration: summariseCalibration(calibrationByWeek),
+    weekly: { captured: capturedWeekly, rebuiltV31: rebuiltV31Weekly },
+  };
+}
+
+function summariseCalibration(calibrationByWeek) {
+  const checked = calibrationByWeek.reduce((s, c) => s + c.checked, 0);
+  const withinTolerance = calibrationByWeek.reduce((s, c) => s + c.withinTolerance, 0);
+  return {
+    modelVersion: MODEL_VERSION_V3_1,
+    checked,
+    withinTolerance,
+    share: checked > 0 ? withinTolerance / checked : null,
+    sampleSizeDiffers: calibrationByWeek.reduce((s, c) => s + c.sampleSizeDiffers, 0),
+    byWeek: calibrationByWeek,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The gate (decision rule of 2026-10-02 on #1438)
+// ---------------------------------------------------------------------------
+
+/**
+ * How a column served one cohort row: `activeZero` (active probability 0,
+ * wins over a mean the row may still carry), `nullMean`, or `served`.
+ */
+function servedState(row) {
+  if (!row) return 'nullMean';
+  if (numOrNull(row.activeProbability) === 0) return 'activeZero';
+  return numOrNull(row.mean) === null ? 'nullMean' : 'served';
+}
+
+/**
+ * Rule 4, as-served scoring of one column for one week: every COHORT row is
+ * scored, and a row the column does not serve scores as a projection of 0.
+ * Position comes from the cohort (the frozen context), so a rebuilt row with
+ * no projection still lands in its position's pairwise cell. This is a new
+ * path: `metricsForArm` keeps scoring a column on its own non-null rows for
+ * `compare-market-factor.js`.
+ */
+function asServedWeek({ cohort, rows, actuals, season, week }) {
+  const rowById = new Map(rows.map((r) => [r.playerId, r]));
+  const byPosition = {};
+  for (const position of metrics.MACRO_POSITIONS) byPosition[position] = [];
+  const counts = { served: 0, nullMean: 0, activeZero: 0 };
+  const scored = [];
+  for (const c of cohort) {
+    const row = rowById.get(c.playerId);
+    const state = servedState(row);
+    counts[state] += 1;
+    const actualRaw = actuals.get(`${season}:${week}:${c.playerId}`);
+    const entry = {
+      playerId: c.playerId,
+      projected: state === 'served' ? numOrNull(row.mean) : 0,
+      actual: actualRaw === undefined ? 0 : Number(actualRaw),
+    };
+    scored.push(entry);
+    const bucket = String(c.position || '').toUpperCase();
+    if (byPosition[bucket]) byPosition[bucket].push(entry);
+  }
+  const point = metrics.weekPointMetrics(scored);
+  const pairwise = metrics.weekPairwise(byPosition);
+  return {
+    mae: point.mae,
+    spearman: point.spearman,
+    pairwise: pairwise.score,
+    perPosition: Object.fromEntries(metrics.MACRO_POSITIONS.map((p) => [p, pairwise.perPosition[p].score])),
+    counts,
   };
 }
 
 /**
- * The whole gate run: every profile's report, side by side, under one
- * MODEL_VERSION. `profiles` is `[{ name, rules, weeks, actuals }, ...]`, one
- * entry per captured scoring profile (the runner supplies standard, half_ppr
- * and ppr). Fails BEFORE any reprojection when EITHER `modelVersion` or
- * `MODEL_VERSION_V3_1` has no registered constants (ruling point 1) - every
- * report carries the v3.1 rebuild as its error bar, so a run that cannot
- * produce that column is refused wholesale rather than shipping the target
- * column alone with a calibration nobody can trust. A wasted network round
- * trip is cheap; a report claiming to have run a version it did not is not.
- * `constantsByModelVersion` defaults to the real registry; see
- * `constantsFor` for why a test would ever pass its own.
+ * Rule 5 (fourth check), one week: 80% and 50% coverage of every column on
+ * the rows eligible in EVERY column - active probability not 0 and the
+ * interval being scored complete, in all of them. Reuses
+ * `coverage.armWeekMetrics` on the common rows.
+ */
+function commonCoverageWeek({ columns, actuals, season, week }) {
+  const out = {};
+  for (const [key, lo, hi] of [['cov80', 'p10', 'p90'], ['cov50', 'p25', 'p75']]) {
+    const eligible = (row) => {
+      const a = numOrNull(row[lo]);
+      const b = numOrNull(row[hi]);
+      return numOrNull(row.activeProbability) !== 0 && a !== null && b !== null && a <= b;
+    };
+    const byColumn = Object.values(columns).map((rows) => new Map(rows.map((r) => [r.playerId, r])));
+    const common = [...byColumn[0].keys()].filter((id) => byColumn.every((m) => m.has(id) && eligible(m.get(id))));
+    const commonSet = new Set(common);
+    out[key] = { n: common.length };
+    for (const [name, rows] of Object.entries(columns)) {
+      out[key][name] = coverage.armWeekMetrics({
+        rows: rows.filter((r) => commonSet.has(r.playerId)), actuals, season, week,
+      })[key];
+    }
+  }
+  return out;
+}
+
+function sumCounts(weekly) {
+  const total = { served: 0, nullMean: 0, activeZero: 0 };
+  for (const w of weekly) for (const k of Object.keys(total)) total[k] += w.counts[k];
+  return total;
+}
+
+/** Season-level aggregate of one as-served column: the mean over weeks, per-position cells, row counts by served state. */
+function aggregateServed(weekly) {
+  return {
+    ...aggregateWeekly(weekly),
+    perPosition: Object.fromEntries(metrics.MACRO_POSITIONS.map((p) => [p, meanOf(weekly.map((w) => w.perPosition[p]))])),
+    counts: sumCounts(weekly),
+  };
+}
+
+/** Rule 5, second check: the lower one-sided bound on the weekly mean of rebuilt target minus rebuilt v3.1, through the sealed inference. */
+function noiseCheck(weeklyDeltas, config = SEALED) {
+  const resamples = inference.buildResamples({ n: weeklyDeltas.length, draws: config.draws, seed: config.bootstrapSeed });
+  return inference.decideComponent({
+    label: 'pairwise beyond noise',
+    weeklyValues: weeklyDeltas,
+    resamples,
+    alpha: config.alphaATest,
+    boundary: 0,
+    side: 'lower',
+    exactTriggerClusters: config.exactTriggerClusters,
+  });
+}
+
+/**
+ * The four checks of rule 5 over aligned per-week scores
+ * (`weekly.captured|rebuiltV31|rebuiltTarget`, each `{ week, mae, pairwise, cov80, cov50 }`).
+ * Each check carries its inputs; a check whose input is missing fails rather
+ * than passes. The season value of a metric is the mean over its weeks;
+ * coverage distance is that season coverage's distance from nominal.
+ */
+function gateChecks({ weekly, config = SEALED }) {
+  const season = (column, key) => meanOf(weekly[column].map((w) => w[key]));
+  const dist = (column, key, target) => {
+    const v = season(column, key);
+    return v === null ? null : Math.abs(v - target);
+  };
+  const bar = (a, b) => (isNum(a) && isNum(b) ? Math.abs(a - b) : null);
+
+  const pw = { captured: season('captured', 'pairwise'), rebuiltV31: season('rebuiltV31', 'pairwise'), rebuiltTarget: season('rebuiltTarget', 'pairwise') };
+  const pwBar = bar(pw.rebuiltV31, pw.captured);
+  const mae = { captured: season('captured', 'mae'), rebuiltV31: season('rebuiltV31', 'mae'), rebuiltTarget: season('rebuiltTarget', 'mae') };
+  const maeBar = bar(mae.rebuiltV31, mae.captured);
+
+  const deltas = [];
+  weekly.rebuiltTarget.forEach((w, i) => {
+    const v31 = weekly.rebuiltV31[i].pairwise;
+    if (isNum(w.pairwise) && isNum(v31)) deltas.push({ week: w.week, value: w.pairwise - v31 });
+  });
+  const noise = deltas.length > 0 ? noiseCheck(deltas.map((d) => d.value), config) : null;
+
+  const cov = {};
+  for (const [key, target] of [['cov80', config.cov80Target], ['cov50', config.cov50Target]]) {
+    const d = {
+      captured: dist('captured', key, target),
+      rebuiltV31: dist('rebuiltV31', key, target),
+      rebuiltTarget: dist('rebuiltTarget', key, target),
+    };
+    const errorBar = bar(d.rebuiltV31, d.captured);
+    cov[key] = {
+      nominal: target,
+      distance: d,
+      errorBar,
+      passes: isNum(errorBar) && isNum(d.rebuiltTarget) && d.rebuiltTarget <= d.captured + errorBar,
+    };
+  }
+
+  return {
+    pairwiseVsCapture: {
+      inputs: pw, errorBar: pwBar, margin: isNum(pw.rebuiltTarget) && isNum(pw.captured) ? pw.rebuiltTarget - pw.captured : null,
+      passes: isNum(pwBar) && isNum(pw.rebuiltTarget) && isNum(pw.captured) && pw.rebuiltTarget - pw.captured > pwBar,
+    },
+    pairwiseBeyondNoise: noise
+      ? {
+        weeks: deltas.length, weeklyMean: noise.mean, method: noise.method, bound: noise.bound ?? null,
+        alpha: config.alphaATest, boundary: 0, draws: config.draws, seed: config.bootstrapSeed,
+        exactTriggerClusters: config.exactTriggerClusters, detail: noise, passes: noise.passes,
+      }
+      : { weeks: 0, method: null, passes: false },
+    maeVsCapture: {
+      inputs: mae, errorBar: maeBar, margin: isNum(mae.rebuiltTarget) && isNum(mae.captured) ? mae.captured - mae.rebuiltTarget : null,
+      passes: isNum(maeBar) && isNum(mae.rebuiltTarget) && isNum(mae.captured) && mae.captured - mae.rebuiltTarget > maeBar,
+    },
+    coverageNoHarm: { cov80: cov.cov80, cov50: cov.cov50, passes: cov.cov80.passes && cov.cov50.passes },
+  };
+}
+
+const CHECK_KEYS = ['pairwiseVsCapture', 'pairwiseBeyondNoise', 'maeVsCapture', 'coverageNoHarm'];
+
+/** The ruling's per-profile read: PASS only when all four checks pass. */
+function verdictOf(checks) {
+  return CHECK_KEYS.every((k) => checks[k].passes) ? 'PASS' : 'FAIL';
+}
+
+/** The gate's per-week table: the three columns, as-served, with common-row coverage. */
+function weeklyRows({ weeks, actuals, rebuilt }) {
+  const weekly = { captured: [], rebuiltV31: [], rebuiltTarget: [] };
+  const eligibleRows = { cov80: 0, cov50: 0 };
+  weeks.forEach(({ header, rows }, i) => {
+    const { season, week } = header;
+    const columns = { captured: rows, rebuiltV31: rebuilt[i].v31, rebuiltTarget: rebuilt[i].target };
+    const common = commonCoverageWeek({ columns, actuals, season, week });
+    eligibleRows.cov80 += common.cov80.n;
+    eligibleRows.cov50 += common.cov50.n;
+    for (const name of Object.keys(columns)) {
+      weekly[name].push({
+        week,
+        ...asServedWeek({ cohort: rows, rows: columns[name], actuals, season, week }),
+        cov80: common.cov80[name],
+        cov50: common.cov50[name],
+      });
+    }
+  });
+  return { weekly, eligibleRows };
+}
+
+/**
+ * One scoring profile under the gate. `ledger` is `[{ week, arms: { scheduled,
+ * 'candidate:bw-20', 'candidate:bw-15' } }]` (the sealed evaluator's own
+ * shape; each arm carries its header fields and `rows`, and the scheduled
+ * arm also `scoringHash` and the rows' frozen context). Weeks are the sealed
+ * evaluator's `survivingWeeks` under `config`. The `half_ppr` profile gets a
+ * verdict - UNEVALUABLE below `config.minWeeks` surviving weeks, with nothing
+ * re-projected and no check evaluated; the others are reported only.
+ */
+async function evaluateGateProfile({
+  name, season, ledger, actuals, rules, modelVersion, generateProjections,
+  constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION, config = SEALED,
+}) {
+  const { survivors, dropped } = survivingWeeks({ weeks: ledger, config });
+  const gated = name === GATE_PROFILE;
+  const base = { weeksScored: survivors.length, droppedWeeks: dropped, scoring: 'as-served' };
+  if (gated && survivors.length < config.minWeeks) {
+    return {
+      ...base,
+      gate: {
+        verdict: 'UNEVALUABLE',
+        reason: `${survivors.length} surviving weeks, fewer than the ${config.minWeeks} required; no check evaluated`,
+        checks: null,
+      },
+    };
+  }
+  const weeks = survivors.map((entry) => {
+    const arm = entry.arms.scheduled;
+    return {
+      header: { season, week: entry.week, scoringHash: arm.scoringHash, captureNotAfter: arm.captureNotAfter },
+      rows: arm.rows,
+    };
+  });
+  const rebuilt = [];
+  const calibrationByWeek = [];
+  for (const { header, rows } of weeks) {
+    const v31 = await reprojectWeek({
+      header, rows, rules, modelVersion: MODEL_VERSION_V3_1, generateProjections, constantsByModelVersion,
+    });
+    const target = await reprojectWeek({
+      header, rows, rules, modelVersion, generateProjections, constantsByModelVersion,
+    });
+    rebuilt.push({ v31, target });
+    calibrationByWeek.push({ week: header.week, ...calibrateAgainstCaptured({ capturedRows: rows, rebuiltRows: v31 }) });
+  }
+  const { weekly, eligibleRows } = weeklyRows({ weeks, actuals, rebuilt });
+  const result = {
+    ...base,
+    columns: {
+      capturedV31: aggregateServed(weekly.captured),
+      rebuiltV31: aggregateServed(weekly.rebuiltV31),
+      rebuiltTarget: { modelVersion, ...aggregateServed(weekly.rebuiltTarget) },
+    },
+    coverageEligibleRows: eligibleRows,
+    calibration: summariseCalibration(calibrationByWeek),
+    weekly,
+    gate: null,
+  };
+  if (gated) {
+    const checks = gateChecks({ weekly, config });
+    // Reported, selecting nothing: the same four checks over weeks 1 to 17.
+    const keep = (rowsOfColumn) => rowsOfColumn.filter((w) => w.week <= 17);
+    const sensitivity = weekly.captured.some((w) => w.week <= 17)
+      ? gateChecks({
+        weekly: { captured: keep(weekly.captured), rebuiltV31: keep(weekly.rebuiltV31), rebuiltTarget: keep(weekly.rebuiltTarget) },
+        config,
+      })
+      : null;
+    result.gate = { verdict: verdictOf(checks), checks, sensitivityWeeks1to17: sensitivity };
+  }
+  return result;
+}
+
+/**
+ * The whole run, every profile under one MODEL_VERSION. `profiles` is
+ * `[{ name, rules, season, ledger, actuals }, ...]`. Fails BEFORE any
+ * reprojection when either `modelVersion` or `MODEL_VERSION_V3_1` has no
+ * registered constants (every report carries the v3.1 rebuild as its error
+ * bar). A `free_baseline_v3.1` run is the calibration run: no v3.2 column,
+ * no verdict, no survival filter.
  */
 async function evaluate({
-  profiles, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
+  profiles, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION, config = SEALED,
 }) {
   constantsFor(modelVersion, constantsByModelVersion);
   constantsFor(MODEL_VERSION_V3_1, constantsByModelVersion);
-  const result = { modelVersion, profiles: {} };
+  const result = { modelVersion, calibrationRun: modelVersion === MODEL_VERSION_V3_1, profiles: {} };
   for (const profile of profiles) {
-    result.profiles[profile.name] = await evaluateProfile({
-      weeks: profile.weeks,
-      actuals: profile.actuals,
-      rules: profile.rules,
-      modelVersion,
-      generateProjections,
-      constantsByModelVersion,
-    });
+    if (result.calibrationRun) {
+      const weeks = profile.ledger.filter((e) => e.arms.scheduled).map((e) => ({
+        header: {
+          season: profile.season, week: e.week, scoringHash: e.arms.scheduled.scoringHash, captureNotAfter: e.arms.scheduled.captureNotAfter,
+        },
+        rows: e.arms.scheduled.rows,
+      }));
+      result.profiles[profile.name] = await evaluateCalibrationProfile({
+        weeks, actuals: profile.actuals, rules: profile.rules, generateProjections, constantsByModelVersion,
+      });
+    } else {
+      result.profiles[profile.name] = await evaluateGateProfile({
+        name: profile.name,
+        season: profile.season,
+        ledger: profile.ledger,
+        actuals: profile.actuals,
+        rules: profile.rules,
+        modelVersion,
+        generateProjections,
+        constantsByModelVersion,
+        config,
+      });
+    }
   }
   return result;
 }
@@ -418,7 +682,40 @@ function fmt(value, digits = 4) {
   return isNum(value) ? value.toFixed(digits) : 'n/a';
 }
 
-/** Markdown report: three metric columns per profile (ruling point 4), plus the v3.1 calibration line. */
+function renderCalibrationLine(calibration) {
+  return `v3.1 rebuild calibration: ${fmt(calibration.share, 4)} of ${calibration.checked} `
+    + `rows within 0.01 mean of the captured value; ${calibration.sampleSizeDiffers} rows with `
+    + 'a rebuilt history length different from the captured sample_size.';
+}
+
+function renderChecks(lines, checks, heading) {
+  lines.push(heading);
+  lines.push('');
+  const pc = checks.pairwiseVsCapture;
+  lines.push(`- Pairwise against the capture: ${pc.passes ? 'PASS' : 'FAIL'}. captured v3.1 ${fmt(pc.inputs.captured)}, `
+    + `rebuilt v3.1 ${fmt(pc.inputs.rebuiltV31)}, rebuilt target ${fmt(pc.inputs.rebuiltTarget)}; `
+    + `margin ${fmt(pc.margin)} against error bar ${fmt(pc.errorBar)}.`);
+  const nz = checks.pairwiseBeyondNoise;
+  lines.push(`- Pairwise beyond noise: ${nz.passes ? 'PASS' : 'FAIL'}. ${nz.weeks} weeks, weekly mean of target minus rebuilt v3.1 `
+    + `${fmt(nz.weeklyMean)}, ${nz.method || 'no method (no weeks)'}`
+    + `${nz.bound !== undefined && nz.bound !== null ? `, lower bound ${fmt(nz.bound)}` : ''}`
+    + `${nz.alpha !== undefined ? ` at alpha ${nz.alpha} (${nz.draws} draws, seed ${nz.seed}, exact test under ${nz.exactTriggerClusters} clusters)` : ''}; `
+    + 'the bound must be strictly above 0.');
+  const mc = checks.maeVsCapture;
+  lines.push(`- MAE against the capture: ${mc.passes ? 'PASS' : 'FAIL'}. captured v3.1 ${fmt(mc.inputs.captured)}, `
+    + `rebuilt v3.1 ${fmt(mc.inputs.rebuiltV31)}, rebuilt target ${fmt(mc.inputs.rebuiltTarget)}; `
+    + `margin ${fmt(mc.margin)} against error bar ${fmt(mc.errorBar)}.`);
+  const cv = checks.coverageNoHarm;
+  lines.push(`- Coverage does no harm: ${cv.passes ? 'PASS' : 'FAIL'}.`);
+  for (const key of ['cov80', 'cov50']) {
+    const c = cv[key];
+    lines.push(`  - ${key === 'cov80' ? '80%' : '50%'} (nominal ${c.nominal}) distance: captured ${fmt(c.distance.captured)}, `
+      + `rebuilt v3.1 ${fmt(c.distance.rebuiltV31)}, rebuilt target ${fmt(c.distance.rebuiltTarget)}; error bar ${fmt(c.errorBar)}; ${c.passes ? 'no harm' : 'harm'}.`);
+  }
+  lines.push('');
+}
+
+/** Markdown report. A gate run prints the verdict and the four checks for `half_ppr`; everything else is labelled non-selecting. */
 function renderReport(result) {
   const lines = [];
   lines.push(`# v3.2 successor evaluation: ${result.modelVersion}`);
@@ -428,34 +725,52 @@ function renderReport(result) {
     lines.push('');
     lines.push(`weeks scored: ${profile.weeksScored}`);
     lines.push('');
-    lines.push(`| metric | captured v3.1 | rebuilt v3.1 | rebuilt ${result.modelVersion} |`);
-    lines.push('| --- | --- | --- | --- |');
-    const metricRows = [
-      ['MAE', 'mae', 4],
-      ['Spearman rho', 'spearman', 4],
-      ['Pairwise accuracy', 'pairwise', 4],
-      ['80% coverage', 'cov80', 4],
-      ['50% coverage', 'cov50', 4],
-    ];
-    for (const [label, key, digits] of metricRows) {
-      lines.push(
-        `| ${label} | ${fmt(profile.columns.capturedV31[key], digits)} `
-        + `| ${fmt(profile.columns.rebuiltV31[key], digits)} `
-        + `| ${fmt(profile.columns.rebuiltTarget[key], digits)} |`
-      );
+    if (profile.gate) {
+      lines.push(`### Verdict: ${profile.gate.verdict}`);
+      lines.push('');
+      if (profile.gate.reason) { lines.push(profile.gate.reason); lines.push(''); }
+      if (profile.gate.checks) renderChecks(lines, profile.gate.checks, '### The four checks');
+    }
+    if (profile.droppedWeeks && profile.droppedWeeks.length > 0) {
+      lines.push('Dropped weeks:');
+      for (const d of profile.droppedWeeks) lines.push(`- week ${d.week}: ${d.reason}`);
+      lines.push('');
+    }
+    if (!profile.columns) continue;
+    const target = profile.columns.rebuiltTarget;
+    const header = ['captured v3.1', 'rebuilt v3.1', ...(target ? [`rebuilt ${result.modelVersion}`] : [])];
+    const cols = [profile.columns.capturedV31, profile.columns.rebuiltV31, ...(target ? [target] : [])];
+    lines.push(`### Metrics${profile.scoring ? ` (${profile.scoring}; reported, selecting nothing beyond the checks above)` : ''}`);
+    lines.push('');
+    lines.push(`| metric | ${header.join(' | ')} |`);
+    lines.push(`| --- | ${header.map(() => '---').join(' | ')} |`);
+    for (const [label, key] of [['MAE', 'mae'], ['Spearman rho', 'spearman'], ['Pairwise accuracy', 'pairwise'], ['80% coverage', 'cov80'], ['50% coverage', 'cov50']]) {
+      lines.push(`| ${label} | ${cols.map((c) => fmt(c[key])).join(' | ')} |`);
+    }
+    if (target) {
+      for (const position of metrics.MACRO_POSITIONS) {
+        lines.push(`| pairwise ${position} | ${cols.map((c) => fmt(c.perPosition[position])).join(' | ')} |`);
+      }
+      for (const state of ['served', 'nullMean', 'activeZero']) {
+        lines.push(`| rows ${state} | ${cols.map((c) => c.counts[state]).join(' | ')} |`);
+      }
     }
     lines.push('');
-    lines.push(
-      `v3.1 rebuild calibration: ${fmt(profile.calibration.share, 4)} of ${profile.calibration.checked} `
-      + `rows within 0.01 mean of the captured value; ${profile.calibration.sampleSizeDiffers} rows with `
-      + 'a rebuilt history length different from the captured sample_size.'
-    );
+    if (profile.coverageEligibleRows) {
+      lines.push(`Coverage rows eligible in every column: ${profile.coverageEligibleRows.cov80} (80%), ${profile.coverageEligibleRows.cov50} (50%).`);
+      lines.push('');
+    }
+    if (profile.gate && profile.gate.sensitivityWeeks1to17) {
+      renderChecks(lines, profile.gate.sensitivityWeeks1to17, '### Weeks 1 to 17 sensitivity (selecting nothing)');
+    }
+    lines.push(renderCalibrationLine(profile.calibration));
     lines.push('');
   }
   return lines.join('\n');
 }
 
 module.exports = {
+  GATE_PROFILE,
   MODEL_VERSION_V3_1,
   CONSTANTS_BY_MODEL_VERSION,
   constantsFor,
@@ -465,7 +780,14 @@ module.exports = {
   calibrateAgainstCaptured,
   metricsForArm,
   aggregateWeekly,
-  evaluateProfile,
+  servedState,
+  asServedWeek,
+  commonCoverageWeek,
+  noiseCheck,
+  gateChecks,
+  verdictOf,
+  evaluateCalibrationProfile,
+  evaluateGateProfile,
   evaluate,
   renderReport,
 };

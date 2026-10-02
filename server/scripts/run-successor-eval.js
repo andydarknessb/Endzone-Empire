@@ -20,13 +20,17 @@
  *
  * Every scoring profile the ledger captures (standard, half_ppr, ppr) is
  * evaluated in one run - the report's whole point is the three profiles side
- * by side, so there is no `--profile` flag to run just one.
+ * by side, so there is no `--profile` flag to run just one. For a successor
+ * version the half_ppr report ends in PASS, FAIL or UNEVALUABLE (the decision
+ * rule of 2026-10-02 on #1438); a `free_baseline_v3.1` run is the calibration
+ * run and computes no v3.2 column.
  */
 
 const fs = require('fs');
 const path = require('path');
 const pool = require('../modules/pool');
 const successorEval = require('../../scripts/holdout/lib/successorEval');
+const evaluator = require('../../scripts/holdout/lib/evaluate');
 const { SCORING_PRESETS, calculateFantasyPoints } = require('../services/scoringRules');
 const model = require('../services/projectionModel');
 const projection = require('../services/projection.service');
@@ -88,34 +92,51 @@ function resolveOutputPaths(outDir) {
   };
 }
 
-/** Every captured `scheduled`-arm week for one profile, in successorEval's `{ header, rows }` shape. */
-async function loadCapturedWeeks({ season, profileName, client }) {
+/**
+ * The profile's captured ledger in the sealed evaluator's own shape,
+ * `[{ week, arms: { scheduled, 'candidate:bw-20', 'candidate:bw-15' } }]`, so
+ * `survivingWeeks` applies its own rules (late arms, digest, constants and
+ * model_version majority) to it unchanged. Every arm carries its header
+ * fields; the scheduled arm also carries the frozen context and captured
+ * quote the re-projection replays, the candidate arms only their player ids.
+ */
+async function loadCapturedLedger({ season, profileName, client }) {
   const rules = SCORING_PRESETS[profileName];
   if (!rules) throw new Error(`run-successor-eval: unknown scoring profile ${profileName}`);
   const scoringHash = model.scoringHash(rules);
+  const kinds = [evaluator.CONTROL_KIND, ...evaluator.CELL_KINDS];
   const headers = await client.query(
-    `SELECT "id", "week", "scoring_hash", "capture_not_after"
+    `SELECT "id", "week", "capture_kind", "scoring_hash", "constants_hash", "model_version", "cohort_hash",
+            "cohort_size", "captured_at", "capture_not_after", "is_late"
      FROM "projection_snapshots"
-     WHERE "season" = $1 AND "scoring_profile" = $2 AND "scoring_hash" = $3 AND "capture_kind" = 'scheduled'
-     ORDER BY "week"`,
-    [season, profileName, scoringHash]
+     WHERE "season" = $1 AND "scoring_profile" = $2 AND "scoring_hash" = $3
+       AND "capture_kind" = ANY($4::text[])
+     ORDER BY "week", "capture_kind"`,
+    [season, profileName, scoringHash, kinds]
   );
-  const weeks = [];
+  const byWeek = new Map();
   for (const header of headers.rows) {
+    const scheduled = header.capture_kind === evaluator.CONTROL_KIND;
     const children = await client.query(
-      `SELECT "player_id", "position", "nfl_team", "injury_status", "mean", "median",
-              "p10", "p25", "p75", "p90", "active_probability", "sample_size", "factors"
-       FROM "projection_snapshot_players" WHERE "snapshot_id" = $1 ORDER BY "player_id"`,
+      scheduled
+        ? `SELECT "player_id", "position", "nfl_team", "injury_status", "mean", "median",
+                  "p10", "p25", "p75", "p90", "active_probability", "sample_size", "factors"
+           FROM "projection_snapshot_players" WHERE "snapshot_id" = $1 ORDER BY "player_id"`
+        : 'SELECT "player_id" FROM "projection_snapshot_players" WHERE "snapshot_id" = $1 ORDER BY "player_id"',
       [header.id]
     );
-    weeks.push({
-      header: {
-        season,
-        week: header.week,
-        scoringHash: header.scoring_hash,
-        captureNotAfter: header.capture_not_after,
-      },
-      rows: children.rows.map((r) => ({
+    if (!byWeek.has(header.week)) byWeek.set(header.week, { week: header.week, arms: {} });
+    byWeek.get(header.week).arms[header.capture_kind] = {
+      snapshotId: header.id,
+      isLate: header.is_late,
+      capturedAt: header.captured_at,
+      captureNotAfter: header.capture_not_after,
+      scoringHash: header.scoring_hash,
+      constantsHash: header.constants_hash,
+      modelVersion: header.model_version,
+      cohortHash: header.cohort_hash,
+      cohortSize: header.cohort_size,
+      rows: children.rows.map((r) => (scheduled ? {
         playerId: r.player_id,
         position: r.position,
         nflTeam: r.nfl_team,
@@ -129,10 +150,10 @@ async function loadCapturedWeeks({ season, profileName, client }) {
         activeProbability: r.active_probability,
         sampleSize: r.sample_size,
         factors: r.factors || {},
-      })),
-    });
+      } : { playerId: r.player_id })),
+    };
   }
-  return { rules, weeks };
+  return { rules, ledger: [...byWeek.values()].sort((a, b) => a.week - b.week) };
 }
 
 /**
@@ -161,14 +182,17 @@ async function loadActuals({
 }
 
 async function loadProfile({ season, profileName, client }) {
-  const { rules, weeks } = await loadCapturedWeeks({ season, profileName, client });
-  if (weeks.length === 0) return { name: profileName, rules, weeks, actuals: new Map() };
-  const playerIds = [...new Set(weeks.flatMap((w) => w.rows.map((r) => r.playerId)))];
-  const weekNumbers = weeks.map((w) => w.header.week);
+  const { rules, ledger } = await loadCapturedLedger({ season, profileName, client });
+  const base = {
+    name: profileName, rules, season, ledger,
+  };
+  const scheduled = ledger.filter((e) => e.arms.scheduled);
+  if (scheduled.length === 0) return { ...base, actuals: new Map() };
+  const playerIds = [...new Set(scheduled.flatMap((e) => e.arms.scheduled.rows.map((r) => r.playerId)))];
   const actuals = await loadActuals({
-    season, weeks: weekNumbers, playerIds, rules, client,
+    season, weeks: scheduled.map((e) => e.week), playerIds, rules, client,
   });
-  return { name: profileName, rules, weeks, actuals };
+  return { ...base, actuals };
 }
 
 async function main(argv) {
@@ -199,8 +223,9 @@ async function main(argv) {
   fs.writeFileSync(out.reportJson, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
   fs.writeFileSync(out.reportMd, `${successorEval.renderReport(result)}\n`, 'utf8');
   const scored = Object.values(result.profiles).reduce((s, p) => s + p.weeksScored, 0);
+  const gate = result.profiles[successorEval.GATE_PROFILE] && result.profiles[successorEval.GATE_PROFILE].gate;
   console.log(`successor-eval: ${args.modelVersion} evaluated across ${Object.keys(result.profiles).length} `
-    + `profiles, ${scored} profile-weeks scored`);
+    + `profiles, ${scored} profile-weeks scored${gate ? `; ${successorEval.GATE_PROFILE} verdict ${gate.verdict}` : ''}`);
   return 0;
 }
 
@@ -214,5 +239,5 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseArgs, resolveOutputPaths, loadCapturedWeeks, loadActuals, loadProfile, main,
+  parseArgs, resolveOutputPaths, loadCapturedLedger, loadActuals, loadProfile, main,
 };

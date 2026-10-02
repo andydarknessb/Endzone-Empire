@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const successorEval = require('../../scripts/holdout/lib/successorEval');
 const model = require('../services/projectionModel');
 
@@ -156,25 +157,46 @@ function capturedRow(playerId, week) {
   };
 }
 
+function cohortHashOf(rows) {
+  return crypto.createHash('sha256').update(rows.map((r) => r.playerId).sort((a, b) => a - b).join(',')).digest('hex');
+}
+
+/** One ledger arm in the sealed evaluator's shape; `overrides` break a rule (late, constants drift, ...). */
+function armOf(rows, overrides = {}) {
+  return {
+    isLate: false,
+    capturedAt: '2026-09-01T00:00:00.000Z',
+    captureNotAfter: '2026-09-08T00:00:00.000Z',
+    scoringHash: 'hash-x',
+    constantsHash: 'constants-1',
+    modelVersion: 'free_baseline_v3.1',
+    cohortHash: cohortHashOf(rows),
+    cohortSize: rows.length,
+    rows,
+    ...overrides,
+  };
+}
+
+/** A ledger week: the scheduled arm plus the two candidate arms `survivingWeeks` also reads. */
+function ledgerWeek(week, rows, overrides = {}) {
+  const arm = armOf(rows, overrides);
+  return { week, arms: { scheduled: arm, 'candidate:bw-20': { ...arm }, 'candidate:bw-15': { ...arm } } };
+}
+
 /** Two profiles, two weeks, four players each - the red-tell's synthetic ledger. */
 function syntheticProfiles() {
   const captured = new Map(); // 'profile:season:week:playerId' -> row, read by the mock below
   const profiles = PROFILE_NAMES.map((name) => {
-    const weeks = WEEK_NUMBERS.map((week) => {
+    const ledger = WEEK_NUMBERS.map((week) => {
       const rows = [1, 2, 3, 4].map((playerId) => capturedRow(playerId, week));
       for (const row of rows) captured.set(`${name}:${SEASON}:${week}:${row.playerId}`, row);
-      return {
-        header: {
-          season: SEASON, week, scoringHash: `hash-${name}`, captureNotAfter: '2026-09-08T00:00:00.000Z',
-        },
-        rows,
-      };
+      return ledgerWeek(week, rows, { scoringHash: `hash-${name}` });
     });
     const actuals = new Map();
-    for (const week of weeks) {
-      for (const row of week.rows) actuals.set(`${SEASON}:${week.header.week}:${row.playerId}`, row.mean);
+    for (const entry of ledger) {
+      for (const row of entry.arms.scheduled.rows) actuals.set(`${SEASON}:${entry.week}:${row.playerId}`, row.mean);
     }
-    return { name, rules: { profile: name }, weeks, actuals };
+    return { name, rules: { profile: name }, season: SEASON, ledger, actuals };
   });
   return { profiles, captured };
 }
@@ -225,7 +247,7 @@ function makeMockGenerateProjections(captured, profileName) {
   };
 }
 
-test('the synthetic ledger reproduces exactly under a mocked v3.1 re-projection: calibration share 1.0, three columns per profile', async () => {
+test('a free_baseline_v3.1 run is the calibration run: calibration share 1.0, no v3.2 column and no verdict', async () => {
   const { profiles, captured } = syntheticProfiles();
 
   // Each profile's mock reproduces ITS OWN captured rows - generateProjections
@@ -250,14 +272,13 @@ test('the synthetic ledger reproduces exactly under a mocked v3.1 re-projection:
     assert.equal(profile.calibration.share, 1, `${name}: calibration share is 1.0 when the mock reproduces captured rows exactly`);
     assert.equal(profile.calibration.sampleSizeDiffers, 0);
 
-    // Three columns, and captured v3.1 must equal rebuilt v3.1 exactly since
-    // the mock reproduces the captured row byte for byte.
+    // Captured v3.1 must equal rebuilt v3.1 exactly since the mock reproduces
+    // the captured row byte for byte; the calibration run computes no v3.2 column.
     assert.ok(profile.columns.capturedV31);
     assert.ok(profile.columns.rebuiltV31);
-    assert.ok(profile.columns.rebuiltTarget);
-    assert.equal(profile.columns.rebuiltTarget.modelVersion, model.MODEL_VERSION);
+    assert.equal(profile.columns.rebuiltTarget, undefined);
+    assert.equal(profile.gate, undefined);
     assert.equal(profile.columns.capturedV31.mae, profile.columns.rebuiltV31.mae);
-    assert.equal(profile.columns.capturedV31.mae, profile.columns.rebuiltTarget.mae);
     assert.equal(profile.columns.capturedV31.mae, 0, 'actuals were pinned to the captured mean, so MAE is exactly 0');
     assert.equal(profile.columns.capturedV31.cov80, 1, 'the captured interval always contains its own mean');
   }
@@ -266,7 +287,7 @@ test('the synthetic ledger reproduces exactly under a mocked v3.1 re-projection:
   for (const name of PROFILE_NAMES) assert.match(rendered, new RegExp(`## ${name}`));
   assert.match(rendered, /captured v3\.1/);
   assert.match(rendered, /rebuilt v3\.1/);
-  assert.match(rendered, new RegExp(`rebuilt ${model.MODEL_VERSION.replace(/\./g, '\\.')}`));
+  assert.doesNotMatch(rendered, /Verdict/);
   assert.match(rendered, /v3\.1 rebuild calibration: 1\.0000 of 8 rows/);
 });
 
@@ -302,7 +323,8 @@ test('the v3.1 rebuild and calibration are pinned to MODEL_VERSION_V3_1, never t
   const v32Constants = { marker: 'v3.2-constants' };
   const { profiles } = syntheticProfiles();
   // One profile, one week - only the constants wiring is under test here.
-  const oneProfile = [{ ...profiles[0], weeks: [profiles[0].weeks[0]] }];
+  // The 'standard' profile: half_ppr would be UNEVALUABLE on one week.
+  const oneProfile = [{ ...profiles[1], ledger: [profiles[1].ledger[0]] }];
 
   const seenConstants = [];
   const stubGenerateProjections = async ({ modelConstants, playerIds }) => {
@@ -386,4 +408,257 @@ test('metricsForArm and calibrateAgainstCaptured treat pg-style numeric-string l
   assert.equal(calibration.checked, 4);
   assert.equal(calibration.share, 1, 'string-decimal captured means must still compare equal to the rebuilt numbers');
   assert.equal(calibration.sampleSizeDiffers, 0);
+});
+
+// ---------------------------------------------------------------------------
+// The gate (decision rule of 2026-10-02 on #1438): survival, as-served scoring,
+// the four checks, the verdict
+// ---------------------------------------------------------------------------
+
+const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+const V3_2 = 'free_baseline_v9.9';
+const V31_CONSTANTS = { marker: 'v3.1' };
+const V32_CONSTANTS = { marker: 'v3.2' };
+const GATE_REGISTRY = { [successorEval.MODEL_VERSION_V3_1]: V31_CONSTANTS, [V3_2]: V32_CONSTANTS };
+
+/**
+ * Twelve players, two per position. Players 1-6 score 10 and 7-12 score 5, but
+ * the captured means put them the wrong way round: captured pairwise accuracy
+ * is 0 and every captured interval misses.
+ */
+function gateRows() {
+  return Array.from({ length: 12 }, (_, i) => {
+    const playerId = i + 1;
+    const mean = playerId <= 6 ? 5 : 10;
+    return {
+      playerId,
+      position: POSITIONS[i % 6],
+      nflTeam: 'KC',
+      injuryStatus: null,
+      mean,
+      median: mean,
+      p10: mean - 3,
+      p25: mean - 1,
+      p75: mean + 1,
+      p90: mean + 3,
+      activeProbability: 1,
+      sampleSize: 5,
+      factors: {},
+    };
+  });
+}
+
+function gateProfile({ weeks = 14, name = 'half_ppr', mutate = {} } = {}) {
+  const ledger = [];
+  const actuals = new Map();
+  for (let week = 1; week <= weeks; week++) {
+    const rows = gateRows();
+    ledger.push(ledgerWeek(week, rows, mutate[week] || {}));
+    for (const r of rows) actuals.set(`${SEASON}:${week}:${r.playerId}`, r.playerId <= 6 ? 10 : 5);
+  }
+  return { name, rules: {}, season: SEASON, ledger, actuals };
+}
+
+/**
+ * v3.1 reproduces the capture. The v3.2 target projects each player's actual,
+ * except player 12 (no mean) and player 11 (active probability 0 with a mean).
+ */
+function gateGenerate({ target = 'perfect', calls = [] } = {}) {
+  return async ({ playerIds, modelConstants }) => {
+    calls.push(modelConstants);
+    const projections = new Map();
+    for (const playerId of playerIds) {
+      const captured = gateRows()[playerId - 1];
+      if (modelConstants === V31_CONSTANTS || target === 'captured') {
+        projections.set(playerId, { ...captured });
+      } else if (playerId === 12) {
+        projections.set(playerId, { position: captured.position, mean: null, activeProbability: 1 });
+      } else if (playerId === 11) {
+        projections.set(playerId, {
+          ...captured, mean: 5, median: 5, p10: 2, p25: 4, p75: 6, p90: 8, activeProbability: 0,
+        });
+      } else {
+        const actual = playerId <= 6 ? 10 : 5;
+        projections.set(playerId, {
+          ...captured, mean: actual, median: actual, p10: actual - 3, p25: actual - 1, p75: actual + 1, p90: actual + 3,
+        });
+      }
+    }
+    return { projections, inputCutoff: null, sourceCoverage: {} };
+  };
+}
+
+function runGate(profile, generateProjections = gateGenerate()) {
+  return successorEval.evaluate({
+    profiles: [profile], modelVersion: V3_2, generateProjections, constantsByModelVersion: GATE_REGISTRY,
+  });
+}
+
+test('only the surviving weeks are scored: a late week and a constants-drift week drop, 13 survivors are UNEVALUABLE with nothing evaluated', async () => {
+  const calls = [];
+  const profile = gateProfile({
+    weeks: 16,
+    mutate: { 3: { isLate: true }, 4: { constantsHash: 'constants-2' } },
+  });
+  const ok = await runGate(profile, gateGenerate({ calls }));
+  const half = ok.profiles.half_ppr;
+  assert.equal(half.weeksScored, 14);
+  assert.deepEqual(half.droppedWeeks.map((d) => d.week).sort((a, b) => a - b), [3, 4]);
+  assert.match(half.droppedWeeks.find((d) => d.week === 3).reason, /captured late/);
+  assert.match(half.droppedWeeks.find((d) => d.week === 4).reason, /constants_hash differs/);
+  assert.deepEqual(half.weekly.captured.map((w) => w.week), [1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+  calls.length = 0;
+  const short = await runGate(gateProfile({ weeks: 14, mutate: { 5: { isLate: true } } }), gateGenerate({ calls }));
+  assert.equal(short.profiles.half_ppr.weeksScored, 13);
+  assert.equal(short.profiles.half_ppr.gate.verdict, 'UNEVALUABLE');
+  assert.equal(short.profiles.half_ppr.gate.checks, null, 'no check is evaluated');
+  assert.equal(calls.length, 0, 'nothing was re-projected');
+  assert.match(successorEval.renderReport(short), /Verdict: UNEVALUABLE/);
+});
+
+test('as-served scoring: a null mean or active probability 0 scores as a projection of 0, in every column, with every cohort row counted by served state', () => {
+  const cohort = gateRows();
+  const actuals = new Map(cohort.map((r) => [`${SEASON}:1:${r.playerId}`, r.playerId <= 6 ? 10 : 5]));
+  assert.equal(successorEval.servedState({ mean: 3, activeProbability: 0 }), 'activeZero', 'a mean on an inactive row is still unserved');
+  assert.equal(successorEval.servedState({ mean: null, activeProbability: 1 }), 'nullMean');
+  assert.equal(successorEval.servedState(undefined), 'nullMean', 'a cohort row the column lacks is unserved');
+  assert.equal(successorEval.servedState({ mean: '4.5', activeProbability: '1' }), 'served', 'pg numeric strings');
+
+  // Perfect projections except players 1 and 7, which this column does not serve.
+  const rows = cohort.map((r) => ({ ...r, mean: r.playerId <= 6 ? 10 : 5 }));
+  rows[0] = { ...rows[0], mean: null };
+  rows[6] = { ...rows[6], activeProbability: 0 };
+  const out = successorEval.asServedWeek({ cohort, rows, actuals, season: SEASON, week: 1 });
+  assert.deepEqual(out.counts, { served: 10, nullMean: 1, activeZero: 1 });
+  // |0 - 10| + |0 - 5| over all 12 cohort rows, not over the 10 served.
+  assert.equal(out.mae, 15 / 12);
+  // QB pair {1, 7}: both project 0 while actuals differ, a tie, 0.5. RB pair {2, 8} is untouched.
+  assert.equal(out.perPosition.QB, 0.5);
+  assert.equal(out.perPosition.RB, 1);
+
+  // A column lacking a cohort row scores it as 0 as well.
+  const missing = successorEval.asServedWeek({ cohort, rows: rows.filter((r) => r.playerId !== 2), actuals, season: SEASON, week: 1 });
+  assert.deepEqual(missing.counts, { served: 9, nullMean: 2, activeZero: 1 });
+});
+
+test('coverage is scored on the rows eligible in every column', () => {
+  const cohort = gateRows();
+  const actuals = new Map(cohort.map((r) => [`${SEASON}:1:${r.playerId}`, r.playerId <= 6 ? 10 : 5]));
+  const perfect = cohort.map((r) => {
+    const a = r.playerId <= 6 ? 10 : 5;
+    return { ...r, p10: a - 3, p90: a + 3, p25: a - 1, p75: a + 1 };
+  });
+  const blank = perfect.map((r) => (r.playerId === 12 ? { ...r, p10: null, p90: null, p25: null, p75: null } : r));
+  const inactive = perfect.map((r) => (r.playerId === 11 ? { ...r, activeProbability: 0 } : r));
+  const out = successorEval.commonCoverageWeek({
+    columns: { captured: perfect, rebuiltV31: blank, rebuiltTarget: inactive }, actuals, season: SEASON, week: 1,
+  });
+  assert.equal(out.cov80.n, 10, 'players 11 and 12 are ineligible in one column each, so in none');
+  assert.equal(out.cov50.n, 10);
+  assert.equal(out.cov80.captured, 1);
+});
+
+/** Aligned per-week scores for gateChecks; the target's jitter keeps the weekly deltas from being degenerate. */
+function weeklyFor({
+  pw = [0.6, 0.6, 0.66], mae = [5, 5, 4.5], cov80 = [0.78, 0.78, 0.79], cov50 = [0.48, 0.48, 0.49], weeks = 14, jitter,
+}) {
+  const out = {};
+  ['captured', 'rebuiltV31', 'rebuiltTarget'].forEach((name, c) => {
+    out[name] = Array.from({ length: weeks }, (_, i) => ({
+      week: i + 1,
+      pairwise: pw[c] + (name === 'rebuiltTarget' ? (jitter ? jitter(i) : ((i % 5) - 2) * 0.001) : 0),
+      mae: mae[c],
+      cov80: cov80[c],
+      cov50: cov50[c],
+    }));
+  });
+  return out;
+}
+
+const CHECKS = ['pairwiseVsCapture', 'pairwiseBeyondNoise', 'maeVsCapture', 'coverageNoHarm'];
+const passes = (checks) => CHECKS.map((k) => checks[k].passes);
+
+test('PASS only when all four checks pass, and each check has a case where only it fails', () => {
+  const all = successorEval.gateChecks({ weekly: weeklyFor({}) });
+  assert.deepEqual(passes(all), [true, true, true, true]);
+  assert.equal(successorEval.verdictOf(all), 'PASS');
+
+  // 1: below the capture by more than nothing, but ahead of rebuilt v3.1 every week.
+  const c1 = successorEval.gateChecks({ weekly: weeklyFor({ pw: [0.7, 0.69, 0.695] }) });
+  assert.deepEqual(passes(c1), [false, true, true, true]);
+  assert.equal(successorEval.verdictOf(c1), 'FAIL');
+
+  // 2: ahead of the capture on average, but the weekly gain over rebuilt v3.1 is not beyond noise.
+  const c2 = successorEval.gateChecks({
+    weekly: weeklyFor({ pw: [0.5, 0.5, 0.52], jitter: (i) => (i % 2 === 0 ? 0.2 : -0.16) }),
+  });
+  assert.deepEqual(passes(c2), [true, false, true, true]);
+  assert.equal(successorEval.verdictOf(c2), 'FAIL');
+
+  // 3: MAE within the rebuild error bar of the capture.
+  const c3 = successorEval.gateChecks({ weekly: weeklyFor({ mae: [5, 5.2, 4.9] }) });
+  assert.deepEqual(passes(c3), [true, true, false, true]);
+
+  // 4: 80% coverage further from nominal than the capture's plus the error bar.
+  const c4 = successorEval.gateChecks({ weekly: weeklyFor({ cov80: [0.78, 0.78, 0.7] }) });
+  assert.deepEqual(passes(c4), [true, true, true, false]);
+  assert.equal(c4.coverageNoHarm.cov80.passes, false);
+  assert.equal(c4.coverageNoHarm.cov50.passes, true);
+
+  // Inputs travel with every check.
+  assert.equal(all.pairwiseVsCapture.errorBar, 0);
+  assert.equal(all.pairwiseBeyondNoise.alpha, 0.025);
+  assert.equal(all.pairwiseBeyondNoise.draws, 100000);
+  assert.equal(all.pairwiseBeyondNoise.seed, 2579717975);
+  assert.equal(all.coverageNoHarm.cov80.nominal, 0.8);
+  assert.ok(Number.isFinite(all.coverageNoHarm.cov80.errorBar));
+});
+
+test('the noise bound is the sealed study\'s cluster bootstrap: a known weekly series pins to its bound and method', () => {
+  const series = [0.02, 0.05, -0.01, 0.04, 0.03, 0.06, 0.01, 0.05, 0.02, 0.04, 0.03, 0.0, 0.05, 0.04];
+  const out = successorEval.noiseCheck(series);
+  assert.equal(out.method, 'percentile-cluster-bootstrap');
+  assert.equal(out.quantile, 0.025, 'the lower bound at the sealed test alpha');
+  assert.ok(Math.abs(out.bound - 0.02) < 1e-12);
+  assert.equal(out.passes, true);
+
+  // A degenerate bootstrap (one distinct weekly value) falls to the exact sign test, as the sealed study's does.
+  const flat = successorEval.noiseCheck(Array(14).fill(0.1));
+  assert.equal(flat.method, 'exact-sign-test');
+  assert.equal(flat.triggerReason, 'degenerate bootstrap');
+  assert.equal(flat.passes, true);
+});
+
+test('end to end a v3.2 run prints PASS for half_ppr, with the other profile reported and selecting nothing', async () => {
+  const result = await successorEval.evaluate({
+    profiles: [gateProfile({ name: 'half_ppr' }), gateProfile({ name: 'standard' })],
+    modelVersion: V3_2,
+    generateProjections: gateGenerate(),
+    constantsByModelVersion: GATE_REGISTRY,
+  });
+  const half = result.profiles.half_ppr;
+  assert.equal(half.gate.verdict, 'PASS');
+  assert.equal(result.profiles.standard.gate, null, 'a non-gate profile gets no verdict');
+  assert.ok(result.profiles.standard.columns.rebuiltTarget, 'but its columns are reported');
+
+  // Row counts by served state, per column: 14 weeks x 12 cohort rows.
+  assert.deepEqual(half.columns.capturedV31.counts, { served: 168, nullMean: 0, activeZero: 0 });
+  assert.deepEqual(half.columns.rebuiltTarget.counts, { served: 140, nullMean: 14, activeZero: 14 });
+  assert.equal(half.columns.capturedV31.pairwise, 0);
+  assert.equal(half.columns.rebuiltTarget.pairwise, 1);
+  assert.equal(half.coverageEligibleRows.cov80, 14 * 10, 'players 11 and 12 are ineligible in the target column');
+
+  // Reported, not selecting: rho, per-position cells, the weeks 1 to 17 sensitivity.
+  assert.ok(Number.isFinite(half.columns.rebuiltTarget.spearman));
+  assert.equal(half.columns.rebuiltTarget.perPosition.QB, 1);
+  assert.ok(half.gate.sensitivityWeeks1to17);
+  const rendered = successorEval.renderReport(result);
+  assert.match(rendered, /Verdict: PASS/);
+  assert.match(rendered, /Pairwise beyond noise: PASS/);
+  assert.match(rendered, /Weeks 1 to 17 sensitivity/);
+
+  // A target no better than the capture FAILs.
+  const flat = await runGate(gateProfile({}), gateGenerate({ target: 'captured' }));
+  assert.equal(flat.profiles.half_ppr.gate.verdict, 'FAIL');
 });
