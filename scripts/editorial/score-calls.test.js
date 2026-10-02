@@ -78,3 +78,30 @@ test('scoreCalls: head-to-head, voids, missing engine row, inactive scores 0', (
   assert.deepEqual(summary.editorial, { n: 4, hits: 3 });
   assert.deepEqual(summary.paired, { n: 3, editorialHits: 2, engineHits: 2 });
 });
+
+test('scoreCalls: an engine-unavailable row neither ranks nor pushes an available player past the cutoff', () => {
+  // Same four WRs plus X, on IR with the biggest estimate. Cutoff 2: with X
+  // counted, B drops to 3rd and the engine would read SIT on him.
+  const withIr = new Map([...ledger, [5, { position: 'WR', estimate: 50, unavailable: true }]]);
+  const file = {
+    cutoffs: { WR: 2 },
+    rankings: { WR: [1, 2, 3, 5].map((id, i) => ({ rank: i + 1, name: `p${id}`, playerId: id })) },
+    calls: [
+      { id: 'b', name: 'B', position: 'WR', playerId: 2, verdict: 'START', condition: null },
+      { id: 'x', name: 'X', position: 'WR', playerId: 5, verdict: 'OUT', condition: null, injury: true },
+    ],
+  };
+  const { calls, rankings, summary } = scoreCalls(file, withIr, actuals);
+  const by = Object.fromEntries(calls.map((c) => [c.id, c]));
+  assert.equal(by.b.engineRank, 2);
+  assert.equal(by.b.engineCall, 'START');
+  assert.equal(by.x.engineUnavailable, true);
+  assert.equal(by.x.engineRank, null);
+  assert.equal(by.x.engineCall, 'SIT');
+  assert.equal(by.x.engineHit, true); // no stat row: SIT hits
+  assert.deepEqual(summary.engineMissing, []);
+  assert.deepEqual(summary.pairedMethod, { n: 1, editorialHits: 0, engineHits: 0 });
+  assert.deepEqual(summary.pairedInjury, { n: 1, editorialHits: 1, engineHits: 1 });
+  // Engine order scores the IR row 0 (20, 15, 10, 0 vs actual 25, 4, 18, 0): rho 0.8; at its raw 50 it would go negative
+  assert.ok(Math.abs(rankings.WR.engineRho - 0.8) < 1e-9);
+});

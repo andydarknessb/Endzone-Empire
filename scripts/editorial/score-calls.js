@@ -18,13 +18,23 @@
  *    row scores 0.
  *  - Inactive = no Appearance: no stat row, or a stat line with every figure
  *    zero (`decision.service.madeAppearance`). The ledger carries no
- *    post-game active flag, so that is the only signal there is.
+ *    post-game active flag, so that is the only signal there is. Accepted
+ *    gap: an active player with no snap and no stat reads as no Appearance,
+ *    narrower than CONTEXT's Appearance.
  *
  * Positional finish = 1 + the count of players at that position with strictly
  * more actual points, over every `player_stats` row at the position that week
- * plus every ledger row at it (absent stats = 0). The same universe ranks the
- * engine: its call is START when its estimate ranks inside the position
- * cutoff among that week's ledger rows at the position, else SIT.
+ * plus every ledger row at it (absent stats = 0). The engine is ranked among
+ * the ledger rows at the position that the engine itself holds available
+ * (`factors.availability.available !== false`, the `classifyProjectionEntry`
+ * test): its call is START when its estimate ranks inside the position cutoff
+ * among those rows, else SIT; a call player whose own row is unavailable
+ * (IR, out, bye, no team, practice squad) is an engine SIT. In the ranking
+ * rho the engine's order scores an unavailable row 0.
+ *
+ * Calls flagged `"injury": true` turn on a Wed-Fri practice report or game
+ * designation the Tuesday capture could not see; the summary reports the
+ * paired hit rates split into injury-driven and method calls.
  */
 
 const fs = require('fs');
@@ -60,12 +70,17 @@ function rankingRho(ranking, ledger, actuals) {
     n: rows.length,
     missing: ranking.filter((r) => !ledger.has(r.playerId)).map((r) => r.name),
     editorialRho: spearman(rows.map((r) => -r.rank), rows.map(act)),
-    engineRho: spearman(rows.map((r) => ledger.get(r.playerId).estimate), rows.map(act)),
+    engineRho: spearman(rows.map((r) => engineOrder(ledger.get(r.playerId))), rows.map(act)),
   };
 }
 
+/** Pure: what the engine expects of a ledger row, 0 when it holds the player unavailable. */
+function engineOrder(l) {
+  return l.unavailable ? 0 : l.estimate;
+}
+
 /**
- * Pure: the whole scoring. `ledger`: Map playerId -> { position, estimate };
+ * Pure: the whole scoring. `ledger`: Map playerId -> { position, estimate, unavailable };
  * `actuals`: Map playerId -> { position, points, appeared }.
  */
 function scoreCalls(file, ledger, actuals) {
@@ -76,7 +91,8 @@ function scoreCalls(file, ledger, actuals) {
     for (const [id, l] of ledger) if (l.position === pos) pool[pos].set(id, 0);
     for (const [id, a] of actuals) if (a.position === pos) pool[pos].set(id, a.points);
   }
-  const engineEstimates = (pos) => [...ledger.values()].filter((l) => l.position === pos && l.estimate != null).map((l) => l.estimate);
+  const engineEstimates = (pos) => [...ledger.values()]
+    .filter((l) => l.position === pos && l.estimate != null && !l.unavailable).map((l) => l.estimate);
 
   const calls = file.calls.map((c) => {
     const a = actuals.get(c.playerId) || { points: 0, appeared: false };
@@ -85,21 +101,23 @@ function scoreCalls(file, ledger, actuals) {
     const editorialHit = judge({ ...c, finish, cutoff, appeared: a.appeared });
     const l = ledger.get(c.playerId);
     const engineMissing = !l || l.estimate == null;
-    const engineRank = engineMissing ? null : finishOf(l.estimate, engineEstimates(c.position));
-    const engineCall = engineMissing ? null : (engineRank <= cutoff ? 'START' : 'SIT');
+    const engineUnavailable = !engineMissing && !!l.unavailable;
+    const engineRank = engineMissing || engineUnavailable ? null : finishOf(l.estimate, engineEstimates(c.position));
+    const engineCall = engineMissing ? null : (engineUnavailable || engineRank > cutoff ? 'SIT' : 'START');
     const engineHit = engineMissing || editorialHit === null
       ? null
       : judge({ verdict: engineCall, condition: null, finish, cutoff, appeared: a.appeared });
     return {
-      id: c.id, name: c.name, position: c.position, verdict: c.verdict, condition: c.condition,
+      id: c.id, name: c.name, position: c.position, verdict: c.verdict, condition: c.condition, injury: !!c.injury,
       actual: a.points, appeared: a.appeared, finish, editorialHit,
-      engineEstimate: engineMissing ? null : l.estimate, engineRank, engineCall, engineHit,
+      engineEstimate: engineMissing ? null : l.estimate, engineUnavailable, engineRank, engineCall, engineHit,
     };
   });
 
   const counted = calls.filter((c) => c.editorialHit !== null);
   const paired = counted.filter((c) => c.engineHit !== null);
   const hits = (list, key) => list.filter((c) => c[key]).length;
+  const split = (list) => ({ n: list.length, editorialHits: hits(list, 'editorialHit'), engineHits: hits(list, 'engineHit') });
   const rankings = {};
   for (const pos of POSITIONS) {
     if (file.rankings[pos]) rankings[pos] = rankingRho(file.rankings[pos], ledger, actuals);
@@ -110,9 +128,11 @@ function scoreCalls(file, ledger, actuals) {
     summary: {
       calls: calls.length,
       void: calls.length - counted.length,
-      engineMissing: calls.filter((c) => c.engineRank === null).map((c) => c.name),
+      engineMissing: calls.filter((c) => c.engineCall === null).map((c) => c.name),
       editorial: { n: counted.length, hits: hits(counted, 'editorialHit') },
-      paired: { n: paired.length, editorialHits: hits(paired, 'editorialHit'), engineHits: hits(paired, 'engineHit') },
+      paired: split(paired),
+      pairedMethod: split(paired.filter((c) => !c.injury)),
+      pairedInjury: split(paired.filter((c) => c.injury)),
     },
   };
 }
@@ -139,7 +159,7 @@ async function load({ season, week }) {
     if (head.rows.length === 0) return { capture: null };
     const [h] = head.rows;
     const rows = await client.query(
-      `SELECT "player_id", "position", "mean", "median" FROM "projection_snapshot_players" WHERE "snapshot_id" = $1`,
+      `SELECT "player_id", "position", "mean", "median", "factors" FROM "projection_snapshot_players" WHERE "snapshot_id" = $1`,
       [h.id]
     );
     // numeric columns arrive as strings: coerce, or the rank comparisons go lexicographic
@@ -147,6 +167,7 @@ async function load({ season, week }) {
     const ledger = new Map(rows.rows.map((r) => [r.player_id, {
       position: r.position,
       estimate: num(pointEstimateFor({ mean: num(r.mean), median: num(r.median), modelVersion: h.model_version })),
+      unavailable: !!(r.factors && r.factors.availability && r.factors.availability.available === false),
     }]));
     const stats = await client.query(
       `SELECT s."player_id", p."position", s."stats" FROM "player_stats" s
@@ -178,15 +199,18 @@ function render(file, capture, r) {
     out.push(`  ${pos.padEnd(3)} n=${String(x.n).padEnd(2)} editorial ${f2(x.editorialRho)}  engine ${f2(x.engineRho)}${x.missing.length ? `  no ledger row: ${x.missing.join(', ')}` : ''}`);
   }
   out.push('', 'Calls');
-  out.push('  id   name                    pos verdict cond       actual fin  app  ed    eng-call eng-est eng-rk eng');
+  out.push('  id   name                    pos verdict cond      inj actual fin  app  ed    eng-call eng-est eng-rk eng');
   const mark = (h) => (h === null ? 'void' : h ? 'HIT' : 'miss');
   for (const c of r.calls) {
-    out.push(`  ${c.id.padEnd(4)} ${c.name.slice(0, 23).padEnd(23)} ${c.position.padEnd(3)} ${c.verdict.padEnd(7)} ${(c.condition || '').padEnd(9)} ${f2(c.actual).padStart(6)} ${String(c.finish).padStart(4)}  ${c.appeared ? 'yes' : 'no '}  ${mark(c.editorialHit).padEnd(5)} ${(c.engineCall || 'MISSING').padEnd(8)} ${f2(c.engineEstimate).padStart(6)} ${String(c.engineRank ?? '-').padStart(5)}  ${c.engineHit === null ? '-' : mark(c.engineHit)}`);
+    out.push(`  ${c.id.padEnd(4)} ${c.name.slice(0, 23).padEnd(23)} ${c.position.padEnd(3)} ${c.verdict.padEnd(7)} ${(c.condition || '').padEnd(9)} ${c.injury ? 'inj' : '   '} ${f2(c.actual).padStart(6)} ${String(c.finish).padStart(4)}  ${c.appeared ? 'yes' : 'no '}  ${mark(c.editorialHit).padEnd(5)} ${(c.engineCall || 'MISSING').padEnd(8)} ${f2(c.engineEstimate).padStart(6)} ${(c.engineUnavailable ? 'unav' : String(c.engineRank ?? '-')).padStart(5)}  ${c.engineHit === null ? '-' : mark(c.engineHit)}`);
   }
   const s = r.summary;
+  const pair = (x) => `editorial ${pct(x.editorialHits, x.n)}, engine ${pct(x.engineHits, x.n)}`;
   out.push('', `Void (if-active, did not appear): ${s.void}. Engine row missing: ${s.engineMissing.length ? s.engineMissing.join(', ') : 'none'}.`);
   out.push(`Editorial, all non-void calls: ${pct(s.editorial.hits, s.editorial.n)}`);
-  out.push(`Same non-void calls with an engine row (n=${s.paired.n}): editorial ${pct(s.paired.editorialHits, s.paired.n)}, engine ${pct(s.paired.engineHits, s.paired.n)}`);
+  out.push(`Same non-void calls with an engine row (n=${s.paired.n}): ${pair(s.paired)}`);
+  out.push(`  method calls, decide the week (n=${s.pairedMethod.n}): ${pair(s.pairedMethod)}`);
+  out.push(`  injury-driven calls, reported only (n=${s.pairedInjury.n}): ${pair(s.pairedInjury)}`);
   return out.join('\n');
 }
 
