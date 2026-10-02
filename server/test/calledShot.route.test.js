@@ -131,7 +131,7 @@ test('declare stores the pair with the numbers as they stand and answers the sta
   assert.equal(shot.benched.playerId, 3);
   assert.equal(shot.benched.projection, 18);
   assert.ok(shot.probability > 0.6);
-  assert.equal(world.calledRow.verdict, 'start');
+  assert.equal(world.calledRow.verdict, 'strong');
   const [insert] = fake.matching(/^INSERT INTO "lineup_overrides"/);
   assert.equal(insert.via, 'client');
   fake.assertClean();

@@ -229,7 +229,7 @@ test('the advice endpoint adds model, distribution and coverage fields', async (
   assert.equal(suggestion.suggested.distribution.p90, 24);
   assert.equal(suggestion.confidence, 'medium');
   assert.ok(suggestion.probabilityBetter > 0.9);
-  assert.equal(suggestion.verdict, 'start');
+  assert.equal(suggestion.verdict, 'strong');
 });
 
 test('players[].projection reads 0 for a present entry with no Point estimate and null for an absent one (#1717)', async (t) => {
