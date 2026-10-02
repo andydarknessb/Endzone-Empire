@@ -1146,12 +1146,17 @@ league's context; the profile itself offers no action.
 _Avoid_: owner line, who has him, league status
 
 **Upgrade**:
-The Weekly projection a player would add this week over the weakest starter
-at a slot he is eligible for. An Unavailable starter counts as zero in that
-comparison, so the Upgrade is measured over him and reads the candidate's
-full projection; the bench is not consulted, so a healthy bench player who
-could fill that slot is not netted out. The starter the Upgrade is measured
-over is the swap preview's other side; he is the claim sheet's suggested
+How many Weekly projection points a player would add to the manager's best
+possible lineup this week: the optimal lineup total with him on the roster
+minus the optimal total without him, over the starters and the bench (the IR
+slot excluded), never below zero. The baseline is the best lineup the current
+roster could field, not the lineup the manager happens to have set, so a
+healthy bench player who would fill an Unavailable starter's slot is netted
+out. An Unavailable roster player counts as zero; a player whose game has
+kicked off is held, as the Start/sit advice holds him (a starter keeps his
+slot, a bench player is not a candidate). A candidate who adds nothing has an
+Upgrade of zero, which shows no pill or tile. The roster player the candidate
+displaces is the swap preview's other side; he is the claim sheet's suggested
 drop only when he is available this week. Undefined in a best ball league,
 where the column and tile are hidden, and for a player who is Unavailable
 this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and

@@ -16,7 +16,9 @@ import { finite, formatPoints, unavailableLabel, NO_HISTORY_LABEL } from '../../
  * bench Upgrade renders in a small pill, `success` text on the `accent-soft`
  * tint (tokens.contrast.test.js certifies the pairing). `upgrade: null`
  * (best ball, or the caller's own player, ADR 0040) hides the tile outright
- * rather than showing an empty label (the issue's own acceptance criterion).
+ * rather than showing an empty label (the issue's own acceptance criterion),
+ * and so does an Upgrade of 0: a candidate who does not crack the lineup has
+ * nothing to highlight (ADR 0055).
  */
 export default function DecisionStrip({ decision, usage, ownership, depth, rosterStatus, noHistory = false }) {
   const tiles = [];
@@ -83,7 +85,7 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
     );
   }
 
-  if (decision?.upgrade != null && decision.upgrade.points != null) {
+  if (decision?.upgrade?.points > 0) {
     tiles.push(
       <Tile key="upgrade" label="Upgrade" testId="decision-strip-upgrade">
         {/* Risk-review finding (accessibility): a tinted (`accent-soft`)
@@ -104,8 +106,7 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
             fontWeight: 700,
           }}
         >
-          {decision.upgrade.points >= 0 ? '+' : ''}
-          {formatPoints(decision.upgrade.points)}
+          +{formatPoints(decision.upgrade.points)}
         </Box>
         {decision.upgrade.slot && (
           <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>

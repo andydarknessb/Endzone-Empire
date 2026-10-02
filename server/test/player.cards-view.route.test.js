@@ -551,6 +551,7 @@ function duplicateIdentityHandlers() {
     })],
     [/FROM "waiver_players"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, (text, params) => ({
       rows: params[0].map((id) => ({ id, position: 'RB', nfl_team: 'SF' })),

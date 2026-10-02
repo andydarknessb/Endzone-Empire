@@ -102,6 +102,17 @@ test('a positive Upgrade renders as a pill outside best ball', () => {
   expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1');
 });
 
+test('an Upgrade of 0 renders no pill, on the table row and the mobile card (#1910)', () => {
+  const zero = { points: 0, overPlayer: null, slot: 'RB' };
+  const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const { unmount } = renderRow({ player: player({ upgrade: zero }), action });
+  expect(screen.queryByTestId('player-row-upgrade')).not.toBeInTheDocument();
+  unmount();
+  renderWithProviders(<PlayerRow player={player({ upgrade: zero })} action={action} variant="card" />);
+  expect(screen.queryByTestId('player-row-upgrade')).not.toBeInTheDocument();
+  expect(screen.queryByText('Upgrade')).not.toBeInTheDocument();
+});
+
 // Risk-review finding (accessibility): the mobile card's only route into the
 // Decision card used to be the ~24px-tall name link - under the 44px minimum
 // every other action on this card carries, and easy to miss entirely. The

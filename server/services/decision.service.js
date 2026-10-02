@@ -11,7 +11,6 @@ const {
   optimalLineup,
   parseLineupSettings,
   slotEligible,
-  eligibleSlotsFor,
   materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
@@ -1147,58 +1146,53 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 // ---------------------------------------------------------------------------
 
 /**
- * Pure: the caller's weakest starter among `currentStarters` sitting at a slot
- * in `eligibleSlots`, or null when none does. Ties broken by `rosterSlots`
- * order (the slot named earliest wins), then by player id.
- */
-function weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots) {
-  const relevant = currentStarters.filter((s) => eligibleSlots.includes(s.slot));
-  if (relevant.length === 0) return null;
-  const slotOrder = new Map(rosterSlots.map((s, i) => [s.key, i]));
-  return relevant.reduce((weakest, s) => {
-    const weakestPoints = Number(weakest.projection) || 0;
-    const sPoints = Number(s.projection) || 0;
-    if (sPoints < weakestPoints) return s;
-    if (sPoints > weakestPoints) return weakest;
-    const weakestOrder = slotOrder.get(weakest.slot) ?? 0;
-    const sOrder = slotOrder.get(s.slot) ?? 0;
-    if (sOrder < weakestOrder) return s;
-    if (sOrder === weakestOrder && (s.playerId ?? 0) < (weakest.playerId ?? 0)) return s;
-    return weakest;
-  });
-}
-
-/**
- * Pure: how much `candidate` (`{ position, projection }`) upgrades the
- * caller's weakest current starter at a slot he is eligible for (FLEX
- * included). When no starter sits at an eligible slot the weakest is
- * treated as 0 and `overPlayer`/`slot` are both null (issue #1306 Ruling
- * item 1).
+ * Pure: the Upgrade (ADR 0055) - how much `candidate` (`{ position, projection }`)
+ * adds to the caller's optimal lineup for the week: the optimal total with him
+ * on the roster minus the optimal total without him, never below 0.
  *
- * `overPlayer.points` (Ruling on #1793, option B) is the SAME effective
- * projection `weakestEligibleStarter` compared against - his zeroed value
- * when `currentStarters` marked him Unavailable, never his raw estimate - so
- * a client reading it alongside the candidate's own Weekly projection gets
- * two numbers that add up to `points`. `overPlayer.unavailable` carries the
- * reason (or null), straight from `currentStarters` (`playerCard.service.js`'s
- * `loadUpgradeContext` populates it).
+ * `roster` is the team's starters and bench, IR excluded:
+ * `[{ playerId, name, position, slot, projection, unavailable, kickedOff }]`
+ * (`playerCard.service.js`'s `loadUpgradeContext` builds it). An Unavailable
+ * player arrives with `projection` 0 and his reason in `unavailable`. A
+ * kicked-off starter is pinned to his slot and a kicked-off bench player is no
+ * lineup candidate, as in `buildSuggestions`.
+ *
+ * `overPlayer` is the roster player in the optimal lineup without the
+ * candidate who is not in the one with him (`points` is his own effective
+ * projection), null when the candidate fills an empty slot or gains nothing;
+ * `slot` is the slot the candidate takes (null when he takes none).
  */
-function upgradeFor(candidate, currentStarters, rosterSlots) {
-  const eligibleSlots = eligibleSlotsFor(candidate.position, rosterSlots);
-  const weakest = weakestEligibleStarter(eligibleSlots, currentStarters, rosterSlots);
-  const weakestProjection = weakest ? (Number(weakest.projection) || 0) : 0;
-  const points = round2((Number(candidate.projection) || 0) - weakestProjection);
+const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
+
+function upgradeFor(candidate, roster, rosterSlots) {
+  const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
+  pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
+  const pinned = new Map();
+  const pool = [];
+  for (const r of roster) {
+    if (r.kickedOff) {
+      if (r.slot !== BENCH) pinned.set(r.playerId, r.slot);
+    } else {
+      pool.push({ playerId: r.playerId, position: r.position });
+    }
+  }
+  const without = optimalAssignment({ rosterSlots, candidates: pool, pointsFor, pinned });
+  const withHim = optimalAssignment({
+    rosterSlots,
+    candidates: [...pool, { playerId: UPGRADE_CANDIDATE, position: candidate.position }],
+    pointsFor,
+    pinned,
+  });
+  const points = Math.max(0, round2(withHim.total - without.total));
+  const out = points > 0
+    ? roster.find((r) => without.byPlayer.has(r.playerId) && !withHim.byPlayer.has(r.playerId))
+    : null;
   return {
     points,
-    overPlayer: weakest
-      ? {
-        id: weakest.playerId,
-        name: weakest.name ?? null,
-        points: round2(weakestProjection),
-        unavailable: weakest.unavailable ?? null,
-      }
+    overPlayer: out
+      ? { id: out.playerId, name: out.name ?? null, points: round2(Number(out.projection) || 0), unavailable: out.unavailable ?? null }
       : null,
-    slot: weakest ? weakest.slot : null,
+    slot: withHim.byPlayer.get(UPGRADE_CANDIDATE) ?? null,
   };
 }
 

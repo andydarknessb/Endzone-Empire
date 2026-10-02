@@ -8,7 +8,7 @@ const {
   upgradeFor,
   madeAppearance,
 } = require('../services/decision.service');
-const { DEFAULT_ROSTER_SLOTS, slotEligible } = require('../services/lineup.service');
+const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
 const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
 const projectionModel = require('../services/projectionModel');
 
@@ -631,80 +631,83 @@ test('tradeFairnessSummary: safely defaults missing and non-finite totals to zer
 });
 
 // ---------------------------------------------------------------------------
-// upgradeFor: eligible-slot-only comparison, no-starter = 0 (issue #1306
-// Ruling item 1). The legacy batch-ranking wrapper and its dedicated parity
-// test are gone with the retired waiver suggestions route (#1794);
-// upgradeFor is the one Upgrade producer now, so these cases exercise it
-// directly.
+// upgradeFor (#1910, ADR 0055): the gain to this week's OPTIMAL lineup, over
+// the whole roster (starters and bench). `roster` rows are
+// { playerId, name, position, slot, projection, unavailable?, kickedOff? },
+// an Unavailable player already zeroed by the caller.
 // ---------------------------------------------------------------------------
 
-test('upgradeFor: points is the candidate projection minus the weakest starter projection, per candidate', () => {
-  const currentStarters = [{ playerId: 99, slot: 'RB', name: 'Starter RB', projection: 10 }];
-  const points = [12, 20, 8].map(
-    (projection) => upgradeFor({ position: 'RB', projection }, currentStarters, DEFAULT_ROSTER_SLOTS).points
-  );
-  assert.deepEqual(points, [2, 10, -2]);
+const rosterRow = (playerId, position, slot, projection, extra = {}) => ({
+  playerId, name: `p${playerId}`, position, slot, projection, unavailable: null, kickedOff: false, ...extra,
 });
 
-test('upgradeFor: a starter in a non-eligible slot is ignored, even one weaker than the eligible starters', () => {
-  const currentStarters = [
-    { playerId: 10, slot: 'RB', name: 'Starter RB', projection: 1 }, // not TE-eligible, ignored despite being weakest overall
-    { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
-    { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 }, // TE-eligible via FLEX, weaker
+test('upgradeFor: a bench player who would fill an Unavailable starter\'s slot is netted out (#1910 red-tell)', () => {
+  const roster = [
+    rosterRow(1, 'RB', 'RB', 0, { unavailable: 'out' }),
+    rosterRow(2, 'RB', 'BENCH', 12),
   ];
-  const candidate = { position: 'TE', projection: 10 };
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.equal(upgrade.points, 6);
-  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX', points: 4, unavailable: null });
-  assert.equal(slotEligible(upgrade.slot, candidate.position, DEFAULT_ROSTER_SLOTS), true);
+  assert.deepEqual(upgradeFor({ position: 'RB', projection: 10 }, roster, RB1), { points: 0, overPlayer: null, slot: null });
+  assert.deepEqual(upgradeFor({ position: 'RB', projection: 15 }, roster, RB1), {
+    points: 3,
+    overPlayer: { id: 2, name: 'p2', points: 12, unavailable: null },
+    slot: 'RB',
+  });
 });
 
-test('upgradeFor: no starter at an eligible slot -> weakest is 0, overPlayer and slot are null', () => {
-  const candidate = { position: 'QB', projection: 18 };
-  const currentStarters = [{ playerId: 10, slot: 'RB', name: 'Starter RB', projection: 25 }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+test('upgradeFor: points is the candidate projection minus the weakest starter, never below 0', () => {
+  const roster = [rosterRow(99, 'RB', 'RB', 10)];
+  const points = [12, 20, 8].map((projection) => upgradeFor({ position: 'RB', projection }, roster, RB1).points);
+  assert.deepEqual(points, [2, 10, 0]);
+});
+
+test('upgradeFor: a starter in a non-eligible slot is ignored', () => {
+  const roster = [
+    rosterRow(10, 'RB', 'RB', 1),
+    rosterRow(11, 'TE', 'TE', 6),
+    rosterRow(12, 'WR', 'FLEX', 4),
+  ];
+  const slots = [
+    { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+    { key: 'TE', label: 'TE', count: 1, eligiblePositions: ['TE'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] },
+  ];
+  const upgrade = upgradeFor({ position: 'TE', projection: 10 }, roster, slots);
+  assert.equal(upgrade.points, 6);
+  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'p12', points: 4, unavailable: null });
+  assert.equal(upgrade.slot, 'TE');
+});
+
+test('upgradeFor: a candidate who fills an empty slot has no overPlayer', () => {
+  const upgrade = upgradeFor({ position: 'QB', projection: 18 }, [rosterRow(10, 'RB', 'RB', 25)], DEFAULT_ROSTER_SLOTS);
   assert.equal(upgrade.points, 18);
   assert.equal(upgrade.overPlayer, null);
-  assert.equal(upgrade.slot, null);
+  assert.equal(upgrade.slot, 'QB');
 });
 
-test('upgradeFor: names the weakest eligible starter as overPlayer', () => {
-  const candidate = { position: 'TE', projection: 10 };
-  const currentStarters = [
-    { playerId: 11, slot: 'TE', name: 'Starter TE', projection: 6 },
-    { playerId: 12, slot: 'FLEX', name: 'Starter FLEX', projection: 4 },
-  ];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.equal(upgrade.points, 6);
-  assert.deepEqual(upgrade.overPlayer, { id: 12, name: 'Starter FLEX', points: 4, unavailable: null });
-  assert.equal(upgrade.slot, 'FLEX');
-});
-
-// Ruling on #1793 (option B): overPlayer carries his own effective points
-// (the same zeroed-if-Unavailable value `weakestEligibleStarter` compared
-// against) and the Unavailable reason or null, so a client can tell "zero
-// because Unavailable" from "zero because he genuinely projects 0" without
-// re-deriving it.
-test('upgradeFor: overPlayer.points is the starter\'s own effective projection, not the candidate\'s', () => {
-  const candidate = { position: 'WR', projection: 10 };
-  const currentStarters = [{ playerId: 20, slot: 'WR', name: 'Starter WR', projection: 6 }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.deepEqual(upgrade.overPlayer, { id: 20, name: 'Starter WR', points: 6, unavailable: null });
-});
-
-test('upgradeFor: overPlayer.unavailable carries the reason straight from currentStarters (already zeroed there)', () => {
-  const candidate = { position: 'WR', projection: 10 };
-  const currentStarters = [{ playerId: 21, slot: 'WR', name: 'Bye Starter', projection: 0, unavailable: 'bye' }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
+test('upgradeFor: overPlayer carries the Unavailable reason and his zeroed points', () => {
+  const roster = [rosterRow(21, 'WR', 'WR', 0, { unavailable: 'bye' })];
+  const upgrade = upgradeFor({ position: 'WR', projection: 10 }, roster, [{ key: 'WR', label: 'WR', count: 1, eligiblePositions: ['WR'] }]);
   assert.equal(upgrade.points, 10);
-  assert.deepEqual(upgrade.overPlayer, { id: 21, name: 'Bye Starter', points: 0, unavailable: 'bye' });
+  assert.deepEqual(upgrade.overPlayer, { id: 21, name: 'p21', points: 0, unavailable: 'bye' });
 });
 
-test('upgradeFor: a currentStarters row with no unavailable field reads overPlayer.unavailable as null', () => {
-  const candidate = { position: 'WR', projection: 10 };
-  const currentStarters = [{ playerId: 22, slot: 'WR', name: 'Plain Starter', projection: 3 }];
-  const upgrade = upgradeFor(candidate, currentStarters, DEFAULT_ROSTER_SLOTS);
-  assert.equal(upgrade.overPlayer.unavailable, null);
+test('upgradeFor: a kicked-off starter is pinned and a kicked-off bench player is not a lineup candidate', () => {
+  const pinnedRoster = [rosterRow(1, 'RB', 'RB', 5, { kickedOff: true })];
+  assert.deepEqual(upgradeFor({ position: 'RB', projection: 20 }, pinnedRoster, RB1), { points: 0, overPlayer: null, slot: null });
+  const lockedBench = [rosterRow(1, 'RB', 'RB', 5), rosterRow(2, 'RB', 'BENCH', 30, { kickedOff: true })];
+  assert.equal(upgradeFor({ position: 'RB', projection: 20 }, lockedBench, RB1).points, 15);
+});
+
+test('upgradeFor: a gain that arrives through a FLEX chain is found', () => {
+  // RB 9 starts at RB, WR 8 at FLEX. A candidate RB 20 takes RB, the RB 9 moves to FLEX, WR 8 leaves.
+  const roster = [rosterRow(1, 'RB', 'RB', 9), rosterRow(2, 'WR', 'FLEX', 8)];
+  const slots = [
+    { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR'] },
+  ];
+  const upgrade = upgradeFor({ position: 'RB', projection: 20 }, roster, slots);
+  assert.equal(upgrade.points, 12);
+  assert.equal(upgrade.overPlayer.id, 2);
 });
 
 // #1668: a released player (nfl_team null) is Unavailable and never proposed.
