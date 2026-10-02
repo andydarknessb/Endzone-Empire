@@ -122,6 +122,11 @@ async function tickUnlocked() {
       console.error('nflverse current-week pass failed (will retry in 15 minutes):', err.message);
     }
     try {
+      await runNflversePractice();
+    } catch (err) {
+      console.error('nflverse practice-participation poll failed (will retry in 15 minutes):', err.message);
+    }
+    try {
       await runDailyInjurySync();
     } catch (err) {
       console.error('daily injury sync failed (will retry next tick):', err.message);
@@ -1333,6 +1338,37 @@ async function runNflverseCurrentWeek({ now = new Date() } = {}) {
   return result;
 }
 
+// How often to ask nflverse whether its injury report was republished
+// (practiceParticipation.syncCurrentWeeks: one timestamp.json request per
+// season). Practice reports land through the week and nflverse republishes
+// them within hours, so the same 15 minutes as the stats pass is plenty.
+const NFLVERSE_PRACTICE_CHECK_MS = 15 * 60 * 1000;
+let lastNflversePracticeCheckAt = null; // epoch ms
+
+/**
+ * nflverse practice-participation poll (#1922): every 15 minutes, any hour of
+ * any day, ask `practiceParticipation.syncCurrentWeeks` to capture the injury
+ * report's practice and report statuses for the week each in-season league
+ * sits on. It downloads only when nflverse's timestamp.json changed since the
+ * last capture, so a check that finds nothing new is one small request and
+ * writes no run row. Same throttle shape as `runNflverseCurrentWeek` above: an
+ * in-memory stamp, taken BEFORE the call so a failing nflverse is retried
+ * every 15 minutes, not every tick. The service logs a failed poll itself and
+ * loses only that poll.
+ */
+async function runNflversePractice({ now = new Date() } = {}) {
+  const elapsed = lastNflversePracticeCheckAt === null ? null : now.getTime() - lastNflversePracticeCheckAt;
+  if (elapsed !== null && elapsed >= 0 && elapsed < NFLVERSE_PRACTICE_CHECK_MS) return null;
+  lastNflversePracticeCheckAt = now.getTime();
+  const practiceParticipation = require('../services/practiceParticipation.service');
+  const result = await practiceParticipation.syncCurrentWeeks({ now });
+  const written = (result.synced || []).filter((s) => s.inserted > 0);
+  if (written.length > 0) {
+    console.log(`scheduler: nflverse practice poll recorded ${written.reduce((n, s) => n + s.inserted, 0)} observation(s)`);
+  }
+  return result;
+}
+
 /**
  * Pick'em-only leagues follow the NFL calendar (they have no matchups, so the
  * commissioner advance-week action can never run for them). Point each one at
@@ -1474,7 +1510,7 @@ function stopScheduler() {
  */
 const SYNC_RUN_JOBS = [
   'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'nflverse-snaps', 'nflverse-correction', 'odds', 'game-context',
+  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'nflverse-practice', 'nflverse-snaps', 'nflverse-correction', 'odds', 'game-context',
   'espn-depth-chart', 'espn-ownership', 'espn-roster-status',
 ];
 
@@ -1630,6 +1666,7 @@ module.exports = {
   runNflverseFinalization,
   runNflverseGameContextFill,
   runNflverseCurrentWeek,
+  runNflversePractice,
   runNightlyStatsIntegrityScan,
   runPickemWeekSync,
   runPickemSeasonCompletion,
