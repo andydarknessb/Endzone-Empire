@@ -1840,9 +1840,10 @@ The author's verdict on one player for one week, published in a Darkness
 Report before Kickoff and scored against actual points after the games:
 start, flex, sit, or treat as out, sometimes conditional on the player being
 active. It is a judgment, never a Projection, and the engine never serves
-it. Unlike Start/sit advice, which is the engine's recommendation to a
-manager, and unlike a Called shot, which is a manager's declaration about
-his own lineup; not a Challenger, which is always a Model version.
+it. It differs from Start/sit advice, which is the engine's recommendation
+to a manager, and from a Called shot, which is a manager's declaration
+about their own lineup; and it is not a Challenger, which is always a Model
+version.
 _Avoid_: pick, ruling (outside the article), expert projection
 
 **Shadow arm**:
