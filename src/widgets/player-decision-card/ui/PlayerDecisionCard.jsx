@@ -1323,7 +1323,7 @@ function DecisionStripSection({ decision, usage, ownership, depth, rosterStatus,
   const hasContent =
     (decision?.projWeek && decision.projWeek.points != null) ||
     (decision?.ros && decision.ros.points != null) ||
-    (decision?.upgrade != null && decision.upgrade.points != null) ||
+    decision?.upgrade?.points > 0 ||
     (usage?.seasonAverage && usage.seasonAverage.fantasyPoints != null) ||
     (ownership && ownership.percentOwned != null) ||
     (depth && depth.positionGroup && depth.rank != null) ||

@@ -444,6 +444,8 @@ function cardPoolHandlers(player, { ownershipRow = null, depthRow = null, roster
     // #1667: the player's own game this week (line/weather); no game here.
     [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [] })],
+    // #1910: the kickoff read behind the Upgrade's pinned players; an empty schedule locks nobody.
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^WITH "target" AS \(/, () => ({ rows: [{ id: player.id }] })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: [] })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],

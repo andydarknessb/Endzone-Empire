@@ -125,8 +125,9 @@ async function loadIdentityIds(playerId) {
  * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
  * the caller's lineup inside a transaction (withTransaction + materializeLineup,
  * same pattern commissioner.service.js's forceSetLineup uses at :150-165),
- * then makes ONE `getWeeklyProjections` call covering both the caller's
- * current starters and every requested `playerIds`, so the Weekly projection behind
+ * reading every lineup entry but IR (starters and bench) with whether his game
+ * has kicked off (ADR 0055), then makes ONE `getWeeklyProjections` call
+ * covering both those players and every requested `playerIds`, so the Weekly projection behind
  * `decision.projWeek.points` and the one behind `decision.upgrade` are the
  * same producer call (Ruling item 2). `upgrades` is `null` for a player on
  * the caller's own roster (checked over the FULL identity set `loadIdentityIds`
@@ -140,21 +141,26 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   const settings = lineupService.parseLineupSettings(league);
 
-  const starterRows = await withTransaction(
+  const { rosterRows, kickedOffIds } = await withTransaction(
     pool,
     async (client) => {
       await lineupService.materializeLineup(client, {
         leagueId: league.id, teamId: team.id, season, week, league,
       });
       const result = await client.query(
-        `SELECT "lineup_entries"."player_id", "lineup_entries"."slot", "players"."name"
+        `SELECT "lineup_entries"."player_id", "lineup_entries"."slot", "players"."name",
+                "players"."position", "players"."nfl_team"
          FROM "lineup_entries"
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
          WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2 AND "lineup_entries"."week" = $3
-           AND "lineup_entries"."slot" NOT IN ('BENCH', 'IR')`,
+           AND "lineup_entries"."slot" <> 'IR'`,
         [team.id, season, week]
       );
-      return result.rows;
+      // Whose game has kicked off: the same predicate the lineup lock uses.
+      const kicked = await lineupService.lockedPlayerIds(client, {
+        season, week, players: result.rows.map((r) => ({ id: r.player_id, nflTeam: r.nfl_team })),
+      });
+      return { rosterRows: result.rows, kickedOffIds: kicked };
     },
     // A unique label - the guard (scripts/handRolledTransactionGuard.test.js)
     // requires every withTransaction call site to carry one.
@@ -173,8 +179,8 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   const positionById = new Map(playersResult.rows.map((r) => [r.id, r.position]));
   const noNflTeamIds = new Set(playersResult.rows.filter((r) => r.nfl_team == null).map((r) => r.id));
 
-  const starterIds = starterRows.map((r) => r.player_id);
-  const combinedIds = [...new Set([...starterIds, ...ids])];
+  const rosterIds = rosterRows.map((r) => r.player_id);
+  const combinedIds = [...new Set([...rosterIds, ...ids])];
   // The Weekly projection result object (#1703): `getWeeklyProjections`
   // itself handles an empty player set, returning a valid (all-null) result
   // rather than a bare Map, so every reader below goes through the same
@@ -185,20 +191,22 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
 
   // Unavailable this week (bye, Out, IR, No NFL team, Practice squad): the
   // engine keeps his full estimate (ADR 0044), but he contributes nothing to
-  // this week's lineup, so he counts as 0 when `decisionService.upgradeFor`
-  // below picks the weakest eligible starter - otherwise his full estimate
+  // this week's lineup, so he counts as 0 in `decisionService.upgradeFor`'s
+  // optimal lineups - otherwise his full estimate
   // masks a real Upgrade and the Decision card never offers it (#1793). Same
   // `classify()` source as the candidate-side refusal below (#1784). The
   // reason rides along as `unavailable` (Ruling on #1793, option B) so
   // `upgradeFor` can carry it onto `overPlayer`, and the claim sheet can tell
   // "zero because Unavailable" from "zero because he genuinely projects 0"
   // without re-deriving it from roster fields the client does not have.
-  const currentStarters = starterRows.map((r) => {
+  const roster = rosterRows.map((r) => {
     const classification = projections.classify(r.player_id);
     return {
       playerId: r.player_id,
       slot: r.slot,
       name: r.name,
+      position: r.position,
+      kickedOff: kickedOffIds.has(r.player_id),
       projection: classification.unavailable ? 0 : projections.pointsFor(r.player_id),
       unavailable: classification.unavailable ? classification.reason : null,
     };
@@ -247,7 +255,7 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       continue;
     }
     const candidate = { position: positionById.get(id) ?? null, projection: projections.pointsFor(id) };
-    upgrades.set(id, decisionService.upgradeFor(candidate, currentStarters, settings.rosterSlots));
+    upgrades.set(id, decisionService.upgradeFor(candidate, roster, settings.rosterSlots));
   }
 
   return { projections, upgrades };

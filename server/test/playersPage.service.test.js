@@ -519,7 +519,7 @@ test('sort=upgrade: a Position-baseline candidate sorts after an evidenced one w
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
       rows: players.map(({ id, position, nfl_team }) => ({ id, position, nfl_team })),
     })],
-    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Weak Starter' }] })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Weak Starter', position: 'QB', nfl_team: null }] })],
     [/^WITH "target" AS \(/, () => ({ rows: players.map(({ id }) => ({ id })) })],
     [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
     [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],

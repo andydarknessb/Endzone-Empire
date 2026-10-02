@@ -117,12 +117,12 @@ function ProjWeekCell({ projWeek, noHistory = false }) {
 }
 
 /** Upgrade pill: hidden outright rather than an empty label when there is
- * nothing to show (best ball, or a row the server never scores an Upgrade
- * for - the caller's own roster) - the same null-hides-the-tile rule
+ * nothing to show (best ball, a row the server never scores an Upgrade for -
+ * the caller's own roster - or a candidate who does not crack the lineup,
+ * `points` 0; a negative Upgrade no longer exists, ADR 0055) - the same rule
  * DecisionStrip's own Upgrade tile applies. */
 function UpgradeCell({ upgrade }) {
-  if (upgrade == null || upgrade.points == null) return null;
-  const positive = upgrade.points >= 0;
+  if (!(upgrade?.points > 0)) return null;
   return (
     <Box
       component="span"
@@ -132,14 +132,13 @@ function UpgradeCell({ upgrade }) {
         px: 0.75,
         borderRadius: 'var(--radius-pill)',
         border: '1px solid',
-        borderColor: positive ? 'var(--success)' : 'var(--border-subtle, var(--text-muted))',
-        color: positive ? 'var(--success)' : 'var(--text-muted)',
+        borderColor: 'var(--success)',
+        color: 'var(--success)',
         fontWeight: 700,
         fontSize: 13,
       }}
     >
-      {positive ? '+' : ''}
-      {formatPoints(upgrade.points)}
+      +{formatPoints(upgrade.points)}
     </Box>
   );
 }
@@ -353,7 +352,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
               </Typography>
               <Typography sx={{ fontWeight: 700 }}>{formatPoints(player.ros?.points)}</Typography>
             </Box>
-            {showUpgrade && player.upgrade != null && (
+            {showUpgrade && player.upgrade?.points > 0 && (
               <Box>
                 <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   Upgrade

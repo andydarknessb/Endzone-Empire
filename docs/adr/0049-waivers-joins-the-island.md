@@ -87,3 +87,9 @@ above) preselect him only when he carries no Unavailable reason; over an
 Unavailable starter the sheet preselects no drop. At roster capacity this
 changes nothing: a drop is still required and Submit stays disabled until
 one is chosen.
+
+## Amendment (2026-10-02): the Upgrade is the gain to the optimal lineup
+
+ADR 0055 redefines the Upgrade as the gain to this week's optimal lineup and
+supersedes the "replaced starter preselected" sentence above and the
+2026-09-29 amendment.

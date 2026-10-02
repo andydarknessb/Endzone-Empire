@@ -83,6 +83,16 @@ test('a null Upgrade renders no Upgrade tile and no empty label', async () => {
   expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument();
 });
 
+test('an Upgrade of 0 renders no Upgrade tile on the card (#1910)', async () => {
+  mockCardRoute({
+    decision: { projWeek: { week: 4, points: 12 }, ros: { points: 90 }, upgrade: { points: 0, overPlayer: null, slot: 'RB' } },
+  });
+  renderCard({ availability: { rosterCount: 10, rosterCapacity: 16 } });
+
+  await screen.findByTestId('decision-strip');
+  expect(screen.queryByTestId('decision-strip-upgrade')).not.toBeInTheDocument();
+});
+
 // formal-001-f3: this used to render only under `waivers`; `free_agent` is
 // its own branch (AddPlayerAction) and needs its own assertion that the
 // sections outside the lineupManaged gate (#1358's Season summary/pick)

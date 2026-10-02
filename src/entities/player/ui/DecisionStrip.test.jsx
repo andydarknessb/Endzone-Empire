@@ -54,6 +54,17 @@ test('a positive Upgrade renders as a pill naming its slot', () => {
   expect(screen.getByTestId('decision-strip-upgrade')).toHaveTextContent('at FLEX');
 });
 
+test('an Upgrade of 0 renders no Upgrade tile (#1910)', () => {
+  render(
+    <DecisionStrip
+      decision={{ projWeek: { week: 4, points: 18.2 }, ros: { points: 140 }, upgrade: { points: 0, overPlayer: null, slot: 'RB' } }}
+      usage={null}
+    />
+  );
+  expect(screen.queryByTestId('decision-strip-upgrade')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('decision-strip-upgrade-pill')).not.toBeInTheDocument();
+});
+
 test('Usage hides when seasonAverage is absent, and shows the season average FPTS otherwise', () => {
   const { rerender } = render(<DecisionStrip decision={null} usage={{ weeks: [], seasonAverage: null }} />);
   expect(screen.queryByTestId('decision-strip-usage')).not.toBeInTheDocument();

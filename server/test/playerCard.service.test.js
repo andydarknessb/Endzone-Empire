@@ -23,6 +23,17 @@ const LEAGUE = {
   waivers_clear_at: null,
 };
 
+// Upgrade fixtures want a FULL lineup, so a candidate has to beat someone: the
+// default league has empty slots he would simply fill (ADR 0055).
+const wrSlots = (count) => ({ ...LEAGUE, roster_slots: [{ key: 'WR', label: 'WR', count, eligiblePositions: ['WR'] }] });
+const RB_FLEX_LEAGUE = {
+  ...LEAGUE,
+  roster_slots: [
+    { key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] },
+    { key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR'] },
+  ],
+};
+
 const PLAYER = {
   id: 55,
   name: 'Test Player',
@@ -56,7 +67,8 @@ function buildHandlers({
   rosterCount = 0,
   identityIds = [player.id], // every players row loadIdentityIds resolves for this player
   ownRosterRows = [], // rows for the caller's OWN team_players (own-roster Upgrade check)
-  starterRows = [], // loadUpgradeContext's own current-starter rows ({ player_id, slot, name })
+  starterRows = [], // loadUpgradeContext's own lineup rows, starters and bench ({ player_id, slot, name, position?, nfl_team? })
+  kickedOffTeams = [], // nfl_team codes whose game has kicked off (the lock predicate's read)
 } = {}) {
   return [
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [league] })],
@@ -65,7 +77,8 @@ function buildHandlers({
     [/^SELECT "week", "opponent" FROM "nfl_games"/, () => ({ rows: [] })],
     // #1667: the player's own game this week (line/weather); no game by default.
     [/^SELECT "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: starterRows })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: starterRows.map((r) => ({ position: 'WR', nfl_team: null, ...r })) })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOffTeams.map((nfl_team) => ({ nfl_team })) })],
     [/^WITH "target" AS \(/, () => ({ rows: identityIds.map((id) => ({ id })) })],
     [/^SELECT "player_id" FROM "team_players" WHERE "team_id" = \$1$/, () => ({ rows: ownRosterRows })],
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({ rows: [{ id: player.id, position: player.position }] })],
@@ -286,7 +299,7 @@ function upgradeHandlers() {
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
       rows: [{ id: PLAYER.id, position: PLAYER.position, nfl_team: PLAYER.nfl_team }],
     })],
-    ...buildHandlers({ starterRows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter' }] }),
+    ...buildHandlers({ league: wrSlots(1), starterRows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter' }] }),
   ];
 }
 
@@ -322,6 +335,7 @@ test('upgradesFor (#1809): a Position-baseline candidate at 15.37 gets null, an 
       ],
     })],
     ...buildHandlers({
+      league: wrSlots(1),
       starterRows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter' }],
       identityIds: [BASELINE_ID],
     }),
@@ -341,7 +355,7 @@ test('upgradesFor (#1809): a Position-baseline candidate at 15.37 gets null, an 
   });
 
   const upgrades = await upgradesFor({
-    league: LEAGUE, team: TEAM, season: 2026, week: 1, playerIds: [BASELINE_ID, EVIDENCED_ID],
+    league: wrSlots(1), team: TEAM, season: 2026, week: 1, playerIds: [BASELINE_ID, EVIDENCED_ID],
   });
 
   assert.equal(upgrades.get(BASELINE_ID), null);
@@ -352,7 +366,7 @@ test('upgradesFor (#1809): a Position-baseline candidate at 15.37 gets null, an 
   });
 });
 
-test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate over the weakest eligible starter', async (t) => {
+test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate over the starter he beats', async (t) => {
   createFakePool(upgradeHandlers()).install(t);
   mockServices(t, { weeklyProjection: upgradeProjection({ available: true }) });
 
@@ -365,16 +379,16 @@ test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate ov
   });
 });
 
-// #1793: the weakest-starter comparison must not trust an Unavailable
-// starter's engine estimate either - he adds nothing to this week's lineup,
-// so he counts as 0 when `weakestEligibleStarter` picks the weakest, and the
-// Upgrade names him as overPlayer.
+// #1793: the Upgrade must not trust an Unavailable starter's engine estimate
+// either - he adds nothing to this week's lineup, so he counts as 0 in the
+// optimal lineups, and the Upgrade names him as overPlayer.
 function twoStarterHandlers() {
   return [
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
       rows: [{ id: PLAYER.id, position: PLAYER.position, nfl_team: PLAYER.nfl_team }],
     })],
     ...buildHandlers({
+      league: wrSlots(2),
       starterRows: [
         { player_id: 999, slot: 'WR', name: 'Unavailable Starter' },
         { player_id: 998, slot: 'WR', name: 'Healthy Starter' },
@@ -406,28 +420,24 @@ for (const reason of ['bye', 'out', 'ir', 'no_team', 'practice_squad']) {
   });
 }
 
-test('getPlayerCard (#1793): with both starters healthy, the weakest-by-points starter is still overPlayer', async (t) => {
+test('getPlayerCard (#1793): with both starters healthy and better than the candidate, the Upgrade is 0 with no overPlayer (#1910)', async (t) => {
   createFakePool(twoStarterHandlers()).install(t);
   mockServices(t, { weeklyProjection: twoStarterProjection({ available: true }) });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  assert.deepEqual(card.decision.upgrade, {
-    points: -2,
-    overPlayer: { id: 998, name: 'Healthy Starter', points: 12, unavailable: null },
-    slot: 'WR',
-  });
+  assert.deepEqual(card.decision.upgrade, { points: 0, overPlayer: null, slot: null });
 });
 
 // A candidate helper that pins the candidate's OWN position (and starter
 // rows), for the FLEX and tie-break cases below, none of which fit
 // `upgradeHandlers`'s or `twoStarterHandlers`'s fixed WR-vs-WR shape.
-function starterHandlers(starterRows, candidatePosition = 'WR') {
+function starterHandlers(starterRows, candidatePosition = 'WR', league = LEAGUE) {
   return [
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
       rows: [{ id: PLAYER.id, position: candidatePosition, nfl_team: PLAYER.nfl_team }],
     })],
-    ...buildHandlers({ starterRows }),
+    ...buildHandlers({ league, starterRows }),
   ];
 }
 
@@ -435,11 +445,16 @@ function starterHandlers(starterRows, candidatePosition = 'WR') {
 // an RB candidate, who is eligible at both RB and FLEX - not just for the
 // WR-slot case above.
 test('getPlayerCard (#1793): an Unavailable starter at FLEX counts as 0 for an RB candidate too', async (t) => {
-  createFakePool(starterHandlers([{ player_id: 997, slot: 'FLEX', name: 'Unavailable Flex' }], 'RB')).install(t);
+  createFakePool(starterHandlers([
+    { player_id: 996, slot: 'RB', name: 'Healthy RB', position: 'RB' },
+    { player_id: 997, slot: 'FLEX', name: 'Unavailable Flex', position: 'RB' },
+  ], 'RB', RB_FLEX_LEAGUE)).install(t);
   mockServices(t, {
-    weeklyProjection: (week, id) => (id === 997
-      ? { mean: 18, median: 18, factors: { availability: { available: false, reason: 'out' } } }
-      : { mean: 10, median: 10, factors: { availability: { available: true } } }),
+    weeklyProjection: (week, id) => {
+      if (id === 997) return { mean: 18, median: 18, factors: { availability: { available: false, reason: 'out' } } };
+      if (id === 996) return { mean: 20, median: 20, factors: { availability: { available: true } } };
+      return { mean: 10, median: 10, factors: { availability: { available: true } } };
+    },
   });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
@@ -451,54 +466,50 @@ test('getPlayerCard (#1793): an Unavailable starter at FLEX counts as 0 for an R
   });
 });
 
-// #1793 (f4): two Unavailable starters both read 0, so the existing
-// slot-order tiebreak (DEFAULT_ROSTER_SLOTS: WR before FLEX) still decides
-// which one is overPlayer, exactly as it would for two healthy starters
-// tied on points.
-test('getPlayerCard (#1793): two Unavailable starters tied at 0 break by slot order (WR before FLEX)', async (t) => {
+// #1910: the roster read covers the bench, and a player whose game has kicked
+// off is read through the lineup lock's own predicate (nfl_games.kickoff_at).
+test('getPlayerCard (#1910): a bench player who would start over an Unavailable starter nets the Upgrade out', async (t) => {
   createFakePool(starterHandlers([
-    { player_id: 501, slot: 'FLEX', name: 'Flex Tie' },
-    { player_id: 502, slot: 'WR', name: 'WR Tie' },
-  ], 'WR')).install(t);
+    { player_id: 999, slot: 'WR', name: 'Unavailable Starter' },
+    { player_id: 998, slot: 'BENCH', name: 'Bench WR' },
+  ], 'WR', wrSlots(1))).install(t);
   mockServices(t, {
     weeklyProjection: (week, id) => {
-      if (id === 501) return { mean: 15, median: 15, factors: { availability: { available: false, reason: 'out' } } };
-      if (id === 502) return { mean: 25, median: 25, factors: { availability: { available: false, reason: 'bye' } } };
-      return { mean: 8, median: 8, factors: { availability: { available: true } } };
+      if (id === 999) return { mean: 20, median: 20, factors: { availability: { available: false, reason: 'out' } } };
+      if (id === 998) return { mean: 12, median: 12, factors: { availability: { available: true } } };
+      return { mean: 15, median: 15, factors: { availability: { available: true } } };
     },
   });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
   assert.deepEqual(card.decision.upgrade, {
-    points: 8,
-    overPlayer: { id: 502, name: 'WR Tie', points: 0, unavailable: 'bye' },
+    points: 3,
+    overPlayer: { id: 998, name: 'Bench WR', points: 12, unavailable: null },
     slot: 'WR',
   });
 });
 
-// #1793 (f4): tied on points AND slot, the lower player id wins, unchanged
-// by either starter being Unavailable.
-test('getPlayerCard (#1793): two Unavailable starters tied at 0 in the SAME slot break by the lower id', async (t) => {
-  createFakePool(starterHandlers([
-    { player_id: 504, slot: 'WR', name: 'Higher Id' },
-    { player_id: 503, slot: 'WR', name: 'Lower Id' },
-  ], 'WR')).install(t);
+test('getPlayerCard (#1910): a starter whose game has kicked off is pinned, so no candidate replaces him', async (t) => {
+  createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: PLAYER.id, position: 'WR', nfl_team: PLAYER.nfl_team }],
+    })],
+    ...buildHandlers({
+      league: wrSlots(1),
+      starterRows: [{ player_id: 999, slot: 'WR', name: 'Locked Starter', nfl_team: 'KC' }],
+      kickedOffTeams: ['KC'],
+    }),
+  ]).install(t);
   mockServices(t, {
-    weeklyProjection: (week, id) => {
-      if (id === 503) return { mean: 30, median: 30, factors: { availability: { available: false, reason: 'ir' } } };
-      if (id === 504) return { mean: 15, median: 15, factors: { availability: { available: false, reason: 'out' } } };
-      return { mean: 6, median: 6, factors: { availability: { available: true } } };
-    },
+    weeklyProjection: (week, id) => (id === 999
+      ? { mean: 5, median: 5, factors: { availability: { available: true } } }
+      : { mean: 14, median: 14, factors: { availability: { available: true } } }),
   });
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  assert.deepEqual(card.decision.upgrade, {
-    points: 6,
-    overPlayer: { id: 503, name: 'Lower Id', points: 0, unavailable: 'ir' },
-    slot: 'WR',
-  });
+  assert.deepEqual(card.decision.upgrade, { points: 0, overPlayer: null, slot: null });
 });
 
 test('getPlayerCard (#1765): an available player\'s projWeek keeps the Point estimate and carries no reason', async (t) => {
