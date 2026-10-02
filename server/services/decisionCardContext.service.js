@@ -1,6 +1,6 @@
 const pool = require('../modules/pool');
 const { impliedTeamPoints } = require('./vegasOdds.provider');
-const { isIndoorGame } = require('./nwsWeather.service');
+const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
 const { calculateFantasyPoints } = require('./scoringRules');
 const { normalizeNflTeam } = require('./nflTeam');
 const { isPresentNumber: isNum } = require('./numericPresence');
@@ -101,10 +101,6 @@ async function loadLine(gameKey, homeAway) {
   };
 }
 
-// A healthy Sunday leaves a snapshot ~18h old (the job waits out an open game
-// window), so 24h: older is a feed that stopped, and is withheld (#1930).
-const WEATHER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-
 /**
  * The weather context for a game: fields-null once a game exists, per the ADR — never bare null.
  * A snapshot older than 24h (or with no usable `fetched_at`) reads as no forecast.
@@ -126,8 +122,7 @@ async function loadWeather(gameKey, roof, now = Date.now()) {
     [gameKey]
   );
   const row = result.rows[0];
-  // A NaN age (no `fetched_at`) fails the comparison, so it is withheld too.
-  const snap = row && +now - new Date(row.fetched_at) <= WEATHER_MAX_AGE_MS ? row : null;
+  const snap = isWeatherFresh(row, now) ? row : null;
   return {
     indoor: false,
     temperatureF: snap && snap.temperature_f != null ? Number(snap.temperature_f) : null,

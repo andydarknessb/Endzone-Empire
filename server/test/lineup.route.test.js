@@ -436,7 +436,7 @@ test('GET /api/team/lineup carries Line and weather per entry: both, neither, an
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
     [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
       rows: [
-        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain' },
+        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain', fetched_at: new Date() },
       ],
     })],
   ]).install(t);
@@ -464,5 +464,46 @@ test('GET /api/team/lineup carries Line and weather per entry: both, neither, an
     indoor: true, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null,
   });
 
+  fake.assertClean();
+});
+
+test('GET /api/team/lineup hides a weather snapshot fetched 72h ago: fields-null outdoor weather (#1941)', async (t) => {
+  const entry = { id: 1, name: 'Stale Guy', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false };
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
+    projections: new Map(),
+  }));
+  setVegasOddsProvider({ name: 'test-book', available: true, async getWeeklyOdds() { return new Map(); } });
+  t.after(() => setVegasOddsProvider());
+
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 1, position: 'QB' }] })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [{ player_id: 1 }] })],
+    [/^SELECT "players"\."id"/, () => ({ rows: [entry] })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({
+      rows: [{ nfl_team: 'KC', opponent: 'DEN', kickoff_at: '2026-11-01T18:00:00Z', game_key: 'KC-DEN', roof: 'outdoor', home_away: 'home' }],
+    })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+    [/^SELECT DISTINCT ON \("game_key"\).*FROM "game_weather_snapshots"/, () => ({
+      rows: [
+        { game_key: 'KC-DEN', temperature_f: 58, wind_speed_mph: 12, wind_gust_mph: 20, precipitation_probability: 60, short_forecast: 'Light Rain', fetched_at: new Date(Date.now() - 72 * 3600 * 1000) },
+      ],
+    })],
+  ]).install(t);
+
+  const token = signToken({ id: 7, username: 'member' });
+  const response = await request(app)
+    .get('/api/team/lineup?leagueId=5')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.entries[0].weather, {
+    indoor: false, temperatureF: null, windSpeedMph: null, windGustMph: null, precipitationProbability: null, shortForecast: null,
+  });
   fake.assertClean();
 });
