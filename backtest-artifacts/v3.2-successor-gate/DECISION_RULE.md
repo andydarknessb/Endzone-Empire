@@ -27,20 +27,27 @@ Fixed as of 2026-10-02: #1440, #1441, #1442, #1443, #1483, #1485, #1769 and,
 if its screen passes, #1484. A new engine change goes to the next successor
 spec.
 
-Each remaining child is built to its ticket and merges inert behind a
-`MODEL_CONSTANTS_V3_2` key (the #1442 ruling, point 4). By
-2026-10-16T23:59:59Z every choice a child's ticket leaves open, or settles
-differently from another child's ticket, is written in that ticket's body,
-whether a number, a window, a curve family or an edge case. A ruling in a
-comment binds only once it is copied into the body. The SHA-256 of each
-body is posted on #1438 on 2026-10-02 and again by whoever changes one, and
-"its ticket" means the body whose hash was last posted there by that
-instant. A choice still open after it is settled on #1438 before the child
-is built, with its reason, never by a 2026 outcome. Where a ticket and this
-file differ, this file governs: a rate that a ticket says shrinks a
-projection is stored as the active probability, never folded into the mean.
-Every tunable is fitted on 2024 and 2025 only. A child not merged by the
-freeze is left out, never for a reason read from a 2026 outcome.
+Each of #1440 to #1443 is built to its ticket and merges inert behind a
+`MODEL_CONSTANTS_V3_2` key (the #1442 ruling, point 4). #1484 is defined by
+its preregistration of 2026-09-24 and the addendum of 2026-10-02 on #1438.
+
+By 2026-10-16T23:59:59Z every choice one of those four tickets leaves open,
+or settles differently from another of them, is written in that ticket's
+body, whether a number, a window, a curve family or an edge case. A ruling
+in a comment on one of those tickets binds only once it is copied into the
+body by that instant. Each body's text and its SHA-256, computed as
+`gh api repos/andydarknessb/Endzone-Empire/issues/N --jq .body | sha256sum`
+prints it, are posted together on #1438 when this file merges and again by
+whoever changes the body, and "its ticket" means the body whose text and
+hash were last posted there by that instant. A choice still open after it
+is settled on #1438 before the child is built, with its reason, never by a
+2026 outcome.
+
+Where a ticket and this file differ, this file governs: a rate that a
+ticket says shrinks a projection is stored as the active probability, never
+folded into the mean. Every tunable is fitted on 2024 and 2025 only. A child
+not merged by the freeze is left out, never for a reason read from a 2026
+outcome.
 
 The evaluator that applies this rule (#1938) merges before any of #1440 to
 #1443.
@@ -196,7 +203,8 @@ the row counts of section 4 by week and reason.
 
 Each version of this file is identified by its commit and the SHA-256 of its
 bytes, posted on #1438, and the deciding report prints the SHA-256 of this
-file at the freeze commit.
+file at the freeze commit. A hash, digest or text posted on #1438 counts
+only as it was first posted; a posting edited afterwards does not count.
 
 This rule changes only by a dated amendment to this file that states its
 reason. Until 2026-10-16T23:59:59Z the owner may amend any part. After that
