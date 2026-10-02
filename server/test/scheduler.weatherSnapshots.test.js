@@ -127,6 +127,18 @@ test('weather-snapshots writes a fresh snapshot every 6 hours with no projection
   assert.equal(scheduler.WEATHER_SNAPSHOT_INTERVAL_MS, weather.HORIZON_BUCKET_HOURS * HOUR);
 });
 
+test('weather-snapshots runs its unit with no transaction, so the NWS fetches never sit inside one (#1913)', async (t) => {
+  withUserAgent(t);
+  mockNws(t);
+  stubGate(t);
+  const world = weatherWorld(t);
+
+  await scheduler.runWeatherSnapshotSync({ now: T0 });
+
+  assert.equal(world.writes.length, 1, 'the run did its work');
+  assert.equal(world.fake.calls.filter((c) => c.text === 'BEGIN').length, 0);
+});
+
 test('weather-snapshots only asks about games kicking off in the future and within MAX_HORIZON_HOURS', async (t) => {
   withUserAgent(t);
   mockNws(t);

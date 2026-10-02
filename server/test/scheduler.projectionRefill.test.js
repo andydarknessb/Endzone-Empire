@@ -346,6 +346,23 @@ test('an owed refill runs on the very next tick when a corrections pass succeeds
   assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 });
 
+test('runNightlyProjectionFill runs its unit with no transaction (#1913)', async (t) => {
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => ({
+    projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])),
+  }));
+  const fake = createFakePool([
+    dataSyncRunsHandler({}),
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T09:10:00Z') });
+
+  assert.ok(result && result.weeksGenerated > 0, 'the fill ran');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0);
+});
+
 test('a successful same-day owed refill is not repeated on the following tick', async (t) => {
   let calls = 0;
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {

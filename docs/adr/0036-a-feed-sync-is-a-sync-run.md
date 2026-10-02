@@ -60,3 +60,12 @@ The syncs call the module from where they are; a move is a separate pure move.
 The Live box source switch also writes a `data_sync_runs` row, and stays
 outside this module: it is a signal that the source changed (ADR 0035), not a
 run of a feed sync.
+
+## Amendment (#1913): a unit with no transaction
+
+A unit whose `apply` makes feed calls or only autocommit writes runs with
+`transaction: false` (`runSyncJob({ job, lock, transaction, fetch, apply })`):
+no transaction and no lock, and `apply` gets `null` for its client. That is
+what keeps "A feed call never runs inside a transaction" true for the weather
+snapshots and the nightly projection fill. A lock needs a transaction, so
+`transaction: false` with a `lock` is refused.
