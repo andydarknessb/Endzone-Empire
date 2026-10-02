@@ -80,7 +80,7 @@ function parseArgs(argv) {
  * Rule section 2: a v3.2 column is computed only from the freeze commit it is
  * given, run from that commit. Pure; `head` is this checkout's HEAD.
  */
-function assertDecidingRead({ modelVersion, decidingRead }, head) {
+function assertDecidingRead({ modelVersion, decidingRead }, head, dirty = '') {
   if (modelVersion === successorEval.MODEL_VERSION_V3_1) return;
   if (decidingRead !== head) {
     throw new Error(
@@ -88,8 +88,13 @@ function assertDecidingRead({ modelVersion, decidingRead }, head) {
       + `(${head}); got ${decidingRead === undefined ? 'no --deciding-read' : decidingRead}. Refusing before any query (rule section 2).`
     );
   }
+  if (dirty) {
+    throw new Error(`run-successor-eval: the deciding read runs from a clean checkout of the freeze commit (rule section 2); tracked changes present:
+${dirty}`);
+  }
 }
 
+const gitDirty = () => execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 const gitHead = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 
 /**
@@ -254,7 +259,7 @@ async function loadProfile({
   return { name: profileName, rules, weeks, actuals };
 }
 
-async function main(argv, { head = gitHead } = {}) {
+async function main(argv, { head = gitHead, dirty = gitDirty } = {}) {
   const args = parseArgs(argv);
   if (args.v31Digest) {
     const { rules, weeks } = await loadCapturedWeeks({ season: args.season, profileName: successorEval.GATE_PROFILE, client: pool });
@@ -265,7 +270,7 @@ async function main(argv, { head = gitHead } = {}) {
   // checkout cannot supply either the target version's constants OR v3.1's
   // (every report carries the v3.1 rebuild as its error bar), and before
   // `--out` is even resolved.
-  assertDecidingRead(args, head());
+  assertDecidingRead(args, head(), dirty());
   successorEval.constantsFor(args.modelVersion);
   successorEval.constantsFor(successorEval.MODEL_VERSION_V3_1);
   const out = resolveOutputPaths(args.outDir);
@@ -290,6 +295,7 @@ async function main(argv, { head = gitHead } = {}) {
     generateProjections: projection.generateProjections,
   });
   result.ruleSha256 = ruleSha256;
+  result.decidingRead = args.decidingRead || null;
   for (const profile of profiles) result.profiles[profile.name].actualsSha256 = successorEval.actualsDigest(profile.actuals);
 
   fs.mkdirSync(out.dir, { recursive: true });

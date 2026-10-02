@@ -658,10 +658,10 @@ test('a deciding run reports PASS with the four checks, the section 7 items and 
   ), 'the digest is over the rebuilt v3.1 rows');
 
   // Section 7 selects nothing: a failing variant leaves the verdict alone.
-  const rendered = successorEval.renderReport({ ...result, ruleSha256: 'abc123' });
+  const rendered = successorEval.renderReport({ ...result, ruleSha256: 'abc123', decidingRead: 'f'.repeat(40) });
   for (const needle of ['verdict: PASS', 'pairwise-size', 'pairwise-noise', 'mae-size', 'coverage cov80', 'rows every column serves',
     'Position-baseline projections counted as served', 'without week 18', 'coverage on rows only v3.2 serves', 'rows by week and reason',
-    'pairwise by position', 'DECISION_RULE.md SHA-256: abc123', 'rebuilt v3.1 rows SHA-256']) {
+    'pairwise by position', 'DECISION_RULE.md SHA-256: abc123', `run from commit (--deciding-read): ${'f'.repeat(40)}`, 'rebuilt v3.1 rows SHA-256']) {
     assert.ok(rendered.includes(needle), `report carries "${needle}"`);
   }
 });
@@ -722,6 +722,14 @@ test('a target other than free_baseline_v3.1 without --deciding-read <HEAD sha> 
   // The calibration run needs no sha; the digest mode takes only --season.
   assert.doesNotThrow(() => runner.assertDecidingRead({ modelVersion: 'free_baseline_v3.1' }, 'a'.repeat(40)));
   assert.doesNotThrow(() => runner.assertDecidingRead({ modelVersion: 'free_baseline_v3.2', decidingRead: 'a'.repeat(40) }, 'a'.repeat(40)));
+  assert.throws(
+    () => runner.assertDecidingRead({ modelVersion: 'free_baseline_v3.2', decidingRead: 'a'.repeat(40) }, 'a'.repeat(40), ' M server/services/projectionModel.js'),
+    /clean checkout/
+  );
+  await assert.rejects(
+    () => runner.main([...base, '--deciding-read', 'a'.repeat(40)], { head, dirty: () => ' M x.js' }),
+    /clean checkout/
+  );
   assert.deepEqual(runner.parseArgs(['--v31-digest', '--season', '2026']), { season: 2026, v31Digest: true });
 });
 

@@ -720,6 +720,7 @@ function renderReport(result) {
   lines.push(`surviving weeks (half_ppr, every profile): ${result.survivors.weeks.length} (${result.survivors.weeks.join(', ')})`);
   for (const d of result.survivors.dropped) lines.push(`- dropped week ${d.week}: ${d.reason}`);
   if (result.ruleSha256) lines.push(`DECISION_RULE.md SHA-256: ${result.ruleSha256}`);
+  if (result.decidingRead) lines.push(`run from commit (--deciding-read): ${result.decidingRead}`);
   lines.push('');
   for (const [profileName, profile] of Object.entries(result.profiles)) {
     lines.push(`## ${profileName}`, '', `weeks scored: ${profile.weeksScored}`);
