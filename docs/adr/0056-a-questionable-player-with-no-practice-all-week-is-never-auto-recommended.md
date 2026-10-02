@@ -1,6 +1,6 @@
 # A Questionable player with no practice all week is never auto-recommended
 
-Status: proposed (2026-10-02)
+Status: accepted (2026-10-02)
 
 Questionable is the only Game status the engine cannot price: Unavailable
 players are zeroed and Doubtful players are never auto-recommended, but a
