@@ -1625,7 +1625,14 @@ from the Decision card's Line and Weather loaders (the Implied team total
 stays on the Decision card), and each reads "context only" while its Factor
 is not applied: the Line chips follow the game environment Factor, the
 weather chips the weather Factor. No chips on the Decision card or a Ledger
-row.
+row. A Questionable player with no practice all week is never
+auto-recommended, as a Doubtful player is: he is startable if a manager
+insists, a starter keeps his slot, and "No practice this week" shows beside
+his Questionable tag on the Start/sit card and the Decision card. A player
+has no practice when at least one Practice participation observation exists
+for him this week, every one reads did not participate, and none is
+rest-related; with no observation the advice is unchanged. Only the advice
+reads this: no projection moves.
 _Avoid_: optimal lineup, optimize (as a manager action), optimal (in
 user-facing copy)
 
@@ -1704,10 +1711,14 @@ _Avoid_: availability (a roster fact about one league), active probability,
 chance to play
 
 **Practice participation**:
-What a team reports a player did at one practice day in the week before a
-game: did not participate, limited, or full. A fact about the NFL world,
-distinct from Game status, which is the designation the player carries into
-the game.
+What a team reports a player did at practice in the week before a game: did
+not participate, limited, or full. A fact about the NFL world, distinct from
+Game status, which is the designation the player carries into the game. It is
+captured as observations: each time the published report changes for a player,
+we record the new report with the time we saw it. The practice day is
+therefore approximate (a Wednesday report first published Thursday is
+observed Thursday), and a week's observations, not a single value, are what
+the Start/sit advice reads.
 _Avoid_: practice status, injury status, DNP (in prose, say "did not
 participate")
 

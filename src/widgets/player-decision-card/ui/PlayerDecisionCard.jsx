@@ -35,6 +35,7 @@ import {
   ordinal,
   hasNoHistory,
   projectionLabel,
+  NO_PRACTICE_LABEL,
   VOLATILITY_LABELS,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
@@ -573,6 +574,11 @@ export default function PlayerDecisionCard(props) {
                       position. */}
                   {displayEntry.slot && <PosChip position={displayEntry.slot} />}
                   <InjuryTag status={displayEntry.injuryStatus} />
+                  {/* ADR 0056: the Start/sit advice's own verdict, passed by the
+                      Lineup page as a flag on the entry (no other opener has it). */}
+                  {displayEntry.noPractice && (
+                    <Badge variant="neutral" data-testid="decision-card-no-practice">{NO_PRACTICE_LABEL}</Badge>
+                  )}
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (
                     <Typography

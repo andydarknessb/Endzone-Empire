@@ -468,6 +468,19 @@ test('the injury tile and the Factor tile render together, independent of which 
   expect(await screen.findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
+test('"No practice this week" shows beside the Questionable tag only when the entry carries the flag (ADR 0056)', async () => {
+  renderCard({ entry: entry({ injuryStatus: 'Q', noPractice: true }) });
+  const note = await screen.findByTestId('decision-card-no-practice');
+  expect(note).toHaveTextContent('No practice this week');
+  expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+});
+
+test('no practice note on a Questionable player without the flag', async () => {
+  renderCard({ entry: entry({ injuryStatus: 'Q' }) });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
+});
+
 test('the injury tile is hidden for a healthy player', async () => {
   renderCard({ entry: entry({ injuryStatus: null }) });
   await screen.findByRole('heading', { name: 'Josh Allen' });

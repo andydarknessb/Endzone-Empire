@@ -50,6 +50,11 @@ export function useAdvice({ leagueId, week, bestBall }) {
     // The team's called shot for the week, or null (#1856): rendered as the
     // standing "Your called shot" line.
     calledShot: data?.calledShot ?? null,
+    // The players whose Questionable tag carries "No practice this week"
+    // (ADR 0056), from the advice's per-player flag.
+    noPracticeIds: new Set(
+      (Array.isArray(data?.players) ? data.players : []).filter((p) => p.noPractice).map((p) => p.playerId)
+    ),
     reload,
   };
 }

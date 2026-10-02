@@ -210,6 +210,13 @@ export default function LineupPage() {
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
+  // The Decision card's entry, carrying the advice's "No practice this week"
+  // flag (ADR 0056) so the card shows it beside the Questionable tag; the
+  // server's Start/sit advice owns the verdict, so no other opener has it.
+  const decisionCardRow = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
+  const decisionCardEntry = decisionCardRow && advice.noPracticeIds.has(decisionCardRow.playerId)
+    ? { ...decisionCardRow, noPractice: true }
+    : decisionCardRow;
   const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
@@ -522,7 +529,7 @@ export default function LineupPage() {
       <PlayerDecisionCard
         open={decisionCardEntryId != null}
         onClose={() => setDecisionCardEntryId(null)}
-        entry={(lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null}
+        entry={decisionCardEntry}
         leagueId={selectedLeagueId}
         week={lineup?.week}
         context={myTeam({
