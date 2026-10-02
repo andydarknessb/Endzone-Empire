@@ -122,7 +122,8 @@ async function loadIdentityIds(playerId) {
 }
 
 /**
- * Internal: shared plumbing for `upgradesFor` and `getPlayerCard`. Materializes
+ * Shared plumbing for `upgradesFor`, `getPlayerCard` and the Players page's
+ * `sort=upgrade` (which needs `projections` for its tie-break, #1911). Materializes
  * the caller's lineup inside a transaction (withTransaction + materializeLineup,
  * same pattern commissioner.service.js's forceSetLineup uses at :150-165),
  * reading every lineup entry but IR (starters and bench) with whether his game
@@ -946,6 +947,7 @@ module.exports = {
   PlayerCardError,
   getPlayerCard,
   upgradesFor,
+  loadUpgradeContext,
   availabilityFor,
   availabilityForMany,
   buildWeeksForPage,

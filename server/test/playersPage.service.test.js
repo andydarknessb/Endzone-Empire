@@ -563,3 +563,73 @@ test('sort=upgrade: a Position-baseline candidate sorts after an evidenced one w
   assert.equal(byId.get(2).upgrade.points, 4);
   assert.equal(byId.get(3).upgrade.points, 7);
 });
+
+// #1911 (#1800 Ruling item 2): equal Upgrades tie-break on the candidate's own
+// Weekly projection descending (the number `loadUpgradeContext` hands
+// `upgradeFor`), then id; a null Upgrade stays last whatever it projects.
+test('sort=upgrade: equal Upgrades order by the candidate\'s Weekly projection, a null Upgrade stays last (#1911)', async (t) => {
+  const lineupService = require('../services/lineup.service');
+  const playerCardService = require('../services/playerCard.service');
+  const league = {
+    id: 1, name: 'Tie League', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 5,
+    best_ball: false,
+  };
+  const players = [
+    { id: 1, name: 'Projects Four', position: 'QB', nfl_team: 'ARI', total_count: '3', identity_ids: [1] },
+    { id: 2, name: 'Projects Nine', position: 'QB', nfl_team: 'KC', total_count: '3', identity_ids: [2] },
+    { id: 3, name: 'Baseline Twenty', position: 'QB', nfl_team: 'DAL', total_count: '3', identity_ids: [3] },
+  ];
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: players.map(({ id, position, nfl_team }) => ({ id, position, nfl_team })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Strong Starter', position: 'QB', nfl_team: null }] })],
+    [/^WITH "target" AS \(/, () => ({ rows: players.map(({ id }) => ({ id })) })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "player_watchlist"/, () => ({ rows: [] })],
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  const entry = (median, reasons) => ({
+    mean: median, median, factors: { availability: { available: true }, dataQuality: { reasons } },
+  });
+  const weeklyResult = (week) => projectionService.toWeeklyProjectionResult({
+    week,
+    projections: new Map([
+      [999, entry(15, [])],
+      [1, entry(4, [])],
+      [2, entry(9, [])],
+      [3, entry(20, ['position baseline'])],
+    ]),
+  });
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => weeklyResult(options.week));
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks }) => new Map(
+    weeks.map((week) => [week, weeklyResult(week)]),
+  ));
+  t.mock.method(projectionService, 'getRestOfSeason', async () => new Map());
+  t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
+  t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', view: 'cards', sortField: 'upgrade', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  // 2 (Upgrade 0, projects 9) before 1 (Upgrade 0, projects 4) although 1 has the lower id;
+  // 3 has a null Upgrade (Position baseline) and projects 20, yet comes last.
+  assert.deepEqual(result.players.map((p) => p.id), [2, 1, 3]);
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.equal(byId.get(1).upgrade.points, 0);
+  assert.equal(byId.get(2).upgrade.points, 0);
+  assert.equal(byId.get(3).upgrade, null);
+});

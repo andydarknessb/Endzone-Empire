@@ -114,6 +114,12 @@ function mockCardServices(t, {
     upgradesForCalls.push(options);
     return upgrades;
   });
+  // #1911: the sort=upgrade page read takes the context (upgrades plus the
+  // Weekly projection tie-break) rather than `upgradesFor`; same map, no tie-break values.
+  t.mock.method(playerCardService, 'loadUpgradeContext', async (options) => {
+    upgradesForCalls.push(options);
+    return { upgrades, projections: { pointsFor: () => null } };
+  });
   // #1403: the page's Weekly projections arrive through ONE multi-week read.
   // #1703: `getWeeklyProjectionsForWeeks` itself now returns the result
   // object, so the mock wraps each week's Map the same way the real
