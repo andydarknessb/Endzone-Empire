@@ -584,10 +584,23 @@ test('buildWeather is null for an indoor game or with no snapshot, and shaped ot
   assert.equal(pickem.buildWeather('outdoors', null), null, 'null path: no snapshot yet');
   assert.deepEqual(
     pickem.buildWeather('outdoors', {
-      short_forecast: 'Windy', temperature_f: 55, wind_speed_mph: 18, precipitation_probability: 20,
+      short_forecast: 'Windy', temperature_f: 55, wind_speed_mph: 18, precipitation_probability: 20, fetched_at: new Date(),
     }),
     { shortForecast: 'Windy', temperatureF: 55, windSpeedMph: 18, precipitationProbability: 20 },
     'populated path'
+  );
+});
+
+test('buildWeather withholds a snapshot fetched more than 24h before now, and keeps a fresh one (#1941)', () => {
+  const now = new Date('2026-10-02T12:00:00Z');
+  const hoursBefore = (h) => new Date(now.getTime() - h * 3600 * 1000);
+  const row = { short_forecast: 'Rain Showers Likely', temperature_f: 65 };
+  assert.equal(pickem.buildWeather('outdoors', { ...row, fetched_at: hoursBefore(71) }, false, now), null, 'stale: withheld');
+  assert.equal(pickem.buildWeather('outdoors', { ...row }, false, now), null, 'no fetched_at: withheld');
+  assert.deepEqual(
+    pickem.buildWeather('outdoors', { ...row, fetched_at: hoursBefore(18) }, false, now),
+    { shortForecast: 'Rain Showers Likely', temperatureF: 65, windSpeedMph: null, precipitationProbability: null },
+    'fresh: shaped'
   );
 });
 

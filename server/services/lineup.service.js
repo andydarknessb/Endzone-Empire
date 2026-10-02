@@ -13,7 +13,7 @@ const { gameStateFor } = require('./gameState');
 const { unavailableFor } = require('./unavailable');
 const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
-const { isIndoorGame } = require('./nwsWeather.service');
+const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
 
 class LineupError extends Error {
   constructor(statusCode, message, code = null) {
@@ -818,17 +818,20 @@ async function weekLiveGameStates(client, { season, week }) {
  * own `loadWeather` read (`decisionCardContext.service.js`), batched over the
  * week instead of fetched per player, since nine Ledger rows can share one
  * game key. `gameKeys` empty short-circuits with no query at all - the same
- * shape `playersNotHeldAt` uses for its own empty-input case.
+ * shape `playersNotHeldAt` uses for its own empty-input case. A snapshot
+ * fetched more than 24h ago is left out of the map, so it reads as no
+ * forecast, as in `loadWeather` (`isWeatherFresh`, #1941).
  */
-async function weekWeather(client, { gameKeys }) {
+async function weekWeather(client, { gameKeys, now = Date.now() }) {
   if (!gameKeys || gameKeys.length === 0) return new Map();
   const result = await client.query(
-    `SELECT DISTINCT ON ("game_key") "game_key", "temperature_f", "wind_speed_mph", "wind_gust_mph", "precipitation_probability", "short_forecast"
+    `SELECT DISTINCT ON ("game_key") "game_key", "temperature_f", "wind_speed_mph", "wind_gust_mph", "precipitation_probability", "short_forecast", "fetched_at"
      FROM "game_weather_snapshots" WHERE "game_key" = ANY($1) ORDER BY "game_key", "horizon_hours" ASC`,
     [gameKeys]
   );
   const byGameKey = new Map();
   for (const row of result.rows) {
+    if (!isWeatherFresh(row, now)) continue;
     byGameKey.set(row.game_key, {
       temperatureF: row.temperature_f == null ? null : Number(row.temperature_f),
       windSpeedMph: row.wind_speed_mph == null ? null : Number(row.wind_speed_mph),
