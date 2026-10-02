@@ -270,7 +270,8 @@ async function main(argv, { head = gitHead, dirty = gitDirty } = {}) {
   // checkout cannot supply either the target version's constants OR v3.1's
   // (every report carries the v3.1 rebuild as its error bar), and before
   // `--out` is even resolved.
-  assertDecidingRead(args, head(), dirty());
+  // The calibration run is not a deciding read: no git call for it.
+  if (args.modelVersion !== successorEval.MODEL_VERSION_V3_1) assertDecidingRead(args, head(), dirty());
   successorEval.constantsFor(args.modelVersion);
   successorEval.constantsFor(successorEval.MODEL_VERSION_V3_1);
   const out = resolveOutputPaths(args.outDir);

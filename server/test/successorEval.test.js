@@ -239,7 +239,12 @@ test('the synthetic ledger reproduces exactly under a mocked v3.1 re-projection:
   };
 
   const result = await successorEval.evaluate({
-    profiles, survivors: { weeks: WEEK_NUMBERS, dropped: [] }, modelVersion: model.MODEL_VERSION, generateProjections: routedGenerateProjections,
+    profiles,
+    survivors: { weeks: WEEK_NUMBERS, dropped: [] },
+    modelVersion: successorEval.MODEL_VERSION_V3_1,
+    generateProjections: routedGenerateProjections,
+    // Pinned to the literal v3.1 name so the test survives the version bump.
+    constantsByModelVersion: { [successorEval.MODEL_VERSION_V3_1]: model.MODEL_CONSTANTS },
   });
   assert.equal(result.mode, 'calibration');
   assert.equal(result.verdict, null, 'a v3.1 run is the calibration run and decides nothing');
@@ -767,4 +772,95 @@ test('loadSurvivors keeps only what the sealed survivingWeeks keeps, and loadPro
   });
   const scheduled = queries.filter((q) => q.sql.includes("capture_kind\" = 'scheduled'")).pop();
   assert.deepEqual(scheduled.params[3], [1, 3], 'the scheduled read is restricted to the surviving weeks');
+});
+
+// ---- review round: the scoring path with the rows the end-to-end fixtures never carry ----
+
+test('scoreWeeks scores the projection (mean times a fractional active probability, 0 where unserved, 0 for an absent actual), never the raw mean', () => {
+  const baseline = { dataQuality: { reasons: ['position baseline'] } };
+  const mk = (over) => ({
+    mean: 10, median: 10, p10: 5, p25: 8, p75: 12, p90: 15, activeProbability: 1, factors: {}, ...over,
+  });
+  const entry4 = (playerId, capturedV31, rebuiltV31, rebuiltTarget) => ({
+    playerId, position: 'QB', rows: { capturedV31, rebuiltV31, rebuiltTarget },
+  });
+  const cohortWeeks = [{
+    week: 1,
+    season: SEASON,
+    entries: [
+      // fractional probability, arriving as a pg string in the capture: projection 5, actual 4
+      entry4(1, mk({ activeProbability: '0.5' }), mk({ activeProbability: 0.5 }), mk({ activeProbability: 0.5 })),
+      // served in captured and rebuilt v3.1, unserved in v3.2: projection 0 there, actual 8
+      entry4(2, mk({ mean: 8 }), mk({ mean: 8 }), mk({ mean: null })),
+      // an absent actual is 0: projection 6
+      entry4(3, mk({ mean: 6 }), mk({ mean: 6 }), mk({ mean: 6 })),
+      // a Position-baseline row in v3.1 that v3.2 serves: 0, 0, 9; actual 9
+      entry4(4, mk({ mean: 9, factors: baseline }), mk({ mean: 9, factors: baseline }), mk({ mean: 9 })),
+    ],
+  }];
+  const actuals = new Map([[`${SEASON}:1:1`, 4], [`${SEASON}:1:2`, 8], [`${SEASON}:1:4`, 9]]);
+  const mae = (scored) => COLS.map((c) => scored.weekly[0].byCol[c].mae);
+
+  const primary = successorEval.scoreWeeks({ cohortWeeks, cols: COLS, actuals });
+  assert.deepEqual(mae(primary), [4, 4, 3.75], '(1+0+6+9)/4, (1+0+6+9)/4, (1+8+6+0)/4');
+  assert.equal(primary.rowCounts[0].scored, 4);
+
+  const everyColumn = successorEval.scoreWeeks({ cohortWeeks, cols: COLS, actuals, everyColumnServes: true });
+  assert.equal(everyColumn.rowCounts[0].scored, 2, 'players 2 and 4 are not served in every column');
+  assert.deepEqual(mae(everyColumn), [3.5, 3.5, 3.5]);
+
+  const baselineServed = successorEval.scoreWeeks({
+    cohortWeeks, cols: COLS, actuals, served: successorEval.hasMeanAndIsActive,
+  });
+  assert.deepEqual(mae(baselineServed), [1.75, 1.75, 3.75], 'the Position-baseline row now counts at its mean');
+});
+
+test('check 4 tolerance: the drift term binds above the 0.02 floor, a small excess outside the band passes, and a cov50-only failure fails', () => {
+  // captured 0.70 (distance 0.10), rebuilt v3.1 0.74 (0.06): drift 0.04, so the tolerance is 0.04, not 0.02.
+  const drift = successorEval.gateChecks(weeklyFor({ cov80: [0.7, 0.74, 0.71] })).checks[3];
+  assert.ok(Math.abs(drift.cov80.tolerance - 0.04) < 1e-9);
+  assert.equal(drift.cov80.inBand, false);
+  assert.ok(drift.cov80.excess > 0.02 && drift.cov80.excess < 0.04);
+  assert.equal(drift.passes, true, 'excess 0.03 is within the drift tolerance 0.04');
+  assert.equal(successorEval.gateChecks(weeklyFor({ cov80: [0.7, 0.74, 0.69] })).checks[3].passes, false, 'excess 0.05 is not');
+
+  // 0 < excess <= 0.02, outside the band: a pass.
+  const small = successorEval.gateChecks(weeklyFor({ cov80: [0.7, 0.7, 0.69] })).checks[3];
+  assert.ok(small.cov80.excess > 0 && small.cov80.excess <= small.cov80.tolerance);
+  assert.equal(small.cov80.inBand, false);
+  assert.equal(small.passes, true);
+
+  // 50% alone fails.
+  const only50 = successorEval.gateChecks(weeklyFor({ cov50: [0.5, 0.5, 0.6] }));
+  assert.equal(only50.checks[3].cov80.passes, true);
+  assert.equal(only50.checks[3].cov50.passes, false);
+  assert.deepEqual(passesOf(only50), [true, true, true, false]);
+});
+
+test('a v3.1 calibration run asks git for nothing: the guard is for the deciding read only', async () => {
+  const calls = [];
+  await assert.rejects(
+    () => runner.main(
+      ['--model-version', 'free_baseline_v3.1', '--season', '2026', '--out', '..'],
+      { head: () => { calls.push('head'); return 'x'; }, dirty: () => { calls.push('dirty'); return ''; } }
+    ),
+    /not a directory inside this repository/
+  );
+  assert.deepEqual(calls, []);
+});
+
+test('the section 7 variants carry values: on a fully served ledger they equal the primary, and no row is only-v3.2-served', async () => {
+  const ledger = decidingLedger(rangeOfWeeks(14));
+  const result = await successorEval.evaluate({
+    profiles: [{ name: 'half_ppr', rules: {}, ...ledger }],
+    survivors: { weeks: rangeOfWeeks(14), dropped: [] },
+    modelVersion: FAKE_V3_2,
+    generateProjections: decidingGenerate(ledger),
+    constantsByModelVersion: REGISTRY,
+  });
+  const { gate, variants } = result.profiles.half_ppr;
+  for (const name of ['everyColumnServes', 'positionBaselineAsServed', 'withoutWeek18']) {
+    assert.deepEqual(variants[name].season, gate.season, name);
+  }
+  assert.equal(variants.coverageOnRowsOnlyV32Serves.rows, 0);
 });
