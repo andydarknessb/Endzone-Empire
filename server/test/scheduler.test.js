@@ -1005,7 +1005,7 @@ test('runNflversePractice waits 15 minutes after a failed check too', async (t) 
   assert.equal(calls, 1);
 });
 
-test('tickUnlocked runs the practice-participation poll in its own containment, and SYNC_RUN_JOBS lists it', () => {
+test('tickUnlocked runs the practice-participation poll in its own containment, after every deadline duty, and SYNC_RUN_JOBS lists it', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
@@ -1014,6 +1014,16 @@ test('tickUnlocked runs the practice-participation poll in its own containment, 
     source.indexOf('async function runRetention')
   );
   assert.match(tickBody, /try \{\s*await runNflversePractice\(\);\s*\} catch/);
+  // Up to ~90s of serial downloads: never ahead of the holdout capture, the
+  // kickoff hold, waivers, reminders, trades, live scoring or Override capture.
+  const poll = tickBody.indexOf('await runNflversePractice()');
+  for (const duty of [
+    'await runHoldoutSnapshots()', 'await holdKickedOffPlayers()', 'await processAllDueWaivers()',
+    'sendLineupReminders()', 'await processDueTrades()', 'await syncAndScoreLiveWeeks()', 'await captureOverrides(',
+  ]) {
+    const at = tickBody.indexOf(duty);
+    assert.ok(at > 0 && at < poll, `${duty} runs before the practice poll`);
+  }
   assert.ok(scheduler.SYNC_RUN_JOBS.includes('nflverse-practice'));
 });
 

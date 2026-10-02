@@ -122,11 +122,6 @@ async function tickUnlocked() {
       console.error('nflverse current-week pass failed (will retry in 15 minutes):', err.message);
     }
     try {
-      await runNflversePractice();
-    } catch (err) {
-      console.error('nflverse practice-participation poll failed (will retry in 15 minutes):', err.message);
-    }
-    try {
       await runDailyInjurySync();
     } catch (err) {
       console.error('daily injury sync failed (will retry next tick):', err.message);
@@ -221,6 +216,16 @@ async function tickUnlocked() {
       await captureOverrides({ loadAdvice: startSitAdvice });
     } catch (err) {
       console.error('override capture failed (will retry next tick):', err.message);
+    }
+    // nflverse practice-participation poll (#1922): after every deadline duty
+    // (holdout capture, kickoff hold, waivers, reminders, trades, live
+    // scoring, Override capture), since a poll that finds a new file is up to
+    // a minute and a half of serial downloads that must never delay them.
+    // Nothing above reads what it writes within the same tick.
+    try {
+      await runNflversePractice();
+    } catch (err) {
+      console.error('nflverse practice-participation poll failed (will retry in 15 minutes):', err.message);
     }
     await runRetention();
     // Weather snapshots (#1883): after live scoring and every deadline duty,
@@ -1348,13 +1353,14 @@ let lastNflversePracticeCheckAt = null; // epoch ms
 /**
  * nflverse practice-participation poll (#1922): every 15 minutes, any hour of
  * any day, ask `practiceParticipation.syncCurrentWeeks` to capture the injury
- * report's practice and report statuses for the week each in-season league
- * sits on. It downloads only when nflverse's timestamp.json changed since the
- * last capture, so a check that finds nothing new is one small request and
- * writes no run row. Same throttle shape as `runNflverseCurrentWeek` above: an
- * in-memory stamp, taken BEFORE the call so a failing nflverse is retried
- * every 15 minutes, not every tick. The service logs a failed poll itself and
- * loses only that poll.
+ * report's practice and report statuses for the NFL week in play (read off
+ * nfl_games kickoffs, never a league's current_week). It downloads only when
+ * nflverse's timestamp.json changed since the last capture, so a check that
+ * finds nothing new is one small request and writes no run row. Same throttle
+ * shape as `runNflverseCurrentWeek` above: an in-memory stamp, taken BEFORE
+ * the call so a failing nflverse is retried every 15 minutes, not every tick.
+ * The service logs a failed poll itself and loses only that poll. Ordered in
+ * `tickUnlocked` after every deadline duty.
  */
 async function runNflversePractice({ now = new Date() } = {}) {
   const elapsed = lastNflversePracticeCheckAt === null ? null : now.getTime() - lastNflversePracticeCheckAt;
