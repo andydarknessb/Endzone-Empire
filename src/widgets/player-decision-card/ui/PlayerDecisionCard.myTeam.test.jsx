@@ -468,16 +468,33 @@ test('the injury tile and the Factor tile render together, independent of which 
   expect(await screen.findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
-test('"No practice this week" shows beside the Questionable tag only when the entry carries the flag (ADR 0056)', async () => {
-  renderCard({ entry: entry({ injuryStatus: 'Q', noPractice: true }) });
+test('"No practice this week" shows beside the Questionable tag when the entry is Questionable and its verdict reason is no_practice (ADR 0056)', async () => {
+  renderCard({ entry: entry({ injuryStatus: 'Q', verdictReason: 'no_practice' }) });
   const note = await screen.findByTestId('decision-card-no-practice');
   expect(note).toHaveTextContent('No practice this week');
   expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
 });
 
-test('no practice note on a Questionable player without the flag', async () => {
-  renderCard({ entry: entry({ injuryStatus: 'Q' }) });
+test.each([
+  ['a Questionable player with no verdict reason', { injuryStatus: 'Q' }],
+  ['a Questionable player with another reason', { injuryStatus: 'Q', verdictReason: 'questionable' }],
+  ['a player now Out whose advice reason is stale', { injuryStatus: 'O', verdictReason: 'no_practice' }],
+  ['a healthy player whose advice reason is stale', { injuryStatus: null, verdictReason: 'no_practice' }],
+])('no practice note for %s', async (_name, over) => {
+  renderCard({ entry: entry(over) });
   await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
+});
+
+test('in compare mode the compared player gets the note by the same rule (ADR 0056)', async () => {
+  const starter = entry({ injuryStatus: 'Q', verdictReason: 'questionable' });
+  const other = entry({ playerId: 2, name: 'Compare Target', injuryStatus: 'Q', verdictReason: 'no_practice' });
+  renderCard({ entry: starter, entries: [starter, other] });
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId('decision-card-compare-action'));
+  await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+  const compare = await screen.findByTestId('decision-card-compare');
+  expect(within(compare).getByTestId('decision-card-compare-no-practice')).toHaveTextContent('No practice this week');
   expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
 });
 

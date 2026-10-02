@@ -789,18 +789,41 @@ test('the injury tile renders at page level', async () => {
 });
 
 // ADR 0056: the Decision card opened from the Lineup page shows "No practice
-// this week" for a player the Start/sit advice flags, and for no one else.
-test('the Decision card shows "No practice this week" for a player the advice flags', async () => {
+// this week" for a Questionable player whose advice verdict reads no_practice,
+// and for no one else: the lineup's own designation and the advice's reason
+// are both read, so a stale advice flag on a player now Out shows nothing.
+test('the Decision card shows "No practice this week" for a Questionable player the advice reads no_practice', async () => {
   const user = userEvent.setup();
   renderPage({
-    [ADVICE_URL]: { data: adviceBody({ players: [{ playerId: 10, noPractice: true }] }) },
+    [LINEUP_URL]: {
+      data: lineupBody({
+        extraEntries: [entryRow({
+          id: 30, name: 'Practice Guy', position: 'WR', slot: 'BENCH', nfl_team: 'NYG',
+          injury_status: 'Q', projected_points: 9, projection: 9,
+        })],
+      }),
+    },
+    [ADVICE_URL]: {
+      data: adviceBody({
+        players: [
+          { playerId: 30, availability: { reason: 'no_practice', status: 'Q' } },
+          { playerId: 10, availability: { reason: 'no_practice', status: 'Q' } },
+        ],
+      }),
+    },
+    [decisionContextUrl(30)]: { data: { line: null, weather: null, usage: null } },
     [decisionContextUrl(10)]: { data: { line: null, weather: null, usage: null } },
     [decisionContextUrl(1)]: { data: { line: null, weather: null, usage: null } },
   });
-  await user.click(await screen.findByRole('button', { name: 'Bench Guy' }));
+  await user.click(await screen.findByRole('button', { name: 'Practice Guy' }));
   const card = await screen.findByTestId('decision-card');
   expect(await within(card).findByTestId('decision-card-no-practice')).toHaveTextContent('No practice this week');
   await user.click(within(card).getByTestId('decision-card-close'));
+  // Bench Guy is Out on the lineup wire: the advice's reason is stale for him.
+  await user.click(await screen.findByRole('button', { name: 'Bench Guy' }));
+  const stale = await screen.findByTestId('decision-card');
+  expect(within(stale).queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
+  await user.click(within(stale).getByTestId('decision-card-close'));
   await user.click(await screen.findByRole('button', { name: 'Josh Allen' }));
   const other = await screen.findByTestId('decision-card');
   expect(within(other).queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();

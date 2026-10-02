@@ -574,11 +574,7 @@ export default function PlayerDecisionCard(props) {
                       position. */}
                   {displayEntry.slot && <PosChip position={displayEntry.slot} />}
                   <InjuryTag status={displayEntry.injuryStatus} />
-                  {/* ADR 0056: the Start/sit advice's own verdict, passed by the
-                      Lineup page as a flag on the entry (no other opener has it). */}
-                  {displayEntry.noPractice && (
-                    <Badge variant="neutral" data-testid="decision-card-no-practice">{NO_PRACTICE_LABEL}</Badge>
-                  )}
+                  <NoPracticeNote entry={displayEntry} testId="decision-card-no-practice" />
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (
                     <Typography
@@ -981,7 +977,10 @@ export default function PlayerDecisionCard(props) {
                 sx={{ borderTop: { xs: '1px solid var(--dash-line)', md: 0 }, borderLeft: { md: '1px solid var(--dash-line)' } }}
               >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pt: 1.5 }}>
-                  <Typography component="h3" sx={{ fontWeight: 700 }}>{compareEntry.name}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
+                    <Typography component="h3" sx={{ fontWeight: 700 }}>{compareEntry.name}</Typography>
+                    <NoPracticeNote entry={compareEntry} testId="decision-card-compare-no-practice" />
+                  </Box>
                   <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
                     <CloseIcon fontSize="small" />
                   </IconButton>
@@ -1144,6 +1143,19 @@ function Section({ title, testId, level = 'h3', children }) {
 
 // AC2/AC3: the injury designation and the feed's detail, hidden entirely for
 // a healthy player (null source).
+/**
+ * ADR 0056: "No practice this week" beside a Questionable tag, on the opened
+ * entry and on a compared one alike. Two facts are read, both off the entry:
+ * the lineup's own designation (`injuryStatus`, which the wire refreshes) and
+ * the Start/sit advice's verdict reason (`verdictReason`, which the Lineup
+ * page decorates every entry with; no other opener has it). A player whose
+ * designation has moved on since the advice was read shows nothing.
+ */
+function NoPracticeNote({ entry, testId }) {
+  if (!entry || entry.injuryStatus !== 'Q' || entry.verdictReason !== 'no_practice') return null;
+  return <Badge variant="neutral" data-testid={testId}>{NO_PRACTICE_LABEL}</Badge>;
+}
+
 function InjurySection({ entry, level }) {
   const view = injuryTileView(entry);
   if (!view) return null;

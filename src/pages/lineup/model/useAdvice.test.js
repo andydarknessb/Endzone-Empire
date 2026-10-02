@@ -23,18 +23,25 @@ test('fetches the advice endpoint for the given league/week and shapes the respo
   expect(result.current.optimalTotal).toBe(95);
 });
 
-test('carries the ids the advice flags as no practice this week, empty when none (ADR 0056)', async () => {
+test('carries each player\'s verdict reason off players[].availability, empty when none (ADR 0056)', async () => {
   apiClient.get.mockResolvedValue({
-    data: { suggestions: [], players: [{ playerId: 5, noPractice: true }, { playerId: 6, noPractice: false }, { playerId: 7 }] },
+    data: {
+      suggestions: [],
+      players: [
+        { playerId: 5, availability: { reason: 'no_practice', status: 'Q' } },
+        { playerId: 6, availability: { reason: null, status: null } },
+        { playerId: 7 },
+      ],
+    },
   });
   const { result } = renderHook(() => useAdvice({ leagueId: 1, week: 4, bestBall: false }));
   await waitFor(() => expect(result.current.status).toBe('ready'));
-  expect([...result.current.noPracticeIds]).toEqual([5]);
+  expect([...result.current.verdictReasonById]).toEqual([[5, 'no_practice'], [6, null], [7, null]]);
 
   apiClient.get.mockResolvedValue({ data: { suggestions: [] } });
   const { result: second } = renderHook(() => useAdvice({ leagueId: 2, week: 4, bestBall: false }));
   await waitFor(() => expect(second.current.status).toBe('ready'));
-  expect(second.current.noPracticeIds.size).toBe(0);
+  expect(second.current.verdictReasonById.size).toBe(0);
 });
 
 test('best ball never calls the endpoint at all', () => {
