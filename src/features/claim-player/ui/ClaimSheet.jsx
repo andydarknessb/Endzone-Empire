@@ -72,16 +72,13 @@ export function SwapPreview({ player }) {
   );
 }
 
-function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, onClose, onClaimed }) {
+function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed }) {
   const sortedRoster = sortRosterForDrop(roster);
-  // The replaced starter preselects as the drop only when he is available
-  // this week (Ruling on #1793, option B, amending ADR 0049): dropping a
-  // healthy stud who merely has a bye is not a better default than none.
-  const overPlayer = player.upgrade?.overPlayer;
+  // The server's suggested drop (#1912, ADR 0055): the lowest Rest of season
+  // player on a full roster. Never `upgrade.overPlayer`, who is the player the
+  // claim moves out of this week's lineup, usually a starter-grade player.
   const preselect =
-    overPlayer != null && !overPlayer.unavailable && sortedRoster.some((p) => p.id === overPlayer.id)
-      ? String(overPlayer.id)
-      : '';
+    dropSuggestion != null && sortedRoster.some((p) => p.id === dropSuggestion.id) ? String(dropSuggestion.id) : '';
   const editing = claim != null;
   const [dropId, setDropId] = useState(editing ? String(claim.dropPlayerId ?? '') : preselect);
   const [bid, setBid] = useState(editing ? String(claim.bid ?? 0) : '0');
@@ -199,14 +196,16 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
  * a full-height sheet on a phone and a dialog from `sm`. It files the claim
  * through `useClaimPlayer`, the one submission the Decision card's claim bar
  * also uses. `player` is a players-read row (`upgrade`, `projWeek`) or the
- * claim-target read (neither, so no swap preview and no preselection).
+ * claim-target read (neither, so no swap preview). `dropSuggestion` is the
+ * players read's `context.dropSuggestion` (`{ id, name } | null`), the one
+ * drop the sheet preselects on a new claim.
  *
  * Edit mode (#1616): pass the pending `claim` (the `waiver-claim` read model's
  * row) and `onSave({ bid, dropPlayerId })`, which resolves `{ ok }`. The sheet
  * opens prefilled and saves through `onSave`, never a new submission; the
  * Claim order is the server's to keep.
  */
-export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, onClose, onClaimed }) {
+export default function ClaimSheet({ open, player, claim, onSave, leagueId, availability, roster, dropSuggestion, onClose, onClaimed }) {
   const phone = useMediaQuery('(max-width:599.95px)'); // below MUI's sm
   if (!player) return null;
   return (
@@ -219,6 +218,7 @@ export default function ClaimSheet({ open, player, claim, onSave, leagueId, avai
         leagueId={leagueId}
         availability={availability}
         roster={Array.isArray(roster) ? roster : []}
+        dropSuggestion={dropSuggestion}
         onClose={onClose}
         onClaimed={onClaimed}
       />
