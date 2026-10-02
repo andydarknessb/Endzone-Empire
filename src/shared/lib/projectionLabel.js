@@ -15,6 +15,11 @@ import { formatPoints } from './numeric';
 
 export const NO_HISTORY_LABEL = 'no history';
 
+// The note beside a Questionable tag when the server's Start/sit advice read
+// no practice all week for the player (`availability.reason === 'no_practice'`,
+// ADR 0056). The server owns the verdict; this is only its copy. Never "DNP".
+export const NO_PRACTICE_LABEL = 'No practice this week';
+
 // The Lineup wire spells the verdict `positionBaseline: true` (#1776); the
 // Players page wire (Players and Waivers, #1778) carries the server's verdict
 // reason, `verdictReason: 'no_history'`, on those rows only. Both are the

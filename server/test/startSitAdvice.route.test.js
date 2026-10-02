@@ -114,6 +114,10 @@ function mockAdviceDependencies(t, {
   // make that read reject to pin the degrade-to-no-tags path.
   volatilityRows = null,
   failVolatility = false,
+  // Practice participation (ADR 0056): the week's stored observations
+  // (player_practice_observations shape); a test can make the read reject.
+  practiceRows = [],
+  failPractice = false,
 } = {}) {
   const projectionCalls = [];
   t.mock.method(pool, 'query', async (sql, params) => {
@@ -122,6 +126,10 @@ function mockAdviceDependencies(t, {
     if (failOdds && text.includes('FROM "game_odds_snapshots"')) throw new Error('pool timeout');
     if (text.includes('FROM "leagues"')) return { rows: [league] };
     if (text.includes('FROM "lineup_overrides"')) return { rows: [] }; // #1856: no called shot here
+    if (text.includes('FROM "player_practice_observations"')) {
+      if (failPractice) throw new Error('relation "player_practice_observations" does not exist');
+      return { rows: practiceRows.filter((r) => params[2].includes(r.player_id)) };
+    }
     if (text.includes('FROM "projection_runs"')) return { rows: volatilityRows ? [{ id: 77 }] : [] };
     if (text.includes('FROM "player_week_projections"')) {
       if (failVolatility) throw new Error('pool timeout');
@@ -340,6 +348,89 @@ test('a fresh Practice squad row on getLineup\'s entry reaches buildSuggestions 
   assert.deepEqual(advice.unavailable.map((u) => [u.playerId, u.reason]), [[1, 'practice_squad']]);
   assert.equal(advice.projectedTotal, 0);
   assert.equal(advice.suggestions[0].suggested.playerId, 3);
+});
+
+// Practice participation (ADR 0056): startSitAdvice is the one reader that
+// loads this week's observations (one batched query) and hands them to the
+// verdict; a Questionable bench player with no practice all week is not
+// promoted and his row carries the flag the card reads.
+const DNP_ROW = (playerId) => ({
+  player_id: playerId, practice_status: 'Did Not Participate In Practice',
+  practice_primary_injury: 'Hamstring', report_primary_injury: 'Hamstring',
+  observed_at: new Date('2026-10-14T22:00:00Z'), // the Wednesday before
+});
+const SUNDAY_1PM = '2026-10-18T17:00:00Z';
+
+test('a Questionable bench player with no practice all week is not promoted and his row carries the verdict (ADR 0056)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB', { kickoff: SUNDAY_1PM }),
+    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q', kickoff: SUNDAY_1PM }),
+  ];
+  const queryLog = [];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+    practiceRows: [DNP_ROW(3)],
+    queryLog,
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+
+  assert.deepEqual(advice.suggestions, []);
+  assert.deepEqual(advice.players.map((p) => [p.playerId, p.availability.reason, p.availability.status]), [[1, null, null], [3, 'no_practice', 'Q']]);
+  const reads = queryLog.filter((q) => q.text.includes('FROM "player_practice_observations"'));
+  assert.equal(reads.length, 1, 'one batched read for the roster');
+  assert.deepEqual(reads[0].params, [2026, 6, [1, 3]]);
+});
+
+test('the same Questionable bench player with no observations, or with coverage that began Friday, is promoted as before (ADR 0056 self-gates)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB', { kickoff: SUNDAY_1PM }),
+    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q', kickoff: SUNDAY_1PM }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+
+  assert.equal(advice.suggestions[0].suggested.playerId, 3);
+  assert.equal(advice.suggestions[0].suggested.availability.reason, 'questionable');
+  assert.equal(advice.players.find((p) => p.playerId === 3).availability.reason, 'questionable');
+
+  t.mock.restoreAll();
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+    practiceRows: [{ ...DNP_ROW(3), observed_at: new Date('2026-10-16T20:00:00Z') }],
+  });
+  const late = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+  assert.equal(late.suggestions[0].suggested.playerId, 3, 'one Friday observation is not a week');
+  assert.equal(late.players.find((p) => p.playerId === 3).availability.reason, 'questionable');
+});
+
+test('a failed practice-participation read still answers the advice, as if no one had observations', async (t) => {
+  const entries = [
+    lineupEntry(1, 'RB', 'RB'),
+    lineupEntry(3, 'RB', 'BENCH', { injury_status: 'Q' }),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }],
+    projections: [[1, projectionFor(1, 6)], [3, projectionFor(3, 18)]],
+    failPractice: true,
+  });
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+
+  assert.equal(advice.suggestions[0].suggested.playerId, 3);
+  assert.ok(errors.some((e) => /practice participation lookup failed/.test(e)));
 });
 
 test('a DEF unit resolves its opponent even though players.nfl_team is a full team name (#423)', async (t) => {

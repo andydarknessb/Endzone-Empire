@@ -94,3 +94,129 @@ test('unavailableFor (#1767): a missing, stale (49h), Active or Reserve status r
   assert.equal(healthy({ status: 'practice_squad', capturedAt: 'garbage' }).available, true, 'unparseable');
   assert.equal(healthy({ status: 'practice_squad' }).available, true, 'no timestamp');
 });
+
+// Practice participation (ADR 0056, rulings R2 and R5): a Questionable player
+// who did not practice all week is never auto-recommended. Observations are
+// `{ practiceStatus, practicePrimaryInjury, reportPrimaryInjury, observedAt }`
+// and `kickoffAt` is his game. Fixture week: Sunday 2026-10-11 1pm ET.
+const SUNDAY_1PM = '2026-10-11T17:00:00Z';
+const WED = '2026-10-07T22:00:00Z';
+const THU = '2026-10-08T22:00:00Z';
+const FRI = '2026-10-09T22:00:00Z';
+const dnp = (extra = {}) => ({
+  practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring',
+  reportPrimaryInjury: 'Hamstring', observedAt: WED, ...extra,
+});
+const noPractice = (observations, facts = {}, kickoffAt = SUNDAY_1PM) =>
+  unavailableFor({ injuryStatus: 'Q', practice: { observations, kickoffAt }, ...facts });
+
+test('unavailableFor (practice): Questionable with every observation did-not-participate reads no_practice', () => {
+  for (const observations of [[dnp()], [dnp(), dnp({ observedAt: FRI })], [dnp({ practiceStatus: 'did not participate' })]]) {
+    const verdict = noPractice(observations);
+    assert.equal(verdict.reason, 'no_practice');
+    assert.equal(verdict.status, 'Q');
+    assert.equal(verdict.available, true);
+    assert.equal(verdict.autoRecommend, false);
+    assert.equal(verdict.activeProbability, null);
+  }
+});
+
+test('unavailableFor (practice): no observations, a limited one, or a blank one leaves plain Questionable', () => {
+  assert.equal(noPractice([]).reason, 'questionable', 'no observation at all');
+  assert.equal(noPractice(undefined).reason, 'questionable');
+  assert.equal(unavailableFor({ injuryStatus: 'Q' }).reason, 'questionable', 'no practice input at all');
+  assert.equal(noPractice([dnp(), dnp({ practiceStatus: 'Limited Participation in Practice', observedAt: THU })]).reason, 'questionable', 'DNP then limited');
+  assert.equal(noPractice([dnp({ practiceStatus: 'Full Participation in Practice' })]).reason, 'questionable');
+  assert.equal(noPractice([dnp({ practiceStatus: null })]).reason, 'questionable', 'blank is not did-not-participate');
+  assert.equal(noPractice([dnp({ practiceStatus: '' })]).reason, 'questionable');
+  assert.equal(noPractice([dnp(), dnp({ practiceStatus: null, observedAt: THU })]).reason, 'questionable', 'one blank observation defeats it');
+  assert.equal(noPractice([dnp()]).autoRecommend, false);
+  assert.equal(noPractice([]).autoRecommend, true);
+});
+
+// Ruling R5 (finding 3): rest-related is "rest" or "resting" as a whole word in
+// either primary-injury text. "Not injury related" alone, or with another
+// reason (personal matter, illness), is a real absence and counts.
+test('unavailableFor (practice): a rest-related observation defeats no_practice', () => {
+  for (const injury of ['Not Injury Related - Resting Player', 'Rest', 'resting vet', 'Not injury related - rest', 'REST DAY']) {
+    assert.equal(noPractice([dnp({ practicePrimaryInjury: injury })]).reason, 'questionable', `practice: ${injury}`);
+    assert.equal(noPractice([dnp({ reportPrimaryInjury: injury })]).reason, 'questionable', `report: ${injury}`);
+  }
+  assert.equal(noPractice([dnp(), dnp({ practicePrimaryInjury: 'Rest', observedAt: THU })]).reason, 'questionable', 'any one observation');
+  assert.equal(noPractice([dnp({ practicePrimaryInjury: null, reportPrimaryInjury: null })]).reason, 'no_practice', 'no injury text is not rest');
+});
+
+test('unavailableFor (practice): a not-injury-related absence that is not rest still counts, and "rest" inside another word does not match', () => {
+  for (const injury of ['Not injury related - personal matter', 'Not Injury Related', 'Not injury related - illness', 'Restricted', 'Wrestling injury']) {
+    assert.equal(noPractice([dnp({ practicePrimaryInjury: injury, reportPrimaryInjury: injury })]).reason, 'no_practice', injury);
+  }
+});
+
+// Ruling R5 (finding 2): one late observation is not a week. The rule fires
+// only when coverage began in time: the earliest observation was observed by
+// the end of the week's Thursday (ET, the Thursday on or before his game day)
+// and at least 48 hours before his kickoff.
+test('unavailableFor (practice): coverage that began Friday, after the Thursday deadline, never fires', () => {
+  assert.equal(noPractice([dnp({ observedAt: FRI })]).reason, 'questionable', 'first seen Friday');
+  assert.equal(noPractice([dnp({ observedAt: FRI }), dnp({ observedAt: '2026-10-10T20:00:00Z' })]).reason, 'questionable', 'two late observations');
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-09T03:59:59Z' })]).reason, 'no_practice', 'Thursday 11:59:59pm ET still counts');
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-09T04:00:00Z' })]).reason, 'questionable', 'Friday 12:00am ET is too late');
+  // Deploy day (Friday 2026-10-02, week 4): nobody fires for week 4.
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-02T19:00:00Z' })], {}, '2026-10-04T17:00:00Z').reason, 'questionable', 'Sunday team');
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-02T19:00:00Z' })], {}, '2026-10-06T00:15:00Z').reason, 'questionable', 'Monday night team');
+});
+
+test('unavailableFor (practice): the earliest observation decides coverage, whatever order the list is in', () => {
+  assert.equal(noPractice([dnp({ observedAt: FRI }), dnp({ observedAt: WED })]).reason, 'no_practice');
+});
+
+test('unavailableFor (practice): a Thursday or Saturday game needs coverage 48 hours before kickoff; Monday night keeps the Thursday deadline', () => {
+  const thursdayNight = '2026-10-09T00:15:00Z'; // Thu 10-08 8:15pm ET
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-06T23:00:00Z' })], {}, thursdayNight).reason, 'no_practice', 'Tuesday 7pm ET');
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-07T01:00:00Z' })], {}, thursdayNight).reason, 'questionable', 'Tuesday 9pm ET, inside 48 hours');
+  const saturday = '2026-10-10T20:30:00Z'; // Sat 4:30pm ET
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-08T19:00:00Z' })], {}, saturday).reason, 'no_practice', 'Thursday 3pm ET');
+  assert.equal(noPractice([dnp({ observedAt: '2026-10-08T21:00:00Z' })], {}, saturday).reason, 'questionable', 'Thursday 5pm ET, inside 48 hours');
+  const mondayNight = '2026-10-13T00:15:00Z'; // Mon 10-12 8:15pm ET
+  assert.equal(noPractice([dnp({ observedAt: THU })], {}, mondayNight).reason, 'no_practice', 'Thursday evening');
+  assert.equal(noPractice([dnp({ observedAt: FRI })], {}, mondayNight).reason, 'questionable', "Friday is past the week's Thursday");
+  const london = '2026-10-11T13:30:00Z'; // Sun 9:30am ET
+  assert.equal(noPractice([dnp({ observedAt: THU })], {}, london).reason, 'no_practice');
+});
+
+test('unavailableFor (practice): no kickoff on file, or an unreadable observation time, never fires', () => {
+  assert.equal(noPractice([dnp()], {}, null).reason, 'questionable', 'no kickoff');
+  assert.equal(noPractice([dnp()], {}, 'garbage').reason, 'questionable');
+  assert.equal(noPractice([dnp({ observedAt: null })]).reason, 'questionable', 'no observation time');
+  assert.equal(unavailableFor({ injuryStatus: 'Q', practice: { observations: [dnp()] } }).reason, 'questionable', 'kickoff omitted');
+});
+
+test("practiceCoverageDeadline: the earlier of the Thursday's end (ET) and 48 hours before kickoff, DST-correct", () => {
+  const { practiceCoverageDeadline } = require('../services/unavailable');
+  assert.equal(practiceCoverageDeadline(SUNDAY_1PM).toISOString(), '2026-10-09T04:00:00.000Z', 'Friday midnight EDT');
+  assert.equal(practiceCoverageDeadline('2026-10-13T00:15:00Z').toISOString(), '2026-10-09T04:00:00.000Z', 'Monday night, same Thursday');
+  assert.equal(practiceCoverageDeadline('2026-10-09T00:15:00Z').toISOString(), '2026-10-07T00:15:00.000Z', 'Thursday night: 48 hours before');
+  assert.equal(practiceCoverageDeadline('2026-10-10T20:30:00Z').toISOString(), '2026-10-08T20:30:00.000Z', 'Saturday: 48 hours before');
+  assert.equal(practiceCoverageDeadline('2026-11-08T18:00:00Z').toISOString(), '2026-11-06T05:00:00.000Z', 'after the DST end on 11-01, Friday midnight EST');
+  assert.equal(practiceCoverageDeadline('2026-11-01T18:00:00Z').toISOString(), '2026-10-30T04:00:00.000Z', 'the DST-end Sunday itself: its Thursday is still EDT');
+  assert.equal(practiceCoverageDeadline(null), null);
+  assert.equal(practiceCoverageDeadline('garbage'), null);
+});
+
+test('unavailableFor (practice): only Questionable is affected; Doubtful, Out, IR and no designation keep their reasons', () => {
+  const practice = { observations: [dnp()], kickoffAt: SUNDAY_1PM };
+  assert.equal(unavailableFor({ injuryStatus: 'D', practice }).reason, 'doubtful');
+  assert.equal(unavailableFor({ injuryStatus: 'O', practice }).reason, 'out');
+  assert.equal(unavailableFor({ injuryStatus: 'IR', practice }).reason, 'ir');
+  const healthy = unavailableFor({ practice });
+  assert.equal(healthy.reason, null);
+  assert.equal(healthy.activeProbability, 1);
+});
+
+test('unavailableFor (practice): bye, no team, Practice squad and Position-baseline outrank no_practice', () => {
+  const ps = { status: 'practice_squad', capturedAt: new Date().toISOString() };
+  assert.equal(noPractice([dnp()], { onBye: true }).reason, 'bye');
+  assert.equal(noPractice([dnp()], { noTeam: true }).reason, 'no_team');
+  assert.equal(noPractice([dnp()], { nflRosterStatus: ps }).reason, 'practice_squad');
+  assert.equal(noPractice([dnp()], { positionBaseline: true }).reason, 'no_history', 'Position-baseline wins');
+});
