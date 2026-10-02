@@ -19,11 +19,20 @@
  * `projection.service.generateProjections`; `server/test/successorEval.test.js`
  * injects a mock, which is the ruling's stated acceptance seam (point 6) and
  * why this module never touches the shared database.
+ *
+ * #1938: `evaluate` applies `backtest-artifacts/v3.2-successor-gate/DECISION_RULE.md`
+ * (weeks, rows and projections, the four checks, the reported items) and
+ * returns a verdict; the section comments below name the rule's sections.
  */
 
+const crypto = require('crypto');
 const model = require('../../../server/services/projectionModel');
 const metrics = require('../../backtest/lib/metrics');
 const coverage = require('./coverage');
+const evaluator = require('./evaluate');
+const inference = require('./inference');
+
+const { SEALED } = evaluator;
 
 function isNum(v) {
   return typeof v === 'number' && Number.isFinite(v);
@@ -303,113 +312,379 @@ function aggregateWeekly(weekly) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// The ruled decision rule (backtest-artifacts/v3.2-successor-gate/DECISION_RULE.md,
+// #1938). Section numbers below are that file's. `metricsForArm` and
+// `aggregateWeekly` above are NOT used by it: they stay as they were for
+// `marketFactorReplay`, whose output must not change.
+// ---------------------------------------------------------------------------
+
+const GATE_PROFILE = 'half_ppr';
+const GATE_ALPHA = 0.0125; // section 6, check 2
+const COVERAGE_TOLERANCE_FLOOR = 0.02; // section 6, check 4
+const METRIC_KEYS = ['mae', 'spearman', 'pairwise', 'cov80', 'cov50'];
+
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+/** Section 3: the weeks the sealed `survivingWeeks` keeps under `SEALED`, from `[{ week, arms }]` as the runner loads them. */
+function selectSurvivors(armWeeks) {
+  const { survivors, dropped } = evaluator.survivingWeeks({ weeks: armWeeks, config: SEALED });
+  return { weeks: survivors.map((s) => s.week), dropped };
+}
+
+// Section 4. `isPositionBaselineEntry` lives in the projection service (one
+// definition, ADR 0053), which pulls the pool in, so it is required on use.
+function isPositionBaseline(row) {
+  // eslint-disable-next-line global-require
+  return require('../../../server/services/projection.service').isPositionBaselineEntry(row);
+}
+/** A mean and an active probability that is not 0 (the "Position-baseline counted as served" variant). */
+function hasMeanAndIsActive(row) {
+  return numOrNull(row.mean) !== null && numOrNull(row.activeProbability) !== 0;
+}
+function isServed(row) {
+  return hasMeanAndIsActive(row) && !isPositionBaseline(row);
+}
+/** Mean times active probability where that is a number, the mean where it is null, 0 where unserved. */
+function projectionOf(row, served = isServed) {
+  if (!served(row)) return 0;
+  const activeProbability = numOrNull(row.activeProbability);
+  const mean = numOrNull(row.mean);
+  return activeProbability === null ? mean : mean * activeProbability;
+}
+
 /**
- * One scoring profile's full report (ruling point 4): three columns -
- * captured v3.1 (the ledger's own numbers, scored against `actuals`),
- * rebuilt v3.1 (this checkout's engine at v3.1 constants, the calibration's
- * own numbers) and rebuilt MODEL_VERSION (the #1438 gate's own column, read
- * with rebuilt v3.1 as its error bar) - plus the v3.1 rebuild's calibration.
- *
- * `weeks` is this profile's captured `scheduled`-arm weeks, each
- * `{ header, rows }`; `actuals` is THIS PROFILE's player_stats-scored map
- * (scoring differs by profile, so a shared map would be wrong for two of the
- * three columns on every profile but one).
+ * Section 4's three classes of row scored in no column, counted. `entries` is
+ * `[{ playerId, position, rows: { capturedV31, rebuiltV31, rebuiltTarget? } }]`.
+ */
+function classifyWeek(entries, cols, served = isServed) {
+  const scored = [];
+  const counts = { unavailable: 0, servedStateDiffers: 0, servedByNoColumn: 0 };
+  for (const entry of entries) {
+    if (numOrNull(entry.rows.capturedV31.activeProbability) === 0) counts.unavailable += 1;
+    else if (served(entry.rows.capturedV31) !== served(entry.rows.rebuiltV31)) counts.servedStateDiffers += 1;
+    else if (!cols.some((col) => served(entry.rows[col]))) counts.servedByNoColumn += 1;
+    else scored.push(entry);
+  }
+  return { scored, counts };
+}
+
+function hasCompleteInterval(row) {
+  const [p10, p25, p75, p90] = [row.p10, row.p25, row.p75, row.p90].map(numOrNull);
+  return [p10, p25, p75, p90].every((v) => v !== null) && p10 <= p90 && p25 <= p75;
+}
+
+/** One week's metrics per column, on the scored entries; coverage on `covEntries` only. */
+function weekMetrics({
+  scored, covEntries, cols, served, actuals, season, week,
+}) {
+  const byCol = {};
+  for (const col of cols) {
+    const byPosition = {};
+    for (const position of metrics.MACRO_POSITIONS) byPosition[position] = [];
+    const scoredRows = scored.map((entry) => {
+      const raw = actuals.get(`${season}:${week}:${entry.playerId}`);
+      const row = {
+        playerId: entry.playerId, projected: projectionOf(entry.rows[col], served), actual: raw === undefined ? 0 : Number(raw),
+      };
+      const bucket = String(entry.position || '').toUpperCase();
+      if (byPosition[bucket]) byPosition[bucket].push(row);
+      return row;
+    });
+    const point = metrics.weekPointMetrics(scoredRows);
+    const pairwise = metrics.weekPairwise(byPosition);
+    const cov = coverage.armWeekMetrics({ rows: covEntries.map((e) => e.rows[col]), actuals, season, week });
+    byCol[col] = {
+      mae: point.mae,
+      spearman: point.spearman,
+      pairwise: pairwise.score,
+      cov80: cov.cov80,
+      cov50: cov.cov50,
+      byPosition: Object.fromEntries(metrics.MACRO_POSITIONS.map((p) => [p, pairwise.perPosition[p].score])),
+    };
+  }
+  return byCol;
+}
+
+/**
+ * Sections 4 and 5 over a profile's weeks: classify, then score every column on
+ * the scored rows. `everyColumnServes` and `skipWeek18` are section 7's
+ * variants; `served` is the Position-baseline-as-served variant.
+ */
+function scoreWeeks({
+  cohortWeeks, cols, actuals, served = isServed, everyColumnServes = false, skipWeek18 = false,
+}) {
+  const weekly = [];
+  const rowCounts = [];
+  for (const cohortWeek of cohortWeeks) {
+    if (skipWeek18 && cohortWeek.week === 18) continue;
+    const { scored: classified, counts } = classifyWeek(cohortWeek.entries, cols, served);
+    const scored = everyColumnServes ? classified.filter((e) => cols.every((c) => served(e.rows[c]))) : classified;
+    // Coverage: rows served in every column that carry a complete interval in every column (section 6, check 4).
+    const covEntries = scored.filter((e) => cols.every((c) => served(e.rows[c]) && hasCompleteInterval(e.rows[c])));
+    weekly.push({
+      week: cohortWeek.week,
+      byCol: weekMetrics({
+        scored, covEntries, cols, served, actuals, season: cohortWeek.season, week: cohortWeek.week,
+      }),
+    });
+    rowCounts.push({ week: cohortWeek.week, scored: scored.length, ...counts });
+  }
+  return { weekly, rowCounts };
+}
+
+/**
+ * Section 3's drop rule and the season values (section 5): a week null for a
+ * metric in any column drops from that metric in every column; a season value
+ * is the mean over the weeks left for that metric.
+ */
+function seasonize(weekly, cols) {
+  const season = Object.fromEntries(cols.map((c) => [c, {}]));
+  const weeksUsed = {};
+  const series = {};
+  for (const key of METRIC_KEYS) {
+    const kept = weekly.filter((w) => cols.every((c) => isNum(w.byCol[c][key])));
+    weeksUsed[key] = kept.map((w) => w.week);
+    series[key] = {};
+    for (const col of cols) {
+      series[key][col] = kept.map((w) => w.byCol[col][key]);
+      season[col][key] = meanOf(series[key][col]);
+    }
+  }
+  return { season, weeksUsed, series };
+}
+
+/** Sections 5 and 6: the four checks over `weekly` (three columns), or UNEVALUABLE with the reason. */
+function gateChecks(weekly) {
+  const cols = ['capturedV31', 'rebuiltV31', 'rebuiltTarget'];
+  const { season, weeksUsed, series } = seasonize(weekly, cols);
+  const base = { season, weeksUsed };
+  if (weeksUsed.pairwise.length < SEALED.minWeeks) {
+    return {
+      ...base,
+      verdict: 'UNEVALUABLE',
+      reason: `${weeksUsed.pairwise.length} weeks left for pairwise accuracy against a minimum of ${SEALED.minWeeks}`,
+      checks: null,
+    };
+  }
+  const needed = ['mae', 'cov80', 'cov50'].flatMap((key) => cols.map((c) => season[c][key]));
+  if (needed.some((v) => !isNum(v))) {
+    return {
+      ...base, verdict: 'UNEVALUABLE', reason: 'a check input (MAE or coverage) has no week to be computed from', checks: null,
+    };
+  }
+  const errorBar = (key) => meanOf(series[key].rebuiltV31.map((v, i) => Math.abs(v - series[key].capturedV31[i])));
+  const pairwiseBar = errorBar('pairwise');
+  const maeBar = errorBar('mae');
+  const pairwiseDelta = series.pairwise.rebuiltTarget.map((v, i) => v - series.pairwise.rebuiltV31[i]);
+  const noise = inference.decideComponent({
+    label: 'pairwise-noise',
+    weeklyValues: pairwiseDelta,
+    resamples: inference.buildResamples({ n: pairwiseDelta.length, draws: SEALED.draws, seed: SEALED.bootstrapSeed }),
+    alpha: GATE_ALPHA,
+    boundary: 0,
+    side: 'lower',
+    exactTriggerClusters: SEALED.exactTriggerClusters,
+  });
+  const pairwiseDifference = season.rebuiltTarget.pairwise - season.rebuiltV31.pairwise;
+  const maeDifference = season.rebuiltV31.mae - season.rebuiltTarget.mae;
+  const coverageCheck = (key, nominal, band) => {
+    const distance = (col) => Math.abs(season[col][key] - nominal);
+    const tolerance = Math.max(COVERAGE_TOLERANCE_FLOOR, Math.abs(distance('rebuiltV31') - distance('capturedV31')));
+    const value = season.rebuiltTarget[key];
+    const inBand = value >= band[0] && value <= band[1];
+    const excess = distance('rebuiltTarget') - distance('rebuiltV31');
+    return {
+      key, nominal, band, value, inBand, excess, tolerance, passes: inBand || excess <= tolerance,
+    };
+  };
+  const cov80 = coverageCheck('cov80', SEALED.cov80Target, SEALED.cov80Band);
+  const cov50 = coverageCheck('cov50', SEALED.cov50Target, SEALED.cov50Band);
+  const checks = [
+    {
+      name: 'pairwise-size', rebuiltTarget: season.rebuiltTarget.pairwise, rebuiltV31: season.rebuiltV31.pairwise,
+      difference: pairwiseDifference, errorBar: pairwiseBar, passes: pairwiseDifference > pairwiseBar,
+    },
+    { name: 'pairwise-noise', alpha: GATE_ALPHA, ...noise },
+    {
+      name: 'mae-size', rebuiltTarget: season.rebuiltTarget.mae, rebuiltV31: season.rebuiltV31.mae,
+      difference: maeDifference, errorBar: maeBar, passes: maeDifference > maeBar,
+    },
+    { name: 'coverage-no-harm', cov80, cov50, passes: cov80.passes && cov50.passes },
+  ];
+  return { ...base, verdict: checks.every((c) => c.passes) ? 'PASS' : 'FAIL', checks };
+}
+
+/** Section 2: SHA-256 of rebuilt v3.1 rows (week, player id, mean, median, p10, p25, p75, p90, active probability), ordered by week and player id. */
+function digestRebuiltRows(weeks) {
+  const lines = [];
+  for (const { week, rows } of [...weeks].sort((a, b) => a.week - b.week)) {
+    for (const r of [...rows].sort((a, b) => a.playerId - b.playerId)) {
+      lines.push([week, r.playerId, r.mean, r.median, r.p10, r.p25, r.p75, r.p90, r.activeProbability].map((v) => v ?? '').join('|'));
+    }
+  }
+  return sha256(lines.join('\n'));
+}
+
+/** Section 2: SHA-256 of a profile's actuals (season, week, player id, points), ordered by week and player id. */
+function actualsDigest(actuals) {
+  const lines = [...actuals].map(([key, points]) => key.split(':').map(Number).concat(points))
+    .sort((a, b) => a[1] - b[1] || a[2] - b[2])
+    .map(([season, week, playerId, points]) => [season, week, playerId, points].join('|'));
+  return sha256(lines.join('\n'));
+}
+
+/** The per-child comparison mode: rebuild v3.1 over `weeks` and return its digest alone. */
+async function rebuildV31Digest({
+  weeks, rules, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
+}) {
+  constantsFor(MODEL_VERSION_V3_1, constantsByModelVersion);
+  const rebuilt = [];
+  for (const { header, rows } of weeks) {
+    rebuilt.push({
+      week: header.week,
+      rows: await reprojectWeek({
+        header, rows, rules, modelVersion: MODEL_VERSION_V3_1, generateProjections, constantsByModelVersion,
+      }),
+    });
+  }
+  return digestRebuiltRows(rebuilt);
+}
+
+/**
+ * One scoring profile's report. `weeks` is this profile's surviving
+ * `{ header, rows }` weeks; `actuals` is THIS PROFILE's player_stats-scored
+ * map. `gateWeeks` is the half_ppr survivor count when this profile carries
+ * the verdict, else null (no check is evaluated).
  */
 async function evaluateProfile({
-  weeks, actuals, rules, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
+  weeks, actuals, rules, modelVersion, generateProjections, gateWeeks = null, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
 }) {
-  // Compared against the LITERAL v3.1 name (never `model.MODEL_VERSION`,
-  // adversarial review finding f1): the target run reuses the v3.1 rebuild
-  // only when IT IS the v3.1 run, regardless of what this checkout's HEAD
-  // currently ships.
+  // The LITERAL v3.1 name, never `model.MODEL_VERSION` (formal-001-f1).
   const isBaselineRun = modelVersion === MODEL_VERSION_V3_1;
-  const capturedWeekly = [];
-  const rebuiltV31Weekly = [];
-  const rebuiltTargetWeekly = [];
+  const cols = isBaselineRun ? ['capturedV31', 'rebuiltV31'] : ['capturedV31', 'rebuiltV31', 'rebuiltTarget'];
+  const cohortWeeks = [];
+  const rebuiltV31Weeks = [];
   const calibrationByWeek = [];
 
   for (const { header, rows } of weeks) {
-    capturedWeekly.push({
-      week: header.week,
-      ...metricsForArm({ rows, actuals, season: header.season, week: header.week }),
-    });
-
     const rebuiltV31Rows = await reprojectWeek({
       header, rows, rules, modelVersion: MODEL_VERSION_V3_1, generateProjections, constantsByModelVersion,
     });
-    rebuiltV31Weekly.push({
-      week: header.week,
-      ...metricsForArm({ rows: rebuiltV31Rows, actuals, season: header.season, week: header.week }),
+    const rebuiltTargetRows = isBaselineRun ? null : await reprojectWeek({
+      header, rows, rules, modelVersion, generateProjections, constantsByModelVersion,
     });
+    rebuiltV31Weeks.push({ week: header.week, rows: rebuiltV31Rows });
     calibrationByWeek.push({
-      week: header.week,
-      ...calibrateAgainstCaptured({ capturedRows: rows, rebuiltRows: rebuiltV31Rows }),
+      week: header.week, ...calibrateAgainstCaptured({ capturedRows: rows, rebuiltRows: rebuiltV31Rows }),
     });
-
-    // The v3.1 run's target column IS the v3.1 rebuild - recomputing it
-    // would call generateProjections twice for identical inputs.
-    const rebuiltTargetRows = isBaselineRun
-      ? rebuiltV31Rows
-      : await reprojectWeek({
-        header, rows, rules, modelVersion, generateProjections, constantsByModelVersion,
-      });
-    rebuiltTargetWeekly.push({
+    cohortWeeks.push({
       week: header.week,
-      ...metricsForArm({ rows: rebuiltTargetRows, actuals, season: header.season, week: header.week }),
+      season: header.season,
+      entries: rows.map((row, i) => ({
+        playerId: row.playerId,
+        position: row.position,
+        rows: { capturedV31: row, rebuiltV31: rebuiltV31Rows[i], ...(isBaselineRun ? {} : { rebuiltTarget: rebuiltTargetRows[i] }) },
+      })),
     });
   }
 
+  const primary = scoreWeeks({ cohortWeeks, cols, actuals });
+  const { season, weeksUsed } = seasonize(primary.weekly, cols);
   const calibrationChecked = calibrationByWeek.reduce((s, c) => s + c.checked, 0);
   const calibrationWithin = calibrationByWeek.reduce((s, c) => s + c.withinTolerance, 0);
-  const calibrationSampleSizeDiffers = calibrationByWeek.reduce((s, c) => s + c.sampleSizeDiffers, 0);
+  const perPosition = Object.fromEntries(cols.map((col) => [col, Object.fromEntries(metrics.MACRO_POSITIONS.map(
+    (p) => [p, meanOf(primary.weekly.map((w) => w.byCol[col].byPosition[p]))]
+  ))]));
 
-  return {
+  const result = {
     weeksScored: weeks.length,
     columns: {
-      capturedV31: aggregateWeekly(capturedWeekly),
-      rebuiltV31: aggregateWeekly(rebuiltV31Weekly),
-      rebuiltTarget: { modelVersion, ...aggregateWeekly(rebuiltTargetWeekly) },
+      capturedV31: season.capturedV31,
+      rebuiltV31: season.rebuiltV31,
+      ...(isBaselineRun ? {} : { rebuiltTarget: { modelVersion, ...season.rebuiltTarget } }),
     },
+    weeksUsed,
+    perPosition,
+    rowCounts: primary.rowCounts,
     calibration: {
       modelVersion: MODEL_VERSION_V3_1,
       checked: calibrationChecked,
       withinTolerance: calibrationWithin,
       share: calibrationChecked > 0 ? calibrationWithin / calibrationChecked : null,
-      sampleSizeDiffers: calibrationSampleSizeDiffers,
+      sampleSizeDiffers: calibrationByWeek.reduce((s, c) => s + c.sampleSizeDiffers, 0),
       byWeek: calibrationByWeek,
     },
-    weekly: { captured: capturedWeekly, rebuiltV31: rebuiltV31Weekly, rebuiltTarget: rebuiltTargetWeekly },
+    rebuiltV31Sha256: digestRebuiltRows(rebuiltV31Weeks),
   };
+  if (isBaselineRun || gateWeeks === null) return result;
+
+  // The verdict profile (half_ppr) of a deciding run only. The variants are
+  // section 7: reported, selecting nothing.
+  result.gate = gateWeeks < SEALED.minWeeks
+    ? {
+      verdict: 'UNEVALUABLE',
+      reason: `${gateWeeks} surviving weeks against a minimum of ${SEALED.minWeeks}`,
+      checks: null,
+    }
+    : gateChecks(primary.weekly);
+  const variant = (options) => gateChecks(scoreWeeks({ cohortWeeks, cols, actuals, ...options }).weekly);
+  const onlyV32 = cohortWeeks.map((cohortWeek) => {
+    const { scored } = classifyWeek(cohortWeek.entries, cols);
+    const entries = scored.filter((e) => isServed(e.rows.rebuiltTarget) && !isServed(e.rows.rebuiltV31)
+      && hasCompleteInterval(e.rows.rebuiltTarget));
+    const cov = coverage.armWeekMetrics({
+      rows: entries.map((e) => e.rows.rebuiltTarget), actuals, season: cohortWeek.season, week: cohortWeek.week,
+    });
+    return { week: cohortWeek.week, rows: entries.length, ...cov };
+  });
+  result.variants = {
+    everyColumnServes: variant({ everyColumnServes: true }),
+    positionBaselineAsServed: variant({ served: hasMeanAndIsActive }),
+    withoutWeek18: variant({ skipWeek18: true }),
+    coverageOnRowsOnlyV32Serves: {
+      rows: onlyV32.reduce((s, w) => s + w.rows, 0),
+      cov80: meanOf(onlyV32.map((w) => w.cov80)),
+      cov50: meanOf(onlyV32.map((w) => w.cov50)),
+    },
+  };
+  return result;
 }
 
 /**
- * The whole gate run: every profile's report, side by side, under one
- * MODEL_VERSION. `profiles` is `[{ name, rules, weeks, actuals }, ...]`, one
- * entry per captured scoring profile (the runner supplies standard, half_ppr
- * and ppr). Fails BEFORE any reprojection when EITHER `modelVersion` or
- * `MODEL_VERSION_V3_1` has no registered constants (ruling point 1) - every
- * report carries the v3.1 rebuild as its error bar, so a run that cannot
- * produce that column is refused wholesale rather than shipping the target
- * column alone with a calibration nobody can trust. A wasted network round
- * trip is cheap; a report claiming to have run a version it did not is not.
- * `constantsByModelVersion` defaults to the real registry; see
- * `constantsFor` for why a test would ever pass its own.
+ * The whole gate run under one MODEL_VERSION. `profiles` is
+ * `[{ name, rules, weeks, actuals }, ...]`; `survivors` is `selectSurvivors`'s
+ * result for half_ppr, used for every profile. A `free_baseline_v3.1` run is
+ * the calibration run: no v3.2 column, no check, no verdict. Refuses before
+ * any reprojection when either version has no registered constants.
  */
 async function evaluate({
-  profiles, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
+  profiles, survivors, modelVersion, generateProjections, constantsByModelVersion = CONSTANTS_BY_MODEL_VERSION,
 }) {
   constantsFor(modelVersion, constantsByModelVersion);
   constantsFor(MODEL_VERSION_V3_1, constantsByModelVersion);
-  const result = { modelVersion, profiles: {} };
+  const isBaselineRun = modelVersion === MODEL_VERSION_V3_1;
+  const result = {
+    modelVersion,
+    mode: isBaselineRun ? 'calibration' : 'deciding',
+    survivors,
+    verdict: null,
+    profiles: {},
+  };
   for (const profile of profiles) {
     result.profiles[profile.name] = await evaluateProfile({
-      weeks: profile.weeks,
+      weeks: profile.weeks.filter((w) => survivors.weeks.includes(w.header.week)),
       actuals: profile.actuals,
       rules: profile.rules,
       modelVersion,
       generateProjections,
+      gateWeeks: profile.name === GATE_PROFILE ? survivors.weeks.length : null,
       constantsByModelVersion,
     });
+  }
+  if (!isBaselineRun) {
+    const gate = result.profiles[GATE_PROFILE] && result.profiles[GATE_PROFILE].gate;
+    result.verdict = gate ? gate.verdict : 'UNEVALUABLE';
   }
   return result;
 }
@@ -418,45 +693,73 @@ function fmt(value, digits = 4) {
   return isNum(value) ? value.toFixed(digits) : 'n/a';
 }
 
-/** Markdown report: three metric columns per profile (ruling point 4), plus the v3.1 calibration line. */
+function renderCheck(check) {
+  if (check.name === 'coverage-no-harm') {
+    return [check.cov80, check.cov50].map((c) => `| coverage ${c.key} | ${c.passes ? 'pass' : 'FAIL'} | season ${fmt(c.value)} `
+      + `(nominal ${c.nominal}, band ${c.band.join('-')}, in band ${c.inBand}), excess distance ${fmt(c.excess)}, tolerance ${fmt(c.tolerance)} |`);
+  }
+  if (check.name === 'pairwise-noise') {
+    return [`| ${check.name} | ${check.passes ? 'pass' : 'FAIL'} | method ${check.method}, n ${check.n}, mean ${fmt(check.mean)}, `
+      + `bound ${fmt(check.bound)}, alpha ${check.alpha} |`];
+  }
+  return [`| ${check.name} | ${check.passes ? 'pass' : 'FAIL'} | rebuilt v3.2 ${fmt(check.rebuiltTarget)}, rebuilt v3.1 ${fmt(check.rebuiltV31)}, `
+    + `difference ${fmt(check.difference)}, error bar ${fmt(check.errorBar)} |`];
+}
+
+function renderGate(title, gate, lines) {
+  lines.push(`${title}: ${gate.verdict}${gate.reason ? ` (${gate.reason})` : ''}`);
+  if (!gate.checks) return;
+  lines.push('', '| check | result | inputs |', '| --- | --- | --- |');
+  for (const check of gate.checks) lines.push(...renderCheck(check));
+}
+
+/** Markdown report: the verdict, each check with its inputs, then everything section 7 lists. */
 function renderReport(result) {
-  const lines = [];
-  lines.push(`# v3.2 successor evaluation: ${result.modelVersion}`);
+  const lines = [`# v3.2 successor evaluation: ${result.modelVersion}`, ''];
+  lines.push(`mode: ${result.mode}; verdict: ${result.verdict === null ? 'none (no check is evaluated in a calibration run)' : result.verdict}`);
+  lines.push(`surviving weeks (half_ppr, every profile): ${result.survivors.weeks.length} (${result.survivors.weeks.join(', ')})`);
+  for (const d of result.survivors.dropped) lines.push(`- dropped week ${d.week}: ${d.reason}`);
+  if (result.ruleSha256) lines.push(`DECISION_RULE.md SHA-256: ${result.ruleSha256}`);
   lines.push('');
   for (const [profileName, profile] of Object.entries(result.profiles)) {
-    lines.push(`## ${profileName}`);
-    lines.push('');
-    lines.push(`weeks scored: ${profile.weeksScored}`);
-    lines.push('');
-    lines.push(`| metric | captured v3.1 | rebuilt v3.1 | rebuilt ${result.modelVersion} |`);
-    lines.push('| --- | --- | --- | --- |');
-    const metricRows = [
-      ['MAE', 'mae', 4],
-      ['Spearman rho', 'spearman', 4],
-      ['Pairwise accuracy', 'pairwise', 4],
-      ['80% coverage', 'cov80', 4],
-      ['50% coverage', 'cov50', 4],
-    ];
-    for (const [label, key, digits] of metricRows) {
-      lines.push(
-        `| ${label} | ${fmt(profile.columns.capturedV31[key], digits)} `
-        + `| ${fmt(profile.columns.rebuiltV31[key], digits)} `
-        + `| ${fmt(profile.columns.rebuiltTarget[key], digits)} |`
-      );
+    lines.push(`## ${profileName}`, '', `weeks scored: ${profile.weeksScored}`);
+    if (profile.actualsSha256) lines.push(`actuals SHA-256: ${profile.actualsSha256}`);
+    lines.push(`rebuilt v3.1 rows SHA-256: ${profile.rebuiltV31Sha256}`, '');
+    const target = profile.columns.rebuiltTarget;
+    lines.push(`| metric | captured v3.1 | rebuilt v3.1 |${target ? ` rebuilt ${result.modelVersion} |` : ''}`);
+    lines.push(`| --- | --- | --- |${target ? ' --- |' : ''}`);
+    for (const [label, key] of [['MAE', 'mae'], ['Spearman rho', 'spearman'], ['Pairwise accuracy', 'pairwise'],
+      ['80% coverage', 'cov80'], ['50% coverage', 'cov50']]) {
+      lines.push(`| ${label} | ${fmt(profile.columns.capturedV31[key])} | ${fmt(profile.columns.rebuiltV31[key])} |`
+        + `${target ? ` ${fmt(target[key])} |` : ''}`);
     }
-    lines.push('');
-    lines.push(
-      `v3.1 rebuild calibration: ${fmt(profile.calibration.share, 4)} of ${profile.calibration.checked} `
+    lines.push('', 'pairwise by position (season mean):');
+    for (const [col, cells] of Object.entries(profile.perPosition)) {
+      lines.push(`- ${col}: ${Object.entries(cells).map(([p, v]) => `${p} ${fmt(v)}`).join(', ')}`);
+    }
+    lines.push('', 'rows by week and reason (scored, Unavailable at capture, served state differs, served by no column):');
+    for (const c of profile.rowCounts) {
+      lines.push(`- week ${c.week}: ${c.scored}, ${c.unavailable}, ${c.servedStateDiffers}, ${c.servedByNoColumn}`);
+    }
+    lines.push('', `v3.1 rebuild calibration: ${fmt(profile.calibration.share, 4)} of ${profile.calibration.checked} `
       + `rows within 0.01 mean of the captured value; ${profile.calibration.sampleSizeDiffers} rows with `
-      + 'a rebuilt history length different from the captured sample_size.'
-    );
-    lines.push('');
+      + 'a rebuilt history length different from the captured sample_size.', '');
+    if (profile.gate) {
+      renderGate('### Gate', profile.gate, lines);
+      lines.push('', '### Reported, selecting nothing', '');
+      renderGate('rows every column serves', profile.variants.everyColumnServes, lines);
+      renderGate('Position-baseline projections counted as served', profile.variants.positionBaselineAsServed, lines);
+      renderGate('without week 18', profile.variants.withoutWeek18, lines);
+      const only = profile.variants.coverageOnRowsOnlyV32Serves;
+      lines.push(`coverage on rows only v3.2 serves: ${only.rows} rows, 80% ${fmt(only.cov80)}, 50% ${fmt(only.cov50)}`, '');
+    }
   }
   return lines.join('\n');
 }
 
 module.exports = {
   MODEL_VERSION_V3_1,
+  GATE_PROFILE,
   CONSTANTS_BY_MODEL_VERSION,
   constantsFor,
   overridesForRow,
@@ -465,6 +768,15 @@ module.exports = {
   calibrateAgainstCaptured,
   metricsForArm,
   aggregateWeekly,
+  selectSurvivors,
+  isServed,
+  projectionOf,
+  classifyWeek,
+  seasonize,
+  gateChecks,
+  digestRebuiltRows,
+  actualsDigest,
+  rebuildV31Digest,
   evaluateProfile,
   evaluate,
   renderReport,
