@@ -244,11 +244,12 @@ before the rows existed (the week 3 capture is 2026-09-24T00:15Z). The week
 RB, WR, TE, K and DEF, so 52 of the 156 rows belong to cohort Players by
 current position (TE 35, WR 12, RB 5) and the other 104 are defenders
 outside it. Each of those 52 Players carried one extra zero-point week 2
-game, and the same games sat in the TE, WR and RB position baselines and
-residual pools, identically in every arm. Captures from week 5 onward read
-the corrected priors. No section 9 void condition fires: `model_version` and
-`constants_hash` stay their season majority and the arms still share one
-feature snapshot. The successor evaluation
+game, and the same games sat in the TE, WR and RB position baselines, and in
+those positions' residual pools for each such Player with another 2026 Stat
+line before week 4, identically in every arm. Captures from week 5 onward
+read the corrected priors. No section 9 void condition fires:
+`model_version` and `constants_hash` stay their season majority and the arms
+still share one feature snapshot. The successor evaluation
 (`server/scripts/run-successor-eval.js`, the #1438 gate for v3.2 under ADR
 0044, not a claim of this study) takes `player_stats` as it stands (#1439
 ruling, point 2). Its actuals do not move: each row priced at 0, and an
