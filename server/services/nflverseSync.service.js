@@ -126,6 +126,26 @@ async function fetchPlayerWeekStatsVersion(season) {
   return etag || lastModified ? `${etag}|${lastModified}` : null;
 }
 
+/**
+ * The `last_updated` value of the `injuries` release's timestamp.json (the
+ * published injury report's own clock), as the string nflverse wrote, or null
+ * when the file has none. Small and cheap, so the practice poll asks it
+ * before downloading the season file.
+ */
+async function fetchInjuriesLastUpdated() {
+  const body = JSON.parse(await fetchCsvText(`${NFLVERSE_RELEASE_BASE}/injuries/timestamp.json`));
+  return body && body.last_updated != null ? String(body.last_updated) : null;
+}
+
+/** One season's injury report (Practice participation): one row per player
+ * per week, the LATEST practice_status/report_status only, no date column;
+ * confirmed columns: season, game_type, team, week, gsis_id, report_status,
+ * report_primary_injury, practice_status, practice_primary_injury. */
+async function fetchInjuriesForSeason(season) {
+  const url = `${NFLVERSE_RELEASE_BASE}/injuries/injuries_${season}.csv`;
+  return parseCsv(await fetchCsvText(url));
+}
+
 /** One season's team weekly file — same columns as the player file but
  * aggregated per team side, one row per team per game. The def_* columns are
  * that team's DEFENSE; the offense columns are its own offense (so a team's
@@ -1326,6 +1346,8 @@ module.exports = {
   parseCsv,
   fetchPlayerWeekStatsForSeason,
   fetchTeamWeekStatsForSeason,
+  fetchInjuriesLastUpdated,
+  fetchInjuriesForSeason,
   fetchGameScoresForSeason,
   fetchIdCrosswalks,
   fetchPlayersCrosswalk,

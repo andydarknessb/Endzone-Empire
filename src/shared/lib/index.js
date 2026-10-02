@@ -40,7 +40,7 @@ export { parseRosterSlots } from './rosterSlots';
 // the retro-scoreboard widget model and the slot-comparison widget model
 // each carried an identical bye/out/ir label object.
 export { unavailableLabel } from './unavailableLabel';
-export { hasNoHistory, projectionLabel, NO_HISTORY_LABEL } from './projectionLabel';
+export { hasNoHistory, projectionLabel, NO_HISTORY_LABEL, NO_PRACTICE_LABEL } from './projectionLabel';
 export { VOLATILITY_LABELS } from './volatilityLabels';
 // Touch-target sizing, Team identity, league type, NFL team colors, league
 // phase and lineup-attention (#1272, ADR 0031's second-island-consumer

@@ -110,6 +110,9 @@ function sideView(side, entriesById) {
     // carries the player's designation (O, IR, D, Q or null), the same field
     // the Ledger row's tag reads off the lineup entry.
     injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
+    // "No practice this week" beside a Questionable tag (ADR 0056): the server's
+    // verdict reason, carried as-is.
+    noPractice: side.availability?.reason === 'no_practice',
     volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
