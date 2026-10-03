@@ -4,7 +4,7 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, use
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
-import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
+import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
@@ -481,35 +481,31 @@ export default function LineupPage() {
                       canDropEntry={canDropEntry}
                       onRequestDrop={drop.requestDrop}
                       onOpenDecisionCard={setDecisionCardEntryId}
+                      // The swap strip (#1958, spec #1956 L8) rides the Ledger's
+                      // own sticky footer, stacked directly above its phone tab
+                      // bar, so the two never overlap and the strip stays on
+                      // screen when the tapped row is low on the page.
+                      footer={
+                        swap.selectedEntry ? (
+                          <Box
+                            data-testid="lineup-move-strip"
+                            sx={{
+                              p: 1.5,
+                              backgroundColor: 'var(--dash-surface)',
+                              boxShadow: 'var(--shadow-2)',
+                              border: '1px solid var(--dash-accent-line)',
+                              borderRadius: 'var(--dash-radius-sm)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
+                            <Button size="small" sx={MIN_TOUCH_TARGET_SX} onClick={swap.cancelSelection}>Cancel</Button>
+                          </Box>
+                        ) : null
+                      }
                     />
-                  )}
-
-                  {/* The swap strip (#1958, spec #1956 L8) follows the Ledger and
-                      sticks to the bottom, so picking a row low on the page
-                      neither pushes the list down under the finger before the
-                      second tap nor leaves the strip off screen. On a phone
-                      `bottom: 56` clears the Ledger's own sticky Starters/Bench
-                      bar (44px plus its border), a sibling in this same column. */}
-                  {swap.selectedEntry && (
-                    <Box
-                      data-testid="lineup-move-strip"
-                      sx={{
-                        position: 'sticky',
-                        bottom: { xs: 56, sm: 16 },
-                        zIndex: 2,
-                        p: 1.5,
-                        backgroundColor: 'var(--dash-surface)',
-                        boxShadow: 'var(--shadow-2)',
-                        border: '1px solid var(--dash-accent-line)',
-                        borderRadius: 'var(--dash-radius-sm)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
-                      <Button size="small" onClick={swap.cancelSelection}>Cancel</Button>
-                    </Box>
                   )}
                 </Box>
 

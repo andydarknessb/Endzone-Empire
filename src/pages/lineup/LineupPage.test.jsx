@@ -678,10 +678,11 @@ test('#1425: selecting a starter with an eligible bench target auto-switches the
   );
 });
 
-// #1958 (L8): the swap strip follows the Ledger in the roster column, sticky
-// at the bottom, so selecting a row lower on the page neither pushes the list
-// down under the finger nor leaves the strip off screen.
-test('#1958: selecting a row shows the move strip after the Ledger, not before it', async () => {
+// #1958 (L8): the swap strip rides the Ledger's sticky footer, stacked above
+// the phone tab bar, so selecting a row lower on the page neither pushes the
+// list down under the finger nor leaves the strip off screen or overlapping
+// the tab bar.
+test('#1958: selecting a row shows the move strip in the sticky footer, after the Ledger rows', async () => {
   const user = userEvent.setup();
   renderPage();
   await screen.findByText('Josh Allen');
@@ -690,12 +691,10 @@ test('#1958: selecting a row shows the move strip after the Ledger, not before i
 
   const strip = screen.getByTestId('lineup-move-strip');
   expect(strip).toHaveTextContent('Moving Derrick King. Pick a highlighted player.');
+  expect(within(screen.getByTestId('lineup-sticky-footer')).getByTestId('lineup-move-strip')).toBe(strip);
   const lastLedgerCard = screen.getByTestId('ledger-bench');
   expect(lastLedgerCard.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(screen.getByTestId('lineup-roster-column')).getByTestId('lineup-move-strip')).toBe(strip);
-  expect(strip).toHaveStyle({ position: 'sticky', zIndex: '2' });
-  expect(rulesUnder(strip, '(min-width:600px)')).toContain('bottom: 16px');
-  expect(rulesUnder(strip, '(min-width:0px)')).toContain('bottom: 56px');
+  expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
 });
 
 // #1958 (L9): below `sm` the header gives up height so the first starter sits
