@@ -1119,13 +1119,16 @@ function gameEnvironmentEffect({
   const deviation = Number(own) / Number(slateAverageImplied) - 1;
   const directed = isDefense ? -deviation : deviation;
   const raw = constants.responsiveness * directed;
+  // A Challenger may cap the D/ST side on its own (#1926); `scored` follows
+  // the cap actually used.
+  const maxEffect = isDefense && isNum(constants.defMaxEffect) ? Number(constants.defMaxEffect) : constants.maxEffect;
   return {
     available: true,
-    effect: clamp(raw, constants.maxEffect),
+    effect: clamp(raw, maxEffect),
     // False whenever the cap has swallowed the derivation, so the UI can show
     // the market as CONTEXT without implying it moved the number. At
     // maxEffect 0 this is false for every projection.
-    scored: constants.maxEffect > 0,
+    scored: maxEffect > 0,
     impliedPoints: isNum(impliedPoints) ? round2(impliedPoints) : null,
     opponentImplied: isNum(opponentImplied) ? round2(opponentImplied) : null,
     slateAverageImplied: round2(slateAverageImplied),

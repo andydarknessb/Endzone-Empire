@@ -1655,3 +1655,22 @@ test('each Challenger is v3.2 plus exactly its one change, deep-frozen (#1924 #1
   assert.equal(model.constantsForVersion('free_baseline_v3.2+volume').usage.blendWeight, 0.5);
 });
 
+test('defopp: only the Challenger lets a D/ST opponent total move the number (#1926)', () => {
+  const args = { opponentImplied: 17.5, impliedPoints: 26.4, slateAverageImplied: 22, position: 'DEF' };
+  const v31 = model.gameEnvironmentEffect({ ...args, constants: model.MODEL_CONSTANTS.gameEnvironment });
+  const v32 = model.gameEnvironmentEffect({ ...args, constants: model.MODEL_CONSTANTS_V3_2.gameEnvironment });
+  assert.equal(v31.effect, 0);
+  assert.equal(v31.scored, false);
+  assert.equal(JSON.stringify(v32), JSON.stringify(v31));
+
+  const challenger = model.constantsForVersion('free_baseline_v3.2+defopp').gameEnvironment;
+  const def = model.gameEnvironmentEffect({ ...args, constants: challenger });
+  assert.ok(Math.abs(def.effect - Math.min(0.5 * (1 - 17.5 / 22), 0.12)) < 1e-9);
+  assert.ok(def.effect > 0);
+  assert.equal(def.scored, true);
+
+  const wr = model.gameEnvironmentEffect({ ...args, position: 'WR', constants: challenger });
+  assert.equal(wr.effect, 0);
+  assert.equal(wr.scored, false);
+});
+
