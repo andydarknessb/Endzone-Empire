@@ -156,12 +156,12 @@ afterEach(() => {
   window.matchMedia = originalMatchMedia;
 });
 
-test("renders a league-scoped Player Browser without duplicate roster management", async () => {
+test("renders the Players page header without duplicate roster management", async () => {
   mockBrowser();
   renderWithProviders(<PlayerManagement />);
 
   expect(
-    await screen.findByRole("heading", { name: "Player Browser" }),
+    await screen.findByRole("heading", { name: "Players" }),
   ).toBeInTheDocument();
   expect(
     await screen.findByRole("link", { name: "Manage lineup" }),
@@ -727,7 +727,7 @@ test("a load refusal carrying a code beside a message renders the message, not t
 test("choosing a Sort option sends the matching ?sort= wire name", async () => {
   mockBrowser();
   renderWithProviders(<PlayerManagement />);
-  await screen.findByRole("heading", { name: "Player Browser" });
+  await screen.findByRole("heading", { name: "Players" });
 
   await userEvent.click(screen.getByLabelText("Sort"));
   expect(await screen.findByRole("option", { name: "Pool projection" })).toBeInTheDocument();
