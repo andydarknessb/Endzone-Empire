@@ -3668,7 +3668,7 @@ test('a failed QB depth chart read degrades to nobody being a Backup, logging it
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
   assert.equal(result.backupFor(1), false);
   assert.equal(result.projections.get(1).factors.availability.available, true, 'the projection still serves');
-  assert.ok(logged.mock.calls.some((c) => String(c.arguments[0]).includes('QB depth chart read failed')));
+  assert.ok(logged.mock.calls.some((c) => require('node:util').format(...c.arguments).includes('QB depth chart read failed')));
   assert.equal(calls.some((call) => call.text.includes('SAVEPOINT')), false);
 });
 
