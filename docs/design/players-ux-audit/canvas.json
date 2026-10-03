@@ -1,0 +1,21 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-10-03T22:10:00Z" },
+  "title": "Players Page UX Audit",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1440, "h": 2300, "title": "Audit: findings and rulings" },
+    "PhoneList.dc.html": { "x": 0, "y": 2700, "w": 390, "h": 844, "title": "Phone, list, light" },
+    "PhoneListDark.dc.html": { "x": 470, "y": 2700, "w": 390, "h": 844, "title": "Phone, list, dark" },
+    "PhoneAddDrop.dc.html": { "x": 940, "y": 2700, "w": 390, "h": 844, "title": "Phone, add and drop sheet, light" },
+    "PhoneAddDropDark.dc.html": { "x": 1410, "y": 2700, "w": 390, "h": 844, "title": "Phone, add and drop sheet, dark" },
+    "DesktopList.dc.html": { "x": 0, "y": 3664, "w": 1440, "h": 900, "title": "Desktop, list with My team drop, light" },
+    "DesktopListDark.dc.html": { "x": 1520, "y": 3664, "w": 1440, "h": 900, "title": "Desktop, list with My team drop, dark" }
+  },
+  "order": ["Main.dc.html", "PhoneList.dc.html", "PhoneListDark.dc.html", "PhoneAddDrop.dc.html", "PhoneAddDropDark.dc.html", "DesktopList.dc.html", "DesktopListDark.dc.html"],
+  "notes": {
+    "proposed": { "x": 0, "y": 2420, "text": "Proposed: add and drop at a full roster, Drop on My team, first screen for players", "kind": "title1", "maxW": 2960 }
+  },
+  "designSystems": []
+}
