@@ -1,0 +1,19 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-10-03T18:30:00Z" },
+  "title": "Lineup Page UX Audit",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1440, "h": 2140, "title": "Audit: findings and rulings" },
+    "MobileProposed.dc.html": { "x": 0, "y": 2540, "w": 390, "h": 844, "title": "Phone, mid-swap, light" },
+    "MobileProposedDark.dc.html": { "x": 470, "y": 2540, "w": 390, "h": 844, "title": "Phone, mid-swap, dark" },
+    "DesktopProposed.dc.html": { "x": 940, "y": 2540, "w": 1440, "h": 1560, "title": "Desktop, mid-swap, light" },
+    "DesktopProposedDark.dc.html": { "x": 2460, "y": 2540, "w": 1440, "h": 1560, "title": "Desktop, mid-swap, dark" }
+  },
+  "order": ["Main.dc.html", "MobileProposed.dc.html", "MobileProposedDark.dc.html", "DesktopProposed.dc.html", "DesktopProposedDark.dc.html"],
+  "notes": {
+    "proposed": { "x": 0, "y": 2260, "text": "Proposed: stacked Ledger, aligned numbers, distinct selection", "kind": "title1", "maxW": 3900 }
+  },
+  "designSystems": []
+}
