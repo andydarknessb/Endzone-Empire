@@ -342,11 +342,13 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
           </Box>
         </CardActionArea>
         <CardContent sx={{ p: 1.5, pt: 0, '&:last-child': { pb: 1.5 }, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-          {/* Metrics and the dense bars share a line (#1975, P4): the bars are
+          {/* Metrics and the dense bars share one line (#1975, P4): the bars are
               ~150px wide, so stacking them under the metrics spent ~50px a card.
-              The line wraps on a narrow phone rather than overflowing. */}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', columnGap: 2, rowGap: 1 }}>
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              The line never wraps (a wrap's height depends on the font): the
+              metrics keep their width and the bars take what is left, shrinking
+              into their own scroll strip on a narrow phone. */}
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', columnGap: 2 }}>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flex: 'none' }}>
               <Box>
                 <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   Proj Wk
@@ -370,7 +372,19 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
                 </Box>
               )}
             </Stack>
-            {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} dense />}
+            {showWeeks && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  flex: '1 1 0',
+                  minWidth: 0,
+                  '& > [data-testid="weekly-points-bars"]': { flexShrink: 1, minWidth: 0, scrollbarWidth: 'none' },
+                }}
+              >
+                <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} dense />
+              </Box>
+            )}
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5 }}>
             <ExpandToggle expansion={expansion} playerName={player.name} />

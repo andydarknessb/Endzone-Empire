@@ -117,3 +117,26 @@ test('negative control: the row height predicate reports a forced tall row', asy
   const after = await page.evaluate(probeTable);
   expect(tallestRow(after.rowHeights)).toBeLessThanOrEqual(ROW_HEIGHT_MAX);
 });
+
+// The card's metrics and bars share one line that must not wrap, so the card
+// height does not depend on the font (CI's fallback font is wider than a dev
+// machine's). 320 is the narrowest phone the app supports.
+test('320x700: the first card is 220px or less and nothing scrolls sideways', async ({ page }) => {
+  await setupPlayersPageLayout(page);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto(PLAYERS_LAYOUT_URL);
+  const card = page.getByTestId('player-row-card').first();
+  await expect(card).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const box = await card.boundingBox();
+  expect(box, 'the first card must have a measurable box').not.toBeNull();
+  const doc = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  // eslint-disable-next-line no-console
+  console.log(`PLAYERS_LAYOUT_PHONE_320 ${JSON.stringify({ top: box!.y, height: box!.height, ...doc })}`);
+  expect(box!.height, `first card height ${box!.height} at 320`).toBeLessThanOrEqual(CARD_HEIGHT_MAX);
+  expect(doc.scrollWidth, `document scrollWidth ${doc.scrollWidth} vs clientWidth ${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
+});
