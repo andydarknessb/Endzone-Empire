@@ -1,4 +1,4 @@
-import { buildLedgerSections } from './buildLedgerSections';
+import { buildLedgerSections, ledgerTabCounts } from './buildLedgerSections';
 
 const entry = (overrides = {}) => ({
   playerId: 1,
@@ -160,4 +160,25 @@ test('bench rows pad up to benchSlots, and never fewer than the occupied bench c
   expect(padded.bench).toHaveLength(4);
   const overflow = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 1, irSlots: 0 });
   expect(overflow.bench).toHaveLength(2);
+});
+
+// #1965: the phone bar's labels (`Starters 8/9`, `Bench 6`) come from this one
+// rule, shared by the page through the widget's public index.
+test('ledgerTabCounts: filled non-spent starting seats of the total, and occupied Bench plus IR rows', () => {
+  const slots = [
+    { key: 'QB', count: 1 },
+    { key: 'RB', count: 2 },
+    { key: 'FLEX', count: 1 },
+  ];
+  const entries = [
+    entry({ playerId: 1, slot: 'QB' }),
+    entry({ playerId: 2, slot: 'RB' }),
+    entry({ playerId: 3, slot: 'RB', spent: true }),
+    entry({ playerId: 4, slot: 'BENCH' }),
+    entry({ playerId: 5, slot: 'BENCH' }),
+    entry({ playerId: 6, slot: 'IR' }),
+  ];
+  const sections = buildLedgerSections({ entries, rosterSlots: slots, benchSlots: 4, irSlots: 1 });
+  // FLEX is empty and the spent RB starts nobody: 2 of 4 seats filled.
+  expect(ledgerTabCounts(sections)).toEqual({ startersFilled: 2, startersTotal: 4, benchCount: 3 });
 });

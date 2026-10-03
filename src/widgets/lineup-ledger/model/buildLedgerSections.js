@@ -95,6 +95,21 @@ function isUnavailable(entry) {
   return Boolean(entry.availability && entry.availability.available === false);
 }
 
+/**
+ * The phone bar's counts (#1957 L6, #1965): Starters counts filled seats (a
+ * spent row starts nobody, so it is not one) of the configured total; Bench
+ * counts occupied Bench and IR rows, the group the Bench view shows. One rule,
+ * exported through the widget's index so the page that owns the bar computes
+ * its labels from `buildLedgerSections` without copying it.
+ */
+export function ledgerTabCounts({ starters, bench, ir }) {
+  return {
+    startersFilled: starters.filter((row) => row.entry && !row.entry.spent).length,
+    startersTotal: starters.length,
+    benchCount: [...ir, ...bench].filter((row) => row.entry).length,
+  };
+}
+
 // Stable partition: every available entry (sorted by projectedPoints, the
 // Point estimate - the same number the Ledger row headlines, #1482 - high to
 // low, an unknown value sorting last among them) before every Unavailable

@@ -127,8 +127,8 @@ for (const width of [600, 900]) {
   });
 }
 
-// #1958 (spec #1956 L8): the page's move strip is the Ledger's sticky footer,
-// stacked above the phone Starters/Bench bar. Two bottom-sticky siblings
+// #1958 (spec #1956 L8): the page's move strip sits in the page's sticky footer,
+// stacked above the phone Starters/Bench/Outlook bar. Two bottom-sticky siblings
 // cannot stack from offsets alone (the one earlier in the DOM wins near the
 // end of scroll), so this walks the whole scroll range and asserts, at every
 // step, that the strip and the tab bar never intersect and every tab button is
@@ -161,4 +161,88 @@ test('at 390px the move strip never overlaps the tab bar at any scroll position'
     );
     expect(covered, `a tab button is covered at scrollY ${y}`).toBe(0);
   }
+});
+
+// #1965: one phone bar, Starters | Bench | Outlook, page-owned and pinned over
+// either column. Measured at 390x844, scrolled to the bottom: the bar's bottom
+// edge sits on the viewport's bottom edge on the Starters view and on the
+// Outlook view (where the roster column, which a bar inside it would live in,
+// is hidden), and the first starter row sits higher than it did at 330ede27,
+// where the removed Roster/Outlook control above the grid took about 60px.
+// The bar is fixed below `sm` (a sticky one rests above the app Footer at the
+// end of the scroll), so a second case checks the last row is not left under
+// the bar or the strip.
+const FIRST_STARTER_TOP_AT_330EDE27 = 584.34;
+
+test('at 390px the one bar sticks to the viewport bottom on Starters and Outlook, and the first starter sits higher', async ({ page }) => {
+  await openLineup(page, PHONE);
+  const tabs = page.getByTestId('lineup-mobile-tabs');
+  await expect(tabs.getByRole('button')).toHaveCount(3);
+  await expect(page.getByTestId('lineup-mobile-view')).toHaveCount(0);
+
+  const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
+  expect(firstStarter.y, 'the removed control took about 60px').toBeLessThan(FIRST_STARTER_TOP_AT_330EDE27 - 50);
+
+  const barBottomGap = async () => {
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const bar = await box(tabs);
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    return viewportHeight - (bar.y + bar.height);
+  };
+
+  expect(Math.abs(await barBottomGap())).toBeLessThanOrEqual(1);
+
+  await tabs.getByRole('button', { name: 'Outlook' }).click();
+  await expect(page.getByTestId('lineup-outlook-column')).toBeVisible();
+  await expect(page.getByTestId('lineup-roster-column')).toBeHidden();
+  expect(Math.abs(await barBottomGap())).toBeLessThanOrEqual(1);
+});
+
+test('at 390px the last Starters and Bench rows and the Footer links clear the bar and the strip at the end of the scroll', async ({ page }) => {
+  await openLineup(page, PHONE);
+  const tabs = page.getByTestId('lineup-mobile-tabs');
+  const toEnd = () => page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+  await toEnd();
+  const starters = await box(page.getByTestId('ledger-starters'));
+  const barTop = (await box(tabs)).y;
+  expect(starters.y + starters.height).toBeLessThanOrEqual(barTop);
+  // The app Footer's last link is not left under the bar either.
+  const lastLink = await box(page.getByRole('link', { name: 'Acceptable Use' }));
+  expect(lastLink.y + lastLink.height).toBeLessThanOrEqual(barTop);
+
+  // Selecting a starter flips to Bench (#1425) and raises the strip over the bar.
+  await page.getByTestId('slot-row-RB-0-select').click({ position: { x: 6, y: 6 } });
+  const strip = page.getByTestId('lineup-move-strip');
+  await expect(strip).toBeVisible();
+  await expect(page.getByTestId('ledger-bench')).toBeVisible();
+  await toEnd();
+  const bench = await box(page.getByTestId('ledger-bench'));
+  expect(bench.y + bench.height).toBeLessThanOrEqual((await box(strip)).y);
+});
+
+// #1965 review: the app Snackbar is bottom-anchored, so a toast would sit on top
+// of the fixed bar (a save toast with Undo lingers 20s). A real swap, its PUT
+// answered 200, raises the "Lineup saved" toast; its bottom edge must clear the
+// bar's top. Same viewport: the root's scroll padding must leave room for the
+// bar and a pending strip, so a Tab-focused row is not scrolled under them
+// (WCAG 2.4.11).
+test('at 390px a save toast sits above the bar and focused rows scroll clear of the bar and strip', async ({ page }) => {
+  await openLineup(page, PHONE);
+  await page.route('**/api/team/lineup', (route) =>
+    route.request().method() === 'PUT' ? route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }) : route.fallback()
+  );
+
+  const scrollPaddingBottom = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom));
+  expect(scrollPaddingBottom, 'bar (54) plus strip (78)').toBeGreaterThanOrEqual(132);
+
+  await page.getByTestId('slot-row-RB-0-select').click({ position: { x: 6, y: 6 } });
+  await expect(page.getByTestId('ledger-bench')).toBeVisible();
+  await page.getByTestId('ledger-bench-rows').locator('[data-testid$="-select"]:not([disabled])').first().click({ position: { x: 6, y: 6 } });
+
+  const toast = page.locator('.MuiSnackbar-root');
+  await expect(toast).toContainText('Lineup saved');
+  const toastBox = await box(toast);
+  const barBox = await box(page.getByTestId('lineup-mobile-tabs'));
+  expect(toastBox.y + toastBox.height, `toast ${JSON.stringify(toastBox)} over bar ${JSON.stringify(barBox)}`).toBeLessThanOrEqual(barBox.y);
 });
