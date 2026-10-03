@@ -501,7 +501,7 @@ export default function LineupPage() {
                             }}
                           >
                             <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
-                            <Button size="small" sx={MIN_TOUCH_TARGET_SX} onClick={swap.cancelSelection}>Cancel</Button>
+                            <Button size="small" sx={MIN_TOUCH_TARGET_SX} aria-keyshortcuts="Escape" onClick={swap.cancelSelection}>Cancel</Button>
                           </Box>
                         ) : null
                       }

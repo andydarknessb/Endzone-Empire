@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
@@ -167,6 +167,19 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   });
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
+
+  // #1963: Escape cancels a pending move, so a keyboard user need not Tab to the
+  // strip's Cancel button. Listens only while a selection exists; an Escape a
+  // dialog or menu already handled (defaultPrevented) is left alone.
+  const hasSelection = selectedEntry !== null;
+  useEffect(() => {
+    if (!hasSelection) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) setSelectedEntry(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [hasSelection]);
 
   const template = parseRosterTemplate(raw?.rosterSlots);
   const list = Array.isArray(entries) ? entries : [];

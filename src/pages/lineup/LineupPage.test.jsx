@@ -697,6 +697,42 @@ test('#1958: selecting a row shows the move strip in the sticky footer, after th
   expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
 });
 
+// #1963: Escape cancels a pending move; the strip's Cancel button advertises it.
+test('#1963: Escape cancels a pending move', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+  await user.click(screen.getByTestId('slot-row-RB-0-select'));
+  expect(screen.getByTestId('slot-row-RB-0-select')).toHaveAttribute('aria-pressed', 'true');
+
+  await user.keyboard('{Escape}');
+
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-RB-0-select')).toHaveAttribute('aria-pressed', 'false');
+  expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+test('#1963: Escape with no selection changes nothing', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+
+  await user.keyboard('{Escape}');
+
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-row-RB-0-select')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('#1963: the move strip Cancel button carries aria-keyshortcuts="Escape"', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+  await user.click(screen.getByTestId('slot-row-RB-0-select'));
+  expect(
+    within(screen.getByTestId('lineup-move-strip')).getByRole('button', { name: 'Cancel' })
+  ).toHaveAttribute('aria-keyshortcuts', 'Escape');
+});
+
 // #1958 (L9): below `sm` the header gives up height so the first starter sits
 // higher; from `sm` up it is unchanged.
 describe('#1958: team header size', () => {
