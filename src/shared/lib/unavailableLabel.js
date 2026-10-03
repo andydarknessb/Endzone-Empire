@@ -6,6 +6,8 @@
 
 const UNAVAILABLE_LABELS = {
   bye: 'on bye', out: 'out', ir: 'on IR', no_team: 'no team', practice_squad: 'practice squad',
+  // ADR 0057: only an Upgrade's overPlayer carries it (a Backup quarterback valued at 0).
+  backup: 'backup',
 };
 
 /**

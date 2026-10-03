@@ -1,7 +1,7 @@
 import React from 'react';
 import { Avatar, Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
+import { Badge, GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
 import {
   formatPoints,
   hasNoHistory,
@@ -12,6 +12,7 @@ import {
   MIN_TOUCH_TARGET_SX,
   NFL_TEAM_COLORS,
   FALLBACK_KIT,
+  BACKUP_LABEL,
 } from '../../../shared/lib';
 import { PlayerNameLink } from '../../../entities/player';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
@@ -365,6 +366,9 @@ export default function LedgerRow({
                   }}
                 />
                 <InjuryTag status={entry.injuryStatus} />
+                {entry.backup === true && (
+                  <Badge variant="neutral" data-testid="ledger-backup">{BACKUP_LABEL}</Badge>
+                )}
                 {entry.locked && (
                   <Tooltip title="Locked: this player's game has kicked off">
                     {/* role="img" legitimizes the aria-label on this otherwise

@@ -207,6 +207,16 @@ describe('buildSuggestionView injury designation (#1852)', () => {
     expect(build(side(), side({ playerId: 2 })).sit.noPractice).toBe(false);
   });
 
+  test('a side whose availability reason is backup is flagged, any other reason is not (ADR 0057)', () => {
+    const view = build(
+      side({ availability: { available: true, status: null, reason: 'backup' } }),
+      side({ playerId: 2, availability: { available: true, status: 'Q', reason: 'questionable' } }),
+    );
+    expect(view.sit.backup).toBe(true);
+    expect(view.start.backup).toBe(false);
+    expect(build(side(), side({ playerId: 2 })).sit.backup).toBe(false);
+  });
+
   test('a healthy side, or one with no availability, has no status', () => {
     const view = build(side({ availability: { available: true, status: null } }), side({ playerId: 2 }));
     expect(view.sit.injuryStatus).toBeNull();
