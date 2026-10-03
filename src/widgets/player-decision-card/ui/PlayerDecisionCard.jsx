@@ -36,6 +36,7 @@ import {
   hasNoHistory,
   projectionLabel,
   NO_PRACTICE_LABEL,
+  BACKUP_LABEL,
   VOLATILITY_LABELS,
 } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
@@ -575,6 +576,7 @@ export default function PlayerDecisionCard(props) {
                   {displayEntry.slot && <PosChip position={displayEntry.slot} />}
                   <InjuryTag status={displayEntry.injuryStatus} />
                   <NoPracticeNote entry={displayEntry} testId="decision-card-no-practice" />
+                  <BackupNote entry={displayEntry} testId="decision-card-backup" />
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (
                     <Typography
@@ -980,6 +982,7 @@ export default function PlayerDecisionCard(props) {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
                     <Typography component="h3" sx={{ fontWeight: 700 }}>{compareEntry.name}</Typography>
                     <NoPracticeNote entry={compareEntry} testId="decision-card-compare-no-practice" />
+                    <BackupNote entry={compareEntry} testId="decision-card-compare-backup" />
                   </Box>
                   <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
                     <CloseIcon fontSize="small" />
@@ -1152,6 +1155,16 @@ function Section({ title, testId, level = 'h3', children }) {
 function NoPracticeNote({ entry, testId }) {
   if (!entry || entry.injuryStatus !== 'Q' || entry.verdictReason !== 'no_practice') return null;
   return <Badge variant="neutral" data-testid={testId}>{NO_PRACTICE_LABEL}</Badge>;
+}
+
+/**
+ * ADR 0057: "Backup" on a quarterback behind an available teammate, read off
+ * the server's verdict reason (`verdictReason`, carried by the Lineup advice
+ * and the Players wire). His number stays printed; this only tags it.
+ */
+function BackupNote({ entry, testId }) {
+  if (!entry || entry.verdictReason !== 'backup') return null;
+  return <Badge variant="neutral" data-testid={testId}>{BACKUP_LABEL}</Badge>;
 }
 
 // AC2/AC3: the injury designation and the feed's detail, hidden only when the

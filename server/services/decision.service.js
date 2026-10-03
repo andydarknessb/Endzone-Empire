@@ -83,14 +83,15 @@ function finiteNumber(value) {
  * a player on a bye, ruled Out, or on IR is not a candidate at all; a locked
  * starter is pinned to his slot; a locked bench player can never be started;
  * and a Doubtful bench player, or a Position-baseline one (#1775: his number
- * is the position's average, not his own evidence), is never auto-promoted
+ * is the position's average, not his own evidence) or a Backup quarterback
+ * (ADR 0057), is never auto-promoted
  * over a healthy starter, because there is no reliable data to make that
  * trade against (see unavailableFor).
  *
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
- * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`/`backupFor`
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
@@ -154,6 +155,9 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       // A Position-baseline projection is never auto-recommended (#1775),
       // through the same branch Doubtful uses below.
       positionBaseline: projections.positionBaselineFor(entry.playerId),
+      // A Backup quarterback (ADR 0057) likewise: his number is his own, but
+      // he is behind an available teammate and will not play.
+      backup: projections.backupFor(entry.playerId),
       // This week's Practice participation (ADR 0056): a Questionable player
       // with no practice all week is never auto-recommended, as Doubtful is.
       // Only this reader passes it; no observations is the status quo.
@@ -167,7 +171,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       continue;
     }
     if (!availability.available) continue; // bye / Out / IR designation
-    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful, Position-baseline or no-practice on the bench
+    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful, Position-baseline, Backup or no-practice on the bench
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
@@ -184,7 +188,10 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     const confidence = (detail && detail.confidence) || null;
     const factors = projections.factorsFor(playerId);
     const availability = availabilityById.get(playerId);
-    if (availability && !availability.available) {
+    // A Backup quarterback (ADR 0057) is available but will not play: valued
+    // at 0 here exactly like an Unavailable player, so a started Backup is
+    // advised to the bench. His displayed number (`players[].projection`) stays.
+    if (availability && (!availability.available || availability.reason === 'backup')) {
       // The DISTRIBUTION goes too, not just the mean. A player who cannot play
       // has no distribution of outcomes, and keeping one produced the nonsense
       // "0 (6.82-7.62)" — a zero next to a range that excludes zero. Dropping

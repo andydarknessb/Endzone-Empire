@@ -301,7 +301,7 @@ async function computedTargets({ season, games, week }) {
       const id = Number(row.id);
       if (targets.length === MAX_TARGETS) break;
       if (isFull(row.position)) continue;
-      if (weekly.positionBaselineFor(id) || weekly.classify(id).unavailable) continue;
+      if (weekly.positionBaselineFor(id) || weekly.backupFor(id) || weekly.classify(id).unavailable) continue;
       // Two rows of one athlete would resolve to one snapshot; serve him once.
       const athleteIds = [id, ...(identityIdsById.get(id) || [])];
       if (athleteIds.some((known) => servedIds.has(known))) continue;

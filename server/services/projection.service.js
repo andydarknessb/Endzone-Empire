@@ -5,6 +5,7 @@ const { poolPointsFor, poolPointsMap } = require('./poolProjection');
 const { unavailableFor } = require('./unavailable');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
+const { normalizeNflTeam } = require('./nflTeam');
 const features = require('./projectionFeatures');
 const { rulesForLeague, SCORING_RULES, calculateFantasyPoints, hasTeamDefenseTiers } = require('./scoringRules');
 const { lastPlayoffWeek } = require('./season.service');
@@ -1307,22 +1308,23 @@ async function getWeeklyProjections({
   };
   if (ids.length === 0) return toWeeklyProjectionResult(empty);
 
+  const backupIds = await loadBackupQuarterbackIds({ client, playerIds: ids, now });
   let run = refresh ? null : await findRun({ season, week, hashValue, client });
   let cached = new Map();
   if (run) {
     cached = await loadCachedRows({ runId: run.id, playerIds: ids, client });
     const missing = ids.filter((id) => !cached.has(id));
-    if (missing.length === 0) return cachedRunResult({ season, week, hashValue, run, cached });
+    if (missing.length === 0) return cachedRunResult({ season, week, hashValue, run, cached, backupIds });
   }
 
   const toGenerate = run ? ids.filter((id) => !cached.has(id)) : ids;
   return completeRun({
-    season, week, rules, hashValue, run, cached, playerIds: toGenerate, client, now, weatherService,
+    season, week, rules, hashValue, run, cached, playerIds: toGenerate, client, now, weatherService, backupIds,
   });
 }
 
 /** The result shape for a week every requested player already had cached. */
-function cachedRunResult({ season, week, hashValue, run, cached }) {
+function cachedRunResult({ season, week, hashValue, run, cached, backupIds }) {
   return toWeeklyProjectionResult({
     season,
     week,
@@ -1332,7 +1334,36 @@ function cachedRunResult({ season, week, hashValue, run, cached }) {
     inputCutoff: run.input_cutoff ? new Date(run.input_cutoff).toISOString() : null,
     sourceCoverage: run.source_coverage || {},
     projections: cached,
+    backupIds,
   });
+}
+
+/**
+ * An optional read that degrades to `fallback` instead of failing the request
+ * (the NFL roster status read, #1767; the QB depth chart read, ADR 0057). The
+ * SAVEPOINT bracket (#1790) is what keeps a caller's transaction usable after
+ * a failed read; the long note in `completeRun` explains why it is issued
+ * inside the guarded path.
+ */
+async function degradingRead({ client, savepoint, label, read, fallback }) {
+  let savepointOpen = false;
+  if (client !== pool) {
+    try {
+      await client.query(`SAVEPOINT ${savepoint}`);
+      savepointOpen = true;
+    } catch (err) {
+      if (err.code !== '25P01') throw err;
+    }
+  }
+  try {
+    const value = await read();
+    if (savepointOpen) await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    return value;
+  } catch (err) {
+    console.error(`projections: ${label} read failed, continuing without it:`, err.message);
+    if (savepointOpen) await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    return fallback;
+  }
 }
 
 /**
@@ -1342,7 +1373,7 @@ function cachedRunResult({ season, week, hashValue, run, cached }) {
  * same way from either path.
  */
 async function completeRun({
-  season, week, rules, hashValue, run, cached, playerIds, client, now, weatherService,
+  season, week, rules, hashValue, run, cached, playerIds, client, now, weatherService, backupIds,
 }) {
   // The NFL roster status is optional context on the same terms as weather:
   // a failed read degrades to "every player Active" rather than failing the
@@ -1361,27 +1392,14 @@ async function completeRun({
   // with 25P01. So the SAVEPOINT itself is issued INSIDE the guarded path,
   // not before it: a 25P01 there means there is no transaction to protect
   // (autocommit cannot be left aborted by one failed statement, so the plain
-  // catch below is already the correct degrade with no bracket at all) and
-  // capture proceeds with `savepointOpen` false; any OTHER failure to open
+  // catch in `degradingRead` is already the correct degrade with no bracket
+  // at all) and capture proceeds with `savepointOpen` false; any OTHER failure to open
   // the savepoint is a broken connection and propagates, exactly as
   // holdout.service.js's own SAVEPOINT loop treats that case.
-  let nflRosterStatusById = null;
-  let savepointOpen = false;
-  if (client !== pool) {
-    try {
-      await client.query('SAVEPOINT nfl_roster_status');
-      savepointOpen = true;
-    } catch (err) {
-      if (err.code !== '25P01') throw err;
-    }
-  }
-  try {
-    nflRosterStatusById = await loadNflRosterStatusById(client, playerIds);
-    if (savepointOpen) await client.query('RELEASE SAVEPOINT nfl_roster_status');
-  } catch (err) {
-    console.error('projections: NFL roster status read failed, continuing without it:', err.message);
-    if (savepointOpen) await client.query('ROLLBACK TO SAVEPOINT nfl_roster_status');
-  }
+  const nflRosterStatusById = await degradingRead({
+    client, savepoint: 'nfl_roster_status', label: 'NFL roster status', fallback: null,
+    read: () => loadNflRosterStatusById(client, playerIds),
+  });
   const generated = await generateProjections({
     season, week, rules, playerIds, hashValue, client, now, weatherService, nflRosterStatusById,
   });
@@ -1417,6 +1435,7 @@ async function completeRun({
     inputCutoff: generated.inputCutoff ? new Date(generated.inputCutoff).toISOString() : null,
     sourceCoverage: generated.sourceCoverage,
     projections: merged,
+    backupIds,
   });
 }
 
@@ -1463,6 +1482,7 @@ async function getWeeklyProjectionsForWeeks({
     return out;
   }
 
+  const backupIds = await loadBackupQuarterbackIds({ client, playerIds: ids, now });
   const runs = await findRuns({ season, weeks: wks, hashValue, client });
   const runIds = [...runs.values()].map((r) => Number(r.id));
   const rowsByRun = runIds.length > 0
@@ -1474,13 +1494,13 @@ async function getWeeklyProjectionsForWeeks({
     const cached = run ? (rowsByRun.get(Number(run.id)) || new Map()) : new Map();
     const missing = ids.filter((id) => !cached.has(id));
     if (run && missing.length === 0) {
-      out.set(week, cachedRunResult({ season, week, hashValue, run, cached }));
+      out.set(week, cachedRunResult({ season, week, hashValue, run, cached, backupIds }));
       continue;
     }
     // eslint-disable-next-line no-await-in-loop -- one generation per week
     // that is actually missing a row; cached weeks never reach here.
     out.set(week, await completeRun({
-      season, week, rules, hashValue, run, cached, playerIds: missing, client, now, weatherService,
+      season, week, rules, hashValue, run, cached, playerIds: missing, client, now, weatherService, backupIds,
     }));
   }
   return out;
@@ -1657,6 +1677,72 @@ function isPositionBaselineEntry(entry) {
     && dataQuality.reasons.includes(POSITION_BASELINE_REASON));
 }
 
+const BACKUP_CHART_FRESH_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Pure: the ids of Backup quarterbacks (ADR 0057 rule 1) from QB depth-chart
+ * rows `{ player_id, rank, team_code, captured_date, nfl_team, injury_status }`.
+ * Per team only the newest `captured_date` counts, and a chart older than 48
+ * hours of `now` counts for nothing. A QB is a Backup when another QB on that
+ * same chart ranks better, is still on that NFL team and is not Out or IR (a
+ * Questionable or Doubtful QB ahead still counts as ahead).
+ */
+function backupQuarterbackIds(rows, now = new Date()) {
+  // `captured_date` arrives as 'YYYY-MM-DD' text (the read casts it) and ages
+  // from UTC midnight, so freshness does not depend on the server's timezone.
+  const at = (row) => {
+    const [y, m, d] = String(row.captured_date).slice(0, 10).split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  // ESPN's chart spells Washington WAS and Tank01's players.nfl_team WSH: both
+  // sides fold through `normalizeNflTeam`.
+  const teamOf = (row) => normalizeNflTeam(row.team_code);
+  const newest = new Map();
+  for (const row of rows) {
+    const team = teamOf(row);
+    if (team != null && at(row) > (newest.get(team) ?? -Infinity)) newest.set(team, at(row));
+  }
+  const backups = new Set();
+  for (const [teamCode, capturedAt] of newest) {
+    if (new Date(now).getTime() - capturedAt > BACKUP_CHART_FRESH_MS) continue;
+    const chart = rows.filter((r) => teamOf(r) === teamCode && at(r) === capturedAt && r.rank != null);
+    const available = chart.filter((r) => normalizeNflTeam(r.nfl_team) === teamCode
+      && !['O', 'IR'].includes(String(r.injury_status || '').toUpperCase()));
+    for (const r of chart) {
+      if (available.some((a) => a.rank < r.rank)) backups.add(Number(r.player_id));
+    }
+  }
+  return backups;
+}
+
+/**
+ * The QB depth charts of every team a requested player is charted on (the last
+ * 3 days, a coarse bound: `backupQuarterbackIds` applies the 48 hour rule), in
+ * one query, reduced to the Set the Weekly projection result answers
+ * `backupFor` from. Read path only (ADR 0057): nothing is stored.
+ */
+async function loadBackupQuarterbackIds({ client, playerIds, now }) {
+  // A failed read degrades to "nobody is a Backup", as the NFL roster status
+  // read degrades to "every player Active": the number and every other
+  // verdict still serve.
+  return degradingRead({
+    client, savepoint: 'backup_chart', label: 'QB depth chart', fallback: new Set(),
+    read: async () => {
+      const result = await client.query(
+        `SELECT "dc"."player_id", "dc"."rank", "dc"."team_code", "dc"."captured_date"::text AS "captured_date",
+                "p"."nfl_team", "p"."injury_status"
+         FROM "player_depth_chart" "dc" JOIN "players" "p" ON "p"."id" = "dc"."player_id"
+         WHERE "dc"."position_group" = 'QB' AND "p"."position" = 'QB' AND "dc"."captured_date" >= $2::date - 3
+           AND "dc"."team_code" IN (
+             SELECT "team_code" FROM "player_depth_chart"
+             WHERE "player_id" = ANY($1::int[]) AND "position_group" = 'QB' AND "captured_date" >= $2::date - 3)`,
+        [playerIds, new Date(now).toISOString().slice(0, 10)]
+      );
+      return backupQuarterbackIds(result.rows, now);
+    },
+  });
+}
+
 /**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the
@@ -1681,6 +1767,8 @@ function isPositionBaselineEntry(entry) {
 function toWeeklyProjectionResult(run) {
   const entryFor = (playerId) => run.projections.get(playerId) || null;
   const isPositionBaseline = (playerId) => isPositionBaselineEntry(entryFor(playerId));
+  // ADR 0057: the loaders attach the read's chart verdict as `run.backupIds`.
+  const isBackup = (playerId) => !!(run.backupIds && run.backupIds.has(Number(playerId)));
 
   return {
     ...run,
@@ -1762,25 +1850,39 @@ function toWeeklyProjectionResult(run) {
     },
 
     /**
+     * True when the player is a Backup quarterback (ADR 0057): behind an
+     * available teammate on his team's fresh QB Depth chart. Read-path only,
+     * like `positionBaselineFor`; his number is his own evidence and stays.
+     */
+    backupFor(playerId) {
+      return isBackup(playerId);
+    },
+
+    /**
      * The post-projection verdict the read attaches to a Position-baseline row
      * (#1775), else `null` (the read has no verdict of its own for any other
      * row; the engine's stored `factors.availability` stays the row's
      * availability). A stored Unavailable verdict (bye, No NFL team, Practice
      * squad, Out, IR: the engine took it from `unavailableFor` before
      * projecting) always wins and is returned as stored, so the precedence
-     * reads bye, No NFL team, Practice squad, Out, IR, then Position-baseline.
+     * reads bye, No NFL team, Practice squad, Out, IR, then Position-baseline,
+     * then a Backup quarterback (ADR 0057: `unavailableFor({ backup: true })`,
+     * reason `backup`).
      * Otherwise the one verdict function, `unavailableFor`, is taken with
      * `positionBaseline: true` over the row's stored designation: available,
      * not auto-recommended, reason `no_history`. Derived on read, never stored:
      * the engine, the stored rows and every holdout capture are unchanged.
      */
     availabilityFor(playerId) {
-      if (!isPositionBaseline(playerId)) return null;
-      const stored = (entryFor(playerId).factors || {}).availability || {};
+      const baseline = isPositionBaseline(playerId);
+      if (!baseline && !isBackup(playerId)) return null;
+      const entry = entryFor(playerId);
+      const stored = ((entry && entry.factors) || {}).availability || {};
       if (stored.available === false) return { ...stored };
       return unavailableFor({
         injuryStatus: stored.status || null,
-        positionBaseline: true,
+        positionBaseline: baseline,
+        backup: !baseline,
       });
     },
 
@@ -1822,5 +1924,6 @@ module.exports = {
   distinctGamesFor,
   pointEstimateFor,
   isPositionBaselineEntry,
+  backupQuarterbackIds,
   toWeeklyProjectionResult,
 };

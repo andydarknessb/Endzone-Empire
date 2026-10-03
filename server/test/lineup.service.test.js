@@ -187,6 +187,7 @@ test('getLineup returns league-scored current-week projections and preserves una
     unavailable: null,
     // #1776: no Position-baseline marker in his stored projection.
     positionBaseline: false,
+    backup: false,
     // #1329: no game this week (weekOpponents carries no row for him here),
     // so both are null - never a bare undefined.
     line: null,
@@ -272,9 +273,9 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
 // so the client can read "no history" without holding a copy of the verdict.
 const POSITION_BASELINE_FACTORS = { dataQuality: { reasons: ['position baseline'] } };
 
-function installPositionBaselineWorld(t, { entries, projections }) {
+function installPositionBaselineWorld(t, { entries, projections, backupIds }) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
-    projections,
+    projections, backupIds,
   }));
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
@@ -358,6 +359,37 @@ test('getLineup: no bench-above-starter Edge line names a Position-baseline play
   assert.equal(byId.get(2).edge.kind, 'none', 'a Position-baseline bench player outprojects nobody');
   assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a Position-baseline starter');
   assert.deepEqual(byId.get(6).edge, { kind: 'bench-above-starter', text: 'Outprojects Real Starter Two at WR' });
+  fake.assertClean();
+});
+
+test('getLineup: a Backup quarterback keeps his number and no bench-above-starter Edge line names him on either side (ADR 0057)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Starter QB', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
+    { id: 2, name: 'Keenum', position: 'QB', nfl_team: 'CHI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Real Starter Two', position: 'WR', nfl_team: 'SEA', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
+    { id: 4, name: 'Real Bench Two', position: 'WR', nfl_team: 'WAS', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 12, median: 12, factors: {} }],
+      [2, { mean: 20.25, median: 20.25, factors: {} }],
+      [3, { mean: 9, median: 9, factors: {} }],
+      [4, { mean: 10, median: 10, factors: {} }],
+    ]),
+    backupIds: new Set([2]),
+  });
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(2).backup, true);
+  assert.equal(byId.get(2).positionBaseline, false, 'his number is evidence: not a no-history row');
+  assert.equal(byId.get(2).projected_points, 20.25, 'his number stays');
+  assert.equal(byId.get(2).unavailable, null, 'Backup is not an Unavailable reason');
+  assert.equal(byId.get(1).backup, false);
+  assert.equal(byId.get(2).edge.kind, 'none', 'a Backup quarterback outprojects nobody');
+  assert.deepEqual(byId.get(4).edge, { kind: 'bench-above-starter', text: 'Outprojects Real Starter Two at WR' });
   fake.assertClean();
 });
 

@@ -295,7 +295,7 @@ test('completeRun still generates projections when SAVEPOINT itself fails with 2
   const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], client });
   const projected = result.projections.get(1);
   assert.equal(projected.factors.availability.available, true, 'the read still ran and reads Active');
-  assert.equal(statements.filter((s) => /^SAVEPOINT\b/.test(s)).length, 1, 'the savepoint was attempted once');
+  assert.equal(statements.filter((s) => /^SAVEPOINT nfl_roster_status\b/.test(s)).length, 1, 'the savepoint was attempted once');
   assert.equal(
     statements.some((s) => /^(RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(s)),
     false,
@@ -1925,6 +1925,7 @@ test('a v3 cached run cannot satisfy a v3.1 lookup', async (t) => {
       throw new Error('a v3.1 request must never read v3 child rows');
     }
     if (text.includes('INSERT INTO "player_week_projections"')) return { rows: [], rowCount: 1 };
+    if (text.includes('FROM "player_depth_chart"')) return { rows: [] };
     if (text.includes('FROM "players" WHERE "id" = ANY')) {
       regenerated = true;
       return { rows: [player(1, 'RB')] };
@@ -3466,4 +3467,224 @@ test('depth Challenger: no kickoff and no capture cutoff means no depth read', a
   });
   assert.deepEqual(reads, []);
   assert.equal(bundle.depthRankByPlayer.size, 0);
+});
+
+// ADR 0057: the Backup quarterback verdict. The predicate is pure; the read
+// loads the QB depth charts once per call and attaches the Set to the result.
+const CHART_NOW = new Date('2026-10-03T15:00:00Z');
+const chartRow = (player_id, rank, over = {}) => ({
+  player_id, rank, team_code: 'CHI', captured_date: '2026-10-03', nfl_team: 'CHI', injury_status: null, ...over,
+});
+const backups = (rows, now = CHART_NOW) => [...projection.backupQuarterbackIds(rows, now)].sort((a, b) => a - b);
+
+test('backupQuarterbackIds: a QB behind an available teammate is a Backup; the starter is not', () => {
+  assert.deepEqual(backups([chartRow(1, 1), chartRow(2, 2), chartRow(3, 3)]), [2, 3]);
+});
+
+test('backupQuarterbackIds: behind a Questionable or Doubtful QB still counts as behind; behind an Out or IR QB only does not', () => {
+  assert.deepEqual(backups([chartRow(1, 1, { injury_status: 'Q' }), chartRow(2, 2)]), [2]);
+  assert.deepEqual(backups([chartRow(1, 1, { injury_status: 'D' }), chartRow(2, 2)]), [2]);
+  assert.deepEqual(backups([chartRow(1, 1, { injury_status: 'O' }), chartRow(2, 2)]), []);
+  assert.deepEqual(backups([chartRow(1, 1, { injury_status: 'IR' }), chartRow(2, 2)]), []);
+  // An Out QB1 does not shield QB3 from an available QB2.
+  assert.deepEqual(backups([chartRow(1, 1, { injury_status: 'O' }), chartRow(2, 2), chartRow(3, 3)]), [3]);
+});
+
+test('backupQuarterbackIds: a teammate now on another NFL team is not ahead', () => {
+  assert.deepEqual(backups([chartRow(1, 1, { nfl_team: 'DET' }), chartRow(2, 2)]), []);
+  assert.deepEqual(backups([chartRow(1, 1, { nfl_team: null }), chartRow(2, 2)]), []);
+});
+
+test('backupQuarterbackIds: only each team\'s newest chart counts, and a chart older than 48 hours counts for nothing', () => {
+  // Yesterday's chart had 2 behind 1; today's has 2 on top: not a Backup.
+  assert.deepEqual(backups([
+    chartRow(1, 1, { captured_date: '2026-10-02' }), chartRow(2, 2, { captured_date: '2026-10-02' }),
+    chartRow(2, 1), chartRow(1, 2),
+  ]), [1]);
+  // Both charts below are older than 48 hours of now.
+  assert.deepEqual(backups([chartRow(1, 1, { captured_date: '2026-09-30' }), chartRow(2, 2, { captured_date: '2026-09-30' })]), []);
+  // The 48 hour edge: a chart captured exactly 48 hours before now still counts.
+  const edge = new Date('2026-10-05T00:00:00Z');
+  assert.deepEqual(backups([chartRow(1, 1), chartRow(2, 2)], edge), [2]);
+  assert.deepEqual(backups([chartRow(1, 1), chartRow(2, 2)], new Date(edge.getTime() + 1)), []);
+  // Another team's stale chart does not hide a fresh one, and vice versa.
+  assert.deepEqual(backups([
+    chartRow(1, 1, { team_code: 'DET', nfl_team: 'DET', captured_date: '2026-09-28' }),
+    chartRow(2, 2, { team_code: 'DET', nfl_team: 'DET', captured_date: '2026-09-28' }),
+    chartRow(3, 1, { team_code: 'KC', nfl_team: 'KC' }), chartRow(4, 2, { team_code: 'KC', nfl_team: 'KC' }),
+  ]), [4]);
+});
+
+test('backupQuarterbackIds: a missing chart, a player absent from it, an unranked row and a lone QB are not Backups', () => {
+  assert.deepEqual(backups([]), []);
+  assert.deepEqual(backups([chartRow(1, 1)]), []);
+  assert.deepEqual(backups([chartRow(1, 1), chartRow(2, null)]), []);
+  assert.equal(projection.backupQuarterbackIds([chartRow(1, 1), chartRow(2, 2)], CHART_NOW).has(99), false);
+  // Equal ranks are not "behind".
+  assert.deepEqual(backups([chartRow(1, 1), chartRow(2, 1)]), []);
+});
+
+test('toWeeklyProjectionResult: backupFor reads run.backupIds, and is false without it', () => {
+  const entry = { mean: 20, median: 20, factors: { availability: { available: true, status: null, reason: null } } };
+  const projections = new Map([[1, entry], [2, entry]]);
+  const result = projection.toWeeklyProjectionResult({ projections, backupIds: new Set([2]) });
+  assert.equal(result.backupFor(1), false);
+  assert.equal(result.backupFor(2), true);
+  assert.equal(result.backupFor(999), false);
+  assert.equal(projection.toWeeklyProjectionResult({ projections }).backupFor(2), false);
+});
+
+test('toWeeklyProjectionResult: availabilityFor returns the backup verdict after the Position-baseline check, keeping the number', () => {
+  const evidenced = (availability) => ({ mean: 20.25, median: 20.25, factors: { availability, dataQuality: { reasons: ['small sample'] } } });
+  const baseline = { mean: 15, median: 15, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { reasons: ['position baseline'] } } };
+  const result = projection.toWeeklyProjectionResult({
+    projections: new Map([
+      [1, evidenced({ available: true, status: null, reason: null })],
+      [2, evidenced({ available: true, status: 'D', reason: 'doubtful' })],
+      [3, evidenced({ available: false, status: 'O', reason: 'out' })],
+      [4, baseline],
+      [5, evidenced({ available: true, status: null, reason: null })],
+    ]),
+    backupIds: new Set([1, 2, 3, 4]),
+  });
+  assert.equal(result.availabilityFor(1).reason, 'backup');
+  assert.equal(result.availabilityFor(1).available, true);
+  assert.equal(result.availabilityFor(1).autoRecommend, false);
+  assert.equal(result.availabilityFor(2).reason, 'backup', 'backup wins over a stored Doubtful');
+  assert.equal(result.availabilityFor(2).status, 'D');
+  assert.equal(result.availabilityFor(3).reason, 'out', 'a stored Unavailable verdict wins over backup');
+  assert.equal(result.availabilityFor(4).reason, 'no_history', 'Position-baseline wins over backup');
+  assert.equal(result.availabilityFor(5), null, 'not in backupIds: no verdict from the read');
+  assert.equal(result.pointsFor(1), 20.25, 'his number stays');
+});
+
+test('getWeeklyProjections attaches backupIds from ONE QB depth chart query, on a cold run and on a cache hit', async (t) => {
+  const reads = [];
+  const chart = [chartRow(1, 1), chartRow(2, 2)];
+  mockPool(t, {
+    players: [player(1, 'QB', { nfl_team: 'CHI' }), player(2, 'QB', { nfl_team: 'CHI' })],
+    weeklyStats: [weeklyRow(1, 1, { passingYards: 250 }), weeklyRow(2, 1, { passingYards: 250 })],
+    depthChartRows: chart,
+    onQuery: (text, params) => text.includes('FROM "player_depth_chart"') && reads.push({ text, params }),
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1, 2], now: CHART_NOW });
+  assert.equal(reads.length, 1);
+  assert.deepEqual(reads[0].params, [[1, 2], '2026-10-03']);
+  assert.equal(result.backupFor(1), false);
+  assert.equal(result.backupFor(2), true);
+  assert.equal(result.availabilityFor(2).reason, 'backup');
+
+  // Every requested player cached: the same one read, the same verdict.
+  reads.length = 0;
+  mockPool(t, {
+    players: [], runRow: runRowAt(), cachedRows: [cachedRowFor(1), cachedRowFor(2)],
+    depthChartRows: chart,
+    onQuery: (text, params) => text.includes('FROM "player_depth_chart"') && reads.push({ text, params }),
+  });
+  const cached = await run({ season: SEASON, week: 5, league: league(), playerIds: [1, 2], now: CHART_NOW });
+  assert.equal(reads.length, 1);
+  assert.equal(cached.backupFor(2), true);
+  assert.equal(cached.backupFor(1), false);
+});
+
+test('getWeeklyProjectionsForWeeks loads the QB depth chart once for every week, and attaches it to each', async (t) => {
+  const reads = [];
+  mockPool(t, {
+    players: [player(1, 'QB', { nfl_team: 'CHI' }), player(2, 'QB', { nfl_team: 'CHI' })],
+    weeklyStats: [weeklyRow(1, 1, { passingYards: 250 }), weeklyRow(2, 1, { passingYards: 250 })],
+    depthChartRows: [chartRow(1, 1), chartRow(2, 2)],
+    onQuery: (text) => text.includes('FROM "player_depth_chart"') && reads.push(text),
+  });
+  const runs = await projection.getWeeklyProjectionsForWeeks({
+    season: SEASON, weeks: [5, 6], league: league(), playerIds: [1, 2], weatherService: false, now: CHART_NOW,
+  });
+  assert.equal(reads.length, 1);
+  for (const week of [5, 6]) {
+    assert.equal(runs.get(week).backupFor(2), true, `week ${week}`);
+    assert.equal(runs.get(week).backupFor(1), false, `week ${week}`);
+  }
+});
+
+test('no stored projection row changes: a Backup quarterback\'s generated row carries no backup marker', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'QB', { nfl_team: 'CHI' }), player(2, 'QB', { nfl_team: 'CHI' })],
+    weeklyStats: [weeklyRow(2, 1, { passingYards: 250 })],
+    depthChartRows: [chartRow(1, 1), chartRow(2, 2)],
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [2], now: CHART_NOW });
+  assert.equal(result.backupFor(2), true);
+  assert.notEqual(result.projections.get(2).factors.availability.reason, 'backup');
+  assert.equal(JSON.stringify(result.projections.get(2)).includes('backup'), false);
+});
+
+test('backupQuarterbackIds: Washington folds across ESPN WAS and Tank01 WSH, on either side', () => {
+  const wsh = (id, rank, over = {}) => chartRow(id, rank, { team_code: 'WAS', nfl_team: 'WSH', ...over });
+  assert.deepEqual(backups([wsh(1, 1), wsh(2, 2)]), [2]);
+  assert.deepEqual(backups([chartRow(1, 1, { team_code: 'WSH', nfl_team: 'WAS' }), chartRow(2, 2, { team_code: 'WSH', nfl_team: 'WAS' })]), [2]);
+  // A WSH chart row and a WAS chart row are one team's chart.
+  assert.deepEqual(backups([wsh(1, 1), chartRow(2, 2, { team_code: 'WSH', nfl_team: 'WSH' })]), [2]);
+  // An Out starter is still not ahead after the fold.
+  assert.deepEqual(backups([wsh(1, 1, { injury_status: 'O' }), wsh(2, 2)]), []);
+  // A blank team_code never matches a blank nfl_team.
+  assert.deepEqual(backups([chartRow(1, 1, { team_code: null, nfl_team: null }), chartRow(2, 2, { team_code: null, nfl_team: null })]), []);
+});
+
+test('backupQuarterbackIds: freshness ages the chart text date from UTC midnight, whatever the server timezone', () => {
+  const original = process.env.TZ;
+  try {
+    for (const tz of ['Pacific/Auckland', 'America/Los_Angeles']) {
+      process.env.TZ = tz;
+      const rows = [chartRow(1, 1, { captured_date: '2026-10-03' }), chartRow(2, 2, { captured_date: '2026-10-03' })];
+      assert.deepEqual(backups(rows, new Date('2026-10-05T00:00:00Z')), [2], `${tz}: 48h to the millisecond still counts`);
+      assert.deepEqual(backups(rows, new Date('2026-10-05T00:00:00.001Z')), [], `${tz}: one millisecond past 48h does not`);
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ; else process.env.TZ = original;
+  }
+});
+
+test('the QB depth chart read casts captured_date to text, and only reads QBs on QB charts', async (t) => {
+  const reads = [];
+  mockPool(t, {
+    players: [player(1, 'QB', { nfl_team: 'CHI' })],
+    weeklyStats: [weeklyRow(1, 1, { passingYards: 250 })],
+    onQuery: (text) => text.includes('FROM "player_depth_chart"') && reads.push(text),
+  });
+  await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
+  assert.equal(reads.length, 1);
+  assert.ok(reads[0].includes('"dc"."captured_date"::text'), 'the date arrives as text, not a timezone-dependent Date');
+  assert.ok(reads[0].includes(`"p"."position" = 'QB'`), 'ADR 0057 rule 4: QB only');
+});
+
+test('a failed QB depth chart read degrades to nobody being a Backup, logging it, with no SAVEPOINT on the pool', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const calls = mockPool(t, {
+    players: [player(1, 'QB', { nfl_team: 'CHI' })],
+    weeklyStats: [weeklyRow(1, 1, { passingYards: 250 })],
+    onQuery: (text) => {
+      if (text.includes('FROM "player_depth_chart"')) throw new Error('depth chart table unavailable');
+    },
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
+  assert.equal(result.backupFor(1), false);
+  assert.equal(result.projections.get(1).factors.availability.available, true, 'the projection still serves');
+  assert.ok(logged.mock.calls.some((c) => String(c.arguments[0]).includes('QB depth chart read failed')));
+  assert.equal(calls.some((call) => call.text.includes('SAVEPOINT')), false);
+});
+
+test('a failed QB depth chart read on a transaction client rolls back to its savepoint, so later statements still run', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const failing = { depth: true };
+  const client = txAbortClient(t, {
+    players: [player(1, 'QB', { nfl_team: 'CHI' })],
+    weeklyStats: [weeklyRow(1, 1, { passingYards: 250 })],
+    onQuery: (text) => {
+      if (failing.depth && text.includes('FROM "player_depth_chart"')) throw new Error('depth chart table unavailable');
+    },
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW, client });
+  assert.equal(result.backupFor(1), false);
+  assert.ok(client.statements.includes('SAVEPOINT backup_chart'));
+  assert.ok(client.statements.includes('ROLLBACK TO SAVEPOINT backup_chart'));
+  assert.equal(result.projections.has(1), true, 'the run completed on the same client');
 });

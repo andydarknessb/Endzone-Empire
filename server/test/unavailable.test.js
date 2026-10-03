@@ -220,3 +220,33 @@ test('unavailableFor (practice): bye, no team, Practice squad and Position-basel
   assert.equal(noPractice([dnp()], { nflRosterStatus: ps }).reason, 'practice_squad');
   assert.equal(noPractice([dnp()], { positionBaseline: true }).reason, 'no_history', 'Position-baseline wins');
 });
+
+// ADR 0057: a Backup quarterback is available but never auto-recommended, below
+// no_history and above Doubtful, no-practice and Questionable.
+test('unavailableFor: backup wins over no designation, Questionable and Doubtful, never auto-recommended', () => {
+  for (const injuryStatus of [null, 'Q', 'D']) {
+    const verdict = unavailableFor({ injuryStatus, backup: true });
+    assert.equal(verdict.available, true, String(injuryStatus));
+    assert.equal(verdict.autoRecommend, false, String(injuryStatus));
+    assert.equal(verdict.reason, 'backup', String(injuryStatus));
+    assert.equal(verdict.activeProbability, injuryStatus ? null : 1, String(injuryStatus));
+  }
+});
+
+test('unavailableFor: bye, no team, Practice squad, Out, IR and Position-baseline all win over backup', () => {
+  const ps = { status: 'practice_squad', capturedAt: new Date().toISOString() };
+  assert.equal(unavailableFor({ onBye: true, backup: true }).reason, 'bye');
+  assert.equal(unavailableFor({ noTeam: true, backup: true }).reason, 'no_team');
+  assert.equal(unavailableFor({ nflRosterStatus: ps, backup: true }).reason, 'practice_squad');
+  assert.equal(unavailableFor({ injuryStatus: 'O', backup: true }).reason, 'out');
+  assert.equal(unavailableFor({ injuryStatus: 'IR', backup: true }).reason, 'ir');
+  assert.equal(unavailableFor({ positionBaseline: true, backup: true }).reason, 'no_history');
+});
+
+test('unavailableFor: backup outranks the no_practice verdict, and false or absent changes nothing', () => {
+  assert.equal(noPractice([dnp()]).reason, 'no_practice', 'the same input without backup reads no_practice');
+  assert.equal(noPractice([dnp()], { backup: true }).reason, 'backup');
+  assert.equal(noPractice([dnp()], { backup: true }).status, 'Q');
+  assert.equal(unavailableFor({ backup: false }).reason, null);
+  assert.equal(unavailableFor({ injuryStatus: 'D', backup: false }).reason, 'doubtful');
+});

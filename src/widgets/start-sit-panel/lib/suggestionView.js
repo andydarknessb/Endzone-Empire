@@ -113,6 +113,8 @@ function sideView(side, entriesById) {
     // "No practice this week" beside a Questionable tag (ADR 0056): the server's
     // verdict reason, carried as-is.
     noPractice: side.availability?.reason === 'no_practice',
+    // The "Backup" tag (ADR 0057): a quarterback behind an available teammate.
+    backup: side.availability?.reason === 'backup',
     volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,
