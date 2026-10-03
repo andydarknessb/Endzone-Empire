@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useResilientLineupMutation from '../../../hooks/useResilientLineupMutation';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
 import { readHttpFailure } from '../../../lib/httpFailure';
@@ -155,6 +155,19 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * landed on the server, either right after `saveLineup` resolves unqueued or
  * when a queued write replays. Never on a refused or still-queued save. The
  * page supplies it to refresh whatever read the write made stale.
+ *
+ * Undo (#1964): `performMove`'s "Lineup saved" toast carries an Undo action
+ * when the save landed right away (never queued, never an error), via the
+ * Snackbar's `actionLabel`/`onAction`. It re-runs the move with each moved
+ * `playerId` back at the slot the pre-move `raw` held (matched by `id`). The
+ * undo is itself a plain write: its success says "Lineup restored" with no
+ * Undo of its own, and a refusal rolls back the moved slots and shows
+ * the server's message through the same catch.
+ * An Undo after leaving and returning to the page restores on the server, but
+ * this page shows it only after the next refetch. Undo restores slots only: a
+ * called shot the forward save voided, or a cleared IR attestation, is not
+ * restored (#1969). Rollbacks (a refused save or Undo) are functional and same-lineup
+ * guarded: they reset only the moved ids' slots on the current `raw`.
  */
 export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, onLanded }) {
   const notify = useSnackbar();
@@ -168,30 +181,74 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
 
+  // #1963: Escape cancels a pending move, so a keyboard user need not Tab to the
+  // strip's Cancel button. Listens only while a selection exists. An Escape a
+  // handler already marked defaultPrevented is left alone; MUI dialogs and menus
+  // stop propagation, so theirs never reaches this document listener.
+  const hasSelection = selectedEntry !== null;
+  useEffect(() => {
+    if (!hasSelection) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) setSelectedEntry(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [hasSelection]);
+
   const template = parseRosterTemplate(raw?.rosterSlots);
   const list = Array.isArray(entries) ? entries : [];
   const byId = new Map(list.map((e) => [e.playerId, e]));
 
-  const performMove = async (moves) => {
+  // `undoOf` is set only by an Undo's own run: the moves it reverses (#1964),
+  // which also mark it as carrying no Undo itself. Every patch, rollback
+  // included, sets only the moved ids' slots on whatever `prev` is by then,
+  // and only while `prev` is still the lineup the move was made on, so a live
+  // score tick, a silent refetch or a navigation mid-request is never undone.
+  // A rollback also leaves any id that no longer holds the slot this run set.
+  const runMove = async (moves, undoOf) => {
     const snapshot = raw;
-    const slotByPlayer = new Map(moves.map((m) => [m.playerId, m.slot]));
-    setRaw((prev) =>
-      prev
-        ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
-        : prev
-    );
+    // `owned` (rollbacks only): the moves this run wrote. An id is reset only
+    // while it still holds the slot this run set, so a newer write survives.
+    // ponytail: two in-flight writes sharing a player, one refused, can still
+    // leave client and server apart until the next refetch.
+    const setSlots = (slots, owned) => {
+      const slotByPlayer = new Map(slots.map((m) => [m.playerId, m.slot]));
+      const ownedSlot = owned && new Map(owned.map((m) => [m.playerId, m.slot]));
+      const resets = (e) => slotByPlayer.has(e.id) && (!ownedSlot || ownedSlot.get(e.id) === e.slot);
+      return (prev) =>
+        prev && prev.week === snapshot?.week && prev.teamId === snapshot?.teamId
+          ? { ...prev, entries: prev.entries.map((e) => (resets(e) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
+          : prev;
+    };
+    // #1964: each moved player back at the slot the pre-move snapshot held.
+    const inverse = moves
+      .map((m) => ({ playerId: m.playerId, slot: snapshot?.entries?.find((e) => e.id === m.playerId)?.slot }))
+      .filter((m) => m.slot != null);
+    setRaw(setSlots(moves));
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
       if (!result.queued) onLanded?.();
-      notify(
-        result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
-        { severity: result.queued ? 'info' : 'success' }
-      );
+      if (result.queued) {
+        notify('Lineup change saved offline. It will sync when you reconnect', { severity: 'info' });
+        return;
+      }
+      if (undoOf) {
+        notify('Lineup restored', { severity: 'success' });
+        return;
+      }
+      notify('Lineup saved', {
+        severity: 'success',
+        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMove(inverse, moves) }),
+      });
     } catch (err) {
-      setRaw(snapshot);
+      setRaw(setSlots(undoOf ?? inverse, moves));
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
+
+  // The single entry point every move goes through. Takes no second argument
+  // on purpose: `onSwap={performMove}` callers must never reach `undoOf`.
+  const performMove = (moves) => runMove(moves);
 
   // Whether `targetEntry` (or an empty slot when null) is a legal landing
   // spot for the currently selected player - a thin wrapper closing over

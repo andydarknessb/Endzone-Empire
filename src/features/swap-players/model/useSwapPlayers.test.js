@@ -40,7 +40,7 @@ const entry = (overrides = {}) => ({
 // and so exercises its fallback.
 function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget, onLanded } = {}) {
   let currentRaw =
-    raw ?? { week: 4, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
+    raw ?? { week: 4, teamId: 9, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
   const setRaw = jest.fn((updater) => {
     currentRaw = typeof updater === 'function' ? updater(currentRaw) : updater;
   });
@@ -97,6 +97,21 @@ test('clicking the selected row again cancels the selection without saving', () 
   act(() => result.current.onRowClick(qb, 'QB'));
   expect(result.current.selectedEntry).toBeNull();
   expect(apiClient.put).not.toHaveBeenCalled();
+});
+
+// #1963: Escape cancels a pending move, except one a handler already claimed.
+test('Escape cancels the selection, but not an Escape already defaultPrevented (#1963)', () => {
+  const qb = entry();
+  const { result } = setup({ entries: [qb] });
+  act(() => result.current.onRowClick(qb, 'QB'));
+
+  const claimed = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+  claimed.preventDefault();
+  act(() => { document.dispatchEvent(claimed); });
+  expect(result.current.selectedEntry).toEqual(qb);
+
+  act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+  expect(result.current.selectedEntry).toBeNull();
 });
 
 test('a locked player cannot be selected: a warning is shown and no move is made', () => {
@@ -434,7 +449,7 @@ describe('onLanded after a save (#1881)', () => {
 
     move(result);
 
-    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' }));
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.objectContaining({ severity: 'success' })));
   });
 
   test('a save refused with an HTTP error never calls it', async () => {
@@ -462,5 +477,183 @@ describe('onLanded after a save (#1881)', () => {
       window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
     });
     expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1964: a save that lands right away offers Undo on its toast; the undo
+// writes each moved player back to the slot the pre-move snapshot held.
+describe('Undo on the Lineup saved toast (#1964)', () => {
+  const qb = entry();
+  const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const swap = (result) => {
+    act(() => result.current.onRowClick(bench, 'BENCH'));
+    act(() => result.current.onRowClick(qb, 'QB'));
+  };
+
+  test('a landed save notifies with an Undo action', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith('Lineup saved', {
+        severity: 'success',
+        actionLabel: 'Undo',
+        onAction: expect.any(Function),
+      })
+    );
+  });
+
+  test('invoking Undo saves the inverse moves, then notifies Lineup restored with no Undo', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const onLanded = jest.fn();
+    const { result, getRaw } = setup({ entries: [qb, bench], onLanded });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }]);
+    const { onAction } = mockNotify.mock.calls[0][1];
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', {
+      leagueId: 7,
+      week: 4,
+      moves: [
+        { playerId: 2, slot: 'BENCH' },
+        { playerId: 1, slot: 'QB' },
+      ],
+    });
+    expect(mockNotify).toHaveBeenLastCalledWith('Lineup restored', { severity: 'success' });
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'QB' }, { id: 2, slot: 'BENCH' }]);
+    expect(onLanded).toHaveBeenCalledTimes(2);
+  });
+
+  test('a refused Undo rolls back to the moved lineup and carries no Undo', async () => {
+    apiClient.put.mockResolvedValueOnce({ data: {} });
+    const { result, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    const { onAction } = mockNotify.mock.calls[0][1];
+    apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(mockNotify).toHaveBeenLastCalledWith(expect.any(String), { severity: 'error' });
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }]);
+  });
+
+  // Newer fields a live score tick or silent refetch lands mid-request.
+  const refreshed = (prev) => ({
+    ...prev,
+    entries: prev.entries.map((e) => (e.id === 1 ? { ...e, actualPoints: 12.5, locked: true } : e)),
+  });
+
+  test('a refused save rolls back only the moved slots, keeping newer fields', async () => {
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    act(() => setRaw(refreshed));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+    });
+
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+    expect(getRaw().entries).toEqual([
+      { id: 1, slot: 'QB', actualPoints: 12.5, locked: true },
+      { id: 2, slot: 'BENCH' },
+    ]);
+  });
+
+  test('a refused Undo re-applies the moved slots over newer fields', async () => {
+    apiClient.put.mockResolvedValueOnce({ data: {} });
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    const { onAction } = mockNotify.mock.calls[0][1];
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+
+    let undone;
+    act(() => { undone = onAction(); });
+    act(() => setRaw(refreshed));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+      await undone;
+    });
+
+    expect(getRaw().entries).toEqual([
+      { id: 1, slot: 'BENCH', actualPoints: 12.5, locked: true },
+      { id: 2, slot: 'QB' },
+    ]);
+  });
+
+  test('Undo never patches or rolls back a different lineup, but still writes to the moved week', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    const { onAction } = mockNotify.mock.calls[0][1];
+    const week5 = { week: 5, teamId: 9, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }] };
+    act(() => setRaw(() => week5));
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', expect.objectContaining({ week: 4 }));
+    expect(getRaw()).toBe(week5);
+  });
+
+  test('Undo never patches a different team lineup in the same week', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    const { onAction } = mockNotify.mock.calls[0][1];
+    const otherTeam = { week: 4, teamId: 10, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }] };
+    act(() => setRaw(() => otherTeam));
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(getRaw()).toBe(otherTeam);
+  });
+
+  test('a refused save leaves a slot a newer write has since moved, and reverts the rest', async () => {
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    act(() => setRaw((prev) => ({ ...prev, entries: prev.entries.map((e) => (e.id === 2 ? { ...e, slot: 'FLEX' } : e)) })));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+    });
+
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'QB' }, { id: 2, slot: 'FLEX' }]);
+  });
+
+  test('a save queued offline has no Undo', async () => {
+    apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+
+    await waitFor(() => expect(readPendingLineupMutations()).toHaveLength(1));
+    expect(mockNotify).toHaveBeenCalledWith(expect.stringContaining('saved offline'), { severity: 'info' });
   });
 });

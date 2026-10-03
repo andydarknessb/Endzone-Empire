@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
-import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
-import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
+import { Box, Button, FormControl, GlobalStyles, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { Badge, Card, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
-import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
+import LineupLedger, { buildLedgerSections, ledgerTabCounts, gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
@@ -37,15 +37,24 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * both need: the fetched lineup (`model/useLineupData.js`), handed down to
  * both the Ledger and the summary strip rather than each fetching it again.
  *
- * Ticket 6 (#1238) lands the advice tile and the phone Outlook tab: the
- * start-sit-panel widget and the apply-advice feature, both composed here,
- * plus a page-owned "Roster / Outlook" segmented control below `sm` that
- * shows either the Ledger (Starters/Bench, its own existing tab bar
- * unchanged) or the rail (start-sit-panel and matchup-preview, otherwise
- * hidden below `md`).
+ * Ticket 6 (#1238) lands the advice tile and the phone Outlook view: the
+ * start-sit-panel widget and the apply-advice feature, both composed here.
+ * Below `sm` one page-owned bottom bar (#1965), "Starters | Bench | Outlook",
+ * picks `phoneView`: Starters and Bench show the Ledger's matching section,
+ * Outlook shows the rail (start-sit-panel and matchup-preview, otherwise
+ * hidden below `md`) in place of the whole roster column. The bar is the
+ * page's, not the Ledger's, because it has to stay on screen over either
+ * column (a sticky bar inside the roster column goes away with it on Outlook)
+ * and the Outlook content is page-composed from widgets the Ledger itself
+ * never imports (ADR 0020); the Ledger is controlled (`mobileTab` /
+ * `onMobileTabChange`). The bar shares one bottom container with the move
+ * strip (#1958), the strip stacked above it: `position: fixed` below `sm`
+ * (a sticky bar cannot reach the viewport bottom past the app Footer),
+ * sticky from `sm`, where the bar is gone, the strip floats alone and both
+ * columns show side by side.
  *
  * Ticket 7 (#1239) stacks the bye-cluster widget's grid into the same
- * Outlook tab, under start-sit-panel, computed off `lineup.entries` with no
+ * Outlook view, under start-sit-panel, computed off `lineup.entries` with no
  * new endpoint (`shared/lib`'s `computeByeClusters`/`worstByeCluster` -
  * promoted there, not kept below the island, since it is domain-meaningful
  * and this page and the bye-cluster widget both reach it, ADR 0031). The
@@ -85,10 +94,16 @@ export default function LineupPage() {
   // issue thread) - `components/PlayerQuickView` itself is untouched and
   // still serves every other surface.
   const [decisionCardEntryId, setDecisionCardEntryId] = useState(null);
-  // The phone Outlook tab (AC5, #1238): which half of the page a narrow
-  // viewport shows, the Ledger (Roster) or the rail (Outlook). Irrelevant at
-  // `sm` and up, where both already show side by side.
-  const [mobileSection, setMobileSection] = useState('roster');
+  // The phone view (AC5, #1238; #1965): which part of the page a narrow
+  // viewport shows - the Ledger's Starters or Bench section, or the rail
+  // (Outlook). Irrelevant at `sm` and up, where both columns already show
+  // side by side.
+  const [phoneView, setPhoneView] = useState('starters');
+  // The phone bar's buttons, and which one the Ledger's #1425 auto-switch
+  // wants focused once it lands (accessibility risk review finding, #1425) -
+  // `null` when the current `phoneView` came from the manager's own bar click.
+  const phoneBarButtonRefs = useRef({});
+  const pendingBarFocusRef = useRef(null);
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
 
@@ -295,6 +310,63 @@ export default function LineupPage() {
   const byeClusters = !isPastWeek && lineup ? computeByeClusters({ entries: lineup.entries, fromWeek: lineup.week }) : [];
   const worstCluster = worstByeCluster(byeClusters);
 
+  // The phone bar's labels (#1957 L6, #1965): counts come from the Ledger's
+  // own rule, off the same rows it renders. Before the lineup has loaded there
+  // is nothing to count, so the labels go without counts rather than read
+  // `Starters 0/0`.
+  const tabCounts = lineup
+    ? ledgerTabCounts(
+        buildLedgerSections({
+          entries: lineup.entries,
+          rosterSlots: lineup.rosterSlots,
+          benchSlots: lineup.benchSlots,
+          irSlots: lineup.irSlots,
+        })
+      )
+    : null;
+  const phoneTabs = [
+    {
+      key: 'starters',
+      label: tabCounts ? `Starters ${tabCounts.startersFilled}/${tabCounts.startersTotal}` : 'Starters',
+      name: tabCounts ? `Starters, ${tabCounts.startersFilled} of ${tabCounts.startersTotal} filled` : 'Starters',
+    },
+    {
+      key: 'bench',
+      label: tabCounts ? `Bench ${tabCounts.benchCount}` : 'Bench',
+      name: tabCounts ? `Bench, ${tabCounts.benchCount} ${tabCounts.benchCount === 1 ? 'player' : 'players'}` : 'Bench',
+    },
+    { key: 'outlook', label: 'Outlook', name: 'Outlook' },
+  ];
+  // A move still pending when the manager leaves for Outlook would be
+  // invisible (its rows are on the hidden roster column), so Outlook ends it.
+  const pressPhoneTab = (key) => {
+    if (key === 'outlook') swap.cancelSelection();
+    setPhoneView(key);
+  };
+  // The Ledger's #1425 auto-switch lands here: record which bar button should
+  // take focus (see the effect below), then switch.
+  const onLedgerTabChange = (key) => {
+    pendingBarFocusRef.current = key;
+    setPhoneView(key);
+  };
+  // Risk review finding (accessibility, #1425): the row the manager just
+  // activated sits inside the section that is about to become `display:none`,
+  // and a hidden focused element is dropped to `<body>` per the HTML spec (not
+  // a "mobile only" edge case either - WCAG 1.4.10 reflow puts a zoomed
+  // desktop keyboard user below `sm` too). This moves focus to the bar button
+  // the auto-switch just landed on, once that render has put it in the DOM:
+  // it restores the focus the hidden section lost and is the manager's only
+  // signal the section changed - a real screen-reader announcement ("Bench,
+  // toggle button, pressed") - without adding a second live region (ADR 0037
+  // keeps the Snackbar the page's only one). A manager who switches the view
+  // by hand never hits this: their click already carries focus, so
+  // `pendingBarFocusRef` stays unset and this effect is a no-op.
+  useEffect(() => {
+    if (pendingBarFocusRef.current !== phoneView) return;
+    pendingBarFocusRef.current = null;
+    phoneBarButtonRefs.current[phoneView]?.focus();
+  }, [phoneView]);
+
   // `width: 100%` on the root is load-bearing beside `mx: auto`: this page is
   // a flex item of the app shell's column flexbox (components/App/App.jsx),
   // and auto cross-axis margins switch a flex item from `stretch` to
@@ -419,35 +491,8 @@ export default function LineupPage() {
                 <PickWeek weeks={WEEKS} value={currentWeekValue ?? MIN_WEEK} onChange={changeWeek} fill={compact} />
               </Box>
 
-              {/* The phone Outlook tab (AC5, #1238): below `sm`, where the
-                  rail is otherwise hidden entirely, this picks between the
-                  Ledger (Roster) and the rail (Outlook: start-sit-panel,
-                  matchup-preview, and ticket 7's Bye cluster grid). It is a
-                  page-level control, separate from the Ledger's own
-                  Starters/Bench tab bar (widgets/lineup-ledger), because the
-                  Outlook content is page-composed from widgets the Ledger
-                  itself never imports (ADR 0020). */}
-              <Box sx={{ display: { xs: 'block', sm: 'none' }, mb: 2 }}>
-                <SegmentedControl
-                  aria-label="Lineup view"
-                  fill
-                  value={mobileSection}
-                  onChange={setMobileSection}
-                  data-testid="lineup-mobile-view"
-                  // Mobile-only control (this Box is hidden at `sm` and up):
-                  // grows each segment to the 44px touch target, the same
-                  // override PickWeek's own `fill` usage of this component
-                  // applies (src/features/pick-week/ui/PickWeek.jsx).
-                  sx={{ '& [role="radio"]': { minHeight: 44 } }}
-                  options={[
-                    { value: 'roster', label: 'Roster' },
-                    { value: 'outlook', label: 'Outlook' },
-                  ]}
-                />
-              </Box>
-
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: '16px', alignItems: 'start' }}>
-                <Box data-testid="lineup-roster-column" sx={{ display: { xs: mobileSection === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: '16px' }}>
+                <Box data-testid="lineup-roster-column" sx={{ display: { xs: phoneView === 'outlook' ? 'none' : 'grid', sm: 'grid' }, gap: '16px' }}>
                   <TeamSummaryStrip
                     leagueId={selectedLeagueId}
                     week={league?.current_week ?? null}
@@ -481,35 +526,13 @@ export default function LineupPage() {
                       canDropEntry={canDropEntry}
                       onRequestDrop={drop.requestDrop}
                       onOpenDecisionCard={setDecisionCardEntryId}
-                      // The swap strip (#1958, spec #1956 L8) rides the Ledger's
-                      // own sticky footer, stacked directly above its phone tab
-                      // bar, so the two never overlap and the strip stays on
-                      // screen when the tapped row is low on the page.
-                      footer={
-                        swap.selectedEntry ? (
-                          <Box
-                            data-testid="lineup-move-strip"
-                            sx={{
-                              p: 1.5,
-                              backgroundColor: 'var(--dash-surface)',
-                              boxShadow: 'var(--shadow-2)',
-                              border: '1px solid var(--dash-accent-line)',
-                              borderRadius: 'var(--dash-radius-sm)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
-                            <Button size="small" sx={MIN_TOUCH_TARGET_SX} onClick={swap.cancelSelection}>Cancel</Button>
-                          </Box>
-                        ) : null
-                      }
+                      mobileTab={phoneView}
+                      onMobileTabChange={onLedgerTabChange}
                     />
                   )}
                 </Box>
 
-                <Box data-testid="lineup-outlook-column" sx={{ display: { xs: mobileSection === 'outlook' ? 'grid' : 'none', sm: 'grid' }, gap: '16px' }}>
+                <Box data-testid="lineup-outlook-column" sx={{ display: { xs: phoneView === 'outlook' ? 'grid' : 'none', sm: 'grid' }, gap: '16px' }}>
                   <StartSitPanel
                     advice={advice}
                     entries={lineup?.entries}
@@ -528,6 +551,135 @@ export default function LineupPage() {
                     waiverPeriodHours={league?.waiver_period_hours}
                   />
                   <MatchupPreview leagueId={selectedLeagueId} />
+                </Box>
+              </Box>
+
+              {/* The phone bar below is fixed and out of flow, so below `sm`
+                  this page-scoped style keeps three things clear of it while
+                  the page is mounted: the app Footer's links (the bar's 54px -
+                  44px button, 2px border, 8px top padding - added to the
+                  Footer's own 20px bottom padding), the bottom-anchored
+                  Snackbar (lifted to the bar's height plus an 8px gap, since a
+                  save toast with Undo lingers 20s), and focused rows
+                  (`scroll-padding-bottom` of the bar plus the strip, 132: a
+                  70px strip and an 8px gap, so a Tab-focused row is not
+                  scrolled under either, WCAG 2.4.11). The selectors reach the
+                  shell's `footer` tag and MUI's Snackbar class, the same global
+                  hooks Footer.css and SnackbarProvider.jsx own. */}
+              <GlobalStyles
+                styles={(t) => ({
+                  [t.breakpoints.down('sm')]: {
+                    html: { scrollPaddingBottom: 132 },
+                    footer: { paddingBottom: 74 },
+                    '.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomCenter': { bottom: 62 },
+                  },
+                })}
+              />
+
+              {/* One bottom-pinned container (#1958, #1965), the last child of
+                  the content so it holds over either column: the move strip
+                  stacked directly above the phone bar, so the two never
+                  overlap and the strip stays on screen when the tapped row is
+                  low on the page. Below `sm` both show; from `sm` the bar is
+                  hidden and a strip floats alone 16px off the bottom (sticky).
+                  With no strip it holds just the bar and is hidden from `sm`.
+                  Below `sm` it is `position: fixed`, not sticky: `sticky;
+                  bottom: 0` only ever pushes an element UP from where it sits
+                  in flow, and in flow it sits above the Footer, so at the end
+                  of the scroll (and on a short page, always) a sticky bar rests
+                  well short of the viewport bottom (measured, #1965). Fixed
+                  holds the bottom edge for the whole scroll; being out of flow
+                  it reserves no room. That is safe only because of the app
+                  Footer: Footer.css gives it an 80px margin-top (plus the 20px
+                  padding and the 74px above), so at the end of the scroll the
+                  last row is always at least the bar plus a pending strip
+                  (132) clear of the bottom. Shrink that margin and this needs
+                  a spacer. */}
+              <Box
+                data-testid="lineup-sticky-footer"
+                sx={{
+                  display: swap.selectedEntry ? 'flex' : { xs: 'flex', sm: 'none' },
+                  flexDirection: 'column',
+                  gap: '8px',
+                  position: { xs: 'fixed', sm: 'sticky' },
+                  left: { xs: 0, sm: 'auto' },
+                  right: { xs: 0, sm: 'auto' },
+                  bottom: { xs: 0, sm: 16 },
+                  zIndex: 1,
+                  mt: { xs: 0, sm: '12px' },
+                  px: { xs: 2, sm: 0 },
+                  pt: { xs: '8px', sm: 0 },
+                  backgroundColor: { xs: 'var(--bg-page)', sm: 'transparent' },
+                }}
+              >
+                {swap.selectedEntry && (
+                  <Box
+                    data-testid="lineup-move-strip"
+                    sx={{
+                      p: 1.5,
+                      backgroundColor: 'var(--dash-surface)',
+                      boxShadow: 'var(--shadow-2)',
+                      border: '1px solid var(--dash-accent-line)',
+                      borderRadius: 'var(--dash-radius-sm)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
+                    <Button size="small" sx={MIN_TOUCH_TARGET_SX} aria-keyshortcuts="Escape" onClick={swap.cancelSelection}>Cancel</Button>
+                  </Box>
+                )}
+                {/* Plain toggle buttons with `aria-pressed`, NOT
+                    `role="tablist"`/`role="tab"`: the ARIA tabs pattern is a
+                    behavioural contract (arrow-key roving tabindex,
+                    `aria-controls` pointing at a real `role="tabpanel"`) this
+                    bar does not implement, and reviewed as a violation for
+                    exactly that reason - a screen reader trains a user to
+                    press Left/Right on a "tab" and nothing would happen.
+                    `aria-pressed` makes the same true claim ("this control is
+                    a toggle, and here is its state") without promising
+                    keyboard behaviour that isn't there, matching PickWeek's
+                    own "All weeks" toggle button
+                    (src/features/pick-week/ui/PickWeek.jsx). */}
+                <Box
+                  role="group"
+                  aria-label="Lineup section"
+                  data-testid="lineup-mobile-tabs"
+                  sx={{
+                    display: { xs: 'flex', sm: 'none' },
+                    border: '1px solid var(--dash-line)',
+                    borderRadius: 'var(--dash-radius-sm)',
+                    overflow: 'hidden',
+                    backgroundColor: 'var(--dash-surface)',
+                  }}
+                >
+                  {phoneTabs.map((tab, i) => (
+                    <Box
+                      key={tab.key}
+                      component="button"
+                      type="button"
+                      ref={(el) => {
+                        phoneBarButtonRefs.current[tab.key] = el;
+                      }}
+                      aria-label={tab.name}
+                      aria-pressed={phoneView === tab.key}
+                      onClick={() => pressPhoneTab(tab.key)}
+                      sx={{
+                        ...MIN_TOUCH_TARGET_SX,
+                        flex: '1 1 0',
+                        border: 'none',
+                        borderRight: i < phoneTabs.length - 1 ? '1px solid var(--dash-line)' : 'none',
+                        backgroundColor: phoneView === tab.key ? 'var(--dash-accent-soft)' : 'transparent',
+                        color: phoneView === tab.key ? 'var(--dash-accent)' : 'var(--dash-dim)',
+                        fontWeight: 600,
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {tab.label}
+                    </Box>
+                  ))}
                 </Box>
               </Box>
             </>
