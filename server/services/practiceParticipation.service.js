@@ -15,8 +15,9 @@ const { runSyncJob } = require('../modules/syncRun');
  * WE saw it (`observed_at`, an approximate practice day: a Wednesday report
  * first published Thursday is observed Thursday) and the nflverse
  * timestamp.json value the fetch read (`source_last_updated`). Facts only:
- * nothing here moves a projection (ADR 0044); the one reader that uses them
- * is Start/sit advice (`loadWeekObservations`, unavailable.js).
+ * nothing here moves a projection (ADR 0044); the readers are Start/sit advice
+ * (`loadWeekObservations`, unavailable.js) and the Decision card's practice
+ * line (`weekPracticeEntries`, #1923).
  *
  * ESPN's injury shortComment is out of scope: ADR 0041, plain context only.
  */
@@ -124,7 +125,7 @@ async function loadLatestObservations(db, { season, fromWeek }) {
 }
 
 /**
- * Start/sit advice's one read: every observation stored for `playerIds` in
+ * The read behind Start/sit advice and the Decision card's practice line: every observation stored for `playerIds` in
  * (season, week), oldest first, as `Map<playerId, [{ practiceStatus,
  * practicePrimaryInjury, reportPrimaryInjury, observedAt }]>`. One batched
  * query; a player with none is absent from the map.
@@ -270,6 +271,44 @@ async function syncCurrentWeeks({ now = new Date() } = {}) {
   return { synced };
 }
 
+const PRACTICE_LABELS = [
+  [/^did not participate/i, 'Did not participate'],
+  [/^limited/i, 'Limited'],
+  [/^full/i, 'Full'],
+];
+
+/** Pure: a practice_status -> 'Did not participate' | 'Limited' | 'Full', else null. */
+function practiceLabel(status) {
+  const hit = PRACTICE_LABELS.find(([pattern]) => pattern.test(status ?? ''));
+  return hit ? hit[1] : null;
+}
+
+const weekdayOf = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+
+/**
+ * Pure: one week's observations (oldest first) -> the Decision card's
+ * `[{ status, day }]`, or null when no entry survives. A row with no
+ * recognised status is skipped first; then a row whose label equals the last
+ * entry's is skipped (a report-only change is not a new entry). `day` is the
+ * America/New_York weekday we first observed it, never a practice day.
+ */
+function practiceEntries(observations) {
+  const entries = [];
+  for (const o of observations) {
+    const status = practiceLabel(o.practiceStatus);
+    if (status && status !== entries[entries.length - 1]?.status) {
+      entries.push({ status, day: weekdayOf.format(o.observedAt) });
+    }
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+/** The Decision card's read (#1923): one player's entries for (season, week), or null. */
+async function weekPracticeEntries(db, { season, week, playerId }) {
+  const byPlayer = await loadWeekObservations(db, { season, week, playerIds: [playerId] });
+  return practiceEntries(byPlayer.get(playerId) || []);
+}
+
 module.exports = {
   normalizeInjuryRow,
   observationKey,
@@ -277,5 +316,8 @@ module.exports = {
   attachPlayerIds,
   weekInPlay,
   loadWeekObservations,
+  practiceLabel,
+  practiceEntries,
+  weekPracticeEntries,
   syncCurrentWeeks,
 };

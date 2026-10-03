@@ -958,7 +958,7 @@ export default function PlayerDecisionCard(props) {
             >
               <Box data-testid={`decision-card-compare-panel-${entry.playerId}`}>
                 <Typography component="h3" sx={{ fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
-                <InjurySection entry={entry} level="h4" />
+                <InjurySection entry={entry} level="h4" practice={card?.player?.practice} practiceTestId="decision-card-practice" />
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
                 <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} />
                 <UsageSection usage={usage} opponents={opponents} position={entry.position} level="h4" />
@@ -985,7 +985,7 @@ export default function PlayerDecisionCard(props) {
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Box>
-                <InjurySection entry={compareEntry} level="h4" />
+                <InjurySection entry={compareEntry} level="h4" practice={compareCard?.player?.practice} practiceTestId="decision-card-compare-practice" />
                 <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
                 <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} />
                 <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
@@ -993,7 +993,7 @@ export default function PlayerDecisionCard(props) {
             </Box>
           ) : (
             <>
-              <InjurySection entry={displayEntry} />
+              <InjurySection entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
               {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} />}
               <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
@@ -1141,8 +1141,6 @@ function Section({ title, testId, level = 'h3', children }) {
   );
 }
 
-// AC2/AC3: the injury designation and the feed's detail, hidden entirely for
-// a healthy player (null source).
 /**
  * ADR 0056: "No practice this week" beside a Questionable tag, on the opened
  * entry and on a compared one alike. Two facts are read, both off the entry:
@@ -1156,14 +1154,23 @@ function NoPracticeNote({ entry, testId }) {
   return <Badge variant="neutral" data-testid={testId}>{NO_PRACTICE_LABEL}</Badge>;
 }
 
-function InjurySection({ entry, level }) {
+// AC2/AC3: the injury designation and the feed's detail, hidden only when the
+// designation and the Practice participation line (#1923, `practice`: the
+// card's `player.practice` entries, context only) are both absent.
+function InjurySection({ entry, level, practice, practiceTestId }) {
   const view = injuryTileView(entry);
-  if (!view) return null;
+  const entries = Array.isArray(practice) ? practice : [];
+  if (!view && entries.length === 0) return null;
   return (
     <Section title="Injury" testId="decision-card-injury" level={level}>
-      <Typography sx={{ fontSize: 14 }}>{view.name}</Typography>
-      {view.detail && (
+      {view && <Typography sx={{ fontSize: 14 }}>{view.name}</Typography>}
+      {view && view.detail && (
         <Typography sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: 0.5 }}>{view.detail}</Typography>
+      )}
+      {entries.length > 0 && (
+        <Typography data-testid={practiceTestId} sx={{ fontSize: 13, color: 'var(--dash-faint)', mt: view ? 0.5 : 0 }}>
+          {`Practice: ${entries.map((e) => `${e.status} (${e.day})`).join(', ')}`}
+        </Typography>
       )}
     </Section>
   );

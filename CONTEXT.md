@@ -1730,7 +1730,7 @@ we record the new report with the time we saw it, for the NFL week in play
 (read off the schedule's kickoffs, never a league's current week). The
 practice day is therefore approximate (a Wednesday report first published
 Thursday is observed Thursday), and a week's observations, not a single
-value, are what the Start/sit advice reads.
+value, are what the Start/sit advice reads and what the Decision card lists.
 _Avoid_: practice status, injury status, DNP (in prose, say "did not
 participate")
 
