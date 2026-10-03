@@ -1674,3 +1674,46 @@ test('defopp: only the Challenger lets a D/ST opponent total move the number (#1
   assert.equal(wr.scored, false);
 });
 
+test('volume: a faster usage half-life follows a role change further than v3.2 (#1927)', () => {
+  const doubled = [
+    { points: 20, weeksAgo: 1, usage: { carries: 20, targets: 4 } },
+    { points: 19, weeksAgo: 2, usage: { carries: 19, targets: 4 } },
+    { points: 10, weeksAgo: 3, usage: { carries: 10, targets: 2 } },
+    { points: 9, weeksAgo: 4, usage: { carries: 9, targets: 2 } },
+    { points: 10, weeksAgo: 5, usage: { carries: 10, targets: 2 } },
+  ];
+  const run = (constants) => model.opportunityBaseline({
+    priorGames: doubled, group: 'RB', efficiencyPrior: 0.8, constants,
+  });
+  const v31 = run(model.MODEL_CONSTANTS);
+  const v32 = run(model.MODEL_CONSTANTS_V3_2);
+  const fast = run(model.constantsForVersion('free_baseline_v3.2+volume'));
+  assert.equal(JSON.stringify(v32), JSON.stringify(v31));
+  assert.ok(fast.expectedOpportunities > v32.expectedOpportunities);
+  assert.ok(fast.value > v32.value);
+
+  // The points baseline keeps its own half-life: effectiveGames (and so
+  // confidence) is the same under every version.
+  const pg = [{ points: 20, weeksAgo: 1 }, { points: 9, weeksAgo: 4 }];
+  const baseline = (c) => model.baselineProduction({ priorGames: pg, constants: c.baseline });
+  assert.deepEqual(
+    baseline(model.constantsForVersion('free_baseline_v3.2+volume')),
+    baseline(model.MODEL_CONSTANTS_V3_2)
+  );
+});
+
+test('volume: an invalid usage half-life falls back to the baseline half-life (#1927)', () => {
+  const games = [
+    { points: 20, weeksAgo: 1, usage: { carries: 20, targets: 4 } },
+    { points: 9, weeksAgo: 4, usage: { carries: 9, targets: 2 } },
+    { points: 10, weeksAgo: 6, usage: { carries: 10, targets: 2 } },
+  ];
+  const base = model.opportunityBaseline({ priorGames: games, group: 'RB', efficiencyPrior: 0.8 });
+  for (const bad of [0, -3, null, 'x']) {
+    const out = model.opportunityBaseline({
+      priorGames: games, group: 'RB', efficiencyPrior: 0.8,
+      constants: { ...model.MODEL_CONSTANTS, usage: { ...model.MODEL_CONSTANTS.usage, recencyHalfLifeWeeks: bad } },
+    });
+    assert.deepEqual(out, base, String(bad));
+  }
+});

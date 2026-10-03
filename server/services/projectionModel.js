@@ -826,6 +826,12 @@ function opportunityBaseline({
   const baselineConstants = (constants && constants.baseline) || MODEL_CONSTANTS.baseline;
   const usageConstants = { ...MODEL_CONSTANTS.usage, ...((constants && constants.usage) || {}) };
 
+  // A Challenger may give usage its own half-life (#1927); absent or invalid,
+  // it shares the points baseline's, exactly as before.
+  const usageHalfLife = Number(usageConstants.recencyHalfLifeWeeks);
+  const halfLife = usageHalfLife > 0 && Number.isFinite(usageHalfLife)
+    ? usageHalfLife
+    : baselineConstants.recencyHalfLifeWeeks;
   let weightSum = 0;
   let weightedOpportunities = 0;
   let weightedPoints = 0;
@@ -834,7 +840,7 @@ function opportunityBaseline({
     if (!game || !isNum(game.points)) continue;
     const opportunities = opportunitiesForGame(game.usage, group);
     if (opportunities === null) continue;
-    const w = recencyWeight(game.weeksAgo, baselineConstants.recencyHalfLifeWeeks);
+    const w = recencyWeight(game.weeksAgo, halfLife);
     weightSum += w;
     weightedOpportunities += w * opportunities;
     weightedPoints += w * Number(game.points);
