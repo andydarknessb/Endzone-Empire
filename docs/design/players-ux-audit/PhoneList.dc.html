@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Players, phone, list</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; overflow: hidden; background: {{c.bg}}; color: {{c.ink}}; font-family: Inter, Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column">
+  <header style="height: 56px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; background: {{c.surface}}; border-bottom: 1px solid {{c.border}}">
+    <button type="button" aria-label="Open menu" style="width: 44px; height: 44px; border: 0; background: transparent; color: {{c.ink}}; display: flex; align-items: center; justify-content: center">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"></path></svg>
+    </button>
+    <span style="flex-grow: 1; font-size: 17px; font-weight: 800; color: {{c.accent}}">Endzone Empire</span>
+    <span style="width: 32px; height: 32px; margin-right: 6px; border-radius: 50%; background: {{c.accent}}; color: {{c.onAccent}}; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">C</span>
+  </header>
+
+  <main style="flex-grow: 1; min-height: 0; padding: 16px 12px 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em">Players</h1>
+        <a href="#" style="min-height: 44px; display: flex; align-items: center; padding: 0 8px; font-size: 14px; font-weight: 600; color: {{c.accent}}; text-decoration: none">Manage lineup</a>
+      </div>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap">
+        <span style="font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: {{c.sunken}}; color: {{c.ink}}">16 / 16 rostered</span>
+        <span style="font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: {{c.sunken}}; color: {{c.ink}}">Waiver priority 4</span>
+      </div>
+    </div>
+
+    <div style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 12px; padding: 12px; display: flex; gap: 8px">
+      <label style="flex-grow: 1; height: 44px; box-sizing: border-box; border: 1px solid {{c.strong}}; border-radius: 10px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: {{c.muted}}; font-size: 15px">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="9" r="6"></circle><path d="M14 14l4 4"></path></svg>
+        <input type="search" placeholder="Search by name" aria-label="Search players" style="border: 0; outline: 0; background: transparent; color: {{c.ink}}; font: inherit; width: 100%">
+      </label>
+      <button type="button" style="height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid {{c.accent}}; background: transparent; color: {{c.accent}}; font: inherit; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h14M6 10h8M8 15h4"></path></svg>
+        Filters
+      </button>
+    </div>
+
+    <sc-for list="{{players}}" as="p" hint-placeholder-count="3">
+      <article style="background: {{c.surface}}; border: 1px solid {{c.border}}; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 36px; height: 36px; flex: none; border-radius: 50%; background: {{p.posBg}}; color: {{c.inverse}}; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{p.initials}}</span>
+          <div style="min-width: 0; flex-grow: 1; display: flex; flex-direction: column; gap: 2px">
+            <div style="display: flex; align-items: center; gap: 6px; min-width: 0">
+              <span style="font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.name}}</span>
+              <sc-if value="{{p.injury}}" hint-placeholder-val="{{ false }}"><span style="flex: none; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; color: {{c.warning}}; background: {{c.warningSoft}}">Q</span></sc-if>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: {{c.muted}}">
+              <span style="font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: {{p.posBg}}; color: {{c.inverse}}">{{p.pos}}</span>
+              <span>{{p.meta}}</span>
+            </div>
+          </div>
+          <span style="flex: none; font-size: 12px; font-weight: 600; color: {{p.statusInk}}">{{p.status}}</span>
+        </div>
+        <div style="display: flex; align-items: flex-end; gap: 16px">
+          <div style="display: flex; flex-direction: column"><span style="font-size: 11px; color: {{c.muted}}">Proj Wk 5</span><span style="font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums">{{p.proj}}</span></div>
+          <div style="display: flex; flex-direction: column"><span style="font-size: 11px; color: {{c.muted}}">ROS</span><span style="font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums">{{p.ros}}</span></div>
+          <sc-if value="{{p.upgrade}}" hint-placeholder-val="{{ true }}"><span style="margin-bottom: 2px; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid {{c.success}}; color: {{c.success}}">{{p.upgrade}}</span></sc-if>
+          <div aria-hidden="true" style="margin-left: auto; height: 28px; display: flex; align-items: flex-end; gap: 2px">
+            <sc-for list="{{p.bars}}" as="b" hint-placeholder-count="14"><span style="width: 4px; border-radius: 2px; height: {{b.h}}; background: {{b.fill}}"></span></sc-for>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px">
+          <button type="button" aria-label="Watch {{p.name}}" style="width: 44px; height: 44px; border: 0; background: transparent; color: {{c.muted}}; display: flex; align-items: center; justify-content: center">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M10 2.8l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 8.1l5-.7z"></path></svg>
+          </button>
+          <button type="button" aria-label="{{p.actionAria}}" style="min-width: 96px; height: 44px; padding: 0 18px; border-radius: 10px; font: inherit; font-size: 15px; font-weight: 800; border: 1px solid {{p.actBorder}}; background: {{p.actBg}}; color: {{p.actInk}}">{{p.action}}</button>
+        </div>
+      </article>
+    </sc-for>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+const THEMES = {
+  light: { bg: '#f4f6f8', surface: '#ffffff', sunken: '#eceff2', ink: '#1a2129', muted: '#586472', inverse: '#ffffff', border: '#dde2e7', strong: '#c3ccd4', accent: '#1e5bb8', onAccent: '#ffffff', success: '#1b7d4f', danger: '#c62828', dangerSoft: 'rgba(198, 40, 40, 0.06)', warning: '#8a5a00', warningSoft: 'rgba(138, 90, 0, 0.12)', bar: 'rgba(30, 91, 184, 0.45)', pos: { QB: '#c62828', RB: '#15663f', WR: '#1e5bb8', TE: '#9a5100', K: '#6d28d9' } },
+  dark: { bg: '#0f1419', surface: '#1a2129', sunken: '#0b0f13', ink: '#e6edf3', muted: '#9aa7b4', inverse: '#0f1419', border: '#2a3441', strong: '#3a4756', accent: '#7eaaff', onAccent: '#0b1220', success: '#7ee2a8', danger: '#ff6b6b', dangerSoft: 'rgba(255, 107, 107, 0.14)', warning: '#f0b34e', warningSoft: 'rgba(240, 179, 78, 0.14)', bar: 'rgba(126, 170, 255, 0.45)', pos: { QB: '#ff8a80', RB: '#7ee2a8', WR: '#7fb0ff', TE: '#f0b34e', K: '#c4a2f5' } },
+};
+const PLAYERS = [
+  { name: 'Jaylen Warren', pos: 'RB', team: 'PIT', proj: 15.0, ros: 195.0, upgrade: '+3.2', state: 'free_agent' },
+  { name: 'Romeo Doubs', pos: 'WR', team: 'GB', proj: 14.0, ros: 182.0, upgrade: '+2.9', state: 'waivers' },
+  { name: 'Justin Herbert', pos: 'QB', team: 'LAC', proj: 12.0, ros: 156.0, upgrade: null, state: 'my_team' },
+];
+const SHAPE = [9, 7, 8, 10, 6, 0, 9, 8, 11, 7, 9, 10, 8, 9];
+class Component extends DCLogic {
+  renderVals() {
+    const c = THEMES[this.props.theme === 'dark' ? 'dark' : 'light'];
+    const players = PLAYERS.map((p, i) => {
+      const mine = p.state === 'my_team';
+      const action = p.state === 'waivers' ? 'Claim' : mine ? 'Drop' : 'Add';
+      return {
+        ...p,
+        initials: p.name.split(' ').map((w) => w[0]).join(''),
+        posBg: c.pos[p.pos],
+        meta: p.team + ' · Bye 9',
+        proj: p.proj.toFixed(1),
+        ros: p.ros.toFixed(1),
+        status: p.state === 'free_agent' ? 'Free agent' : p.state === 'waivers' ? 'Waivers · 3d 08h' : 'Your team',
+        statusInk: p.state === 'free_agent' ? c.success : p.state === 'waivers' ? c.warning : c.accent,
+        action,
+        actionAria: action + ' ' + p.name,
+        actBg: mine ? 'transparent' : c.accent,
+        actInk: mine ? c.danger : c.onAccent,
+        actBorder: mine ? c.danger : c.accent,
+        bars: SHAPE.map((h, j) => ({ h: h === 0 ? '3px' : (h + ((i + j) % 3)) * 2 + 'px', fill: j === 0 ? c.accent : c.bar })),
+      };
+    });
+    return { c, players };
+  }
+}
+</script>
+</body>
+</html>
