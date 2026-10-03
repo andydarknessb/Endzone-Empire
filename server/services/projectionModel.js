@@ -69,6 +69,10 @@ const { unavailableFor } = require('./unavailable');
  * byte-identical until the one #1438 bump after the 2026 week 18 capture
  * closes. Until then the engine reaches v3.2 only when a caller passes
  * MODEL_CONSTANTS_V3_2 explicitly (the successor evaluator, tests).
+ *
+ * Three Challengers (ADR 0050), each v3.2 plus one change, are registered the
+ * same way and equally never served: `+depth` (#1924), `+defopp` (#1926) and
+ * `+volume` (#1927).
  */
 const MODEL_VERSION = 'free_baseline_v3.1';
 
@@ -516,6 +520,23 @@ const MODEL_CONSTANTS_V3_2 = (() => {
 })();
 
 /**
+ * Challengers (ADR 0050): each is v3.2 plus exactly ONE change, switched on by
+ * a key only that Challenger carries. Registered below so the evaluator can
+ * name them; nothing serves or captures them.
+ */
+const challenger = (change) => {
+  const c = cloneConstants(MODEL_CONSTANTS_V3_2);
+  change(c);
+  return deepFreeze(c);
+};
+const MODEL_CONSTANTS_V3_2_DEPTH = challenger((c) => { c.baseline.depthChartStarterPrior = true; });
+const MODEL_CONSTANTS_V3_2_DEFOPP = challenger((c) => { c.gameEnvironment.defMaxEffect = 0.12; });
+const MODEL_CONSTANTS_V3_2_VOLUME = challenger((c) => {
+  c.usage.recencyHalfLifeWeeks = 3;
+  c.usage.blendWeight = 0.5;
+});
+
+/**
  * Version string -> constants, for every version this checkout can run. The
  * successor evaluator registers from this map; `projection.service` reads a
  * run's constants back from its `modelVersion` through `constantsForVersion`
@@ -525,6 +546,9 @@ const MODEL_CONSTANTS_V3_2 = (() => {
 const MODEL_CONSTANTS_BY_VERSION = Object.freeze({
   [MODEL_VERSION]: MODEL_CONSTANTS,
   [SUCCESSOR_MODEL_VERSION]: MODEL_CONSTANTS_V3_2,
+  [`${SUCCESSOR_MODEL_VERSION}+depth`]: MODEL_CONSTANTS_V3_2_DEPTH,
+  [`${SUCCESSOR_MODEL_VERSION}+defopp`]: MODEL_CONSTANTS_V3_2_DEFOPP,
+  [`${SUCCESSOR_MODEL_VERSION}+volume`]: MODEL_CONSTANTS_V3_2_VOLUME,
 });
 
 /** Pure: the constants a version string names, or null for a version this checkout cannot run. */
@@ -802,6 +826,12 @@ function opportunityBaseline({
   const baselineConstants = (constants && constants.baseline) || MODEL_CONSTANTS.baseline;
   const usageConstants = { ...MODEL_CONSTANTS.usage, ...((constants && constants.usage) || {}) };
 
+  // A Challenger may give usage its own half-life (#1927); absent or invalid,
+  // it shares the points baseline's, exactly as before.
+  const usageHalfLife = Number(usageConstants.recencyHalfLifeWeeks);
+  const halfLife = usageHalfLife > 0 && Number.isFinite(usageHalfLife)
+    ? usageHalfLife
+    : baselineConstants.recencyHalfLifeWeeks;
   let weightSum = 0;
   let weightedOpportunities = 0;
   let weightedPoints = 0;
@@ -810,7 +840,7 @@ function opportunityBaseline({
     if (!game || !isNum(game.points)) continue;
     const opportunities = opportunitiesForGame(game.usage, group);
     if (opportunities === null) continue;
-    const w = recencyWeight(game.weeksAgo, baselineConstants.recencyHalfLifeWeeks);
+    const w = recencyWeight(game.weeksAgo, halfLife);
     weightSum += w;
     weightedOpportunities += w * opportunities;
     weightedPoints += w * Number(game.points);
@@ -1095,13 +1125,16 @@ function gameEnvironmentEffect({
   const deviation = Number(own) / Number(slateAverageImplied) - 1;
   const directed = isDefense ? -deviation : deviation;
   const raw = constants.responsiveness * directed;
+  // A Challenger may cap the D/ST side on its own (#1926); `scored` follows
+  // the cap actually used.
+  const maxEffect = isDefense && isNum(constants.defMaxEffect) ? Number(constants.defMaxEffect) : constants.maxEffect;
   return {
     available: true,
-    effect: clamp(raw, constants.maxEffect),
+    effect: clamp(raw, maxEffect),
     // False whenever the cap has swallowed the derivation, so the UI can show
     // the market as CONTEXT without implying it moved the number. At
     // maxEffect 0 this is false for every projection.
-    scored: constants.maxEffect > 0,
+    scored: maxEffect > 0,
     impliedPoints: isNum(impliedPoints) ? round2(impliedPoints) : null,
     opponentImplied: isNum(opponentImplied) ? round2(opponentImplied) : null,
     slateAverageImplied: round2(slateAverageImplied),

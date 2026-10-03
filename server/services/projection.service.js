@@ -472,7 +472,15 @@ function projectFromBundle({
     nflRosterStatus,
   });
 
-  return model.projectPlayer({
+  // #1924 (Challenger only): a rank-1 player shrinks toward his group's
+  // starter baseline; everyone else, and every v3.1/v3.2 run, keeps the
+  // all-players baseline. `depthRank` stays undefined unless the key is on.
+  const depthRank = constants.baseline && constants.baseline.depthChartStarterPrior === true
+    ? (bundle.depthRankByPlayer && bundle.depthRankByPlayer.get(playerId)) ?? null
+    : undefined;
+  const starterBaseline = depthRank === 1 && context ? context.starterBaselinePerGame : null;
+
+  const projected = model.projectPlayer({
     playerId,
     position: player.position,
     season,
@@ -482,7 +490,7 @@ function projectFromBundle({
     scoringHashValue: hashValue,
     priorGames,
     priorSeasonPerGame: priorSeasonPerGame(bundle.seasonRowsByPlayer.get(playerId), rules, season),
-    positionBaselinePerGame: context ? context.baselinePerGame : null,
+    positionBaselinePerGame: typeof starterBaseline === 'number' ? starterBaseline : (context ? context.baselinePerGame : null),
     // Shrinkage target for the usage component's points-per-opportunity. Null
     // whenever the scan found no rows with computable opportunities, which is
     // every pre-enrichment database and every K/DEF/IDP group.
@@ -502,6 +510,10 @@ function projectFromBundle({
     hasRoleData: priorGames.some((g) => g.hasRole),
     onPreHomeAwayBaseline,
   });
+  if (depthRank !== undefined && projected.factors && projected.factors.dataQuality) {
+    projected.factors.dataQuality.depthChartRank = depthRank;
+  }
+  return projected;
 }
 
 /** Pure: the run-level source-coverage descriptor. */
@@ -602,8 +614,9 @@ async function generateProjections({
   // rows say which constants produced them and `pointEstimateFor` can read
   // the ranking statistic back off the row. Defaults to what HEAD ships.
   modelVersion = model.MODEL_VERSION,
-  // The odds seam's read bound, and NOTHING else (#1268, ADR 0039): forwarded
-  // untouched to `getWeeklyOdds({ observedAtOrBefore })`. `input_cutoff` (the
+  // The odds seam's read bound (#1268, ADR 0039): forwarded untouched to
+  // `getWeeklyOdds({ observedAtOrBefore })`. It also bounds a Challenger's
+  // depth-chart read (#1924), and nothing else. `input_cutoff` (the
   // week's first kickoff) is never this value. `holdout.service.js`'s
   // `snapshotWeek` is the only caller that passes one, its own effective
   // capture cutoff; the live path and the versioned cache path below both
@@ -642,6 +655,7 @@ async function generateProjections({
     // The run's constants decide whether the prior-season scan runs at all
     // (#1485 seeding, #1483 Position floor): under v3.1 no new query is issued.
     constants: modelConstants,
+    oddsObservedAtOrBefore,
   });
 
   // Weather is strictly optional context and must never be able to fail the

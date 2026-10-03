@@ -56,6 +56,9 @@ function mockPool(t, {
   priorSeasonScan = [],
   priorDefenseGames = [],
   byeRows = [],
+  // #1924: `{ player_id, rank }` rows of each player's latest depth chart
+  // capture; only a Challenger's constants ever issue the read.
+  depthChartRows = [],
   runRow = null,
   // #1403: the weeks that HAVE a run under the batch (`"week" = ANY`) shape;
   // null means every requested week does (the single-week shape ignores it).
@@ -99,6 +102,7 @@ function mockPool(t, {
       if (rosterStatusError) throw rosterStatusError;
       return { rows: rosterStatusRows };
     }
+    if (text.includes('FROM "player_depth_chart"')) return { rows: depthChartRows };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -3344,4 +3348,122 @@ test('toWeeklyProjectionResult: weatherAppliedFor and marketAppliedFor read the 
   assert.equal(result.marketAppliedFor(2), true);
   assert.equal(result.weatherAppliedFor(3), false);
   assert.equal(result.marketAppliedFor(999), false, 'no entry for the player at all');
+});
+
+// ---------------------------------------------------------------------------
+// free_baseline_v3.2+depth (#1924): a rank-1 player shrinks toward the
+// starter baseline of his group instead of the all-players one.
+// ---------------------------------------------------------------------------
+
+const DEPTH_CHALLENGER = model.constantsForVersion('free_baseline_v3.2+depth');
+const depthScan = [
+  { player_id: 10, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 100 } },
+  { player_id: 11, week: 1, position: 'WR', defense: 'NE', stats: { receivingYards: 20 } },
+];
+const depthRows = [
+  { player_id: 1, rank: 1 }, { player_id: 2, rank: 2 }, { player_id: 10, rank: 1 }, { player_id: 11, rank: 3 },
+];
+const depthRun = (t, constants, extra = {}) => {
+  mockPool(t, {
+    players: [player(1, 'WR'), player(2, 'WR')], leagueScan: depthScan, depthChartRows: depthRows,
+    targetSchedule: [{ team_key: 'BUF', opponent_key: 'NE', kickoff_at: '2026-10-04T17:00:00Z' }],
+    ...extra,
+  });
+  return projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1, 2],
+    hashValue: 'h', weatherService: false, modelConstants: constants,
+  });
+};
+
+test('depth Challenger: a rank-1 player with no history projects at the starter baseline, rank 2 at the position baseline', async (t) => {
+  const { projections } = await depthRun(t, DEPTH_CHALLENGER);
+  const flat = await depthRun(t, model.MODEL_CONSTANTS_V3_2);
+  assert.ok(projections.get(1).mean > flat.projections.get(1).mean, 'rank 1 is lifted');
+  assert.equal(projections.get(2).mean, flat.projections.get(2).mean, 'rank 2 stays on the position baseline');
+  assert.equal(projections.get(1).factors.dataQuality.depthChartRank, 1);
+  assert.equal(projections.get(2).factors.dataQuality.depthChartRank, 2);
+});
+
+test('v3.1 and v3.2 are byte-identical with or without a depth map, and issue no depth query', async (t) => {
+  for (const constants of [model.MODEL_CONSTANTS, model.MODEL_CONSTANTS_V3_2]) {
+    const seen = [];
+    const withDepth = await depthRun(t, constants, { onQuery: (text) => text.includes('player_depth_chart') && seen.push(text) });
+    const without = await depthRun(t, constants, { depthChartRows: [] });
+    assert.deepEqual(seen, []);
+    assert.equal(JSON.stringify([...withDepth.projections]), JSON.stringify([...without.projections]));
+    assert.equal('depthChartRank' in withDepth.projections.get(1).factors.dataQuality, false);
+  }
+});
+
+test('depth Challenger: one read, as of the week earliest kickoff, exposed as depthRankByPlayer and starterBaselinePerGame', async (t) => {
+  const reads = [];
+  mockPool(t, {
+    players: [player(1, 'WR')], leagueScan: depthScan, depthChartRows: depthRows,
+    targetSchedule: [
+      { team_key: 'BUF', opponent_key: 'NE', kickoff_at: '2026-10-04T17:00:00Z' },
+      { team_key: 'KC', opponent_key: 'LV', kickoff_at: '2026-10-04T20:25:00Z' },
+    ],
+    onQuery: (text, params) => text.includes('player_depth_chart') && reads.push(params),
+  });
+  const bundle = await features.loadFeatureBundle({
+    season: SEASON, week: 5, playerIds: [1], rules: SCORING_RULES, constants: DEPTH_CHALLENGER,
+  });
+  assert.equal(reads.length, 1);
+  assert.equal(String(reads[0][0]), '2026-10-04');
+  assert.equal(bundle.depthRankByPlayer.get(2), 2);
+  assert.equal(bundle.leagueContext.get('WR').starterBaselinePerGame, 10);
+
+  mockPool(t, { players: [player(1, 'WR')], leagueScan: depthScan });
+  const v32 = await features.loadFeatureBundle({
+    season: SEASON, week: 5, playerIds: [1], rules: SCORING_RULES, constants: model.MODEL_CONSTANTS_V3_2,
+  });
+  assert.equal(v32.depthRankByPlayer, undefined);
+  assert.equal('starterBaselinePerGame' in v32.leagueContext.get('WR'), false);
+});
+
+test('depth Challenger: the capture cutoff bounds the read when it is earlier than the earliest kickoff (#1924)', async (t) => {
+  const reads = [];
+  mockPool(t, {
+    players: [player(1, 'WR')], leagueScan: depthScan, depthChartRows: depthRows,
+    targetSchedule: [{ team_key: 'BUF', opponent_key: 'NE', kickoff_at: '2026-10-04T17:00:00Z' }],
+    onQuery: (text, params) => text.includes('player_depth_chart') && reads.push(params),
+  });
+  await features.loadFeatureBundle({
+    season: SEASON, week: 5, playerIds: [1], rules: SCORING_RULES, constants: DEPTH_CHALLENGER,
+    oddsObservedAtOrBefore: new Date('2026-09-29T23:00:00Z'),
+  });
+  assert.equal(String(reads[0][0]), '2026-09-29');
+});
+
+test('depth Challenger: generateProjections bounds the read at the capture cutoff day, strictly before it, within 7 days (#1924)', async (t) => {
+  const reads = [];
+  mockPool(t, {
+    players: [player(1, 'WR')], leagueScan: depthScan, depthChartRows: depthRows,
+    targetSchedule: [{ team_key: 'BUF', opponent_key: 'NE', kickoff_at: '2026-10-04T17:00:00Z' }],
+    onQuery: (text, params) => text.includes('player_depth_chart') && reads.push({ text, params }),
+  });
+  await projection.generateProjections({
+    season: SEASON, week: 5, rules: SCORING_RULES, playerIds: [1], hashValue: 'h',
+    weatherService: false, modelConstants: DEPTH_CHALLENGER,
+    oddsObservedAtOrBefore: new Date('2026-10-02T00:15:00Z'),
+  });
+  assert.equal(reads.length, 1);
+  assert.equal(String(reads[0].params[0]), '2026-10-02');
+  assert.ok(reads[0].text.includes('"captured_date" <'), 'strictly before the as-of day');
+  assert.ok(!reads[0].text.includes('<='), 'never on the as-of day');
+  // The mock routes on SQL text only, so the 7-day window is asserted on the clause.
+  assert.ok(reads[0].text.includes('"captured_date" >= $1::date - 7'), 'a capture older than 7 days is outside the window');
+});
+
+test('depth Challenger: no kickoff and no capture cutoff means no depth read', async (t) => {
+  const reads = [];
+  mockPool(t, {
+    players: [player(1, 'WR')], leagueScan: depthScan, depthChartRows: depthRows,
+    onQuery: (text) => text.includes('player_depth_chart') && reads.push(text),
+  });
+  const bundle = await features.loadFeatureBundle({
+    season: SEASON, week: 5, playerIds: [1], rules: SCORING_RULES, constants: DEPTH_CHALLENGER,
+  });
+  assert.deepEqual(reads, []);
+  assert.equal(bundle.depthRankByPlayer.size, 0);
 });
