@@ -340,10 +340,11 @@ export default function LineupPage() {
               name={viewerTeam?.teamName || 'My Team'}
               avatarUrl={viewerTeam?.avatar_url}
               avatarStaticUrl={viewerTeam?.avatar_static_url}
-              size={56}
+              size={compact ? 40 : 56}
+              data-testid="lineup-team-avatar"
             />
             <Box sx={{ minWidth: 0 }}>
-              <Typography component="h1" sx={{ m: 0, fontSize: '26px', fontWeight: 700 }}>
+              <Typography component="h1" sx={{ m: 0, fontSize: compact ? '22px' : '26px', fontWeight: 700 }}>
                 {viewerTeam?.teamName || 'Lineup'}
               </Typography>
               {bestBall && <Badge variant="neutral">Best ball</Badge>}
@@ -458,16 +459,6 @@ export default function LineupPage() {
                     bestBall={bestBall}
                   />
 
-                  {swap.selectedEntry && (
-                    <Box
-                      data-testid="lineup-move-strip"
-                      sx={{ p: 1.5, border: '1px solid var(--dash-accent-line)', borderRadius: 'var(--dash-radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                    >
-                      <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}: tap a highlighted player, or switch tabs for more`}</Typography>
-                      <Button size="small" onClick={swap.cancelSelection}>Cancel</Button>
-                    </Box>
-                  )}
-
                   {(lineupLoading && !lineup) ? (
                     <Box sx={{ display: 'grid', gap: 1 }} data-testid="lineup-skeleton">
                       <Skeleton variant="rounded" height={220} />
@@ -491,6 +482,34 @@ export default function LineupPage() {
                       onRequestDrop={drop.requestDrop}
                       onOpenDecisionCard={setDecisionCardEntryId}
                     />
+                  )}
+
+                  {/* The swap strip (#1958, spec #1956 L8) follows the Ledger and
+                      sticks to the bottom, so picking a row low on the page
+                      neither pushes the list down under the finger before the
+                      second tap nor leaves the strip off screen. On a phone
+                      `bottom: 56` clears the Ledger's own sticky Starters/Bench
+                      bar (44px plus its border), a sibling in this same column. */}
+                  {swap.selectedEntry && (
+                    <Box
+                      data-testid="lineup-move-strip"
+                      sx={{
+                        position: 'sticky',
+                        bottom: { xs: 56, sm: 16 },
+                        zIndex: 2,
+                        p: 1.5,
+                        backgroundColor: 'var(--dash-surface)',
+                        boxShadow: 'var(--shadow-2)',
+                        border: '1px solid var(--dash-accent-line)',
+                        borderRadius: 'var(--dash-radius-sm)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
+                      <Button size="small" onClick={swap.cancelSelection}>Cancel</Button>
+                    </Box>
                   )}
                 </Box>
 
