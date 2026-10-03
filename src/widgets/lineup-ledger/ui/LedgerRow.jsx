@@ -1,7 +1,7 @@
 import React from 'react';
-import { Avatar, Box, IconButton, Tooltip, Typography } from '@mui/material';
+import { Avatar, Box, IconButton, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Badge, GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
+import { Badge, GameStateChip, InjuryTag, PosChip, injuryView } from '../../../shared/ui';
 import {
   formatPoints,
   hasNoHistory,
@@ -83,8 +83,9 @@ function SituationLine({ possession, downDistance, lastPlay, redZone }) {
 // (while live) the Situation line beneath it. `view` is computed once by the
 // caller (LedgerRow, below) so the same read also drives the points cell's
 // live colour and the Edge line's kind transition (AC2/AC3) without a second
-// call to gameCellView.
-function GameCell({ view }) {
+// call to gameCellView. `align` is the cell's horizontal edge: `flex-end`
+// as its own column from `sm`, `flex-start` inside the info block below it.
+function GameCell({ view, align = 'flex-end' }) {
   if (!view) return null;
   if (view.kind === 'unavailable') {
     // The chip's own state names the reason (bye/out/ir), never a blanket
@@ -100,7 +101,7 @@ function GameCell({ view }) {
     // rendered under the chip only when either piece has something to show.
     const detail = [view.lineText, view.weatherText].filter(Boolean).join(' · ');
     return (
-      <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
+      <Box sx={{ display: 'grid', justifyItems: align, gap: '2px', minWidth: 0 }}>
         <GameStateChip state="pre" data-testid="ledger-game-cell">{label}</GameStateChip>
         {detail && (
           <Typography
@@ -117,7 +118,7 @@ function GameCell({ view }) {
   if (view.kind === 'live') {
     const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore} · ` : '';
     return (
-      <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
+      <Box sx={{ display: 'grid', justifyItems: align, gap: '2px', minWidth: 0 }}>
         <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>
         <SituationLine possession={view.possession} downDistance={view.downDistance} lastPlay={view.lastPlay} redZone={view.redZone} />
       </Box>
@@ -183,7 +184,7 @@ function PlayerAvatar({ name, nflTeam, photoUrl }) {
       aria-hidden="true"
       src={photoUrl || undefined}
       imgProps={{ loading: 'lazy', 'data-testid': 'ledger-headshot' }}
-      sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
+      sx={{ width: { xs: 28, sm: 36 }, height: { xs: 28, sm: 36 }, fontSize: { xs: 11, sm: 13 }, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
     >
       {initialsFor(name)}
     </Avatar>
@@ -234,10 +235,15 @@ export default function LedgerRow({
   onClick,
   onRequestDrop,
   canDrop,
+  reserveDropTrack,
   onOpenDecisionCard = () => {},
   'data-testid': testId,
 }) {
   const isEmpty = !entry;
+  // The Drop track is reserved on every occupied row once any row in the
+  // Ledger can drop (`reserveDropTrack`), so a row without the control (a
+  // spent one) keeps its numbers on the same right edge as its neighbours.
+  const dropTrack = !isEmpty && (canDrop || reserveDropTrack);
   const unavailable = !isEmpty && entry.availability && entry.availability.available === false;
   // Computed once here (rather than inside GameCell) so the same read also
   // drives the points cell's live colour and the Edge line's kind
@@ -259,6 +265,10 @@ export default function LedgerRow({
     : unavailable
       ? unavailableLabel(entry.availability.reason) || 'unavailable'
       : projectionLabel(entry);
+  // L3: a real number reads "14.2 proj" under the points figure; a label
+  // ("no history", an Unavailable reason) or the dash for a missing
+  // projection stands alone, since "no history proj" is not a sentence.
+  const projectionShown = !isEmpty && !unavailable && !hasNoHistory(entry) && Number.isFinite(entry.projectedPoints);
   // The points cell (AC2/AC3): the entry's actual/live fantasy points once
   // his game is live or final, a dash reserved for an Unavailable row (never
   // plays) and for a pre-kickoff row (nothing scored yet) alike -
@@ -276,20 +286,58 @@ export default function LedgerRow({
   // wins outright over the button's accumulated content), so a screen
   // reader hears one concise phrase per row rather than every chip, the
   // Edge line and the visually-hidden points caption concatenated together.
+  // L5: the injury designation and the projection close the phrase, enough
+  // to make a start/sit call from the row alone. An Unavailable row names its
+  // reason instead, never the designation as well ("on IR, injured reserve").
+  const unavailableText = unavailable ? unavailableLabel(entry.availability.reason) || 'unavailable' : null;
+  const designation = isEmpty || unavailable ? null : injuryView(entry.injuryStatus)?.name.toLowerCase();
+  // Drop is inert while a swap is under way and this row is no legal target
+  // (the row itself is disabled and dimmed the same way).
+  const dropInert = Boolean(showEligibility && !eligible);
   const rowLabel = isEmpty
     ? `Empty ${slotLabel} slot`
     : [
         entry.name,
         slotLabel,
         entry.locked && 'locked',
-        unavailable && (unavailableLabel(entry.availability.reason) || 'unavailable'),
+        unavailableText,
+        designation,
+        projectionShown && `projected ${projectionText}`,
       ].filter(Boolean).join(', ');
+
+  // Below `sm` the Game cell sits in the info block on its own line (L2);
+  // from `sm` it takes its own grid column before the numbers. One DOM copy
+  // either way, so `ledger-game-cell` stays unique per row.
+  const theme = useTheme();
+  const gameInline = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
 
   return (
     <Box
       data-testid={testId}
       data-spent={entry?.spent ? 'true' : undefined}
-      sx={{ position: 'relative', display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, gap: '8px', mb: '8px' }}
+      sx={{
+        position: 'relative',
+        mb: '8px',
+        // L7: the row's border, radius and fill live on this wrapper so the
+        // Drop control sits inside them.
+        borderRadius: 'var(--dash-radius-sm)',
+        border: '1px solid',
+        borderStyle: isEmpty ? 'dashed' : 'solid',
+        borderColor: selected || swapHighlighted
+          ? 'var(--dash-accent-line)'
+          : showEligibility && eligible
+            ? 'var(--dash-accent-line)'
+            : entry?.spent
+              ? 'var(--dash-warning)'
+              : 'var(--dash-line)',
+        backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
+          ? 'var(--dash-accent-soft)'
+          : 'var(--dash-surface)',
+        // L4: only the selected row gets the ring, drawn inset so the border
+        // width, and so the layout, never changes.
+        boxShadow: selected ? 'inset 0 0 0 2px var(--dash-accent)' : 'none',
+        opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
+      }}
     >
       <Box
         component="button"
@@ -301,9 +349,8 @@ export default function LedgerRow({
         onClick={onClick}
         sx={{
           position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
+          // Over the wrapper's 1px border too, so the whole visible row is the target.
+          inset: '-1px',
           zIndex: 0,
           m: 0,
           p: 0,
@@ -316,44 +363,38 @@ export default function LedgerRow({
         }}
       />
 
+      {/* L2: a fixed grid, never a wrapping flex - slot, avatar, info
+          (`minmax(0, 1fr)`), the Game column (from `sm`), the numbers
+          column, then Drop - so every row's numbers share one right edge
+          whatever the name length. Mirrors docs/design/team-lineup/build.mjs
+          (`COLS`, the mobile row). */}
       <Box
         sx={{
           position: 'relative',
           zIndex: 1,
           pointerEvents: 'none',
-          flexGrow: 1,
-          minWidth: 0,
-          display: 'flex',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          flexWrap: 'wrap',
-          gap: '10px',
-          p: '10px 12px',
-          borderRadius: 'var(--dash-radius-sm)',
-          border: '1px solid',
-          borderStyle: isEmpty ? 'dashed' : 'solid',
-          borderColor: selected || swapHighlighted
-            ? 'var(--dash-accent-line)'
-            : showEligibility && eligible
-              ? 'var(--dash-accent-line)'
-              : entry?.spent
-                ? 'var(--dash-warning)'
-                : 'var(--dash-line)',
-          backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
-            ? 'var(--dash-accent-soft)'
-            : 'var(--dash-surface)',
-          opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
+          display: 'grid',
+          gridTemplateColumns: isEmpty
+            ? 'minmax(40px, max-content) minmax(0, 1fr)'
+            : {
+                xs: `minmax(40px, max-content) 28px minmax(0, 1fr) 52px${dropTrack ? ' 44px' : ''}`,
+                sm: `minmax(40px, max-content) 36px minmax(128px, 1fr) minmax(120px, 160px) 72px${dropTrack ? ' 44px' : ''}`,
+              },
+          alignItems: 'center',
+          columnGap: { xs: '6px', sm: '10px' },
+          p: dropTrack ? { xs: '8px 4px 8px 8px', sm: '10px 4px 10px 12px' } : { xs: '8px', sm: '10px 12px' },
         }}
       >
-        <PosChip position={slotLabel} data-testid="ledger-slot-chip" />
+        <PosChip position={slotLabel} data-testid="ledger-slot-chip" sx={{ justifySelf: 'start' }} />
 
         {isEmpty ? (
-          <Typography sx={{ flexGrow: 1, fontSize: '13px', color: 'var(--dash-faint)' }}>Empty</Typography>
+          <Typography sx={{ fontSize: '13px', color: 'var(--dash-faint)' }}>Empty</Typography>
         ) : (
           <>
             <PlayerAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
 
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <Box data-testid="ledger-info" sx={{ minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                 <PlayerNameLink
                   name={entry.name}
                   playerId={entry.playerId}
@@ -363,6 +404,15 @@ export default function LedgerRow({
                     fontSize: '14px',
                     fontWeight: 600,
                     color: 'var(--dash-ink)',
+                    // The name gives way first (an ellipsis) and the tags
+                    // beside it never do. Block, not the link's inline-flex,
+                    // so text-overflow applies to the text itself.
+                    display: 'block',
+                    minWidth: 0,
+                    flex: '0 1 auto',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                   }}
                 />
                 <InjuryTag status={entry.injuryStatus} />
@@ -428,59 +478,89 @@ export default function LedgerRow({
                     from the glossary's Free agent (league availability). */}
                 {`${entry.position ?? ''} · ${entry.nflTeam || 'FA'}`}
               </Typography>
+              {gameInline && (
+                <Box sx={{ mt: '2px' }}>
+                  <GameCell view={view} align="flex-start" />
+                </Box>
+              )}
               <EdgeLine edge={entry.edge} gameCellKind={view?.kind} noHistory={hasNoHistory(entry)} />
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <GameCell view={view} />
-
-              <Box sx={{ display: 'grid', textAlign: 'right' }}>
-                <Typography
-                  component="span"
-                  data-testid="ledger-projection"
-                  sx={{ fontSize: '11px', color: unavailable ? 'var(--dash-faint)' : 'var(--dash-ink)', fontWeight: 600 }}
-                >
-                  {projectionText}
-                </Typography>
-                <Typography component="span" data-testid="ledger-points" sx={{ fontSize: '10.5px', color: pointsColor }}>
-                  {pointsText === '-' ? (
-                    <>
-                      <span aria-hidden="true">-</span>
-                      <span style={visuallyHidden}>Points not available yet</span>
-                    </>
-                  ) : (
-                    pointsText
-                  )}
-                </Typography>
+            {!gameInline && (
+              <Box sx={{ minWidth: 0, display: 'grid', justifyItems: 'flex-end' }}>
+                <GameCell view={view} />
               </Box>
+            )}
+
+            {/* L3: points are the headline figure, the projection sits
+                beneath it. `ledger-projection` is a grid item, so its right
+                edge is the column's, equal on every row. */}
+            <Box sx={{ display: 'grid', gap: '2px', textAlign: 'right', minWidth: 0 }}>
+              <Typography
+                component="span"
+                data-testid="ledger-points"
+                sx={{
+                  fontFamily: 'var(--dash-font-display)',
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: pointsColor,
+                }}
+              >
+                {pointsText === '-' ? (
+                  <>
+                    <span aria-hidden="true">-</span>
+                    <span style={visuallyHidden}>Points not available yet</span>
+                  </>
+                ) : (
+                  pointsText
+                )}
+              </Typography>
+              <Typography
+                component="span"
+                data-testid="ledger-projection"
+                sx={{ fontSize: '12px', lineHeight: 1.2, whiteSpace: 'nowrap', color: unavailable ? 'var(--dash-warning)' : 'var(--dash-dim)' }}
+              >
+                {projectionShown ? `${projectionText} proj` : projectionText}
+              </Typography>
             </Box>
           </>
         )}
+        {/* Drop is a SIBLING of the row's covering button, not a descendant of
+            any widget-role element: nesting a real <button> inside a role like
+            the row's own is an axe-core `nested-interactive` violation, is not
+            reliably exposed to a screen reader, and (found in review) let this
+            control's own Enter/Space keydown bubble into the row's handler,
+            silently starting a swap instead of dropping the player - a
+            keyboard user could never reach Drop at all. As a sibling, painted
+            above the covering button (it lives in the content grid, a
+            stacking context on top of the button's `zIndex: 0`, and reclaims
+            pointer events from that grid), it is independently focusable and
+            its own native button semantics handle Enter/Space without the
+            row's handler ever seeing the event. It is the grid's last column
+            (L7), inside the row's border. */}
+        {dropTrack && !canDrop && <Box aria-hidden="true" data-testid="ledger-drop-spacer" />}
+        {canDrop && (
+          // A disabled button takes no tooltip (MUI warns), so the title goes with it.
+          <Tooltip title={dropInert ? '' : 'Drop player'}>
+            <IconButton
+              size="small"
+              disabled={dropInert}
+              aria-label={`Drop ${entry.name}`}
+              onClick={() => onRequestDrop?.(entry)}
+              sx={{
+                pointerEvents: 'auto',
+                color: 'var(--dash-faint)',
+                '&:hover, &:focus-visible': { color: 'var(--dash-danger)' },
+                ...MIN_TOUCH_TARGET_SX,
+              }}
+            >
+              <DropIcon />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
-
-      {/* Drop is a SIBLING of the row's covering button, not a descendant of
-          any widget-role element: nesting a real <button> inside a role like
-          the row's own is an axe-core `nested-interactive` violation, is not
-          reliably exposed to a screen reader, and (found in review) let this
-          control's own Enter/Space keydown bubble into the row's handler,
-          silently starting a swap instead of dropping the player - a
-          keyboard user could never reach Drop at all. As a sibling, painted
-          above the covering button (`position: relative`, an implicit
-          stacking context on top of the button's `zIndex: 0`), it is
-          independently focusable and its own native button semantics handle
-          Enter/Space without the row's handler ever seeing the event. */}
-      {canDrop && (
-        <Tooltip title="Drop player">
-          <IconButton
-            size="small"
-            aria-label={`Drop ${entry.name}`}
-            onClick={() => onRequestDrop?.(entry)}
-            sx={{ position: 'relative', zIndex: 1, color: 'var(--dash-danger)', flex: 'none', ...MIN_TOUCH_TARGET_SX }}
-          >
-            <DropIcon />
-          </IconButton>
-        </Tooltip>
-      )}
     </Box>
   );
 }

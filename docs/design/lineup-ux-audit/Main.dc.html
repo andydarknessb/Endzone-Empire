@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lineup UX audit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Barlow+Condensed:wght@600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f6a41}a:hover{color:#0b5232}
+</style>
+</helmet>
+<div style="width: 1440px; box-sizing: border-box; padding: 64px; background: #eef2f6; color: #141b23; font-family: Archivo, 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column; gap: 40px">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #0f6a41">Audit · Team · /team · 2026-10-03</span>
+    <h1 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 64px; font-weight: 700; line-height: 1; text-transform: uppercase; letter-spacing: 0.02em">Lineup page UX audit</h1>
+    <p style="margin: 0; max-width: 900px; font-size: 16px; line-height: 1.5; color: #55636f">Setting a lineup is the weekly core of the app. Audited at 390x844 and 1440x900 in both themes against the shipped Direction A Ledger (docs/design/team-lineup) and the patterns managers know from ESPN, Yahoo and Sleeper. Spec #1956, tickets #1957 and #1958.</p>
+  </div>
+
+  <section aria-label="Today" style="display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 32px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em">Today</h2>
+    <div style="display: flex; gap: 32px; align-items: flex-start">
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <img src="/_blob/65ba71592661a3a2a25d79e58d703290" alt="Lineup page at 1440 wide today: Starters and Bench side by side in narrow columns, rows wrapping" style="width: 900px; height: 562px; border-radius: 14px; border: 1px solid rgba(31, 45, 58, 0.12); display: block">
+        <figcaption style="font-size: 13px; color: #55636f">1440x900. Starters and Bench split into two 360px columns (L1). Game chip and projection wrap under long names (L2). Drop floats outside each row (L7).</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <img src="/_blob/cfe9d4999d246ad0cce413dc28338174" alt="Lineup page at 390 wide today: first starter near the bottom of the first screen" style="width: 260px; height: 562px; border-radius: 14px; border: 1px solid rgba(31, 45, 58, 0.12); display: block">
+        <figcaption style="width: 260px; font-size: 13px; color: #55636f">390x844. First starter near y=600 (L9). Projection 11px, points 10.5px, unlabeled (L3).</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section aria-label="Findings" style="display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 32px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em">Findings and rulings</h2>
+    <div style="background: #ffffff; border: 1px solid rgba(31, 45, 58, 0.12); border-radius: 14px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: 56px 92px 120px minmax(0, 1.4fr) minmax(0, 1.2fr) 80px; gap: 16px; padding: 12px 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5e6a74; border-bottom: 1px solid rgba(31, 45, 58, 0.12)">
+        <span>ID</span><span>Severity</span><span>Where</span><span>Finding</span><span>Ruling</span><span>Ticket</span>
+      </div>
+      <sc-for list="{{findings}}" as="f" hint-placeholder-count="10">
+        <div style="display: grid; grid-template-columns: 56px 92px 120px minmax(0, 1.4fr) minmax(0, 1.2fr) 80px; gap: 16px; padding: 14px 20px; align-items: start; border-bottom: 1px solid rgba(31, 45, 58, 0.12); font-size: 14px; line-height: 1.45">
+          <span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700">{{f.id}}</span>
+          <span style="justify-self: start; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; color: {{f.sevInk}}; background: {{f.sevBg}}">{{f.sev}}</span>
+          <span style="color: #55636f">{{f.where}}</span>
+          <span>{{f.finding}}</span>
+          <span style="color: #55636f">{{f.ruling}}</span>
+          <span style="font-weight: 600">{{f.ticket}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section aria-label="Considered" style="display: flex; flex-direction: column; gap: 12px; max-width: 1000px">
+    <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 32px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em">Considered, not built</h2>
+    <ul style="margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.6; color: #55636f">
+      <li>Removing Drop from rows. ADR 0019 puts Drop on every occupied row, so it stays and moves inside the row's border.</li>
+      <li>Undo on the save snackbar. Every move is reversible by a second swap; ADR 0019's Undo is its own question.</li>
+      <li>One three-way phone control (Starters, Bench, Outlook) replacing Roster/Outlook plus Starters/Bench. Needs its own design pass across the page and the Ledger widget (ADR 0020 split).</li>
+      <li>Drop on phone rows costs about a quarter of the info column at 390. Worth revisiting with the three-way control.</li>
+    </ul>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2140}}'>
+const SEV = { High: ['#c62828', 'rgba(198, 40, 40, 0.06)'], Medium: ['#8a5a00', 'rgba(138, 90, 0, 0.12)'], Low: ['#55636f', '#e6ecf2'] };
+const FINDINGS = [
+  ['L1', 'High', 'Desktop, tablet', 'Starters and Bench sit side by side from 600px, about 360px each at 1440, so desktop rows use a phone layout. Bench alone scrolls in a 560px box, hiding swap targets mid-move.', 'One column at every width: Starters, IR, Bench. No inner scroll.', '#1957'],
+  ['L2', 'High', 'All', 'Row content wraps: long names push the game chip and numbers to a second line, so projections do not form a column.', 'Fixed row grid: slot, avatar, info, numbers, Drop. Game moves into the info block on phones, its own column from 600px. Name truncates.', '#1957'],
+  ['L3', 'High', 'All', 'The two numbers a manager decides on are the smallest text on the row (11px and 10.5px) and carry no label.', 'Points as a 20px display figure, tabular. Projection beneath as "14.2 proj".', '#1957'],
+  ['L4', 'High', 'Swap', 'The selected row looks exactly like every eligible target, so mid-move nothing shows which player is moving.', '2px accent ring as an inset shadow on the selected row; targets keep the soft tint.', '#1957'],
+  ['L5', 'Medium', 'Accessibility', 'Row accessible name omits injury designation and projection.', 'Add both: "Josh Allen, QB, questionable, projected 24.2".', '#1957'],
+  ['L6', 'Medium', 'Phone', 'Starters/Bench tabs carry no counts, so an empty starter slot is invisible from Bench.', '"Starters 8/9" and "Bench 7".', '#1957'],
+  ['L7', 'Medium', 'All', 'Drop floats outside the row border on every row.', 'Border and fill move to the row wrapper so Drop sits inside; icon faint, danger on hover and focus.', '#1957'],
+  ['L8', 'Medium', 'Phone', 'The Moving strip inserts above the list: off screen, and it shifts rows under the finger before the second tap.', 'Render after the Ledger, sticky above the phone tab bar. "Moving {name}. Pick a highlighted player."', '#1958'],
+  ['L9', 'Low', 'Phone', 'First starter starts near y=600 on a 390x844 screen.', 'Partial: 40px avatar and 22px title below 600px.', '#1958'],
+  ['L10', 'Low', 'Tests', 'No e2e spec guards the Lineup layout.', 'lineup-ledger-layout.spec.ts: stacked cards, aligned numbers, selected ring.', '#1957'],
+];
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      findings: FINDINGS.map(([id, sev, where, finding, ruling, ticket]) => ({ id, sev, where, finding, ruling, ticket, sevInk: SEV[sev][0], sevBg: SEV[sev][1] })),
+    };
+  }
+}
+</script>
+</body>
+</html>
