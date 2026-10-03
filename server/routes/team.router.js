@@ -191,14 +191,17 @@ async function updateLineup(req, res) {
     // A saved lineup that no longer matches the team's open called shot voids
     // it (#1856). The save has already committed, and the shot path never
     // blocks it: any failure here is logged and the save still answers 200.
+    // The answer tells the client whether it did (#1969), so an Undo can say
+    // the voided shot stays void.
+    let calledShotVoided = false;
     try {
-      await voidShotContradictedBySave(pool, {
+      calledShotVoided = await voidShotContradictedBySave(pool, {
         teamId: outcome.teamId, season: outcome.season, week: outcome.week,
       });
     } catch (shotError) {
       console.error('called shot: reconciling after a lineup save failed, the save stands:', shotError.message);
     }
-    res.json(outcome);
+    res.json({ ...outcome, calledShotVoided });
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json(

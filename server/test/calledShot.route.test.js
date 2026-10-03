@@ -335,6 +335,7 @@ test('saving a lineup succeeds and logs when the shot path throws (#1856)', asyn
   const response = await saveSwap();
   assert.equal(response.status, 200, JSON.stringify(response.body));
   assert.equal(response.body.updated, 2);
+  assert.equal(response.body.calledShotVoided, false);
   assert.ok(logged.some((line) => /called shot/.test(line)), 'the error is logged');
   fake.assertClean();
 });
@@ -344,6 +345,7 @@ test('a saved lineup that contradicts the open shot voids it (#1856)', async (t)
   const response = await saveSwap();
   assert.equal(response.status, 200);
   assert.equal(world.calledRow.outcome, 'void');
+  assert.equal(response.body.calledShotVoided, true);
 });
 
 test('two declares racing for one team-week: the loser is told to try again, not a 500 (#1856)', async (t) => {
@@ -388,4 +390,12 @@ test('a lineup save does not void a shot once one of its players has locked (#18
   const response = await saveSwap();
   assert.equal(response.status, 200);
   assert.equal(world.calledRow.outcome, 'pending');
+  assert.equal(response.body.calledShotVoided, false);
+});
+
+test('a lineup save with no open shot answers calledShotVoided false (#1969)', async (t) => {
+  mountSaveWorld(t);
+  const response = await saveSwap();
+  assert.equal(response.status, 200);
+  assert.equal(response.body.calledShotVoided, false);
 });
