@@ -4,7 +4,7 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Select, Typography, use
 import { Badge, Card, SegmentedControl, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
-import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster } from '../../shared/lib';
+import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
@@ -340,10 +340,11 @@ export default function LineupPage() {
               name={viewerTeam?.teamName || 'My Team'}
               avatarUrl={viewerTeam?.avatar_url}
               avatarStaticUrl={viewerTeam?.avatar_static_url}
-              size={56}
+              size={compact ? 40 : 56}
+              data-testid="lineup-team-avatar"
             />
             <Box sx={{ minWidth: 0 }}>
-              <Typography component="h1" sx={{ m: 0, fontSize: '26px', fontWeight: 700 }}>
+              <Typography component="h1" sx={{ m: 0, fontSize: compact ? '22px' : '26px', fontWeight: 700 }}>
                 {viewerTeam?.teamName || 'Lineup'}
               </Typography>
               {bestBall && <Badge variant="neutral">Best ball</Badge>}
@@ -458,16 +459,6 @@ export default function LineupPage() {
                     bestBall={bestBall}
                   />
 
-                  {swap.selectedEntry && (
-                    <Box
-                      data-testid="lineup-move-strip"
-                      sx={{ p: 1.5, border: '1px solid var(--dash-accent-line)', borderRadius: 'var(--dash-radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                    >
-                      <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}: tap a highlighted player, or switch tabs for more`}</Typography>
-                      <Button size="small" onClick={swap.cancelSelection}>Cancel</Button>
-                    </Box>
-                  )}
-
                   {(lineupLoading && !lineup) ? (
                     <Box sx={{ display: 'grid', gap: 1 }} data-testid="lineup-skeleton">
                       <Skeleton variant="rounded" height={220} />
@@ -490,6 +481,30 @@ export default function LineupPage() {
                       canDropEntry={canDropEntry}
                       onRequestDrop={drop.requestDrop}
                       onOpenDecisionCard={setDecisionCardEntryId}
+                      // The swap strip (#1958, spec #1956 L8) rides the Ledger's
+                      // own sticky footer, stacked directly above its phone tab
+                      // bar, so the two never overlap and the strip stays on
+                      // screen when the tapped row is low on the page.
+                      footer={
+                        swap.selectedEntry ? (
+                          <Box
+                            data-testid="lineup-move-strip"
+                            sx={{
+                              p: 1.5,
+                              backgroundColor: 'var(--dash-surface)',
+                              boxShadow: 'var(--shadow-2)',
+                              border: '1px solid var(--dash-accent-line)',
+                              borderRadius: 'var(--dash-radius-sm)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Typography sx={{ fontSize: '13px' }}>{`Moving ${swap.selectedEntry.name}. Pick a highlighted player.`}</Typography>
+                            <Button size="small" sx={MIN_TOUCH_TARGET_SX} onClick={swap.cancelSelection}>Cancel</Button>
+                          </Box>
+                        ) : null
+                      }
                     />
                   )}
                 </Box>

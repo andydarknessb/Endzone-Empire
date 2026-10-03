@@ -153,3 +153,75 @@ test('at sm and above, a selection never changes the active tab', () => {
   expect(startersPressed()).toBe('true');
   expect(benchPressed()).toBe('false');
 });
+
+// #1957 L6 / L1: nine starting seats with one empty FLEX, five bench players
+// and one IR stash.
+const fullSlots = [
+  { key: 'QB', count: 1 },
+  { key: 'RB', count: 2 },
+  { key: 'WR', count: 2 },
+  { key: 'TE', count: 1 },
+  { key: 'FLEX', count: 1 },
+  { key: 'K', count: 1 },
+  { key: 'DEF', count: 1 },
+];
+const fullLineup = () => {
+  const filled = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'K', 'DEF'];
+  return {
+    rosterSlots: fullSlots,
+    benchSlots: 5,
+    irSlots: 1,
+    entries: [
+      ...filled.map((slot, i) => ({ playerId: 10 + i, name: `Starter ${i}`, slot })),
+      ...Array.from({ length: 5 }, (_, i) => ({ playerId: 30 + i, name: `Bench ${i}`, slot: 'BENCH' })),
+      { playerId: 40, name: 'Stashed', slot: 'IR' },
+    ],
+  };
+};
+
+test('the phone tabs carry counts: filled starting seats of the total, and occupied Bench plus IR rows', () => {
+  renderLedger({ lineup: fullLineup() });
+  expect(tabButtons()[0]).toHaveTextContent(/^Starters 8\/9$/);
+  expect(tabButtons()[1]).toHaveTextContent(/^Bench 6$/);
+});
+
+// #1957: the page's sticky strip rides in `footer`, in the same sticky
+// container as the phone tab bar and above it, so the two cannot overlap.
+test('a footer renders before the Starters/Bench buttons inside the same sticky container', () => {
+  renderLedger({ footer: <div data-testid="page-footer">Moving Starter One.</div> });
+  const sticky = screen.getByTestId('lineup-sticky-footer');
+  const footer = within(sticky).getByTestId('page-footer');
+  const tabs = within(sticky).getByTestId('lineup-mobile-tabs');
+  expect(footer.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(tabs).getAllByRole('button')).toHaveLength(2);
+});
+
+test('without a footer the sticky container holds only the tab bar', () => {
+  renderLedger();
+  const sticky = screen.getByTestId('lineup-sticky-footer');
+  expect(within(sticky).getByTestId('lineup-mobile-tabs')).toBeInTheDocument();
+  expect(within(sticky).queryByTestId('page-footer')).toBeNull();
+});
+
+// #1957: a spent row has no Drop, but keeps the Drop track so its numbers
+// share the right edge of the droppable rows around it.
+test('a spent row renders the Drop placeholder when other rows can drop, and none when no row can', () => {
+  const spentLineup = () => ({
+    entries: [starter({ spent: true }), { playerId: 3, name: 'Starter Two', slot: 'RB' }, benchPlayer()],
+    rosterSlots,
+    benchSlots: 1,
+    irSlots: 0,
+  });
+  const { unmount } = renderLedger({ lineup: spentLineup(), canDropEntry: () => true });
+  expect(screen.getAllByTestId('ledger-drop-spacer')).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: /^Drop / })).toHaveLength(2);
+  unmount();
+  renderLedger({ lineup: spentLineup(), canDropEntry: () => false });
+  expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
+});
+
+test('the phone tab buttons carry spoken names for their counts', () => {
+  renderLedger({ lineup: fullLineup() });
+  expect(screen.getByRole('button', { name: 'Starters, 8 of 9 filled' })).toBe(tabButtons()[0]);
+  expect(screen.getByRole('button', { name: 'Bench, 6 players' })).toBe(tabButtons()[1]);
+});

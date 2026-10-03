@@ -406,6 +406,10 @@ const PAIRINGS = [
   // this widget's tint is only ever painted on the card itself
   // (dash-surface), where it clears AA_TEXT (5.15 light / 5.36 dark).
   pairing('dash-dim', 'dash-accent-soft', AA_TEXT, 'the draft-grades roster value on the accent tint over a card', 'dash-surface'),
+  // Lineup Ledger (#1957 L3): an Unavailable row's reason in the numbers column
+  // is warning text, and an eligible or highlighted row paints the accent tint
+  // under it (on the card itself).
+  pairing('dash-warning', 'dash-accent-soft', AA_TEXT, 'the Ledger Unavailable reason on an eligible row tint over a card', 'dash-surface'),
   // GradeChip: the fixed dark `dash-on-grade` letter on each of the five grade
   // fills. AA_TEXT since the letter is small (a 26px round chip, ~14px glyph).
   pairing('dash-on-grade', 'dash-grade-a', AA_TEXT, 'grade A chip letter'),

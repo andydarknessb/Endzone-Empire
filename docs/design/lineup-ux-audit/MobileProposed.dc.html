@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lineup, phone, mid-swap</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Barlow+Condensed:wght@600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f6a41}a:hover{color:#0b5232}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: {{c.bg}}; color: {{c.ink}}; font-family: Archivo, 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column">
+  <header style="height: 52px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px; background: {{c.surface}}; border-bottom: 1px solid {{c.line}}">
+    <button type="button" aria-label="Open menu" style="width: 44px; height: 44px; margin-left: -10px; border: 0; background: transparent; color: {{c.ink}}; display: flex; align-items: center; justify-content: center">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"></path></svg>
+    </button>
+    <div style="width: 32px; height: 32px; border-radius: 50%; background: {{c.surface3}}; color: {{c.dim}}; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center">FF</div>
+    <div style="font-size: 22px; font-weight: 700; flex-grow: 1">Fargo Frostbite</div>
+  </header>
+
+  <div style="flex-grow: 1; padding: 12px 16px 0; display: flex; flex-direction: column; gap: 12px; min-height: 0">
+    <section aria-label="IR" style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; overflow: hidden">
+      <div style="display: flex; align-items: baseline; gap: 10px; padding: 12px 14px 6px">
+        <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase">IR</h2>
+      </div>
+      <div style="padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{ir}}" as="r" hint-placeholder-count="1">
+          <div style="display: grid; grid-template-columns: 40px 28px minmax(0, 1fr) 60px 44px; gap: 8px; align-items: center; padding: 8px 0 8px 8px; border-radius: 10px; border: 1px solid {{r.border}}; background: {{r.bg}}; box-shadow: {{r.ring}}; opacity: {{r.opacity}}">
+            <span style="height: 22px; border-radius: 6px; background: {{r.slotBg}}; color: {{c.inverse}}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.slot}}</span>
+            <span style="width: 28px; height: 28px; border-radius: 50%; background: {{r.kit}}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.initials}}</span>
+            <div style="min-width: 0; display: flex; flex-direction: column; gap: 1px">
+              <div style="display: flex; align-items: center; gap: 5px; min-width: 0"><span style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span><sc-if value="{{r.injury}}" hint-placeholder-val="{{ false }}"><span style="flex: none; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; color: {{r.injuryInk}}; background: {{r.injuryBg}}">{{r.injury}}</span></sc-if></div>
+              <span style="font-size: 12px; color: {{c.dim}}">{{r.sub}}</span>
+              <span style="font-size: 11px; color: {{c.faint}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.game}}</span>
+            </div>
+            <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end">
+              <span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{r.ptsInk}}">{{r.pts}}</span>
+              <span style="font-size: 12px; color: {{r.projInk}}; white-space: nowrap">{{r.proj}}</span>
+            </div>
+            <button type="button" aria-label="Drop {{r.name}}" style="width: 44px; height: 44px; border: 0; background: transparent; color: {{c.faint}}; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 5l10 10M15 5 5 15"></path></svg></button>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-label="Bench" style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; overflow: hidden">
+      <div style="display: flex; align-items: baseline; gap: 10px; padding: 12px 14px 6px">
+        <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase">Bench</h2>
+        <span style="font-size: 12px; color: {{c.faint}}">Bench points left on the table: 41.8</span>
+      </div>
+      <div style="padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{bench}}" as="r" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 40px 28px minmax(0, 1fr) 60px 44px; gap: 8px; align-items: center; padding: 8px 0 8px 8px; border-radius: 10px; border: 1px solid {{r.border}}; background: {{r.bg}}; box-shadow: {{r.ring}}; opacity: {{r.opacity}}">
+            <span style="height: 22px; border-radius: 6px; background: {{r.slotBg}}; color: {{c.inverse}}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.slot}}</span>
+            <span style="width: 28px; height: 28px; border-radius: 50%; background: {{r.kit}}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.initials}}</span>
+            <div style="min-width: 0; display: flex; flex-direction: column; gap: 1px">
+              <div style="display: flex; align-items: center; gap: 5px; min-width: 0"><span style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span><sc-if value="{{r.injury}}" hint-placeholder-val="{{ false }}"><span style="flex: none; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; color: {{r.injuryInk}}; background: {{r.injuryBg}}">{{r.injury}}</span></sc-if></div>
+              <span style="font-size: 12px; color: {{c.dim}}">{{r.sub}}</span>
+              <span style="font-size: 11px; color: {{c.faint}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.game}}</span>
+            </div>
+            <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end">
+              <span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{r.ptsInk}}">{{r.pts}}</span>
+              <span style="font-size: 12px; color: {{r.projInk}}; white-space: nowrap">{{r.proj}}</span>
+            </div>
+            <button type="button" aria-label="Drop {{r.name}}" style="width: 44px; height: 44px; border: 0; background: transparent; color: {{c.faint}}; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 5l10 10M15 5 5 15"></path></svg></button>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+  </div>
+
+  <div style="position: absolute; left: 16px; right: 16px; bottom: 70px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 14px; background: {{c.surface}}; border: 1px solid {{c.accentLine}}; border-radius: 10px; box-shadow: {{c.shadow}}">
+    <span style="font-size: 13px">Moving CeeDee Lamb. Pick a highlighted player.</span>
+    <button type="button" style="min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: {{c.accent}}; font-family: inherit; font-size: 13px; font-weight: 600">Cancel</button>
+  </div>
+  <div role="group" aria-label="Lineup section" style="position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; border: 1px solid {{c.line}}; border-radius: 10px; overflow: hidden; background: {{c.surface}}">
+    <button type="button" aria-pressed="false" style="flex: 1 1 0; min-height: 44px; border: 0; border-right: 1px solid {{c.line}}; background: transparent; color: {{c.dim}}; font-family: inherit; font-size: 13px; font-weight: 600">Starters 9/9</button>
+    <button type="button" aria-pressed="true" style="flex: 1 1 0; min-height: 44px; border: 0; background: {{c.accentSoft}}; color: {{c.accent}}; font-family: inherit; font-size: 13px; font-weight: 600">Bench 7</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+const THEMES = {
+  light: { bg: '#eef2f6', surface: '#ffffff', surface3: '#e6ecf2', line: 'rgba(31, 45, 58, 0.12)', ink: '#141b23', dim: '#55636f', faint: '#5e6a74', accent: '#0f6a41', accentSoft: 'rgba(15, 106, 65, 0.12)', accentLine: 'rgba(15, 106, 65, 0.32)', danger: '#c62828', dangerSoft: 'rgba(198, 40, 40, 0.06)', warning: '#8a5a00', warningSoft: 'rgba(138, 90, 0, 0.12)', inverse: '#ffffff', shadow: '0 4px 12px rgba(16, 24, 32, 0.10)', pos: { QB: '#c62828', RB: '#15663f', WR: '#1e5bb8', TE: '#9a5100', K: '#6d28d9', DEF: '#4b5c66', FLEX: '#4b5c66', BN: '#4b5c66', IR: '#4b5c66' } },
+  dark: { bg: '#0b1015', surface: '#141b23', surface3: '#222e3b', line: 'rgba(154, 183, 211, 0.12)', ink: '#e8eef4', dim: '#93a4b5', faint: '#8a9bad', accent: '#2fd97b', accentSoft: 'rgba(47, 217, 123, 0.12)', accentLine: 'rgba(47, 217, 123, 0.35)', danger: '#ff6b6b', dangerSoft: 'rgba(255, 107, 107, 0.14)', warning: '#f0b34e', warningSoft: 'rgba(240, 179, 78, 0.14)', inverse: '#0f1419', shadow: '0 6px 16px rgba(0, 0, 0, 0.5)', pos: { QB: '#ff8a80', RB: '#7ee2a8', WR: '#7fb0ff', TE: '#f0b34e', K: '#c4a2f5', DEF: '#b0bec5', FLEX: '#b0bec5', BN: '#b0bec5', IR: '#b0bec5' } },
+};
+const KITS = { SF: '#aa0000', KC: '#e31837', GB: '#203731', LV: '#000000', CAR: '#0085ca', JAX: '#006778', TB: '#d50a0a' };
+const IR = [{ slot: 'IR', name: 'Christian McCaffrey', team: 'SF', pos: 'RB', game: '@ LAR · Thu 8:15 PM', proj: null, pts: null, injury: 'IR', out: true }];
+const BENCH = [
+  { slot: 'BN', name: 'Rashee Rice', team: 'KC', pos: 'WR', game: 'vs ATL · Sun 4:25 PM', proj: 15.8, pts: null, eligible: true },
+  { slot: 'BN', name: 'Jayden Reed', team: 'GB', pos: 'WR', game: '@ LV · Mon 8:15 PM', proj: 12.4, pts: null, eligible: true },
+  { slot: 'BN', name: 'Brock Bowers', team: 'LV', pos: 'TE', game: 'vs GB · Mon 8:15 PM', proj: 10.9, pts: null },
+  { slot: 'BN', name: 'Chuba Hubbard', team: 'CAR', pos: 'RB', game: 'Bye', proj: null, pts: null, bye: true },
+  { slot: 'BN', name: 'Tank Bigsby', team: 'JAX', pos: 'RB', game: 'Final · TB 31 JAX 20', proj: 8.1, pts: 4.7 },
+  { slot: 'BN', name: 'Baker Mayfield', team: 'TB', pos: 'QB', game: 'Final · TB 31 JAX 20', proj: 18.2, pts: 24.9 },
+];
+class Component extends DCLogic {
+  renderVals() {
+    const c = THEMES[this.props.theme === 'dark' ? 'dark' : 'light'];
+    const row = (p) => {
+      const unavailable = p.out || p.bye;
+      return {
+        ...p,
+        initials: p.name.split(' ').map((w) => w[0]).slice(0, 2).join(''),
+        kit: KITS[p.team] || '#4b5c66',
+        sub: p.pos + ' · ' + p.team,
+        slotBg: c.pos[p.slot] || c.pos.BN,
+        pts: p.pts == null ? '-' : p.pts.toFixed(1),
+        proj: p.out ? 'Out' : p.bye ? 'Bye' : p.proj.toFixed(1) + ' proj',
+        ptsInk: p.pts == null ? c.faint : c.ink,
+        projInk: unavailable ? c.warning : c.dim,
+        injuryInk: p.injury === 'Q' ? c.warning : c.danger,
+        injuryBg: p.injury === 'Q' ? c.warningSoft : c.dangerSoft,
+        border: p.eligible ? c.accentLine : c.line,
+        bg: p.eligible ? c.accentSoft : c.surface,
+        ring: 'none',
+        opacity: p.eligible ? 1 : 0.45,
+      };
+    };
+    return { c, ir: IR.map(row), bench: BENCH.map(row) };
+  }
+}
+</script>
+</body>
+</html>
