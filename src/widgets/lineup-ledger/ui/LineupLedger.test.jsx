@@ -1,15 +1,16 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import LineupLedger from './LineupLedger';
 
 /**
- * #1425: the mobile Starters/Bench tab bar auto-switches on selection so an
- * eligible target hidden behind the inactive tab is never invisible (the bug
+ * #1425: below `sm` the Ledger asks its page to flip the phone section
+ * (`onMobileTabChange`) when a selection's eligible target sits in the hidden
+ * one, so a target behind the inactive section is never invisible (the bug
  * report - a manager stuck on Starters after selecting a starter whose only
- * legal targets sat on Bench). Driven entirely by `aria-pressed` on the tab
- * buttons (AC9), never by layout measurement: jsdom does not evaluate the
- * `sx` breakpoints that hide/show the two columns.
+ * legal targets sat on Bench). The Ledger is controlled (#1965): the page owns
+ * `mobileTab` and the phone bar, so these tests read the callback, never a
+ * rendered bar, and never layout measurement: jsdom does not evaluate the
+ * `sx` breakpoints that hide/show the sections.
  *
  * `window.matchMedia` is answered against `viewport` (byte-for-byte
  * `LeagueDashboardPage.test.jsx`'s own copy of this pattern) so the widget's
@@ -48,159 +49,127 @@ const starter = (over = {}) => ({ playerId: 1, name: 'Starter One', slot: 'QB', 
 const benchPlayer = (over = {}) => ({ playerId: 2, name: 'Bench One', slot: 'BENCH', ...over });
 const lineup = () => ({ entries: [starter(), benchPlayer()], rosterSlots, benchSlots: 1, irSlots: 0 });
 
+const ledgerProps = (props) => ({
+  lineup: lineup(),
+  isEligibleTarget: () => false,
+  selectedEntryId: null,
+  onRowClick: jest.fn(),
+  mobileTab: 'starters',
+  onMobileTabChange: jest.fn(),
+  ...props,
+});
+
 function renderLedger(props) {
-  return render(
-    <LineupLedger lineup={lineup()} isEligibleTarget={() => false} selectedEntryId={null} onRowClick={jest.fn()} {...props} />
-  );
+  const merged = ledgerProps(props);
+  return { ...render(<LineupLedger {...merged} />), props: merged };
 }
 
-const tabButtons = () => within(screen.getByTestId('lineup-mobile-tabs')).getAllByRole('button');
-const startersPressed = () => tabButtons()[0].getAttribute('aria-pressed');
-const benchPressed = () => tabButtons()[1].getAttribute('aria-pressed');
+// Same technique as LineupPage.test.jsx's own `rulesUnder` (a small local
+// copy, deliberately): reads the compiled `sx` rule for one media condition,
+// since jsdom does not apply breakpoints.
+const rulesUnder = (el, media = '') => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const norm = (value) => String(value).replace(/\s+/g, '');
+  let found = '';
+  const walk = (rules, condition) => {
+    Array.from(rules).forEach((rule) => {
+      if (rule.media) {
+        walk(rule.cssRules || [], rule.media.mediaText || '');
+        return;
+      }
+      if (rule.selectorText === `.${cls}` && norm(condition) === norm(media)) found += `${rule.style.cssText};`;
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules, ''));
+  return found;
+};
+const sectionOf = (testId) => screen.getByTestId(`${testId}-section`);
+// A section's wrapper is `display: block` outright when it is the active tab,
+// otherwise `none` at `xs` (and `block` again from `sm`).
+const shownBelowSm = (testId) => !rulesUnder(sectionOf(testId), '(min-width:0px)').includes('display: none');
 
 // AC1: Starters active, selecting a starter with an eligible Bench/IR target
-// switches to Bench.
-test('selecting a starter with an eligible bench target switches to the Bench tab', () => {
+// asks the page for the Bench section.
+test('selecting a starter with an eligible bench target asks for the Bench section', () => {
   const isEligibleTarget = jest.fn((entry) => Boolean(entry && entry.playerId === 2));
-  const { rerender } = renderLedger({ isEligibleTarget });
-  expect(startersPressed()).toBe('true');
+  const { rerender, props } = renderLedger({ isEligibleTarget });
+  expect(props.onMobileTabChange).not.toHaveBeenCalled();
 
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={1} onRowClick={jest.fn()} />);
+  rerender(<LineupLedger {...props} selectedEntryId={1} />);
 
-  expect(benchPressed()).toBe('true');
-  expect(startersPressed()).toBe('false');
-});
-
-// Accessibility risk review finding (#1425): the row the manager just
-// activated is inside the Starters section, which becomes `display:none`
-// once the tab flips - a hidden focused element is dropped to `<body>` per
-// the HTML spec. Focus must land on the Bench tab button instead, both to
-// recover from that and as the only signal (a real screen-reader
-// announcement) that the section changed.
-test('selecting a starter that flips the tab moves focus to the Bench tab button', () => {
-  const isEligibleTarget = jest.fn((entry) => Boolean(entry && entry.playerId === 2));
-  const { rerender } = renderLedger({ isEligibleTarget });
-
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={1} onRowClick={jest.fn()} />);
-
-  expect(benchPressed()).toBe('true');
-  expect(tabButtons()[1]).toHaveFocus();
-});
-
-// A manager who switches tabs by hand already carries focus with their own
-// click (real click semantics, `userEvent`, not `fireEvent`'s bare
-// dispatch) - the auto-switch's focus move must not fight that on a later,
-// unrelated render.
-test('switching tabs by hand is not overridden by the focus-move effect', async () => {
-  const user = userEvent.setup();
-  const { rerender } = renderLedger();
-  await user.click(tabButtons()[1]);
-  expect(tabButtons()[1]).toHaveFocus();
-
-  await user.click(tabButtons()[0]);
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={() => false} selectedEntryId={null} onRowClick={jest.fn()} />);
-  expect(tabButtons()[0]).toHaveFocus();
+  expect(props.onMobileTabChange).toHaveBeenCalledTimes(1);
+  expect(props.onMobileTabChange).toHaveBeenCalledWith('bench');
 });
 
 // AC2: Bench active, selecting a bench/IR player with an eligible Starter
-// target switches to Starters.
-test('selecting a bench player with an eligible starter target switches to the Starters tab', () => {
+// target asks the page for the Starters section.
+test('selecting a bench player with an eligible starter target asks for the Starters section', () => {
   const isEligibleTarget = jest.fn((entry, slotType) => slotType === 'RB');
-  const { rerender } = renderLedger({ isEligibleTarget });
-  // Land on Bench first, the same way a manager would before selecting.
-  fireEvent.click(tabButtons()[1]);
-  expect(benchPressed()).toBe('true');
+  const { rerender, props } = renderLedger({ isEligibleTarget, mobileTab: 'bench' });
 
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={2} onRowClick={jest.fn()} />);
+  rerender(<LineupLedger {...props} selectedEntryId={2} />);
 
-  expect(startersPressed()).toBe('true');
+  expect(props.onMobileTabChange).toHaveBeenCalledWith('starters');
 });
 
 // AC3: a starter selection with no eligible Bench/IR target - even though an
-// eligible Starter-for-starter target exists - stays on Starters.
-test('selecting a starter with no eligible bench/IR target stays on Starters', () => {
+// eligible Starter-for-starter target exists - asks for nothing.
+test('selecting a starter with no eligible bench/IR target asks for nothing', () => {
   const isEligibleTarget = jest.fn((entry, slotType) => slotType === 'RB'); // never BENCH
-  const { rerender } = renderLedger({ isEligibleTarget });
-  expect(startersPressed()).toBe('true');
+  const { rerender, props } = renderLedger({ isEligibleTarget });
 
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={1} onRowClick={jest.fn()} />);
+  rerender(<LineupLedger {...props} selectedEntryId={1} />);
 
-  expect(startersPressed()).toBe('true');
-  expect(benchPressed()).toBe('false');
+  expect(props.onMobileTabChange).not.toHaveBeenCalled();
 });
 
-// AC6: cancelling (selectedEntryId back to null) leaves the tab exactly
-// where the auto-switch left it - no flip back.
-test('cancelling a selection does not change the active tab', () => {
+// AC6: cancelling (selectedEntryId back to null) asks for nothing - no flip
+// back.
+test('cancelling a selection asks for nothing', () => {
   const isEligibleTarget = jest.fn((entry) => Boolean(entry && entry.playerId === 2));
-  const { rerender } = renderLedger({ isEligibleTarget, selectedEntryId: 1 });
-  expect(benchPressed()).toBe('true');
+  const { rerender, props } = renderLedger({ isEligibleTarget, selectedEntryId: 1 });
+  props.onMobileTabChange.mockClear();
 
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={null} onRowClick={jest.fn()} />);
+  rerender(<LineupLedger {...props} selectedEntryId={null} />);
 
-  expect(benchPressed()).toBe('true');
+  expect(props.onMobileTabChange).not.toHaveBeenCalled();
 });
 
-// AC7: at `sm` and up, a selection never changes `mobileTab`.
-test('at sm and above, a selection never changes the active tab', () => {
+// AC7: at `sm` and up both sections always show, so a selection never asks.
+test('at sm and above, a selection never asks for a section', () => {
   viewport = 1440;
   const isEligibleTarget = jest.fn((entry) => Boolean(entry && entry.playerId === 2));
-  const { rerender } = renderLedger({ isEligibleTarget });
-  expect(startersPressed()).toBe('true');
+  const { rerender, props } = renderLedger({ isEligibleTarget });
 
-  rerender(<LineupLedger lineup={lineup()} isEligibleTarget={isEligibleTarget} selectedEntryId={1} onRowClick={jest.fn()} />);
+  rerender(<LineupLedger {...props} selectedEntryId={1} />);
 
-  expect(startersPressed()).toBe('true');
-  expect(benchPressed()).toBe('false');
+  expect(props.onMobileTabChange).not.toHaveBeenCalled();
 });
 
-// #1957 L6 / L1: nine starting seats with one empty FLEX, five bench players
-// and one IR stash.
-const fullSlots = [
-  { key: 'QB', count: 1 },
-  { key: 'RB', count: 2 },
-  { key: 'WR', count: 2 },
-  { key: 'TE', count: 1 },
-  { key: 'FLEX', count: 1 },
-  { key: 'K', count: 1 },
-  { key: 'DEF', count: 1 },
-];
-const fullLineup = () => {
-  const filled = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'K', 'DEF'];
-  return {
-    rosterSlots: fullSlots,
-    benchSlots: 5,
-    irSlots: 1,
-    entries: [
-      ...filled.map((slot, i) => ({ playerId: 10 + i, name: `Starter ${i}`, slot })),
-      ...Array.from({ length: 5 }, (_, i) => ({ playerId: 30 + i, name: `Bench ${i}`, slot: 'BENCH' })),
-      { playerId: 40, name: 'Stashed', slot: 'IR' },
-    ],
-  };
-};
+// #1965: the page owns the phone view. Below `sm` the Ledger shows only the
+// section `mobileTab` names, so any other value (Outlook) hides both; from
+// `sm` up both always show.
+test('below sm only the section named by mobileTab shows; any other value hides both; from sm both show', () => {
+  const { rerender, props } = renderLedger({ mobileTab: 'starters' });
+  expect(shownBelowSm('ledger-starters')).toBe(true);
+  expect(shownBelowSm('ledger-bench')).toBe(false);
 
-test('the phone tabs carry counts: filled starting seats of the total, and occupied Bench plus IR rows', () => {
-  renderLedger({ lineup: fullLineup() });
-  expect(tabButtons()[0]).toHaveTextContent(/^Starters 8\/9$/);
-  expect(tabButtons()[1]).toHaveTextContent(/^Bench 6$/);
+  rerender(<LineupLedger {...props} mobileTab="bench" />);
+  expect(shownBelowSm('ledger-starters')).toBe(false);
+  expect(shownBelowSm('ledger-bench')).toBe(true);
+
+  rerender(<LineupLedger {...props} mobileTab="outlook" />);
+  expect(shownBelowSm('ledger-starters')).toBe(false);
+  expect(shownBelowSm('ledger-bench')).toBe(false);
+  expect(rulesUnder(sectionOf('ledger-starters'), '(min-width:600px)')).toContain('display: block');
+  expect(rulesUnder(sectionOf('ledger-bench'), '(min-width:600px)')).toContain('display: block');
 });
 
-// #1957: the page's sticky strip rides in `footer`, in the same sticky
-// container as the phone tab bar and above it, so the two cannot overlap.
-test('a footer renders before the Starters/Bench buttons inside the same sticky container', () => {
-  renderLedger({ footer: <div data-testid="page-footer">Moving Starter One.</div> });
-  const sticky = screen.getByTestId('lineup-sticky-footer');
-  const footer = within(sticky).getByTestId('page-footer');
-  const tabs = within(sticky).getByTestId('lineup-mobile-tabs');
-  expect(footer.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(tabs).getAllByRole('button')).toHaveLength(2);
-});
-
-test('without a footer the sticky container holds only the tab bar', () => {
+// #1965: the bar and the sticky container moved to the page.
+test('the Ledger renders no phone bar and no sticky footer of its own', () => {
   renderLedger();
-  const sticky = screen.getByTestId('lineup-sticky-footer');
-  expect(within(sticky).getByTestId('lineup-mobile-tabs')).toBeInTheDocument();
-  expect(within(sticky).queryByTestId('page-footer')).toBeNull();
+  expect(screen.queryByTestId('lineup-mobile-tabs')).toBeNull();
+  expect(screen.queryByTestId('lineup-sticky-footer')).toBeNull();
 });
 
 // #1957: a spent row has no Drop, but keeps the Drop track so its numbers
@@ -218,10 +187,4 @@ test('a spent row renders the Drop placeholder when other rows can drop, and non
   unmount();
   renderLedger({ lineup: spentLineup(), canDropEntry: () => false });
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
-});
-
-test('the phone tab buttons carry spoken names for their counts', () => {
-  renderLedger({ lineup: fullLineup() });
-  expect(screen.getByRole('button', { name: 'Starters, 8 of 9 filled' })).toBe(tabButtons()[0]);
-  expect(screen.getByRole('button', { name: 'Bench, 6 players' })).toBe(tabButtons()[1]);
 });
