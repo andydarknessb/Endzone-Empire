@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LedgerRow from './LedgerRow';
 import { lineupEntries } from '../../../entities/roster';
@@ -681,7 +681,98 @@ test('the row has one concise accessible name rather than its concatenated conte
       data-testid="row"
     />
   );
-  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked');
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked, projected 24.3');
+});
+
+// #1957 L5: the injury designation and the projection close the name, so a
+// screen-reader user can make a start/sit call from the row alone.
+test('a Questionable starter\'s accessible name carries the designation and the projection', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ injuryStatus: 'Q', projectedPoints: 24.2 })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, questionable, projected 24.2');
+});
+
+test('an Unavailable row\'s accessible name does not repeat the designation or claim a projection', () => {
+  render(
+    <LedgerRow
+      slotLabel="WR"
+      entry={entry({ injuryStatus: 'O', availability: { available: false, reason: 'out' } })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, WR, out');
+});
+
+test('a row with no projection or only a Position baseline claims no projection in its accessible name', () => {
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB');
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ positionBaseline: true })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB');
+});
+
+// #1957 L3: points headline, projection beneath it labelled "proj".
+test('the projection reads "<n> proj" beneath the points figure, which is the larger of the two', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: 14.2, points: 9.5 })} onClick={jest.fn()} data-testid="row" />);
+  const points = screen.getByTestId('ledger-points');
+  const projection = screen.getByTestId('ledger-projection');
+  expect(projection).toHaveTextContent(/^14\.2 proj$/);
+  expect(points).toHaveStyle({ fontSize: '20px', fontWeight: '700', fontVariantNumeric: 'tabular-nums' });
+  expect(projection).toHaveStyle({ fontSize: '12px' });
+  expect(points.compareDocumentPosition(projection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('an Unavailable row paints its reason in the warning colour and a label stands alone without "proj"', () => {
+  const { rerender } = render(
+    <LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />
+  );
+  expect(screen.getByTestId('ledger-projection')).toHaveStyle({ color: 'var(--dash-warning)' });
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^out$/);
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ positionBaseline: true })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^no history$/);
+});
+
+// #1957 L4: the selected row alone wears a ring (an inset box-shadow on the
+// row wrapper, which also carries the border and fill, L7).
+test('the selected row has an accent ring that an eligible target and a plain row lack', () => {
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} selected onClick={jest.fn()} data-testid="row" />);
+  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toContain('inset');
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} showEligibility eligible onClick={jest.fn()} data-testid="row" />);
+  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('none');
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} swapHighlighted onClick={jest.fn()} data-testid="row" />);
+  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('none');
+});
+
+// #1957 L7: Drop sits inside the row's own border, not beside it.
+test('the drop control is inside the bordered row wrapper', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onRequestDrop={jest.fn()} onClick={jest.fn()} data-testid="row" />);
+  const row = screen.getByTestId('row');
+  expect(row).toHaveStyle({ borderStyle: 'solid' });
+  expect(row).toContainElement(screen.getByRole('button', { name: /drop josh allen/i }));
+});
+
+// #1957 L2: the Game cell is one DOM copy, in the info block below `sm` and
+// in its own column from `sm`.
+test('the Game cell renders once, inside the info block below sm and outside it from sm', () => {
+  const originalMatchMedia = window.matchMedia;
+  const mockViewport = (width) => {
+    window.matchMedia = jest.fn().mockImplementation((query) => {
+      const max = /max-width:\s*([\d.]+)px/.exec(query);
+      return { matches: Boolean(max) && width <= Number(max[1]), media: query, addListener: jest.fn(), removeListener: jest.fn(), addEventListener: jest.fn(), removeEventListener: jest.fn() };
+    });
+  };
+  try {
+    mockViewport(375);
+    const { unmount } = render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+    expect(screen.getAllByTestId('ledger-game-cell')).toHaveLength(1);
+    expect(within(screen.getByTestId('ledger-info')).getByTestId('ledger-game-cell')).toBeInTheDocument();
+    unmount();
+    mockViewport(1280);
+    render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+    expect(screen.getAllByTestId('ledger-game-cell')).toHaveLength(1);
+    expect(within(screen.getByTestId('ledger-info')).queryByTestId('ledger-game-cell')).toBeNull();
+  } finally {
+    window.matchMedia = originalMatchMedia;
+  }
 });
 
 test('an empty slot has an accessible name naming the slot', () => {
