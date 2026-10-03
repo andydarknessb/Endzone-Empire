@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, fireEvent, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
 import { LINEUP_MUTATION_REPLAYED_EVENT, PENDING_LINEUP_MUTATIONS_KEY, readPendingLineupMutations } from '../../../lib/pendingLineupMutations';
 import { DEFAULT_ROSTER_SLOTS } from '../../../entities/roster';
@@ -462,5 +462,67 @@ describe('onLanded after a save (#1881)', () => {
       window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
     });
     expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1963: while a move is pending, Escape on the document cancels it. The
+// listener exists only with a selection, and yields to a handler that already
+// claimed the key (`defaultPrevented`).
+describe('Escape cancels a pending move (#1963)', () => {
+  const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const select = (result) => act(() => result.current.onRowClick(bench, 'BENCH'));
+
+  test('Escape clears the selection and saves nothing', () => {
+    const { result } = setup({ entries: [entry(), bench] });
+    select(result);
+    expect(result.current.selectedEntry).toEqual(bench);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(result.current.selectedEntry).toBeNull();
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  test('Escape with no selection changes nothing and attaches no listener', () => {
+    const add = jest.spyOn(document, 'addEventListener');
+    const { result } = setup({ entries: [entry(), bench] });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(result.current.selectedEntry).toBeNull();
+    expect(add).not.toHaveBeenCalledWith('keydown', expect.any(Function));
+    add.mockRestore();
+  });
+
+  test('other keys leave the selection alone', () => {
+    const { result } = setup({ entries: [entry(), bench] });
+    select(result);
+
+    fireEvent.keyDown(document, { key: 'Enter' });
+
+    expect(result.current.selectedEntry).toEqual(bench);
+  });
+
+  test('an Escape already marked defaultPrevented is skipped', () => {
+    const { result } = setup({ entries: [entry(), bench] });
+    select(result);
+    const claim = (e) => e.preventDefault();
+    document.addEventListener('keydown', claim, true);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    document.removeEventListener('keydown', claim, true);
+
+    expect(result.current.selectedEntry).toEqual(bench);
+  });
+
+  test('the listener is removed once the selection clears', () => {
+    const remove = jest.spyOn(document, 'removeEventListener');
+    const { result } = setup({ entries: [entry(), bench] });
+    select(result);
+
+    act(() => result.current.cancelSelection());
+
+    expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function));
+    remove.mockRestore();
   });
 });
