@@ -274,7 +274,7 @@ test("at roster capacity, the free-agent drop pick lists the caller's own roster
 });
 
 // #1310, ADR 0040: the row's action follows the state - Add, Claim, Trade,
-// Lineup - and NO row ever renders a disabled "Rostered" button (the red
+// Drop - and NO row ever renders a disabled "Rostered" button (the red
 // tell this ticket replaces: a rostered player is always tradeable).
 test("renders the server-authoritative availability actions, state-driven", async () => {
   mockBrowser({
@@ -294,11 +294,12 @@ test("renders the server-authoritative availability actions, state-driven", asyn
   expect(
     await screen.findByRole("button", { name: "Claim" }),
   ).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Lineup" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Drop My Starter" })).toBeEnabled();
+  expect(screen.queryByRole("link", { name: "Lineup" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Rostered" })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Trade" })).toBeEnabled();
   expect(
-    screen.getAllByRole("button", { name: "Add free agent" }),
+    screen.getAllByRole("button", { name: "Add Free Agent" }),
   ).toHaveLength(1);
   // Status now names the owning team (ADR 0040 Lead correction item 2) -
   // the opposite of the old PlayerQuickView-era rule this replaces.
@@ -559,7 +560,7 @@ test("adds a Free agent then refreshes the server-authoritative browser state", 
   renderWithProviders(<PlayerManagement />);
 
   await userEvent.click(
-    await screen.findByRole("button", { name: "Add free agent" }),
+    await screen.findByRole("button", { name: "Add Free Agent" }),
   );
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith("/api/team/roster/8", {
@@ -582,7 +583,7 @@ test("adding a Free agent also re-reads the caller's own roster", async () => {
   renderWithProviders(<PlayerManagement />);
 
   await userEvent.click(
-    await screen.findByRole("button", { name: "Add free agent" }),
+    await screen.findByRole("button", { name: "Add Free Agent" }),
   );
   await waitFor(() =>
     expect(
@@ -594,7 +595,7 @@ test("adding a Free agent also re-reads the caller's own roster", async () => {
 test("uses URL-backed availability filters through the segmented control", async () => {
   mockBrowser({ players: [player()] });
   renderWithProviders(<PlayerManagement />);
-  await screen.findByRole("button", { name: "Add free agent" });
+  await screen.findByRole("button", { name: "Add Patrick Mahomes" });
 
   await userEvent.click(screen.getByRole("radio", { name: "Free agents" }));
   await waitFor(() =>
@@ -1190,4 +1191,85 @@ test("a Position-baseline row reads \"no history\" in Proj Wk, no number; an evi
   expect(within(beck).getByText("no history")).toBeInTheDocument();
   expect(beck.textContent).not.toMatch(/15\.4|15\.37/);
   expect(within(starter).getByText("17.2")).toBeInTheDocument();
+});
+
+// #1974, spec #1973 P1: at a full roster the row's Add opens the add and drop
+// sheet instead of posting a plain add the server would refuse.
+describe("roster moves from the row (#1974)", () => {
+  const fullRoster = [
+    { id: 30, name: "Bench Guy", position: "WR", projected_weekly_points: 3.2 },
+    { id: 31, name: "Star Guy", position: "QB", projected_weekly_points: 22.4 },
+  ];
+  const fullContext = {
+    leagueName: "Sunday Ballers",
+    rosterCount: 14,
+    rosterCapacity: 14,
+    waiverType: "faab",
+    faabRemaining: 72,
+    dropSuggestion: { id: 30, name: "Bench Guy" },
+  };
+
+  test("at a full roster the free agent row's Add opens the sheet, preselects the suggestion, and posts nothing", async () => {
+    mockBrowser({ players: [player({ id: 8, name: "Free Agent" })], context: fullContext, roster: fullRoster });
+    renderWithProviders(<PlayerManagement />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+
+    expect(await screen.findByRole("dialog", { name: "Add Free Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Bench Guy/ })).toBeChecked();
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  test("Add and drop in the sheet deletes the drop, posts the add, and refreshes", async () => {
+    mockBrowser({ players: [player({ id: 8, name: "Free Agent" })], context: fullContext, roster: fullRoster });
+    apiClient.delete.mockResolvedValue({});
+    apiClient.post.mockResolvedValue({});
+    renderWithProviders(<PlayerManagement />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add and drop" }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith("/api/team/roster/8", { leagueId: 1 }));
+    expect(apiClient.delete).toHaveBeenCalledWith("/api/team/roster/30?leagueId=1");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add Free Agent" })).not.toBeInTheDocument());
+  });
+
+  test("below capacity the same click posts the add with no sheet", async () => {
+    mockBrowser({ players: [player({ id: 8, name: "Free Agent" })], roster: fullRoster });
+    apiClient.post.mockResolvedValue({});
+    renderWithProviders(<PlayerManagement />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith("/api/team/roster/8", { leagueId: 1 }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  test("a My team row drops after a confirmation, and the dialog carries the neutral copy", async () => {
+    mockBrowser({
+      players: [player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } })],
+    });
+    apiClient.delete.mockResolvedValue({});
+    renderWithProviders(<PlayerManagement />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Drop My Starter" }));
+
+    expect(await screen.findByRole("dialog", { name: "Drop My Starter?" })).toBeInTheDocument();
+    expect(screen.getByText(/The slot stays empty until you fill it/)).toBeInTheDocument();
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Drop" }));
+
+    await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith("/api/team/roster/3?leagueId=1"));
+  });
+
+  test("a My team row's Drop is disabled while the phase blocks roster moves", async () => {
+    const preDraft = { ...league, draft_status: "pending", season_status: "preseason" };
+    mockBrowser({
+      leagues: [preDraft],
+      players: [player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } })],
+    });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("button", { name: "Drop My Starter" })).toBeDisabled();
+  });
 });

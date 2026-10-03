@@ -19,8 +19,8 @@ export default function DropConfirmationDialog({ entry, onClose, onConfirm }) {
       <DialogContent>
         <DialogContentText id="drop-player-dialog-description">
           {entry?.name} leaves your Team and becomes available to every other manager in the
-          league. His slot will be empty until you fill it. You can undo right after dropping,
-          but not once another manager claims him.
+          league. The slot stays empty until you fill it. You can undo right after dropping,
+          but not once another manager claims the player.
         </DialogContentText>
       </DialogContent>
       <DialogActions>

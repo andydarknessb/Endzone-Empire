@@ -18,3 +18,4 @@
  */
 export { useAddPlayer } from './model/useAddPlayer';
 export { default as AddPlayerAction } from './ui/AddPlayerAction';
+export { default as AddDropSheet } from './ui/AddDropSheet';

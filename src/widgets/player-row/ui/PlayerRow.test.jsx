@@ -48,6 +48,17 @@ test('a free-agent row renders Add', () => {
   expect(screen.getByRole('button', { name: 'Add free agent' })).toBeEnabled();
 });
 
+test('an action with a color passes it to the button, and one without keeps the default', () => {
+  const { unmount } = renderRow({
+    player: player(),
+    action: { kind: 'button', label: 'Drop', color: 'error', variant: 'outlined', onClick: jest.fn() },
+  });
+  expect(screen.getByRole('button', { name: 'Drop' })).toHaveClass('MuiButton-colorError');
+  unmount();
+  renderRow({ player: player(), action: { kind: 'button', label: 'Add', onClick: jest.fn() } });
+  expect(screen.getByRole('button', { name: 'Add' })).toHaveClass('MuiButton-colorPrimary');
+});
+
 test('a waivers row renders Claim', () => {
   renderRow({
     player: player({ availability: { state: 'waivers', teamId: null, teamName: null, availableAt: new Date(Date.now() + 3 * 3600000).toISOString() } }),
