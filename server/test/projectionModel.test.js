@@ -1539,7 +1539,13 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the four tick
 
   assert.deepEqual(
     Object.keys(model.MODEL_CONSTANTS_BY_VERSION).sort(),
-    ['free_baseline_v3.1', 'free_baseline_v3.2']
+    [
+      'free_baseline_v3.1',
+      'free_baseline_v3.2',
+      'free_baseline_v3.2+defopp',
+      'free_baseline_v3.2+depth',
+      'free_baseline_v3.2+volume',
+    ]
   );
   assert.equal(model.constantsForVersion('free_baseline_v3.2'), model.MODEL_CONSTANTS_V3_2);
   assert.equal(model.constantsForVersion('free_baseline_v3.1'), model.MODEL_CONSTANTS);
@@ -1615,3 +1621,37 @@ test('the key moves the even-pool interval\'s position, never its width (#1769)'
     assert.ok(Math.abs((on[i].p90 - on[i].p10) - (off[i].p90 - off[i].p10)) <= 0.011, `seed ${i}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Challengers (ADR 0050): v3.2 plus exactly one change each. Registered, never
+// served; every new path is keyed on a constant only the Challenger carries.
+// ---------------------------------------------------------------------------
+
+const CHALLENGER_DELTAS = {
+  'free_baseline_v3.2+depth': (c) => { delete c.baseline.depthChartStarterPrior; },
+  'free_baseline_v3.2+defopp': (c) => { delete c.gameEnvironment.defMaxEffect; },
+  'free_baseline_v3.2+volume': (c) => {
+    delete c.usage.recencyHalfLifeWeeks;
+    c.usage.blendWeight = model.MODEL_CONSTANTS_V3_2.usage.blendWeight;
+  },
+};
+
+test('each Challenger is v3.2 plus exactly its one change, deep-frozen (#1924 #1926 #1927)', () => {
+  const v32 = model.MODEL_CONSTANTS_V3_2;
+  assert.equal(v32.baseline.depthChartStarterPrior, undefined);
+  assert.equal(v32.gameEnvironment.defMaxEffect, undefined);
+  assert.equal(v32.usage.recencyHalfLifeWeeks, undefined);
+  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0.25);
+  for (const [version, strip] of Object.entries(CHALLENGER_DELTAS)) {
+    const constants = model.constantsForVersion(version);
+    assert.ok(Object.isFrozen(constants) && Object.isFrozen(constants.baseline), version);
+    const stripped = JSON.parse(JSON.stringify(constants));
+    strip(stripped);
+    assert.equal(JSON.stringify(stripped), JSON.stringify(v32), version);
+  }
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+depth').baseline.depthChartStarterPrior, true);
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+defopp').gameEnvironment.defMaxEffect, 0.12);
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+volume').usage.recencyHalfLifeWeeks, 3);
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+volume').usage.blendWeight, 0.5);
+});
+
