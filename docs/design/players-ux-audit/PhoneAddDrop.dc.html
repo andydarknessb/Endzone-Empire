@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Players, phone, add and drop sheet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div role="dialog" aria-labelledby="add-drop-title" style="width: 390px; height: 844px; box-sizing: border-box; overflow: hidden; background: {{c.surface}}; color: {{c.ink}}; font-family: Inter, Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column">
+  <div style="padding: 20px 16px 8px; display: flex; flex-direction: column; gap: 12px">
+    <h2 id="add-drop-title" style="margin: 0; font-size: 20px; font-weight: 800">Add Jaylen Warren</h2>
+  </div>
+
+  <fieldset style="margin: 0; padding: 8px 16px 0; border: 0; flex-grow: 1; min-height: 0; display: flex; flex-direction: column; gap: 4px; overflow: hidden">
+    <legend style="padding: 8px 0 0; font-size: 15px; font-weight: 700">Drop a player</legend>
+    <p id="add-drop-note" style="margin: 0 0 6px; font-size: 12px; color: {{c.muted}}">Your roster is full. Choose a player to drop.</p>
+    <sc-for list="{{roster}}" as="r" hint-placeholder-count="10">
+      <label style="min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 8px; border-radius: 10px; background: {{r.bg}}; font-size: 14px">
+        <input type="radio" name="drop" checked="{{r.checked}}" aria-describedby="add-drop-note" style="width: 20px; height: 20px; margin: 0; accent-color: {{c.accent}}">
+        <span style="flex-grow: 1">{{r.label}}</span>
+      </label>
+    </sc-for>
+  </fieldset>
+
+  <div style="flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 20px; border-top: 1px solid {{c.border}}; background: {{c.surface}}">
+    <button type="button" style="height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: transparent; color: {{c.accent}}; font: inherit; font-size: 15px; font-weight: 600">Cancel</button>
+    <button type="button" style="height: 44px; padding: 0 20px; border: 0; border-radius: 10px; background: {{c.accent}}; color: {{c.onAccent}}; font: inherit; font-size: 15px; font-weight: 700">Add and drop</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+const THEMES = {
+  light: { surface: '#ffffff', sunken: '#eceff2', ink: '#1a2129', muted: '#586472', inverse: '#ffffff', border: '#dde2e7', accent: '#1e5bb8', accentSoft: 'rgba(30, 91, 184, 0.10)', onAccent: '#ffffff', rb: '#15663f' },
+  dark: { surface: '#1a2129', sunken: '#0b0f13', ink: '#e6edf3', muted: '#9aa7b4', inverse: '#0f1419', border: '#2a3441', accent: '#7eaaff', accentSoft: 'rgba(126, 170, 255, 0.16)', onAccent: '#0b1220', rb: '#7ee2a8' },
+};
+const ROSTER = [
+  ['Kendre Miller', 'RB', 2.1], ['Jalen Tolbert', 'WR', 3.4], ['Tyler Conklin', 'TE', 4.0], ['Jaleel McLaughlin', 'RB', 4.6],
+  ['Darius Slayton', 'WR', 5.2], ['Will Levis', 'QB', 6.8], ['Tank Bigsby', 'RB', 8.1], ['Rashee Rice', 'WR', 15.8],
+  ['Brock Bowers', 'TE', 10.9], ['Jayden Reed', 'WR', 12.4],
+];
+class Component extends DCLogic {
+  renderVals() {
+    const c = THEMES[this.props.theme === 'dark' ? 'dark' : 'light'];
+    const roster = ROSTER.map(([name, pos, proj], i) => ({
+      label: name + ' (' + pos + ') · ' + proj.toFixed(1) + ' proj',
+      checked: i === 0,
+      suggested: i === 0,
+      bg: i === 0 ? c.accentSoft : 'transparent',
+    }));
+    return { c, roster };
+  }
+}
+</script>
+</body>
+</html>

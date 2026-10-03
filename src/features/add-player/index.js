@@ -1,6 +1,6 @@
 /**
- * Public surface of the add-player feature (#1307). The Decision card
- * imports from HERE only.
+ * Public surface of the add-player feature (#1307). The Decision card and
+ * PlayerManagement import from HERE only.
  *
  * BELOW-ISLAND EDGES (ADR 0031 amendment: "Every below-island edge, of
  * either kind, is named with its reason in the slice's index docblock"),
@@ -18,3 +18,4 @@
  */
 export { useAddPlayer } from './model/useAddPlayer';
 export { default as AddPlayerAction } from './ui/AddPlayerAction';
+export { default as AddDropSheet } from './ui/AddDropSheet';

@@ -223,6 +223,7 @@ function ActionControl({ action }) {
     : (
       <Button
         variant={action.variant || 'contained'}
+        color={action.color}
         onClick={action.onClick}
         disabled={action.disabled}
         aria-label={action.ariaLabel}

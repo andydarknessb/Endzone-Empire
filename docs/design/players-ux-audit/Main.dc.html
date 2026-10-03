@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Players page UX audit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1e5bb8}a:hover{color:#17498f}
+</style>
+</helmet>
+<div style="width: 1440px; box-sizing: border-box; padding: 64px; background: #f4f6f8; color: #1a2129; font-family: Inter, Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; gap: 40px">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #1e5bb8">Audit · Players · /player · 2026-10-03</span>
+    <h1 style="margin: 0; font-size: 56px; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em">Players page UX audit</h1>
+    <p style="margin: 0; max-width: 940px; font-size: 16px; line-height: 1.5; color: #586472">The Players page is where a manager works the wire: compare free agents, add, claim, and make room. Audited at 390x844 and 1440x900 in both themes against what managers expect from ESPN, Yahoo and Sleeper. Spec #1973, tickets #1974 (roster moves) and #1975 (layout density).</p>
+  </div>
+
+  <section aria-label="Today" style="display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-size: 28px; font-weight: 800">Today</h2>
+    <div style="display: flex; gap: 32px; align-items: flex-start">
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <img src="/_blob/b1207459f837282f6abf24f6863cc543" alt="Players page at 1440 wide today: gradient hero, market card and a three-row filter card push the table to y=540" style="width: 760px; height: 475px; border-radius: 16px; border: 1px solid #dde2e7; display: block">
+        <figcaption style="width: 760px; font-size: 13px; line-height: 1.45; color: #586472">1440x900, roster 16 of 16. Table starts at y=540 (P3). Sort sits alone on a third filter row (P6). Solid accent table head (P7). Rows about 100px (P9). Add free agent is live on every row and fails at capacity (P1).</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <img src="/_blob/f07b5a9b2ee7644b93c6cb36fcce03d7" alt="Players page at 390 wide today: first player card starts at y=525" style="width: 230px; height: 498px; border-radius: 16px; border: 1px solid #dde2e7; display: block">
+        <figcaption style="width: 230px; font-size: 13px; line-height: 1.45; color: #586472">390x844. First card at y=525, each card about 310px (P4).</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <img src="/_blob/31c25362fc792488d9af37e1aeb99e31" alt="Players page at 390 wide in dark theme: the gradient hero is the brightest surface" style="width: 230px; height: 498px; border-radius: 16px; border: 1px solid #dde2e7; display: block">
+        <figcaption style="width: 230px; font-size: 13px; line-height: 1.45; color: #586472">Dark. The pastel hero is the brightest thing on the page (P11).</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section aria-label="Findings" style="display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-size: 28px; font-weight: 800">Findings and rulings</h2>
+    <div style="background: #ffffff; border: 1px solid #dde2e7; border-radius: 16px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: 56px 92px 120px minmax(0, 1.4fr) minmax(0, 1.3fr) 72px; gap: 16px; padding: 12px 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #586472; background: #eceff2; border-bottom: 1px solid #dde2e7">
+        <span>ID</span><span>Severity</span><span>Where</span><span>Finding</span><span>Ruling</span><span>Ticket</span>
+      </div>
+      <sc-for list="{{findings}}" as="f" hint-placeholder-count="12">
+        <div style="display: grid; grid-template-columns: 56px 92px 120px minmax(0, 1.4fr) minmax(0, 1.3fr) 72px; gap: 16px; padding: 14px 20px; align-items: start; border-bottom: 1px solid #dde2e7; font-size: 14px; line-height: 1.45">
+          <span style="font-size: 18px; font-weight: 800">{{f.id}}</span>
+          <span style="justify-self: start; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; color: {{f.sevInk}}; background: {{f.sevBg}}">{{f.sev}}</span>
+          <span style="color: #586472">{{f.where}}</span>
+          <span>{{f.finding}}</span>
+          <span style="color: #586472">{{f.ruling}}</span>
+          <span style="font-weight: 600">{{f.ticket}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section aria-label="Considered" style="display: flex; flex-direction: column; gap: 12px; max-width: 1000px">
+    <h2 style="margin: 0; font-size: 28px; font-weight: 800">Considered, not built</h2>
+    <ul style="margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.6; color: #586472">
+      <li>Click-to-sort column headers. The Sort select already covers every key; revisit with usage data.</li>
+      <li>Hiding IR players from the drop pick. The roster read carries no slot. Dropping an IR player frees no spot, so the add fails and the existing undo-drop puts the player back.</li>
+      <li>A combined add-and-drop endpoint. The client already drops, adds, and undoes the drop when the add fails (useAddPlayer); one transaction is a server ticket of its own.</li>
+      <li>Merging the app bar's global player search with the page search. App-wide, not a Players page call.</li>
+    </ul>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2300}}'>
+const SEV = { High: ['#c62828', 'rgba(198, 40, 40, 0.06)'], Medium: ['#8a5a00', 'rgba(138, 90, 0, 0.12)'], Low: ['#586472', '#eceff2'] };
+const FINDINGS = [
+  ['P1', 'High', 'All, full roster', 'At 16 of 16 the row still offers Add free agent. It posts a plain add and the server refuses it ("roster capacity of 16 reached"). The add-and-drop pick exists only deep in the Decision card.', 'Row Add at capacity opens an Add and drop sheet: incoming player, roster radios worst projection first, the server drop suggestion preselected, Add and drop.', '#1974'],
+  ['P2', 'High', 'My team tab', 'My team rows offer only a Lineup link, the same place the header button goes. A manager cannot drop from the Players page.', 'Drop (outlined, danger) on every My team row: confirm dialog, then an Undo toast, the Lineup page flow.', '#1974'],
+  ['P3', 'High', 'Desktop', 'Gradient hero, a market card and a three-row filter card put the table at y=540 of 900: about three rows above the fold.', 'One header row on the page background: Players, roster and waiver chips, Manage lineup. Table head at y=330 or above.', '#1975'],
+  ['P4', 'High', 'Phone', 'First card at y=525 of 844, each card about 310px with a 100px sparkline and a CURRENT pill: barely one player per screen.', 'Compact header; the card uses the dense sparkline; card 220px or less, first card at y=360 or above.', '#1975'],
+  ['P5', 'Medium', 'All', 'Add free agent (14 characters) is the widest element on every row and says what the row status already says.', 'Add, with accessible name Add and the player name.', '#1974'],
+  ['P6', 'Medium', 'Desktop', 'The filter card spends three rows at 1440; Sort is alone bottom right, far from the table.', 'Two rows: search, League, Position, Sort, direction; then availability, Pending claims, Bye, Watching.', '#1975'],
+  ['P7', 'Medium', 'Desktop', 'Solid accent table head (a light blue band in dark) outweighs the Add buttons.', 'Head on surface-sunken, text-muted 12px uppercase labels.', '#1975'],
+  ['P8', 'Medium', 'Desktop', 'Column labels scroll away after four rows.', 'Sticky head from lg.', '#1975'],
+  ['P9', 'Medium', 'Desktop', 'Rows about 100px tall for two lines of identity.', 'Cell padding 8px, avatar 32px; rows 72px or less.', '#1975'],
+  ['P10', 'Low', 'Drop dialog', 'Dialog copy assumes a pronoun ("His slot", "claims him").', 'The slot stays empty until you fill it; once another manager claims the player.', '#1974'],
+  ['P11', 'Low', 'Dark', 'The pastel gradient hero is the brightest surface on a dark page.', 'Removed with P3.', '#1975'],
+  ['P12', 'Low', 'Copy', 'Subtitle "League-scoped player discovery and acquisition." is jargon.', 'Removed with P3.', '#1975'],
+];
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      findings: FINDINGS.map(([id, sev, where, finding, ruling, ticket]) => ({ id, sev, where, finding, ruling, ticket, sevInk: SEV[sev][0], sevBg: SEV[sev][1] })),
+    };
+  }
+}
+</script>
+</body>
+</html>

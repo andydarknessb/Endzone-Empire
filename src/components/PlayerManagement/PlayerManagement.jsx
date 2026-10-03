@@ -23,7 +23,8 @@ import { toDecisionCardEntry } from "../../entities/player";
 import { useWaiverClaims } from "../../entities/waiver-claim";
 import { PlayerPool } from "../../widgets/player-pool";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
-import { useAddPlayer } from "../../features/add-player";
+import { AddDropSheet, useAddPlayer } from "../../features/add-player";
+import { DropConfirmationDialog, useDropPlayer } from "../../features/drop-player";
 import { useClaimPlayer } from "../../features/claim-player";
 import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
@@ -190,6 +191,14 @@ function PlayerManagement() {
   // bar, whose drop pick is required there, the same gate `AddPlayerAction`
   // gives a free-agent add.
   const rosterAtCapacity = isRosterAtCapacity(context);
+  // #1974, spec #1973 P1/P2: a full roster's Add opens the add and drop sheet
+  // for that player, and a My team row's Drop confirms through the
+  // drop-player feature (its Undo toast included).
+  const [addDropPlayer, setAddDropPlayer] = useState(null);
+  const { dropCandidate, requestDrop, closeDropConfirmation, confirmDrop } = useDropPlayer({
+    leagueId: selectedLeague,
+    refresh: refreshAfterAction,
+  });
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
@@ -260,11 +269,14 @@ function PlayerManagement() {
         };
       if (state === "my_team")
         return {
-          kind: "link",
-          to: `/league/${selectedLeague}/lineup`,
-          label: "Lineup",
-          variant: "text",
-          helper: "Manage this player in Team Lineup.",
+          kind: "button",
+          label: "Drop",
+          ariaLabel: `Drop ${player.name}`,
+          variant: "outlined",
+          color: "error",
+          onClick: () => requestDrop({ playerId: player.id, name: player.name }),
+          disabled: rosterAction.disabled,
+          helper: rosterAction.disabled ? rosterAction.helper : undefined,
         };
       if (state === "rostered")
         return {
@@ -282,14 +294,24 @@ function PlayerManagement() {
         };
       return {
         kind: "button",
-        label: rowPending ? "Adding…" : rosterAction.label,
-        onClick: () => addToRoster(player),
+        // #1974 P5: the live label is the short "Add", named per player; the
+        // disabled phases keep the phase's own label and helper.
+        label: rosterAction.disabled ? rosterAction.label : rowPending ? "Adding…" : "Add",
+        // WCAG 2.5.3: the busy state is in the name, not only the visible label.
+        ariaLabel: rosterAction.disabled ? undefined : `${rowPending ? "Adding" : "Add"} ${player.name}`,
+        // At a full roster a plain add is refused, so the tap opens the
+        // add and drop sheet (#1974 P1).
+        onClick: rosterAtCapacity ? () => setAddDropPlayer(player) : () => addToRoster(player),
         disabled: rosterAction.disabled || rowPending,
         variant: "contained",
-        helper: rosterAction.helper,
+        helper: rosterAction.disabled
+          ? rosterAction.helper
+          : rosterAtCapacity
+            ? "Your roster is full. Choose a player to drop."
+            : rosterAction.helper,
       };
     },
-    [activeLeague, addToRoster, claimFromRow, pendingPlayerId, rosterAction, rosterAtCapacity, selectedLeague],
+    [activeLeague, addToRoster, claimFromRow, pendingPlayerId, requestDrop, rosterAction, rosterAtCapacity, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -527,6 +549,17 @@ function PlayerManagement() {
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
         context={quickViewBuiltContext}
       />
+
+      <AddDropSheet
+        open={addDropPlayer != null}
+        player={addDropPlayer}
+        leagueId={selectedLeague}
+        roster={roster}
+        dropSuggestion={context?.dropSuggestion}
+        onClose={() => setAddDropPlayer(null)}
+        onAdded={refreshAfterAction}
+      />
+      <DropConfirmationDialog entry={dropCandidate} onClose={closeDropConfirmation} onConfirm={confirmDrop} />
     </Box>
   );
 }
