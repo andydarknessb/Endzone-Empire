@@ -397,6 +397,10 @@ export function lineupEntries(rosterWire, league) {
       // unchanged. It is NOT an Unavailable reason, so `availability` above is
       // untouched by it.
       positionBaseline: r.positionBaseline === true,
+      // A Backup quarterback (ADR 0057): the server's own boolean, passed
+      // through. Like Position-baseline it is not an Unavailable reason, and
+      // unlike it his number is evidence and stays printed.
+      backup: r.backup === true,
       // The Edge line (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
       // `{ kind, text }`, computed on the server (`lineup.service.js`'s
       // `computeEdgeLine`) and passed through verbatim - this entity draws no

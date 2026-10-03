@@ -189,6 +189,16 @@ test('a Questionable player with no practice all week shows "No practice this we
   expect(within(startColumn).queryByTestId('suggestion-no-practice')).not.toBeInTheDocument();
 });
 
+test('a Backup quarterback shows "Backup" beside his name, and only he does (ADR 0057)', () => {
+  const s = suggestion();
+  s.current.availability = { available: true, status: null, reason: 'backup' };
+  s.suggested.availability = { available: true, status: null, reason: null };
+  render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
+  const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
+  expect(within(sitColumn).getByTestId('suggestion-backup')).toHaveTextContent('Backup');
+  expect(within(startColumn).queryByTestId('suggestion-backup')).not.toBeInTheDocument();
+});
+
 test('no injury tag when both players are healthy', () => {
   const s = suggestion();
   s.current.availability = { available: true, status: null };

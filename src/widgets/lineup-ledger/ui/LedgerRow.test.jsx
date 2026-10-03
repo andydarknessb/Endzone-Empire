@@ -234,6 +234,32 @@ test('a Questionable or Doubtful Position-baseline row shows "no history" plus h
   expect(screen.getByTestId('ledger-game-cell')).toHaveAttribute('data-game-state', 'pre');
 });
 
+// ADR 0057: a Backup quarterback keeps his number and gets a "Backup" tag beside
+// his Game status tag.
+test('a Backup row shows "Backup" beside his Game status tag and still headlines his number (ADR 0057)', () => {
+  const { rerender } = render(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25, backup: true, injuryStatus: 'Q' })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('ledger-backup')).toHaveTextContent('Backup');
+  expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent('20.3');
+
+  rerender(
+    <LedgerRow
+      slotLabel="QB"
+      entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25, backup: false })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.queryByTestId('ledger-backup')).not.toBeInTheDocument();
+});
+
 test.each([
   ['bye', 'on bye'],
   ['out', 'out'],

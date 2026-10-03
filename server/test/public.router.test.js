@@ -1286,7 +1286,7 @@ function candidate(id, points, over = {}) {
 // Installs the no-board world: Pool projections, the candidate read, Ownership,
 // and a Weekly run whose Position-baseline / Unavailable verdicts come from
 // `baseline` and `unavailable` (sets of ids).
-function installComputed(t, candidates, { baseline = [], unavailable = [], identity = [], week3LastStatus = 'final' } = {}) {
+function installComputed(t, candidates, { baseline = [], backup = [], unavailable = [], identity = [], week3LastStatus = 'final' } = {}) {
   t.mock.method(waiverBoards, 'getBoard', () => null);
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map(
     candidates.map((c) => [c.id, { points: c.points, source: 'extrapolated' }])
@@ -1294,6 +1294,7 @@ function installComputed(t, candidates, { baseline = [], unavailable = [], ident
   t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
     pointsFor: () => null,
     positionBaselineFor: (id) => baseline.includes(id),
+    backupFor: (id) => backup.includes(id),
     classify: (id) => (unavailable.includes(id) ? { unavailable: true, reason: 'bye' } : { unavailable: false, points: 1 }),
     playerIds,
   }));
@@ -1344,6 +1345,17 @@ test('GET /waiver-targets computed: a Position-baseline player with the highest 
     candidate(1, 30, { name: 'Baseline Star' }),
     candidate(2, 9, { name: 'Real Evidence' }),
   ], { baseline: [1] });
+
+  const res = await request(makeApp()).get('/api/public/waiver-targets');
+
+  assert.deepEqual(res.body.targets.map((x) => x.name), ['Real Evidence']);
+});
+
+test('GET /waiver-targets computed: a Backup quarterback (ADR 0057) with the highest projection is not returned', async (t) => {
+  installComputed(t, [
+    candidate(1, 30, { name: 'Keenum', position: 'QB' }),
+    candidate(2, 9, { name: 'Real Evidence' }),
+  ], { backup: [1] });
 
   const res = await request(makeApp()).get('/api/public/waiver-targets');
 

@@ -367,7 +367,7 @@ test('readPlayersPage without a league carries nfl_opponent: null on every row (
 // payload carries the `no_history` verdict reason on those rows only.
 const projectionService = require('../services/projection.service');
 
-function positionBaselineWorld(t) {
+function positionBaselineWorld(t, { backupIds } = {}) {
   const league = {
     id: 1, name: 'Baseline League', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 5,
   };
@@ -410,6 +410,7 @@ function positionBaselineWorld(t) {
         [1, entry([])], [2, entry([])], [3, entry(['position baseline'])],
         [4, entry(['position baseline'])], [5, entry([])],
       ]),
+      backupIds,
     });
   });
   return { fake, reads };
@@ -456,6 +457,21 @@ test('payload carries verdictReason no_history on Position-baseline rows only (#
   assert.equal(byId.get(3).verdictReason, 'no_history');
   assert.equal(byId.get(4).verdictReason, 'no_history');
   for (const id of [1, 2, 5]) assert.equal('verdictReason' in byId.get(id), false, `player ${id} is evidenced`);
+});
+
+test('a Backup quarterback carries verdictReason backup and keeps his place in a projection sort (ADR 0057)', async (t) => {
+  const { fake } = positionBaselineWorld(t, { backupIds: new Set([2, 3]) });
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.deepEqual(result.players.map((p) => p.id), [2, 1, 5, 3, 4], 'the sort is the same as without the verdict');
+  assert.equal(byId.get(2).verdictReason, 'backup');
+  assert.equal(byId.get(3).verdictReason, 'no_history', 'Position-baseline wins over backup');
+  assert.equal('verdictReason' in byId.get(1), false);
 });
 
 test('an Unavailable Position-baseline row keeps its own place and carries no no_history (#1778)', async (t) => {

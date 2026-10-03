@@ -1022,3 +1022,89 @@ test('getPlayerCard (#1849): an ineligible entry (no sample size on the fixture)
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
   assert.equal(card.decision.volatility, null);
 });
+
+// Backup quarterback (ADR 0057): Case Keenum, week 5 of 2026 - one start (24.48
+// in week 3) gives him a real 20.25 projection, but the Depth chart has him
+// QB3 behind an available Tyson Bagent (Caleb Williams Out), so he will not
+// play. He is never an Upgrade, however high his own number is; the number
+// itself stays (ADR 0044).
+test('upgradesFor (ADR 0057): a Backup quarterback gets null, an evidenced starter keeps his Upgrade', async (t) => {
+  const KEENUM_ID = 458;
+  const STARTER_ID = 56;
+  const qbSlots = { ...LEAGUE, roster_slots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [
+        { id: KEENUM_ID, position: 'QB', nfl_team: 'CHI' },
+        { id: STARTER_ID, position: 'QB', nfl_team: 'DET' },
+      ],
+    })],
+    ...buildHandlers({
+      league: qbSlots,
+      starterRows: [{ player_id: 999, slot: 'QB', name: 'Rostered QB', position: 'QB' }],
+      identityIds: [KEENUM_ID],
+    }),
+  ]).install(t);
+  mockServices(t);
+  const entry = (points, reasons) => ({ mean: points, median: points, factors: { availability: { available: true }, dataQuality: { reasons } } });
+  const points = new Map([[999, 16], [KEENUM_ID, 20.25], [STARTER_ID, 21]]);
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
+    projections: new Map(playerIds.map((id) => [id, entry(points.get(id), id === KEENUM_ID ? ['small sample'] : [])])),
+    backupIds: new Set([KEENUM_ID]),
+  }));
+
+  const upgrades = await upgradesFor({
+    league: qbSlots, team: TEAM, season: 2026, week: 5, playerIds: [KEENUM_ID, STARTER_ID],
+  });
+
+  assert.equal(upgrades.get(KEENUM_ID), null);
+  assert.deepEqual(upgrades.get(STARTER_ID), {
+    points: 5,
+    overPlayer: { id: 999, name: 'Rostered QB', points: 16, unavailable: null },
+    slot: 'QB',
+  });
+});
+
+// ADR 0057, rule 3: where a lineup is valued, a rostered Backup is worth 0 as an
+// Unavailable roster player is (#1793). Keenum at 20.25 in the only QB slot
+// would otherwise hide an 18-point free-agent QB's Upgrade (release tree: weakest-starter Upgrade, pre-ADR 0055).
+test('upgradesFor (ADR 0057): a rostered Backup quarterback does not mask a free-agent starter\'s Upgrade', async (t) => {
+  const KEENUM_ID = 458;
+  const FA_ID = 77;
+  const qbSlots = { ...LEAGUE, roster_slots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: FA_ID, position: 'QB', nfl_team: 'DET' }],
+    })],
+    ...buildHandlers({
+      league: qbSlots,
+      starterRows: [
+        { player_id: KEENUM_ID, slot: 'QB', name: 'Case Keenum', position: 'QB' },
+        { player_id: 999, slot: 'BENCH', name: 'Rostered QB', position: 'QB' },
+      ],
+      identityIds: [FA_ID],
+    }),
+  ]).install(t);
+  mockServices(t);
+  const entry = (points) => ({ mean: points, median: points, factors: { availability: { available: true }, dataQuality: { reasons: [] } } });
+  const points = new Map([[999, 16], [KEENUM_ID, 20.25], [FA_ID, 18]]);
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
+    projections: new Map(playerIds.map((id) => [id, entry(points.get(id))])),
+    backupIds: new Set([KEENUM_ID]),
+  }));
+
+  const upgrades = await upgradesFor({ league: qbSlots, team: TEAM, season: 2026, week: 5, playerIds: [FA_ID] });
+
+  assert.deepEqual(upgrades.get(FA_ID), {
+    points: 18,
+    overPlayer: { id: 458, name: 'Case Keenum', points: 0, unavailable: 'backup' },
+    slot: 'QB',
+  });
+
+  // Control: without the verdict Keenum's 20.25 outscores the 18.
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
+    projections: new Map(playerIds.map((id) => [id, entry(points.get(id))])),
+  }));
+  const control = await upgradesFor({ league: qbSlots, team: TEAM, season: 2026, week: 5, playerIds: [FA_ID] });
+  assert.equal(control.get(FA_ID).points, -2.25);
+});
