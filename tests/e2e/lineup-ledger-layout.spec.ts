@@ -126,3 +126,39 @@ for (const width of [600, 900]) {
     expect(await infoWidth('slot-row-BENCH-201')).toBeGreaterThanOrEqual(128);
   });
 }
+
+// #1958 (spec #1956 L8): the page's move strip is the Ledger's sticky footer,
+// stacked above the phone Starters/Bench bar. Two bottom-sticky siblings
+// cannot stack from offsets alone (the one earlier in the DOM wins near the
+// end of scroll), so this walks the whole scroll range and asserts, at every
+// step, that the strip and the tab bar never intersect and every tab button is
+// the topmost element at its own centre (nothing covers it).
+test('at 390px the move strip never overlaps the tab bar at any scroll position', async ({ page }) => {
+  await openLineup(page, PHONE);
+
+  const selectRow = page.getByTestId('slot-row-RB-0-select');
+  await expect(selectRow).toBeVisible();
+  await selectRow.click({ position: { x: 6, y: 6 } });
+  const strip = page.getByTestId('lineup-move-strip');
+  await expect(strip).toBeVisible();
+  const tabs = page.getByTestId('lineup-mobile-tabs');
+
+  const maxScroll = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+  expect(maxScroll, 'the page must scroll for this check to mean anything').toBeGreaterThan(0);
+
+  for (let y = 0; y <= maxScroll + 25; y += 25) {
+    await page.evaluate((top) => window.scrollTo(0, top), Math.min(y, maxScroll));
+    const stripBox = await box(strip);
+    const tabsBox = await box(tabs);
+    const apart = stripBox.y + stripBox.height <= tabsBox.y + 0.5 || tabsBox.y + tabsBox.height <= stripBox.y + 0.5;
+    expect(apart, `strip ${JSON.stringify(stripBox)} and tab bar ${JSON.stringify(tabsBox)} intersect at scrollY ${y}`).toBe(true);
+    const covered = await tabs.getByRole('button').evaluateAll((buttons) =>
+      buttons.filter((button) => {
+        const r = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return !(hit && (hit === button || button.contains(hit)));
+      }).length
+    );
+    expect(covered, `a tab button is covered at scrollY ${y}`).toBe(0);
+  }
+});
