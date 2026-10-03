@@ -1539,7 +1539,13 @@ test('MODEL_CONSTANTS_V3_2 differs from MODEL_CONSTANTS in exactly the four tick
 
   assert.deepEqual(
     Object.keys(model.MODEL_CONSTANTS_BY_VERSION).sort(),
-    ['free_baseline_v3.1', 'free_baseline_v3.2']
+    [
+      'free_baseline_v3.1',
+      'free_baseline_v3.2',
+      'free_baseline_v3.2+defopp',
+      'free_baseline_v3.2+depth',
+      'free_baseline_v3.2+volume',
+    ]
   );
   assert.equal(model.constantsForVersion('free_baseline_v3.2'), model.MODEL_CONSTANTS_V3_2);
   assert.equal(model.constantsForVersion('free_baseline_v3.1'), model.MODEL_CONSTANTS);
@@ -1613,5 +1619,101 @@ test('the key moves the even-pool interval\'s position, never its width (#1769)'
   const off = sweepSeeds(args, withoutKey);
   for (let i = 0; i < on.length; i++) {
     assert.ok(Math.abs((on[i].p90 - on[i].p10) - (off[i].p90 - off[i].p10)) <= 0.011, `seed ${i}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Challengers (ADR 0050): v3.2 plus exactly one change each. Registered, never
+// served; every new path is keyed on a constant only the Challenger carries.
+// ---------------------------------------------------------------------------
+
+const CHALLENGER_DELTAS = {
+  'free_baseline_v3.2+depth': (c) => { delete c.baseline.depthChartStarterPrior; },
+  'free_baseline_v3.2+defopp': (c) => { delete c.gameEnvironment.defMaxEffect; },
+  'free_baseline_v3.2+volume': (c) => {
+    delete c.usage.recencyHalfLifeWeeks;
+    c.usage.blendWeight = model.MODEL_CONSTANTS_V3_2.usage.blendWeight;
+  },
+};
+
+test('each Challenger is v3.2 plus exactly its one change, deep-frozen (#1924 #1926 #1927)', () => {
+  const v32 = model.MODEL_CONSTANTS_V3_2;
+  assert.equal(v32.baseline.depthChartStarterPrior, undefined);
+  assert.equal(v32.gameEnvironment.defMaxEffect, undefined);
+  assert.equal(v32.usage.recencyHalfLifeWeeks, undefined);
+  assert.equal(model.MODEL_CONSTANTS.usage.blendWeight, 0.25);
+  for (const [version, strip] of Object.entries(CHALLENGER_DELTAS)) {
+    const constants = model.constantsForVersion(version);
+    assert.ok(Object.isFrozen(constants) && Object.isFrozen(constants.baseline), version);
+    const stripped = JSON.parse(JSON.stringify(constants));
+    strip(stripped);
+    assert.equal(JSON.stringify(stripped), JSON.stringify(v32), version);
+  }
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+depth').baseline.depthChartStarterPrior, true);
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+defopp').gameEnvironment.defMaxEffect, 0.12);
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+volume').usage.recencyHalfLifeWeeks, 3);
+  assert.equal(model.constantsForVersion('free_baseline_v3.2+volume').usage.blendWeight, 0.5);
+});
+
+test('defopp: only the Challenger lets a D/ST opponent total move the number (#1926)', () => {
+  const args = { opponentImplied: 17.5, impliedPoints: 26.4, slateAverageImplied: 22, position: 'DEF' };
+  const v31 = model.gameEnvironmentEffect({ ...args, constants: model.MODEL_CONSTANTS.gameEnvironment });
+  const v32 = model.gameEnvironmentEffect({ ...args, constants: model.MODEL_CONSTANTS_V3_2.gameEnvironment });
+  assert.equal(v31.effect, 0);
+  assert.equal(v31.scored, false);
+  assert.equal(JSON.stringify(v32), JSON.stringify(v31));
+
+  const challenger = model.constantsForVersion('free_baseline_v3.2+defopp').gameEnvironment;
+  const def = model.gameEnvironmentEffect({ ...args, constants: challenger });
+  assert.ok(Math.abs(def.effect - Math.min(0.5 * (1 - 17.5 / 22), 0.12)) < 1e-9);
+  assert.ok(def.effect > 0);
+  assert.equal(def.scored, true);
+
+  const wr = model.gameEnvironmentEffect({ ...args, position: 'WR', constants: challenger });
+  assert.equal(wr.effect, 0);
+  assert.equal(wr.scored, false);
+});
+
+test('volume: a faster usage half-life follows a role change further than v3.2 (#1927)', () => {
+  const doubled = [
+    { points: 20, weeksAgo: 1, usage: { carries: 20, targets: 4 } },
+    { points: 19, weeksAgo: 2, usage: { carries: 19, targets: 4 } },
+    { points: 10, weeksAgo: 3, usage: { carries: 10, targets: 2 } },
+    { points: 9, weeksAgo: 4, usage: { carries: 9, targets: 2 } },
+    { points: 10, weeksAgo: 5, usage: { carries: 10, targets: 2 } },
+  ];
+  const run = (constants) => model.opportunityBaseline({
+    priorGames: doubled, group: 'RB', efficiencyPrior: 0.8, constants,
+  });
+  const v31 = run(model.MODEL_CONSTANTS);
+  const v32 = run(model.MODEL_CONSTANTS_V3_2);
+  const fast = run(model.constantsForVersion('free_baseline_v3.2+volume'));
+  assert.equal(JSON.stringify(v32), JSON.stringify(v31));
+  assert.ok(fast.expectedOpportunities > v32.expectedOpportunities);
+  assert.ok(fast.value > v32.value);
+
+  // The points baseline keeps its own half-life: effectiveGames (and so
+  // confidence) is the same under every version.
+  const pg = [{ points: 20, weeksAgo: 1 }, { points: 9, weeksAgo: 4 }];
+  const baseline = (c) => model.baselineProduction({ priorGames: pg, constants: c.baseline });
+  assert.deepEqual(
+    baseline(model.constantsForVersion('free_baseline_v3.2+volume')),
+    baseline(model.MODEL_CONSTANTS_V3_2)
+  );
+});
+
+test('volume: an invalid usage half-life falls back to the baseline half-life (#1927)', () => {
+  const games = [
+    { points: 20, weeksAgo: 1, usage: { carries: 20, targets: 4 } },
+    { points: 9, weeksAgo: 4, usage: { carries: 9, targets: 2 } },
+    { points: 10, weeksAgo: 6, usage: { carries: 10, targets: 2 } },
+  ];
+  const base = model.opportunityBaseline({ priorGames: games, group: 'RB', efficiencyPrior: 0.8 });
+  for (const bad of [0, -3, null, 'x']) {
+    const out = model.opportunityBaseline({
+      priorGames: games, group: 'RB', efficiencyPrior: 0.8,
+      constants: { ...model.MODEL_CONSTANTS, usage: { ...model.MODEL_CONSTANTS.usage, recencyHalfLifeWeeks: bad } },
+    });
+    assert.deepEqual(out, base, String(bad));
   }
 });

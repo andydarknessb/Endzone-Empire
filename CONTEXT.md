@@ -1736,7 +1736,7 @@ the league fact)
 **Depth chart rank**:
 A player's order within their position group on their NFL team's published
 depth chart, 1 being the starter. A daily fact shown as context; it does
-not move a projection. A player absent from the chart has no rank, which
+not move a served projection; only a Challenger (ADR 0050) reads it. A player absent from the chart has no rank, which
 is not the same as being on the Practice squad.
 _Avoid_: role, string (first-string etc.), depth
 

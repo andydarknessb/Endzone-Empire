@@ -283,7 +283,7 @@ function buildPriorGames({
  * denominator at all, like K or DEF — reports `null` rather than a ratio
  * assembled out of the rows that happened to have data.
  */
-function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
+function buildLeagueContext({ rows, rules, defenseGamesByTeam, depthRankByPlayer = null }) {
   const byGroup = new Map();
   const playerTotals = new Map(); // playerId -> { group, points: [] }
 
@@ -302,6 +302,8 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
         opportunities: 0,
         opportunityGames: 0,
         minPoints: null,
+        starterPoints: 0,
+        starterGames: 0,
       });
     }
     return byGroup.get(group);
@@ -315,6 +317,14 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
     bucket.totalPoints += points;
     bucket.totalGames += 1;
     bucket.minPoints = bucket.minPoints === null ? points : Math.min(bucket.minPoints, points);
+    // Challenger only (#1924): the same rows, restricted to rank-1 players.
+    // ponytail: averages season-to-date rows of players ranked 1 as of the
+    // as-of day (a promoted backup's backup weeks count, a benched starter's
+    // weeks drop out, every slot-1 WR counts); upgrade path is per-week rank joins.
+    if (depthRankByPlayer && depthRankByPlayer.get(row.player_id) === 1) {
+      bucket.starterPoints += points;
+      bucket.starterGames += 1;
+    }
     if (row.defense) {
       bucket.allowed.set(row.defense, (bucket.allowed.get(row.defense) || 0) + points);
     }
@@ -371,6 +381,9 @@ function buildLeagueContext({ rows, rules, defenseGamesByTeam }) {
     context.set(group, {
       baselinePerGame: bucket.totalGames > 0 ? bucket.totalPoints / bucket.totalGames : null,
       playerGames: bucket.totalGames,
+      ...(depthRankByPlayer
+        ? { starterBaselinePerGame: bucket.starterGames > 0 ? bucket.starterPoints / bucket.starterGames : null }
+        : {}),
       allowedByDefense,
       leagueAllowedPerGame: defenseGameSum > 0 ? allowedSum / defenseGameSum : null,
       homeAway: {
@@ -463,6 +476,9 @@ async function loadFeatureBundle({
   // neither key, so a v3.1 run issues exactly the queries it always has and
   // its stored factors stay byte-identical.
   constants = model.MODEL_CONSTANTS,
+  // The capture cutoff (#1924): bounds the Challenger's depth chart read the
+  // way it bounds the odds read. Nothing else here reads it.
+  oddsObservedAtOrBefore = null,
 }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   if (ids.length === 0) {
@@ -716,10 +732,47 @@ async function loadFeatureBundle({
     for (const row of normalized.rows) normalizedDefenseGames.set(row.team, Number(row.games));
   }
 
+  // The run-level cutoff is the EARLIEST kickoff in the week: past it, some
+  // information about week W exists in the world, so a run generated after it
+  // can no longer claim a clean pre-kickoff feature set for every player.
+  const kickoffs = targetScheduleResult.rows
+    .map((r) => (r.kickoff_at ? new Date(r.kickoff_at).getTime() : null))
+    .filter((t) => Number.isFinite(t));
+  const inputCutoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
+
+  // #1924 (Challenger only): each player's rank on his latest depth chart
+  // capture strictly BEFORE the as-of day (the earlier of that earliest kickoff
+  // and the capture cutoff), within the 7 days before it. Strictly before
+  // because the ESPN job writes the as-of day's rows after 00:00Z, past every
+  // capture cutoff; the lower bound drops a player ESPN removed from the chart
+  // (absent means no rank). No cutoff at all, no read: an unbounded read would
+  // let a later capture leak in.
+  const wantsDepthChart = Boolean(constants && constants.baseline && constants.baseline.depthChartStarterPrior === true);
+  let depthRankByPlayer;
+  if (wantsDepthChart) {
+    depthRankByPlayer = new Map();
+    const observedAt = oddsObservedAtOrBefore ? new Date(oddsObservedAtOrBefore) : null;
+    const asOf = [inputCutoff, observedAt].filter((d) => d && Number.isFinite(d.getTime()))
+      .sort((a, b) => a - b)[0];
+    if (asOf) {
+      const depthResult = await client.query(
+        `SELECT DISTINCT ON ("dc"."player_id") "dc"."player_id", "dc"."rank"
+         FROM "player_depth_chart" "dc"
+         WHERE "dc"."captured_date" < $1::date AND "dc"."captured_date" >= $1::date - 7
+         ORDER BY "dc"."player_id", "dc"."captured_date" DESC`,
+        [asOf.toISOString().slice(0, 10)]
+      );
+      for (const row of depthResult.rows) {
+        if (row.rank != null) depthRankByPlayer.set(Number(row.player_id), Number(row.rank));
+      }
+    }
+  }
+
   const leagueContext = buildLeagueContext({
     rows: leagueRows,
     rules,
     defenseGamesByTeam: normalizedDefenseGames,
+    depthRankByPlayer,
   });
 
   const byeByTeam = await computeByeWeeks(
@@ -731,14 +784,6 @@ async function loadFeatureBundle({
     { client }
   );
 
-  // The run-level cutoff is the EARLIEST kickoff in the week: past it, some
-  // information about week W exists in the world, so a run generated after it
-  // can no longer claim a clean pre-kickoff feature set for every player.
-  const kickoffs = targetScheduleResult.rows
-    .map((r) => (r.kickoff_at ? new Date(r.kickoff_at).getTime() : null))
-    .filter((t) => Number.isFinite(t));
-  const inputCutoff = kickoffs.length > 0 ? new Date(Math.min(...kickoffs)) : null;
-
   return {
     players,
     priorStatsByPlayer,
@@ -749,6 +794,8 @@ async function loadFeatureBundle({
     byeByTeam,
     opponentByTeamWeek,
     defenseGamesByTeam: normalizedDefenseGames,
+    // Present only under a Challenger that reads the depth chart (#1924).
+    ...(wantsDepthChart ? { depthRankByPlayer } : {}),
     leagueScanRows: leagueRows.length,
     scanTruncated: leagueRows.length >= MAX_LEAGUE_SCAN_ROWS,
     priorSeasonScanRows: priorSeasonRows.length,
