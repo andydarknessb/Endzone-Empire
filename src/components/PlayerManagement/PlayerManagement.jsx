@@ -366,18 +366,32 @@ function PlayerManagement() {
         rowGap={1}
         sx={{ mb: 1.5 }}
       >
-        <Typography
-          component="h1"
+        <Box
           sx={{
-            fontSize: 24,
-            fontWeight: 800,
-            lineHeight: 1.2,
-            color: "var(--text-primary)",
+            display: "flex",
+            alignItems: "baseline",
+            columnGap: 1.5,
+            minWidth: 0,
             width: { xs: "100%", sm: "auto" },
           }}
         >
-          Players
-        </Typography>
+          <Typography
+            component="h1"
+            sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, color: "var(--text-primary)" }}
+          >
+            Players
+          </Typography>
+          {/* Below md the League select lives in the Filters drawer, so the
+              header names the league there. */}
+          {activeLeague?.name && (
+            <Typography
+              noWrap
+              sx={{ display: { xs: "block", md: "none" }, minWidth: 0, fontSize: 13, color: "var(--text-muted)" }}
+            >
+              {activeLeague.name}
+            </Typography>
+          )}
+        </Box>
         {marketContext && (
           <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75}>
             {marketContext.rosterCount != null && (
@@ -436,6 +450,7 @@ function PlayerManagement() {
         ref={poolRef}
         leagueId={selectedLeague}
         bestBall={bestBall}
+        stickyHead
         ready={leaguesLoaded}
         columnCount={playerRowColumnCount(bestBall)}
         renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}

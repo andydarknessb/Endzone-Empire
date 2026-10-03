@@ -10,7 +10,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { setupPlayersPageLayout, PLAYERS_LAYOUT_URL } from './fixtures/playersPageLayoutFixtures';
+import { setupPlayersPageLayout, PLAYERS_LAYOUT_URL, PLAYERS_LAYOUT_LEAGUE_NAME } from './fixtures/playersPageLayoutFixtures';
 
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
@@ -72,12 +72,14 @@ test('1440x900: the head sticks to the viewport top after scrolling and is not t
   expect(head.background, `head background ${head.background}`).not.toBe(ACCENT);
 });
 
-test('390x844: the first card starts at or above y=360, is 220px or less, and nothing scrolls sideways', async ({ page }) => {
+test('390x844: the league is named, the first card starts at or above y=360, is 220px or less, and nothing scrolls sideways', async ({ page }) => {
   await setupPlayersPageLayout(page);
   await page.setViewportSize(PHONE);
   await page.goto(PLAYERS_LAYOUT_URL);
   const card = page.getByTestId('player-row-card').first();
   await expect(card).toBeVisible();
+  // The League select lives in the Filters drawer on a phone, so the header names the league.
+  await expect(page.getByRole('main').getByText(PLAYERS_LAYOUT_LEAGUE_NAME, { exact: true })).toBeVisible();
   await page.evaluate(() => document.fonts.ready.then(() => true));
 
   const box = await card.boundingBox();

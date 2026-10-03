@@ -9,6 +9,7 @@ import { json } from './jsonRoute';
 const USER_ID = 61;
 const LEAGUE_ID = 4400;
 export const PLAYERS_LAYOUT_URL = '/#/player';
+export const PLAYERS_LAYOUT_LEAGUE_NAME = 'Layout Guard League';
 
 const ROSTER_COUNT = 16;
 const ROSTER_CAPACITY = 16;
@@ -31,7 +32,7 @@ const SEEDS: Seed[] = [
 function leagueRow() {
   return {
     id: LEAGUE_ID,
-    name: 'Layout Guard League',
+    name: PLAYERS_LAYOUT_LEAGUE_NAME,
     draft_status: 'complete',
     season_status: 'regular',
     waiver_type: 'faab',
@@ -77,7 +78,7 @@ function playersResponse() {
     total: SEEDS.length,
     context: {
       leagueId: LEAGUE_ID,
-      leagueName: 'Layout Guard League',
+      leagueName: PLAYERS_LAYOUT_LEAGUE_NAME,
       rosterCount: ROSTER_COUNT,
       rosterCapacity: ROSTER_CAPACITY,
       waiverType: 'faab',

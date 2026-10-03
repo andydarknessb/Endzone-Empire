@@ -54,8 +54,7 @@ const AVAILABILITY_FILTERS = [
   { value: "my_team", label: "My team" },
 ];
 const BYE_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
-// A quiet head on the sunken surface (#1975, P7); from `lg` it sticks to the
-// viewport top (P8), which needs the TableContainer below to stop clipping.
+// A quiet head on the sunken surface (#1975, P7).
 const headCellSx = {
   fontSize: 12,
   fontWeight: 700,
@@ -64,6 +63,13 @@ const headCellSx = {
   color: "var(--text-muted)",
   bgcolor: "var(--surface-sunken)",
   borderBottom: "1px solid var(--border-subtle)",
+};
+// `stickyHead` (P8): from `lg` the head sticks to the viewport top. That needs
+// the TableContainer to stop being a scroll container (`overflow-x: clip`, which
+// also keeps the rounded corners), so it is opt-in: a page whose table shares a
+// row with a side panel (Waivers) keeps its horizontal scroll and a static head.
+const stickyHeadCellSx = {
+  ...headCellSx,
   position: { xs: "static", lg: "sticky" },
   top: 0,
   zIndex: 2,
@@ -101,7 +107,8 @@ const actionSx = {
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
- * page is unchanged. `cardsBelow` is the breakpoint under which rows render as
+ * page is unchanged. `stickyHead` makes the desktop table head stick to the
+ * viewport top from `lg` (default off). `cardsBelow` is the breakpoint under which rows render as
  * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
  * passes `sm`). `emptyCopy` replaces the default empty message.
  *
@@ -122,6 +129,7 @@ const PlayerPool = forwardRef(function PlayerPool(
     leadingControl,
     afterAvailabilityControl,
     byeWeekFilter = false,
+    stickyHead = false,
     cardsBelow = "md",
     emptyCopy: emptyCopyOverride,
   },
@@ -496,13 +504,13 @@ const PlayerPool = forwardRef(function PlayerPool(
         </Stack>
       </Drawer>
       {!cardLayout && (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3, overflowX: { xs: "auto", lg: "visible" } }}>
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3, ...(stickyHead && { overflowX: { xs: "auto", lg: "clip" } }) }}>
           {/* Cell padding at 10px a side rather than MUI's 16px: it is what lets
               the table fit a 1024px viewport instead of hiding the Action
               column behind a scrollbar (2026-09-15 report). */}
           <Table aria-label="Players" sx={{ minWidth: 960, "& th, & td": { px: 1.25 } }}>
             <TableHead>
-              {renderTableHead({ bestBall, currentWeek, sx: headCellSx })}
+              {renderTableHead({ bestBall, currentWeek, sx: stickyHead ? stickyHeadCellSx : headCellSx })}
             </TableHead>
             <TableBody>
               {visiblePlayers.length === 0 && (
