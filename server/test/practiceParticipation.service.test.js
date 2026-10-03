@@ -323,3 +323,74 @@ test('loadWeekObservations: no players, no query', async (t) => {
   assert.equal((await practice.loadWeekObservations(pool, { season: 2026, week: 5, playerIds: [] })).size, 0);
   assert.equal(fake.calls.length, 0);
 });
+
+// --- practiceLabel / practiceEntries / weekPracticeEntries (#1923) -------------
+
+test('practiceLabel maps the three nflverse statuses by anchored pattern and nothing else', () => {
+  assert.equal(practice.practiceLabel('Did Not Participate In Practice'), 'Did not participate');
+  assert.equal(practice.practiceLabel('Limited Participation in Practice'), 'Limited');
+  assert.equal(practice.practiceLabel('Full Participation in Practice'), 'Full');
+  assert.equal(practice.practiceLabel('Not Injury Related - Did Not Participate'), null);
+  assert.equal(practice.practiceLabel('Rest'), null);
+  assert.equal(practice.practiceLabel(null), null);
+});
+
+const obs = (practiceStatus, observedAt) => ({ practiceStatus, practicePrimaryInjury: null, reportPrimaryInjury: null, observedAt: new Date(observedAt) });
+
+test('practiceEntries: oldest first, a report-only repeat of the last label is not shown again', () => {
+  assert.deepEqual(
+    practice.practiceEntries([
+      obs('Did Not Participate In Practice', '2026-10-07T22:00:00Z'),
+      obs('Did Not Participate In Practice', '2026-10-08T22:00:00Z'),
+      obs('Limited Participation in Practice', '2026-10-09T22:00:00Z'),
+      obs('Full Participation in Practice', '2026-10-10T22:00:00Z'),
+    ]),
+    [
+      { status: 'Did not participate', day: 'Wed' },
+      { status: 'Limited', day: 'Fri' },
+      { status: 'Full', day: 'Sat' },
+    ],
+  );
+});
+
+test('practiceEntries: null and unrecognised rows are skipped before the dedupe, so they never break a run', () => {
+  assert.deepEqual(
+    practice.practiceEntries([
+      obs('Limited Participation in Practice', '2026-10-07T22:00:00Z'),
+      obs(null, '2026-10-08T22:00:00Z'),
+      obs('Rest', '2026-10-08T23:00:00Z'),
+      obs('Limited Participation in Practice', '2026-10-09T22:00:00Z'),
+    ]),
+    [{ status: 'Limited', day: 'Wed' }],
+  );
+});
+
+test('practiceEntries: the day is the America/New_York weekday of observedAt (03:30Z on Fri 2 Oct reads Thu)', () => {
+  assert.deepEqual(
+    practice.practiceEntries([obs('Full Participation in Practice', '2026-10-02T03:30:00Z')]),
+    [{ status: 'Full', day: 'Thu' }],
+  );
+});
+
+test('practiceEntries: two entries on one day both show; nothing surviving is null', () => {
+  assert.deepEqual(
+    practice.practiceEntries([
+      obs('Limited Participation in Practice', '2026-10-07T15:00:00Z'),
+      obs('Full Participation in Practice', '2026-10-07T20:00:00Z'),
+    ]).map((e) => e.day),
+    ['Wed', 'Wed'],
+  );
+  assert.equal(practice.practiceEntries([obs(null, '2026-10-07T15:00:00Z')]), null);
+  assert.equal(practice.practiceEntries([]), null);
+});
+
+test('weekPracticeEntries reads the one player\'s week and returns the mapped entries, null for a player with no rows', async (t) => {
+  const fake = createFakePool([
+    [/FROM "player_practice_observations"/, (_text, params) => ({
+      rows: params[2][0] !== 1 ? [] : [{ player_id: 1, practice_status: 'Limited Participation in Practice', practice_primary_injury: null, report_primary_injury: null, observed_at: new Date('2026-10-07T22:00:00Z') }],
+    })],
+  ]).install(t);
+  assert.deepEqual(await practice.weekPracticeEntries(pool, { season: 2026, week: 5, playerId: 1 }), [{ status: 'Limited', day: 'Wed' }]);
+  assert.deepEqual(fake.calls[0].params, [2026, 5, [1]]);
+  assert.equal(await practice.weekPracticeEntries(pool, { season: 2026, week: 5, playerId: 2 }), null);
+});

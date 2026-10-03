@@ -18,6 +18,7 @@ const projectionService = require('./projection.service');
 const lineupService = require('./lineup.service');
 const decisionService = require('./decision.service');
 const decisionCardContextService = require('./decisionCardContext.service');
+const practiceParticipation = require('./practiceParticipation.service');
 
 /**
  * `GET /api/players/:id/card?leagueId=` (#1306, ADR 0040 slice 3): the one
@@ -689,6 +690,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     weeklyResult,
     seasonResult,
     espnFacts,
+    practice,
   ] = await Promise.all([
     loadUpgradeContext({ league, team, season, week: effectiveWeek, playerIds: [player.id] }),
     decisionCardContextService.loadUsage({
@@ -725,6 +727,13 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       [player.id]
     ),
     loadEspnFacts(player),
+    // #1923: the week's Practice participation line, context only. A failed
+    // read hides the line, never the card (the `line`/`weather` rule).
+    practiceParticipation.weekPracticeEntries(pool, { season, week: effectiveWeek, playerId: player.id })
+      .catch((err) => {
+        console.error('getPlayerCard: practice participation failed', err);
+        return null;
+      }),
   ]);
 
   const ros = rosMap.get(player.id) || { total: 0, perGame: 0 };
@@ -893,6 +902,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         detail: player.injury_detail ?? null,
         facts: espnFacts.injuryFacts,
       },
+      practice,
     },
     availability,
     // #1667: the Decision card's game context rides the one read, for any

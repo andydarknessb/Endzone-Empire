@@ -6,6 +6,7 @@ const lineupService = require('../services/lineup.service');
 const byeService = require('../services/bye.service');
 const decisionCardContextService = require('../services/decisionCardContext.service');
 const irPolicy = require('../services/irPolicy.service');
+const practiceParticipation = require('../services/practiceParticipation.service');
 const { getPlayerCard, upgradesFor } = require('../services/playerCard.service');
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,8 @@ function buildHandlers({
     // current season entry every card now builds (Cory's ruling on #1356) -
     // no rows by default; the seasons[]-specific tests override this.
     [/^SELECT "pss"\."player_id"/, () => ({ rows: [] })],
+    // #1923: the Practice participation read; none by default.
+    [/FROM "player_practice_observations"/, () => ({ rows: [] })],
   ];
 }
 
@@ -1032,4 +1035,46 @@ test('getPlayerCard (#1849): an ineligible entry (no sample size on the fixture)
   mockServices(t);
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
   assert.equal(card.decision.volatility, null);
+});
+
+// #1923: the practice line rides player.practice and moves nothing else.
+test("getPlayerCard (#1923): player.practice is the week's entries, read for the card's own season and week; a rejected read is null and the card ships", async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t);
+  const entries = [{ status: 'Limited', day: 'Wed' }];
+  const read = t.mock.method(practiceParticipation, 'weekPracticeEntries', async () => entries);
+
+  const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id, week: 4 });
+  assert.deepEqual(card.player.practice, entries);
+  assert.deepEqual(read.mock.calls[0].arguments[1], { season: LEAGUE.current_season, week: 4, playerId: PLAYER.id });
+
+  read.mock.mockImplementation(async () => { throw new Error('boom'); });
+  t.mock.method(console, 'error', () => {});
+  const failed = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  assert.equal(failed.player.practice, null);
+  assert.equal(failed.player.name, PLAYER.name);
+  assert.ok(Array.isArray(failed.news));
+});
+
+test('getPlayerCard (#1923): entries or none, the payload and every projection read are identical but for player.practice', async (t) => {
+  createFakePool(buildHandlers()).install(t);
+  mockServices(t, { weekPoints: new Map([[PLAYER.id, 14.5]]) });
+  const read = t.mock.method(practiceParticipation, 'weekPracticeEntries', async () => [{ status: 'Full', day: 'Fri' }]);
+  const weekly = projectionService.getWeeklyProjections.mock;
+  const forWeeks = projectionService.getWeeklyProjectionsForWeeks.mock;
+
+  const withEntries = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+  const weeklyCut = weekly.calls.length;
+  const forWeeksCut = forWeeks.calls.length;
+  read.mock.mockImplementation(async () => null);
+  const without = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+
+  assert.deepEqual(withEntries.player.practice, [{ status: 'Full', day: 'Fri' }]);
+  assert.equal(without.player.practice, null);
+  delete withEntries.player.practice;
+  delete without.player.practice;
+  assert.deepEqual(withEntries, without);
+  const args = (mock, from, to) => mock.calls.slice(from, to).map((c) => c.arguments);
+  assert.deepEqual(args(weekly, 0, weeklyCut), args(weekly, weeklyCut));
+  assert.deepEqual(args(forWeeks, 0, forWeeksCut), args(forWeeks, forWeeksCut));
 });

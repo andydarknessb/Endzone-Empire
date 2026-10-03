@@ -1311,3 +1311,77 @@ describe('Volatility tag (#1849)', () => {
     expect(within(screen.getByTestId('decision-card-compare-panel-2')).queryByTestId('decision-card-volatility')).not.toBeInTheDocument();
   });
 });
+
+// #1923: the week's Practice participation line, context only (card.player.practice).
+describe('Practice participation line (#1923)', () => {
+  const PRACTICE = [
+    { status: 'Did not participate', day: 'Wed' },
+    { status: 'Limited', day: 'Thu' },
+    { status: 'Full', day: 'Fri' },
+  ];
+  const cardWithPractice = (practice) => ({ player: { id: 1, name: 'Josh Allen', ...(practice === undefined ? {} : { practice }) } });
+
+  test.each([['desktop drawer', false], ['phone sheet', true]])('a player with entries shows the line in the Injury section on the %s', async (_name, isMobile) => {
+    setViewport(isMobile);
+    mockCardRoute(cardWithPractice(PRACTICE));
+    renderCard({ entry: entry({ injuryStatus: 'Q' }) });
+    const line = await screen.findByTestId('decision-card-practice');
+    expect(line).toHaveTextContent('Practice: Did not participate (Wed), Limited (Thu), Full (Fri)');
+    expect(within(screen.getByTestId('decision-card-injury')).getByTestId('decision-card-practice')).toBe(line);
+  });
+
+  test('a healthy player with entries shows the Injury section holding only the practice line', async () => {
+    mockCardRoute(cardWithPractice([{ status: 'Full', day: 'Fri' }]));
+    renderCard({ entry: entry({ injuryStatus: null }) });
+    const section = await screen.findByTestId('decision-card-injury');
+    expect(section.textContent).toBe("InjuryPractice: Full (Fri)");
+  });
+
+  test.each([['null', null], ['an empty array', []], ['a missing key', undefined]])('%s shows no line, no placeholder, and no Injury section for a healthy player', async (_name, practice) => {
+    mockCardRoute(cardWithPractice(practice));
+    renderCard({ entry: entry({ injuryStatus: null }) });
+    await screen.findByTestId('decision-card-projection');
+    expect(screen.queryByTestId('decision-card-practice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('decision-card-injury')).not.toBeInTheDocument();
+  });
+
+  test('an injured player with no entries keeps the designation and gains no line', async () => {
+    mockCardRoute(cardWithPractice(null));
+    renderCard({ entry: entry({ injuryStatus: 'Q' }) });
+    expect(await screen.findByTestId('decision-card-injury')).toHaveTextContent('Questionable');
+    expect(screen.queryByTestId('decision-card-practice')).not.toBeInTheDocument();
+  });
+
+  async function openCompare(starter, other) {
+    renderCard({ entry: starter, entries: [starter, other] });
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('decision-card-compare-action'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
+    await screen.findByTestId('decision-card-compare');
+  }
+
+  test("Compare shows each column its own player's line under its own test id", async () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/players/1/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWithPractice([{ status: 'Full', day: 'Wed' }]) } });
+      if (url.includes('/players/2/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWithPractice([{ status: 'Limited', day: 'Thu' }]) } });
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+    await openCompare(entry(), entry({ playerId: 2, name: 'Compare Target' }));
+    const left = screen.getByTestId('decision-card-compare-panel-1');
+    const right = screen.getByTestId('decision-card-compare-panel-2');
+    await waitFor(() => expect(within(right).getByTestId('decision-card-compare-practice')).toHaveTextContent('Practice: Limited (Thu)'));
+    expect(within(left).getByTestId('decision-card-practice')).toHaveTextContent('Practice: Full (Wed)');
+    expect(within(left).queryByTestId('decision-card-compare-practice')).not.toBeInTheDocument();
+  });
+
+  test.each([['loading', () => new Promise(() => {})], ['failed', () => Promise.reject(new Error('down'))]])('Compare: a column whose card is %s shows no line', async (_name, otherCard) => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/players/1/card')) return Promise.resolve({ data: { ...ESPN_FACTS, ...cardWithPractice([{ status: 'Full', day: 'Wed' }]) } });
+      if (url.includes('/players/2/card')) return otherCard();
+      return Promise.reject(new Error(`unexpected request: ${url}`));
+    });
+    await openCompare(entry(), entry({ playerId: 2, name: 'Compare Target' }));
+    await waitFor(() => expect(within(screen.getByTestId('decision-card-compare-panel-1')).getByTestId('decision-card-practice')).toBeInTheDocument());
+    expect(within(screen.getByTestId('decision-card-compare-panel-2')).queryByTestId('decision-card-compare-practice')).not.toBeInTheDocument();
+  });
+});
