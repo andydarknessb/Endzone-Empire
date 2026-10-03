@@ -10,7 +10,6 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Paper,
   Select,
   Stack,
   Typography,
@@ -23,7 +22,8 @@ import { toDecisionCardEntry } from "../../entities/player";
 import { useWaiverClaims } from "../../entities/waiver-claim";
 import { PlayerPool } from "../../widgets/player-pool";
 import PlayerRow, { PlayerRowTableHead, playerRowColumnCount } from "../../widgets/player-row";
-import { useAddPlayer } from "../../features/add-player";
+import { AddDropSheet, useAddPlayer } from "../../features/add-player";
+import { DropConfirmationDialog, useDropPlayer } from "../../features/drop-player";
 import { useClaimPlayer } from "../../features/claim-player";
 import { useWatchPlayer } from "../../features/watch-player";
 import { proposeTradeHref } from "../../features/propose-trade";
@@ -190,6 +190,14 @@ function PlayerManagement() {
   // bar, whose drop pick is required there, the same gate `AddPlayerAction`
   // gives a free-agent add.
   const rosterAtCapacity = isRosterAtCapacity(context);
+  // #1974, spec #1973 P1/P2: a full roster's Add opens the add and drop sheet
+  // for that player, and a My team row's Drop confirms through the
+  // drop-player feature (its Undo toast included).
+  const [addDropPlayer, setAddDropPlayer] = useState(null);
+  const { dropCandidate, requestDrop, closeDropConfirmation, confirmDrop } = useDropPlayer({
+    leagueId: selectedLeague,
+    refresh: refreshAfterAction,
+  });
   const { submitClaim } = useClaimPlayer({ leagueId: selectedLeague, onDone: refreshAfterAction });
   const claimFromRow = useCallback(
     async (player) => {
@@ -260,11 +268,14 @@ function PlayerManagement() {
         };
       if (state === "my_team")
         return {
-          kind: "link",
-          to: `/league/${selectedLeague}/lineup`,
-          label: "Lineup",
-          variant: "text",
-          helper: "Manage this player in Team Lineup.",
+          kind: "button",
+          label: "Drop",
+          ariaLabel: `Drop ${player.name}`,
+          variant: "outlined",
+          color: "error",
+          onClick: () => requestDrop({ playerId: player.id, name: player.name }),
+          disabled: rosterAction.disabled,
+          helper: rosterAction.disabled ? rosterAction.helper : undefined,
         };
       if (state === "rostered")
         return {
@@ -282,14 +293,24 @@ function PlayerManagement() {
         };
       return {
         kind: "button",
-        label: rowPending ? "Adding…" : rosterAction.label,
-        onClick: () => addToRoster(player),
+        // #1974 P5: the live label is the short "Add", named per player; the
+        // disabled phases keep the phase's own label and helper.
+        label: rosterAction.disabled ? rosterAction.label : rowPending ? "Adding…" : "Add",
+        // WCAG 2.5.3: the busy state is in the name, not only the visible label.
+        ariaLabel: rosterAction.disabled ? undefined : `${rowPending ? "Adding" : "Add"} ${player.name}`,
+        // At a full roster a plain add is refused, so the tap opens the
+        // add and drop sheet (#1974 P1).
+        onClick: rosterAtCapacity ? () => setAddDropPlayer(player) : () => addToRoster(player),
         disabled: rosterAction.disabled || rowPending,
         variant: "contained",
-        helper: rosterAction.helper,
+        helper: rosterAction.disabled
+          ? rosterAction.helper
+          : rosterAtCapacity
+            ? "Your roster is full. Choose a player to drop."
+            : rosterAction.helper,
       };
     },
-    [activeLeague, addToRoster, claimFromRow, pendingPlayerId, rosterAction, rosterAtCapacity, selectedLeague],
+    [activeLeague, addToRoster, claimFromRow, pendingPlayerId, requestDrop, rosterAction, rosterAtCapacity, selectedLeague],
   );
   const quickViewPlayer = players.find((player) => player.id === quickViewId);
   const marketContext =
@@ -354,51 +375,80 @@ function PlayerManagement() {
         maxWidth: 1280,
         mx: "auto",
         px: { xs: 1.5, sm: 3 },
-        py: { xs: 2, md: 4 },
+        py: { xs: 2, md: 3 },
       }}
     >
-      <Paper
+      <Stack
         component="header"
-        elevation={0}
-        sx={{
-          p: { xs: 2, sm: 3 },
-          mb: 2,
-          color: "var(--on-accent)",
-          background: "var(--gradient-brand)",
-          borderRadius: 4,
-        }}
+        direction="row"
+        useFlexGap
+        flexWrap="wrap"
+        alignItems="center"
+        columnGap={1.5}
+        rowGap={1}
+        sx={{ mb: 1.5 }}
       >
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          justifyContent="space-between"
-          spacing={2}
-          alignItems={{ sm: "center" }}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "baseline",
+            columnGap: 1.5,
+            minWidth: 0,
+            width: { xs: "100%", sm: "auto" },
+          }}
         >
-          <Box>
+          <Typography
+            component="h1"
+            sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, color: "var(--text-primary)" }}
+          >
+            Players
+          </Typography>
+          {/* Below md the League select lives in the Filters drawer, so the
+              header names the league there. */}
+          {activeLeague?.name && (
             <Typography
-              component="h1"
-              variant="h4"
-              sx={{ fontWeight: 900, letterSpacing: "-.03em" }}
+              noWrap
+              sx={{ display: { xs: "block", md: "none" }, minWidth: 0, fontSize: 13, color: "var(--text-muted)" }}
             >
-              Player Browser
+              {activeLeague.name}
             </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.82, mt: 0.5 }}>
-              League-scoped player discovery and acquisition.
-            </Typography>
-          </Box>
-          {selectedLeague && (
-            <Button
-              component={RouterLink}
-              to={`/league/${selectedLeague}/lineup`}
-              variant="outlined"
-              color="inherit"
-              sx={{ ...actionSx, borderColor: "var(--on-accent)" }}
-            >
-              Manage lineup
-            </Button>
           )}
-        </Stack>
-      </Paper>
+        </Box>
+        {marketContext && (
+          <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75}>
+            {marketContext.rosterCount != null && (
+              <Chip
+                size="small"
+                label={`${marketContext.rosterCount} / ${marketContext.rosterCapacity ?? "-"} rostered`}
+              />
+            )}
+            {marketContext.waiverType === "faab" && (
+              <Chip
+                size="small"
+                color="secondary"
+                label={`FAAB $${marketContext.faabRemaining ?? "-"}`}
+              />
+            )}
+            {marketContext.waiverType === "priority" && (
+              <Chip
+                size="small"
+                color="secondary"
+                label={`Waiver priority ${marketContext.waiverPriority ?? "-"}`}
+              />
+            )}
+          </Stack>
+        )}
+        {selectedLeague && (
+          <Button
+            component={RouterLink}
+            to={`/league/${selectedLeague}/lineup`}
+            variant="outlined"
+            sx={{ ...actionSx, ml: { sm: "auto" } }}
+          >
+            Manage lineup
+          </Button>
+        )}
+      </Stack>
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
           {error}
@@ -418,51 +468,11 @@ function PlayerManagement() {
           not acquired.
         </Alert>
       )}
-      {marketContext && (
-        <Paper variant="outlined" sx={{ mb: 2, p: 1.5, borderRadius: 3 }}>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            alignItems={{ sm: "center" }}
-            justifyContent="space-between"
-            spacing={1}
-          >
-            <Box>
-              <Typography variant="subtitle2" component="p" sx={{ fontWeight: 800 }}>
-                {marketContext.leagueName}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Your player marketplace
-              </Typography>
-            </Box>
-            <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75}>
-              {marketContext.rosterCount != null && (
-                <Chip
-                  size="small"
-                  label={`${marketContext.rosterCount} / ${marketContext.rosterCapacity ?? "-"} rostered`}
-                />
-              )}
-              {marketContext.waiverType === "faab" && (
-                <Chip
-                  size="small"
-                  color="secondary"
-                  label={`FAAB $${marketContext.faabRemaining ?? "-"}`}
-                />
-              )}
-              {marketContext.waiverType === "priority" && (
-                <Chip
-                  size="small"
-                  color="secondary"
-                  label={`Waiver priority ${marketContext.waiverPriority ?? "-"}`}
-                />
-              )}
-            </Stack>
-          </Stack>
-        </Paper>
-      )}
       <PlayerPool
         ref={poolRef}
         leagueId={selectedLeague}
         bestBall={bestBall}
+        stickyHead
         ready={leaguesLoaded}
         columnCount={playerRowColumnCount(bestBall)}
         renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}
@@ -527,6 +537,17 @@ function PlayerManagement() {
         leagueId={selectedLeague ? Number(selectedLeague) : undefined}
         context={quickViewBuiltContext}
       />
+
+      <AddDropSheet
+        open={addDropPlayer != null}
+        player={addDropPlayer}
+        leagueId={selectedLeague}
+        roster={roster}
+        dropSuggestion={context?.dropSuggestion}
+        onClose={() => setAddDropPlayer(null)}
+        onAdded={refreshAfterAction}
+      />
+      <DropConfirmationDialog entry={dropCandidate} onClose={closeDropConfirmation} onConfirm={confirmDrop} />
     </Box>
   );
 }

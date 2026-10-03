@@ -54,11 +54,25 @@ const AVAILABILITY_FILTERS = [
   { value: "my_team", label: "My team" },
 ];
 const BYE_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
+// A quiet head on the sunken surface (#1975, P7).
 const headCellSx = {
-  fontWeight: 800,
-  color: "primary.contrastText",
-  bgcolor: "primary.main",
-  borderColor: "var(--border-subtle)",
+  fontSize: 12,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+  color: "var(--text-muted)",
+  bgcolor: "var(--surface-sunken)",
+  borderBottom: "1px solid var(--border-subtle)",
+};
+// `stickyHead` (P8): from `lg` the head sticks to the viewport top. That needs
+// the TableContainer to stop being a scroll container (`overflow-x: clip`, which
+// also keeps the rounded corners), so it is opt-in: a page whose table shares a
+// row with a side panel (Waivers) keeps its horizontal scroll and a static head.
+const stickyHeadCellSx = {
+  ...headCellSx,
+  position: { xs: "static", lg: "sticky" },
+  top: 0,
+  zIndex: 2,
 };
 // The 44px floor for the small-size inputs, selects and pager items this
 // widget renders (the Waivers page's layout guard measures every control).
@@ -93,7 +107,8 @@ const actionSx = {
  *
  * `byeWeekFilter`: renders a Bye week control (`?bye=`, one week) that sends
  * `byeWeeks`, the read's include-only filter; off by default, so the Players
- * page is unchanged. `cardsBelow` is the breakpoint under which rows render as
+ * page is unchanged. `stickyHead` makes the desktop table head stick to the
+ * viewport top from `lg` (default off). `cardsBelow` is the breakpoint under which rows render as
  * cards (default `md`, the Filters drawer's own breakpoint; the Waivers page
  * passes `sm`). `emptyCopy` replaces the default empty message.
  *
@@ -114,6 +129,7 @@ const PlayerPool = forwardRef(function PlayerPool(
     leadingControl,
     afterAvailabilityControl,
     byeWeekFilter = false,
+    stickyHead = false,
     cardsBelow = "md",
     emptyCopy: emptyCopyOverride,
   },
@@ -281,111 +297,169 @@ const PlayerPool = forwardRef(function PlayerPool(
     ? `No players matching “${search}”`
     : "No players found";
 
+  // The search field: its own line above the Filters button on a phone, the
+  // first (growing, capped) item of filter row 1 from `md`.
+  const searchField = (
+    <TextField
+      size="small"
+      fullWidth={isMobile}
+      sx={isMobile ? fieldSx : { ...fieldSx, flex: "1 1 220px", minWidth: 200, maxWidth: 360 }}
+      label="Search players"
+      placeholder="Search by name"
+      value={searchInput}
+      onChange={(event) => setSearchInput(event.target.value)}
+      InputProps={{
+        startAdornment: (
+          <InputAdornment position="start">
+            <SearchIcon fontSize="small" />
+          </InputAdornment>
+        ),
+        endAdornment: searchInput ? (
+          <InputAdornment position="end">
+            <Button
+              onClick={() => setSearchInput("")}
+              aria-label="Clear search"
+              sx={{ minWidth: 44, minHeight: 44, p: 0.5 }}
+            >
+              <CloseIcon fontSize="small" />
+            </Button>
+          </InputAdornment>
+        ) : null,
+      }}
+    />
+  );
+
   // The same filters render twice: stacked inside the mobile Filters drawer,
-  // and as one wrapping row on desktop. On desktop the segmented control keeps
-  // its natural width and does not scroll; only the drawer, a touch surface,
-  // gets `scrollable` and 44px segments.
+  // and as two wrapping rows on desktop (#1975, P6): search, leading control,
+  // Position, Sort and the direction toggle; then Availability, the caller's
+  // slot, Bye and Watching. On desktop the segmented control keeps its natural
+  // width and does not scroll; only the drawer, a touch surface, gets
+  // `scrollable` and 44px segments.
   const renderControls = (layout) => {
     const row = layout === "row";
-    return (
-      <Stack
-        direction={row ? "row" : "column"}
-        spacing={1.5}
-        useFlexGap
-        flexWrap={row ? "wrap" : undefined}
-        alignItems={row ? "center" : undefined}
-      >
-        {leadingControl?.(layout)}
-        <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
-          <InputLabel id="pm-pos-label">Position</InputLabel>
+    const positionControl = (
+      <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
+        <InputLabel id="pm-pos-label">Position</InputLabel>
+        <Select
+          labelId="pm-pos-label"
+          label="Position"
+          value={selectedChip.key}
+          onChange={(event) =>
+            updateParams({
+              pos: event.target.value === "All" ? "" : event.target.value,
+              page: 1,
+            })
+          }
+        >
+          {chips.map((chip) => (
+            <MenuItem key={chip.key} value={chip.key}>
+              {chip.key}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    );
+    const availabilityControl = !availabilityLock && (
+      <SegmentedControl
+        aria-label="Availability"
+        options={AVAILABILITY_FILTERS}
+        value={availabilityFilter}
+        onChange={(value) => updateParams({ availability: value, page: 1 })}
+        scrollable={!row}
+        // The drawer is a touch surface: its segments need the 44px minimum
+        // every other action carries.
+        sx={row ? undefined : { "& [role='radio']": { minHeight: 44 } }}
+      />
+    );
+    const byeControl = byeWeekFilter && (
+      <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
+        <InputLabel id="pm-bye-label">Bye week</InputLabel>
+        <Select
+          labelId="pm-bye-label"
+          label="Bye week"
+          value={byeWeek ? String(byeWeek) : ""}
+          onChange={(event) => updateParams({ bye: event.target.value, page: 1 })}
+        >
+          <MenuItem value="">Any</MenuItem>
+          {BYE_WEEKS.map((week) => (
+            <MenuItem key={week} value={String(week)}>
+              {`Wk ${week}`}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    );
+    const watchingControl = (
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={watchingOnly}
+            onChange={(event) => updateParams({ watching: event.target.checked || "" })}
+            sx={{ minWidth: 44, minHeight: 44 }}
+          />
+        }
+        label="Watching"
+      />
+    );
+    const sortControl = (
+      <Stack direction="row" spacing={1}>
+        <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 170 } : fieldSx}>
+          <InputLabel id="pm-sort-label">Sort</InputLabel>
           <Select
-            labelId="pm-pos-label"
-            label="Position"
-            value={selectedChip.key}
+            labelId="pm-sort-label"
+            label="Sort"
+            value={sort}
             onChange={(event) =>
               updateParams({
-                pos: event.target.value === "All" ? "" : event.target.value,
+                sort: event.target.value === contextualDefaultSort ? "" : event.target.value,
                 page: 1,
               })
             }
           >
-            {chips.map((chip) => (
-              <MenuItem key={chip.key} value={chip.key}>
-                {chip.key}
+            {sortOptions.map((option) => (
+              <MenuItem key={option.key} value={option.key}>
+                {option.label}
               </MenuItem>
             ))}
           </Select>
         </FormControl>
-        {!availabilityLock && (
-          <SegmentedControl
-            aria-label="Availability"
-            options={AVAILABILITY_FILTERS}
-            value={availabilityFilter}
-            onChange={(value) => updateParams({ availability: value, page: 1 })}
-            scrollable={!row}
-            // The drawer is a touch surface: its segments need the 44px minimum
-            // every other action carries.
-            sx={row ? undefined : { "& [role='radio']": { minHeight: 44 } }}
-          />
-        )}
-        {afterAvailabilityControl?.(layout)}
-        {byeWeekFilter && (
-          <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 130 } : fieldSx}>
-            <InputLabel id="pm-bye-label">Bye week</InputLabel>
-            <Select
-              labelId="pm-bye-label"
-              label="Bye week"
-              value={byeWeek ? String(byeWeek) : ""}
-              onChange={(event) => updateParams({ bye: event.target.value, page: 1 })}
-            >
-              <MenuItem value="">Any</MenuItem>
-              {BYE_WEEKS.map((week) => (
-                <MenuItem key={week} value={String(week)}>
-                  {`Wk ${week}`}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={watchingOnly}
-              onChange={(event) => updateParams({ watching: event.target.checked || "" })}
-              sx={{ minWidth: 44, minHeight: 44 }}
-            />
-          }
-          label="Watching"
-        />
-        <Stack direction="row" spacing={1} sx={row ? { ml: "auto" } : undefined}>
-          <FormControl size="small" fullWidth={!row} sx={row ? { ...fieldSx, minWidth: 170 } : fieldSx}>
-            <InputLabel id="pm-sort-label">Sort</InputLabel>
-            <Select
-              labelId="pm-sort-label"
-              label="Sort"
-              value={sort}
-              onChange={(event) =>
-                updateParams({
-                  sort: event.target.value === contextualDefaultSort ? "" : event.target.value,
-                  page: 1,
-                })
-              }
-            >
-              {sortOptions.map((option) => (
-                <MenuItem key={option.key} value={option.key}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button
-            aria-label={`Sort ${dir === "asc" ? "ascending" : "descending"}`}
-            onClick={() => updateParams({ dir: dir === "asc" ? "desc" : "", page: 1 })}
-            sx={{ minWidth: 44, minHeight: 44 }}
-          >
-            <SwapVertIcon />
-          </Button>
+        <Button
+          aria-label={`Sort ${dir === "asc" ? "ascending" : "descending"}`}
+          onClick={() => updateParams({ dir: dir === "asc" ? "desc" : "", page: 1 })}
+          sx={{ minWidth: 44, minHeight: 44 }}
+        >
+          <SwapVertIcon />
+        </Button>
+      </Stack>
+    );
+
+    if (row) {
+      return (
+        <Stack spacing={1.25}>
+          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
+            {searchField}
+            {leadingControl?.(layout)}
+            {positionControl}
+            {sortControl}
+          </Stack>
+          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
+            {availabilityControl}
+            {afterAvailabilityControl?.(layout)}
+            {byeControl}
+            {watchingControl}
+          </Stack>
         </Stack>
+      );
+    }
+    return (
+      <Stack direction="column" spacing={1.5} useFlexGap>
+        {leadingControl?.(layout)}
+        {positionControl}
+        {availabilityControl}
+        {afterAvailabilityControl?.(layout)}
+        {byeControl}
+        {watchingControl}
+        {sortControl}
       </Stack>
     );
   };
@@ -393,36 +467,9 @@ const PlayerPool = forwardRef(function PlayerPool(
   return (
     <>
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>
-        <Stack spacing={1.25}>
-          <TextField
-            size="small"
-            fullWidth
-            // The search sits on its own line above the filter row on desktop.
-            sx={isMobile ? fieldSx : { ...fieldSx, maxWidth: 360 }}
-            label="Search players"
-            placeholder="Search by name"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-              endAdornment: searchInput ? (
-                <InputAdornment position="end">
-                  <Button
-                    onClick={() => setSearchInput("")}
-                    aria-label="Clear search"
-                    sx={{ minWidth: 44, minHeight: 44, p: 0.5 }}
-                  >
-                    <CloseIcon fontSize="small" />
-                  </Button>
-                </InputAdornment>
-              ) : null,
-            }}
-          />
-          {isMobile ? (
+        {isMobile ? (
+          <Stack spacing={1.25}>
+            {searchField}
             <Button
               variant="outlined"
               startIcon={<FilterListIcon />}
@@ -431,10 +478,10 @@ const PlayerPool = forwardRef(function PlayerPool(
             >
               Filters
             </Button>
-          ) : (
-            renderControls("row")
-          )}
-        </Stack>
+          </Stack>
+        ) : (
+          renderControls("row")
+        )}
       </Paper>
       <Drawer
         anchor="bottom"
@@ -457,13 +504,13 @@ const PlayerPool = forwardRef(function PlayerPool(
         </Stack>
       </Drawer>
       {!cardLayout && (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3, ...(stickyHead && { overflowX: { xs: "auto", lg: "clip" } }) }}>
           {/* Cell padding at 10px a side rather than MUI's 16px: it is what lets
               the table fit a 1024px viewport instead of hiding the Action
               column behind a scrollbar (2026-09-15 report). */}
           <Table aria-label="Players" sx={{ minWidth: 960, "& th, & td": { px: 1.25 } }}>
             <TableHead>
-              {renderTableHead({ bestBall, currentWeek, sx: headCellSx })}
+              {renderTableHead({ bestBall, currentWeek, sx: stickyHead ? stickyHeadCellSx : headCellSx })}
             </TableHead>
             <TableBody>
               {visiblePlayers.length === 0 && (
