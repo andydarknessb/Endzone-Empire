@@ -153,3 +153,18 @@ test('at sm and above, a selection never changes the active tab', () => {
   expect(startersPressed()).toBe('true');
   expect(benchPressed()).toBe('false');
 });
+
+// #1957 L6: the phone tabs carry counts, Starters as filled/total slots and
+// Bench as occupied Bench plus IR rows.
+test('the phone tabs read "Starters 8/9" and "Bench 6" for 9 starter slots (one empty), 5 bench players and 1 IR player', () => {
+  const slots = [{ key: 'QB', count: 1 }, { key: 'RB', count: 2 }, { key: 'WR', count: 3 }, { key: 'TE', count: 1 }, { key: 'FLEX', count: 2 }];
+  const filled = [['QB', 1], ['RB', 2], ['WR', 3], ['TE', 1], ['FLEX', 1]].flatMap(([slot, n]) =>
+    Array.from({ length: n }, (_, i) => ({ playerId: `${slot}${i}`, name: `${slot} ${i}`, slot }))
+  );
+  const bench = Array.from({ length: 5 }, (_, i) => ({ playerId: `b${i}`, name: `Bench ${i}`, slot: 'BENCH' }));
+  const ir = [{ playerId: 'ir0', name: 'Stashed', slot: 'IR' }];
+  renderLedger({ lineup: { entries: [...filled, ...bench, ...ir], rosterSlots: slots, benchSlots: 5, irSlots: 1 } });
+
+  expect(tabButtons()[0]).toHaveTextContent(/^Starters 8\/9$/);
+  expect(tabButtons()[1]).toHaveTextContent(/^Bench 6$/);
+});

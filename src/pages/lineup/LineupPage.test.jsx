@@ -637,7 +637,7 @@ test('the narrow layout renders a bottom Starters/Bench tab bar with 44px target
   const tabs = screen.getByTestId('lineup-mobile-tabs');
   expect(tabs).toHaveAttribute('role', 'group');
   const buttons = within(tabs).getAllByRole('button');
-  expect(buttons.map((b) => b.textContent)).toEqual(['Starters', 'Bench']);
+  expect(buttons.map((b) => b.textContent)).toEqual(['Starters 2/3', 'Bench 2']);
   expect(buttons[0]).toHaveAttribute('aria-pressed', 'true');
   const user = userEvent.setup();
   await user.click(buttons[1]);

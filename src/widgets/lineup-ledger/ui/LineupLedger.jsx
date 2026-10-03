@@ -17,14 +17,14 @@ import LedgerRow from './LedgerRow';
  * computed by the page from the features it composes and handed down as
  * plain props, so this widget never imports a feature.
  *
- * Desktop: Starters in one column, Bench+IR in the other (mirroring the
- * legacy page's own two-column split). Below `sm` (AC8) the two columns
- * collapse into a single column switched by a fixed bottom tab bar (Starters
- * / Bench, with IR folding into the Bench tab exactly as the desktop's own
- * Bench+IR card already groups them) - each tab button is a 44px touch
- * target (`MIN_TOUCH_TARGET_SX`, `src/shared/lib/a11y`). The page around this
- * widget owns its own vertical scrolling; nothing here forces horizontal
- * scroll (rows wrap rather than overflow).
+ * One column at every width (#1957 L1): Starters, then IR when present, then
+ * Bench, each card full width and none scrolling inside itself. Below `sm`
+ * (AC8) a fixed bottom tab bar switches the column between Starters and Bench
+ * (IR folds into the Bench tab, as it groups with Bench above), the labels
+ * carrying counts (`Starters 8/9`, `Bench 6`) - each tab button is a 44px
+ * touch target (`MIN_TOUCH_TARGET_SX`, `src/shared/lib/a11y`). The page around
+ * this widget owns its own vertical scrolling; nothing here forces horizontal
+ * scroll (a row is a fixed grid whose name truncates).
  *
  * The Bench card also carries AC5's bench-points-left line (this widget's
  * own `useBenchPointsLeft` read of the existing hindsight endpoint, keyed
@@ -58,8 +58,8 @@ export default function LineupLedger({
 }) {
   const [mobileTab, setMobileTab] = useState('starters');
   const theme = useTheme();
-  // Below `sm` only (#1425 ruling): at `sm` and up both columns are always
-  // visible (the Box `sx` below only collapses to one column at `xs`), so
+  // Below `sm` only (#1425 ruling): at `sm` and up both sections are always
+  // visible (the Box `sx` below only hides one at `xs`), so
   // the tab-bar-driven flip below has no useful effect there and AC7
   // requires it never fires. jsdom does not evaluate the `sx` breakpoints
   // that hide/show the two columns, so this is the one place that decision
@@ -166,13 +166,13 @@ export default function LineupLedger({
 
   return (
     <>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: '16px' }}>
+      <Box sx={{ display: 'grid', gap: '16px' }}>
         <Box sx={{ display: mobileTab === 'starters' ? 'block' : { xs: 'none', sm: 'block' } }}>
           <Card title="Starters" data-testid="ledger-starters">
             <Box sx={{ p: '12px' }}>
               {starters.map((row) => {
                 const { key, ...props } = rowProps(row);
-                return <LedgerRow key={key} {...props} />;
+                return <LedgerRow key={key} compact={isMobile} {...props} />;
               })}
             </Box>
           </Card>
@@ -184,7 +184,7 @@ export default function LineupLedger({
               <Box sx={{ p: '12px' }}>
                 {ir.map((row) => {
                   const { key, ...props } = rowProps(row);
-                  return <LedgerRow key={key} {...props} />;
+                  return <LedgerRow key={key} compact={isMobile} {...props} />;
                 })}
               </Box>
             </Card>
@@ -199,10 +199,10 @@ export default function LineupLedger({
                 {benchPointsLeft.text}
               </Typography>
             )}
-            <Box sx={{ p: '12px', maxHeight: { sm: 560 }, overflowY: { sm: 'auto' } }}>
+            <Box sx={{ p: '12px' }}>
               {bench.map((row) => {
                 const { key, ...props } = rowProps(row);
-                return <LedgerRow key={key} {...props} />;
+                return <LedgerRow key={key} compact={isMobile} {...props} />;
               })}
             </Box>
           </Card>
@@ -237,8 +237,8 @@ export default function LineupLedger({
         }}
       >
         {[
-          { key: 'starters', label: 'Starters' },
-          { key: 'bench', label: 'Bench' },
+          { key: 'starters', label: `Starters ${starters.filter((row) => row.entry).length}/${starters.length}` },
+          { key: 'bench', label: `Bench ${[...ir, ...bench].filter((row) => row.entry).length}` },
         ].map((tab) => (
           <Box
             key={tab.key}

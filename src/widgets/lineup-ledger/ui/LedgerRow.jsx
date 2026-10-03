@@ -1,7 +1,7 @@
 import React from 'react';
 import { Avatar, Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import { Badge, GameStateChip, InjuryTag, PosChip } from '../../../shared/ui';
+import { Badge, GameStateChip, InjuryTag, PosChip, injuryView } from '../../../shared/ui';
 import {
   formatPoints,
   hasNoHistory,
@@ -18,6 +18,10 @@ import { PlayerNameLink } from '../../../entities/player';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';
+
+// The Drop button's outer width: the 44px touch target less the 8px it is
+// pulled into the row's right padding.
+const DROP_SLOT_WIDTH = 36;
 
 // A closed padlock: AC3, "locked rows show a lock, not a chip" - a small
 // inline glyph beside the name rather than the legacy page's "LOCKED" chip.
@@ -84,7 +88,7 @@ function SituationLine({ possession, downDistance, lastPlay, redZone }) {
 // caller (LedgerRow, below) so the same read also drives the points cell's
 // live colour and the Edge line's kind transition (AC2/AC3) without a second
 // call to gameCellView.
-function GameCell({ view }) {
+function GameCell({ view, align = 'flex-end' }) {
   if (!view) return null;
   if (view.kind === 'unavailable') {
     // The chip's own state names the reason (bye/out/ir), never a blanket
@@ -100,7 +104,7 @@ function GameCell({ view }) {
     // rendered under the chip only when either piece has something to show.
     const detail = [view.lineText, view.weatherText].filter(Boolean).join(' · ');
     return (
-      <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
+      <Box sx={{ display: 'grid', justifyItems: align, gap: '2px' }}>
         <GameStateChip state="pre" data-testid="ledger-game-cell">{label}</GameStateChip>
         {detail && (
           <Typography
@@ -117,8 +121,8 @@ function GameCell({ view }) {
   if (view.kind === 'live') {
     const score = view.teamScore != null && view.opponentScore != null ? `${view.teamScore}-${view.opponentScore} · ` : '';
     return (
-      <Box sx={{ display: 'grid', justifyItems: 'flex-end', gap: '2px' }}>
-        <GameStateChip state="live" data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>
+      <Box sx={{ display: 'grid', justifyItems: align, gap: '2px' }}>
+        <GameStateChip state="live"data-testid="ledger-game-cell">{`${score}${view.trailing}`}</GameStateChip>
         <SituationLine possession={view.possession} downDistance={view.downDistance} lastPlay={view.lastPlay} redZone={view.redZone} />
       </Box>
     );
@@ -234,6 +238,7 @@ export default function LedgerRow({
   onClick,
   onRequestDrop,
   canDrop,
+  compact = false,
   onOpenDecisionCard = () => {},
   'data-testid': testId,
 }) {
@@ -254,11 +259,17 @@ export default function LedgerRow({
   // the row that disagreed with them. Floor and Ceiling (`entry.floor`/
   // `entry.ceiling`, p10/p90) are untouched; they live on the Decision card,
   // not this cell.
+  // "<n> proj" only when there is a number to qualify: "no history" and the
+  // unknown-projection dash stand alone (#1957 L3).
+  const hasProjectionNumber = !isEmpty && !unavailable && !hasNoHistory(entry) && Number.isFinite(entry.projectedPoints);
+  const unavailableText = unavailable ? unavailableLabel(entry.availability.reason) || 'unavailable' : null;
   const projectionText = isEmpty
     ? null
     : unavailable
-      ? unavailableLabel(entry.availability.reason) || 'unavailable'
-      : projectionLabel(entry);
+      ? unavailableText
+      : hasProjectionNumber
+        ? `${projectionLabel(entry)} proj`
+        : projectionLabel(entry);
   // The points cell (AC2/AC3): the entry's actual/live fantasy points once
   // his game is live or final, a dash reserved for an Unavailable row (never
   // plays) and for a pre-kickoff row (nothing scored yet) alike -
@@ -278,18 +289,44 @@ export default function LedgerRow({
   // Edge line and the visually-hidden points caption concatenated together.
   const rowLabel = isEmpty
     ? `Empty ${slotLabel} slot`
-    : [
+    // The Set drops a designation that repeats the unavailable reason
+    // ("out, out" for an Out player the feed marks unavailable).
+    : [...new Set([
         entry.name,
         slotLabel,
         entry.locked && 'locked',
-        unavailable && (unavailableLabel(entry.availability.reason) || 'unavailable'),
-      ].filter(Boolean).join(', ');
+        unavailableText,
+        injuryView(entry.injuryStatus)?.name.toLowerCase(),
+        hasProjectionNumber && `projected ${projectionLabel(entry)}`,
+      ].filter(Boolean))].join(', ');
 
   return (
     <Box
       data-testid={testId}
       data-spent={entry?.spent ? 'true' : undefined}
-      sx={{ position: 'relative', display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, gap: '8px', mb: '8px' }}
+      sx={{
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        mb: '8px',
+        p: '10px 12px',
+        borderRadius: 'var(--dash-radius-sm)',
+        border: '1px solid',
+        borderStyle: isEmpty ? 'dashed' : 'solid',
+        borderColor: selected || swapHighlighted || (showEligibility && eligible)
+          ? 'var(--dash-accent-line)'
+          : entry?.spent
+            ? 'var(--dash-warning)'
+            : 'var(--dash-line)',
+        backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
+          ? 'var(--dash-accent-soft)'
+          : 'var(--dash-surface)',
+        // #1957 L4: the selection ring is an inset shadow, so the border
+        // width (and with it the row's layout) never changes.
+        boxShadow: selected ? 'inset 0 0 0 2px var(--dash-accent)' : undefined,
+        opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
+      }}
     >
       <Box
         component="button"
@@ -323,43 +360,43 @@ export default function LedgerRow({
           pointerEvents: 'none',
           flexGrow: 1,
           minWidth: 0,
-          display: 'flex',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          flexWrap: 'wrap',
-          gap: '10px',
-          p: '10px 12px',
-          borderRadius: 'var(--dash-radius-sm)',
-          border: '1px solid',
-          borderStyle: isEmpty ? 'dashed' : 'solid',
-          borderColor: selected || swapHighlighted
-            ? 'var(--dash-accent-line)'
-            : showEligibility && eligible
-              ? 'var(--dash-accent-line)'
-              : entry?.spent
-                ? 'var(--dash-warning)'
-                : 'var(--dash-line)',
-          backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
-            ? 'var(--dash-accent-soft)'
-            : 'var(--dash-surface)',
-          opacity: showEligibility && !eligible && !selected ? 0.45 : 1,
+          // #1957 L2: a fixed grid, never a wrapping flex, so the numbers
+          // column lands on the same right edge in every row. The Game cell
+          // is a cell of its own from `sm` and a line inside the info block
+          // when `compact`.
+          display: 'grid',
+          gridTemplateColumns: compact
+            ? '44px 36px minmax(0, 1fr) 72px'
+            : '44px 36px minmax(0, 1fr) minmax(120px, 0.9fr) 72px',
+          columnGap: '10px',
+          alignItems: compact ? 'start' : 'center',
         }}
       >
         <PosChip position={slotLabel} data-testid="ledger-slot-chip" />
 
         {isEmpty ? (
-          <Typography sx={{ flexGrow: 1, fontSize: '13px', color: 'var(--dash-faint)' }}>Empty</Typography>
+          <Typography sx={{ gridColumn: '2 / -1', fontSize: '13px', color: 'var(--dash-faint)' }}>Empty</Typography>
         ) : (
           <>
             <PlayerAvatar name={entry.name} nflTeam={entry.nflTeam} photoUrl={entry.photoUrl} />
 
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <Box data-testid="ledger-info" sx={{ minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                {/* The name is the one item that gives way: it truncates with
+                    an ellipsis (#1957 L2) while every tag beside it keeps its
+                    width. A block button, since text-overflow does not apply
+                    to the link's own inline-flex display. */}
                 <PlayerNameLink
                   name={entry.name}
                   playerId={entry.playerId}
                   onOpen={onOpenDecisionCard}
                   sx={{
                     pointerEvents: 'auto',
+                    display: 'block',
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
                     fontSize: '14px',
                     fontWeight: 600,
                     color: 'var(--dash-ink)',
@@ -367,7 +404,7 @@ export default function LedgerRow({
                 />
                 <InjuryTag status={entry.injuryStatus} />
                 {entry.backup === true && (
-                  <Badge variant="neutral" data-testid="ledger-backup">{BACKUP_LABEL}</Badge>
+                  <Badge variant="neutral" data-testid="ledger-backup" sx={{ flex: 'none' }}>{BACKUP_LABEL}</Badge>
                 )}
                 {entry.locked && (
                   <Tooltip title="Locked: this player's game has kicked off">
@@ -383,7 +420,7 @@ export default function LedgerRow({
                       role="img"
                       aria-label="Locked: this player's game has kicked off"
                       data-testid="ledger-lock-icon"
-                      sx={{ display: 'flex', color: 'var(--dash-faint)' }}
+                      sx={{ display: 'flex', flex: 'none', color: 'var(--dash-faint)' }}
                     >
                       <LockIcon />
                     </Box>
@@ -395,6 +432,7 @@ export default function LedgerRow({
                       component="span"
                       data-testid="ledger-attested-chip"
                       sx={{
+                        flex: 'none',
                         fontSize: '10px',
                         fontWeight: 700,
                         letterSpacing: '0.05em',
@@ -412,7 +450,7 @@ export default function LedgerRow({
                   <Box
                     component="span"
                     data-testid="ledger-spent-chip"
-                    sx={{ fontSize: '10px', fontWeight: 700, color: 'var(--dash-warning)' }}
+                    sx={{ flex: 'none', fontSize: '10px', fontWeight: 700, color: 'var(--dash-warning)' }}
                   >
                     SPENT
                   </Box>
@@ -428,31 +466,52 @@ export default function LedgerRow({
                     from the glossary's Free agent (league availability). */}
                 {`${entry.position ?? ''} · ${entry.nflTeam || 'FA'}`}
               </Typography>
+              {compact && (
+                <Box sx={{ mt: '2px' }}>
+                  <GameCell view={view} align="flex-start" />
+                </Box>
+              )}
               <EdgeLine edge={entry.edge} gameCellKind={view?.kind} noHistory={hasNoHistory(entry)} />
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <GameCell view={view} />
+            {!compact && <GameCell view={view} />}
 
-              <Box sx={{ display: 'grid', textAlign: 'right' }}>
-                <Typography
-                  component="span"
-                  data-testid="ledger-projection"
-                  sx={{ fontSize: '11px', color: unavailable ? 'var(--dash-faint)' : 'var(--dash-ink)', fontWeight: 600 }}
-                >
-                  {projectionText}
-                </Typography>
-                <Typography component="span" data-testid="ledger-points" sx={{ fontSize: '10.5px', color: pointsColor }}>
-                  {pointsText === '-' ? (
-                    <>
-                      <span aria-hidden="true">-</span>
-                      <span style={visuallyHidden}>Points not available yet</span>
-                    </>
-                  ) : (
-                    pointsText
-                  )}
-                </Typography>
-              </Box>
+            {/* The numbers column: points are the headline figure (the
+                Ledger's reading order is "what he scored", then "what he was
+                projected"), the projection or the unavailable reason beneath. */}
+            <Box sx={{ display: 'grid', textAlign: 'right', gap: '1px' }}>
+              <Typography
+                component="span"
+                data-testid="ledger-points"
+                sx={{
+                  fontFamily: 'var(--dash-font-display)',
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  lineHeight: 1.1,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: pointsColor,
+                }}
+              >
+                {pointsText === '-' ? (
+                  <>
+                    <span aria-hidden="true">-</span>
+                    <span style={visuallyHidden}>Points not available yet</span>
+                  </>
+                ) : (
+                  pointsText
+                )}
+              </Typography>
+              <Typography
+                component="span"
+                data-testid="ledger-projection"
+                sx={{
+                  fontSize: '12px',
+                  fontVariantNumeric: 'tabular-nums',
+                  color: unavailable ? 'var(--dash-warning)' : 'var(--dash-dim)',
+                }}
+              >
+                {projectionText}
+              </Typography>
             </Box>
           </>
         )}
@@ -469,13 +528,26 @@ export default function LedgerRow({
           stacking context on top of the button's `zIndex: 0`), it is
           independently focusable and its own native button semantics handle
           Enter/Space without the row's handler ever seeing the event. */}
+      {!canDrop && <Box aria-hidden="true" sx={{ width: DROP_SLOT_WIDTH, flex: 'none' }} />}
       {canDrop && (
         <Tooltip title="Drop player">
           <IconButton
             size="small"
             aria-label={`Drop ${entry.name}`}
             onClick={() => onRequestDrop?.(entry)}
-            sx={{ position: 'relative', zIndex: 1, color: 'var(--dash-danger)', flex: 'none', ...MIN_TOUCH_TARGET_SX }}
+            sx={{
+              position: 'relative',
+              zIndex: 1,
+              color: 'var(--dash-faint)',
+              '&:hover, &:focus-visible': { color: 'var(--dash-danger)' },
+              flex: 'none',
+              // The touch target is 44px; pull it into the row's padding so
+              // it does not cost the info block a full 44px of width. Its
+              // outer width is DROP_SLOT_WIDTH, which a row without Drop
+              // reserves, so the numbers column aligns across every row.
+              m: '-10px -8px -10px 0',
+              ...MIN_TOUCH_TARGET_SX,
+            }}
           >
             <DropIcon />
           </IconButton>

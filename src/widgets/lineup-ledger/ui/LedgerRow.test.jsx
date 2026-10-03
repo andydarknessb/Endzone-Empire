@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LedgerRow from './LedgerRow';
 import { lineupEntries } from '../../../entities/roster';
@@ -25,6 +25,21 @@ const entry = (overrides = {}) => ({
   availability: { available: true, reason: null },
   ...overrides,
 });
+
+// What the stylesheet declares for `prop` on `el` (the last matching rule
+// wins). jsdom's getComputedStyle drops a declaration holding `var(--token)`,
+// so a token-valued colour is only observable on the rule itself.
+function declared(el, prop) {
+  let value = '';
+  for (const sheet of document.styleSheets) {
+    for (const rule of sheet.cssRules) {
+      let matches = false;
+      try { matches = Boolean(rule.selectorText) && el.matches(rule.selectorText); } catch { matches = false; }
+      if (matches && rule.style.getPropertyValue(prop)) value = rule.style.getPropertyValue(prop);
+    }
+  }
+  return value;
+}
 
 // `data-testid="row"` names the OUTER wrapper (the element
 // tests/e2e/auth-offline.spec.ts asserts CONTAINS the row's text); the
@@ -681,7 +696,99 @@ test('the row has one concise accessible name rather than its concatenated conte
       data-testid="row"
     />
   );
-  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked');
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, locked, projected 24.3');
+});
+
+// #1957 L5: the name carries the injury designation (the word the InjuryTag
+// hides from sighted users as a code) and the projection when one exists.
+test('the accessible name adds the injury designation and the projection', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ injuryStatus: 'Q', projectedPoints: 24.2 })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB, questionable, projected 24.2');
+});
+
+test('the accessible name carries no projection for an Unavailable, no-history or projection-less row, and no repeated reason', () => {
+  const { rerender } = render(
+    <LedgerRow slotLabel="WR" entry={entry({ injuryStatus: 'O', availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />
+  );
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, WR, out');
+
+  rerender(<LedgerRow slotLabel="WR" entry={entry({ positionBaseline: true })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, WR');
+
+  rerender(<LedgerRow slotLabel="WR" entry={entry({ projectedPoints: null })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, WR');
+});
+
+// #1957 L3: points are the headline figure, the projection sits beneath it.
+test('points are the 20px headline and the projection reads "<n> proj" at 12px beneath', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry({ points: 12.4 })} onClick={jest.fn()} data-testid="row" />);
+  const points = screen.getByTestId('ledger-points');
+  const projection = screen.getByTestId('ledger-projection');
+  expect(points).toHaveStyle({ fontSize: '20px', fontWeight: 700 });
+  expect(getComputedStyle(points).fontVariantNumeric).toBe('tabular-nums');
+  expect(projection).toHaveTextContent('24.3 proj');
+  expect(projection).toHaveStyle({ fontSize: '12px' });
+  expect(declared(projection, 'color')).toBe('var(--dash-dim)');
+  expect(points.compareDocumentPosition(projection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('an Unavailable row shows its reason in dash-warning where the projection sits, and no "proj" suffix', () => {
+  render(<LedgerRow slotLabel="WR" entry={entry({ availability: { available: false, reason: 'out' } })} onClick={jest.fn()} data-testid="row" />);
+  const projection = screen.getByTestId('ledger-projection');
+  expect(projection).toHaveTextContent(/^out$/);
+  expect(declared(projection, 'color')).toBe('var(--dash-warning)');
+});
+
+test('a no-history row reads "no history" without a "proj" suffix', () => {
+  render(<LedgerRow slotLabel="BENCH" entry={entry({ positionBaseline: true })} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^no history$/);
+});
+
+// #1957 L4: the selected row alone gets the 2px ring, drawn as an inset
+// box-shadow so the border width (and so the layout) never changes.
+test('only the selected row draws the accent ring; eligible and swap-highlighted rows keep the border and tint', () => {
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} selected onClick={jest.fn()} data-testid="row" />);
+  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('inset 0 0 0 2px var(--dash-accent)');
+
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} showEligibility eligible onClick={jest.fn()} data-testid="row" />);
+  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('');
+  expect(declared(screen.getByTestId('row'), 'border-color')).toBe('var(--dash-accent-line)');
+  expect(declared(screen.getByTestId('row'), 'background-color')).toBe('var(--dash-accent-soft)');
+
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} swapHighlighted onClick={jest.fn()} data-testid="row" />);
+  expect(getComputedStyle(screen.getByTestId('row')).boxShadow).toBe('');
+  expect(declared(screen.getByTestId('row'), 'border-color')).toBe('var(--dash-accent-line)');
+});
+
+// #1957 L7: the border, radius and fill sit on the row wrapper, so the Drop
+// button is inside them; Drop is faint at rest and danger on hover/focus.
+test('the border and fill are on the row wrapper, which contains the Drop button', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onClick={jest.fn()} data-testid="row" />);
+  const row = screen.getByTestId('row');
+  expect(row).toHaveStyle({ borderStyle: 'solid' });
+  expect(declared(row, 'background-color')).toBe('var(--dash-surface)');
+  expect(row).toContainElement(screen.getByRole('button', { name: /drop josh allen/i }));
+});
+
+test('the Drop icon is dash-faint at rest', () => {
+  render(<LedgerRow slotLabel="QB" entry={entry()} canDrop onClick={jest.fn()} data-testid="row" />);
+  expect(declared(screen.getByRole('button', { name: /drop josh allen/i }), 'color')).toBe('var(--dash-faint)');
+});
+
+test('an empty slot keeps its dashed wrapper border', () => {
+  render(<LedgerRow slotLabel="QB" entry={null} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('row')).toHaveStyle({ borderStyle: 'dashed' });
+});
+
+// #1957 L2: one Game cell, placed inside the info block below `sm` (compact)
+// and as its own grid cell beside it otherwise.
+test('the Game cell sits inside the info block when compact and outside it otherwise', () => {
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  expect(within(screen.getByTestId('ledger-info')).queryByTestId('ledger-game-cell')).toBeNull();
+  expect(screen.getByTestId('ledger-game-cell')).toBeInTheDocument();
+
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} compact onClick={jest.fn()} data-testid="row" />);
+  expect(within(screen.getByTestId('ledger-info')).getByTestId('ledger-game-cell')).toBeInTheDocument();
 });
 
 test('an empty slot has an accessible name naming the slot', () => {
