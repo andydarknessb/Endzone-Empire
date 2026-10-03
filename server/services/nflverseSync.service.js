@@ -9,6 +9,7 @@ const { NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { runSyncJob } = require('../modules/syncRun');
 const { upsertPlayerStats } = require('./playerStatsWrite.service');
 const venueCoordinates = require('./venueCoordinates');
+const NFLVERSE_ESPN_OVERRIDES = require('../data/nflverse-espn-overrides.json');
 
 /**
  * Two nflverse-backed jobs share this service:
@@ -182,15 +183,30 @@ async function fetchSnapCountsForSeason(season) {
   return parseCsv(await fetchCsvText(url));
 }
 
-/** Pure: players.csv rows -> both id crosswalks to espn_id, gsis_id (weekly
- * stats) and pfr_id (snap counts), from the one download. */
-function buildIdCrosswalks(rows) {
+/** Pure (bar a console.warn): players.csv rows -> both id crosswalks to
+ * espn_id, gsis_id (weekly stats) and pfr_id (snap counts), from the one
+ * download. `overrides` (server/data/nflverse-espn-overrides.json) fill in a
+ * blank espn_id by gsis id, for rows nflverse mis-merged onto an older player
+ * (nflverse-players#27); a non-blank espn_id always wins, and warns once per
+ * entry when it disagrees. */
+function buildIdCrosswalks(rows, overrides = NFLVERSE_ESPN_OVERRIDES) {
   const gsisToEspn = new Map();
   const pfrToEspn = new Map();
+  const overrideByGsis = new Map(overrides.map((o) => [o.gsisId, o.espnId]));
+  const warned = new Set();
   for (const row of rows) {
-    if (!row.espn_id) continue;
-    if (row.gsis_id) gsisToEspn.set(row.gsis_id, row.espn_id);
-    if (row.pfr_id) pfrToEspn.set(row.pfr_id, row.espn_id);
+    const override = overrideByGsis.get(row.gsis_id);
+    let espnId = row.espn_id;
+    if (override !== undefined && espnId && espnId !== override && !warned.has(row.gsis_id)) {
+      warned.add(row.gsis_id);
+      console.warn(
+        `nflverse id overrides: ${row.gsis_id} has espn_id ${espnId} in players.csv, override says ${override}; players.csv wins`
+      );
+    }
+    if (!espnId) espnId = override;
+    if (!espnId) continue;
+    if (row.gsis_id) gsisToEspn.set(row.gsis_id, espnId);
+    if (row.pfr_id) pfrToEspn.set(row.pfr_id, espnId);
   }
   return { gsisToEspn, pfrToEspn };
 }
