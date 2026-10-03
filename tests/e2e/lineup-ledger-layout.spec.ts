@@ -102,7 +102,7 @@ test('at 390px a short name is not truncated and the info column keeps at least 
   expect(infoWidth).toBeGreaterThanOrEqual(128);
 });
 
-test('at 390px the BENCH slot chip clears the avatar and the Bench info column keeps at least 128px', async ({ page }) => {
+test('at 390px the BENCH slot chip clears the avatar and a Bench name is not truncated', async ({ page }) => {
   await openLineup(page, PHONE);
   await page.getByTestId('lineup-mobile-tabs').getByRole('button', { name: /^Bench/ }).click();
 
@@ -112,10 +112,9 @@ test('at 390px the BENCH slot chip clears the avatar and the Bench info column k
   const avatar = await box(row.locator('.MuiAvatar-root'));
   expect(chip.x + chip.width, 'the slot chip must not overlap the avatar').toBeLessThanOrEqual(avatar.x);
 
-  const infoWidth = await row.getByTestId('ledger-info').evaluate((el) => el.getBoundingClientRect().width);
-  // eslint-disable-next-line no-console
-  console.log(`LEDGER_BENCH_INFO_WIDTH_390 ${infoWidth}`);
-  expect(infoWidth).toBeGreaterThanOrEqual(128);
+  const name = row.getByRole('button', { name: 'Rachaad White', exact: true });
+  const { scrollWidth, clientWidth } = await name.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(scrollWidth, 'the name must not be ellipsized').toBeLessThanOrEqual(clientWidth);
 });
 
 for (const width of [600, 900]) {
