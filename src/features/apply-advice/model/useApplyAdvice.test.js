@@ -31,7 +31,7 @@ function setup(raw, onLanded) {
   return { result, setRaw, getRaw: () => currentRaw };
 }
 
-const RAW = { week: 4, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'WR' }] };
+const RAW = { week: 4, teamId: 9, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'WR' }] };
 
 test('sends exactly the named moves as one write, converting fromSlot/toSlot to the moves payload', async () => {
   apiClient.put.mockResolvedValue({ data: {} });
@@ -271,7 +271,7 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
       await result.current.apply(PLAN);
     });
     const { onAction } = mockNotify.mock.calls[0][1];
-    const week5 = { week: 5, entries: [{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }] };
+    const week5 = { week: 5, teamId: 9, entries: [{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }] };
     act(() => setRaw(() => week5));
 
     await act(async () => {
@@ -280,6 +280,40 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
     expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', expect.objectContaining({ week: 4 }));
     expect(getRaw()).toBe(week5);
+  });
+
+  test('Undo never patches a different team lineup in the same week', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, setRaw, getRaw } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+    const { onAction } = mockNotify.mock.calls[0][1];
+    const otherTeam = { week: 4, teamId: 10, entries: [{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }] };
+    act(() => setRaw(() => otherTeam));
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(getRaw()).toBe(otherTeam);
+  });
+
+  test('a refused apply leaves a slot a newer write has since moved, and reverts the rest', async () => {
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+    const { result, setRaw, getRaw } = setup(RAW);
+
+    let applied;
+    act(() => { applied = result.current.apply(PLAN); });
+    act(() => setRaw((prev) => ({ ...prev, entries: prev.entries.map((e) => (e.id === 2 ? { ...e, slot: 'FLEX' } : e)) })));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+      await applied;
+    });
+
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'FLEX' }]);
   });
 
   test('a save queued offline has no Undo', async () => {

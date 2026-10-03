@@ -40,7 +40,7 @@ const entry = (overrides = {}) => ({
 // and so exercises its fallback.
 function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget, onLanded } = {}) {
   let currentRaw =
-    raw ?? { week: 4, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
+    raw ?? { week: 4, teamId: 9, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
   const setRaw = jest.fn((updater) => {
     currentRaw = typeof updater === 'function' ? updater(currentRaw) : updater;
   });
@@ -604,7 +604,7 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
     swap(result);
     await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
     const { onAction } = mockNotify.mock.calls[0][1];
-    const week5 = { week: 5, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }] };
+    const week5 = { week: 5, teamId: 9, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }] };
     act(() => setRaw(() => week5));
 
     await act(async () => {
@@ -613,6 +613,38 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
     expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', expect.objectContaining({ week: 4 }));
     expect(getRaw()).toBe(week5);
+  });
+
+  test('Undo never patches a different team lineup in the same week', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    const { onAction } = mockNotify.mock.calls[0][1];
+    const otherTeam = { week: 4, teamId: 10, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: [{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }] };
+    act(() => setRaw(() => otherTeam));
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(getRaw()).toBe(otherTeam);
+  });
+
+  test('a refused save leaves a slot a newer write has since moved, and reverts the rest', async () => {
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+    const { result, setRaw, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    act(() => setRaw((prev) => ({ ...prev, entries: prev.entries.map((e) => (e.id === 2 ? { ...e, slot: 'FLEX' } : e)) })));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+    });
+
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith(expect.any(String), { severity: 'error' }));
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'QB' }, { id: 2, slot: 'FLEX' }]);
   });
 
   test('a save queued offline has no Undo', async () => {

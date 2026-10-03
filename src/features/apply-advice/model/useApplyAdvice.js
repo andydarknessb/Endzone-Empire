@@ -20,9 +20,9 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * the hook neither knows nor cares, and it never re-assigns a slot the
  * advice did not name (AC2), because the only slots it ever writes are the
  * ones the plan it is given already names. A refused write rolls the
- * optimistic patch back to the exact snapshot taken before it, the same
- * rollback contract swap-players and drop-player both already give a
- * manager today.
+ * optimistic patch back by resetting only the moved ids' slots (and only
+ * those still holding the slot this write set), the same contract
+ * swap-players gives a manager today.
  *
  * `onLanded` (#1881, optional): called with no arguments once a write has
  * landed on the server, either right after `saveLineup` resolves unqueued or
@@ -56,13 +56,20 @@ export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
   // included, sets only the moved ids' slots on whatever `prev` is by then,
   // and only while `prev` is still the lineup the move was made on, so a live
   // score tick, a silent refetch or a navigation mid-request is never undone.
+  // A rollback also leaves any id that no longer holds the slot this run set.
   const runMoves = async (moves, undoOf) => {
     const snapshot = raw;
-    const setSlots = (slots) => {
+    // `owned` (rollbacks only): the moves this run wrote. An id is reset only
+    // while it still holds the slot this run set, so a newer write survives.
+    // ponytail: two in-flight writes sharing a player, one refused, can still
+    // leave client and server apart until the next refetch.
+    const setSlots = (slots, owned) => {
       const slotByPlayer = new Map(slots.map((m) => [m.playerId, m.slot]));
+      const ownedSlot = owned && new Map(owned.map((m) => [m.playerId, m.slot]));
+      const resets = (e) => slotByPlayer.has(e.id) && (!ownedSlot || ownedSlot.get(e.id) === e.slot);
       return (prev) =>
         prev && prev.week === snapshot?.week && prev.teamId === snapshot?.teamId
-          ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
+          ? { ...prev, entries: prev.entries.map((e) => (resets(e) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
           : prev;
     };
     // #1964: each moved player back at the slot the pre-move snapshot held.
@@ -86,7 +93,7 @@ export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
         ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMoves(inverse, moves) }),
       });
     } catch (err) {
-      setRaw(setSlots(undoOf ?? inverse));
+      setRaw(setSlots(undoOf ?? inverse, moves));
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
