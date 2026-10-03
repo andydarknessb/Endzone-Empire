@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lineup, desktop, mid-swap</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Barlow+Condensed:wght@600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#0f6a41}a:hover{color:#0b5232}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1560px; box-sizing: border-box; background: {{c.bg}}; color: {{c.ink}}; font-family: Archivo, 'Helvetica Neue', Arial, sans-serif">
+  <header style="height: 64px; display: flex; align-items: center; gap: 28px; padding: 0 24px; background: {{c.surface}}; border-bottom: 1px solid {{c.line}}">
+    <span style="font-size: 22px; font-weight: 700; color: {{c.accent}}">Endzone Empire</span>
+    <nav aria-label="Primary" style="display: flex; gap: 20px; font-size: 15px">
+      <a href="#" style="color: {{c.dim}}; text-decoration: none">Home</a>
+      <a href="#" style="color: {{c.dim}}; text-decoration: none">League</a>
+      <a href="#" style="color: {{c.dim}}; text-decoration: none">Players</a>
+      <a href="#" aria-current="page" style="color: {{c.accent}}; text-decoration: none; font-weight: 600">Lineup</a>
+    </nav>
+  </header>
+
+  <main style="max-width: 1180px; margin: 0 auto; padding: 24px; box-sizing: border-box">
+    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px">
+      <div style="width: 56px; height: 56px; border-radius: 50%; background: {{c.surface3}}; color: {{c.dim}}; font-size: 18px; font-weight: 600; display: flex; align-items: center; justify-content: center">FF</div>
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700">Fargo Frostbite</h1>
+    </div>
+
+    <div style="display: flex; gap: 6px; margin-bottom: 16px; padding: 4px; background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 10px">
+      <sc-for list="{{weeks}}" as="w" hint-placeholder-count="12">
+        <button type="button" aria-pressed="{{w.on}}" style="flex: 1 1 0; min-height: 36px; border: 0; border-radius: 8px; background: {{w.bg}}; color: {{w.ink}}; font-family: inherit; font-size: 13px; font-weight: 600">{{w.label}}</button>
+      </sc-for>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start">
+      <div style="display: flex; flex-direction: column; gap: 16px">
+        <section aria-label="This week" style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; padding: 14px 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.faint}}">Score vs proj.</span><span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums">76.6 · 130.6</span></div>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.faint}}">Opponent vs proj.</span><span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums">68.2 · 121.4</span></div>
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.faint}}">Starters</span><span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 24px; font-weight: 700">3 yet to play</span></div>
+          <div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.faint}}">Needs attention</span><span style="align-self: flex-start; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: {{c.warning}}; background: {{c.warningSoft}}">Lamb Q · ankle</span></div>
+        </section>
+
+        <sc-for list="{{cards}}" as="card" hint-placeholder-count="3">
+          <section aria-label="{{card.title}}" style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; overflow: hidden">
+            <div style="display: flex; align-items: baseline; gap: 12px; padding: 14px 18px 4px">
+              <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase">{{card.title}}</h2>
+              <span style="font-size: 12px; color: {{c.faint}}">{{card.note}}</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 52px 36px minmax(0, 1fr) minmax(0, 0.9fr) 80px 44px; gap: 12px; padding: 6px 18px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.faint}}">
+              <span>Slot</span><span></span><span>Player</span><span>Game</span><span style="text-align: right">Pts · Proj</span><span></span>
+            </div>
+            <div style="padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px">
+              <sc-for list="{{card.rows}}" as="r" hint-placeholder-count="6">
+                <div style="display: grid; grid-template-columns: 52px 36px minmax(0, 1fr) minmax(0, 0.9fr) 80px 44px; gap: 12px; align-items: center; padding: 8px 0 8px 8px; border-radius: 10px; border: 1px solid {{r.border}}; background: {{r.bg}}; box-shadow: {{r.ring}}; opacity: {{r.opacity}}">
+                  <span style="height: 22px; border-radius: 6px; background: {{r.slotBg}}; color: {{c.inverse}}; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.slot}}</span>
+                  <span style="width: 36px; height: 36px; border-radius: 50%; background: {{r.kit}}; color: #ffffff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{r.initials}}</span>
+                  <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0">
+                      <a href="#" style="font-size: 14px; font-weight: 600; color: {{c.ink}}; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</a>
+                      <sc-if value="{{r.injury}}" hint-placeholder-val="{{ false }}"><span style="flex: none; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; color: {{r.injuryInk}}; background: {{r.injuryBg}}">{{r.injury}}</span></sc-if>
+                      <sc-if value="{{r.locked}}" hint-placeholder-val="{{ false }}"><span role="img" aria-label="Locked: this player's game has kicked off" style="flex: none; display: flex; color: {{c.faint}}"><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="12" height="8" rx="2"></rect><path d="M7 9V6.5a3 3 0 0 1 6 0V9"></path></svg></span></sc-if>
+                    </div>
+                    <span style="font-size: 12px; color: {{c.dim}}">{{r.sub}}</span>
+                    <sc-if value="{{r.edge}}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; color: {{c.accent}}">{{r.edge}}</span></sc-if>
+                  </div>
+                  <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-size: 12px; font-weight: 600; color: {{r.gameInk}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.game}}</span>
+                    <span style="font-size: 11px; color: {{c.faint}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.detail}}</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; align-items: flex-end">
+                    <span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{r.ptsInk}}">{{r.pts}}</span>
+                    <span style="font-size: 12px; color: {{r.projInk}}; white-space: nowrap">{{r.proj}}</span>
+                  </div>
+                  <button type="button" aria-label="Drop {{r.name}}" style="width: 44px; height: 44px; border: 0; background: transparent; color: {{c.faint}}; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 5l10 10M15 5 5 15"></path></svg></button>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+        </sc-for>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 16px; background: {{c.surface}}; border: 1px solid {{c.accentLine}}; border-radius: 10px; box-shadow: {{c.shadow}}">
+          <span style="font-size: 13px">Moving CeeDee Lamb. Pick a highlighted player.</span>
+          <button type="button" style="min-height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: {{c.accent}}; font-family: inherit; font-size: 13px; font-weight: 600">Cancel</button>
+        </div>
+      </div>
+
+      <aside aria-label="Outlook" style="display: flex; flex-direction: column; gap: 16px">
+        <section style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase">Endzone Forecast</h2>
+          <div style="font-size: 13px; color: {{c.dim}}">Start Rashee Rice over CeeDee Lamb</div>
+          <div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 24px; font-weight: 700; color: {{c.accent}}">+1.5 pts</span><span style="font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: {{c.accent}}; background: {{c.accentSoft}}">Lean start</span></div>
+          <div style="display: flex; gap: 8px">
+            <button type="button" style="min-height: 36px; padding: 0 14px; border: 0; border-radius: 10px; background: {{c.accent}}; color: {{c.onAccent}}; font-family: inherit; font-size: 13px; font-weight: 600">Apply</button>
+            <button type="button" style="min-height: 36px; padding: 0 14px; border: 1px solid {{c.line}}; border-radius: 10px; background: transparent; color: {{c.ink}}; font-family: inherit; font-size: 13px; font-weight: 600">Dismiss</button>
+          </div>
+        </section>
+        <section style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase">Bye clusters</h2>
+          <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px">
+            <sc-for list="{{byes}}" as="b" hint-placeholder-count="7">
+              <div style="border: 1px solid {{c.line}}; border-radius: 8px; padding: 6px 0; display: flex; flex-direction: column; align-items: center; gap: 2px"><span style="font-size: 10px; color: {{c.faint}}">{{b.wk}}</span><span style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700">{{b.n}}</span></div>
+            </sc-for>
+          </div>
+        </section>
+        <section style="background: {{c.surface}}; border: 1px solid {{c.line}}; border-radius: 14px; padding: 14px 18px; display: flex; flex-direction: column; gap: 8px">
+          <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase">Week 4 matchup</h2>
+          <div style="font-size: 13px; color: {{c.dim}}">vs Duluth Ice Fishers · 2-1</div>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1560}}'>
+const THEMES = {
+  light: { bg: '#eef2f6', surface: '#ffffff', surface3: '#e6ecf2', line: 'rgba(31, 45, 58, 0.12)', ink: '#141b23', dim: '#55636f', faint: '#5e6a74', accent: '#0f6a41', onAccent: '#ffffff', accentSoft: 'rgba(15, 106, 65, 0.12)', accentLine: 'rgba(15, 106, 65, 0.32)', danger: '#c62828', dangerSoft: 'rgba(198, 40, 40, 0.06)', warning: '#8a5a00', warningSoft: 'rgba(138, 90, 0, 0.12)', inverse: '#ffffff', shadow: '0 4px 12px rgba(16, 24, 32, 0.10)', pos: { QB: '#c62828', RB: '#15663f', WR: '#1e5bb8', TE: '#9a5100', K: '#6d28d9', DEF: '#4b5c66', FLEX: '#4b5c66', BN: '#4b5c66', IR: '#4b5c66' } },
+  dark: { bg: '#0b1015', surface: '#141b23', surface3: '#222e3b', line: 'rgba(154, 183, 211, 0.12)', ink: '#e8eef4', dim: '#93a4b5', faint: '#8a9bad', accent: '#2fd97b', onAccent: '#0b1015', accentSoft: 'rgba(47, 217, 123, 0.12)', accentLine: 'rgba(47, 217, 123, 0.35)', danger: '#ff6b6b', dangerSoft: 'rgba(255, 107, 107, 0.14)', warning: '#f0b34e', warningSoft: 'rgba(240, 179, 78, 0.14)', inverse: '#0f1419', shadow: '0 6px 16px rgba(0, 0, 0, 0.5)', pos: { QB: '#ff8a80', RB: '#7ee2a8', WR: '#7fb0ff', TE: '#f0b34e', K: '#c4a2f5', DEF: '#b0bec5', FLEX: '#b0bec5', BN: '#b0bec5', IR: '#b0bec5' } },
+};
+const KITS = { BUF: '#00338d', ATL: '#a71930', DET: '#0076b6', MIN: '#4f2683', DAL: '#041e42', CIN: '#fb4f14', PIT: '#ffb612', SF: '#aa0000', KC: '#e31837', GB: '#203731', LV: '#000000', CAR: '#0085ca', JAX: '#006778', TB: '#d50a0a' };
+const STARTERS = [
+  { slot: 'QB', name: 'Josh Allen', team: 'BUF', pos: 'QB', state: 'live', game: 'Q3 10:12 · BUF 21 MIA 14', detail: 'BUF ball · 1st & 10 · MIA 18', proj: 22.4, pts: 18.6, locked: true },
+  { slot: 'RB', name: 'Bijan Robinson', team: 'ATL', pos: 'RB', state: 'pre', game: '@ KC · Sun 4:25 PM', detail: 'KC -3.5 · O/U 49.5 · Dome', proj: 17.8, pts: null },
+  { slot: 'RB', name: 'Jahmyr Gibbs', team: 'DET', pos: 'RB', state: 'live', game: 'Q3 4:48 · DET 17 ARI 20', detail: 'ARI ball · 3rd & 7 · DET 44', proj: 14.9, pts: 9.2, locked: true },
+  { slot: 'WR', name: 'Justin Jefferson', team: 'MIN', pos: 'WR', state: 'final', game: 'Final · MIN 27 CIN 24', detail: '', proj: 19.1, pts: 26.4, locked: true },
+  { slot: 'WR', name: 'CeeDee Lamb', team: 'DAL', pos: 'WR', state: 'pre', game: 'vs BAL · Sun 4:25 PM', detail: 'BAL -2.5 · O/U 47 · 84° wind 4', proj: 16.3, pts: null, injury: 'Q', selected: true },
+  { slot: 'TE', name: 'Sam LaPorta', team: 'DET', pos: 'TE', state: 'live', game: 'Q3 4:48 · DET 17 ARI 20', detail: '3 targets · 2 rec · 31 yds', proj: 11.2, pts: 6.1, locked: true },
+  { slot: 'FLEX', name: 'Chase Brown', team: 'CIN', pos: 'RB', state: 'final', game: 'Final · MIN 27 CIN 24', detail: '', proj: 12.6, pts: 11.3, locked: true },
+  { slot: 'K', name: 'Jake Bates', team: 'DET', pos: 'K', state: 'live', game: 'Q3 4:48 · DET 17 ARI 20', detail: '1/1 FG · 2/2 XP', proj: 8.4, pts: 5.0, locked: true },
+  { slot: 'DEF', name: 'Steelers', team: 'PIT', pos: 'DEF', state: 'pre', game: 'vs LAC · Sun 8:20 PM', detail: 'PIT -1 · O/U 41.5 · rain', proj: 7.9, pts: null },
+];
+const IR = [{ slot: 'IR', name: 'Christian McCaffrey', team: 'SF', pos: 'RB', state: 'pre', game: '@ LAR · Thu 8:15 PM', detail: 'Achilles · Wk 6', proj: null, pts: null, injury: 'IR', out: true }];
+const BENCH = [
+  { slot: 'BN', name: 'Rashee Rice', team: 'KC', pos: 'WR', state: 'pre', game: 'vs ATL · Sun 4:25 PM', detail: 'KC -3.5 · O/U 49.5 · Dome', proj: 15.8, pts: null, eligible: true, edge: 'Outprojects Lamb by 1.5 pts' },
+  { slot: 'BN', name: 'Jayden Reed', team: 'GB', pos: 'WR', state: 'pre', game: '@ LV · Mon 8:15 PM', detail: 'GB -4 · O/U 44 · Dome', proj: 12.4, pts: null, eligible: true },
+  { slot: 'BN', name: 'Brock Bowers', team: 'LV', pos: 'TE', state: 'pre', game: 'vs GB · Mon 8:15 PM', detail: 'GB -4 · O/U 44 · Dome', proj: 10.9, pts: null },
+  { slot: 'BN', name: 'Chuba Hubbard', team: 'CAR', pos: 'RB', state: 'bye', game: 'Bye', detail: '', proj: null, pts: null, bye: true },
+  { slot: 'BN', name: 'Tank Bigsby', team: 'JAX', pos: 'RB', state: 'final', game: 'Final · TB 31 JAX 20', detail: '', proj: 8.1, pts: 4.7, locked: true },
+  { slot: 'BN', name: 'Baker Mayfield', team: 'TB', pos: 'QB', state: 'final', game: 'Final · TB 31 JAX 20', detail: '', proj: 18.2, pts: 24.9, locked: true },
+];
+class Component extends DCLogic {
+  renderVals() {
+    const c = THEMES[this.props.theme === 'dark' ? 'dark' : 'light'];
+    const row = (p) => {
+      const unavailable = p.out || p.bye;
+      return {
+        ...p,
+        initials: p.name.split(' ').map((w) => w[0]).slice(0, 2).join(''),
+        kit: KITS[p.team] || '#4b5c66',
+        sub: p.pos + ' · ' + p.team,
+        slotBg: c.pos[p.slot] || c.pos.BN,
+        pts: p.pts == null ? '-' : p.pts.toFixed(1),
+        proj: p.out ? 'Out' : p.bye ? 'Bye' : p.proj.toFixed(1) + ' proj',
+        ptsInk: p.pts == null ? c.faint : p.state === 'live' ? c.danger : c.ink,
+        projInk: unavailable ? c.warning : c.dim,
+        gameInk: p.state === 'live' ? c.danger : c.ink,
+        injuryInk: p.injury === 'Q' ? c.warning : c.danger,
+        injuryBg: p.injury === 'Q' ? c.warningSoft : c.dangerSoft,
+        border: p.selected || p.eligible ? c.accentLine : c.line,
+        bg: p.selected || p.eligible ? c.accentSoft : c.surface,
+        ring: p.selected ? 'inset 0 0 0 2px ' + c.accent : 'none',
+        opacity: p.selected || p.eligible ? 1 : 0.45,
+      };
+    };
+    const weeks = Array.from({ length: 12 }, (_, i) => {
+      const on = i + 1 === 4;
+      return { label: 'Wk ' + (i + 1), on, bg: on ? c.accentSoft : 'transparent', ink: on ? c.accent : c.dim };
+    });
+    return {
+      c,
+      weeks,
+      byes: [5, 6, 7, 8, 9, 10, 11].map((w) => ({ wk: 'Wk ' + w, n: w === 9 ? 1 : w === 10 ? 2 : 0 })),
+      cards: [
+        { title: 'Starters', note: '9 of 9 filled', rows: STARTERS.map(row) },
+        { title: 'IR', note: '1 of 1', rows: IR.map(row) },
+        { title: 'Bench', note: 'Bench points left on the table: 41.8', rows: BENCH.map(row) },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
