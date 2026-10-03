@@ -34,6 +34,10 @@ import LedgerRow from './LedgerRow';
  * can open the page-owned Decision card (#1240; see `../index.js`'s
  * below-island edges note for why that control lives below the island).
  *
+ * `footer` (optional node) is rendered inside the bottom-sticky container,
+ * directly above the phone tab bar, so a page-owned sticky strip and the tab
+ * bar stack instead of overlapping.
+ *
  * Below `sm`, selecting a row auto-switches the tab bar to whichever
  * section actually holds an eligible target for it (#1425: the bug report
  * was a manager stuck on Starters after selecting a starter whose only
@@ -56,6 +60,7 @@ export default function LineupLedger({
   canDropEntry,
   onRequestDrop,
   onOpenDecisionCard,
+  footer,
 }) {
   const [mobileTab, setMobileTab] = useState('starters');
   const theme = useTheme();
@@ -143,6 +148,10 @@ export default function LineupLedger({
   const startersFilled = starters.filter((row) => row.entry && !row.entry.spent).length;
   const benchCount = [...ir, ...bench].filter((row) => row.entry).length;
 
+  // Reserve the Drop track on every row when any row can drop (a spent row
+  // has no Drop but must keep the same numbers edge).
+  const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !row.entry.spent && canDropEntry?.(row.entry));
+
   const rowProps = (row) => {
     const entry = row.entry;
     const isSelected = Boolean(entry && selectedEntryId != null && entry.playerId === selectedEntryId);
@@ -165,6 +174,7 @@ export default function LineupLedger({
       // a genuinely eligible target stay clickable during a swap.
       disabled: Boolean(disabled) || Boolean(entry?.spent) || (rowShowsEligibility && !eligible),
       canDrop: Boolean(entry && !entry.spent && canDropEntry?.(entry)),
+      reserveDropTrack,
       onClick: (event) => onRowClick?.(entry, row.slotType, event),
       onRequestDrop,
       onOpenDecisionCard,
@@ -176,7 +186,7 @@ export default function LineupLedger({
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '16px' }}>
         <Box sx={{ display: mobileTab === 'starters' ? 'block' : { xs: 'none', sm: 'block' } }}>
           <Card title="Starters" data-testid="ledger-starters">
-            <Box sx={{ p: '12px' }}>
+            <Box sx={{ p: { xs: '8px', sm: '12px' } }}>
               {starters.map((row) => {
                 const { key, ...props } = rowProps(row);
                 return <LedgerRow key={key} {...props} />;
@@ -188,7 +198,7 @@ export default function LineupLedger({
         <Box sx={{ display: mobileTab === 'bench' ? 'block' : { xs: 'none', sm: 'block' } }}>
           {ir.length > 0 && (
             <Card title="IR" data-testid="ledger-ir" sx={{ mb: '16px' }}>
-              <Box sx={{ p: '12px' }}>
+              <Box sx={{ p: { xs: '8px', sm: '12px' } }}>
                 {ir.map((row) => {
                   const { key, ...props } = rowProps(row);
                   return <LedgerRow key={key} {...props} />;
@@ -206,7 +216,7 @@ export default function LineupLedger({
                 {benchPointsLeft.text}
               </Typography>
             )}
-            <Box data-testid="ledger-bench-rows" sx={{ p: '12px' }}>
+            <Box data-testid="ledger-bench-rows" sx={{ p: { xs: '8px', sm: '12px' } }}>
               {bench.map((row) => {
                 const { key, ...props } = rowProps(row);
                 return <LedgerRow key={key} {...props} />;
@@ -227,48 +237,63 @@ export default function LineupLedger({
           control is a toggle, and here is its state") without promising
           keyboard behaviour that isn't there, matching PickWeek's own
           "All weeks" toggle button (src/features/pick-week/ui/PickWeek.jsx). */}
+      {/* One bottom-sticky container (#1957): the optional `footer` (the page's
+          move strip) stacked directly above the phone tab bar, so two sticky
+          siblings never overlap. Below `sm` both show; from `sm` the tab bar
+          is hidden and a footer floats alone 16px off the bottom. With no
+          footer it holds just the tab bar and is hidden from `sm`. */}
       <Box
-        role="group"
-        aria-label="Lineup section"
-        data-testid="lineup-mobile-tabs"
+        data-testid="lineup-sticky-footer"
         sx={{
-          display: { xs: 'flex', sm: 'none' },
+          display: footer ? 'flex' : { xs: 'flex', sm: 'none' },
+          flexDirection: 'column',
+          gap: '8px',
           position: 'sticky',
-          bottom: 0,
+          bottom: { xs: 0, sm: 16 },
           zIndex: 1,
           mt: '12px',
-          border: '1px solid var(--dash-line)',
-          borderRadius: 'var(--dash-radius-sm)',
-          overflow: 'hidden',
-          backgroundColor: 'var(--dash-surface)',
         }}
       >
-        {[
-          { key: 'starters', label: `Starters ${startersFilled}/${starters.length}` },
-          { key: 'bench', label: `Bench ${benchCount}` },
-        ].map((tab) => (
-          <Box
-            key={tab.key}
-            component="button"
-            type="button"
-            ref={tab.key === 'starters' ? startersTabButtonRef : benchTabButtonRef}
-            aria-pressed={mobileTab === tab.key}
-            onClick={() => setMobileTab(tab.key)}
-            sx={{
-              ...MIN_TOUCH_TARGET_SX,
-              flex: '1 1 0',
-              border: 'none',
-              borderRight: tab.key === 'starters' ? '1px solid var(--dash-line)' : 'none',
-              backgroundColor: mobileTab === tab.key ? 'var(--dash-accent-soft)' : 'transparent',
-              color: mobileTab === tab.key ? 'var(--dash-accent)' : 'var(--dash-dim)',
-              fontWeight: 600,
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-          >
-            {tab.label}
-          </Box>
-        ))}
+        {footer}
+        <Box
+          role="group"
+          aria-label="Lineup section"
+          data-testid="lineup-mobile-tabs"
+          sx={{
+            display: { xs: 'flex', sm: 'none' },
+            border: '1px solid var(--dash-line)',
+            borderRadius: 'var(--dash-radius-sm)',
+            overflow: 'hidden',
+            backgroundColor: 'var(--dash-surface)',
+          }}
+        >
+          {[
+            { key: 'starters', label: `Starters ${startersFilled}/${starters.length}` },
+            { key: 'bench', label: `Bench ${benchCount}` },
+          ].map((tab) => (
+            <Box
+              key={tab.key}
+              component="button"
+              type="button"
+              ref={tab.key === 'starters' ? startersTabButtonRef : benchTabButtonRef}
+              aria-pressed={mobileTab === tab.key}
+              onClick={() => setMobileTab(tab.key)}
+              sx={{
+                ...MIN_TOUCH_TARGET_SX,
+                flex: '1 1 0',
+                border: 'none',
+                borderRight: tab.key === 'starters' ? '1px solid var(--dash-line)' : 'none',
+                backgroundColor: mobileTab === tab.key ? 'var(--dash-accent-soft)' : 'transparent',
+                color: mobileTab === tab.key ? 'var(--dash-accent)' : 'var(--dash-dim)',
+                fontWeight: 600,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              {tab.label}
+            </Box>
+          ))}
+        </Box>
       </Box>
     </>
   );

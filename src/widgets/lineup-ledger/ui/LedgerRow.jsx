@@ -184,7 +184,7 @@ function PlayerAvatar({ name, nflTeam, photoUrl }) {
       aria-hidden="true"
       src={photoUrl || undefined}
       imgProps={{ loading: 'lazy', 'data-testid': 'ledger-headshot' }}
-      sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
+      sx={{ width: { xs: 28, sm: 36 }, height: { xs: 28, sm: 36 }, fontSize: { xs: 11, sm: 13 }, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
     >
       {initialsFor(name)}
     </Avatar>
@@ -235,10 +235,15 @@ export default function LedgerRow({
   onClick,
   onRequestDrop,
   canDrop,
+  reserveDropTrack,
   onOpenDecisionCard = () => {},
   'data-testid': testId,
 }) {
   const isEmpty = !entry;
+  // The Drop track is reserved on every occupied row once any row in the
+  // Ledger can drop (`reserveDropTrack`), so a row without the control (a
+  // spent one) keeps its numbers on the same right edge as its neighbours.
+  const dropTrack = !isEmpty && (canDrop || reserveDropTrack);
   const unavailable = !isEmpty && entry.availability && entry.availability.available === false;
   // Computed once here (rather than inside GameCell) so the same read also
   // drives the points cell's live colour and the Edge line's kind
@@ -369,12 +374,12 @@ export default function LedgerRow({
           gridTemplateColumns: isEmpty
             ? 'minmax(40px, max-content) minmax(0, 1fr)'
             : {
-                xs: `minmax(40px, max-content) 36px minmax(0, 1fr) 64px${canDrop ? ' 44px' : ''}`,
-                sm: `minmax(40px, max-content) 36px minmax(0, 1fr) 160px 72px${canDrop ? ' 44px' : ''}`,
+                xs: `40px 28px minmax(0, 1fr) 52px${dropTrack ? ' 44px' : ''}`,
+                sm: `minmax(40px, max-content) 36px minmax(0, 1fr) 160px 72px${dropTrack ? ' 44px' : ''}`,
               },
           alignItems: 'center',
-          columnGap: { xs: '8px', sm: '10px' },
-          p: canDrop ? '10px 4px 10px 12px' : '10px 12px',
+          columnGap: { xs: '6px', sm: '10px' },
+          p: dropTrack ? { xs: '8px 4px 8px 8px', sm: '10px 4px 10px 12px' } : { xs: '8px', sm: '10px 12px' },
         }}
       >
         <PosChip position={slotLabel} data-testid="ledger-slot-chip" sx={{ justifySelf: 'start' }} />
@@ -532,6 +537,7 @@ export default function LedgerRow({
             its own native button semantics handle Enter/Space without the
             row's handler ever seeing the event. It is the grid's last column
             (L7), inside the row's border. */}
+        {dropTrack && !canDrop && <Box aria-hidden="true" data-testid="ledger-drop-spacer" />}
         {canDrop && (
           <Tooltip title="Drop player">
             <IconButton

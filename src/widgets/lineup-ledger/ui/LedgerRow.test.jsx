@@ -818,3 +818,13 @@ test('a player with an empty-string NFL team shows FA in place of the Team code'
   render(<LedgerRow slotLabel="QB" entry={entry({ nflTeam: '' })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByText('QB · FA')).toBeInTheDocument();
 });
+
+test('reserveDropTrack renders an empty placeholder in place of a missing Drop control, never beside a real one', () => {
+  const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry()} reserveDropTrack onClick={jest.fn()} data-testid="row" />);
+  expect(screen.getByTestId('ledger-drop-spacer')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /drop josh allen/i })).toBeNull();
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} canDrop reserveDropTrack onRequestDrop={jest.fn()} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
+  rerender(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
+  expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
+});

@@ -189,3 +189,38 @@ test('the Bench rows do not scroll inside their card', () => {
   renderLedger({ lineup: fullLineup() });
   expect(getComputedStyle(screen.getByTestId('ledger-bench-rows')).overflowY).not.toBe('auto');
 });
+
+// #1957: the page's sticky strip rides in `footer`, in the same sticky
+// container as the phone tab bar and above it, so the two cannot overlap.
+test('a footer renders before the Starters/Bench buttons inside the same sticky container', () => {
+  renderLedger({ footer: <div data-testid="page-footer">Moving Starter One.</div> });
+  const sticky = screen.getByTestId('lineup-sticky-footer');
+  const footer = within(sticky).getByTestId('page-footer');
+  const tabs = within(sticky).getByTestId('lineup-mobile-tabs');
+  expect(footer.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(tabs).getAllByRole('button')).toHaveLength(2);
+});
+
+test('without a footer the sticky container holds only the tab bar', () => {
+  renderLedger();
+  const sticky = screen.getByTestId('lineup-sticky-footer');
+  expect(within(sticky).getByTestId('lineup-mobile-tabs')).toBeInTheDocument();
+  expect(within(sticky).queryByTestId('page-footer')).toBeNull();
+});
+
+// #1957: a spent row has no Drop, but keeps the Drop track so its numbers
+// share the right edge of the droppable rows around it.
+test('a spent row renders the Drop placeholder when other rows can drop, and none when no row can', () => {
+  const spentLineup = () => ({
+    entries: [starter({ spent: true }), { playerId: 3, name: 'Starter Two', slot: 'RB' }, benchPlayer()],
+    rosterSlots,
+    benchSlots: 1,
+    irSlots: 0,
+  });
+  const { unmount } = renderLedger({ lineup: spentLineup(), canDropEntry: () => true });
+  expect(screen.getAllByTestId('ledger-drop-spacer')).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: /^Drop / })).toHaveLength(2);
+  unmount();
+  renderLedger({ lineup: spentLineup(), canDropEntry: () => false });
+  expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
+});

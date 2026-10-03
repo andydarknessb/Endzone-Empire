@@ -87,3 +87,17 @@ test('at 390px the selected row wears a ring and an eligible Bench row does not'
   await expect(selectedRow).toBeVisible();
   expect(await boxShadowOf(selectedRow)).not.toBe('none');
 });
+
+test('at 390px a short name is not truncated and the info column keeps at least 128px', async ({ page }) => {
+  await openLineup(page, PHONE);
+
+  const row = page.getByTestId('slot-row-QB-0');
+  const name = row.getByRole('button', { name: 'Josh Allen', exact: true });
+  const { scrollWidth, clientWidth } = await name.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(scrollWidth, 'the name must not be ellipsized').toBeLessThanOrEqual(clientWidth);
+
+  const infoWidth = await row.getByTestId('ledger-info').evaluate((el) => el.getBoundingClientRect().width);
+  // eslint-disable-next-line no-console
+  console.log(`LEDGER_INFO_WIDTH_390 ${infoWidth}`);
+  expect(infoWidth).toBeGreaterThanOrEqual(128);
+});
