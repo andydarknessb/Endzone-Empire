@@ -486,6 +486,19 @@ test.each([
   expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
 });
 
+test('"Backup" shows on the entry whose verdict reason is backup, whatever his designation, and on a compared one (ADR 0057)', async () => {
+  const starter = entry({ injuryStatus: null, verdictReason: 'backup' });
+  renderCard({ entry: starter });
+  expect(await screen.findByTestId('decision-card-backup')).toHaveTextContent('Backup');
+  expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
+});
+
+test('no Backup tag for an entry with another or no verdict reason (ADR 0057)', async () => {
+  renderCard({ entry: entry({ verdictReason: 'no_history' }) });
+  await screen.findByRole('heading', { name: 'Josh Allen' });
+  expect(screen.queryByTestId('decision-card-backup')).not.toBeInTheDocument();
+});
+
 test('in compare mode the compared player gets the note by the same rule (ADR 0056)', async () => {
   const starter = entry({ injuryStatus: 'Q', verdictReason: 'questionable' });
   const other = entry({ playerId: 2, name: 'Compare Target', injuryStatus: 'Q', verdictReason: 'no_practice' });

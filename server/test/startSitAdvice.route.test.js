@@ -118,6 +118,8 @@ function mockAdviceDependencies(t, {
   // (player_practice_observations shape); a test can make the read reject.
   practiceRows = [],
   failPractice = false,
+  // ADR 0057: ids the Weekly projection read marks as Backup quarterbacks.
+  backupIds = undefined,
 } = {}) {
   const projectionCalls = [];
   t.mock.method(pool, 'query', async (sql, params) => {
@@ -164,6 +166,7 @@ function mockAdviceDependencies(t, {
         expertConsensus: { status: 'unavailable', source: null },
       },
       projections: new Map(projections),
+      backupIds,
     });
   });
   const guardedDefense = guardAgainstDefenseIteration(positionDefense);
@@ -306,6 +309,35 @@ test('best-ball leagues still refuse advice with a 409', async (t) => {
   assert.match(response.body.error, /best-ball/);
   assert.equal(lineupReads.mock.callCount(), 0, 'no lineup was materialized');
   assert.equal(projectionCalls.length, 0, 'and no projection run was cached');
+});
+
+// ADR 0057: a Backup quarterback is valued at 0 where the lineup is valued, so a
+// started Backup is advised to the bench, while his displayed number stays.
+test('a started Backup quarterback is advised to the bench, keeps his number, and his row carries the backup verdict (ADR 0057)', async (t) => {
+  const entries = [
+    lineupEntry(1, 'QB', 'QB'),
+    lineupEntry(3, 'QB', 'BENCH'),
+  ];
+  mockAdviceDependencies(t, {
+    entries,
+    rosterSlots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }],
+    projections: [[1, projectionFor(1, 20.25)], [3, projectionFor(3, 16)]],
+    backupIds: new Set([1]),
+  });
+
+  const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
+
+  assert.equal(advice.suggestions.length, 1);
+  assert.equal(advice.suggestions[0].current.playerId, 1);
+  assert.equal(advice.suggestions[0].suggested.playerId, 3);
+  assert.deepEqual(advice.movePlan.map((m) => [m.playerId, m.toSlot]), [[3, 'QB'], [1, 'BENCH']]);
+  const byId = new Map(advice.players.map((p) => [p.playerId, p]));
+  assert.equal(byId.get(1).availability.reason, 'backup');
+  assert.equal(byId.get(1).availability.available, true);
+  assert.equal(byId.get(1).availability.autoRecommend, false);
+  assert.equal(byId.get(1).projection, 20.25, 'his displayed number stays');
+  assert.equal(byId.get(3).availability.reason, null);
+  assert.deepEqual(advice.unavailable, [], 'a Backup is available, not Unavailable');
 });
 
 test('a starter on a bye is reported unavailable and replaced', async (t) => {

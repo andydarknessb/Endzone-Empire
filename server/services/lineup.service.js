@@ -1227,11 +1227,11 @@ function findBenchAboveStarter(entry, entries, rosterSlots) {
   if (entry.slot !== BENCH || entry.projected_points == null) return null;
   // A Position-baseline projection (#1776) is the position's average, not this
   // player's own evidence: no "Outprojects" comparison is made with one on
-  // either side.
-  if (entry.positionBaseline) return null;
+  // either side; nor with a Backup quarterback (ADR 0057), who will not play.
+  if (entry.positionBaseline || entry.backup) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null || other.positionBaseline) continue;
+    if (other.projected_points == null || other.positionBaseline || other.backup) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1466,6 +1466,9 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // off the other entries too.
       for (const row of annotated) {
         row.positionBaseline = row.unavailable == null && weeklyResult.positionBaselineFor(row.id);
+        // ADR 0057: a Backup quarterback keeps his number; only the Edge line
+        // stops comparing him against a starter.
+        row.backup = row.unavailable == null && weeklyResult.backupFor(row.id);
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);

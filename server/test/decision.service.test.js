@@ -883,3 +883,15 @@ test('#1862 startSitAdvice reads the lineup at the as-of time and carries the ma
   assert.deepEqual(advice.overrideRecord, { hits: 1, misses: 1 });
   assert.deepEqual(advice.calledShotRecord, { hits: 1, resolved: 1, streak: 1 });
 });
+
+// ADR 0057: a Backup quarterback (his chart verdict rides the Weekly projection
+// result's `backupFor`) is never auto-recommended, like a Position-baseline one,
+// but his own number is untouched.
+const QB1 = [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }];
+
+test('buildSuggestions: a Backup quarterback on the bench is never suggested, even with the highest number', () => {
+  const lineup = [entry(1, 'QB', 'QB'), entry(2, 'QB', 'BENCH')];
+  const projections = resultFromLegacyMap(new Map([[1, { points: 12 }], [2, { points: 20.25 }]]), { backupIds: new Set([2]) });
+  const result = buildSuggestions(lineup, projections, new Map(), QB1);
+  assert.equal(result.suggestions.length, 0);
+});

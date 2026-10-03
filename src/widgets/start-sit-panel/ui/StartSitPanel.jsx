@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Badge, Card, DashButton, InjuryTag, RangeBar } from '../../../shared/ui';
 import { PlayerNameLink } from '../../../entities/player';
-import { formatKickoff, formatPoints, NO_PRACTICE_LABEL } from '../../../shared/lib';
+import { formatKickoff, formatPoints, NO_PRACTICE_LABEL, BACKUP_LABEL } from '../../../shared/lib';
 import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLine, movePlanWithout, pointsLeftLine, projectedLeanLine } from '../lib/suggestionView';
 
 /**
@@ -305,6 +305,9 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
         <InjuryTag status={player.injuryStatus} />
         {player.noPractice && (
           <Badge variant="neutral" data-testid="suggestion-no-practice">{NO_PRACTICE_LABEL}</Badge>
+        )}
+        {player.backup && (
+          <Badge variant="neutral" data-testid="suggestion-backup">{BACKUP_LABEL}</Badge>
         )}
         {player.volatility && (
           <Badge variant="neutral" data-testid="suggestion-volatility">{player.volatility}</Badge>

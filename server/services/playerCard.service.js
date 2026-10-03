@@ -193,14 +193,19 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   // `upgradeFor` can carry it onto `overPlayer`, and the claim sheet can tell
   // "zero because Unavailable" from "zero because he genuinely projects 0"
   // without re-deriving it from roster fields the client does not have.
+  // A starting Backup quarterback (ADR 0057) will not play either: the same
+  // zero, with reason `backup`, so he does not hide a real starter's Upgrade.
   const currentStarters = starterRows.map((r) => {
     const classification = projections.classify(r.player_id);
+    const zeroReason = classification.unavailable
+      ? classification.reason
+      : (projections.backupFor(r.player_id) ? 'backup' : null);
     return {
       playerId: r.player_id,
       slot: r.slot,
       name: r.name,
-      projection: classification.unavailable ? 0 : projections.pointsFor(r.player_id),
-      unavailable: classification.unavailable ? classification.reason : null,
+      projection: zeroReason ? 0 : projections.pointsFor(r.player_id),
+      unavailable: zeroReason,
     };
   });
 
@@ -243,6 +248,13 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     // Waiver Wire's default Upgrade sort. The number stays; only the verdict
     // changes (null sorts after every candidate with an Upgrade).
     if (projections.positionBaselineFor(id)) {
+      upgrades.set(id, null);
+      continue;
+    }
+    // Backup quarterback (ADR 0057): behind an available teammate on the Depth
+    // chart, so he will not play however high his own number is. Same verdict,
+    // same branch; his number stays.
+    if (projections.backupFor(id)) {
       upgrades.set(id, null);
       continue;
     }

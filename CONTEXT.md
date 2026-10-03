@@ -1736,9 +1736,21 @@ the league fact)
 **Depth chart rank**:
 A player's order within their position group on their NFL team's published
 depth chart, 1 being the starter. A daily fact shown as context; it does
-not move a served projection; only a Challenger (ADR 0050) reads it. A player absent from the chart has no rank, which
+not move a served projection; a Challenger (ADR 0050) reads it, and so does
+the Backup quarterback verdict (ADR 0057), which changes a verdict, never a
+number. A player absent from the chart has no rank, which
 is not the same as being on the Practice squad.
 _Avoid_: role, string (first-string etc.), depth
+
+**Backup quarterback**:
+A QB whose team's newest Depth chart (captured within 48 hours) ranks him
+behind a teammate QB who is not Out or IR (ADR 0057). Like a
+Position-baseline projection he is available but never auto-recommended
+(reason `backup`), and his Upgrade is undefined; unlike it, his Weekly
+projection is his own evidence and is still shown, tagged "Backup". When a
+lineup is valued (Start/sit advice, the Upgrade's roster baseline) he is
+worth 0. QB only.
+_Avoid_: QB2, backup (alone, for any other position), benched
 
 ### Evaluation
 

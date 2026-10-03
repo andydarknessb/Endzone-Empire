@@ -20,6 +20,11 @@ export const NO_HISTORY_LABEL = 'no history';
 // ADR 0056). The server owns the verdict; this is only its copy. Never "DNP".
 export const NO_PRACTICE_LABEL = 'No practice this week';
 
+// The tag for a Backup quarterback (`availability.reason` / `verdictReason` is
+// 'backup', ADR 0057): behind an available teammate on the Depth chart. His
+// projected number is his own evidence and is still printed.
+export const BACKUP_LABEL = 'Backup';
+
 // The Lineup wire spells the verdict `positionBaseline: true` (#1776); the
 // Players page wire (Players and Waivers, #1778) carries the server's verdict
 // reason, `verdictReason: 'no_history'`, on those rows only. Both are the
