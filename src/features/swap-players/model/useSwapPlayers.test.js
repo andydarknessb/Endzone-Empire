@@ -99,6 +99,21 @@ test('clicking the selected row again cancels the selection without saving', () 
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
+// #1963: Escape cancels a pending move, except one a handler already claimed.
+test('Escape cancels the selection, but not an Escape already defaultPrevented (#1963)', () => {
+  const qb = entry();
+  const { result } = setup({ entries: [qb] });
+  act(() => result.current.onRowClick(qb, 'QB'));
+
+  const claimed = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true });
+  claimed.preventDefault();
+  act(() => { document.dispatchEvent(claimed); });
+  expect(result.current.selectedEntry).toEqual(qb);
+
+  act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+  expect(result.current.selectedEntry).toBeNull();
+});
+
 test('a locked player cannot be selected: a warning is shown and no move is made', () => {
   const lockedQb = entry({ locked: true });
   const { result } = setup({ entries: [lockedQb] });
