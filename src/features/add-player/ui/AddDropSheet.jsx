@@ -43,22 +43,27 @@ function AddDropSheetBody({ player, leagueId, roster, dropSuggestion, onClose, o
           <Typography id="add-drop-sheet-note" sx={{ fontSize: 12, color: 'var(--dash-dim)' }}>
             Your roster is full. Choose a player to drop.
           </Typography>
-          <RadioGroup
-            aria-labelledby="add-drop-sheet-drop-label"
-            aria-describedby="add-drop-sheet-note"
-            value={dropId}
-            onChange={(e) => setDropId(e.target.value)}
-          >
-            {sortedRoster.map((p) => (
-              <FormControlLabel
-                key={p.id}
-                value={String(p.id)}
-                control={<Radio />}
-                label={`${p.name} (${p.position}) · ${fmt(p.projected_weekly_points)} proj`}
-                sx={{ ...TOUCH, m: 0 }}
-              />
-            ))}
-          </RadioGroup>
+          {sortedRoster.length === 0 ? (
+            // A failed roster read leaves nothing to choose; say so rather than an empty list.
+            <Typography sx={{ mt: 1 }}>Couldn't load your roster. Close and try again.</Typography>
+          ) : (
+            <RadioGroup
+              aria-labelledby="add-drop-sheet-drop-label"
+              aria-describedby="add-drop-sheet-note"
+              value={dropId}
+              onChange={(e) => setDropId(e.target.value)}
+            >
+              {sortedRoster.map((p) => (
+                <FormControlLabel
+                  key={p.id}
+                  value={String(p.id)}
+                  control={<Radio />}
+                  label={`${p.name} (${p.position}) · ${fmt(p.projected_weekly_points)} proj`}
+                  sx={{ ...TOUCH, m: 0 }}
+                />
+              ))}
+            </RadioGroup>
+          )}
         </Box>
       </DialogContent>
       <DialogActions>

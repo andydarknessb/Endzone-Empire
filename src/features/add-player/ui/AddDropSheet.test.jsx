@@ -88,7 +88,15 @@ test('a refused add keeps the sheet open', async () => {
 
   await userEvent.click(screen.getByRole('button', { name: 'Add and drop' }));
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(2)); // add, then undo-drop
+  expect(apiClient.post).toHaveBeenLastCalledWith('/api/team/roster/21/undo-drop', { leagueId: 4 });
   expect(onClose).not.toHaveBeenCalled();
+});
+
+test('an empty roster read shows one line in place of the options and cannot submit', () => {
+  renderSheet({ roster: [] });
+  expect(screen.getByText("Couldn't load your roster. Close and try again.")).toBeInTheDocument();
+  expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Add and drop' })).toBeDisabled();
 });
 
 test('Cancel closes without touching the roster', async () => {

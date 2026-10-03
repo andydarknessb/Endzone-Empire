@@ -297,7 +297,8 @@ function PlayerManagement() {
         // #1974 P5: the live label is the short "Add", named per player; the
         // disabled phases keep the phase's own label and helper.
         label: rosterAction.disabled ? rosterAction.label : rowPending ? "Adding…" : "Add",
-        ariaLabel: rosterAction.disabled ? undefined : `Add ${player.name}`,
+        // WCAG 2.5.3: the busy state is in the name, not only the visible label.
+        ariaLabel: rosterAction.disabled ? undefined : `${rowPending ? "Adding" : "Add"} ${player.name}`,
         // At a full roster a plain add is refused, so the tap opens the
         // add and drop sheet (#1974 P1).
         onClick: rosterAtCapacity ? () => setAddDropPlayer(player) : () => addToRoster(player),

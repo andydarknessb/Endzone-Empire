@@ -1245,6 +1245,31 @@ describe("roster moves from the row (#1974)", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  test("the busy row is named Adding <name> while its add is in flight", async () => {
+    mockBrowser({ players: [player({ id: 8, name: "Free Agent" })] });
+    let resolvePost;
+    apiClient.post.mockReturnValue(new Promise((resolve) => { resolvePost = resolve; }));
+    renderWithProviders(<PlayerManagement />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add Free Agent" }));
+
+    expect(await screen.findByRole("button", { name: "Adding Free Agent" })).toBeDisabled();
+    expect(screen.getByText("Adding…")).toBeInTheDocument();
+    resolvePost({});
+    expect(await screen.findByRole("button", { name: "Add Free Agent" })).toBeEnabled();
+  });
+
+  test.each([
+    ["pre-draft", { draft_status: "pending", season_status: "preseason" }, "Draft not started"],
+    ["season complete", { season_status: "complete" }, "Season complete"],
+  ])("a %s league keeps the phase label on a disabled free agent row", async (_phase, overrides, label) => {
+    mockBrowser({ leagues: [{ ...league, ...overrides }], players: [player({ id: 8, name: "Free Agent" })] });
+    renderWithProviders(<PlayerManagement />);
+
+    expect(await screen.findByRole("button", { name: label })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Add Free Agent" })).not.toBeInTheDocument();
+  });
+
   test("a My team row drops after a confirmation, and the dialog carries the neutral copy", async () => {
     mockBrowser({
       players: [player({ id: 3, name: "My Starter", availability: { state: "my_team", teamId: 1, teamName: null, availableAt: null } })],
