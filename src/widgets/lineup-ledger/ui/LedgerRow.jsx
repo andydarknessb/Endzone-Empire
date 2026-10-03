@@ -378,7 +378,7 @@ export default function LedgerRow({
             ? 'minmax(40px, max-content) minmax(0, 1fr)'
             : {
                 xs: `minmax(40px, max-content) 28px minmax(0, 1fr) 52px${dropTrack ? ' 44px' : ''}`,
-                sm: `minmax(40px, max-content) 36px minmax(0, 1fr) minmax(120px, 160px) 72px${dropTrack ? ' 44px' : ''}`,
+                sm: `minmax(40px, max-content) 36px minmax(128px, 1fr) minmax(120px, 160px) 72px${dropTrack ? ' 44px' : ''}`,
               },
           alignItems: 'center',
           columnGap: { xs: '6px', sm: '10px' },

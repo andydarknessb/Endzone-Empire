@@ -252,7 +252,7 @@ export default function LineupLedger({
           bottom: { xs: 0, sm: 16 },
           zIndex: 1,
           mt: '12px',
-          backgroundColor: { xs: 'var(--dash-bg)', sm: 'transparent' },
+          backgroundColor: { xs: 'var(--bg-page)', sm: 'transparent' },
         }}
       >
         {footer}

@@ -117,3 +117,13 @@ test('at 390px the BENCH slot chip clears the avatar and the Bench info column k
   console.log(`LEDGER_BENCH_INFO_WIDTH_390 ${infoWidth}`);
   expect(infoWidth).toBeGreaterThanOrEqual(128);
 });
+
+for (const width of [600, 900]) {
+  test(`at ${width}px the info column of a Starters row and a Bench row keeps at least 128px`, async ({ page }) => {
+    await openLineup(page, { width, height: 900 });
+
+    const infoWidth = (id: string) => page.getByTestId(id).getByTestId('ledger-info').evaluate((el) => el.getBoundingClientRect().width);
+    expect(await infoWidth('slot-row-RB-0')).toBeGreaterThanOrEqual(128);
+    expect(await infoWidth('slot-row-BENCH-201')).toBeGreaterThanOrEqual(128);
+  });
+}
