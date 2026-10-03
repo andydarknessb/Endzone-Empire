@@ -38,7 +38,7 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * An Undo after leaving and returning to the page restores on the server, but
  * this page shows it only after the next refetch. Undo restores slots only: a
  * called shot the forward save voided, or a cleared IR attestation, is not
- * restored. Rollbacks (a refused save or Undo) are functional and same-lineup
+ * restored (#1969). Rollbacks (a refused save or Undo) are functional and same-lineup
  * guarded: they reset only the moved ids' slots on the current `raw`.
  */
 export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
