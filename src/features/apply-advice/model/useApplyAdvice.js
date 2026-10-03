@@ -28,6 +28,13 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * landed on the server, either right after `saveLineup` resolves unqueued or
  * when a queued write replays. Never on a refused or still-queued save. The
  * page supplies it to refresh whatever read the write made stale.
+ *
+ * Undo (#1964): the "Lineup saved" toast of a save that landed right away
+ * carries an Undo action (Snackbar `actionLabel`/`onAction`), never a queued
+ * save or an error. It re-runs the write with each moved `playerId` back at
+ * the slot the pre-move `raw` held (matched by `id`). The undo is a plain
+ * write: its success says "Lineup restored" with no Undo of its own, and a
+ * refusal rolls back to the moved lineup through the same catch.
  */
 export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
   const notify = useSnackbar();
@@ -39,30 +46,47 @@ export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
     },
   });
 
+  // `restoreRaw` is set only by an Undo's own run: the moved lineup it rolls
+  // back to when refused (#1964), and the mark that it carries no Undo itself.
+  const runMoves = async (moves, restoreRaw) => {
+    const snapshot = raw;
+    const slotByPlayer = new Map(moves.map((m) => [m.playerId, m.slot]));
+    const patch = (prev) =>
+      prev
+        ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
+        : prev;
+    setRaw(patch);
+    try {
+      const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
+      if (!result.queued) onLanded?.();
+      if (result.queued) {
+        notify('Lineup change saved offline. It will sync when you reconnect', { severity: 'info' });
+        return;
+      }
+      if (restoreRaw) {
+        notify('Lineup restored', { severity: 'success' });
+        return;
+      }
+      // #1964: each moved player back to the slot the pre-move snapshot held.
+      const inverse = moves
+        .map((m) => ({ playerId: m.playerId, slot: snapshot?.entries?.find((e) => e.id === m.playerId)?.slot }))
+        .filter((m) => m.slot != null);
+      notify('Lineup saved', {
+        severity: 'success',
+        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMoves(inverse, patch(snapshot)) }),
+      });
+    } catch (err) {
+      setRaw(restoreRaw ?? snapshot);
+      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+    }
+  };
+
   const apply = async (movePlan) => {
     const moves = (movePlan || [])
       .filter((m) => m && m.playerId != null && m.toSlot != null)
       .map((m) => ({ playerId: m.playerId, slot: m.toSlot }));
     if (moves.length === 0) return;
-
-    const snapshot = raw;
-    const slotByPlayer = new Map(moves.map((m) => [m.playerId, m.slot]));
-    setRaw((prev) =>
-      prev
-        ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
-        : prev
-    );
-    try {
-      const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
-      if (!result.queued) onLanded?.();
-      notify(
-        result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
-        { severity: result.queued ? 'info' : 'success' }
-      );
-    } catch (err) {
-      setRaw(snapshot);
-      notify(readHttpFailure(err).message || err.message, { severity: 'error' });
-    }
+    await runMoves(moves);
   };
 
   return { apply };

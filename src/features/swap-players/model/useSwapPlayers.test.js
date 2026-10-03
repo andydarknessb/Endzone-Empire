@@ -449,7 +449,7 @@ describe('onLanded after a save (#1881)', () => {
 
     move(result);
 
-    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' }));
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.objectContaining({ severity: 'success' })));
   });
 
   test('a save refused with an HTTP error never calls it', async () => {
@@ -477,5 +477,83 @@ describe('onLanded after a save (#1881)', () => {
       window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
     });
     expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1964: a save that lands right away offers Undo on its toast; the undo
+// writes each moved player back to the slot the pre-move snapshot held.
+describe('Undo on the Lineup saved toast (#1964)', () => {
+  const qb = entry();
+  const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+  const swap = (result) => {
+    act(() => result.current.onRowClick(bench, 'BENCH'));
+    act(() => result.current.onRowClick(qb, 'QB'));
+  };
+
+  test('a landed save notifies with an Undo action', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith('Lineup saved', {
+        severity: 'success',
+        actionLabel: 'Undo',
+        onAction: expect.any(Function),
+      })
+    );
+  });
+
+  test('invoking Undo saves the inverse moves, then notifies Lineup restored with no Undo', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }]);
+    const { onAction } = mockNotify.mock.calls[0][1];
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', {
+      leagueId: 7,
+      week: 4,
+      moves: [
+        { playerId: 2, slot: 'BENCH' },
+        { playerId: 1, slot: 'QB' },
+      ],
+    });
+    expect(mockNotify).toHaveBeenLastCalledWith('Lineup restored', { severity: 'success' });
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'QB' }, { id: 2, slot: 'BENCH' }]);
+  });
+
+  test('a refused Undo rolls back to the moved lineup and carries no Undo', async () => {
+    apiClient.put.mockResolvedValueOnce({ data: {} });
+    const { result, getRaw } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.anything()));
+    const { onAction } = mockNotify.mock.calls[0][1];
+    apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(mockNotify).toHaveBeenLastCalledWith(expect.any(String), { severity: 'error' });
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'BENCH' }, { id: 2, slot: 'QB' }]);
+  });
+
+  test('a save queued offline has no Undo', async () => {
+    apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+
+    await waitFor(() => expect(readPendingLineupMutations()).toHaveLength(1));
+    expect(mockNotify).toHaveBeenCalledWith(expect.stringContaining('saved offline'), { severity: 'info' });
   });
 });

@@ -110,7 +110,7 @@ describe('onLanded after an apply (#1881)', () => {
       await result.current.apply(PLAN);
     });
 
-    expect(mockNotify).toHaveBeenCalledWith('Lineup saved', { severity: 'success' });
+    expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.objectContaining({ severity: 'success' }));
   });
 
   test('a save refused with an HTTP error never calls it', async () => {
@@ -141,5 +141,84 @@ describe('onLanded after an apply (#1881)', () => {
       window.dispatchEvent(new CustomEvent(LINEUP_MUTATION_REPLAYED_EVENT, { detail: { queued: 1 } }));
     });
     expect(onLanded).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1964: a save that lands right away offers Undo on its toast; the undo
+// writes each moved player back to the slot the pre-move snapshot held.
+describe('Undo on the Lineup saved toast (#1964)', () => {
+  const PLAN = [
+    { playerId: 1, fromSlot: 'BENCH', toSlot: 'WR' },
+    { playerId: 2, fromSlot: 'WR', toSlot: 'BENCH' },
+  ];
+
+  test('a landed save notifies with an Undo action', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(mockNotify).toHaveBeenCalledWith('Lineup saved', {
+      severity: 'success',
+      actionLabel: 'Undo',
+      onAction: expect.any(Function),
+    });
+  });
+
+  test('invoking Undo saves the inverse moves, then notifies Lineup restored with no Undo', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, getRaw } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+    const { onAction } = mockNotify.mock.calls[0][1];
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', {
+      leagueId: 7,
+      week: 4,
+      moves: [
+        { playerId: 1, slot: 'BENCH' },
+        { playerId: 2, slot: 'WR' },
+      ],
+    });
+    expect(mockNotify).toHaveBeenLastCalledWith('Lineup restored', { severity: 'success' });
+    expect(getRaw().entries).toEqual(RAW.entries);
+  });
+
+  test('a refused Undo rolls back to the moved lineup and carries no Undo', async () => {
+    apiClient.put.mockResolvedValueOnce({ data: {} });
+    const { result, getRaw } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+    const { onAction } = mockNotify.mock.calls[0][1];
+    apiClient.put.mockRejectedValue({ response: { status: 409, data: { error: 'locked' } } });
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(mockNotify).toHaveBeenLastCalledWith(expect.any(String), { severity: 'error' });
+    expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+  });
+
+  test('a save queued offline has no Undo', async () => {
+    apiClient.put.mockRejectedValue({ message: 'Network Error', code: 'ERR_NETWORK' });
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(mockNotify).toHaveBeenCalledWith(expect.stringContaining('saved offline'), { severity: 'info' });
   });
 });

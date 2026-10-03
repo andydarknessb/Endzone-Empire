@@ -155,6 +155,14 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * landed on the server, either right after `saveLineup` resolves unqueued or
  * when a queued write replays. Never on a refused or still-queued save. The
  * page supplies it to refresh whatever read the write made stale.
+ *
+ * Undo (#1964): `performMove`'s "Lineup saved" toast carries an Undo action
+ * when the save landed right away (never queued, never an error), via the
+ * Snackbar's `actionLabel`/`onAction`. It re-runs the move with each moved
+ * `playerId` back at the slot the pre-move `raw` held (matched by `id`). The
+ * undo is itself a plain write: its success says "Lineup restored" with no
+ * Undo of its own, and a refusal rolls back to the moved lineup and shows
+ * the server's message through the same catch.
  */
 export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, onLanded }) {
   const notify = useSnackbar();
@@ -186,26 +194,44 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   const list = Array.isArray(entries) ? entries : [];
   const byId = new Map(list.map((e) => [e.playerId, e]));
 
-  const performMove = async (moves) => {
+  // `restoreRaw` is set only by an Undo's own run: the moved lineup it rolls
+  // back to when refused (#1964), and the mark that it carries no Undo itself.
+  const runMove = async (moves, restoreRaw) => {
     const snapshot = raw;
     const slotByPlayer = new Map(moves.map((m) => [m.playerId, m.slot]));
-    setRaw((prev) =>
+    const patch = (prev) =>
       prev
         ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
-        : prev
-    );
+        : prev;
+    setRaw(patch);
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
       if (!result.queued) onLanded?.();
-      notify(
-        result.queued ? 'Lineup change saved offline. It will sync when you reconnect' : 'Lineup saved',
-        { severity: result.queued ? 'info' : 'success' }
-      );
+      if (result.queued) {
+        notify('Lineup change saved offline. It will sync when you reconnect', { severity: 'info' });
+        return;
+      }
+      if (restoreRaw) {
+        notify('Lineup restored', { severity: 'success' });
+        return;
+      }
+      // #1964: each moved player back to the slot the pre-move snapshot held.
+      const inverse = moves
+        .map((m) => ({ playerId: m.playerId, slot: snapshot?.entries?.find((e) => e.id === m.playerId)?.slot }))
+        .filter((m) => m.slot != null);
+      notify('Lineup saved', {
+        severity: 'success',
+        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMove(inverse, patch(snapshot)) }),
+      });
     } catch (err) {
-      setRaw(snapshot);
+      setRaw(restoreRaw ?? snapshot);
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };
+
+  // The single entry point every move goes through. Takes no second argument
+  // on purpose: `onSwap={performMove}` callers must never reach `restoreRaw`.
+  const performMove = (moves) => runMove(moves);
 
   // Whether `targetEntry` (or an empty slot when null) is a legal landing
   // spot for the currently selected player - a thin wrapper closing over
