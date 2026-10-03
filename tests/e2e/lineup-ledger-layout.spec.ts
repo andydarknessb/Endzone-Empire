@@ -78,3 +78,23 @@ test('at 390 the selected starter draws the accent ring and an eligible Bench ro
   expect(await shadow(STARTER_RB_TEST_ID)).not.toBe('none');
   expect(await shadow(`slot-row-BENCH-${BENCH_RB_ID}`)).toBe('none');
 });
+
+// WCAG 1.4.10 reflow reaches 320px: the avatar column gives way so the name
+// keeps room, the numbers stay aligned and nothing scrolls sideways.
+test('at 320 the info block keeps room, the numbers stay aligned and the page does not scroll sideways', async ({ page }) => {
+  await openLineup(page, { width: 320, height: 640 });
+
+  const infoWidths = await page.getByTestId('ledger-starters').getByTestId('ledger-info').evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().width)
+  );
+  for (const width of infoWidths) expect(width, `info widths ${JSON.stringify(infoWidths)}`).toBeGreaterThanOrEqual(60);
+
+  const rights = await page
+    .getByTestId('ledger-starters')
+    .getByTestId('ledger-projection')
+    .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().right));
+  for (const right of rights) expect(Math.abs(right - rights[0])).toBeLessThanOrEqual(1);
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});

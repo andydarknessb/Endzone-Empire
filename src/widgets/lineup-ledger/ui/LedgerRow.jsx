@@ -185,6 +185,7 @@ function PlayerAvatar({ name, nflTeam, photoUrl }) {
   return (
     <Avatar
       aria-hidden="true"
+      data-ledger-avatar=""
       src={photoUrl || undefined}
       imgProps={{ loading: 'lazy', 'data-testid': 'ledger-headshot' }}
       sx={{ width: 36, height: 36, fontSize: 13, bgcolor: kit.jersey, color: monogramInk(kit.jersey) }}
@@ -289,8 +290,8 @@ export default function LedgerRow({
   // Edge line and the visually-hidden points caption concatenated together.
   const rowLabel = isEmpty
     ? `Empty ${slotLabel} slot`
-    // The Set drops a designation that repeats the unavailable reason
-    // ("out, out" for an Out player the feed marks unavailable).
+    // The Set drops a designation that repeats the unavailable reason word for
+    // word ("out, out" for an Out player the feed marks unavailable).
     : [...new Set([
         entry.name,
         slotLabel,
@@ -370,6 +371,13 @@ export default function LedgerRow({
             : '44px 36px minmax(0, 1fr) minmax(120px, 0.9fr) 72px',
           columnGap: '10px',
           alignItems: compact ? 'start' : 'center',
+          // Below 360px (WCAG 1.4.10 reflow reaches 320) the avatar column goes,
+          // so the name keeps room beside the slot chip and the numbers.
+          '@media (max-width: 359px)': {
+            gridTemplateColumns: '40px minmax(0, 1fr) 64px',
+            columnGap: '8px',
+            '& > [data-ledger-avatar]': { display: 'none' },
+          },
         }}
       >
         <PosChip position={slotLabel} data-testid="ledger-slot-chip" />
