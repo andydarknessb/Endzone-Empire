@@ -674,8 +674,59 @@ test('#1425: selecting a starter with an eligible bench target auto-switches the
   expect(benchTab).toHaveAttribute('aria-pressed', 'true');
   expect(startersTab).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByTestId('lineup-move-strip')).toHaveTextContent(
-    'Moving Derrick King: tap a highlighted player, or switch tabs for more'
+    'Moving Derrick King. Pick a highlighted player.'
   );
+});
+
+// #1958 (L8): the swap strip rides the Ledger's sticky footer, stacked above
+// the phone tab bar, so selecting a row lower on the page neither pushes the
+// list down under the finger nor leaves the strip off screen or overlapping
+// the tab bar.
+test('#1958: selecting a row shows the move strip in the sticky footer, after the Ledger rows', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+
+  await user.click(screen.getByTestId('slot-row-RB-0-select'));
+
+  const strip = screen.getByTestId('lineup-move-strip');
+  expect(strip).toHaveTextContent('Moving Derrick King. Pick a highlighted player.');
+  expect(within(screen.getByTestId('lineup-sticky-footer')).getByTestId('lineup-move-strip')).toBe(strip);
+  const lastLedgerCard = screen.getByTestId('ledger-bench');
+  expect(lastLedgerCard.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+});
+
+// #1958 (L9): below `sm` the header gives up height so the first starter sits
+// higher; from `sm` up it is unchanged.
+describe('#1958: team header size', () => {
+  const setNarrow = (narrow) => {
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: narrow,
+      media: query,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }));
+  };
+
+  test('below sm the avatar is 40px and the title 22px', async () => {
+    setNarrow(true);
+    renderPage();
+    const heading = await screen.findByRole('heading', { level: 1, name: 'My Team' });
+    expect(screen.getByTestId('lineup-team-avatar')).toHaveStyle({ width: '40px', height: '40px' });
+    expect(heading).toHaveStyle({ fontSize: '22px' });
+  });
+
+  test('from sm up the avatar is 56px and the title 26px', async () => {
+    setNarrow(false);
+    renderPage();
+    const heading = await screen.findByRole('heading', { level: 1, name: 'My Team' });
+    expect(screen.getByTestId('lineup-team-avatar')).toHaveStyle({ width: '56px', height: '56px' });
+    expect(heading).toHaveStyle({ fontSize: '26px' });
+  });
 });
 
 // #1425 AC4: a selection with no legal target anywhere in the lineup - no
