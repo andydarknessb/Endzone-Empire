@@ -69,7 +69,7 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd, dense 
         alignItems: 'flex-end',
         gap: dense ? 0.25 : 0.75,
         px: dense ? 0 : 2,
-        py: dense ? 0.5 : 1.5,
+        py: dense ? 0 : 1.5,
         overflowX: 'auto',
         // A scroll container's automatic minimum size in a flexbox is 0, and
         // the Decision card's sheet (MUI's Drawer paper) is a column flexbox

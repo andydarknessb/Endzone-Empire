@@ -10,7 +10,6 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Paper,
   Select,
   Stack,
   Typography,
@@ -376,51 +375,80 @@ function PlayerManagement() {
         maxWidth: 1280,
         mx: "auto",
         px: { xs: 1.5, sm: 3 },
-        py: { xs: 2, md: 4 },
+        py: { xs: 2, md: 3 },
       }}
     >
-      <Paper
+      <Stack
         component="header"
-        elevation={0}
-        sx={{
-          p: { xs: 2, sm: 3 },
-          mb: 2,
-          color: "var(--on-accent)",
-          background: "var(--gradient-brand)",
-          borderRadius: 4,
-        }}
+        direction="row"
+        useFlexGap
+        flexWrap="wrap"
+        alignItems="center"
+        columnGap={1.5}
+        rowGap={1}
+        sx={{ mb: 1.5 }}
       >
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          justifyContent="space-between"
-          spacing={2}
-          alignItems={{ sm: "center" }}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "baseline",
+            columnGap: 1.5,
+            minWidth: 0,
+            width: { xs: "100%", sm: "auto" },
+          }}
         >
-          <Box>
+          <Typography
+            component="h1"
+            sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2, color: "var(--text-primary)" }}
+          >
+            Players
+          </Typography>
+          {/* Below md the League select lives in the Filters drawer, so the
+              header names the league there. */}
+          {activeLeague?.name && (
             <Typography
-              component="h1"
-              variant="h4"
-              sx={{ fontWeight: 900, letterSpacing: "-.03em" }}
+              noWrap
+              sx={{ display: { xs: "block", md: "none" }, minWidth: 0, fontSize: 13, color: "var(--text-muted)" }}
             >
-              Player Browser
+              {activeLeague.name}
             </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.82, mt: 0.5 }}>
-              League-scoped player discovery and acquisition.
-            </Typography>
-          </Box>
-          {selectedLeague && (
-            <Button
-              component={RouterLink}
-              to={`/league/${selectedLeague}/lineup`}
-              variant="outlined"
-              color="inherit"
-              sx={{ ...actionSx, borderColor: "var(--on-accent)" }}
-            >
-              Manage lineup
-            </Button>
           )}
-        </Stack>
-      </Paper>
+        </Box>
+        {marketContext && (
+          <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75}>
+            {marketContext.rosterCount != null && (
+              <Chip
+                size="small"
+                label={`${marketContext.rosterCount} / ${marketContext.rosterCapacity ?? "-"} rostered`}
+              />
+            )}
+            {marketContext.waiverType === "faab" && (
+              <Chip
+                size="small"
+                color="secondary"
+                label={`FAAB $${marketContext.faabRemaining ?? "-"}`}
+              />
+            )}
+            {marketContext.waiverType === "priority" && (
+              <Chip
+                size="small"
+                color="secondary"
+                label={`Waiver priority ${marketContext.waiverPriority ?? "-"}`}
+              />
+            )}
+          </Stack>
+        )}
+        {selectedLeague && (
+          <Button
+            component={RouterLink}
+            to={`/league/${selectedLeague}/lineup`}
+            variant="outlined"
+            sx={{ ...actionSx, ml: { sm: "auto" } }}
+          >
+            Manage lineup
+          </Button>
+        )}
+      </Stack>
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
           {error}
@@ -440,51 +468,11 @@ function PlayerManagement() {
           not acquired.
         </Alert>
       )}
-      {marketContext && (
-        <Paper variant="outlined" sx={{ mb: 2, p: 1.5, borderRadius: 3 }}>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            alignItems={{ sm: "center" }}
-            justifyContent="space-between"
-            spacing={1}
-          >
-            <Box>
-              <Typography variant="subtitle2" component="p" sx={{ fontWeight: 800 }}>
-                {marketContext.leagueName}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Your player marketplace
-              </Typography>
-            </Box>
-            <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75}>
-              {marketContext.rosterCount != null && (
-                <Chip
-                  size="small"
-                  label={`${marketContext.rosterCount} / ${marketContext.rosterCapacity ?? "-"} rostered`}
-                />
-              )}
-              {marketContext.waiverType === "faab" && (
-                <Chip
-                  size="small"
-                  color="secondary"
-                  label={`FAAB $${marketContext.faabRemaining ?? "-"}`}
-                />
-              )}
-              {marketContext.waiverType === "priority" && (
-                <Chip
-                  size="small"
-                  color="secondary"
-                  label={`Waiver priority ${marketContext.waiverPriority ?? "-"}`}
-                />
-              )}
-            </Stack>
-          </Stack>
-        </Paper>
-      )}
       <PlayerPool
         ref={poolRef}
         leagueId={selectedLeague}
         bestBall={bestBall}
+        stickyHead
         ready={leaguesLoaded}
         columnCount={playerRowColumnCount(bestBall)}
         renderTableHead={(headProps) => <PlayerRowTableHead {...headProps} />}

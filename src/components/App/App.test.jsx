@@ -154,7 +154,7 @@ test('"/player" is protected: LoginPage when logged out, PlayerManagement when l
       return Promise.resolve({ data: { players: [], totalPages: 1 } });
     });
   });
-  expect(await screen.findByRole('heading', { name: 'Player Browser' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: 'Players' })).toBeInTheDocument();
 });
 
 test('"/league/:leagueId" is protected: LoginPage when logged out, LeagueDashboard when logged in', async () => {
