@@ -47,9 +47,11 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * column (a sticky bar inside the roster column goes away with it on Outlook)
  * and the Outlook content is page-composed from widgets the Ledger itself
  * never imports (ADR 0020); the Ledger is controlled (`mobileTab` /
- * `onMobileTabChange`). The bar shares one bottom-sticky container with the
- * move strip (#1958), the strip stacked above it. From `sm` the bar is gone
- * and both columns show side by side.
+ * `onMobileTabChange`). The bar shares one bottom container with the move
+ * strip (#1958), the strip stacked above it: `position: fixed` below `sm`
+ * (a sticky bar cannot reach the viewport bottom past the app Footer),
+ * sticky from `sm`, where the bar is gone, the strip floats alone and both
+ * columns show side by side.
  *
  * Ticket 7 (#1239) stacks the bye-cluster widget's grid into the same
  * Outlook view, under start-sit-panel, computed off `lineup.entries` with no
@@ -552,12 +554,27 @@ export default function LineupPage() {
                 </Box>
               </Box>
 
-              {/* The phone bar below is fixed and out of flow, so it would sit
-                  over the app shell's Footer links at the end of the scroll:
-                  below `sm` this adds the bar's height (54: 44px button, 2px
-                  border, 8px top padding) to the Footer's own bottom padding
-                  while this page is mounted. */}
-              <GlobalStyles styles={(t) => ({ [t.breakpoints.down('sm')]: { footer: { paddingBottom: 74 } } })} />
+              {/* The phone bar below is fixed and out of flow, so below `sm`
+                  this page-scoped style keeps three things clear of it while
+                  the page is mounted: the app Footer's links (the bar's 54px -
+                  44px button, 2px border, 8px top padding - added to the
+                  Footer's own 20px bottom padding), the bottom-anchored
+                  Snackbar (lifted to the bar's height plus an 8px gap, since a
+                  save toast with Undo lingers 20s), and focused rows
+                  (`scroll-padding-bottom` of the bar plus the strip, 132: a
+                  70px strip and an 8px gap, so a Tab-focused row is not
+                  scrolled under either, WCAG 2.4.11). The selectors reach the
+                  shell's `footer` tag and MUI's Snackbar class, the same global
+                  hooks Footer.css and SnackbarProvider.jsx own. */}
+              <GlobalStyles
+                styles={(t) => ({
+                  [t.breakpoints.down('sm')]: {
+                    html: { scrollPaddingBottom: 132 },
+                    footer: { paddingBottom: 74 },
+                    '.MuiSnackbar-root.MuiSnackbar-anchorOriginBottomCenter': { bottom: 62 },
+                  },
+                })}
+              />
 
               {/* One bottom-pinned container (#1958, #1965), the last child of
                   the content so it holds over either column: the move strip
@@ -572,8 +589,12 @@ export default function LineupPage() {
                   of the scroll (and on a short page, always) a sticky bar rests
                   well short of the viewport bottom (measured, #1965). Fixed
                   holds the bottom edge for the whole scroll; being out of flow
-                  it reserves no room, which is fine because the last row is
-                  always a Footer's height clear of it. */}
+                  it reserves no room. That is safe only because of the app
+                  Footer: Footer.css gives it an 80px margin-top (plus the 20px
+                  padding and the 74px above), so at the end of the scroll the
+                  last row is always at least the bar plus a pending strip
+                  (132) clear of the bottom. Shrink that margin and this needs
+                  a spacer. */}
               <Box
                 data-testid="lineup-sticky-footer"
                 sx={{

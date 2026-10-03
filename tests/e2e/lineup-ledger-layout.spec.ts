@@ -220,3 +220,29 @@ test('at 390px the last Starters and Bench rows and the Footer links clear the b
   const bench = await box(page.getByTestId('ledger-bench'));
   expect(bench.y + bench.height).toBeLessThanOrEqual((await box(strip)).y);
 });
+
+// #1965 review: the app Snackbar is bottom-anchored, so a toast would sit on top
+// of the fixed bar (a save toast with Undo lingers 20s). A real swap, its PUT
+// answered 200, raises the "Lineup saved" toast; its bottom edge must clear the
+// bar's top. Same viewport: the root's scroll padding must leave room for the
+// bar and a pending strip, so a Tab-focused row is not scrolled under them
+// (WCAG 2.4.11).
+test('at 390px a save toast sits above the bar and focused rows scroll clear of the bar and strip', async ({ page }) => {
+  await openLineup(page, PHONE);
+  await page.route('**/api/team/lineup', (route) =>
+    route.request().method() === 'PUT' ? route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }) : route.fallback()
+  );
+
+  const scrollPaddingBottom = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom));
+  expect(scrollPaddingBottom, 'bar (54) plus strip (78)').toBeGreaterThanOrEqual(132);
+
+  await page.getByTestId('slot-row-RB-0-select').click({ position: { x: 6, y: 6 } });
+  await expect(page.getByTestId('ledger-bench')).toBeVisible();
+  await page.getByTestId('ledger-bench-rows').locator('[data-testid$="-select"]:not([disabled])').first().click({ position: { x: 6, y: 6 } });
+
+  const toast = page.locator('.MuiSnackbar-root');
+  await expect(toast).toContainText('Lineup saved');
+  const toastBox = await box(toast);
+  const barBox = await box(page.getByTestId('lineup-mobile-tabs'));
+  expect(toastBox.y + toastBox.height, `toast ${JSON.stringify(toastBox)} over bar ${JSON.stringify(barBox)}`).toBeLessThanOrEqual(barBox.y);
+});

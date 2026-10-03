@@ -706,6 +706,36 @@ test('#1425: selecting a starter with an eligible bench target auto-switches the
   );
 });
 
+// #1425 focus rule, page side (#1965): only an auto-switch moves focus to a bar
+// button. A manager who picked Bench by hand and then selects a row that
+// causes no flip keeps focus on that row.
+test('#1965: selecting a row that causes no flip leaves focus on the row, not a bar button', async () => {
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: true,
+    media: query,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+  const [startersTab, benchTab] = within(screen.getByTestId('lineup-mobile-tabs')).getAllByRole('button');
+  await user.click(benchTab);
+  expect(benchTab).toHaveFocus();
+
+  // Attested Guy (IR): the only legal targets are on the Bench view already.
+  const row = screen.getByTestId('slot-row-IR-0-select');
+  await user.click(row);
+
+  expect(screen.getByTestId('lineup-move-strip')).toHaveTextContent('Moving Attested Guy.');
+  expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+  expect(startersTab).toHaveAttribute('aria-pressed', 'false');
+  expect(row).toHaveFocus();
+});
+
 // #1958 (L8), #1965: the swap strip rides the page's sticky footer, stacked
 // above the phone bar, so selecting a row lower on the page neither pushes the
 // list down under the finger nor leaves the strip off screen or overlapping
