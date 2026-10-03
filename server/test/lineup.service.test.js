@@ -1540,6 +1540,25 @@ test('setLineup clears the attestation on any manager-initiated slot move', asyn
   fake.assertClean();
 });
 
+// #1969: the save reports whose attestation it ended, so the client can tell the
+// manager an Undo cannot bring it back.
+test('setLineup reports the ids whose attestation the save cleared', async (t) => {
+  installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] });
+
+  assert.deepEqual(result.attestationCleared, [1]);
+});
+
+test('setLineup reports no cleared attestation when it moves only unattested players', async (t) => {
+  installSetLineupWorld(t, null, { slot: 'BENCH' });
+
+  const result = await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] });
+
+  assert.equal(result.updated, 1);
+  assert.deepEqual(result.attestationCleared, []);
+});
+
 test('weekly materialization carries the attestation forward with the slot', async (t) => {
   // Week 9 has no entries yet; week 8 stashed player 1 with an attestation.
   // The copy-forward must write slot IR AND ir_attested true, and the save

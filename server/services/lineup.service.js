@@ -1577,6 +1577,9 @@ async function setLineup({ leagueId, userId, week, moves }) {
       // mutate these rows in place, and the validation at the bottom forgives
       // only the overflow that stood before this save touched anything.
       const baseline = entriesResult.rows.map((r) => ({ player_id: r.player_id, slot: r.slot }));
+      // Who stood attested BEFORE this save (#1969): the moves clear the flag
+      // in place, and the response names whose attestation they ended.
+      const attestedIds = new Set(entriesResult.rows.filter((r) => r.ir_attested).map((r) => r.player_id));
 
       const locked = await lockedPlayerIds(client, {
         season,
@@ -1711,7 +1714,14 @@ async function setLineup({ leagueId, userId, week, moves }) {
       }
       // Returning COMMITs the slot UPDATEs above (ADR 0033). Every refusal in
       // this body throws, so a rejected save rolls back rather than committing.
-      return { leagueId, teamId: team.id, season, week: targetWeek, updated: changed.length };
+      return {
+        leagueId,
+        teamId: team.id,
+        season,
+        week: targetWeek,
+        updated: changed.length,
+        attestationCleared: movedPlayerIds.filter((id) => attestedIds.has(id)),
+      };
     },
     { label: 'set-lineup' }
   );

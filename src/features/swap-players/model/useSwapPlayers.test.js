@@ -532,6 +532,55 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
     expect(onLanded).toHaveBeenCalledTimes(2);
   });
 
+  // #1969: the save's answer says which side effects an Undo cannot reverse.
+  test('a save that ended an IR override says so and offers no Undo', async () => {
+    apiClient.put.mockResolvedValue({ data: { attestationCleared: [1], calledShotVoided: true } });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'Lineup saved. This move ended a commissioner IR override and cannot be undone',
+        { severity: 'success' }
+      )
+    );
+  });
+
+  test('a save that voided a called shot says so; its Undo restores and says the shot stays void', async () => {
+    apiClient.put.mockResolvedValue({ data: { calledShotVoided: true, attestationCleared: [] } });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith('Lineup saved. Your called shot was voided', {
+        severity: 'success',
+        actionLabel: 'Undo',
+        onAction: expect.any(Function),
+      })
+    );
+    const { onAction } = mockNotify.mock.calls[0][1];
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(mockNotify).toHaveBeenLastCalledWith('Lineup restored. Your called shot is still void', { severity: 'success' });
+  });
+
+  test('a response with neither key keeps Lineup saved with Undo, and Lineup restored', async () => {
+    apiClient.put.mockResolvedValue({ data: { updated: 2 } });
+    const { result } = setup({ entries: [qb, bench] });
+
+    swap(result);
+    await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Lineup saved', expect.objectContaining({ actionLabel: 'Undo' })));
+    await act(async () => {
+      await mockNotify.mock.calls[0][1].onAction();
+    });
+
+    expect(mockNotify).toHaveBeenLastCalledWith('Lineup restored', { severity: 'success' });
+  });
+
   test('a refused Undo rolls back to the moved lineup and carries no Undo', async () => {
     apiClient.put.mockResolvedValueOnce({ data: {} });
     const { result, getRaw } = setup({ entries: [qb, bench] });

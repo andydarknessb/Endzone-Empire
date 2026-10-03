@@ -205,7 +205,8 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
   // and only while `prev` is still the lineup the move was made on, so a live
   // score tick, a silent refetch or a navigation mid-request is never undone.
   // A rollback also leaves any id that no longer holds the slot this run set.
-  const runMove = async (moves, undoOf) => {
+  // `shotVoided` (Undo runs only): the save being undone voided a called shot.
+  const runMove = async (moves, undoOf, shotVoided) => {
     const snapshot = raw;
     // `owned` (rollbacks only): the moves this run wrote. An id is reset only
     // while it still holds the slot this run set, so a newer write survives.
@@ -233,12 +234,20 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
         return;
       }
       if (undoOf) {
-        notify('Lineup restored', { severity: 'success' });
+        notify(`Lineup restored${shotVoided ? '. Your called shot is still void' : ''}`, { severity: 'success' });
         return;
       }
-      notify('Lineup saved', {
+      // #1969: the save's answer names what an Undo cannot reverse. An ended
+      // commissioner IR override cannot come back from a manager's move, so
+      // that save offers no Undo; a voided called shot stays void after one.
+      const { attestationCleared = [], calledShotVoided = false } = result.response?.data ?? {};
+      if (attestationCleared.length > 0) {
+        notify('Lineup saved. This move ended a commissioner IR override and cannot be undone', { severity: 'success' });
+        return;
+      }
+      notify(`Lineup saved${calledShotVoided ? '. Your called shot was voided' : ''}`, {
         severity: 'success',
-        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMove(inverse, moves) }),
+        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMove(inverse, moves, calledShotVoided) }),
       });
     } catch (err) {
       setRaw(setSlots(undoOf ?? inverse, moves));
