@@ -34,7 +34,12 @@ import { readHttpFailure } from '../../../lib/httpFailure';
  * save or an error. It re-runs the write with each moved `playerId` back at
  * the slot the pre-move `raw` held (matched by `id`). The undo is a plain
  * write: its success says "Lineup restored" with no Undo of its own, and a
- * refusal rolls back to the moved lineup through the same catch.
+ * refusal rolls back the moved slots through the same catch.
+ * An Undo after leaving and returning to the page restores on the server, but
+ * this page shows it only after the next refetch. Undo restores slots only: a
+ * called shot the forward save voided, or a cleared IR attestation, is not
+ * restored. Rollbacks (a refused save or Undo) are functional and same-lineup
+ * guarded: they reset only the moved ids' slots on the current `raw`.
  */
 export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
   const notify = useSnackbar();
@@ -46,16 +51,25 @@ export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
     },
   });
 
-  // `restoreRaw` is set only by an Undo's own run: the moved lineup it rolls
-  // back to when refused (#1964), and the mark that it carries no Undo itself.
-  const runMoves = async (moves, restoreRaw) => {
+  // `undoOf` is set only by an Undo's own run: the moves it reverses (#1964),
+  // which also mark it as carrying no Undo itself. Every patch, rollback
+  // included, sets only the moved ids' slots on whatever `prev` is by then,
+  // and only while `prev` is still the lineup the move was made on, so a live
+  // score tick, a silent refetch or a navigation mid-request is never undone.
+  const runMoves = async (moves, undoOf) => {
     const snapshot = raw;
-    const slotByPlayer = new Map(moves.map((m) => [m.playerId, m.slot]));
-    const patch = (prev) =>
-      prev
-        ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
-        : prev;
-    setRaw(patch);
+    const setSlots = (slots) => {
+      const slotByPlayer = new Map(slots.map((m) => [m.playerId, m.slot]));
+      return (prev) =>
+        prev && prev.week === snapshot?.week && prev.teamId === snapshot?.teamId
+          ? { ...prev, entries: prev.entries.map((e) => (slotByPlayer.has(e.id) ? { ...e, slot: slotByPlayer.get(e.id) } : e)) }
+          : prev;
+    };
+    // #1964: each moved player back at the slot the pre-move snapshot held.
+    const inverse = moves
+      .map((m) => ({ playerId: m.playerId, slot: snapshot?.entries?.find((e) => e.id === m.playerId)?.slot }))
+      .filter((m) => m.slot != null);
+    setRaw(setSlots(moves));
     try {
       const result = await saveLineup({ leagueId: Number(leagueId), week: raw?.week, moves });
       if (!result.queued) onLanded?.();
@@ -63,20 +77,16 @@ export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
         notify('Lineup change saved offline. It will sync when you reconnect', { severity: 'info' });
         return;
       }
-      if (restoreRaw) {
+      if (undoOf) {
         notify('Lineup restored', { severity: 'success' });
         return;
       }
-      // #1964: each moved player back to the slot the pre-move snapshot held.
-      const inverse = moves
-        .map((m) => ({ playerId: m.playerId, slot: snapshot?.entries?.find((e) => e.id === m.playerId)?.slot }))
-        .filter((m) => m.slot != null);
       notify('Lineup saved', {
         severity: 'success',
-        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMoves(inverse, patch(snapshot)) }),
+        ...(inverse.length > 0 && { actionLabel: 'Undo', onAction: () => runMoves(inverse, moves) }),
       });
     } catch (err) {
-      setRaw(restoreRaw ?? snapshot);
+      setRaw(setSlots(undoOf ?? inverse));
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
     }
   };

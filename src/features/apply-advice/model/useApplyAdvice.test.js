@@ -169,7 +169,8 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
   test('invoking Undo saves the inverse moves, then notifies Lineup restored with no Undo', async () => {
     apiClient.put.mockResolvedValue({ data: {} });
-    const { result, getRaw } = setup(RAW);
+    const onLanded = jest.fn();
+    const { result, getRaw } = setup(RAW, onLanded);
 
     await act(async () => {
       await result.current.apply(PLAN);
@@ -191,6 +192,7 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
     });
     expect(mockNotify).toHaveBeenLastCalledWith('Lineup restored', { severity: 'success' });
     expect(getRaw().entries).toEqual(RAW.entries);
+    expect(onLanded).toHaveBeenCalledTimes(2);
   });
 
   test('a refused Undo rolls back to the moved lineup and carries no Undo', async () => {
@@ -209,6 +211,75 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
     expect(mockNotify).toHaveBeenLastCalledWith(expect.any(String), { severity: 'error' });
     expect(getRaw().entries).toEqual([{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }]);
+  });
+
+  // Newer fields a live score tick or silent refetch lands mid-request.
+  const refreshed = (prev) => ({
+    ...prev,
+    entries: prev.entries.map((e) => (e.id === 1 ? { ...e, actualPoints: 12.5, locked: true } : e)),
+  });
+
+  test('a refused apply rolls back only the moved slots, keeping newer fields', async () => {
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+    const { result, setRaw, getRaw } = setup(RAW);
+
+    let applied;
+    act(() => { applied = result.current.apply(PLAN); });
+    act(() => setRaw(refreshed));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+      await applied;
+    });
+
+    expect(getRaw().entries).toEqual([
+      { id: 1, slot: 'BENCH', actualPoints: 12.5, locked: true },
+      { id: 2, slot: 'WR' },
+    ]);
+  });
+
+  test('a refused Undo re-applies the moved slots over newer fields', async () => {
+    apiClient.put.mockResolvedValueOnce({ data: {} });
+    const { result, setRaw, getRaw } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+    const { onAction } = mockNotify.mock.calls[0][1];
+    let reject;
+    apiClient.put.mockReturnValue(new Promise((_, rej) => { reject = rej; }));
+
+    let undone;
+    act(() => { undone = onAction(); });
+    act(() => setRaw(refreshed));
+    await act(async () => {
+      reject({ response: { status: 409, data: { error: 'locked' } } });
+      await undone;
+    });
+
+    expect(getRaw().entries).toEqual([
+      { id: 1, slot: 'WR', actualPoints: 12.5, locked: true },
+      { id: 2, slot: 'BENCH' },
+    ]);
+  });
+
+  test('Undo never patches or rolls back a different lineup, but still writes to the moved week', async () => {
+    apiClient.put.mockResolvedValue({ data: {} });
+    const { result, setRaw, getRaw } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+    const { onAction } = mockNotify.mock.calls[0][1];
+    const week5 = { week: 5, entries: [{ id: 1, slot: 'WR' }, { id: 2, slot: 'BENCH' }] };
+    act(() => setRaw(() => week5));
+
+    await act(async () => {
+      await onAction();
+    });
+
+    expect(apiClient.put).toHaveBeenLastCalledWith('/api/team/lineup', expect.objectContaining({ week: 4 }));
+    expect(getRaw()).toBe(week5);
   });
 
   test('a save queued offline has no Undo', async () => {
