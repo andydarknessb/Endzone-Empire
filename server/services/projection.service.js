@@ -1360,7 +1360,7 @@ async function degradingRead({ client, savepoint, label, read, fallback }) {
     if (savepointOpen) await client.query(`RELEASE SAVEPOINT ${savepoint}`);
     return value;
   } catch (err) {
-    console.error(`projections: ${label} read failed, continuing without it:`, err.message);
+    console.error('projections: %s read failed, continuing without it:', label, err.message);
     if (savepointOpen) await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
     return fallback;
   }
