@@ -170,7 +170,10 @@ export function useSwapPlayers({ leagueId, raw, setRaw, entries, bestBall, leagu
 
   // #1963: Escape cancels a pending move, the same `setSelectedEntry(null)` as
   // `cancelSelection`. Attached only while a selection exists; a key another
-  // handler already claimed (`defaultPrevented`) is left alone.
+  // handler already claimed (`defaultPrevented`) is left alone. A MUI modal
+  // open over the page stops Escape's propagation, so the dialog closes first
+  // and only the next Escape cancels; that relies on this staying a bubble-phase
+  // `document` listener.
   const hasSelection = selectedEntry !== null;
   useEffect(() => {
     if (!hasSelection) return undefined;
