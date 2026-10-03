@@ -631,17 +631,41 @@ test('best ball refuses a click on a starting slot (no selection, no save)', asy
   expect(apiClient.put).not.toHaveBeenCalled();
 });
 
-test('the narrow layout renders a bottom Starters/Bench tab bar with 44px targets', async () => {
+test('#1965: below sm there is one bottom bar, Starters | Bench | Outlook, with 44px targets and no top view control', async () => {
   renderPage();
   await screen.findByText('Josh Allen');
+  expect(screen.queryByTestId('lineup-mobile-view')).not.toBeInTheDocument();
   const tabs = screen.getByTestId('lineup-mobile-tabs');
   expect(tabs).toHaveAttribute('role', 'group');
+  expect(tabs).toHaveAttribute('aria-label', 'Lineup section');
   const buttons = within(tabs).getAllByRole('button');
-  expect(buttons.map((b) => b.textContent)).toEqual(['Starters 2/3', 'Bench 2']);
-  expect(buttons[0]).toHaveAttribute('aria-pressed', 'true');
+  expect(buttons.map((b) => b.textContent)).toEqual(['Starters 2/3', 'Bench 2', 'Outlook']);
+  expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Starters, 2 of 3 filled', 'Bench, 2 players', 'Outlook']);
+  expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
+  buttons.forEach((b) => expect(rulesUnder(b)).toMatch(/min-height: 44px/));
+  // The bar is page-owned and hidden from `sm`.
+  expect(rulesUnder(tabs, '(min-width:0px)')).toContain('display: flex');
+  expect(rulesUnder(tabs, '(min-width:600px)')).toContain('display: none');
+});
+
+// The phone bar drives which Ledger section shows (the Ledger is controlled,
+// #1965): Starters by default, Bench on its press.
+test('#1965: pressing Bench shows the Bench card below sm and hides Starters', async () => {
   const user = userEvent.setup();
-  await user.click(buttons[1]);
-  expect(buttons[1]).toHaveAttribute('aria-pressed', 'true');
+  renderPage();
+  await screen.findByText('Josh Allen');
+  const startersSection = screen.getByTestId('ledger-starters-section');
+  const benchSection = screen.getByTestId('ledger-bench-section');
+  expect(rulesUnder(startersSection)).toContain('display: block');
+  expect(rulesUnder(benchSection, '(min-width:0px)')).toContain('display: none');
+
+  const [startersTab, benchTab] = within(screen.getByTestId('lineup-mobile-tabs')).getAllByRole('button');
+  await user.click(benchTab);
+
+  expect(benchTab).toHaveAttribute('aria-pressed', 'true');
+  expect(startersTab).toHaveAttribute('aria-pressed', 'false');
+  expect(rulesUnder(benchSection)).toContain('display: block');
+  expect(rulesUnder(startersSection, '(min-width:0px)')).toContain('display: none');
 });
 
 // #1425: selecting a starter switches the mobile tab to Bench when Bench
@@ -673,16 +697,20 @@ test('#1425: selecting a starter with an eligible bench target auto-switches the
 
   expect(benchTab).toHaveAttribute('aria-pressed', 'true');
   expect(startersTab).toHaveAttribute('aria-pressed', 'false');
+  // Accessibility risk review finding (#1425): the activated row is now in a
+  // hidden section, so the page (which owns the bar since #1965) moves focus
+  // to the button the auto-switch landed on.
+  expect(benchTab).toHaveFocus();
   expect(screen.getByTestId('lineup-move-strip')).toHaveTextContent(
     'Moving Derrick King. Pick a highlighted player.'
   );
 });
 
-// #1958 (L8): the swap strip rides the Ledger's sticky footer, stacked above
-// the phone tab bar, so selecting a row lower on the page neither pushes the
+// #1958 (L8), #1965: the swap strip rides the page's sticky footer, stacked
+// above the phone bar, so selecting a row lower on the page neither pushes the
 // list down under the finger nor leaves the strip off screen or overlapping
-// the tab bar.
-test('#1958: selecting a row shows the move strip in the sticky footer, after the Ledger rows', async () => {
+// the bar.
+test('#1958: selecting a row shows the move strip in the sticky footer, above the bar and after the Ledger rows', async () => {
   const user = userEvent.setup();
   renderPage();
   await screen.findByText('Josh Allen');
@@ -691,7 +719,9 @@ test('#1958: selecting a row shows the move strip in the sticky footer, after th
 
   const strip = screen.getByTestId('lineup-move-strip');
   expect(strip).toHaveTextContent('Moving Derrick King. Pick a highlighted player.');
-  expect(within(screen.getByTestId('lineup-sticky-footer')).getByTestId('lineup-move-strip')).toBe(strip);
+  const footer = screen.getByTestId('lineup-sticky-footer');
+  expect(within(footer).getByTestId('lineup-move-strip')).toBe(strip);
+  expect(strip.compareDocumentPosition(within(footer).getByTestId('lineup-mobile-tabs')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const lastLedgerCard = screen.getByTestId('ledger-bench');
   expect(lastLedgerCard.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(strip).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
@@ -731,6 +761,28 @@ test('#1963: the move strip Cancel button carries aria-keyshortcuts="Escape"', a
   expect(
     within(screen.getByTestId('lineup-move-strip')).getByRole('button', { name: 'Cancel' })
   ).toHaveAttribute('aria-keyshortcuts', 'Escape');
+});
+
+test('#1965: without a selection the sticky footer holds only the bar and is hidden from sm', async () => {
+  renderPage();
+  await screen.findByText('Josh Allen');
+  const footer = screen.getByTestId('lineup-sticky-footer');
+  expect(within(footer).queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(within(footer).getByTestId('lineup-mobile-tabs')).toBeInTheDocument();
+  expect(rulesUnder(footer, '(min-width:600px)')).toContain('display: none');
+});
+
+test('#1965: pressing Outlook while a move is pending cancels the selection and shows the outlook column', async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await screen.findByText('Josh Allen');
+  await user.click(screen.getByTestId('slot-row-RB-0-select'));
+  expect(screen.getByTestId('lineup-move-strip')).toBeInTheDocument();
+
+  await user.click(within(screen.getByTestId('lineup-mobile-tabs')).getByRole('button', { name: 'Outlook' }));
+
+  expect(screen.queryByTestId('lineup-move-strip')).not.toBeInTheDocument();
+  expect(rulesUnder(screen.getByTestId('lineup-outlook-column'), '(min-width:0px)')).toContain('display: grid');
 });
 
 // #1958 (L9): below `sm` the header gives up height so the first starter sits
@@ -1157,25 +1209,25 @@ test('best ball hides the Start/sit panel entirely (never calls the advice endpo
   expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/lineup/advice'));
 });
 
-test('the Outlook tab: the phone view control toggles which column is hidden below `sm`, both columns show from `sm` up', async () => {
+test('the Outlook tab: the phone bar toggles which column is hidden below `sm`, both columns show from `sm` up', async () => {
   const user = userEvent.setup();
   renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
   await screen.findByText('Josh Allen');
 
-  const viewControl = screen.getByTestId('lineup-mobile-view');
-  const rosterRadio = within(viewControl).getByRole('radio', { name: 'Roster' });
-  const outlookRadio = within(viewControl).getByRole('radio', { name: 'Outlook' });
-  expect(rosterRadio).toHaveAttribute('aria-checked', 'true');
+  const bar = within(screen.getByTestId('lineup-mobile-tabs'));
+  const startersTab = bar.getByRole('button', { name: /^Starters/ });
+  const outlookTab = bar.getByRole('button', { name: 'Outlook' });
+  expect(startersTab).toHaveAttribute('aria-pressed', 'true');
 
   const rosterColumn = screen.getByTestId('lineup-roster-column');
   const outlookColumn = screen.getByTestId('lineup-outlook-column');
 
-  // Roster selected by default (AC5): the Ledger shows below `sm`, the rail
+  // Starters selected by default (AC5): the Ledger shows below `sm`, the rail
   // (start-sit-panel, matchup-preview) doesn't; both already show side by
-  // side from `sm` up regardless (the phone toggle itself is hidden at `sm`
-  // and up, so both columns must default to visible there - a real bug found
-  // in mobile review left the outlook column gated on `md` instead, stranding
-  // it with no way to reach it between `sm` and `md`). MUI compiles the `xs`
+  // side from `sm` up regardless (the phone bar itself is hidden at `sm` and
+  // up, so both columns must default to visible there - a real bug found in
+  // mobile review left the outlook column gated on `md` instead, stranding it
+  // with no way to reach it between `sm` and `md`). MUI compiles the `xs`
   // value of a responsive `sx` into `@media (min-width:0px)` rather than an
   // unconditional base rule (verified directly), so `xs` is read back under
   // that condition, not `''`.
@@ -1184,12 +1236,18 @@ test('the Outlook tab: the phone view control toggles which column is hidden bel
   expect(rulesUnder(rosterColumn, '(min-width:600px)')).toContain('display: grid');
   expect(rulesUnder(outlookColumn, '(min-width:600px)')).toContain('display: grid');
 
-  await user.click(outlookRadio);
+  await user.click(outlookTab);
 
-  expect(outlookRadio).toHaveAttribute('aria-checked', 'true');
+  expect(outlookTab).toHaveAttribute('aria-pressed', 'true');
+  expect(startersTab).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByTestId('start-sit-panel')).toBeInTheDocument();
   expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: none');
   expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: grid');
+
+  // Back to Bench: the roster column returns and the rail hides again.
+  await user.click(bar.getByRole('button', { name: /^Bench/ }));
+  expect(rulesUnder(rosterColumn, '(min-width:0px)')).toContain('display: grid');
+  expect(rulesUnder(outlookColumn, '(min-width:0px)')).toContain('display: none');
 });
 
 // Red-tell (measured on device, PR #1323): the page root is a flex item of
@@ -1204,29 +1262,6 @@ test('the page root is pinned to 100% width so the week strip cannot widen it in
   const own = rulesUnder(screen.getByTestId('lineup-page'));
   expect(own).toMatch(/(^|[^-])width: 100%/);
   expect(own).toMatch(/max-width: 1180px/);
-});
-
-// Red-tell (mobile review): the phone Outlook toggle's segments rendered at
-// 30px (the SegmentedControl kit's own default), under the repo's 44px
-// touch-target standard - reverting the `sx` override on this usage turns
-// this case red and no other. Same technique as PickWeek.test.jsx's own
-// "meets the 44px touch target" test (`sx`'s nested `[role="radio"]`
-// selector compiles to a rule whose selector starts with, but is not equal
-// to, the radiogroup's own class, so it is read by tail, not by exact match).
-test('the phone Outlook toggle meets the 44px touch target', async () => {
-  renderPage();
-  await screen.findByText('Josh Allen');
-
-  const viewControl = screen.getByTestId('lineup-mobile-view');
-  const cls = Array.from(viewControl.classList).find((c) => c.startsWith('css-'));
-  let tail = '';
-  Array.from(document.styleSheets).forEach((sheet) => {
-    Array.from(sheet.cssRules).forEach((rule) => {
-      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
-      tail += `${rule.selectorText.slice(`.${cls}`.length).trim()}|${rule.style.cssText};`;
-    });
-  });
-  expect(tail).toMatch(/\[role="radio"\]\|[^|]*min-height: 44px/);
 });
 
 // #1239 AC1-AC7: the Bye cluster grid and its attention chip. The default
@@ -1335,7 +1370,7 @@ test('tapping a name in the start/sit card opens the Decision card, from the Out
   const user = userEvent.setup();
   renderPage({ [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) } });
   await screen.findByText('Josh Allen');
-  await user.click(within(screen.getByTestId('lineup-mobile-view')).getByRole('radio', { name: 'Outlook' }));
+  await user.click(within(screen.getByTestId('lineup-mobile-tabs')).getByRole('button', { name: 'Outlook' }));
 
   const panel = screen.getByTestId('start-sit-panel');
   await user.click(await within(panel).findByRole('button', { name: 'Bench Guy' }));

@@ -127,8 +127,8 @@ for (const width of [600, 900]) {
   });
 }
 
-// #1958 (spec #1956 L8): the page's move strip is the Ledger's sticky footer,
-// stacked above the phone Starters/Bench bar. Two bottom-sticky siblings
+// #1958 (spec #1956 L8): the page's move strip sits in the page's sticky footer,
+// stacked above the phone Starters/Bench/Outlook bar. Two bottom-sticky siblings
 // cannot stack from offsets alone (the one earlier in the DOM wins near the
 // end of scroll), so this walks the whole scroll range and asserts, at every
 // step, that the strip and the tab bar never intersect and every tab button is
@@ -161,4 +161,62 @@ test('at 390px the move strip never overlaps the tab bar at any scroll position'
     );
     expect(covered, `a tab button is covered at scrollY ${y}`).toBe(0);
   }
+});
+
+// #1965: one phone bar, Starters | Bench | Outlook, page-owned and pinned over
+// either column. Measured at 390x844, scrolled to the bottom: the bar's bottom
+// edge sits on the viewport's bottom edge on the Starters view and on the
+// Outlook view (where the roster column, which a bar inside it would live in,
+// is hidden), and the first starter row sits higher than it did at 330ede27,
+// where the removed Roster/Outlook control above the grid took about 60px.
+// The bar is fixed below `sm` (a sticky one rests above the app Footer at the
+// end of the scroll), so a second case checks the last row is not left under
+// the bar or the strip.
+const FIRST_STARTER_TOP_AT_330EDE27 = 584.34;
+
+test('at 390px the one bar sticks to the viewport bottom on Starters and Outlook, and the first starter sits higher', async ({ page }) => {
+  await openLineup(page, PHONE);
+  const tabs = page.getByTestId('lineup-mobile-tabs');
+  await expect(tabs.getByRole('button')).toHaveCount(3);
+  await expect(page.getByTestId('lineup-mobile-view')).toHaveCount(0);
+
+  const firstStarter = await box(page.getByTestId('slot-row-QB-0'));
+  expect(firstStarter.y, 'the removed control took about 60px').toBeLessThan(FIRST_STARTER_TOP_AT_330EDE27 - 50);
+
+  const barBottomGap = async () => {
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const bar = await box(tabs);
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    return viewportHeight - (bar.y + bar.height);
+  };
+
+  expect(Math.abs(await barBottomGap())).toBeLessThanOrEqual(1);
+
+  await tabs.getByRole('button', { name: 'Outlook' }).click();
+  await expect(page.getByTestId('lineup-outlook-column')).toBeVisible();
+  await expect(page.getByTestId('lineup-roster-column')).toBeHidden();
+  expect(Math.abs(await barBottomGap())).toBeLessThanOrEqual(1);
+});
+
+test('at 390px the last Starters and Bench rows and the Footer links clear the bar and the strip at the end of the scroll', async ({ page }) => {
+  await openLineup(page, PHONE);
+  const tabs = page.getByTestId('lineup-mobile-tabs');
+  const toEnd = () => page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+  await toEnd();
+  const starters = await box(page.getByTestId('ledger-starters'));
+  const barTop = (await box(tabs)).y;
+  expect(starters.y + starters.height).toBeLessThanOrEqual(barTop);
+  // The app Footer's last link is not left under the bar either.
+  const lastLink = await box(page.getByRole('link', { name: 'Acceptable Use' }));
+  expect(lastLink.y + lastLink.height).toBeLessThanOrEqual(barTop);
+
+  // Selecting a starter flips to Bench (#1425) and raises the strip over the bar.
+  await page.getByTestId('slot-row-RB-0-select').click({ position: { x: 6, y: 6 } });
+  const strip = page.getByTestId('lineup-move-strip');
+  await expect(strip).toBeVisible();
+  await expect(page.getByTestId('ledger-bench')).toBeVisible();
+  await toEnd();
+  const bench = await box(page.getByTestId('ledger-bench'));
+  expect(bench.y + bench.height).toBeLessThanOrEqual((await box(strip)).y);
 });
