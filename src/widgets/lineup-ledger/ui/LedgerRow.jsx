@@ -287,10 +287,13 @@ export default function LedgerRow({
   // reader hears one concise phrase per row rather than every chip, the
   // Edge line and the visually-hidden points caption concatenated together.
   // L5: the injury designation and the projection close the phrase, enough
-  // to make a start/sit call from the row alone. The designation is dropped
-  // when the Unavailable label already says the same word ("out").
+  // to make a start/sit call from the row alone. An Unavailable row names its
+  // reason instead, never the designation as well ("on IR, injured reserve").
   const unavailableText = unavailable ? unavailableLabel(entry.availability.reason) || 'unavailable' : null;
-  const designation = isEmpty ? null : injuryView(entry.injuryStatus)?.name.toLowerCase();
+  const designation = isEmpty || unavailable ? null : injuryView(entry.injuryStatus)?.name.toLowerCase();
+  // Drop is inert while a swap is under way and this row is no legal target
+  // (the row itself is disabled and dimmed the same way).
+  const dropInert = Boolean(showEligibility && !eligible);
   const rowLabel = isEmpty
     ? `Empty ${slotLabel} slot`
     : [
@@ -298,7 +301,7 @@ export default function LedgerRow({
         slotLabel,
         entry.locked && 'locked',
         unavailableText,
-        designation && designation !== unavailableText && designation,
+        designation,
         projectionShown && `projected ${projectionText}`,
       ].filter(Boolean).join(', ');
 
@@ -374,8 +377,8 @@ export default function LedgerRow({
           gridTemplateColumns: isEmpty
             ? 'minmax(40px, max-content) minmax(0, 1fr)'
             : {
-                xs: `40px 28px minmax(0, 1fr) 52px${dropTrack ? ' 44px' : ''}`,
-                sm: `minmax(40px, max-content) 36px minmax(0, 1fr) 160px 72px${dropTrack ? ' 44px' : ''}`,
+                xs: `minmax(40px, max-content) 28px minmax(0, 1fr) 52px${dropTrack ? ' 44px' : ''}`,
+                sm: `minmax(40px, max-content) 36px minmax(0, 1fr) minmax(120px, 160px) 72px${dropTrack ? ' 44px' : ''}`,
               },
           alignItems: 'center',
           columnGap: { xs: '6px', sm: '10px' },
@@ -517,7 +520,7 @@ export default function LedgerRow({
               <Typography
                 component="span"
                 data-testid="ledger-projection"
-                sx={{ fontSize: '12px', lineHeight: 1.2, color: unavailable ? 'var(--dash-warning)' : 'var(--dash-dim)' }}
+                sx={{ fontSize: '12px', lineHeight: 1.2, whiteSpace: 'nowrap', color: unavailable ? 'var(--dash-warning)' : 'var(--dash-dim)' }}
               >
                 {projectionShown ? `${projectionText} proj` : projectionText}
               </Typography>
@@ -539,9 +542,11 @@ export default function LedgerRow({
             (L7), inside the row's border. */}
         {dropTrack && !canDrop && <Box aria-hidden="true" data-testid="ledger-drop-spacer" />}
         {canDrop && (
-          <Tooltip title="Drop player">
+          // A disabled button takes no tooltip (MUI warns), so the title goes with it.
+          <Tooltip title={dropInert ? '' : 'Drop player'}>
             <IconButton
               size="small"
+              disabled={dropInert}
               aria-label={`Drop ${entry.name}`}
               onClick={() => onRequestDrop?.(entry)}
               sx={{

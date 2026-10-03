@@ -101,3 +101,19 @@ test('at 390px a short name is not truncated and the info column keeps at least 
   console.log(`LEDGER_INFO_WIDTH_390 ${infoWidth}`);
   expect(infoWidth).toBeGreaterThanOrEqual(128);
 });
+
+test('at 390px the BENCH slot chip clears the avatar and the Bench info column keeps at least 128px', async ({ page }) => {
+  await openLineup(page, PHONE);
+  await page.getByTestId('lineup-mobile-tabs').getByRole('button', { name: /^Bench/ }).click();
+
+  const row = page.getByTestId('slot-row-BENCH-201');
+  await expect(row).toBeVisible();
+  const chip = await box(row.getByTestId('ledger-slot-chip'));
+  const avatar = await box(row.locator('.MuiAvatar-root'));
+  expect(chip.x + chip.width, 'the slot chip must not overlap the avatar').toBeLessThanOrEqual(avatar.x);
+
+  const infoWidth = await row.getByTestId('ledger-info').evaluate((el) => el.getBoundingClientRect().width);
+  // eslint-disable-next-line no-console
+  console.log(`LEDGER_BENCH_INFO_WIDTH_390 ${infoWidth}`);
+  expect(infoWidth).toBeGreaterThanOrEqual(128);
+});

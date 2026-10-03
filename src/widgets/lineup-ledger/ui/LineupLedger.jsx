@@ -252,6 +252,7 @@ export default function LineupLedger({
           bottom: { xs: 0, sm: 16 },
           zIndex: 1,
           mt: '12px',
+          backgroundColor: { xs: 'var(--dash-bg)', sm: 'transparent' },
         }}
       >
         {footer}
@@ -268,14 +269,15 @@ export default function LineupLedger({
           }}
         >
           {[
-            { key: 'starters', label: `Starters ${startersFilled}/${starters.length}` },
-            { key: 'bench', label: `Bench ${benchCount}` },
+            { key: 'starters', label: `Starters ${startersFilled}/${starters.length}`, name: `Starters, ${startersFilled} of ${starters.length} filled` },
+            { key: 'bench', label: `Bench ${benchCount}`, name: `Bench, ${benchCount} ${benchCount === 1 ? 'player' : 'players'}` },
           ].map((tab) => (
             <Box
               key={tab.key}
               component="button"
               type="button"
               ref={tab.key === 'starters' ? startersTabButtonRef : benchTabButtonRef}
+              aria-label={tab.name}
               aria-pressed={mobileTab === tab.key}
               onClick={() => setMobileTab(tab.key)}
               sx={{

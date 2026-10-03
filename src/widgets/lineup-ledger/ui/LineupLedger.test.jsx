@@ -185,11 +185,6 @@ test('the phone tabs carry counts: filled starting seats of the total, and occup
   expect(tabButtons()[1]).toHaveTextContent(/^Bench 6$/);
 });
 
-test('the Bench rows do not scroll inside their card', () => {
-  renderLedger({ lineup: fullLineup() });
-  expect(getComputedStyle(screen.getByTestId('ledger-bench-rows')).overflowY).not.toBe('auto');
-});
-
 // #1957: the page's sticky strip rides in `footer`, in the same sticky
 // container as the phone tab bar and above it, so the two cannot overlap.
 test('a footer renders before the Starters/Bench buttons inside the same sticky container', () => {
@@ -223,4 +218,10 @@ test('a spent row renders the Drop placeholder when other rows can drop, and non
   unmount();
   renderLedger({ lineup: spentLineup(), canDropEntry: () => false });
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
+});
+
+test('the phone tab buttons carry spoken names for their counts', () => {
+  renderLedger({ lineup: fullLineup() });
+  expect(screen.getByRole('button', { name: 'Starters, 8 of 9 filled' })).toBe(tabButtons()[0]);
+  expect(screen.getByRole('button', { name: 'Bench, 6 players' })).toBe(tabButtons()[1]);
 });

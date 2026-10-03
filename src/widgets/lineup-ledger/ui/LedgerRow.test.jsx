@@ -828,3 +828,25 @@ test('reserveDropTrack renders an empty placeholder in place of a missing Drop c
   rerender(<LedgerRow slotLabel="QB" entry={entry()} onClick={jest.fn()} data-testid="row" />);
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
 });
+
+test('an IR row\'s accessible name carries its Unavailable reason, not the designation as well', () => {
+  render(
+    <LedgerRow
+      slotLabel="IR"
+      entry={entry({ name: 'Stashed Runner', injuryStatus: 'IR', slot: 'IR', availability: { available: false, reason: 'ir' } })}
+      onClick={jest.fn()}
+      data-testid="row"
+    />
+  );
+  expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Stashed Runner, IR, on IR');
+});
+
+test('Drop is disabled on a row that is no legal target during a swap, and live otherwise', () => {
+  const props = { slotLabel: 'QB', entry: entry(), canDrop: true, onRequestDrop: jest.fn(), onClick: jest.fn(), 'data-testid': 'row' };
+  const { rerender } = render(<LedgerRow {...props} showEligibility eligible={false} />);
+  expect(screen.getByRole('button', { name: /drop josh allen/i })).toBeDisabled();
+  rerender(<LedgerRow {...props} showEligibility eligible />);
+  expect(screen.getByRole('button', { name: /drop josh allen/i })).toBeEnabled();
+  rerender(<LedgerRow {...props} />);
+  expect(screen.getByRole('button', { name: /drop josh allen/i })).toBeEnabled();
+});
