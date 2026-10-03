@@ -167,9 +167,14 @@ function PlayerIdentity({ player, onOpenPlayer, nameAsLink = true }) {
     <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
       <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} />
       <Box sx={{ minWidth: 0 }}>
-        <Stack direction="row" spacing={0.75} alignItems="center">
+        {/* A flex Box, not a Stack: Stack zeroes its children's margins, which would
+            cancel the name link's negative margin below. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
           {nameAsLink ? (
-            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} sx={MIN_TOUCH_TARGET_SX} />
+            // The 44px target stays (the Waivers layout guard measures it), but its
+            // vertical margin gives the 20px back to the row so the identity block
+            // lays out at name + one detail line (#1975, P9).
+            <PlayerNameLink name={player.name} playerId={player.id} onOpen={onOpenPlayer} sx={{ ...MIN_TOUCH_TARGET_SX, my: '-10px' }} />
           ) : (
             <Typography sx={{ fontWeight: 600 }} noWrap>
               {player.name}
@@ -178,7 +183,7 @@ function PlayerIdentity({ player, onOpenPlayer, nameAsLink = true }) {
           {player.injury_status && (
             <Chip size="small" color="warning" label={player.injury_status} />
           )}
-        </Stack>
+        </Box>
         <Stack direction="row" spacing={0.75} alignItems="center" useFlexGap flexWrap="wrap">
           <PositionChip position={player.position} size="small" />
           <Typography variant="caption" color="text.secondary">
@@ -331,39 +336,58 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
     return (
       <Card variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }} data-testid="player-row-card">
         <CardActionArea onClick={() => onOpenPlayer?.(player.id)} sx={{ textAlign: 'left' }}>
-          <Box sx={{ p: 2, pb: 1.25 }}>
+          <Box sx={{ p: 1.5, pb: 1 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
               <PlayerIdentity player={player} onOpenPlayer={onOpenPlayer} nameAsLink={false} />
               <StatusCell player={player} />
             </Stack>
           </Box>
         </CardActionArea>
-        <CardContent sx={{ pt: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-            <Box>
-              <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                Proj Wk
-              </Typography>
-              <Typography sx={{ fontWeight: 700 }}>
-                <ProjWeekCell projWeek={player.projWeek} noHistory={hasNoHistory(player)} />
-              </Typography>
-            </Box>
-            <Box>
-              <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                ROS
-              </Typography>
-              <Typography sx={{ fontWeight: 700 }}>{formatPoints(player.ros?.points)}</Typography>
-            </Box>
-            {showUpgrade && player.upgrade != null && (
+        <CardContent sx={{ p: 1.5, pt: 0, '&:last-child': { pb: 1.5 }, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          {/* Metrics and the dense bars share one line (#1975, P4): the bars are
+              ~150px wide, so stacking them under the metrics spent ~50px a card.
+              The line never wraps (a wrap's height depends on the font): the
+              metrics keep their width and the bars take what is left, shrinking
+              into their own scroll strip on a narrow phone. */}
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', columnGap: 2 }}>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flex: 'none' }}>
               <Box>
                 <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Upgrade
+                  Proj Wk
                 </Typography>
-                <UpgradeCell upgrade={player.upgrade} />
+                <Typography sx={{ fontWeight: 700 }}>
+                  <ProjWeekCell projWeek={player.projWeek} noHistory={hasNoHistory(player)} />
+                </Typography>
+              </Box>
+              <Box>
+                <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  ROS
+                </Typography>
+                <Typography sx={{ fontWeight: 700 }}>{formatPoints(player.ros?.points)}</Typography>
+              </Box>
+              {showUpgrade && player.upgrade != null && (
+                <Box>
+                  <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                    Upgrade
+                  </Typography>
+                  <UpgradeCell upgrade={player.upgrade} />
+                </Box>
+              )}
+            </Stack>
+            {showWeeks && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  flex: '1 1 0',
+                  minWidth: 0,
+                  '& > [data-testid="weekly-points-bars"]': { flexShrink: 1, minWidth: 0, scrollbarWidth: 'none' },
+                }}
+              >
+                <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} dense />
               </Box>
             )}
-          </Stack>
-          {showWeeks && <WeeklyPointsBars weeks={weeks} currentWeek={player.projWeek?.week} />}
+          </Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.5 }}>
             <ExpandToggle expansion={expansion} playerName={player.name} />
             <WatchToggle watchAction={watchAction} playerName={player.name} />
@@ -377,7 +401,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
 
   return (
     <>
-    <TableRow hover data-testid="player-row">
+    <TableRow hover data-testid="player-row" sx={{ '& > .MuiTableCell-root': { py: 1 } }}>
       <TableCell component="th" scope="row">
         <PlayerIdentity player={player} onOpenPlayer={onOpenPlayer} />
       </TableCell>

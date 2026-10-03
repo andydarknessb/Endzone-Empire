@@ -159,6 +159,38 @@ test('the claim sheet at 390px: full height, no overflow, controls at least 44px
   expect(small, `sheet controls under 44px: ${JSON.stringify(small)}`).toEqual([]);
 });
 
+// #1975 review: the Players page's sticky head needs `overflow: visible` from
+// lg, which must not reach this page. The 960px table is wider than its column
+// next to the My claims aside, so it has to scroll inside its TableContainer
+// rather than paint over the aside. A table inside a scrolling container always
+// reports a box past the container's edge, so the assertion is on what is
+// painted: the table's right edge, clipped by the container unless the
+// container's overflow-x lets it show.
+test('the Waivers table is clipped to its container at 1280px, not painted over the aside', async ({ page }) => {
+  await setupWaiversLayoutGuard(page);
+  await page.setViewportSize({ width: 1280, height: HEIGHT });
+  await page.goto(WAIVERS_URL);
+  await expect(page.getByTestId('player-row').first()).toBeVisible();
+
+  const edges = await page.evaluate(() => {
+    const table = document.querySelector('table[aria-label="Players"]') as HTMLElement | null;
+    const container = table?.parentElement as HTMLElement | null;
+    if (!table || !container) return null;
+    const overflowX = getComputedStyle(container).overflowX;
+    const tableRight = table.getBoundingClientRect().right;
+    const containerRight = container.getBoundingClientRect().right;
+    const clipped = overflowX !== 'visible';
+    return { overflowX, tableRight, containerRight, paintedRight: clipped ? Math.min(tableRight, containerRight) : tableRight };
+  });
+  // eslint-disable-next-line no-console
+  console.log(`WAIVERS_TABLE_EDGES ${JSON.stringify(edges)}`);
+  expect(edges, 'the player table and its container must render').not.toBeNull();
+  expect(
+    edges!.paintedRight,
+    `table paints to ${edges!.paintedRight} past its container's ${edges!.containerRight} (overflow-x ${edges!.overflowX})`,
+  ).toBeLessThanOrEqual(edges!.containerRight + 1);
+});
+
 // Permanent negative control (the players-list spec's own pattern): proves
 // the width predicate can still go red.
 test('negative control: the width predicate reports a forced overflow', async ({ page }) => {
