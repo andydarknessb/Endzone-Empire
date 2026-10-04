@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect, useId, useLayoutEffect, useRef } from 'react';
 import { Alert, Typography, Box, Button } from '@mui/material';
-import { Card, Badge } from '../../shared/ui';
+import { Card } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
 import { useLeague } from '../../hooks/useLeague';
 import { readHttpFailure } from '../../lib/httpFailure';
@@ -65,45 +65,189 @@ function FactIcon({ name }) {
   );
 }
 
-function buildStatChips(facts) {
+// The fact rows (#1988 L22): a bold label and a value, joined by middots where
+// the old pills used parentheses, hyphens and "margin N" (ADR 0016). The two
+// halves stay separate so the row can lay the value under the label at phone
+// width. At most four rows, in this order.
+const MIDDOT = ' · ';
+
+function buildFactRows(facts) {
   if (!facts) return [];
-  const chips = [];
+  const rows = [];
   if (facts.highestScorer) {
-    chips.push({
+    rows.push({
       key: 'highestScorer',
       icon: 'flame',
-      text: `High score: ${facts.highestScorer.team} (${facts.highestScorer.points})`,
+      label: 'High score',
+      value: [facts.highestScorer.team, facts.highestScorer.points].join(MIDDOT),
     });
   }
   if (facts.benchBlunder) {
-    chips.push({
+    rows.push({
       key: 'benchBlunder',
       icon: 'fall',
-      text: `Bench blunder: ${facts.benchBlunder.team} left ${facts.benchBlunder.pointsLeftOnBench} on the bench`,
+      label: 'Bench blunder',
+      value: [facts.benchBlunder.team, `${facts.benchBlunder.pointsLeftOnBench} left on the bench`].join(MIDDOT),
     });
   }
   if (facts.waiverSteal) {
-    chips.push({
+    rows.push({
       key: 'waiverSteal',
       icon: 'gem',
-      text: `Waiver steal: ${facts.waiverSteal.player} (${facts.waiverSteal.team}) - ${facts.waiverSteal.points} pts`,
+      label: 'Waiver steal',
+      value: [facts.waiverSteal.player, facts.waiverSteal.team, `${facts.waiverSteal.points} pts`].join(MIDDOT),
     });
   }
-  if (facts.closestMatchup && chips.length < 4) {
-    chips.push({
+  if (facts.closestMatchup && rows.length < 4) {
+    rows.push({
       key: 'closestMatchup',
       icon: 'compress',
-      text: `Closest game: ${facts.closestMatchup.home} vs ${facts.closestMatchup.away} (margin ${facts.closestMatchup.margin})`,
+      label: 'Closest game',
+      value: [`${facts.closestMatchup.home} vs ${facts.closestMatchup.away}`, `by ${facts.closestMatchup.margin}`].join(
+        MIDDOT
+      ),
     });
   }
-  if (facts.biggestBlowout && chips.length < 4) {
-    chips.push({
+  if (facts.biggestBlowout && rows.length < 4) {
+    rows.push({
       key: 'biggestBlowout',
       icon: 'burst',
-      text: `Biggest blowout: ${facts.biggestBlowout.home} vs ${facts.biggestBlowout.away} (margin ${facts.biggestBlowout.margin})`,
+      label: 'Biggest blowout',
+      value: [`${facts.biggestBlowout.home} vs ${facts.biggestBlowout.away}`, `by ${facts.biggestBlowout.margin}`].join(
+        MIDDOT
+      ),
     });
   }
-  return chips.slice(0, 4);
+  return rows.slice(0, 4);
+}
+
+// "Dec 29, 3:00 AM": month short, day, hour, minute. No seconds and no year, so
+// the stamp reads as a fact and not a log line.
+const GENERATED_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/** The facts as a compact list, ruled with 1px `dash-line` hairlines, 13px. */
+function FactRows({ rows }) {
+  return (
+    <Box component="ul" role="list" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+      {rows.map((row, i) => (
+        <Box
+          component="li"
+          key={row.key}
+          sx={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            py: '8px',
+            fontSize: '13px',
+            lineHeight: 1.4,
+            borderTop: i === 0 ? 0 : '1px solid var(--dash-line)',
+          }}
+        >
+          <Box sx={{ color: 'var(--dash-dim)', display: 'flex', pt: '1px' }}>
+            <FactIcon name={row.icon} />
+          </Box>
+          {/* Label and value share a line while they fit; a value too long for
+              the room left wraps whole under the label (flex-wrap) instead of
+              ellipsising mid-name at phone width. */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: '8px', flex: '1 1 0', minWidth: 0 }}>
+            <Box component="span" sx={{ fontWeight: 700, color: 'var(--dash-ink)' }}>
+              {row.label}
+            </Box>
+            <Box component="span" sx={{ color: 'var(--dash-dim)', minWidth: 0, overflowWrap: 'anywhere' }}>
+              {row.value}
+            </Box>
+          </Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+const CLAMPED_SX = {
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+};
+
+/**
+ * The narrative, clamped to 3 lines until the reader opens it (#1988 L21), and
+ * the footer row under it: the toggle (only when the text really overflows 3
+ * lines) beside the generated stamp. Overflow is measured, not guessed from the
+ * character count: `scrollHeight > clientHeight` on the clamped element after
+ * layout, re-checked on resize and once the web fonts land (a font swap
+ * re-wraps the text without resizing the box). Once open the clamp is gone and
+ * nothing overflows, so the measurement is skipped and the toggle stays.
+ */
+function RecapNarrative({ text, generatedAt }) {
+  const narrativeId = useId();
+  const ref = useRef(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  useLayoutEffect(() => {
+    if (expanded) return undefined;
+    const measure = () => {
+      const el = ref.current;
+      if (el) setOverflows(el.scrollHeight > el.clientHeight);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    document.fonts?.ready?.then(measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [expanded, text]);
+
+  return (
+    <>
+      <Typography
+        id={narrativeId}
+        ref={ref}
+        variant="body1"
+        sx={{
+          whiteSpace: 'pre-line',
+          fontFamily: 'var(--dash-font-body)',
+          fontSize: '14px',
+          lineHeight: 1.5,
+          ...(expanded ? null : CLAMPED_SX),
+        }}
+      >
+        {text}
+      </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 2, mt: '4px' }}>
+        {(overflows || expanded) && (
+          <Button
+            type="button"
+            data-testid="recap-toggle"
+            aria-expanded={expanded}
+            aria-controls={narrativeId}
+            onClick={() => setExpanded((open) => !open)}
+            sx={{
+              minHeight: 44,
+              px: '6px',
+              ml: '-6px',
+              textTransform: 'none',
+              color: 'var(--dash-accent)',
+              fontFamily: 'var(--dash-font-body)',
+              fontWeight: 600,
+              fontSize: '13px',
+            }}
+          >
+            {expanded ? 'Show less' : 'Read the full recap'}
+          </Button>
+        )}
+        {generatedAt && (
+          <Typography component="p" sx={{ m: 0, ml: 'auto', fontSize: '12px', color: 'var(--dash-faint)' }}>
+            {`Generated ${generatedAt}`}
+          </Typography>
+        )}
+      </Box>
+    </>
+  );
 }
 
 function RecapCard({ leagueId }) {
@@ -111,11 +255,6 @@ function RecapCard({ leagueId }) {
   const [hidden, setHidden] = useState(true);
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildError, setRebuildError] = useState(null);
-  // The card names its own region from its own heading rather than taking an
-  // id from the page: it is mounted by more than one caller, and a
-  // page-supplied id would have to be threaded through every one of them.
-  const headingId = useId();
-
   // The commissioner flag rides the same shared league cache the page itself
   // reads (useLeague / ADR 0004, the useCommissionerStrip pattern): no new
   // endpoint and no second request in practice, since the page's own
@@ -184,25 +323,20 @@ function RecapCard({ leagueId }) {
   }
 
   const { data } = recap;
-  const chips = buildStatChips(data.facts);
+  const rows = buildFactRows(data.facts);
   // When the displayed recap was last generated, so a manager can tell
   // whether it predates a correction (#1412). Visible to every member, not
   // just the commissioner who can act on it.
-  const generatedAt = data.generatedAt ? new Date(data.generatedAt).toLocaleString() : null;
+  const generatedAt = data.generatedAt ? GENERATED_FORMAT.format(new Date(data.generatedAt)) : null;
 
+  // The shared Card names its own region from its title (a labelled landmark),
+  // so this card needs no id of its own: it is mounted by more than one caller.
   return (
-    <Card data-testid="recap-card" aria-labelledby={headingId} sx={{ p: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-        <Typography
-          id={headingId}
-          variant="h6"
-          component="h2"
-          sx={{ fontFamily: 'var(--dash-font-display)' }}
-        >
-          Weekly Recap
-        </Typography>
-        {recap.week != null && <Badge>{`Week ${recap.week}`}</Badge>}
-        {isCommissioner && isCurrentSeasonRecap && (
+    <Card
+      data-testid="recap-card"
+      title={recap.week != null ? `Week ${recap.week} Recap` : 'Weekly Recap'}
+      tail={
+        isCommissioner && isCurrentSeasonRecap ? (
           <Button
             type="button"
             data-testid="recap-rebuild"
@@ -211,7 +345,7 @@ function RecapCard({ leagueId }) {
             disabled={rebuilding}
             onClick={handleRebuild}
             sx={{
-              ml: 'auto',
+              minHeight: 44,
               textTransform: 'none',
               color: 'var(--dash-ink)',
               borderColor: 'var(--dash-line-strong)',
@@ -227,57 +361,22 @@ function RecapCard({ leagueId }) {
           >
             {rebuilding ? 'Rebuilding...' : 'Rebuild recap'}
           </Button>
+        ) : undefined
+      }
+    >
+      <Box sx={{ px: '18px', py: '12px' }}>
+        {rebuildError && (
+          <Alert severity="error" sx={{ fontSize: '13px', mb: 1 }}>
+            {rebuildError}
+          </Alert>
         )}
+        {rows.length > 0 && (
+          <Box sx={{ mb: '10px', pb: '2px', borderBottom: '1px solid var(--dash-line)' }}>
+            <FactRows rows={rows} />
+          </Box>
+        )}
+        <RecapNarrative text={data.narrative} generatedAt={generatedAt} />
       </Box>
-      {generatedAt && (
-        <Typography
-          component="p"
-          sx={{ fontSize: '12px', color: 'var(--dash-faint)', mb: 1 }}
-        >
-          {`Recap generated ${generatedAt}`}
-        </Typography>
-      )}
-      {rebuildError && (
-        <Alert severity="error" sx={{ fontSize: '13px', mb: 1 }}>
-          {rebuildError}
-        </Alert>
-      )}
-      <Typography
-        variant="body1"
-        sx={{ mb: chips.length ? 2 : 0, whiteSpace: 'pre-line', fontFamily: 'var(--dash-font-body)' }}
-      >
-        {data.narrative}
-      </Typography>
-      {chips.length > 0 && (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {chips.map((chip) => (
-            <Badge
-              key={chip.key}
-              // A recap fact is a whole sentence, not a status word: the chip
-              // label's default `nowrap` ellipsised it mid-word at phone
-              // widths, and `height: auto` is what lets the wrapped lines
-              // actually take vertical space.
-              sx={{
-                height: 'auto',
-                '& .MuiChip-label': { px: 1.25, py: 0.75, whiteSpace: 'normal' },
-              }}
-            >
-              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-                <FactIcon name={chip.icon} />
-                {/* A fact is running copy, so it keeps the body tier rather
-                    than the badge's own label type (11.5px, tracked, dim). */}
-                <Typography
-                  component="span"
-                  variant="body2"
-                  sx={{ color: 'var(--dash-ink)', fontFamily: 'var(--dash-font-body)' }}
-                >
-                  {chip.text}
-                </Typography>
-              </Box>
-            </Badge>
-          ))}
-        </Box>
-      )}
     </Card>
   );
 }
