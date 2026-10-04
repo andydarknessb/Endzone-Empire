@@ -74,9 +74,11 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * widget is deleted in this same PR. A fantasy league fills the hero (matchup
  * first, then my-team: the game-day order of #1979 L1, so the matchup is what
  * a phone shows first; `align-items: stretch` so the two cards share the row
- * height), a full-width Around the League strip, and the main grid (standings
+ * height), then the weekly recap directly under the hero (`slot-recap`, #1988
+ * L20: the story under the final, and never between the manager and the live
+ * score), a full-width Around the League strip, and the main grid (standings
  * + a rail) followed by a second grid row of the same tracks, and shows the
- * weekly recap and the pre-draft countdown. The rail and the second row's rail
+ * pre-draft countdown. The rail and the second row's rail
  * track swap their occupants with the phase (#1979 L5): while the season is
  * live the rail holds Recent activity (the live feed beside the standings) and
  * the second row holds Quick Actions plus Draft Grades; otherwise the rail
@@ -308,15 +310,6 @@ export default function LeagueDashboardPage() {
         <CommissionerStrip leagueId={leagueId} />
       </Box>
 
-      {/* Weekly recap: matchup-derived, so fantasy-only, gated on the same
-          isPickemOnly the legacy page used. Self-hides on a 404 (no recap
-          generated yet); a pick'em league never requests it. */}
-      {!pickemOnly && (
-        <Box component="section" data-testid="slot-recap" sx={EMPTY_HIDDEN_SX}>
-          <RecapCard leagueId={leagueId} />
-        </Box>
-      )}
-
       {pickemOnly ? (
         /* PICK'EM-ONLY body. A pick'em league has no fantasy team, matchups or
            draft, so the hero and main-grid slices never mount: each of them
@@ -402,6 +395,18 @@ export default function LeagueDashboardPage() {
                 <MyTeamSummary leagueId={leagueId} />
               </Box>
             )}
+          </Box>
+
+          {/* WEEKLY RECAP: directly after the hero, before Around the League, at
+              every width (#1988 L20). On a Tuesday the hero shows the final and
+              the recap right under it tells the story; on game day it no longer
+              sits between the manager and the live score (above the hero it
+              pushed the matchup card down a full phone screen). Matchup-derived,
+              so fantasy-only: it sits inside the `!pickemOnly` branch, so a
+              pick'em league never mounts it or requests it. Self-hides on a 404
+              (no recap generated yet); the wrapper then collapses. */}
+          <Box component="section" data-testid="slot-recap" sx={EMPTY_HIDDEN_SX}>
+            <RecapCard leagueId={leagueId} />
           </Box>
 
           {/* AROUND THE LEAGUE: full-width strip of the week's matchup tiles,

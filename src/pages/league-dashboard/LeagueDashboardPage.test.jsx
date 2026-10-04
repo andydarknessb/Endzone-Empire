@@ -512,7 +512,7 @@ const layoutV2League = (overrides = {}) =>
     viewerTeamId: 1,
   });
 
-test('v2 slot order: strip, recap, hero, around-the-league, main, second row, trophy', async () => {
+test('v2 slot order: strip, hero, recap, around-the-league, main, second row, trophy', async () => {
   mockGetByUrl({ '/api/league/1': layoutV2League() });
   renderPage();
 
@@ -525,9 +525,9 @@ test('v2 slot order: strip, recap, hero, around-the-league, main, second row, tr
   const secondRow = screen.getByTestId('dashboard-second-row');
   const trophy = screen.getByTestId('slot-trophy-case');
 
-  expect(precedes(strip, recap)).toBe(true);
-  expect(precedes(recap, hero)).toBe(true);
-  expect(precedes(hero, aroundTheLeague)).toBe(true);
+  expect(precedes(strip, hero)).toBe(true);
+  expect(precedes(hero, recap)).toBe(true);
+  expect(precedes(recap, aroundTheLeague)).toBe(true);
   expect(precedes(aroundTheLeague, main)).toBe(true);
   expect(precedes(main, secondRow)).toBe(true);
   expect(precedes(secondRow, trophy)).toBe(true);
