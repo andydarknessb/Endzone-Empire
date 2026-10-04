@@ -24,7 +24,7 @@
  * `npm run test:e2e` with no workflow edit.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { setupLayoutGuard, DASHBOARD_URL } from './fixtures/layoutGuardFixtures';
+import { setupLayoutGuard, DASHBOARD_URL, LEAGUE_ID } from './fixtures/layoutGuardFixtures';
 import { RECAP_PAYLOAD, RECAP_URL_PATTERN } from './fixtures/recapFixtures';
 
 const PHONE = { width: 390, height: 844, maxCollapsed: 480 };
@@ -35,7 +35,21 @@ type Recap = 'present' | 'missing';
 
 async function openDashboard(page: Page, viewport: { width: number; height: number }, recap: Recap) {
   await setupLayoutGuard(page);
-  // Registered after the guard's catch-all so it is matched first.
+  // The guard's league row (a commissioner) carries no `current_season`, and the
+  // card only offers Rebuild for a recap of the league's current season. Read
+  // the guard's own league body through its route, add the season, and serve
+  // that, so the header measured below is the commissioner's: title plus the
+  // 44px Rebuild button, the tallest header the card has.
+  await page.goto('/');
+  const leagueBody = await page.evaluate(
+    async (url) => (await fetch(url)).json(),
+    `/api/league/${LEAGUE_ID}`
+  );
+  leagueBody.league.current_season = RECAP_PAYLOAD.season;
+  // Registered after the guard's catch-all, so both of these are matched first.
+  await page.route(new RegExp(`/api/league/${LEAGUE_ID}(\\?.*)?$`), (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(leagueBody) })
+  );
   await page.route(RECAP_URL_PATTERN, (route) =>
     recap === 'present'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RECAP_PAYLOAD) })
@@ -48,7 +62,11 @@ async function openDashboard(page: Page, viewport: { width: number; height: numb
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();
   await page.getByTestId('recent-activity-row').first().waitFor();
-  if (recap === 'present') await page.getByTestId('recap-card').waitFor();
+  if (recap === 'present') {
+    await page.getByTestId('recap-card').waitFor();
+    // The measured header is the commissioner's: the Rebuild button must be on screen.
+    await expect(page.getByTestId('recap-rebuild')).toBeVisible();
+  }
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }
 

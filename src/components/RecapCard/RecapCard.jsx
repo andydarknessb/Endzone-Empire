@@ -68,7 +68,8 @@ function FactIcon({ name }) {
 // The fact rows (#1988 L22): a bold label and a value, joined by middots where
 // the old pills used parentheses, hyphens and "margin N" (ADR 0016). The two
 // halves stay separate so the row can lay the value under the label at phone
-// width. At most four rows, in this order.
+// width. At most four rows, in this order. "by" and the margin are joined by a
+// non-breaking space so a wrapped value never strands the number alone.
 const MIDDOT = ' · ';
 
 function buildFactRows(facts) {
@@ -103,7 +104,7 @@ function buildFactRows(facts) {
       key: 'closestMatchup',
       icon: 'compress',
       label: 'Closest game',
-      value: [`${facts.closestMatchup.home} vs ${facts.closestMatchup.away}`, `by ${facts.closestMatchup.margin}`].join(
+      value: [`${facts.closestMatchup.home} vs ${facts.closestMatchup.away}`, `by\u00a0${facts.closestMatchup.margin}`].join(
         MIDDOT
       ),
     });
@@ -113,7 +114,7 @@ function buildFactRows(facts) {
       key: 'biggestBlowout',
       icon: 'burst',
       label: 'Biggest blowout',
-      value: [`${facts.biggestBlowout.home} vs ${facts.biggestBlowout.away}`, `by ${facts.biggestBlowout.margin}`].join(
+      value: [`${facts.biggestBlowout.home} vs ${facts.biggestBlowout.away}`, `by\u00a0${facts.biggestBlowout.margin}`].join(
         MIDDOT
       ),
     });
@@ -180,26 +181,48 @@ const CLAMPED_SX = {
  * the footer row under it: the toggle (only when the text really overflows 3
  * lines) beside the generated stamp. Overflow is measured, not guessed from the
  * character count: `scrollHeight > clientHeight` on the clamped element after
- * layout, re-checked on resize and once the web fonts land (a font swap
- * re-wraps the text without resizing the box). Once open the clamp is gone and
- * nothing overflows, so the measurement is skipped and the toggle stays.
+ * layout, re-checked when its box resizes (a ResizeObserver, where the browser
+ * has one) and once the web fonts land (a font swap re-wraps the text without
+ * resizing the box), and again whenever the text changes. Once open the clamp is
+ * gone and nothing overflows, so the measurement is skipped and the toggle
+ * stays.
+ *
+ * A new narrative (a commissioner rebuild) starts collapsed. If the toggle held
+ * keyboard focus when a re-measure removes it, focus moves to the narrative
+ * (tabIndex -1) rather than falling to <body>.
  */
 function RecapNarrative({ text, generatedAt }) {
   const narrativeId = useId();
   const ref = useRef(null);
+  const toggleRef = useRef(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
 
   useLayoutEffect(() => {
+    setExpanded(false);
+  }, [text]);
+
+  useLayoutEffect(() => {
     if (expanded) return undefined;
+    let cancelled = false;
     const measure = () => {
       const el = ref.current;
-      if (el) setOverflows(el.scrollHeight > el.clientHeight);
+      if (cancelled || !el) return;
+      const next = el.scrollHeight > el.clientHeight;
+      if (!next && toggleRef.current && document.activeElement === toggleRef.current) el.focus();
+      setOverflows(next);
     };
     measure();
-    window.addEventListener('resize', measure);
+    let observer;
+    if (typeof ResizeObserver !== 'undefined' && ref.current) {
+      observer = new ResizeObserver(measure);
+      observer.observe(ref.current);
+    }
     document.fonts?.ready?.then(measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
   }, [expanded, text]);
 
   return (
@@ -207,12 +230,15 @@ function RecapNarrative({ text, generatedAt }) {
       <Typography
         id={narrativeId}
         ref={ref}
+        tabIndex={-1}
         variant="body1"
         sx={{
           whiteSpace: 'pre-line',
           fontFamily: 'var(--dash-font-body)',
           fontSize: '14px',
           lineHeight: 1.5,
+          // Focused only by script (the toggle's hand-off above), never a tab stop.
+          outline: 'none',
           ...(expanded ? null : CLAMPED_SX),
         }}
       >
@@ -221,6 +247,7 @@ function RecapNarrative({ text, generatedAt }) {
       <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 2, mt: '4px' }}>
         {(overflows || expanded) && (
           <Button
+            ref={toggleRef}
             type="button"
             data-testid="recap-toggle"
             aria-expanded={expanded}
@@ -330,7 +357,7 @@ function RecapCard({ leagueId }) {
   const generatedAt = data.generatedAt ? GENERATED_FORMAT.format(new Date(data.generatedAt)) : null;
 
   // The shared Card names its own region from its title (a labelled landmark),
-  // so this card needs no id of its own: it is mounted by more than one caller.
+  // so this card needs no heading id of its own to thread through.
   return (
     <Card
       data-testid="recap-card"

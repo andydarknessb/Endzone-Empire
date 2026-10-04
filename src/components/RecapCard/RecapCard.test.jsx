@@ -112,7 +112,7 @@ test('lists the facts as rows: a bold label, then the value with middot separato
     'High scoreSunday Ballers · 142.5',
     'Bench blunderBad Luck FC · 22.1 left on the bench',
     'Waiver stealPuka Nacua · Bad Luck FC · 28.4 pts',
-    'Closest gameTeam A vs Team B · by 1',
+    'Closest gameTeam A vs Team B \u00b7 by\u00a01',
   ]);
   expect(screen.getByText('High score')).toBeInTheDocument();
   expect(screen.getByText('Sunday Ballers · 142.5')).toBeInTheDocument();
@@ -200,7 +200,30 @@ test('renders a biggestBlowout row when present', async () => {
 
   expect(await screen.findByTestId('recap-card')).toBeInTheDocument();
   expect(screen.getByText('Biggest blowout')).toBeInTheDocument();
-  expect(screen.getByText('Team C vs Team D · by 90')).toBeInTheDocument();
+  // getByText folds the non-breaking space to a plain one, so the raw text is checked too.
+  expect(screen.getByText('Team C vs Team D \u00b7 by 90')).toBeInTheDocument();
+  expect(screen.getByRole('listitem').textContent).toContain('by\u00a090');
+});
+
+// The card caps the list at four rows: a fifth fact is dropped, not squeezed in.
+test('a five-fact payload renders four rows', async () => {
+  apiClient.get.mockResolvedValue(
+    recapResponse({
+      facts: {
+        highestScorer: { team: 'Sunday Ballers', points: 142.5 },
+        benchBlunder: { team: 'Bad Luck FC', pointsLeftOnBench: 22.1 },
+        waiverSteal: { player: 'Puka Nacua', team: 'Bad Luck FC', points: 28.4 },
+        closestMatchup: { home: 'Team A', away: 'Team B', homeScore: 100, awayScore: 99, margin: 1 },
+        biggestBlowout: { home: 'Team C', away: 'Team D', homeScore: 150, awayScore: 60, margin: 90 },
+      },
+    })
+  );
+
+  renderWithProviders(<RecapCard leagueId={1} />);
+  await screen.findByTestId('recap-card');
+
+  expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(4);
+  expect(screen.queryByText('Biggest blowout')).not.toBeInTheDocument();
 });
 
 test('renders nothing while no recap has been fetched yet', () => {
@@ -385,19 +408,158 @@ describe('collapsed narrative', () => {
     expect(screen.queryByRole('button', { name: /read the full recap|show less/i })).not.toBeInTheDocument();
   });
 
-  test('re-checks the overflow when the window resizes', async () => {
-    stubOverflow(63, 63);
-    apiClient.get.mockResolvedValue(recapResponse());
+  // The narrative's box is watched with a ResizeObserver where there is one
+  // (jsdom has none, so a stand-in captures the callback and the test fires it).
+  describe('with a ResizeObserver', () => {
+    let callbacks;
+    let observed;
 
-    renderWithProviders(<RecapCard leagueId={1} />);
-    await screen.findByTestId('recap-card');
-    expect(screen.queryByRole('button', { name: 'Read the full recap' })).not.toBeInTheDocument();
+    beforeEach(() => {
+      callbacks = [];
+      observed = [];
+      global.ResizeObserver = class {
+        constructor(cb) {
+          callbacks.push(cb);
+        }
 
-    jest.restoreAllMocks();
-    stubOverflow(180, 63);
-    act(() => {
-      window.dispatchEvent(new Event('resize'));
+        observe(el) {
+          observed.push(el);
+        }
+
+        disconnect() {}
+      };
     });
-    expect(await screen.findByRole('button', { name: 'Read the full recap' })).toBeInTheDocument();
+
+    afterEach(() => {
+      delete global.ResizeObserver;
+    });
+
+    const fireResize = () =>
+      act(() => {
+        callbacks.forEach((cb) => cb([]));
+      });
+
+    test('re-checks the overflow when the narrative resizes', async () => {
+      stubOverflow(63, 63);
+      apiClient.get.mockResolvedValue(recapResponse());
+
+      renderWithProviders(<RecapCard leagueId={1} />);
+      const narrative = await screen.findByText(/exploded for a league-high/);
+      expect(observed).toContain(narrative);
+      expect(screen.queryByRole('button', { name: 'Read the full recap' })).not.toBeInTheDocument();
+
+      jest.restoreAllMocks();
+      stubOverflow(180, 63);
+      fireResize();
+      expect(await screen.findByRole('button', { name: 'Read the full recap' })).toBeInTheDocument();
+    });
+
+    // The toggle is a keyboard stop; when a re-measure removes it while it holds
+    // focus, focus must land on the narrative, not fall to <body>.
+    test('moves focus to the narrative when the focused toggle goes away', async () => {
+      stubOverflow(180, 63);
+      apiClient.get.mockResolvedValue(recapResponse());
+
+      renderWithProviders(<RecapCard leagueId={1} />);
+      const toggle = await screen.findByRole('button', { name: 'Read the full recap' });
+      act(() => toggle.focus());
+      expect(toggle).toHaveFocus();
+
+      jest.restoreAllMocks();
+      stubOverflow(63, 63);
+      fireResize();
+
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Read the full recap' })).not.toBeInTheDocument());
+      expect(screen.getByText(/exploded for a league-high/)).toHaveFocus();
+    });
+  });
+
+  // The web fonts land after first layout and can re-wrap the text without
+  // resizing the clamped box, so the check also runs once document.fonts.ready
+  // resolves.
+  test('re-checks the overflow after document.fonts.ready resolves', async () => {
+    let resolveFonts;
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { ready: new Promise((resolve) => { resolveFonts = resolve; }) },
+    });
+    try {
+      stubOverflow(63, 63);
+      apiClient.get.mockResolvedValue(recapResponse());
+
+      renderWithProviders(<RecapCard leagueId={1} />);
+      await screen.findByTestId('recap-card');
+      expect(screen.queryByRole('button', { name: 'Read the full recap' })).not.toBeInTheDocument();
+
+      // The fonts swap in: the same text now wraps to more lines.
+      jest.restoreAllMocks();
+      stubOverflow(180, 63);
+      await act(async () => {
+        resolveFonts();
+      });
+      expect(await screen.findByRole('button', { name: 'Read the full recap' })).toBeInTheDocument();
+    } finally {
+      delete document.fonts;
+    }
+  });
+
+  describe('a rebuilt narrative', () => {
+    const LONG = `${'A long, busy week in the league. '.repeat(10)}`.trim();
+    const rebuildInto = async (narrative) => {
+      mockGetByUrl({
+        '/api/scoring/league/1/recap': recapResponse(),
+        '/api/league/1': leagueResponse(true, 2026),
+      });
+      apiClient.post.mockResolvedValue({
+        data: { season: 2026, week: 5, data: { generatedAt: '2026-07-12T09:00:00.000Z', narrative, facts: {} } },
+      });
+      renderWithProviders(<RecapCard leagueId={1} />);
+      await userEvent.click(await screen.findByRole('button', { name: /rebuild recap/i }));
+    };
+
+    // Overflow follows the text: only the long narrative's element reports a
+    // scrollHeight past its clientHeight.
+    const stubOverflowByText = () => {
+      jest
+        .spyOn(Element.prototype, 'scrollHeight', 'get')
+        .mockImplementation(function scrollHeightOf() {
+          return this.textContent.length > 100 ? 180 : 63;
+        });
+      jest.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(63);
+    };
+
+    test('a short recap rebuilt into a long one re-measures and gains the toggle', async () => {
+      stubOverflowByText();
+
+      await rebuildInto(LONG);
+
+      expect(await screen.findByText(LONG)).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Read the full recap' })).toBeInTheDocument();
+    });
+
+    test('an open narrative starts collapsed again when the recap is rebuilt', async () => {
+      stubOverflowByText();
+      mockGetByUrl({
+        '/api/scoring/league/1/recap': recapResponse({ narrative: LONG }),
+        '/api/league/1': leagueResponse(true, 2026),
+      });
+      apiClient.post.mockResolvedValue({
+        data: {
+          season: 2026,
+          week: 5,
+          data: { generatedAt: '2026-07-12T09:00:00.000Z', narrative: `${LONG} Rebuilt.`, facts: {} },
+        },
+      });
+      renderWithProviders(<RecapCard leagueId={1} />);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Read the full recap' }));
+      expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+
+      await userEvent.click(screen.getByRole('button', { name: /rebuild recap/i }));
+
+      await screen.findByText(`${LONG} Rebuilt.`);
+      const toggle = await screen.findByRole('button', { name: 'Read the full recap' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    });
   });
 });
