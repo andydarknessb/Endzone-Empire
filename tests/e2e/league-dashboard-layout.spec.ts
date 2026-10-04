@@ -253,3 +253,49 @@ test('negative control: the width predicate reports a forced card overflow', asy
   const restored = after.cards.find((c) => c.testId === 'standings-table');
   expect(restored?.widerThanColumn, 'removing the forced width must restore the column fit').toBe(false);
 });
+
+// ======================================================================
+// BEGIN #1981 widget cases (Around the League fill, phone standings, one
+// lineup answer). Kept as one delimited block, below everything above, so a
+// rebase onto the page-layout ticket's edits to this file stays mechanical.
+// ======================================================================
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the three Around the League tiles span at least 90% of the strip's inner width`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  const probe = await page.evaluate(() => {
+    const body = document.querySelector('[data-testid="around-the-league-body"]') as HTMLElement;
+    const tiles = Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]')) as HTMLElement[];
+    const style = getComputedStyle(body);
+    const inner = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const lefts = tiles.map((t) => t.getBoundingClientRect().left);
+    const rights = tiles.map((t) => t.getBoundingClientRect().right);
+    return { count: tiles.length, inner, span: Math.max(...rights) - Math.min(...lefts) };
+  });
+  expect(probe.count, 'the fixture week has three matchups').toBe(3);
+  expect(probe.span, `span=${probe.span} inner=${probe.inner}`).toBeGreaterThanOrEqual(probe.inner * 0.9);
+});
+
+test('League Dashboard @ 390x844: the viewer standings PF/PA line is never clipped and the You pill is not displayed', async ({ page }) => {
+  await gotoDashboard(page, 390, 844);
+
+  const row = page.getByTestId('standings-table-you-row');
+  const line = row.getByTestId('standings-table-points-line');
+  await expect(line).toBeVisible();
+  const fit = await line.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(fit.scrollWidth, `scrollWidth=${fit.scrollWidth} clientWidth=${fit.clientWidth}`).toBeLessThanOrEqual(fit.clientWidth);
+
+  await expect(row.getByTestId('badge')).toBeHidden();
+  await expect(row.getByText('your team')).toBeAttached();
+});
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: a full lineup shows no empty starting slot copy anywhere`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  // The Set Lineup row settles on its plain copy once the lineup read lands, so
+  // the absence below is not a race with an unresolved read.
+  await expect(page.getByTestId('quick-action-lineup')).toContainText('Set your Week 18 lineup');
+  await expect(page.getByText(/empty starting slot/)).toHaveCount(0);
+});
+
+// END #1981 widget cases
