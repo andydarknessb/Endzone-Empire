@@ -199,7 +199,7 @@ describe('AroundTheLeague', () => {
     // The ring is a border/box-shadow (colour and shape alone), so the
     // viewer's own row also carries a visible "You" pill: identifiable in
     // the accessibility tree, not by colour only (WCAG 1.4.1), matching
-    // DraftGrades' and StandingsTable's viewer rows.
+    // StandingsTable's viewer rows.
     expect(within(rung[0]).getByText('You')).toBeInTheDocument();
   });
 

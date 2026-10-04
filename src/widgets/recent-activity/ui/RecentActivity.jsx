@@ -23,24 +23,23 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * accent (`src/theme/base.css`'s bare `a` rule), matching the mockup's plain
  * (non-accented) "All activity" text.
  *
- * The card fetches exactly 8 rows (`useLeagueTransactions`'s own `limit`);
- * below the `md` breakpoint only the first 5 of those render, matching the
- * mockup's mobile artboard. At and above it the cap is the optional `rowLimit`
- * (never more than the 8 fetched): the dashboard passes the team count when
- * this card rides the rail beside the standings (#1980), so the rail ends
- * about where the standings table does instead of leaving bare page under it.
- * The loading skeleton follows the SAME cap (5
- * rows below `md`, `rowLimit` or 8 at and above it) rather than always holding 8, so
- * loading never overshoots the row count the breakpoint is about to show -
- * the shape `draft-grades/ui/DraftGrades.jsx` uses for the same reason
- * ("so the rail does not jump ... when the grades land").
+ * The card fetches exactly 12 rows (`useLeagueTransactions`'s own `limit`), the
+ * most the rail ever shows; below the `md` breakpoint only the first 5 of those
+ * render, matching the mockup's mobile artboard. At and above it the cap is the
+ * optional `rowLimit` (never more than the 12 fetched): the dashboard passes
+ * `min(team count, 12)` because this card rides the rail beside the standings,
+ * one row per Team, so the rail ends about where the standings table does
+ * instead of leaving bare page under it (#1993). The loading skeleton follows
+ * the SAME cap (5 rows below `md`, `rowLimit` or 12 at and above it) rather
+ * than always holding 12, so loading never overshoots the row count the
+ * breakpoint is about to show.
  *
  * The card is the region that owns its one read, so it carries `aria-busy`
  * while `status` is 'loading' (Skeleton.jsx: the loading state is announced
  * by the owning region, not by each aria-hidden shape).
  */
 
-const FETCH_LIMIT = 8;
+const FETCH_LIMIT = 12;
 const MOBILE_LIMIT = 5;
 
 const ELLIPSIS_SX = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };

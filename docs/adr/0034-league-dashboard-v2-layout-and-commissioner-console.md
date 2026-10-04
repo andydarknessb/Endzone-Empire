@@ -76,3 +76,37 @@ Rulings recorded on the spec that shape the slices:
 - The design canvas working files (`docs/design/league-dashboard-v2/`) join
   the repo's committed design sources (`docs/agents/design.md`), alongside
   `docs/design/dashboard-concept.html`.
+
+## Amendment (2026-10-04, #1993): the dashboard no longer carries Draft Grades
+
+The composition rule above (every desktop row is two columns of comparable
+height) held on the 2026-09-09 audit's league and broke on a real 12-team league
+in season (league 71, Week 4, 1440 wide), twice. #1979 L5 had swapped the rail
+and second-row occupants for the live season: the main row paired the standings
+(12 rows) with a Recent activity rail capped at `min(8, teams)` rows, which
+ended about 170px above the standings, and the second row paired Quick Actions
+(about 580px) with Draft Grades (12 rows plus its explainer, about 850px), which
+left about 300px of bare page under Quick Actions. Reverting the swap alone does
+not close this: Draft Grades and Quick Actions are never a comparable-height
+pair at 12 teams, and no row cap can make them one.
+
+The product owner ruled that Draft Grades leaves the dashboard in every phase,
+because nothing is lost: League History already shows every Team's draft grades
+per season, My Team keeps the viewer's own grade tile, and the Draft Room offers
+"review the board". `GET /api/league/:id/draft-grades` stays (My Team reads it).
+The composition is now:
+
+- Main row: the standings beside a rail holding Recent activity, in every phase,
+  sticky at `md`. At `md` and up the card shows `min(teams, 12)` rows (it
+  fetches 12; the phone cap of 5 stays), one row per Team as the standings have,
+  so the two columns end about together by construction (the layout spec bounds
+  the difference at 120px).
+- Quick Actions is alone in its row at the full content width, in every league
+  kind, with one column per group from `md` (three for a fantasy league, two for
+  a pick'em-only one). The second-row grid and the pick'em-only duplicate mount
+  are gone.
+
+The comparable-height rule reads, for a row with a single card, as that card
+spanning the row: a lone full-width card has no neighbour to leave bare page
+beside. `src/widgets/draft-grades` and `src/features/toggle-grade-details` (its
+only consumer) are deleted. The earlier text of this ADR stands as written.

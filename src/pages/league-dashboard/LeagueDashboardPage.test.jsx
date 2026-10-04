@@ -523,7 +523,7 @@ const layoutV2League = (overrides = {}) =>
     viewerTeamId: 1,
   });
 
-test('v2 slot order: strip, hero, recap, around-the-league, main, second row, trophy', async () => {
+test('v2 slot order: strip, hero, recap, around-the-league, main, quick actions, trophy', async () => {
   mockGetByUrl({ '/api/league/1': layoutV2League() });
   renderPage();
 
@@ -533,51 +533,25 @@ test('v2 slot order: strip, hero, recap, around-the-league, main, second row, tr
   const hero = screen.getByTestId('dashboard-hero');
   const aroundTheLeague = screen.getByTestId('slot-around-the-league');
   const main = screen.getByTestId('dashboard-main');
-  const secondRow = screen.getByTestId('dashboard-second-row');
+  const quickActionsSection = screen.getByTestId('dashboard-quick-actions');
   const trophy = screen.getByTestId('slot-trophy-case');
 
   expect(precedes(strip, hero)).toBe(true);
   expect(precedes(hero, recap)).toBe(true);
   expect(precedes(recap, aroundTheLeague)).toBe(true);
   expect(precedes(aroundTheLeague, main)).toBe(true);
-  expect(precedes(main, secondRow)).toBe(true);
-  expect(precedes(secondRow, trophy)).toBe(true);
+  expect(precedes(main, quickActionsSection)).toBe(true);
+  expect(precedes(quickActionsSection, trophy)).toBe(true);
 
-  // In season (#1979 L5) the second row holds Quick Actions in the wide track
-  // and Draft Grades in the rail track, DOM order matching visual order.
-  const quickActions = within(secondRow).getByTestId('dashboard-quick-actions');
-  const draftGrades = within(secondRow).getByTestId('slot-draft-grades');
-  expect(precedes(quickActions, draftGrades)).toBe(true);
-
-  // Main holds standings beside a rail of Recent activity only.
+  // Main holds the standings beside a rail of Recent activity only.
   const standings = within(main).getByTestId('slot-standings');
   const recentActivity = within(main).getByTestId('slot-recent-activity');
   expect(precedes(standings, recentActivity)).toBe(true);
 });
 
-// Red-tell (#1979 L5): reverting the swap (Draft Grades back in the rail while
-// the season is live) turns the in-season case red; making the swap
-// unconditional turns the out-of-season cases red. Every slot keeps its own
-// testid in both arrangements.
-test('rail occupant by phase: Recent activity rides the rail while the season is live', async () => {
-  mockGetByUrl({ '/api/league/1': layoutV2League() });
-  renderPage();
-
-  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
-  const rail = screen.getByTestId('dashboard-rail');
-  const secondRow = screen.getByTestId('dashboard-second-row');
-  expect(within(rail).getByTestId('slot-recent-activity')).toBeInTheDocument();
-  expect(within(rail).queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
-  expect(within(secondRow).getByTestId('dashboard-quick-actions')).toBeInTheDocument();
-  expect(within(secondRow).getByTestId('slot-draft-grades')).toBeInTheDocument();
-  expect(within(secondRow).queryByTestId('slot-recent-activity')).not.toBeInTheDocument();
-  // The rail stays sticky at md (the swap moved its occupant, not its rule).
-  expect(cssFor(rail)).toMatch(/position:\s*sticky/);
-});
-
-// Eight raw transaction rows (the widget's fetch limit), newest first.
-const eightTransactions = () =>
-  Array.from({ length: 8 }, (_, i) => ({
+// `n` raw transaction rows, newest first.
+const transactionRows = (n) =>
+  Array.from({ length: n }, (_, i) => ({
     id: 100 - i,
     type: 'add',
     team_name: 'Team 1',
@@ -586,67 +560,72 @@ const eightTransactions = () =>
     created_at: new Date(Date.UTC(2026, 8, 8, 20 - i)).toISOString(),
   }));
 
-// Red-tell (#1980): dropping the `rowLimit` the page passes turns the first
-// case red (a 6-team rail would hold 8 rows and leave bare page under the
-// standings); passing it in the second row turns the third red.
-test('in season the rail card is capped at the team count, so the rail tracks the standings', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueDetail({
-      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
-      teams: buildTeams(6),
-    }),
-    '/api/league/1/transactions': { data: eightTransactions() },
-  });
-  renderPage();
-
-  const rail = await screen.findByTestId('dashboard-rail');
-  await within(rail).findAllByTestId('recent-activity-row');
-  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(6);
-});
-
-test('in season the rail card never asks for more than eight rows, however many teams', async () => {
-  mockGetByUrl({
-    '/api/league/1': inSeasonLeague(),
-    '/api/league/1/transactions': { data: eightTransactions() },
-  });
-  renderPage();
-
-  const rail = await screen.findByTestId('dashboard-rail');
-  await within(rail).findAllByTestId('recent-activity-row');
-  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(8);
-});
-
-test('outside the live season Recent activity keeps its own eight rows in the second row', async () => {
-  mockGetByUrl({
-    '/api/league/1': leagueDetail({
-      league: { draft_status: 'complete', season_status: 'complete' },
-      teams: buildTeams(6),
-    }),
-    '/api/league/1/transactions': { data: eightTransactions() },
-  });
-  renderPage();
-
-  const secondRow = await screen.findByTestId('dashboard-second-row');
-  await within(secondRow).findAllByTestId('recent-activity-row');
-  expect(within(secondRow).getAllByTestId('recent-activity-row')).toHaveLength(8);
-});
-
+// Red-tell (#1993): Draft Grades is gone from the dashboard (product ruling on
+// #1993), and the rail holds Recent activity in every phase, still sticky.
+// Putting Draft Grades back anywhere, or swapping the rail's occupant for the
+// live season (the #1979 L5 composition), turns every case red.
 test.each([
   ['pre-draft', () => layoutV2League({ draft_status: 'pending' })],
   ['drafting', () => layoutV2League({ draft_status: 'active' })],
+  ['in season', () => layoutV2League()],
+  ['playoffs', () => layoutV2League({ season_status: 'playoffs' })],
   ['season complete', () => layoutV2League({ season_status: 'complete' })],
-])('rail occupant by phase: %s keeps Draft Grades in the rail and Recent activity in the second row', async (_phase, build) => {
+])('rail occupant, %s: Recent activity rides the sticky rail and there is no Draft Grades', async (_phase, build) => {
   mockGetByUrl({ '/api/league/1': build() });
   renderPage();
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
   const rail = screen.getByTestId('dashboard-rail');
-  const secondRow = screen.getByTestId('dashboard-second-row');
-  expect(within(rail).getByTestId('slot-draft-grades')).toBeInTheDocument();
-  expect(within(rail).queryByTestId('slot-recent-activity')).not.toBeInTheDocument();
-  expect(within(secondRow).getByTestId('dashboard-quick-actions')).toBeInTheDocument();
-  expect(within(secondRow).getByTestId('slot-recent-activity')).toBeInTheDocument();
-  expect(within(secondRow).queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
+  expect(within(rail).getByTestId('slot-recent-activity')).toBeInTheDocument();
+  expect(screen.queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('draft-grades')).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Draft Grades' })).not.toBeInTheDocument();
+  expect(cssFor(rail)).toMatch(/position:\s*sticky/);
+});
+
+// Red-tell (#1993): the rail tracks the standings, one row per Team up to 12.
+// A cap that stays at the old `min(8, teams)` turns the 12-team case red;
+// dropping the cap turns the 6-team case red (the card would hold all twelve
+// fetched rows beside six standings rows); a cap above 12 turns the 15-team
+// case red.
+test.each([
+  [6, 6],
+  [12, 12],
+  [15, 12],
+])('the rail card shows min(teams, 12) rows at md: %i teams, %i rows', async (teams, rows) => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(teams),
+    }),
+    '/api/league/1/transactions': { data: transactionRows(15) },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(rows);
+});
+
+// Red-tell (#1993): Quick Actions is alone under the main row, so it spans the
+// shell's full content width, in a fantasy league and a pick'em-only one alike,
+// mounted once. Re-pairing it in a two-track grid (the old second row), or
+// keeping the pick'em-only duplicate mount beside the fantasy one, turns it red.
+test.each([
+  ['fantasy', () => layoutV2League()],
+  ["pick'em-only", () => pickemOnlyLeague()],
+])('%s: Quick Actions is one full-width section under the shell, with no grid pairing', async (_kind, build) => {
+  mockGetByUrl({ '/api/league/1': build() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const section = screen.getByTestId('dashboard-quick-actions');
+  expect(screen.getAllByTestId('dashboard-quick-actions')).toHaveLength(1);
+  expect(screen.queryByTestId('dashboard-second-row')).not.toBeInTheDocument();
+  // eslint-disable-next-line testing-library/no-node-access
+  expect(section.parentElement).toBe(screen.getByTestId('dashboard-shell'));
+  expect(cssFor(section)).not.toMatch(/grid-template-columns/);
+  expect(await within(section).findByTestId('quick-actions')).toBeInTheDocument();
 });
 
 test("a member renders no strip slot content and the wrapper collapses", async () => {
@@ -1501,276 +1480,6 @@ test('matchup card: a best-ball league skips the detail read, rendering both pla
 });
 
 // ==========================================================================
-// draft-grades widget (#642), the rail-top slot. Same seam as the section
-// above: add the endpoint override to a per-test `mockGetByUrl` map, no
-// shared setup changes.
-//
-// This widget reads the SAME /api/league/:id/draft-grades endpoint as
-// my-team-summary above, and the viewer's grade letter (C) renders in both
-// cards. Every value assertion here is scoped with within(card) (the
-// widget's own card) or within(row) (one row of it), never a page-wide
-// getBy*/findBy*, so this section never collides with the section above it
-// or with a sibling ticket rendering the same letters.
-//
-// The number beside each grade is Net vs ADP (the figure the grade is ranked
-// on), never roster value: roster value is not the grade's input and is null
-// at week 1 of a season, which is how production showed a 0 beside every
-// grade (league 137, 2026). The fixture's nets are that league's real spread.
-// ==========================================================================
-
-// 12 Teams, matching the dashboard-concept mockup's Draft Grades rail: the
-// viewer (teamId 1) sits at rank 6 with grade C and a net of +95.1, and the
-// top net (+161.2) belongs to a different Team. `teamName` is the
-// canonical Team-identity field (teamIdentity.js); `name` here is the raw
-// column the league route also leaks (carry-over comment #5) and must NOT be
-// what the card renders.
-const draftGradesRailTeams = [
-  { teamId: 2, id: 2, teamName: 'Terrific T', name: 'raw-2' },
-  { teamId: 3, id: 3, teamName: 'Mike Mike Mike', name: 'raw-3' },
-  { teamId: 4, id: 4, teamName: 'Nanagoat', name: 'raw-4' },
-  { teamId: 5, id: 5, teamName: 'Lo Expectations', name: 'raw-5' },
-  { teamId: 6, id: 6, teamName: 'Fourth and Slong', name: 'raw-6' },
-  { teamId: 1, id: 1, teamName: 'MyBallsHurts', name: 'raw-1' },
-  { teamId: 7, id: 7, teamName: 'Skattebo Stans', name: 'raw-7' },
-  { teamId: 8, id: 8, teamName: 'Bussin Team', name: 'raw-8' },
-  { teamId: 9, id: 9, teamName: 'Team Ramrod', name: 'raw-9' },
-  { teamId: 10, id: 10, teamName: 'Keep My Team Name', name: 'raw-10' },
-  { teamId: 11, id: 11, teamName: 'Hank Da Tank', name: 'raw-11' },
-  { teamId: 12, id: 12, teamName: 'Bigpapa6', name: 'raw-12' },
-];
-
-const draftGradesRailLeague = (overrides = {}) =>
-  leagueDetail({
-    league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
-    teams: draftGradesRailTeams,
-    viewerTeamId: 1,
-    ...overrides,
-  });
-
-// GET /api/league/:id/draft-grades, 12 rows in rank order (the server already
-// ranks best-first). Each row's `name` is a decoy raw column deliberately
-// different from the matching Team's `teamName` above, so a test that reads
-// it by mistake fails loudly instead of passing by coincidence. rosterValue
-// is null on every row (the week-1 shape); the card must not need it.
-const railPick = (name, pickNumber, marketAdp) => ({
-  playerId: pickNumber, name, position: 'RB', pickNumber, marketAdp, draftValueScore: marketAdp - pickNumber,
-});
-const railRow = (teamId, grade, rank, adpNet, steal = null, reach = null, pricedPicks = 9) => ({
-  teamId, name: `raw-${teamId}`, grade, rank, adpNet, rosterValue: null, steal, reach, pricedPicks,
-});
-const draftGradesRailResponse = () => ({
-  data: {
-    computedAt: '2026-09-01T00:00:00.000Z',
-    rosterValueAvailable: false,
-    grades: [
-      railRow(2, 'A', 1, 161.2, railPick('Puka Nacua', 14, 4.3), railPick('Kyler Murray', 38, 71)),
-      railRow(3, 'A', 2, 158.8),
-      railRow(4, 'A', 3, 157.3),
-      railRow(5, 'A', 4, 155.4),
-      railRow(6, 'B', 5, 110.5),
-      railRow(1, 'C', 6, 95.1, railPick('Bijan Robinson', 18, 3), railPick('Jake Elliott', 40, 120.5)),
-      railRow(7, 'C', 7, 63.1, null, railPick('Tyler Bass', 33, 150)),
-      railRow(8, 'D', 8, 42.1),
-      railRow(9, 'D', 9, 26.9),
-      railRow(10, 'D', 10, 14.4),
-      // A Team with no market ADP on any pick (IDP-heavy): no net, no steal, no
-      // reach, and a different sentence from "every pick landed at its ADP".
-      railRow(11, 'F', 11, null, null, null, 0),
-      railRow(12, 'F', 12, -52.1, railPick('Sam LaPorta', 60, 55), null),
-    ],
-  },
-});
-
-test('draft-grades card: heading, Net vs ADP tail, 12 rows in rank order with Team names from teams[]', async () => {
-  mockGetByUrl({
-    '/api/league/1': draftGradesRailLeague(),
-    '/api/league/1/draft-grades': draftGradesRailResponse(),
-  });
-  renderPage();
-
-  const card = await screen.findByTestId('draft-grades');
-  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
-  // Scoped to the tail's own aria-labelled span (#1118: an AbbreviationTooltip),
-  // not a bare getByText: every row's number cell also carries a visually
-  // hidden "Net vs ADP" column label, so an unscoped query is ambiguous once
-  // real rows (rather than loading skeletons) have rendered.
-  expect(within(card).getByText('Net vs ADP', { selector: '[aria-label]' })).toBeInTheDocument();
-  // The card never renders the (null) roster value column: no "0", no "-"
-  // where a number should be, and no leftover roster-value bar.
-  expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument();
-
-  // Rank order (response order), read from teams[] rather than the grades
-  // response's own (decoy) `name` field.
-  const expectedOrder = [
-    'Terrific T',
-    'Mike Mike Mike',
-    'Nanagoat',
-    'Lo Expectations',
-    'Fourth and Slong',
-    'MyBallsHurts',
-    'Skattebo Stans',
-    'Bussin Team',
-    'Team Ramrod',
-    'Keep My Team Name',
-    'Hank Da Tank',
-    'Bigpapa6',
-  ];
-  const rows = await within(card).findAllByRole('row');
-  expect(rows).toHaveLength(12);
-  expectedOrder.forEach((name, i) => {
-    expect(within(rows[i]).getByText(name)).toBeInTheDocument();
-  });
-  // None of the decoy raw names ever render.
-  expect(within(card).queryByText(/^raw-/)).not.toBeInTheDocument();
-
-  // The viewer's own row (teamId 1): scoped to that row so its "C" chip
-  // cannot collide with my-team-summary's card above, which renders the same
-  // grade for the same viewer. The number is the grade's own input, signed,
-  // and the row says how the grade was earned: best steal, worst reach.
-  const viewerRow = within(card).getByTestId('draft-grades-row-1');
-  expect(within(viewerRow).getByRole('img', { name: 'Grade C' })).toBeInTheDocument();
-  // The Team cell is the row header, so the number cell is read with its
-  // Team; the number cell itself carries the hidden column label, anchored
-  // so the label and value cannot drift into the pick line.
-  expect(within(viewerRow).getByRole('rowheader')).toHaveTextContent('MyBallsHurts');
-  expect(within(viewerRow).getByTestId('draft-grades-net')).toHaveTextContent(/^Net vs ADP \+95\.1$/);
-  // Compact rows (#1104): collapsed - the default, page-local state - only
-  // the viewer's own row carries a pick line.
-  expect(within(viewerRow).getByTestId('draft-grades-picks')).toHaveTextContent(
-    /^Steal: Bijan Robinson \(pick 18, ADP 3\) · Reach: Jake Elliott \(pick 40, ADP 120\.5\)$/
-  );
-  const rowNet = (teamId) => within(within(card).getByTestId(`draft-grades-row-${teamId}`)).getByTestId('draft-grades-net');
-  const rowPicks = (teamId) => within(within(card).getByTestId(`draft-grades-row-${teamId}`)).queryByTestId('draft-grades-picks');
-  // A negative net keeps its sign regardless of the toggle.
-  expect(rowNet(12)).toHaveTextContent(/^Net vs ADP -52\.1$/);
-  // No market ADP on any pick: the net is not available (no "NaN", no "0").
-  expect(rowNet(11)).toHaveTextContent(/^Net vs ADP -Not available$/);
-  expect(rowNet(11).textContent).not.toMatch(/NaN|\d/);
-  // Every non-viewer row is one 40px line while collapsed: no pick line.
-  expect(rowPicks(7)).not.toBeInTheDocument();
-  expect(rowPicks(3)).not.toBeInTheDocument();
-  expect(rowPicks(11)).not.toBeInTheDocument();
-  expect(within(card).getAllByTestId('draft-grades-picks')).toHaveLength(1);
-  // Roster value is gone from this card entirely: no header, no column.
-  expect(within(card).queryByText(/roster value/i)).not.toBeInTheDocument();
-  // The card explains the number it shows, and the table points at that
-  // explanation so table-mode readers meet it too.
-  const explainer = within(card).getByTestId('draft-grades-explainer');
-  expect(explainer).toHaveTextContent(
-    'Higher is better: the steal fell furthest past its ADP, the reach went furthest ahead of it.'
-  );
-  const table = within(card).getByRole('table');
-  expect(table).toHaveAttribute('aria-describedby', explainer.id);
-
-  // The row is identifiable in the accessibility tree and to tooling, not by
-  // color alone (WCAG 1.4.1): the shared island viewer-row marker (#671) - a
-  // visible "You" pill plus the row-contract attribute.
-  expect(viewerRow).toHaveAttribute('data-viewer-team', 'true');
-  const youBadge = within(viewerRow).getByTestId('badge');
-  expect(youBadge).toHaveAttribute('data-variant', 'you');
-  expect(youBadge).toHaveTextContent('You');
-  // Exclusivity: a non-viewer row carries neither half of the marker. The
-  // attribute and the pill are two independent conditionals in the widget, so
-  // each needs its own negative - a regression that drops the isViewer guard
-  // on only one of them would otherwise pass.
-  expect(rows[1]).not.toHaveAttribute('data-viewer-team');
-  expect(within(rows[1]).queryByTestId('badge')).not.toBeInTheDocument();
-
-  // toggle-grade-details feature: the footer's text Button turns the pick
-  // line on for every row at once, names the table through aria-controls,
-  // and flips its own label and aria-expanded.
-  const toggle = within(card).getByRole('button', { name: 'Show steals and reaches' });
-  expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  expect(toggle).toHaveAttribute('aria-controls', table.id);
-
-  await userEvent.click(toggle);
-
-  expect(within(card).getByRole('button', { name: 'Hide steals and reaches' })).toHaveAttribute(
-    'aria-expanded',
-    'true'
-  );
-  expect(within(card).getAllByTestId('draft-grades-picks')).toHaveLength(12);
-  expect(rowPicks(7)).toHaveTextContent(/^Reach: Tyler Bass \(pick 33, ADP 150\)$/);
-  expect(rowPicks(3)).toHaveTextContent(/^Every pick landed at its ADP$/);
-  expect(rowPicks(11)).toHaveTextContent(/^No market ADP for these picks$/);
-});
-
-test('draft-grades card: a 404 renders the pending copy with no error', async () => {
-  mockGetByUrl({
-    '/api/league/1': draftGradesRailLeague(),
-    '/api/league/1/draft-grades': { reject: { response: { status: 404 } } },
-  });
-  renderPage();
-
-  const card = await screen.findByTestId('draft-grades');
-  expect(await within(card).findByTestId('draft-grades-pending')).toHaveTextContent(
-    'Draft grades arrive once the draft is complete.'
-  );
-  expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
-  expect(within(card).queryByTestId('draft-grades-error')).not.toBeInTheDocument();
-  // The card's own header still renders even when the read fails.
-  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
-});
-
-test('draft-grades card: a 500 shows a compact error, and the header still renders', async () => {
-  mockGetByUrl({
-    '/api/league/1': draftGradesRailLeague(),
-    '/api/league/1/draft-grades': { reject: { response: { status: 500, data: { error: 'boom' } } } },
-  });
-  renderPage();
-
-  const card = await screen.findByTestId('draft-grades');
-  const alert = await within(card).findByRole('alert');
-  expect(alert).toHaveAttribute('data-testid', 'draft-grades-error');
-  expect(alert).toHaveTextContent(/could not load/i);
-  expect(within(card).queryByTestId('draft-grades-pending')).not.toBeInTheDocument();
-  expect(within(card).getByRole('heading', { name: 'Draft Grades' })).toBeInTheDocument();
-});
-
-// #679: the owning Card computes aria-busy from `phase` (Card aria-busy=
-// {phase === 'loading'}) rather than from mount/unmount, so a widget stuck
-// busy forever would still pass a true-only assertion. The endpoint mock
-// below is a manually-resolved promise (not mockGetByUrl's `{ pending: true }`
-// marker, which never settles) so this one test can observe both the busy
-// state and the settle within it - a true-then-false-in-one-test shape that
-// is new to this file, needed for the reason above: only a test that also
-// checks the settled state can catch a widget that never clears aria-busy.
-// "Loading" (not "pending") in the test name to match
-// useDraftGrades' own vocabulary: that hook's `phase` reserves 'pending' for
-// the 404 no-grades-yet case (see the neighboring 404 test above), and this
-// test covers the in-flight 'loading' phase instead. Scoped with
-// within(card): the findAllByRole('row') check below would otherwise also
-// match standings-table's rows, which render on the same page.
-test('draft-grades card: aria-busy is true while the grades read is loading and false once it resolves', async () => {
-  let resolveGrades;
-  const gradesPromise = new Promise((resolve) => {
-    resolveGrades = resolve;
-  });
-  apiClient.get.mockImplementation((url) => {
-    if (url === '/api/league/1/draft-grades' || url.endsWith('/api/league/1/draft-grades')) {
-      return gradesPromise;
-    }
-    if (url === '/api/league/1' || url.endsWith('/api/league/1')) {
-      return Promise.resolve(draftGradesRailLeague());
-    }
-    return Promise.resolve({ data: [] });
-  });
-  renderPage();
-
-  const card = await screen.findByTestId('draft-grades');
-  expect(within(card).getAllByTestId('draft-grades-skeleton').length).toBeGreaterThan(0);
-  expect(card).toHaveAttribute('aria-busy', 'true');
-
-  await act(async () => {
-    resolveGrades(draftGradesRailResponse());
-    await gradesPromise;
-  });
-
-  await within(card).findAllByRole('row');
-  expect(card).toHaveAttribute('aria-busy', 'false');
-});
-
-// ==========================================================================
 // quick-actions widget (#643), the full-width section below the main grid.
 // Same seam as the sections above: this ticket registers its own endpoint
 // (the viewer roster) on `mockGetByUrl` and its own fixture builders without
@@ -1787,7 +1496,7 @@ test('draft-grades card: aria-busy is true while the grades read is loading and 
 // on an in-season member page"), which is exactly a page-level claim.
 //
 // AC5 scope note: a pick'em-only league still renders the my-team, matchup,
-// standings and draft-grades cards today (their pick'em gating is #645's
+// standings cards today (their pick'em gating is #645's
 // cutover job, not this ticket). "Shows only Pick'em, Activity, History and
 // League Rules" is a claim about THIS widget's own card list, so it is scoped
 // with within(card).
@@ -2148,7 +1857,7 @@ test('cutover: a fantasy member composes the chat launcher, recap and trophy cas
   expect(screen.getByTestId('slot-matchup-preview')).toBeInTheDocument();
   expect(screen.getByTestId('slot-around-the-league')).toBeInTheDocument();
   expect(screen.getByTestId('slot-standings')).toBeInTheDocument();
-  expect(screen.getByTestId('slot-draft-grades')).toBeInTheDocument();
+  expect(screen.queryByTestId('slot-draft-grades')).not.toBeInTheDocument();
   expect(screen.getByTestId('dashboard-quick-actions')).toBeInTheDocument();
   expect(screen.getByTestId('slot-recent-activity')).toBeInTheDocument();
   expect(screen.queryByTestId('commissioner-strip')).not.toBeInTheDocument();
@@ -2286,36 +1995,56 @@ test("cutover: a pick'em-only member shows pick'em standings and the Pick'em act
   expect(screen.queryByTestId('slot-recent-activity')).not.toBeInTheDocument();
   expect(screen.queryByTestId('recap-card')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /advance to week/i })).not.toBeInTheDocument();
-  // Quick Actions still renders, full width and on its own (outside the
-  // second grid row, which never mounts for a pick'em-only league).
+  // Quick Actions still renders, full width and on its own, as it does for a
+  // fantasy league.
   expect(screen.getByTestId('dashboard-quick-actions')).toBeInTheDocument();
 
   // The dispatcher recorded no scoring-standings, matchups or draft-grades GET.
   expect(cutoverFantasyGets()).toEqual([]);
 });
 
-// A fantasy league whose teams[] both the standings table and the draft-grades
-// rail read (each joins its response rows to teams[] by teamId and renders
-// teamName). Team 7 is 'Skattebo Stans' in both until a profile update renames
-// it. Reuses the draft-grades rail fixtures established earlier in this file.
+// A 12-team fantasy league whose teams[] the standings table reads (it joins its
+// response rows to teams[] by teamId and renders teamName). Team 7 is
+// 'Skattebo Stans' until a profile update renames it. `name` is the raw column
+// the league route also leaks, a decoy distinct from `teamName`.
+const cutoverIdentityTeams = [
+  'Terrific T',
+  'Mike Mike Mike',
+  'Nanagoat',
+  'Lo Expectations',
+  'Fourth and Slong',
+  'MyBallsHurts',
+  'Skattebo Stans',
+  'Bussin Team',
+  'Team Ramrod',
+  'Keep My Team Name',
+  'Hank Da Tank',
+  'Bigpapa6',
+].map((teamName, i) => {
+  // Team ids run 2..7 for the first six rows, 1 for the viewer in sixth place.
+  const teamId = [2, 3, 4, 5, 6, 1, 7, 8, 9, 10, 11, 12][i];
+  return { teamId, id: teamId, teamName, name: `raw-${teamId}` };
+});
+const cutoverIdentityLeague = () =>
+  leagueDetail({
+    league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+    teams: cutoverIdentityTeams,
+    viewerTeamId: 1,
+  });
 const cutoverLiveIdentityMocks = {
-  '/api/league/1': draftGradesRailLeague(),
+  '/api/league/1': cutoverIdentityLeague(),
   '/api/scoring/league/1/standings': standingsTableResponse(standingsTableRows(12)),
-  '/api/league/1/draft-grades': draftGradesRailResponse(),
 };
 
-test('cutover: a team-profile rename writes through to the standings and draft-grades rows with no second league GET', async () => {
+test('cutover: a team-profile rename writes through to the standings rows with no second league GET', async () => {
   mockGetByUrl(cutoverLiveIdentityMocks);
   renderPage();
 
   const standingsCard = await screen.findByTestId('standings-table');
-  const draftGradesCard = await screen.findByTestId('draft-grades');
-  // Team 7's canonical name renders in both widgets, each read from teams[].
+  // Team 7's canonical name renders from teams[].
   await within(standingsCard).findByText('Skattebo Stans');
-  const gradesRow7 = within(draftGradesCard).getByTestId('draft-grades-row-7');
-  expect(within(gradesRow7).getByText('Skattebo Stans')).toBeInTheDocument();
 
-  // The single league GET that fed both widgets (they dedupe on the shared
+  // The single league GET that fed every widget (they dedupe on the shared
   // useLeague entry).
   expect(cutoverLeagueGetCount()).toBe(1);
 
@@ -2324,11 +2053,9 @@ test('cutover: a team-profile rename writes through to the standings and draft-g
     publishTeamProfileUpdate({ leagueId: 1, teamId: 7, name: 'Renamed Seven' });
   });
 
-  // Both rows re-render with the new name, from the shared teams[] write-through.
+  // The row re-renders with the new name, from the shared teams[] write-through.
   await within(standingsCard).findByText('Renamed Seven');
-  await within(gradesRow7).findByText('Renamed Seven');
   expect(within(standingsCard).queryByText('Skattebo Stans')).not.toBeInTheDocument();
-  expect(within(gradesRow7).queryByText('Skattebo Stans')).not.toBeInTheDocument();
 
   // The write-through made no request: still exactly one league GET.
   expect(cutoverLeagueGetCount()).toBe(1);
@@ -2374,16 +2101,16 @@ test('cutover: a team-profile rename also patches the raw name column in the sha
   expect(cutoverLeagueGetCount()).toBe(1);
 });
 
-test('cutover: a standings 500 errors the my-team card while matchup, draft grades, quick actions and the header render', async () => {
+test('cutover: a standings 500 errors the my-team card while matchup, recent activity, quick actions and the header render', async () => {
   // Everything resolves except the shared standings read, which 500s. Per #641
   // that one read feeds both my-team and the standings table, so both surface an
   // error; AC5 only claims the other four surfaces stay normal, which they do.
   // The matchups list is left to the dispatcher's empty fallback, so matchup
   // preview settles on its own honest empty state, not an error.
   mockGetByUrl({
-    '/api/league/1': draftGradesRailLeague(),
+    '/api/league/1': cutoverIdentityLeague(),
     '/api/scoring/league/1/standings': { reject: { response: { status: 500 } } },
-    '/api/league/1/draft-grades': draftGradesRailResponse(),
+    '/api/league/1/transactions': { data: transactionRows(3) },
   });
   renderPage();
 
@@ -2399,10 +2126,10 @@ test('cutover: a standings 500 errors the my-team card while matchup, draft grad
   const matchup = screen.getByTestId('matchup-preview');
   expect(within(matchup).queryByTestId('matchup-preview-error')).not.toBeInTheDocument();
 
-  // Draft grades render their rail (no error).
-  const draftGrades = screen.getByTestId('draft-grades');
-  expect(await within(draftGrades).findByTestId('draft-grades-row-1')).toBeInTheDocument();
-  expect(within(draftGrades).queryByTestId('draft-grades-error')).not.toBeInTheDocument();
+  // Recent activity renders its rail rows (no error).
+  const recentActivity = screen.getByTestId('recent-activity');
+  expect(await within(recentActivity).findAllByTestId('recent-activity-row')).toHaveLength(3);
+  expect(within(recentActivity).queryByTestId('recent-activity-error')).not.toBeInTheDocument();
 
   // Quick actions render.
   expect(screen.getByTestId('quick-actions')).toBeInTheDocument();
@@ -2484,4 +2211,4 @@ test('cutover: no draft countdown once the draft_date is absent, past pre-draft,
 // src/pages/commissioner-console instead, which is where that surface's own
 // coverage of the raw-name write-through now belongs. The teamName half of the
 // same write-through stays covered above ("cutover: a team-profile rename
-// writes through to the standings and draft-grades rows ...").
+// writes through to the standings rows ...").

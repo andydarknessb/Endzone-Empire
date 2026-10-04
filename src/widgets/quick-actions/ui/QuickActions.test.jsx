@@ -6,7 +6,7 @@ import { invalidate } from '../../../lib/resourceCache';
 import QuickActions from '../index';
 
 /**
- * quick-actions slice tests (T7; rows in two columns #1106). The page-level
+ * quick-actions slice tests (T7; one column per group #1993). The page-level
  * composition assertions (which cards a league type renders, the group
  * counts, the Set Lineup recommendation round trip) stay in
  * LeagueDashboardPage.test.jsx; what lives here is what only this slice can
@@ -197,24 +197,26 @@ test('a row is 40px tall at md and up and 48px tall below md, and its icon sits 
 
 // --- columns ----------------------------------------------------------
 
-test('the desktop body groups Play and Moves in the first column and League in the second, by test id', async () => {
+// Red-tell (#1993): the card spans the dashboard's full width now, so each group
+// is its own column at md and up. Putting two groups back in one column (the
+// old Play-over-Moves stack) turns the first case red; a track count that does
+// not follow the group count turns the second red.
+test('the desktop body is one column per group, Play then Moves then League', async () => {
   renderWidget();
   await screen.findByTestId('quick-actions');
 
-  const column1 = screen.getByTestId('quick-actions-column-1');
-  const column2 = screen.getByTestId('quick-actions-column-2');
-
-  // Red-tell: moving Moves into the second column turns this case red and no
-  // other.
-  expect(within(column1).getByTestId('quick-actions-group-play')).toBeInTheDocument();
-  expect(within(column1).getByTestId('quick-actions-group-moves')).toBeInTheDocument();
-  expect(within(column2).getByTestId('quick-actions-group-league')).toBeInTheDocument();
-  expect(within(column2).queryByTestId('quick-actions-group-play')).not.toBeInTheDocument();
-  expect(within(column2).queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
-  expect(within(column1).queryByTestId('quick-actions-group-league')).not.toBeInTheDocument();
+  const body = screen.getByTestId('quick-actions-body');
+  expect(cssFor(body)).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  expect(
+    within(body).getAllByRole('heading', { level: 3 }).map((h) => h.textContent.split(' · ')[0])
+  ).toEqual(['Play', 'Moves', 'League']);
+  ['play', 'moves', 'league'].forEach((group) => {
+    // A direct child of the grid, not wrapped in a shared column.
+    expect(screen.getByTestId(`quick-actions-group-${group}`).parentElement).toBe(body);
+  });
 });
 
-test("a pick'em-only trim still drops the fantasy rows, leaving Play alone in the first column", async () => {
+test("a pick'em-only trim drops the fantasy rows and the Moves column, leaving two columns", async () => {
   renderWidget({ pickem_only: true, season_status: 'regular', current_week: 6 });
   await screen.findByTestId('quick-actions');
 
@@ -226,11 +228,10 @@ test("a pick'em-only trim still drops the fantasy rows, leaving Play alone in th
   });
   expect(screen.getByTestId('quick-action-pickem')).toBeInTheDocument();
 
-  const column1 = screen.getByTestId('quick-actions-column-1');
-  const column2 = screen.getByTestId('quick-actions-column-2');
-  expect(within(column1).getByTestId('quick-actions-group-play')).toBeInTheDocument();
-  expect(within(column1).queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
-  expect(within(column2).getByTestId('quick-actions-group-league')).toBeInTheDocument();
+  const body = screen.getByTestId('quick-actions-body');
+  expect(cssFor(body)).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  expect(screen.getByTestId('quick-actions-group-play').parentElement).toBe(body);
+  expect(screen.getByTestId('quick-actions-group-league').parentElement).toBe(body);
 });
 
 // --- state-aware copy -----------------------------------------------------

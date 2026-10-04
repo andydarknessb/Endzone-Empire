@@ -15,7 +15,7 @@ import apiClient from '../../api/apiClient';
  * `httpStatus` is the failing response's HTTP status (or null when there is no
  * response, e.g. a network error), and it is null on every non-error state. It
  * exists for the one consumer that renders a 404 differently from a 500
- * (draft-grades: a 404 means the draft has not produced grades yet, not a real
+ * (my-team-summary's draft-grades read: a 404 means the draft has not produced grades yet, not a real
  * failure). Every other consumer ignores `httpStatus` deliberately, because its
  * failures all degrade identically; carrying the field they ignore is cheaper
  * and safer than the four diverging private copies this hook replaces, where a

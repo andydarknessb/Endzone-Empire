@@ -86,6 +86,16 @@ const EIGHT_ROWS = [
   row({ id: 8, type: 'drop', team: 'End Zone Elite', player: 'Zach Wilson', agoMs: 6 * 24 * 60 * 60 * 1000 }),
 ];
 
+// Twelve rows: the card's fetch limit, and what a full 12-team league's rail
+// shows beside its standings at md (#1993).
+const TWELVE_ROWS = [
+  ...EIGHT_ROWS,
+  row({ id: 9, type: 'add', team: 'Prime Time', player: 'Jaylen Warren', agoMs: 7 * 24 * 60 * 60 * 1000 }),
+  row({ id: 10, type: 'drop', team: 'Sunday Scaries', player: 'Gus Edwards', agoMs: 8 * 24 * 60 * 60 * 1000 }),
+  row({ id: 11, type: 'waiver', team: 'Iron Curtain', player: 'Tyler Allgeier', agoMs: 9 * 24 * 60 * 60 * 1000 }),
+  row({ id: 12, type: 'add', team: 'Lakeshore Lions', player: 'Zamir White', agoMs: 10 * 24 * 60 * 60 * 1000 }),
+];
+
 const mockGet = (result) => {
   apiClient.get.mockImplementation(() => {
     if (result && result.reject) return Promise.reject(result.reject);
@@ -96,13 +106,13 @@ const mockGet = (result) => {
 
 const renderWidget = (props = {}) => renderWithProviders(<RecentActivity leagueId={42} now={NOW} {...props} />);
 
-test('the loading state holds eight skeleton rows and marks the card busy', async () => {
+test('the loading state holds twelve skeleton rows and marks the card busy', async () => {
   mockGet({ pending: true });
   renderWidget();
 
   const card = await screen.findByTestId('recent-activity');
   expect(card).toHaveAttribute('aria-busy', 'true');
-  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(8);
+  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(12);
 });
 
 test('an eight-row fixture renders eight rows with the correct Badge variant per type, Team names and sentences', async () => {
@@ -176,9 +186,9 @@ test('the tail links to /league/42/activity', async () => {
   expect(screen.getByRole('link', { name: 'All activity' })).toHaveAttribute('href', '/league/42/activity');
 });
 
-test('below the md breakpoint the card shows five rows, not eight', async () => {
+test('below the md breakpoint the card shows five rows, not twelve', async () => {
   mobile = true;
-  mockGet({ data: EIGHT_ROWS });
+  mockGet({ data: TWELVE_ROWS });
   renderWidget();
 
   await screen.findAllByTestId('recent-activity-row');
@@ -186,7 +196,7 @@ test('below the md breakpoint the card shows five rows, not eight', async () => 
   expect(screen.getByText('5')).toBeInTheDocument(); // the card's count follows what's shown
 });
 
-test('below the md breakpoint the loading skeleton also caps at five rows, not eight', async () => {
+test('below the md breakpoint the loading skeleton also caps at five rows, not twelve', async () => {
   // The skeleton follows the same breakpoint cap as the loaded rows (should-
   // fix from the formal review on PR #1121): 8 placeholders collapsing to 5
   // real rows the instant a mobile read lands would itself be the re-flow
@@ -228,6 +238,52 @@ test('rowLimit never raises the cap above the eight rows the card fetches', asyn
 test('rowLimit does not raise the phone cap of five', async () => {
   mobile = true;
   mockGet({ data: EIGHT_ROWS });
+  renderWidget({ rowLimit: 7 });
+
+  await screen.findAllByTestId('recent-activity-row');
+  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(5);
+});
+
+// Red-tell (#1993): a fetch limit still at 8 turns the first case red (the
+// rail of a 12-team league would stop four rows short of the standings);
+// ignoring `rowLimit` turns the next two red; letting it exceed the 12 fetched
+// rows, or beat the phone cap, turns the last two red.
+test('at and above md the card shows all twelve rows it fetches, and counts them', async () => {
+  mockGet({ data: TWELVE_ROWS });
+  renderWidget();
+
+  await screen.findAllByTestId('recent-activity-row');
+  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(12);
+  expect(screen.getByText('12')).toBeInTheDocument();
+});
+
+test('rowLimit caps the rows and the count at and above md', async () => {
+  mockGet({ data: TWELVE_ROWS });
+  renderWidget({ rowLimit: 6 });
+
+  await screen.findAllByTestId('recent-activity-row');
+  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(6);
+  expect(screen.getByText('6')).toBeInTheDocument();
+});
+
+test('rowLimit caps the loading skeleton too', async () => {
+  mockGet({ pending: true });
+  renderWidget({ rowLimit: 6 });
+
+  expect(await screen.findAllByTestId('recent-activity-skeleton-row')).toHaveLength(6);
+});
+
+test('rowLimit never raises the cap above the twelve rows the card fetches', async () => {
+  mockGet({ data: TWELVE_ROWS });
+  renderWidget({ rowLimit: 20 });
+
+  await screen.findAllByTestId('recent-activity-row');
+  expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(12);
+});
+
+test('rowLimit does not raise the phone cap of five', async () => {
+  mobile = true;
+  mockGet({ data: TWELVE_ROWS });
   renderWidget({ rowLimit: 7 });
 
   await screen.findAllByTestId('recent-activity-row');

@@ -123,3 +123,14 @@ something inside `shared/lib` reaches up into a widget, feature, or page. The
 boundary lint rule named as this ADR's follow-up would cover `shared/lib` as
 well as `shared/ui`. Until that consumer exists, the rule binds by review, not
 by a check.
+
+## Amendment (2026-10-04, #1993): `draft-grades` and `toggle-grade-details` leave the island
+
+The widget list above (and the later `shared/lib` amendment's mention of
+`draft-grades`) is a record of the island as first built, not of today's slices.
+ADR 0034's 2026-10-04 amendment removes Draft Grades from the League Dashboard,
+so `src/widgets/draft-grades` is deleted, and with it
+`src/features/toggle-grade-details`, whose only consumer it was. The grades
+endpoint and the My Team grade tile are unaffected. The island's widgets are now
+`my-team-summary`, `matchup-preview`, `standings-table`, `quick-actions`,
+`recent-activity` and the others ADRs 0029 and 0034 added.

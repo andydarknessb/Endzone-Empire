@@ -19,8 +19,8 @@ import { Skeleton as MuiSkeleton } from '@mui/material';
  * `aria-busy` on the owning region, not by a repo-wide guard. None of today's
  * dashboard widgets has its own test file, so those assertions live in
  * LeagueDashboardPage.test.jsx alongside the page shell's own. Each of the
- * five current consumers (the page shell, plus the draft-grades,
- * matchup-preview, my-team-summary and standings-table widgets) has one.
+ * four current consumers (the page shell, plus the matchup-preview,
+ * my-team-summary and standings-table widgets) has one.
  * Coverage is not automatic, though: a new consumer does not inherit it, so
  * the next widget author should add their own assertion there rather than
  * assume one exists for them.
