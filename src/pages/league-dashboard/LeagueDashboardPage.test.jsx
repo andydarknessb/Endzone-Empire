@@ -52,8 +52,12 @@ jest.mock('../../components/TrophyCase/TrophyCase', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
-    default: ({ leagueId }) =>
-      ReactLib.createElement('div', { 'data-testid': 'trophy-case' }, `trophies ${leagueId}`),
+    default: ({ leagueId, viewerTeamId }) =>
+      ReactLib.createElement(
+        'div',
+        { 'data-testid': 'trophy-case', 'data-viewer-team-id': viewerTeamId == null ? undefined : String(viewerTeamId) },
+        `trophies ${leagueId}`
+      ),
   };
 });
 jest.mock('../../widgets/pickem-standings', () => {
@@ -2152,6 +2156,8 @@ test('cutover: a fantasy member composes the chat launcher, recap and trophy cas
   // The composed-as-is fantasy surfaces.
   expect(screen.getByTestId('recap-card')).toBeInTheDocument();
   expect(screen.getByTestId('trophy-case')).toBeInTheDocument();
+  // The trophy tally marks the viewer's own Team, from the same league read.
+  expect(screen.getByTestId('trophy-case')).toHaveAttribute('data-viewer-team-id', '1');
   // Pick'em standings never mount on a fantasy league.
   expect(screen.queryByTestId('pickem-standings')).not.toBeInTheDocument();
 
