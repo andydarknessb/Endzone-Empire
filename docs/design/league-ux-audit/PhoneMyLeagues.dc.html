@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Leagues, phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1e5bb8}a:hover{color:#17498f}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; overflow: hidden; background: #f4f6f8; color: #1a2129; font-family: 'Inter', system-ui, sans-serif; display: flex; flex-direction: column">
+  <div style="height: 56px; flex: none; box-sizing: border-box; padding: 0 8px; display: flex; align-items: center; gap: 4px; background: #ffffff; border-bottom: 1px solid #dde2e7">
+    <button type="button" aria-label="Open menu" style="width: 44px; height: 44px; border: 0; background: transparent; color: inherit; display: grid; place-items: center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+    <div style="flex: 1"></div>
+    <div style="width: 32px; height: 32px; margin: 0 6px; border-radius: 50%; background: #1e5bb8; color: #ffffff; display: grid; place-items: center; font-weight: 700; font-size: 14px">L</div>
+  </div>
+  <div style="padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700">My Leagues</h1>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: #1e5bb8; color: #ffffff; font: 600 14px 'Inter', sans-serif">New league</button>
+    </div>
+    <sc-for list="{{leagues}}" as="l" hint-placeholder-count="3">
+      <div style="background: #ffffff; border: 1px solid #dde2e7; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px">
+          <div style="min-width: 0"><div style="font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{l.name}}</div><div style="font-size: 13px; color: #586472">Team: {{l.team}}</div></div>
+          <span style="flex: none; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: rgba(30,91,184,0.10); color: #1e5bb8">{{l.phase}}</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px"><span style="padding: 2px 9px; border-radius: 999px; border: 1px solid #c3ccd4; color: #586472">{{l.teams}}</span><span style="padding: 2px 9px; border-radius: 999px; border: 1px solid #c3ccd4; color: #586472">{{l.scoring}}</span></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <a href="#" style="min-height: 44px; box-sizing: border-box; padding: 0 16px; border-radius: 10px; background: #1e5bb8; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-grid; place-items: center">Dashboard</a>
+          <a href="#" style="min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 10px; border: 1px solid #c3ccd4; color: #1e5bb8; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-grid; place-items: center">Draft Room</a>
+          <a href="#" style="min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 10px; border: 1px solid #c3ccd4; color: #1e5bb8; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-grid; place-items: center">Game Center</a>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      leagues: [
+        { name: 'Greater Metropolitan Dynasty Fantasy League', team: 'Chattahoochee Valley Riverhogs', phase: 'In Season', teams: '6/12 teams', scoring: 'Half PPR' },
+        { name: 'Office Sunday League', team: 'Riverhogs II', phase: 'Pre-Draft', teams: '9/10 teams', scoring: 'PPR' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
