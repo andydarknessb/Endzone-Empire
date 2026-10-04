@@ -31,7 +31,7 @@ import { matchupWinProbability, finite, formatPoints } from '../../../shared/lib
  *     (either side's), so the UI can ring the whole tile AND name WHICH
  *     side is the viewer's own with a visible "You" pill (WCAG 1.4.1: the
  *     ring alone is a colour/border cue, not identifiable to assistive
- *     tech - the same rule Badge.jsx's `you` variant and DraftGrades'/
+ *     tech - the same rule Badge.jsx's `you` variant and
  *     StandingsTable's viewer rows already carry).
  */
 

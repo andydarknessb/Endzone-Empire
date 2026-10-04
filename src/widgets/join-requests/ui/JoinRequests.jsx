@@ -35,7 +35,7 @@ import useJoinRequests from '../model/useJoinRequests';
  * `role="list"`/`"listitem"` on the rows (a11y risk review, #1109): plain
  * flex `div`s gave a screen-reader user no "list, N items" framing while
  * moving through what is explicitly a queue, unlike this island's other
- * row-shaped widgets (draft-grades, standings-table), which use a real
+ * row-shaped widgets (standings-table), which use a real
  * `table`.
  *
  * `handleDecided` (a11y risk review): a successful decision triggers

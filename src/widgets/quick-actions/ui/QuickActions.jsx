@@ -17,8 +17,8 @@ import { Card, Badge } from '../../../shared/ui';
 import useQuickActions from '../model/useQuickActions';
 
 /**
- * League Dashboard quick-actions widget (ticket #643, rows in two columns
- * #1106): the grouped action rows below the main grid. Each group (Play /
+ * League Dashboard quick-actions widget (ticket #643, one column per group
+ * #1993): the grouped action rows below the main grid. Each group (Play /
  * Moves / League) carries its visible card count in its h3 label; each row is
  * a link to an existing league sub-route with a line of locally-derived
  * status copy, and a row that deserves attention carries the accent icon
@@ -26,12 +26,13 @@ import useQuickActions from '../model/useQuickActions';
  *
  * Layout (#1106, design canvas https://claude.ai/code/artifact/c594a615-f671-40cb-b536-5269053ad09f,
  * docs/design/league-dashboard-v2/Main.dc.html and DashboardMobile.dc.html):
- * the card body is a two-column grid at `md` and up, Play then Moves stacked
- * in the first column and League alone in the second, and a single column in
- * group order (Play, Moves, League) below `md`. The grid lives on the two
- * COLUMNS only, never on a group's own row list, so there is no trailing
- * empty track at any width the way the old per-group auto-fill tile grid
- * could leave one. A row is 40px tall at `md` and up and 48px below it (the
+ * the card spans the dashboard's full content width (#1993: it sits alone
+ * under the main grid), so its body is one column per group at `md` and up (three
+ * for a fantasy league, Play, Moves and League; two for a pick'em-only
+ * league, whose Moves group is trimmed away), and a single column in group
+ * order below `md`. The track count follows the groups that survived the trim,
+ * so there is no trailing empty track at any width, and the grid lives on the
+ * groups only, never on a group's own row list. A row is 40px tall at `md` and up and 48px below it (the
  * mockup's `.row` `min-height`), the whole row is the RouterLink, and it
  * never wraps a card of its own: it sits flush on the Card's own
  * `dash-surface`, so the label (ink) and status line (dim) it paints are the
@@ -47,7 +48,8 @@ import useQuickActions from '../model/useQuickActions';
  * and `focusable="false"` on its own, so the plate icon needs no attribute of
  * its own either); the row's accessible name is instead everything BOTH
  * icons are excluded from - label, the "Recommended" text when present, and
- * the full (untruncated - the ellipsis below is CSS-only) status line - which
+ * the full (untruncated - the ellipsis below is CSS-only, and absent between
+ * md and lg, where the line wraps) status line - which
  * is deliberately richer than the label alone, so a screen-reader user
  * navigating by link text hears the same status a sighted user reads.
  *
@@ -73,14 +75,6 @@ const ICONS = {
   'draft-settings': SettingsIcon,
 };
 
-// Which column a group renders in at `md` and up. League always stands alone
-// in the second column; Play and Moves share the first, in that order. A
-// group the model dropped (an empty pick'em-only Moves, say) simply is not in
-// `groups`, so the column that would have held it renders whatever remains -
-// never an empty track, because the grid is on the two columns, not on a
-// group's own row list.
-const COLUMN_1_LABELS = ['Play', 'Moves'];
-
 export default function QuickActions({ leagueId }) {
   const { ready, groups } = useQuickActions(leagueId);
 
@@ -88,28 +82,19 @@ export default function QuickActions({ leagueId }) {
   // the first-load blank), and nothing to show if every group filtered empty.
   if (!ready || groups.length === 0) return null;
 
-  const column1 = groups.filter((group) => COLUMN_1_LABELS.includes(group.label));
-  const column2 = groups.filter((group) => !COLUMN_1_LABELS.includes(group.label));
-
   return (
     <Card data-testid="quick-actions" title="Quick Actions">
       <Box
+        data-testid="quick-actions-body"
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+          gridTemplateColumns: { xs: '1fr', md: `repeat(${groups.length}, minmax(0, 1fr))` },
           pb: 1,
         }}
       >
-        <Box data-testid="quick-actions-column-1">
-          {column1.map((group) => (
-            <ActionGroup key={group.label} group={group} />
-          ))}
-        </Box>
-        <Box data-testid="quick-actions-column-2">
-          {column2.map((group) => (
-            <ActionGroup key={group.label} group={group} />
-          ))}
-        </Box>
+        {groups.map((group) => (
+          <ActionGroup key={group.label} group={group} />
+        ))}
       </Box>
     </Card>
   );
@@ -206,8 +191,13 @@ function ActionRow({ card }) {
               lineHeight: 1.35,
               color: 'var(--dash-dim)',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              // Wraps between md and lg: with one column per group each has a
+              // third of the card there, and real copy ("2 empty starting
+              // slots · 2 starters on bye") would truncate. Truncation (nowrap
+              // plus the ellipsis) returns from lg, and below md where the one
+              // column is wide.
+              textOverflow: { xs: 'ellipsis', md: 'clip', lg: 'ellipsis' },
+              whiteSpace: { xs: 'nowrap', md: 'normal', lg: 'nowrap' },
             }}
           >
             {card.status}

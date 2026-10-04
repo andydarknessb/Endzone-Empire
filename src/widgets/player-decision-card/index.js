@@ -27,8 +27,7 @@
  * through the feature's own public index (the one rule ADR 0020 does state)
  * is established practice on this island already:
  * `commissioner-strip/ui/CommissionerStrip.jsx` imports
- * `features/advance-week`, `draft-grades/ui/DraftGrades.jsx` imports
- * `features/toggle-grade-details`, and `join-requests/ui/JoinRequests.jsx`
+ * `features/advance-week`, and `join-requests/ui/JoinRequests.jsx`
  * imports `features/decide-join-request` (round 4 finding t2, correcting an
  * earlier version of this list: `draft-order/ui/DraftOrderPanel.jsx`
  * imports `features/autodraft-toggle`'s internal `ui/AutodraftToggle.jsx`
