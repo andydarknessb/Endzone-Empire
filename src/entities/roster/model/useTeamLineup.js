@@ -16,11 +16,11 @@ import { lineupModel } from './lineupModel';
  * No `ttl`, on purpose: the store dedupes only a request in flight, so the two
  * mounts that arrive together share one GET while a mount arriving after the
  * read settled reads again, and a lineup saved on the Lineup page is never
- * served stale on the way back. This URL is NOT on the service-worker API
- * allowlist (public/service-worker.js): a viewer's mutable lineup is not worth
- * serving offline, and the in-memory store is dropped on every session change
- * (`dropSessionCaches`) either way. (ADR 0004's admission rule asks for the
- * allowlist; the dedupe, not the offline copy, is what this read needs.)
+ * served stale on the way back. It meets ADR 0004's admission rule: the GET is
+ * on the service-worker API allowlist (public/service-worker.js, viewer-scoped
+ * like `/api/team/roster`, network-first with the cache only an offline
+ * fallback, dropped on every session change by `dropSessionCaches`) and is
+ * read by more than one mount per typical navigation.
  *
  * A null `leagueId` or `week` binds no URL, so no request fires: the caller
  * is expected to withhold both until the league and week are known, exactly
