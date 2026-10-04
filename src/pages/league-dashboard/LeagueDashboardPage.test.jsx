@@ -2439,10 +2439,10 @@ test('cutover: the Draft Day card links to the Draft Room', async () => {
 
   await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
   const countdown = screen.getByTestId('slot-draft-countdown');
-  expect(within(countdown).getByRole('link', { name: 'Draft Room' })).toHaveAttribute(
-    'href',
-    '/league/1/draft'
-  );
+  const link = within(countdown).getByRole('link', { name: 'Draft Room' });
+  expect(link).toHaveAttribute('href', '/league/1/draft');
+  // Red-tell: dropping MIN_TOUCH_TARGET_SX from the button turns this red.
+  expect(cssFor(link)).toMatch(/min-height:\s*44px/);
 });
 
 test('cutover: no draft countdown once the draft_date is absent, past pre-draft, or pick\'em-only', async () => {

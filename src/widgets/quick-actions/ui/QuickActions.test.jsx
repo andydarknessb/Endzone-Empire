@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
@@ -336,4 +336,28 @@ test('in season an empty starting slot is still recommended with its count', asy
 
   expect(await within(tile('lineup')).findByText('Recommended')).toBeInTheDocument();
   expect(within(tile('lineup')).getByText('5 empty starting slots')).toBeInTheDocument();
+});
+
+// Red-tell: removing the `seasonLive &&` guard from the Set Lineup branch turns
+// this case red, since a completed season's empty slots would read Recommended.
+test('a completed season does not recommend Set Lineup for empty slots', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({
+      draft_status: 'complete',
+      season_status: 'complete',
+      current_week: 3,
+      roster_slots: STANDARD_SLOTS,
+    }),
+    [lineupUrl(3)]: emptyLineup(3),
+  });
+  renderWithProviders(<QuickActions leagueId={1} />);
+  await screen.findByTestId('quick-actions');
+  // The lineup read must have landed, or the absence below proves nothing.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(lineupUrl(3)));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(within(tile('lineup')).getByText('Set your Week 3 lineup')).toBeInTheDocument();
+  expect(within(tile('lineup')).queryByText('Recommended')).not.toBeInTheDocument();
+  expect(within(tile('lineup')).queryByText(/empty starting slot/)).not.toBeInTheDocument();
 });
