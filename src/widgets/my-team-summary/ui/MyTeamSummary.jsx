@@ -24,10 +24,11 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * basis, 104px at `lg` (statTileFlex below), NOT a fixed track count: how many tiles render
  * depends on which reads have landed and on the league's waiver type, and a
  * fixed count leaves a dead track for every tile that is absent (a league with
- * no power-rankings run yet showed 89px of nothing in a 286px card). A
- * conditional count would be worse than either: the power-rankings read is
- * still in flight while its tiles are absent, so the row would render narrow
- * and then re-flow when it lands. It wraps (rather than the earlier
+ * no power-rankings run yet showed 89px of nothing in a 286px card). The
+ * row therefore re-flows as the set of tiles changes: the power-rankings
+ * tiles join when that read lands, and the draft grade and roster value tiles
+ * drop out once their read settles with nothing to state (a 404 or a null,
+ * #1979 L13), the remaining tiles growing to fill the line. It wraps (rather than the earlier
  * `grid-auto-flow: column` over `minmax(0, 1fr)`, which forced every tile
  * onto one line) because five tiles in a 322px phone card came out 55px wide
  * each: "149.05" spilled 36px past its tile onto the neighbour and every
@@ -81,6 +82,10 @@ export default function MyTeamSummary({ leagueId }) {
   const showGrade = draftGrade.loading || (!draftGrade.unavailable && !!draftGrade.letter);
   const showValue =
     rosterValue.loading || (!rosterValue.unavailable && rosterValue.text != null);
+  // The row itself is dropped when no tile shows: an empty flex row would still
+  // buy a gap in the card's column. The loading skeletons are tiles too.
+  const showTiles =
+    spine === 'loading' || showGrade || !!proj || !!playoffOdds || showValue || !!capacity;
 
   return (
     // Named by the Team name rather than by a Card `title`: Card spreads
@@ -169,7 +174,7 @@ export default function MyTeamSummary({ leagueId }) {
           </Typography>
         )}
 
-        {spine !== 'error' && (
+        {spine !== 'error' && showTiles && (
           <Box
             data-testid="my-team-tiles"
             sx={{

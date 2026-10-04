@@ -206,6 +206,21 @@ test('a draft-grades 404 renders neither the grade nor the roster value tile', a
   expect(screen.getByTestId('stat-proj-finish')).toBeInTheDocument();
 });
 
+// Red-tell (#1979 L13): rendering the row container unconditionally turns this
+// case red; an empty flex row still buys a gap in the card's column.
+test('with no tile to show, the tile row itself is not rendered', async () => {
+  mountWith({
+    '/api/league/1/draft-grades': { reject: { response: { status: 404 } } },
+    '/api/scoring/league/1/power-rankings': { reject: { response: { status: 404 } } },
+  });
+
+  const card = await screen.findByTestId('my-team-summary');
+  await waitFor(() => expect(card).toHaveAttribute('aria-busy', 'false'));
+  expect(screen.queryByTestId('my-team-tiles')).not.toBeInTheDocument();
+  // The identity row is untouched.
+  expect(screen.getByRole('heading', { name: 'MyBallsHurts' })).toBeInTheDocument();
+});
+
 test('a row with a grade but no roster value renders only the grade tile', async () => {
   mountWith({
     '/api/league/1/draft-grades': {
