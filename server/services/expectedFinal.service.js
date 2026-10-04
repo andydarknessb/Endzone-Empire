@@ -12,8 +12,12 @@ const { gameFractionRemaining, varianceRemaining } = require('./winProbability')
  * Expected final (CONTEXT.md, Scoring and the week): a starter's, or a
  * team's, points at the end of the week as best known now. Per starter it is
  * his weekly projection before his kickoff, his points so far plus any
- * shortfall against that projection while his game is in progress, and his
- * points alone once it is final. A team's is the sum over its starters.
+ * projection times the fraction of his game still to play while it is in
+ * progress, and his points alone once it is final. A team's is the sum over
+ * its starters. The fraction is win probability v2's (`gameFractionRemaining`:
+ * the live clock, half at the half or when the clock cannot be read), so a
+ * slow starter deep in his game no longer counts his whole projection, and a
+ * fast one still adds his share of the time left (#1999).
  * Players remaining is the count of starters whose game has not finished.
  *
  * One producer for every surface: the matchup list route, the matchup detail
@@ -52,15 +56,16 @@ const round2 = (x) => Math.round(x * 100) / 100;
 
 /**
  * The per-starter rule, pure. `gameState` is 'scheduled' | 'in_progress' |
- * 'final'. Rounded to 2dp for display unless `round: false`, which a caller
- * summing several starters uses so the team total is rounded once.
+ * 'final'; `gameFraction` (0..1) is how much of an in-progress game is left,
+ * half when not given. Rounded to 2dp for display unless `round: false`, which
+ * a caller summing several starters uses so the team total is rounded once.
  */
-function expectedFinalForStarter({ projection, points, gameState, round = true }) {
+function expectedFinalForStarter({ projection, points, gameState, gameFraction = 0.5, round = true }) {
   const actual = Number(points) || 0;
   const proj = Number(projection) || 0;
   let value;
   if (gameState === 'final') value = actual;
-  else if (gameState === 'in_progress') value = actual + Math.max(0, proj - actual);
+  else if (gameState === 'in_progress') value = actual + proj * Math.min(1, Math.max(0, Number(gameFraction) || 0));
   else value = proj;
   return round ? round2(value) : value;
 }
@@ -222,6 +227,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       points,
       now,
     });
+    const gameFraction = gameFractionRemaining({ gameState, ...(periodByTeam.get(team) || {}) });
     const starter = {
       playerId: row.player_id,
       position: row.position,
@@ -243,8 +249,8 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       // His team's scheduled kickoff this week (null on a bye or with no
       // schedule row), so a team's first kickoff is the earliest of these.
       kickoffAt: onBye ? null : (kickoffByTeam.get(team) || null),
-      expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState }) : null,
-      rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, round: false }),
+      expectedFinal: priced ? expectedFinalForStarter({ projection, points, gameState, gameFraction }) : null,
+      rawExpectedFinal: expectedFinalForStarter({ projection, points, gameState, gameFraction, round: false }),
       // Win probability v2 inputs (shadow mode; stripped from the output like
       // rawExpectedFinal): his projection Interval (p10..p90), only when he is
       // available (an Out or bye starter cannot move the score), and how much
@@ -252,7 +258,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       rawInterval: priced && availability.available && typeof projections.result.detailFor === 'function'
         ? projections.result.detailFor(row.player_id)
         : null,
-      rawGameFraction: gameFractionRemaining({ gameState, ...(periodByTeam.get(team) || {}) }),
+      rawGameFraction: gameFraction,
     };
     // A BENCH row is priced like any other but never summed. In a redraft
     // league it is only a bench row. In best ball there is no set lineup (ADR
