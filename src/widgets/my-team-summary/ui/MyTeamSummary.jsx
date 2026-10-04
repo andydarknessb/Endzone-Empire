@@ -41,8 +41,12 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * its layout with skeletons, and if it fails the card shows one compact,
  * self-contained error and nothing else in the data region, so a failed read
  * never touches the rest of the page. The grade/value and power-rankings reads
- * degrade on their own (a placeholder for missing grades, an absent tile for an
- * uncomputed projection) without erroring the card.
+ * degrade on their own (an absent tile for a missing grade or roster value, and
+ * for an uncomputed projection) without erroring the card. A tile whose value
+ * would be a dash does not render at all (#1979 L13): a "Draft grade -" tile
+ * before grades exist is a label pointing at nothing. While the grades read is
+ * in flight the tile stays, as a skeleton, so the row does not reflow when the
+ * read lands.
  *
  * Below the tiles, a "Starters · Week N" section (#1101): the entities/roster
  * lineup's first five starters, a "N more starters · M questionable" note and
@@ -72,6 +76,11 @@ export default function MyTeamSummary({ leagueId }) {
   // tile is absent until ready rather than skeletoned (AC ties skeletons to the
   // standings spine), so it holds no layout for aria-busy to report over.
   const busy = spine === 'loading' || draftGrade.loading || rosterValue.loading;
+  // A tile with nothing to state is dropped, not dashed (#1979 L13). Loading
+  // keeps the tile (as a skeleton); only a settled read with no value hides it.
+  const showGrade = draftGrade.loading || (!draftGrade.unavailable && !!draftGrade.letter);
+  const showValue =
+    rosterValue.loading || (!rosterValue.unavailable && rosterValue.text != null);
 
   return (
     // Named by the Team name rather than by a Card `title`: Card spreads
@@ -177,20 +186,20 @@ export default function MyTeamSummary({ leagueId }) {
               </>
             ) : (
               <>
-                <StatTile label="Draft grade" testid="stat-draft-grade">
-                  {draftGrade.loading ? (
-                    <StatValueSkeleton />
-                  ) : draftGrade.unavailable || !draftGrade.letter ? (
-                    <Placeholder />
-                  ) : (
-                    <Box
-                      component="span"
-                      sx={{ color: gradeTextColor(draftGrade.gradeKey) }}
-                    >
-                      {draftGrade.letter}
-                    </Box>
-                  )}
-                </StatTile>
+                {showGrade && (
+                  <StatTile label="Draft grade" testid="stat-draft-grade">
+                    {draftGrade.loading ? (
+                      <StatValueSkeleton />
+                    ) : (
+                      <Box
+                        component="span"
+                        sx={{ color: gradeTextColor(draftGrade.gradeKey) }}
+                      >
+                        {draftGrade.letter}
+                      </Box>
+                    )}
+                  </StatTile>
+                )}
 
                 {proj && (
                   <StatTile label="Proj. finish" testid="stat-proj-finish">
@@ -216,15 +225,11 @@ export default function MyTeamSummary({ leagueId }) {
                   </StatTile>
                 )}
 
-                <StatTile label="Roster value" testid="stat-roster-value">
-                  {rosterValue.loading ? (
-                    <StatValueSkeleton />
-                  ) : rosterValue.unavailable || rosterValue.text == null ? (
-                    <Placeholder />
-                  ) : (
-                    rosterValue.text
-                  )}
-                </StatTile>
+                {showValue && (
+                  <StatTile label="Roster value" testid="stat-roster-value">
+                    {rosterValue.loading ? <StatValueSkeleton /> : rosterValue.text}
+                  </StatTile>
+                )}
 
                 {capacity && (
                   <StatTile label={capacity.label} testid="stat-capacity">
@@ -289,25 +294,6 @@ function RankMovement({ change }) {
 // anything else falls back to ink so a surprise value is never invisible.
 function gradeTextColor(gradeKey) {
   return gradeKey ? `var(--dash-grade-${gradeKey.toLowerCase()}-text)` : 'var(--dash-ink)';
-}
-
-// The placeholder mark for a tile whose read has no value yet: a dash, no
-// digits (draft-grades 404 renders this in both the grade and value tiles).
-// The dash is a visual mark only, so it is aria-hidden and a visually-hidden
-// "Not available" carries the same meaning to a screen reader; without it the
-// tile would announce its label ("Draft grade") with nothing after it, which a
-// non-sighted user cannot tell apart from a loading or broken tile.
-function Placeholder() {
-  return (
-    <>
-      <Box component="span" aria-hidden="true" sx={{ color: 'var(--dash-dim)' }}>
-        -
-      </Box>
-      <Box component="span" sx={visuallyHidden}>
-        Not available
-      </Box>
-    </>
-  );
 }
 
 // A tile's `flex` basis is the row's wrap point (see the widget docblock):

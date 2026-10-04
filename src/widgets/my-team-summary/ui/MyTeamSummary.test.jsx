@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
@@ -7,7 +7,7 @@ import MyTeamSummary from '../index';
 
 /**
  * my-team-summary slice tests (T5). The page-level composition assertions (the
- * card's presence in the hero, the You badge, the grade/value placeholders)
+ * card's presence in the hero, the You badge, the grade/value tiles being absent when grades are)
  * stay in LeagueDashboardPage.test.jsx; what lives here is what only this slice
  * can answer: how many tiles the row is built to hold, which facts each tile
  * states from a given payload, and how the card names itself.
@@ -186,6 +186,54 @@ test('two tiles fill the row when power rankings 404', async () => {
   expect(mediaRulesUnder(screen.getByTestId('stat-roster-value'))).toMatch(
     /min-width:\s*1200px[^{]*\{[^}]*flex:\s*1 1 104px/
   );
+});
+
+// Red-tell (#1979 L13): rendering the tile with a dash again when the read has
+// no value turns the first two cases red. The loading case is the other side:
+// dropping the tile while the read is in flight would reflow the row when it
+// lands.
+test('a draft-grades 404 renders neither the grade nor the roster value tile', async () => {
+  mountWith({
+    '/api/league/1/draft-grades': { reject: { response: { status: 404 } } },
+  });
+
+  const card = await screen.findByTestId('my-team-summary');
+  await waitFor(() => expect(card).toHaveAttribute('aria-busy', 'false'));
+  expect(screen.queryByTestId('stat-draft-grade')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('stat-roster-value')).not.toBeInTheDocument();
+  expect(screen.queryByText('Not available')).not.toBeInTheDocument();
+  // The tiles that do not depend on that read are untouched.
+  expect(screen.getByTestId('stat-proj-finish')).toBeInTheDocument();
+});
+
+test('a row with a grade but no roster value renders only the grade tile', async () => {
+  mountWith({
+    '/api/league/1/draft-grades': {
+      data: { grades: [{ teamId: 1, grade: 'C', rosterValue: null, rank: 5 }] },
+    },
+  });
+  expect(await screen.findByTestId('stat-draft-grade')).toHaveTextContent('C');
+  expect(screen.queryByTestId('stat-roster-value')).not.toBeInTheDocument();
+});
+
+test('a row with a roster value but no grade renders only the roster value tile', async () => {
+  mountWith({
+    '/api/league/1/draft-grades': {
+      data: { grades: [{ teamId: 1, grade: null, rosterValue: 1284, rank: 5 }] },
+    },
+  });
+  expect(await screen.findByTestId('stat-roster-value')).toHaveTextContent('1,284');
+  expect(screen.queryByTestId('stat-draft-grade')).not.toBeInTheDocument();
+});
+
+test('while the draft-grades read is in flight both tiles hold their place as skeletons', async () => {
+  mountWith({ '/api/league/1/draft-grades': { pending: true } });
+
+  const grade = await screen.findByTestId('stat-draft-grade');
+  expect(within(grade).getByTestId('my-team-skeleton')).toBeInTheDocument();
+  expect(
+    within(screen.getByTestId('stat-roster-value')).getByTestId('my-team-skeleton')
+  ).toBeInTheDocument();
 });
 
 test('the loading row lays its skeletons on the same auto-flow track', async () => {

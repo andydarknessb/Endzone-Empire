@@ -37,8 +37,8 @@ import { draftRosterSize } from '../../../lib/rosterShape';
  *     useResource the moment a second mount on this page reads it, exactly as
  *     standings did.
  *   - Draft grade and roster value come from the league draft-grades read. When
- *     it 404s (grades not generated yet) both tiles degrade to a placeholder
- *     with no number, rather than erroring the card.
+ *     it 404s (grades not generated yet) both tiles are absent (#1979 L13),
+ *     rather than erroring the card or showing a dash.
  *   - Projected finish, playoff odds and rank movement are all one plain read of
  *     the power-rankings endpoint (see the one-mount trigger above). It 404s
  *     until first computed; until then those tiles are simply absent, not
@@ -59,7 +59,7 @@ import { draftRosterSize } from '../../../lib/rosterShape';
 // Both plain reads below use the shared useEndpoint (src/shared/lib, #669) and
 // ignore its `httpStatus` field deliberately: every failure is one 'error'
 // state here, because the widget degrades the same way whether a read 404s or
-// 500s (a missing grade is a placeholder either way, a missing projection an
+// 500s (a missing grade is an absent tile either way, a missing projection an
 // absent tile either way). Dropping the status is a decision, not an oversight,
 // so a later reader should not wire it in expecting it to matter.
 
@@ -199,8 +199,8 @@ export function useMyTeamSummary(leagueId) {
   }
 
   // Draft grade + roster value share the one draft-grades read. A 404 (or any
-  // failure, or a ready read with no row for the viewer) degrades both tiles to
-  // a placeholder; a null grade/value degrades just that tile.
+  // failure, or a ready read with no row for the viewer) hides both tiles;
+  // a null grade/value hides just that tile.
   const gradeRow = grades.status === 'ready' ? findById(grades.data?.grades, viewerTeamId) : null;
   const gradesUnavailable = grades.status === 'error' || (grades.status === 'ready' && !gradeRow);
   const rawGrade = gradeRow && gradeRow.grade != null ? String(gradeRow.grade).trim() : '';
