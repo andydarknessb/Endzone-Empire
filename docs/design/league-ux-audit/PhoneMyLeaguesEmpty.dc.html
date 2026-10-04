@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Leagues, phone, empty</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1e5bb8}a:hover{color:#17498f}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; overflow: hidden; background: #f4f6f8; color: #1a2129; font-family: 'Inter', system-ui, sans-serif; display: flex; flex-direction: column">
+  <div style="height: 56px; flex: none; box-sizing: border-box; padding: 0 8px; display: flex; align-items: center; gap: 4px; background: #ffffff; border-bottom: 1px solid #dde2e7">
+    <button type="button" aria-label="Open menu" style="width: 44px; height: 44px; border: 0; background: transparent; color: inherit; display: grid; place-items: center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+    <div style="flex: 1"></div>
+    <div style="width: 32px; height: 32px; margin: 0 6px; border-radius: 50%; background: #1e5bb8; color: #ffffff; display: grid; place-items: center; font-weight: 700; font-size: 14px">L</div>
+  </div>
+  <div style="padding: 16px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700">My Leagues</h1>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: #1e5bb8; color: #ffffff; font: 600 14px 'Inter', sans-serif">New league</button>
+    </div>
+    <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #586472">While the list loads</div>
+    <div aria-busy="true" style="display: flex; flex-direction: column; gap: 12px">
+      <div style="height: 132px; border-radius: 10px; background: #eceff2"></div>
+      <div style="height: 132px; border-radius: 10px; background: #eceff2"></div>
+    </div>
+    <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #586472">With no leagues</div>
+    <div style="background: #ffffff; border: 1px solid #dde2e7; border-radius: 10px; padding: 20px 16px; display: flex; flex-direction: column; gap: 14px">
+      <p style="margin: 0; font-size: 15px">You aren't in any leagues yet.</p>
+      <div style="display: flex; gap: 8px">
+        <button type="button" style="flex: 1 1 0; min-height: 44px; border: 0; border-radius: 10px; background: #1e5bb8; color: #ffffff; font: 600 14px 'Inter', sans-serif">Create a league</button>
+        <button type="button" style="flex: 1 1 0; min-height: 44px; border-radius: 10px; border: 1px solid #c3ccd4; background: #ffffff; color: #1e5bb8; font: 600 14px 'Inter', sans-serif">Join with a code</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
