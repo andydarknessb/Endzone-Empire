@@ -479,9 +479,10 @@ export default function LeagueDashboardPage() {
             <Box data-testid="slot-standings" sx={{ minWidth: 0, overflowX: 'clip' }}>
               <StandingsTable leagueId={leagueId} />
             </Box>
-            {/* The rail is shorter than the standings, so above md it rides
-                down with the scroll instead of leaving a column of bare page
-                beside row 8. `top: 22px` and not an app-bar offset:
+            {/* The rail is usually shorter than the standings (and at most a
+                few rows taller, which the layout spec bounds at 120px), so
+                above md it rides down with the scroll instead of leaving a
+                column of bare page beside row 8. `top: 22px` and not an app-bar offset:
                 Nav.jsx:95 is position="static", so nothing is pinned above it.
                 One card (#1110): the commissioner panel that used to compose
                 below it here moved to the strip under the header. In season

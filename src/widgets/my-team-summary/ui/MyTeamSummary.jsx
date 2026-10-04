@@ -46,8 +46,9 @@ import useMyTeamSummary from '../model/useMyTeamSummary';
  * for an uncomputed projection) without erroring the card. A tile whose value
  * would be a dash does not render at all (#1979 L13): a "Draft grade -" tile
  * before grades exist is a label pointing at nothing. While the grades read is
- * in flight the tile stays, as a skeleton, so the row does not reflow when the
- * read lands.
+ * in flight the tile stays, as a skeleton; a read that lands with a value keeps
+ * the slot, and one that settles empty (a 404 or null) drops it, so the row
+ * reflows only in that case.
  *
  * Below the tiles, a "Starters · Week N" section (#1101): the entities/roster
  * lineup's first five starters, a "N more starters · M questionable" note and
