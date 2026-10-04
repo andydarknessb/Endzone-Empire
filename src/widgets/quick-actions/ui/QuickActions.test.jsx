@@ -212,6 +212,7 @@ test('the desktop body is one column per group, Play then Moves then League', as
   ).toEqual(['Play', 'Moves', 'League']);
   ['play', 'moves', 'league'].forEach((group) => {
     // A direct child of the grid, not wrapped in a shared column.
+    // eslint-disable-next-line testing-library/no-node-access
     expect(screen.getByTestId(`quick-actions-group-${group}`).parentElement).toBe(body);
   });
 });
@@ -230,8 +231,10 @@ test("a pick'em-only trim drops the fantasy rows and the Moves column, leaving t
 
   const body = screen.getByTestId('quick-actions-body');
   expect(cssFor(body)).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  /* eslint-disable testing-library/no-node-access */
   expect(screen.getByTestId('quick-actions-group-play').parentElement).toBe(body);
   expect(screen.getByTestId('quick-actions-group-league').parentElement).toBe(body);
+  /* eslint-enable testing-library/no-node-access */
 });
 
 // --- state-aware copy -----------------------------------------------------
