@@ -12,7 +12,8 @@ const {
 
 /**
  * Expected final (CONTEXT.md): projection before kickoff, points plus the
- * floored shortfall while in progress, points alone once final; a team's is
+ * projection times the game time left while in progress, points alone once
+ * final; a team's is
  * the sum over its starters; players remaining counts starters whose game
  * has not finished. The service is the one producer behind the matchup
  * list, the matchup detail and the live-score socket event.
@@ -22,12 +23,21 @@ const {
 // Pure rules
 // ---------------------------------------------------------------------------
 
-test('a starter is his projection before kickoff, his floor-gapped points in progress, his points when final', () => {
+test('a starter is his projection before kickoff, his points plus his projection for the time left in progress, his points when final', () => {
   assert.equal(expectedFinalForStarter({ projection: 18.4, points: 0, gameState: 'scheduled' }), 18.4);
-  // Quiet so far: still expected to reach his projection.
-  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 6.1, gameState: 'in_progress' }), 18.4);
-  // Exploded early: nothing left to add, points stand.
-  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 27.3, gameState: 'in_progress' }), 27.3);
+  // Quiet at the half: half his projection is still to come, not all of it.
+  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 6.1, gameState: 'in_progress', gameFraction: 0.5 }), 15.3);
+  // Exploded early: the time left still adds its share.
+  assert.equal(expectedFinalForStarter({ projection: 18.4, points: 27.3, gameState: 'in_progress', gameFraction: 0.25 }), 31.9);
+  // #1999, matchup 128: Bo Nix at Q2 14:21 (44.35 of 60 minutes left), 2.4
+  // points on a 17.54 projection, no longer counts the whole 17.54.
+  assert.equal(
+    expectedFinalForStarter({ projection: 17.54, points: 2.4, gameState: 'in_progress', gameFraction: 44.35 / 60 }),
+    Math.round((2.4 + 17.54 * (44.35 / 60)) * 100) / 100,
+  );
+  // An in-progress game with no fraction given reads as half left, the
+  // least-committal guess (gameFractionRemaining's own default).
+  assert.equal(expectedFinalForStarter({ projection: 10, points: 2, gameState: 'in_progress' }), 7);
   // Final: whatever he scored, even below projection.
   assert.equal(expectedFinalForStarter({ projection: 18.4, points: 9.9, gameState: 'final' }), 9.9);
   // A starter ruled out (projection 0) and not yet final contributes nothing.
@@ -179,6 +189,25 @@ test('a team carries its remaining variance: band sigma squared times game time 
   assert.equal(byTeam.get(20).varianceRemaining, 0);
 });
 
+// #1999: the live clock reaches the Expected final, not just the variance. A
+// slow starter deep in his game no longer counts his whole projection.
+test('an in-progress starter adds only his projection for the game time his live clock says is left', async (t) => {
+  const live = [
+    { home_team: 'KC', away_team: 'LV', game_status: 'final', quarter: 'Final', time_remaining: null },
+    { home_team: 'BUF', away_team: 'MIA', game_status: 'in_progress', quarter: 'Q3', time_remaining: '7:30' },
+    { home_team: 'DAL', away_team: 'NYG', game_status: 'in_progress', quarter: 'Q2', time_remaining: '1:00' },
+  ];
+  const fake = weekPool(t, { live });
+  const byTeam = await expectedFinalsForWeek({
+    league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
+  });
+  const home = byTeam.get(10);
+  // RB: 4.0 so far + 14.0 x 22.5/60 left = 9.25, not his whole 14.0.
+  assert.equal(home.starters.find((s) => s.playerId === 2).expectedFinal, 9.25);
+  // 22.5 (final) + 9.25 + 11.3 (not started) = 43.05
+  assert.equal(home.expectedFinal, 43.05);
+});
+
 test('an available starter with game time left but no projection interval is counted, not silently treated as certain', async (t) => {
   // Player 3 (WR, not kicked off) has a point estimate but no p10/p90; the
   // final QB without one is not counted (nothing left to play), nor are the
@@ -206,12 +235,12 @@ test('a team is the sum of its starters across all three phases, with players re
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
   });
   const home = byTeam.get(10);
-  // 22.5 (final) + 14.0 (4.0 so far, 10.0 still expected) + 11.3 (not started) = 47.8
-  assert.equal(home.expectedFinal, 47.8);
+  // 22.5 (final) + 11.0 (4.0 so far + 14.0 x the half a clockless live row reads as left) + 11.3 (not started) = 44.8
+  assert.equal(home.expectedFinal, 44.8);
   assert.equal(home.playersRemaining, 2);
   assert.deepEqual(home.starters.map((s) => [s.playerId, s.gameState, s.expectedFinal]), [
     [1, 'final', 22.5],
-    [2, 'in_progress', 14],
+    [2, 'in_progress', 11],
     [3, 'scheduled', 11.3],
   ]);
   const away = byTeam.get(20);
@@ -235,7 +264,7 @@ test('a started Position-baseline player counts at his number in the Expected fi
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
   });
   const home = byTeam.get(10);
-  assert.equal(home.expectedFinal, 47.8, 'same total as the run without the marker');
+  assert.equal(home.expectedFinal, 44.8, 'same total as the run without the marker');
   const wr = home.starters.find((s) => s.playerId === 3);
   assert.equal(wr.expectedFinal, 11.3);
   assert.equal(wr.projection, 11.3);
@@ -249,7 +278,7 @@ test('a started Position-baseline player counts at his number in the Expected fi
 // and no other.
 test('bench rows are priced alongside the starters, with the availability rule, and never summed', async (t) => {
   const bench = [
-    // An available bench RB, in progress at 3.0 with a 10.0 projection.
+    // An available bench RB, in progress at 3.0 with a 10.0 projection, half left: 8.0.
     { team_id: 10, player_id: 6, slot: 'BENCH', position: 'RB', nfl_team: 'BUF', injury_status: null, stats: { rushingYards: 30 } },
     // A bench WR ruled Out: priced zero, and the row says why.
     { team_id: 10, player_id: 7, slot: 'BENCH', position: 'WR', nfl_team: 'DAL', injury_status: 'O', stats: null },
@@ -260,12 +289,12 @@ test('bench rows are priced alongside the starters, with the availability rule, 
     league: LEAGUE, season: SEASON, week: WEEK, teamIds: [10, 20], db: fake, now: NOW,
   });
   const home = byTeam.get(10);
-  // The sum and the count are the starters' alone: 47.8 and 2, as above.
-  assert.equal(home.expectedFinal, 47.8);
+  // The sum and the count are the starters' alone: 44.8 and 2, as above.
+  assert.equal(home.expectedFinal, 44.8);
   assert.equal(home.playersRemaining, 2);
   assert.deepEqual(home.starters.map((s) => s.playerId), [1, 2, 3]);
   assert.deepEqual(home.bench.map((b) => [b.playerId, b.projection, b.gameState, b.expectedFinal, b.availability]), [
-    [6, 10, 'in_progress', 10, { available: true, reason: null }],
+    [6, 10, 'in_progress', 8, { available: true, reason: null }],
     [7, 0, 'in_progress', 0, { available: false, reason: 'out' }],
   ]);
   // Starters carry the same verdict shape; the Out kicker on team 20 says so,
@@ -338,9 +367,9 @@ test('best ball optimizes per-player expected finals rather than raw projections
   const byTeam = await expectedFinalsForWeek({ league, season: SEASON, week: WEEK, teamIds: [10], db: fake, now: NOW });
   const team = byTeam.get(10);
 
-  // Player 6 already has 30 points in progress. Raw projections would choose
-  // player 7 (20), while expected finals correctly choose player 6 (30).
-  assert.equal(team.expectedFinal, 30);
+  // Player 6 already has 30 points in progress (35 with half his 10 still to
+  // come). Raw projections would choose player 7 (20); expected finals choose player 6.
+  assert.equal(team.expectedFinal, 35);
   assert.equal(team.playersRemaining, 1);
   assert.deepEqual(team.starters.map((starter) => starter.playerId), [6]);
   // Every best-ball row also rides in `bench`, chosen or not, so the detail
@@ -352,7 +381,7 @@ test('best ball optimizes per-player expected finals rather than raw projections
     [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
     { league, db: fake, now: NOW }
   );
-  assert.equal(decorated[0].home_expected_final, 30);
+  assert.equal(decorated[0].home_expected_final, 35);
   assert.equal(decorated[0].home_players_remaining, 1);
 });
 
@@ -393,7 +422,7 @@ test('attachExpectedFinals decorates open rows and leaves final rows and untouch
   ];
   const out = await attachExpectedFinals(rows, { league: LEAGUE, db: fake, now: NOW });
   const open = out.find((m) => m.id === 7);
-  assert.equal(open.home_expected_final, 47.8);
+  assert.equal(open.home_expected_final, 44.8);
   assert.equal(open.away_expected_final, 0);
   assert.equal(open.home_players_remaining, 2);
   assert.equal(open.away_players_remaining, 1);

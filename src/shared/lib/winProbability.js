@@ -40,9 +40,9 @@ export function homeWinProbability({
 /**
  * Convenience wrapper from the matchup shape: current scores plus each team's
  * expected final (CONTEXT.md: projection until kickoff, points plus the
- * floored shortfall while in progress, points once final; summed over the
- * starters). Because the shortfall is floored per starter server-side, the
- * remaining points here are simply expected final minus score, and a side
+ * projection for the game time left while in progress, points once final;
+ * summed over the starters). An expected final never falls below the score, so
+ * the remaining points here are simply expected final minus score, and a side
  * whose expected final is unknown (null) is treated as having nothing left
  * to add. Returns { home, away } probabilities summing to 1.
  */
