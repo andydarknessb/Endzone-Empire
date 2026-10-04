@@ -362,14 +362,14 @@ function lineupForViewer() {
 // Recent activity (`GET /api/league/:id/transactions`, League Dashboard's
 // `recent-activity` card): a bare array of raw transaction rows
 // (entities/activity/model/activityModel.js `activityFromRow`'s own input
-// shape), newest first. Six rows (#1980): the card rides the rail beside the
-// standings while the season is live, and the rail-height guard
-// (league-dashboard-layout.spec.ts) bounds it against the standings table this
-// fixture renders, so it needs enough rows to be a real feed rather than a
-// two-row stub, and not so many that it outgrows that table.
+// shape), newest first. Eight rows (#1980): the widget's own fetch limit and
+// what a live league serves. The card rides the rail beside the standings while
+// the season is live, where the page caps it at the team count; the rail-height
+// guard (league-dashboard-layout.spec.ts) is what proves that cap holds against
+// a feed longer than the fixture's six teams.
 function transactions() {
   const types = ['add', 'drop'];
-  return Array.from({ length: 6 }, (_, i) => ({
+  return Array.from({ length: 8 }, (_, i) => ({
     id: 9001 - i,
     type: types[i % 2],
     team_name: TEAMS[i % 2].teamName,

@@ -564,6 +564,62 @@ test('rail occupant by phase: Recent activity rides the rail while the season is
   expect(cssFor(rail)).toMatch(/position:\s*sticky/);
 });
 
+// Eight raw transaction rows (the widget's fetch limit), newest first.
+const eightTransactions = () =>
+  Array.from({ length: 8 }, (_, i) => ({
+    id: 100 - i,
+    type: 'add',
+    team_name: 'Team 1',
+    player_name: `Player ${i + 1}`,
+    detail: {},
+    created_at: new Date(Date.UTC(2026, 8, 8, 20 - i)).toISOString(),
+  }));
+
+// Red-tell (#1980): dropping the `rowLimit` the page passes turns the first
+// case red (a 6-team rail would hold 8 rows and leave bare page under the
+// standings); passing it in the second row turns the third red.
+test('in season the rail card is capped at the team count, so the rail tracks the standings', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(6),
+    }),
+    '/api/league/1/transactions': { data: eightTransactions() },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(6);
+});
+
+test('in season the rail card never asks for more than eight rows, however many teams', async () => {
+  mockGetByUrl({
+    '/api/league/1': inSeasonLeague(),
+    '/api/league/1/transactions': { data: eightTransactions() },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(8);
+});
+
+test('outside the live season Recent activity keeps its own eight rows in the second row', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'complete' },
+      teams: buildTeams(6),
+    }),
+    '/api/league/1/transactions': { data: eightTransactions() },
+  });
+  renderPage();
+
+  const secondRow = await screen.findByTestId('dashboard-second-row');
+  await within(secondRow).findAllByTestId('recent-activity-row');
+  expect(within(secondRow).getAllByTestId('recent-activity-row')).toHaveLength(8);
+});
+
 test.each([
   ['pre-draft', () => layoutV2League({ draft_status: 'pending' })],
   ['drafting', () => layoutV2League({ draft_status: 'active' })],

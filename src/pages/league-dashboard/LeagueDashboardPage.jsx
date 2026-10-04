@@ -244,9 +244,15 @@ export default function LeagueDashboardPage() {
   // The rail and the second row's rail track trade occupants with the phase
   // (#1979 L5; see the main grid below). Each slot keeps its own testid either
   // way, so a query by slot finds it wherever it sits.
+  // In the rail the card is capped at the team count (8 at most), so the rail
+  // ends about where the standings table does (ADR 0034: no bare page under the
+  // standings); in the second row it keeps its own 8-row cap.
   const recentActivitySlot = (
     <Box data-testid="slot-recent-activity">
-      <RecentActivity leagueId={leagueId} />
+      <RecentActivity
+        leagueId={leagueId}
+        rowLimit={seasonLive ? Math.min(8, teams.length) : undefined}
+      />
     </Box>
   );
   const draftGradesSlot = (
@@ -355,11 +361,12 @@ export default function LeagueDashboardPage() {
 
               A viewer with no Team of their own (a commissioner who never
               joined) gets neither the left slot nor the track it sat in:
-              MyTeamSummary already returns null for them, and leaving the
+              MyTeamSummary already returns null for them, and leaving its
               5fr track in place bought 5/12 of the hero as bare `dash-bg`
-              beside a lone matchup card. With the matchup on the left it is
-              the My Team track that goes and the matchup that fills the row. viewerTeamId is the per-viewer field
-              that answers it (#112), not a scan of teams[].
+              beside a lone matchup card. With the matchup on the left, the
+              track that goes is the right-hand My Team one and the matchup
+              takes the whole row. viewerTeamId is the per-viewer field that
+              answers it (#112), not a scan of teams[].
 
               `alignItems: 'stretch'` (#1110) makes My Team and the matchup
               card share the row height, matching the canvas. Each slot Box is
@@ -446,9 +453,12 @@ export default function LeagueDashboardPage() {
               The zero minimum is on the standings track only. A bare `1fr` or
               `8fr` track still floors at its item's min-content width, which is
               how a wide table dragged the whole document past the viewport. The
-              rail track keeps its automatic minimum: Draft Grades is a table
-              in its own horizontal scroller, so shrinking the track scrolls it
-              rather than clipping anything (the #916/#917/#919/#921 rule). */}
+              rail track keeps its automatic minimum: whichever card sits there
+              shrinks with it rather than clipping anything (the
+              #916/#917/#919/#921 rule). Draft Grades is a table in its own
+              horizontal scroller, so a narrower track scrolls it; Recent
+              activity's rows are flex rows with a zero-minimum text column that
+              ellipsises, so they have no min-content floor to protect. */}
           <Box
             component="section"
             data-testid="dashboard-main"
@@ -469,9 +479,9 @@ export default function LeagueDashboardPage() {
             <Box data-testid="slot-standings" sx={{ minWidth: 0, overflowX: 'clip' }}>
               <StandingsTable leagueId={leagueId} />
             </Box>
-            {/* The rail is short and the standings are long, so above md the
-                rail rides down with the scroll instead of leaving a column of
-                bare page beside row 8. `top: 22px` and not an app-bar offset:
+            {/* The rail is shorter than the standings, so above md it rides
+                down with the scroll instead of leaving a column of bare page
+                beside row 8. `top: 22px` and not an app-bar offset:
                 Nav.jsx:95 is position="static", so nothing is pinned above it.
                 One card (#1110): the commissioner panel that used to compose
                 below it here moved to the strip under the header. In season
