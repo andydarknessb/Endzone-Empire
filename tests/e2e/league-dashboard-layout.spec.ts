@@ -1,10 +1,13 @@
 /**
- * Layout guard for the League Dashboard v2 composition (#1110, ADR 0034).
+ * Layout guard for the League Dashboard v2 composition (#1110, ADR 0034) and
+ * its game-day order (#1980, spec #1979).
  *
  * jsdom has no layout engine, so the geometry this ticket's canvas measured
- * (equal-height hero cards via `align-items: stretch`, a Draft Grades rail
- * card close in height to the standings table it sits beside, no card ever
- * wider than its column) is measured by hand in headless Chromium and bound
+ * (equal-height hero cards via `align-items: stretch`, a rail card close in
+ * height to the standings table it sits beside, no card ever wider than its
+ * column, and since #1980 the matchup first: above the fold on a phone, left
+ * of My Team on desktop, its two scores side by side) is measured by hand in
+ * headless Chromium and bound
  * here, exactly as tests/e2e/game-center-matchup-layout.spec.ts (#920) binds
  * the same family of invariants for Game Center and Matchup Detail. The jsdom
  * page test (LeagueDashboardPage.test.jsx) binds the CSS RULES (the grid
@@ -20,7 +23,8 @@
  * own `LEAGUE_ROW` extension), so every widget this ticket composes mounts
  * with real content: the strip, the hero (My Team + matchup), Around the
  * League, the main grid (standings + Draft Grades), and the second row (Quick
- * Actions + Recent activity).
+ * Actions + Draft Grades; Recent activity rides the rail beside the standings
+ * while the season is live, #1980).
  *
  * It runs in the `browser-security` job (`npm run test:e2e`), which collects
  * every spec under tests/e2e with no file argument, so this file is picked up
@@ -117,7 +121,11 @@ function probeDocumentWidth() {
   return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
 }
 
-/** Bounding-box heights of the four cards the audit's geometry claims name. */
+/**
+ * Bounding-box heights of the four cards the audit's geometry claims name. The
+ * rail card is whatever `dashboard-rail` holds: Recent activity while the
+ * season is live (this fixture), Draft Grades otherwise (#1980).
+ */
 function probeHeroAndRailHeights() {
   const rectOf = (testId: string) => {
     const el = document.querySelector(`[data-testid="${testId}"]`);
@@ -127,7 +135,39 @@ function probeHeroAndRailHeights() {
     myTeam: rectOf('my-team-summary'),
     matchup: rectOf('matchup-preview'),
     standings: rectOf('standings-table'),
-    draftGrades: rectOf('draft-grades'),
+    railCard: rectOf('recent-activity'),
+  };
+}
+
+/** Top edges of the matchup card and of the two sides' score figures. */
+function probeMatchupGame() {
+  const topOf = (selector: string) => {
+    const el = document.querySelector(selector);
+    return el ? el.getBoundingClientRect().top + window.scrollY : null;
+  };
+  const card = document.querySelector('[data-testid="matchup-preview"]');
+  return {
+    cardTop: topOf('[data-testid="matchup-preview"]'),
+    cardHeight: card ? card.getBoundingClientRect().height : null,
+    viewerScoreTop: topOf('[data-testid="matchup-side-viewer"] [data-testid="matchup-side-score"]'),
+    opponentScoreTop: topOf('[data-testid="matchup-side-opponent"] [data-testid="matchup-side-score"]'),
+  };
+}
+
+/** Where the hero's two slots and the rail's occupant sit relative to each other. */
+function probeOrder() {
+  const rect = (testId: string) => {
+    const el = document.querySelector(`[data-testid="${testId}"]`);
+    return el ? el.getBoundingClientRect() : null;
+  };
+  const matchup = rect('slot-matchup-preview');
+  const myTeam = rect('slot-my-team');
+  const rail = document.querySelector('[data-testid="dashboard-rail"]');
+  const recent = document.querySelector('[data-testid="slot-recent-activity"]');
+  return {
+    matchupRight: matchup ? matchup.right : null,
+    myTeamLeft: myTeam ? myTeam.left : null,
+    recentActivityInRail: !!(rail && recent && rail.contains(recent)),
   };
 }
 
@@ -163,7 +203,9 @@ async function gotoDashboard(page: Page, width: number, height: number) {
   await setupLayoutGuard(page);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
-  await page.getByTestId('commissioner-strip-facts').waitFor();
+  // Attached, not visible: the fact grid does not display below md (#1980), so
+  // visibility would never come at the phone widths this guard measures.
+  await page.getByTestId('commissioner-strip-facts').waitFor({ state: 'attached' });
   await page.getByTestId('my-team-summary').waitFor();
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();
@@ -191,18 +233,18 @@ for (const width of WIDTHS) {
   });
 }
 
-// ---- Geometry: the hero cards share a row height, and Draft Grades sits
+// ---- Geometry: the hero cards share a row height, and the rail card sits
 // close to the standings table's height (measured once, at the audit's own
 // width) ----
 
-test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal height and Draft Grades is within 120px of the standings table`, async ({ page }) => {
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal height and the rail card is within 120px of the standings table`, async ({ page }) => {
   await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
 
   const heights = await page.evaluate(probeHeroAndRailHeights);
   expect(heights.myTeam, 'my-team-summary must be found').not.toBeNull();
   expect(heights.matchup, 'matchup-preview must be found').not.toBeNull();
   expect(heights.standings, 'standings-table must be found').not.toBeNull();
-  expect(heights.draftGrades, 'draft-grades must be found').not.toBeNull();
+  expect(heights.railCard, 'the rail card (recent-activity in season) must be found').not.toBeNull();
 
   // `align-items: stretch` (#1110) on the hero grid: My Team and the matchup
   // card share the row height, within 1px (sub-pixel layout rounding).
@@ -211,13 +253,55 @@ test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal h
     `My Team height=${heights.myTeam} matchup height=${heights.matchup}`,
   ).toBeLessThanOrEqual(1);
 
-  // The audit's own bound (ADR 0034): Draft Grades within 120px of the
+  // The audit's own bound (ADR 0034): the rail card within 120px of the
   // standings table it sits beside, closing the 919px gap the audit measured
-  // under the old commissioner-panel rail card.
+  // under the old commissioner-panel rail card. The occupant is Recent
+  // activity while the season is live (#1980).
   expect(
-    Math.abs((heights.standings as number) - (heights.draftGrades as number)),
-    `standings height=${heights.standings} draft-grades height=${heights.draftGrades}`,
+    Math.abs((heights.standings as number) - (heights.railCard as number)),
+    `standings height=${heights.standings} rail card height=${heights.railCard}`,
   ).toBeLessThanOrEqual(120);
+});
+
+// ---- Game-day order (#1980, spec #1979 L1 L2 L4 L5) ----
+
+test('League Dashboard @ 390x844: the matchup is above the fold and its two scores sit side by side', async ({ page }) => {
+  await gotoDashboard(page, 390, 844);
+
+  const game = await page.evaluate(probeMatchupGame);
+  expect(game.cardTop, 'matchup-preview must be found').not.toBeNull();
+  expect(game.viewerScoreTop, 'the viewer side score must be found').not.toBeNull();
+  expect(game.opponentScoreTop, 'the opponent side score must be found').not.toBeNull();
+
+  // The commissioner strip is compact on a phone (no fact grid), so the
+  // matchup card starts in the upper part of the first screen.
+  expect(game.cardTop as number, `matchup card top=${game.cardTop}`).toBeLessThanOrEqual(600);
+  // Side by side, not stacked: the two scores' tops agree.
+  expect(
+    Math.abs((game.viewerScoreTop as number) - (game.opponentScoreTop as number)),
+    `viewer score top=${game.viewerScoreTop} opponent score top=${game.opponentScoreTop}`,
+  ).toBeLessThanOrEqual(4);
+});
+
+test('League Dashboard @ 390x844: the matchup card is 520px tall or less', async ({ page }) => {
+  await gotoDashboard(page, 390, 844);
+
+  const game = await page.evaluate(probeMatchupGame);
+  expect(game.cardHeight, 'matchup-preview must be found').not.toBeNull();
+  expect(game.cardHeight as number, `matchup card height=${game.cardHeight}`).toBeLessThanOrEqual(520);
+});
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the matchup is left of My Team and Recent activity rides the rail`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  const order = await page.evaluate(probeOrder);
+  expect(order.matchupRight, 'slot-matchup-preview must be found').not.toBeNull();
+  expect(order.myTeamLeft, 'slot-my-team must be found').not.toBeNull();
+  expect(
+    order.matchupRight as number,
+    `matchup right=${order.matchupRight} My Team left=${order.myTeamLeft}`,
+  ).toBeLessThanOrEqual(order.myTeamLeft as number);
+  expect(order.recentActivityInRail, 'slot-recent-activity must be inside dashboard-rail').toBe(true);
 });
 
 // ---- Permanent negative control ----

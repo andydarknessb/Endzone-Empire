@@ -360,14 +360,22 @@ function lineupForViewer() {
 }
 
 // Recent activity (`GET /api/league/:id/transactions`, League Dashboard's
-// `recent-activity` rail card): a bare array of raw transaction rows
+// `recent-activity` card): a bare array of raw transaction rows
 // (entities/activity/model/activityModel.js `activityFromRow`'s own input
-// shape), newest first.
+// shape), newest first. Six rows (#1980): the card rides the rail beside the
+// standings while the season is live, and the rail-height guard
+// (league-dashboard-layout.spec.ts) bounds it against the standings table this
+// fixture renders, so it needs enough rows to be a real feed rather than a
+// two-row stub, and not so many that it outgrows that table.
 function transactions() {
-  return [
-    { id: 9001, type: 'add', team_name: TEAMS[0].teamName, player_name: 'Waiver Wire Wonder', created_at: '2026-09-08T20:00:00.000Z' },
-    { id: 9000, type: 'drop', team_name: TEAMS[1].teamName, player_name: 'Bench Warmer', created_at: '2026-09-08T12:00:00.000Z' },
-  ];
+  const types = ['add', 'drop'];
+  return Array.from({ length: 6 }, (_, i) => ({
+    id: 9001 - i,
+    type: types[i % 2],
+    team_name: TEAMS[i % 2].teamName,
+    player_name: i % 2 === 0 ? `Waiver Wire Wonder ${i + 1}` : `Bench Warmer ${i + 1}`,
+    created_at: new Date(Date.UTC(2026, 8, 8, 20 - i, 0, 0)).toISOString(),
+  }));
 }
 
 // The pending join-request queue (`GET /api/league/:id/join-requests`,

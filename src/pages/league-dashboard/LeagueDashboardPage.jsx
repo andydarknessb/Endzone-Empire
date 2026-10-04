@@ -71,12 +71,18 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * v2 composition (ADR 0034, #1110): the commissioner strip sits directly under
  * the header at every width (`slot-commissioner-strip`) and replaces the old
  * three-branch commissioner rail card; the retired administration-panel
- * widget is deleted in this same PR. A fantasy league fills the hero (my-team
- * + matchup, `align-items: stretch` so the two cards share the row height), a
- * full-width Around the League strip, and the main grid (standings + a rail
- * holding Draft Grades only) followed by a second grid row of the same tracks
- * (Quick Actions in the wide track, Recent activity in the rail track), and
- * shows the weekly recap and the pre-draft countdown. A pick'em-only league
+ * widget is deleted in this same PR. A fantasy league fills the hero (matchup
+ * first, then my-team: the game-day order of #1979 L1, so the matchup is what
+ * a phone shows first; `align-items: stretch` so the two cards share the row
+ * height), a full-width Around the League strip, and the main grid (standings
+ * + a rail) followed by a second grid row of the same tracks, and shows the
+ * weekly recap and the pre-draft countdown. The rail and the second row's rail
+ * track swap their occupants with the phase (#1979 L5): while the season is
+ * live the rail holds Recent activity (the live feed beside the standings) and
+ * the second row holds Quick Actions plus Draft Grades; otherwise the rail
+ * holds Draft Grades and the second row Quick Actions plus Recent activity.
+ * The header's team-count and Draft Complete chips show only outside the live
+ * season (#1979 L12): in season the phase chip is the news. A pick'em-only league
  * has no fantasy team, matchups or draft, so none of those slices mount
  * (each would fire a fantasy
  * read that returns an empty or zeroed table): its body is the pick'em
@@ -235,6 +241,19 @@ export default function LeagueDashboardPage() {
   // no second source of phase truth. A pick'em-only league has no draft.
   const draftComplete =
     !pickemOnly && phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
+  // The rail and the second row's rail track trade occupants with the phase
+  // (#1979 L5; see the main grid below). Each slot keeps its own testid either
+  // way, so a query by slot finds it wherever it sits.
+  const recentActivitySlot = (
+    <Box data-testid="slot-recent-activity">
+      <RecentActivity leagueId={leagueId} />
+    </Box>
+  );
+  const draftGradesSlot = (
+    <Box data-testid="slot-draft-grades">
+      <DraftGrades leagueId={leagueId} />
+    </Box>
+  );
 
   return (
     <DashboardShell>
@@ -258,8 +277,10 @@ export default function LeagueDashboardPage() {
           {phaseChipLabel && (
             <Badge variant={seasonLive ? 'live' : 'neutral'}>{phaseChipLabel}</Badge>
           )}
-          <Badge variant="neutral">{`${teams.length} Teams`}</Badge>
-          {draftComplete && <Badge variant="neutral">Draft Complete</Badge>}
+          {/* In season the phase chip says what matters; the team count and
+              the finished draft are background then (#1979 L12). */}
+          {!seasonLive && <Badge variant="neutral">{`${teams.length} Teams`}</Badge>}
+          {!seasonLive && draftComplete && <Badge variant="neutral">Draft Complete</Badge>}
         </Box>
 
         {/* Commissioner-only, gated purely on the invite code the server sends
@@ -324,7 +345,9 @@ export default function LeagueDashboardPage() {
             </Card>
           )}
 
-          {/* HERO: my-team beside matchup preview. Nameless <section> layout
+          {/* HERO: matchup preview beside my-team, matchup first in the DOM and
+              on the left (#1979 L1: game day opens on the matchup, and on a
+              phone the one column puts it at the top). Nameless <section> layout
               containers, deliberately NOT labelled landmarks: an empty labelled
               region is announced with nothing in it (noise). The real landmarks
               are the titled Cards the widgets render, each a labelled region via
@@ -334,7 +357,8 @@ export default function LeagueDashboardPage() {
               joined) gets neither the left slot nor the track it sat in:
               MyTeamSummary already returns null for them, and leaving the
               5fr track in place bought 5/12 of the hero as bare `dash-bg`
-              beside a lone matchup card. viewerTeamId is the per-viewer field
+              beside a lone matchup card. With the matchup on the left it is
+              the My Team track that goes and the matchup that fills the row. viewerTeamId is the per-viewer field
               that answers it (#112), not a scan of teams[].
 
               `alignItems: 'stretch'` (#1110) makes My Team and the matchup
@@ -359,18 +383,18 @@ export default function LeagueDashboardPage() {
               alignItems: 'stretch',
               gridTemplateColumns: {
                 xs: '1fr',
-                md: viewerTeamId == null ? '1fr' : '5fr 7fr',
+                md: viewerTeamId == null ? '1fr' : '7fr 5fr',
               },
             }}
           >
+            <Box data-testid="slot-matchup-preview" sx={{ display: 'grid' }}>
+              <MatchupPreview leagueId={leagueId} />
+            </Box>
             {viewerTeamId != null && (
               <Box data-testid="slot-my-team" sx={{ display: 'grid', ...EMPTY_HIDDEN_SX }}>
                 <MyTeamSummary leagueId={leagueId} />
               </Box>
             )}
-            <Box data-testid="slot-matchup-preview" sx={{ display: 'grid' }}>
-              <MatchupPreview leagueId={leagueId} />
-            </Box>
           </Box>
 
           {/* AROUND THE LEAGUE: full-width strip of the week's matchup tiles,
@@ -414,7 +438,8 @@ export default function LeagueDashboardPage() {
             <AroundTheLeague leagueId={leagueId} />
           </Box>
 
-          {/* MAIN: standings beside a rail holding Draft Grades only (same
+          {/* MAIN: standings beside a rail holding Recent activity while the
+              season is live and Draft Grades otherwise (same
               nameless-container reasoning as the hero). Collapses to one
               column at tablet width.
 
@@ -448,8 +473,11 @@ export default function LeagueDashboardPage() {
                 rail rides down with the scroll instead of leaving a column of
                 bare page beside row 8. `top: 22px` and not an app-bar offset:
                 Nav.jsx:95 is position="static", so nothing is pinned above it.
-                Draft Grades only now (#1110): the commissioner panel that used
-                to compose below it here moved to the strip under the header. */}
+                One card (#1110): the commissioner panel that used to compose
+                below it here moved to the strip under the header. In season
+                (#1979 L5) that card is Recent activity, the live feed, and
+                Draft Grades moves to the second row; before and after the
+                season it is Draft Grades, as it always was. */}
             <Box
               data-testid="dashboard-rail"
               sx={{
@@ -460,17 +488,17 @@ export default function LeagueDashboardPage() {
                 top: { md: '22px' },
               }}
             >
-              <Box data-testid="slot-draft-grades">
-                <DraftGrades leagueId={leagueId} />
-              </Box>
+              {seasonLive ? recentActivitySlot : draftGradesSlot}
             </Box>
           </Box>
 
           {/* SECOND ROW (#1110): the same two tracks as the main grid, Quick
-              Actions in the wide track and Recent activity in the rail track.
-              Recent activity is fantasy-only (the activity log is a fantasy
-              surface); this placement already guarantees that, being inside
-              the `!pickemOnly` branch, so no further gate is needed here. */}
+              Actions in the wide track and, in the rail track, whichever of
+              Recent activity and Draft Grades the rail above does not hold
+              (#1979 L5). Recent activity is fantasy-only (the activity log is
+              a fantasy surface); this placement already guarantees that, being
+              inside the `!pickemOnly` branch, so no further gate is needed
+              here. */}
           <Box
             component="section"
             data-testid="dashboard-second-row"
@@ -483,9 +511,7 @@ export default function LeagueDashboardPage() {
             <Box data-testid="dashboard-quick-actions" sx={EMPTY_HIDDEN_SX}>
               <QuickActions leagueId={leagueId} />
             </Box>
-            <Box data-testid="slot-recent-activity">
-              <RecentActivity leagueId={leagueId} />
-            </Box>
+            {seasonLive ? draftGradesSlot : recentActivitySlot}
           </Box>
         </>
       )}
