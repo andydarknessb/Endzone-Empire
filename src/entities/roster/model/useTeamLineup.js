@@ -27,8 +27,9 @@ import { lineupModel } from './lineupModel';
  * as the Matchup entity's chained reads withhold their own URL (the shared
  * hook's null-key contract, src/hooks/useResource.js).
  *
- * `lineup` is null while a read is in flight, even when a previous response is
- * still cached, so a surface never paints the lineup it held before a save.
+ * `lineup` is null while a read is in flight or after one failed, even when a
+ * previous response is still held (`useResource` keeps the last data through a
+ * failed re-read), so a surface never paints the lineup it held before a save.
  *
  * @param {number|string|null} leagueId
  * @param {number|string|null} week
@@ -42,8 +43,8 @@ export function useTeamLineup(leagueId, week) {
   );
 
   const lineup = useMemo(
-    () => (!loading && data ? lineupModel(data) : null),
-    [loading, data]
+    () => (!loading && !error && data ? lineupModel(data) : null),
+    [loading, error, data]
   );
 
   return { lineup, loading: active && loading, error: error != null };

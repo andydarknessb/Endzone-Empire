@@ -284,9 +284,60 @@ test('League Dashboard @ 390x844: the viewer standings PF/PA line is never clipp
   await expect(line).toBeVisible();
   const fit = await line.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
   expect(fit.scrollWidth, `scrollWidth=${fit.scrollWidth} clientWidth=${fit.clientWidth}`).toBeLessThanOrEqual(fit.clientWidth);
+  // The fit alone would also hold for a line that clips with an ellipsis, so
+  // pin the mechanism too: it wraps, and nothing truncates it.
+  const style = await line.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { textOverflow: cs.textOverflow, whiteSpace: cs.whiteSpace, overflow: cs.overflowX };
+  });
+  expect(style.textOverflow, 'the points line must not ellipsize').not.toBe('ellipsis');
+  expect(style.overflow, 'the points line must not clip').not.toBe('hidden');
+  expect(['normal', 'pre-wrap', 'pre-line', 'break-spaces'], `white-space=${style.whiteSpace}`).toContain(style.whiteSpace);
 
   await expect(row.getByTestId('badge')).toBeHidden();
   await expect(row.getByText('your team')).toBeAttached();
+});
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: six Around the League tiles (a twelve-team week) share one row`, async ({ page }) => {
+  // A route override local to this case (registered after the shared fixture's
+  // catch-all, so it wins): six current-week matchups instead of the fixture's three.
+  await setupLayoutGuard(page);
+  const week = 18;
+  const rows = Array.from({ length: 6 }, (_, i) => ({
+    id: 700 + i,
+    season: 2026,
+    week,
+    final: false,
+    status: 'scheduled',
+    first_kickoff_at: null,
+    synced_at: null,
+    home_team_id: 201 + 2 * i,
+    home_team_name: `Home Squad ${i + 1}`,
+    home_score: 0,
+    home_expected_final: 110 + i,
+    home_players_remaining: 9,
+    away_team_id: 202 + 2 * i,
+    away_team_name: `Away Squad ${i + 1}`,
+    away_score: 0,
+    away_expected_final: 100 + i,
+    away_players_remaining: 9,
+  }));
+  await page.route(
+    (u) => /^\/api\/league\/\d+\/matchups$/.test(u.pathname),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
+  );
+  await page.setViewportSize({ width: MEASURED_WIDTH, height: HEIGHT });
+  await page.goto(DASHBOARD_URL);
+  await page.getByTestId('around-the-league-tile').first().waitFor();
+  await fontsReady(page);
+
+  const tops = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]')).map(
+      (t) => Math.round(t.getBoundingClientRect().top),
+    ),
+  );
+  expect(tops, `tile tops=${tops.join(',')}`).toHaveLength(6);
+  expect(new Set(tops).size, `tile tops=${tops.join(',')}`).toBe(1);
 });
 
 test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: a full lineup shows no empty starting slot copy anywhere`, async ({ page }) => {

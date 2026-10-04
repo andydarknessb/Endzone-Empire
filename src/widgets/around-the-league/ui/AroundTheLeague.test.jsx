@@ -255,10 +255,15 @@ describe('AroundTheLeague', () => {
     );
   });
 
-  it('lays the tiles out on an auto-fit track at md and up, so a short week fills the strip (#1981 L6)', async () => {
+  it.each([
+    [3, 3],
+    [6, 6],
+    [7, 6],
+  ])('lays %i tiles out on %i equal columns at md and up, so a short week fills the strip and six share one row (#1981 L6)', async (matchupCount, columns) => {
+    const rows = Array.from({ length: matchupCount }, (_, i) => matchupRow(i + 1, 2 * i + 1, 2 * i + 2));
     mockGetByUrl({
       [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
-      [`/api/league/${LEAGUE_ID}/matchups`]: { data: SIX_MATCHUPS.slice(0, 3) },
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
     });
 
     renderWidget();
@@ -266,9 +271,8 @@ describe('AroundTheLeague', () => {
 
     const body = screen.getByTestId('around-the-league-body');
     expect(body).toHaveAttribute('data-layout', 'grid');
-    expect(rulesUnder(body)['']).toMatch(
-      /grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(180px,\s*1fr\)\)/
-    );
+    expect(tiles()).toHaveLength(matchupCount);
+    expect(rulesUnder(body)['']).toContain(`grid-template-columns: repeat(${columns}, minmax(0, 1fr))`);
   });
 
   it('holds six skeleton tiles while its reads are in flight', () => {

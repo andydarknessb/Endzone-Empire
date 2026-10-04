@@ -47,9 +47,9 @@ import { draftRosterSize } from '../../../lib/rosterShape';
  *     entry, both already in the league cache above, so it costs no request.
  *   - The starters section reads the ROSTER ENTITY's lineup
  *     (src/entities/roster, `useTeamLineup`, #1101), keyed by the league's
- *     current week exactly like standings above. It is a plain read (this
- *     widget is its only mount on this page) and is skipped entirely for a
- *     pick'em-only viewer, who has no roster to read: `useTeamLineup`'s own
+ *     current week exactly like standings above. It is a shared cached read
+ *     (ADR 0004): quick-actions mounts the same one, and the two share a
+ *     single request. It is skipped entirely for a pick'em-only viewer, who has no roster to read: `useTeamLineup`'s own
  *     null-leagueId contract means the request never fires. The section is
  *     independent of the card's SPINE (standings): a slow or failed lineup
  *     read never blocks or errors the tiles above it, and a slow standings

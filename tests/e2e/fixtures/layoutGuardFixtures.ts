@@ -377,10 +377,10 @@ function joinRequestRows() {
   return [{ id: 1 }];
 }
 
-// The viewer's own roster (`GET /api/team/roster?leagueId=<id>`, quick-actions'
-// best-effort Set-Lineup recommendation read): a bare array, empty. The
-// widget degrades this read's absence/failure the same way (no
-// recommendation), so an empty roster is a legitimate, simple fixture.
+// The viewer's own roster (`GET /api/team/roster?leagueId=<id>`): a bare array,
+// empty. The League Dashboard no longer reads it (quick-actions' Set Lineup
+// recommendation reads `/api/team/lineup` above, #1981); it stays answered for
+// any page that still reads the roster, rather than falling to the 500.
 function rosterRows() {
   return [];
 }

@@ -89,3 +89,16 @@ test('a settled read is not served to a later mount: it reads again (a saved lin
   await waitFor(() => expect(second.current.loading).toBe(false));
   expect(apiClient.get).toHaveBeenCalledTimes(2);
 });
+
+test('a re-read that fails returns no lineup, not the one the earlier read settled', async () => {
+  apiClient.get.mockResolvedValueOnce({ data: body });
+  const { result: first, unmount } = renderHook(() => useTeamLineup(7, 4));
+  await waitFor(() => expect(first.current.lineup).not.toBeNull());
+  unmount();
+
+  apiClient.get.mockRejectedValueOnce({ response: { status: 500, data: { error: 'boom' } } });
+  const { result: second } = renderHook(() => useTeamLineup(7, 4));
+
+  await waitFor(() => expect(second.current.error).toBe(true));
+  expect(second.current.lineup).toBeNull();
+});

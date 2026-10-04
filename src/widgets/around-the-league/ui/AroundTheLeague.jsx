@@ -26,16 +26,19 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * tile with no id keeps the Game Center link, and the tail's Game Center link
  * is unchanged.
  *
- * Desktop lays the tiles on an auto-fit track of at least 180px (#1981), so a
- * short week (three matchups) widens its tiles across the strip instead of
- * leaving three of six columns empty, and a league with more matchups wraps to
- * a further row; below `md` they become a horizontal scroller of 200px tiles
+ * From `md` the tiles share one row of as many equal columns as there are
+ * tiles, capped at six (#1981): a short week (one to three matchups) widens its
+ * tiles across the strip instead of leaving columns empty, a full twelve-team
+ * week is one row of six, and seven or more wrap to a further row. (An
+ * `auto-fit` track left a lone tile on a second row for six matchups.) Below
+ * `md` they become a horizontal scroller of 200px tiles
  * (docs/design/league-dashboard-v2/build.mjs, aroundLeague()). Widgets never
  * import widgets (CONTEXT.md carry-over from ADR 0020): this tile is this
- * slice's own, not matchup-grid's. The scroller carries its own `tabIndex={0}`,
- * an accessible name and a focus ring (the same shape nfl-game-strip's scroller
- * uses, NflGameStrip.jsx) - without it a keyboard-only user at a narrow
- * viewport could not pan the strip to bring tiles 3-6 into view.
+ * slice's own, not matchup-grid's. The scroller keeps its `tabIndex={0}`, an
+ * accessible name and a focus ring (the same shape nfl-game-strip's scroller
+ * uses, NflGameStrip.jsx), unchanged from before the tiles were links: it
+ * makes the strip itself a keyboard stop that arrow keys scroll, while Tab onto
+ * a tile (now a link) also scrolls that tile into view.
  *
  * Each figure also carries a visually hidden label naming what it is
  * ("Score" once the Matchup has started, "Projected" before it), because two
@@ -68,6 +71,7 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  */
 
 const SKELETON_COUNT = 6;
+const MAX_COLUMNS = 6;
 
 function pluralMatchups(count) {
   return `${count} matchup${count === 1 ? '' : 's'}`;
@@ -86,6 +90,11 @@ export default function AroundTheLeague({ leagueId }) {
   // stays a plain (non-focusable) container rather than adding an empty tab
   // stop.
   const scrollable = compact && status === 'ready';
+
+  // One column per tile up to six; the loading skeleton holds the full six, and
+  // an error sentence needs just the one.
+  const columns =
+    status === 'ready' ? Math.min(tiles.length, MAX_COLUMNS) : status === 'loading' ? MAX_COLUMNS : 1;
 
   const tail = (
     <>
@@ -120,7 +129,7 @@ export default function AroundTheLeague({ leagueId }) {
           m: 0,
           p: '14px 18px',
           display: compact ? 'flex' : 'grid',
-          gridTemplateColumns: compact ? undefined : 'repeat(auto-fit, minmax(180px, 1fr))',
+          gridTemplateColumns: compact ? undefined : `repeat(${columns}, minmax(0, 1fr))`,
           gap: '10px',
           overflowX: compact ? 'auto' : 'visible',
           '&:focus-visible': scrollable

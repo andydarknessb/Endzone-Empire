@@ -63,7 +63,7 @@ test('the fantasy read endpoints stay allowlisted and everything else stays netw
     '/api/pickem/league/7/standings/extra',
     '/api/pickem/league/x/settings',
     '/api/league/7/transactions',
-    '/api/team/lineup/save', // a write target under the same prefix
+    '/api/team/lineup/advice', // a sibling read under the same prefix, not allowlisted
     '/api/notifications',
   ]) {
     expect({ p, allowed: isAllowlistedApiGet(url(p)) }).toEqual({ p, allowed: false });

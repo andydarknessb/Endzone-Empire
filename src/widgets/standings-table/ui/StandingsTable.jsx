@@ -221,8 +221,9 @@ function StandingsRow({ row, preseason, cutLine = false }) {
             />
           </Box>
           {/* The zero minimum lets the name column shrink below its longest
-              word; both lines inside clip, so it shrinks rather than pushing
-              the number cells off the card. */}
+              word; the name clips with an ellipsis and the phone points line
+              wraps, so the column shrinks rather than pushing the number
+              cells off the card. */}
           <Box sx={{ display: 'grid', gap: 0.25, minWidth: 0, overflow: 'hidden' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
               <Box
