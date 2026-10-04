@@ -141,6 +141,22 @@ function renderWidget(props = {}) {
   );
 }
 
+// An sx rule is not laid out by jsdom, but emotion inserts it into
+// `document.styleSheets` under the element's generated class; this reads the
+// declarations of the rules under that class, keyed by selector tail.
+const rulesUnder = (el) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const found = {};
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((rule) => {
+      if (!rule.selectorText || !rule.selectorText.startsWith(`.${cls}`)) return;
+      const tail = rule.selectorText.slice(`.${cls}`.length).replace(/\s+/g, '');
+      found[tail] = `${found[tail] || ''}${rule.style.cssText};`;
+    });
+  });
+  return found;
+};
+
 const tiles = () => screen.queryAllByTestId('around-the-league-tile');
 
 describe('AroundTheLeague', () => {
@@ -218,6 +234,45 @@ describe('AroundTheLeague', () => {
 
     const link = screen.getByRole('link', { name: 'Game Center' });
     expect(link).toHaveAttribute('href', `/league/${LEAGUE_ID}/game-center`);
+  });
+
+  it('links each tile to its own matchup detail, and keeps the Game Center link for a tile with no id (#1981 L6)', async () => {
+    const rows = [matchupRow(1, 1, 2), { ...matchupRow(2, 5, 6), id: null }];
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
+    });
+
+    renderWidget();
+
+    const rendered = await screen.findAllByTestId('around-the-league-tile');
+    expect(rendered[0]).toHaveAttribute('href', `/league/${LEAGUE_ID}/matchups/1`);
+    expect(rendered[1]).toHaveAttribute('href', `/league/${LEAGUE_ID}/game-center`);
+    // The tail's own Game Center link is unchanged.
+    expect(screen.getByRole('link', { name: 'Game Center' })).toHaveAttribute(
+      'href',
+      `/league/${LEAGUE_ID}/game-center`
+    );
+  });
+
+  it.each([
+    [3, 3],
+    [6, 6],
+    [7, 6],
+  ])('lays %i tiles out on %i equal columns at md and up, so a short week fills the strip and six share one row (#1981 L6)', async (matchupCount, columns) => {
+    const rows = Array.from({ length: matchupCount }, (_, i) => matchupRow(i + 1, 2 * i + 1, 2 * i + 2));
+    mockGetByUrl({
+      [`/api/league/${LEAGUE_ID}`]: leagueResponse(),
+      [`/api/league/${LEAGUE_ID}/matchups`]: { data: rows },
+    });
+
+    renderWidget();
+    await screen.findAllByTestId('around-the-league-tile');
+
+    const body = screen.getByTestId('around-the-league-body');
+    expect(body).toHaveAttribute('data-layout', 'grid');
+    expect(tiles()).toHaveLength(matchupCount);
+    expect(rulesUnder(body)['']).toContain(`grid-template-columns: repeat(${columns}, minmax(0, 1fr))`);
   });
 
   it('holds six skeleton tiles while its reads are in flight', () => {

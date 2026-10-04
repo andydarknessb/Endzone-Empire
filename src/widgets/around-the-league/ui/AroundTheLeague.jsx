@@ -21,16 +21,24 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * StandingsTable's viewer rows. It sits on whichever SIDE (home or away) is
  * the viewer's own Team, never on both and never guessed from seating.
  *
- * Desktop lays the tiles in a fixed six-column grid (a league with more
- * matchups wraps to a second row); below `md` they become a horizontal
- * scroller of 200px tiles, both straight from the design source
+ * Each tile is one link to its Matchup's detail page
+ * (`/league/:leagueId/matchups/:matchupId`, the tile view's `id`, #1981); a
+ * tile with no id keeps the Game Center link, and the tail's Game Center link
+ * is unchanged.
+ *
+ * From `md` the tiles share one row of as many equal columns as there are
+ * tiles, capped at six (#1981): a short week (one to three matchups) widens its
+ * tiles across the strip instead of leaving columns empty, a full twelve-team
+ * week is one row of six, and seven or more wrap to a further row. (An
+ * `auto-fit` track left a lone tile on a second row for six matchups.) Below
+ * `md` they become a horizontal scroller of 200px tiles
  * (docs/design/league-dashboard-v2/build.mjs, aroundLeague()). Widgets never
  * import widgets (CONTEXT.md carry-over from ADR 0020): this tile is this
- * slice's own, not matchup-grid's. Unlike matchup-grid's cards, a tile here is
- * not itself a link, so the scroller carries its own `tabIndex={0}`, an
+ * slice's own, not matchup-grid's. The scroller keeps its `tabIndex={0}`, an
  * accessible name and a focus ring (the same shape nfl-game-strip's scroller
- * uses, NflGameStrip.jsx) - without it a keyboard-only user at a narrow
- * viewport could never bring tiles 3-6 into view.
+ * uses, NflGameStrip.jsx), unchanged from before the tiles were links: it
+ * makes the strip itself a keyboard stop that arrow keys scroll, while Tab onto
+ * a tile (now a link) also scrolls that tile into view.
  *
  * Each figure also carries a visually hidden label naming what it is
  * ("Score" once the Matchup has started, "Projected" before it), because two
@@ -63,6 +71,7 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  */
 
 const SKELETON_COUNT = 6;
+const MAX_COLUMNS = 6;
 
 function pluralMatchups(count) {
   return `${count} matchup${count === 1 ? '' : 's'}`;
@@ -81,6 +90,11 @@ export default function AroundTheLeague({ leagueId }) {
   // stays a plain (non-focusable) container rather than adding an empty tab
   // stop.
   const scrollable = compact && status === 'ready';
+
+  // One column per tile up to six; the loading skeleton holds the full six, and
+  // an error sentence needs just the one.
+  const columns =
+    status === 'ready' ? Math.min(tiles.length, MAX_COLUMNS) : status === 'loading' ? MAX_COLUMNS : 1;
 
   const tail = (
     <>
@@ -115,7 +129,7 @@ export default function AroundTheLeague({ leagueId }) {
           m: 0,
           p: '14px 18px',
           display: compact ? 'flex' : 'grid',
-          gridTemplateColumns: compact ? undefined : 'repeat(6, minmax(0, 1fr))',
+          gridTemplateColumns: compact ? undefined : `repeat(${columns}, minmax(0, 1fr))`,
           gap: '10px',
           overflowX: compact ? 'auto' : 'visible',
           '&:focus-visible': scrollable
@@ -145,7 +159,14 @@ export default function AroundTheLeague({ leagueId }) {
               key={tile.id != null ? tile.id : `index-${index}`}
               sx={{ minWidth: 0, flex: compact ? '0 0 200px' : undefined }}
             >
-              <Tile tile={tile} />
+              <Tile
+                tile={tile}
+                to={
+                  tile.id != null
+                    ? `/league/${leagueId}/matchups/${tile.id}`
+                    : `/league/${leagueId}/game-center`
+                }
+              />
             </Box>
           ))}
       </Box>
@@ -153,7 +174,7 @@ export default function AroundTheLeague({ leagueId }) {
   );
 }
 
-function Tile({ tile }) {
+function Tile({ tile, to }) {
   // Keyed off `scheduled` (ADR 0030's `hasStarted === false`), the same
   // predicate the figure's own VALUE is keyed off (tileView.js), never off
   // `!tile.started`: an unknown status is neither started nor scheduled, and
@@ -163,11 +184,15 @@ function Tile({ tile }) {
   const figureLabel = tile.scheduled ? 'Projected' : 'Score';
   return (
     <Box
+      component={RouterLink}
+      to={to}
       data-testid="around-the-league-tile"
       data-matchup-id={tile.id}
       data-viewer-tile={tile.isViewer || undefined}
       sx={{
         display: 'flex',
+        textDecoration: 'none',
+        color: 'inherit',
         flexDirection: 'column',
         gap: '6px',
         minWidth: 0,
@@ -176,6 +201,10 @@ function Tile({ tile }) {
         backgroundColor: 'var(--dash-surface2)',
         border: `1px solid ${tile.isViewer ? 'var(--dash-accent-line)' : 'var(--dash-line)'}`,
         boxShadow: tile.isViewer ? '0 0 0 1px var(--dash-accent-line)' : 'none',
+        '&:hover': tile.isViewer
+          ? { textDecoration: 'none' }
+          : { borderColor: 'var(--dash-line-strong)', textDecoration: 'none' },
+        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: 2 },
       }}
     >
       <TileRow side={tile.home} testId="around-the-league-tile-home" figureLabel={figureLabel} />

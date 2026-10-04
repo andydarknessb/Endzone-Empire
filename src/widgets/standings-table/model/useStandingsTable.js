@@ -54,7 +54,12 @@ const streakLabel = (value) =>
 // Win percentage is a 0-1 fraction on the wire. Standings convention prints it
 // to three decimals with no leading zero (".750"), which is also what keeps the
 // column narrow enough to earn its place at sm and up.
-const winPctLabel = (value) => {
+//
+// A missing value (null, undefined or '') is null, not 0: `Number(null)` is 0, so
+// without the guard a Team with no win percentage yet would print ".000" as if
+// it had lost every game; null renders the card's Placeholder instead.
+export const winPctLabel = (value) => {
+  if (value == null || value === '') return null;
   const pct = Number(value);
   if (!Number.isFinite(pct)) return null;
   const fixed = pct.toFixed(3);

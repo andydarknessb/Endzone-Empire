@@ -47,6 +47,8 @@ test('the fantasy read endpoints stay allowlisted and everything else stays netw
     '/api/league/7/matchups',
     '/api/league/7/matchups/12',
     '/api/team/roster',
+    '/api/team/lineup',
+    '/api/team/lineup?leagueId=7&week=3', // the query must not defeat the pathname test
     '/api/scoring/league/7/standings',
     '/api/scoring/league/7/power-rankings',
     '/api/scoring/league/7/recap',
@@ -61,6 +63,7 @@ test('the fantasy read endpoints stay allowlisted and everything else stays netw
     '/api/pickem/league/7/standings/extra',
     '/api/pickem/league/x/settings',
     '/api/league/7/transactions',
+    '/api/team/lineup/advice', // a sibling read under the same prefix, not allowlisted
     '/api/notifications',
   ]) {
     expect({ p, allowed: isAllowlistedApiGet(url(p)) }).toEqual({ p, allowed: false });
