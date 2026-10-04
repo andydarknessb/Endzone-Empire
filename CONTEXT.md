@@ -1332,9 +1332,10 @@ _Avoid_: post-settle chain, post-week analytics, the recap chain
 
 **Expected final**:
 A starter's, or a team's, points at the end of the week as best known now: his
-weekly projection before his kickoff, his points so far plus any shortfall
-against that projection while his game is in progress, and his points alone
-once it is final. A team's is the sum over its starters.
+weekly projection before his kickoff, his points so far plus his projection
+times the fraction of his game still to play while it is in progress (half at
+the half or when the clock cannot be read), and his points alone once it is
+final. A team's is the sum over its starters.
 _Avoid_: live projection, pace, projected total (once games have started)
 
 **Players remaining**:
