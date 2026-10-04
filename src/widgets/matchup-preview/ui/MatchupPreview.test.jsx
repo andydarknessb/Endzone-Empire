@@ -340,19 +340,32 @@ test('a level projection reads as even rather than "by 0.0"', async () => {
 
 // --- geometry -----------------------------------------------------------------
 
-// Red-tell (T6): reverting the versus block to a fixed `1fr auto 1fr` turns this
-// case red. At 390px two content columns held each Team name to 125px and
-// ellipsised both.
-test('the versus block is one column on a phone and three from sm up', async () => {
+// Red-tell (L2): putting the phone track back to a single column
+// (`minmax(0, 1fr)` at xs) turns this case red. The phone is the width the
+// block is for: the two scores have to sit side by side there so the card
+// stays above the fold, and the Team names clamp to two lines instead of
+// stacking the sides one under the other.
+test('the versus block is three columns at every width, with side columns that may shrink', async () => {
   renderCard(row({ status: 'scheduled', home_expected_final: '110.5', away_expected_final: '104.0' }));
 
   await screen.findByTestId('matchup-side-viewer');
   const block = screen.getByTestId('matchup-versus');
-  expect(rulesUnder(block, '(min-width:0px)')).toMatch(/grid-template-columns: minmax\(0, 1fr\)/);
-  expect(rulesUnder(block, '(min-width:600px)')).toMatch(/grid-template-columns: 1fr auto 1fr/);
-  // Without a centred justify-self the pill stretches into a full-width bar in
-  // the one-column case.
+  expect(rulesUnder(block)).toMatch(/grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  // No breakpoint override: nothing collapses to one column at any width.
+  expect(rulesUnder(block, '(min-width:0px)')).not.toMatch(/grid-template-columns/);
+  expect(rulesUnder(block, '(min-width:600px)')).not.toMatch(/grid-template-columns/);
+  // Without a centred justify-self the pill stretches to its track.
   expect(rulesUnder(screen.getByText('VS'))).toMatch(/justify-self: center/);
+});
+
+test('a Team name clamps to two lines instead of ellipsising on one', async () => {
+  renderCard(row({ status: 'scheduled' }));
+
+  await screen.findByTestId('matchup-side-viewer');
+  const name = within(viewerSide()).getByText('MyBallsHurts');
+  const rules = rulesUnder(name);
+  expect(rules).toMatch(/-webkit-line-clamp: 2/);
+  expect(rules).not.toMatch(/white-space: nowrap/);
 });
 
 test('the loading skeleton carries the same tracks, so the card does not reflow', async () => {
@@ -365,37 +378,31 @@ test('the loading skeleton carries the same tracks, so the card does not reflow'
 
   const shapes = await screen.findAllByTestId('matchup-skeleton');
   const block = screen.getByTestId('matchup-versus');
-  expect(rulesUnder(block, '(min-width:0px)')).toMatch(/grid-template-columns: minmax\(0, 1fr\)/);
-  expect(rulesUnder(block, '(min-width:600px)')).toMatch(/grid-template-columns: 1fr auto 1fr/);
+  expect(rulesUnder(block)).toMatch(/grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
   // The pill's stand-in is centred for the same reason the pill is.
   expect(shapes.some((el) => rulesUnder(el).includes('justify-self: center'))).toBe(true);
 });
 
 // Red-tell (T2): deleting the `md` breakpoint from DashButton's size map
 // (shared/ui, #1166) turns this case red and no other.
-test('both footer actions meet the 44px touch target on a phone and stay 38px on desktop', async () => {
+test('the footer action meets the 44px touch target on a phone and stays 38px on desktop', async () => {
   renderCard(row({ status: 'scheduled' }));
 
   await screen.findByTestId('matchup-side-viewer');
-  ['Compare rosters', 'Set Lineup'].forEach((name) => {
-    const button = screen.getByRole('link', { name });
-    expect(rulesUnder(button, '(min-width:0px)')).toMatch(/min-height: 44px/);
-    expect(rulesUnder(button, '(min-width:900px)')).toMatch(/min-height: 38px/);
-    // The phone flex is what splits the pair across the row instead of leaving
-    // them 10px apart under one thumb.
-    expect(rulesUnder(button, '(min-width:0px)')).toMatch(/flex: 1 1 0|flex-grow: 1/);
-  });
+  const button = screen.getByRole('link', { name: 'Compare rosters' });
+  expect(rulesUnder(button, '(min-width:0px)')).toMatch(/min-height: 44px/);
+  expect(rulesUnder(button, '(min-width:900px)')).toMatch(/min-height: 38px/);
+  // The phone flex is what stretches the lone action across the row.
+  expect(rulesUnder(button, '(min-width:0px)')).toMatch(/flex: 1 1 0|flex-grow: 1/);
 });
 
-// Red-tell (T3): dropping the transition from DashButton's primary variant
-// (shared/ui, #1166) turns this case red. The hover is a `filter`, which the
-// app theme's MuiButton transition does not cover, so the primary snapped
-// while the ghost beside it eased.
-test('the primary action eases its hover filter', async () => {
+// Red-tell (L4): restoring the Set Lineup button turns this case red. The
+// lineup is one tap away on the My Team card and in Quick Actions, so the
+// matchup footer carries Compare rosters alone.
+test('the footer has Compare rosters and no Set Lineup button', async () => {
   renderCard(row({ status: 'scheduled' }));
 
   await screen.findByTestId('matchup-side-viewer');
-  expect(rulesUnder(screen.getByRole('link', { name: 'Set Lineup' }))).toMatch(
-    /filter var\(--transition-fast\)/
-  );
+  expect(screen.getByRole('link', { name: 'Compare rosters' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Set Lineup' })).not.toBeInTheDocument();
 });
