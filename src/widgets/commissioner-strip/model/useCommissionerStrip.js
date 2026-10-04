@@ -1,5 +1,5 @@
 import { useLeague } from '../../../hooks/useLeague';
-import { commissionerFacts, useEndpoint, isPickemOnly } from '../../../shared/lib';
+import { commissionerFacts, useEndpoint, isPickemOnly, isSeasonLive } from '../../../shared/lib';
 
 /**
  * Data model for the commissioner-strip widget (League Dashboard, #1108). It
@@ -14,10 +14,12 @@ import { commissionerFacts, useEndpoint, isPickemOnly } from '../../../shared/li
  *     gate to read `invite_code` instead collapses it to "render for
  *     nobody", which only a case asserting the tiles' PRESENCE can catch (see
  *     CommissionerStrip.test.jsx's commissioner case).
- *   - `pickemOnly` and `currentWeek`: together decide whether the
- *     advance-week feature shows. A pick'em-only league advances on the NFL
- *     calendar (the scheduler's job), and a league with no current week has
- *     no week to advance from.
+ *   - `pickemOnly`, `seasonLive` and `currentWeek`: together decide whether
+ *     the advance-week feature shows. A pick'em-only league advances on the
+ *     NFL calendar (the scheduler's job), a league with no current week has no
+ *     week to advance from, and a fantasy league that is not in season or the
+ *     playoffs (pre-draft, drafting, complete) has no week to close: the server
+ *     answers that advance with a 409 (#1979 L24).
  *
  * Unlike the retired panel, this widget mounts no legacy administration tree
  * and no disclosure of its own: "League administration" is a link to
@@ -59,6 +61,7 @@ export function useCommissionerStrip(leagueId) {
   return {
     isCommissioner: !!league?.is_commissioner,
     pickemOnly: isPickemOnly(league),
+    seasonLive: isSeasonLive(league),
     currentWeek: league?.current_week ?? null,
     facts: commissionerFacts(league, teams).filter((fact) => STRIP_FACT_KEYS.includes(fact.key)),
     pendingJoinRequests,

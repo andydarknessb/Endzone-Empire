@@ -211,6 +211,18 @@ test('the section switch moves between the board and the standings, keyed in the
   expect(screen.queryByRole('button', { name: /Jets/i })).not.toBeInTheDocument();
 });
 
+test('the Standings section keeps the plain Standings heading on its widget', async () => {
+  const user = userEvent.setup();
+  mockRequests();
+  renderPage();
+
+  await screen.findByRole('button', { name: /Jets/i });
+  await user.click(screen.getByRole('radio', { name: 'Standings' }));
+
+  expect(await screen.findByRole('heading', { name: 'Standings' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: "Pick'em Standings" })).not.toBeInTheDocument();
+});
+
 test('switching weeks with unsaved picks asks before discarding them', async () => {
   const user = userEvent.setup();
   mockRequests({ weeks: { 3: weekResponse(3), 4: weekResponse(4) } });

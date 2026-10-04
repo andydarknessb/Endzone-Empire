@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import {
   Badge as MuiBadge,
   Box,
@@ -322,12 +322,14 @@ export default function LeagueDashboardPage() {
            draft, so the hero and main-grid slices never mount: each of them
            (my-team, matchup, standings table, draft grades) fires a fantasy
            read that would come back an empty or zeroed table. The pool
-           standings stand in their place, in a titled Card: this is the primary
-           content of a pick'em league, and as a bare section it was a nameless
-           region with no heading between the h1 and the quick-actions h2. */
-        <Card data-testid="dashboard-pickem-standings" title="Pick'em Standings">
-          <PickemStandings leagueId={leagueId} />
-        </Card>
+           standings stand in their place. The widget is its own titled Card
+           (`title` renames it), so this is a plain Box and not a second Card:
+           it is the primary content of a pick'em league, and as a bare section
+           it was a nameless region with no heading between the h1 and the
+           quick-actions h2. */
+        <Box data-testid="dashboard-pickem-standings">
+          <PickemStandings leagueId={leagueId} title="Pick'em Standings" />
+        </Box>
       ) : (
         <>
           {/* Pre-draft countdown to the scheduled draft, composed as-is from the
@@ -338,7 +340,36 @@ export default function LeagueDashboardPage() {
               the first block under the h1, and unwrapped it was an unlabelled
               section whose only text was a ticker. */}
           {preDraft && league.draft_date && (
-            <Card data-testid="slot-draft-countdown" title="Draft Day">
+            <Card
+              data-testid="slot-draft-countdown"
+              title="Draft Day"
+              tail={
+                <Button
+                  component={RouterLink}
+                  to={`/league/${leagueId}/draft`}
+                  variant="outlined"
+                  disableElevation
+                  sx={{
+                    ...MIN_TOUCH_TARGET_SX,
+                    textTransform: 'none',
+                    color: 'var(--dash-dim)',
+                    borderColor: 'var(--dash-line-strong)',
+                    borderRadius: 'var(--dash-radius-sm)',
+                    fontFamily: 'var(--dash-font-body)',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    whiteSpace: 'nowrap',
+                    '&:hover': {
+                      color: 'var(--dash-ink)',
+                      borderColor: 'var(--dash-accent-line)',
+                      backgroundColor: 'transparent',
+                    },
+                  }}
+                >
+                  Draft Room
+                </Button>
+              }
+            >
               <Box sx={{ px: 2.25, py: 2.25 }}>
                 <Countdown
                   variant="full"

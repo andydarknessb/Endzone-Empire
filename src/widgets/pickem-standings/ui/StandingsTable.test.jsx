@@ -238,6 +238,35 @@ test('a failed read shows a compact error and no table', () => {
   expect(screen.queryByTestId('pickem-standings-scroll')).not.toBeInTheDocument();
 });
 
+test('a failed read states no team count (it used to read "0 teams")', () => {
+  mockStandings({ standings: [], error: new Error('boom') });
+  render(<StandingsTable leagueId={7} />);
+  expect(screen.queryByTestId('pickem-standings-count')).not.toBeInTheDocument();
+  expect(screen.queryByText(/\bteams?\b/i)).not.toBeInTheDocument();
+});
+
+test('a loading read states no team count yet', () => {
+  mockStandings({ standings: [], loading: true });
+  render(<StandingsTable leagueId={7} />);
+  expect(screen.queryByTestId('pickem-standings-count')).not.toBeInTheDocument();
+});
+
+test('a ready read states the team count', () => {
+  mockStandings({ standings: [baseRow(), baseRow({ teamId: 2, teamName: 'Blitz Brothers', rank: 2 })] });
+  render(<StandingsTable leagueId={7} />);
+  expect(screen.getByTestId('pickem-standings-count')).toHaveTextContent('2 teams');
+});
+
+test('the card heading is Standings by default and the title prop renames it', () => {
+  mockStandings({ standings: [baseRow()] });
+  const { rerender } = render(<StandingsTable leagueId={7} />);
+  expect(screen.getByRole('heading', { name: 'Standings' })).toBeInTheDocument();
+
+  rerender(<StandingsTable leagueId={7} title="Pick'em Standings" />);
+  expect(screen.getByRole('heading', { name: "Pick'em Standings" })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Standings' })).not.toBeInTheDocument();
+});
+
 test('a loading read shows skeleton rows, not the you-row or an error, and reports aria-busy on the owning card', () => {
   mockStandings({ standings: [], loading: true });
   render(<StandingsTable leagueId={7} />);

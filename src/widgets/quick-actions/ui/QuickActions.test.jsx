@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate } from '../../../lib/resourceCache';
@@ -295,4 +295,69 @@ test('the deadline week itself is still an open week', async () => {
 
   expect(within(tile('trades')).getByText('Propose and review trades')).toBeInTheDocument();
   expect(within(tile('trades')).queryByText(/Trade deadline passed/)).not.toBeInTheDocument();
+});
+
+// --- Set Lineup before the season (#1979 L25) -----------------------------------
+
+// Before the draft the roster is empty, so every starting slot reads empty. That
+// is not a nag to send: lineups open once the draft is done.
+const STANDARD_SLOTS = [
+  { key: 'QB', count: 1 },
+  { key: 'RB', count: 2 },
+  { key: 'WR', count: 2 },
+];
+const lineupUrl = (week) => `/api/team/lineup?leagueId=1&week=${week}`;
+const emptyLineup = (week) => ({ data: { week, season: 2026, teamId: 1, entries: [] } });
+
+test.each([
+  ['pre-draft', { draft_status: 'pending', season_status: 'pending' }],
+  ['drafting', { draft_status: 'active', season_status: 'regular' }],
+])('Set Lineup is not recommended %s and says lineups open after the draft', async (_phase, league) => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ ...league, current_week: 1, roster_slots: STANDARD_SLOTS }),
+    [lineupUrl(1)]: emptyLineup(1),
+  });
+  renderWithProviders(<QuickActions leagueId={1} />);
+  await screen.findByTestId('quick-actions');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(within(tile('lineup')).getByText('Lineups open after the draft')).toBeInTheDocument();
+  expect(within(tile('lineup')).queryByText('Recommended')).not.toBeInTheDocument();
+  expect(within(tile('lineup')).queryByText(/empty starting slot/)).not.toBeInTheDocument();
+});
+
+test('in season an empty starting slot is still recommended with its count', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({ current_week: 3, roster_slots: STANDARD_SLOTS }),
+    [lineupUrl(3)]: emptyLineup(3),
+  });
+  renderWithProviders(<QuickActions leagueId={1} />);
+  await screen.findByTestId('quick-actions');
+
+  expect(await within(tile('lineup')).findByText('Recommended')).toBeInTheDocument();
+  expect(within(tile('lineup')).getByText('5 empty starting slots')).toBeInTheDocument();
+});
+
+// Red-tell: removing the `seasonLive &&` guard from the Set Lineup branch turns
+// this case red, since a completed season's empty slots would read Recommended.
+test('a completed season does not recommend Set Lineup for empty slots', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueResponse({
+      draft_status: 'complete',
+      season_status: 'complete',
+      current_week: 3,
+      roster_slots: STANDARD_SLOTS,
+    }),
+    [lineupUrl(3)]: emptyLineup(3),
+  });
+  renderWithProviders(<QuickActions leagueId={1} />);
+  await screen.findByTestId('quick-actions');
+  // The lineup read must have landed, or the absence below proves nothing.
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(lineupUrl(3)));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(within(tile('lineup')).getByText('Set your Week 3 lineup')).toBeInTheDocument();
+  expect(within(tile('lineup')).queryByText('Recommended')).not.toBeInTheDocument();
+  expect(within(tile('lineup')).queryByText(/empty starting slot/)).not.toBeInTheDocument();
 });

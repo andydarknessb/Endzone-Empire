@@ -30,7 +30,9 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  * each full width (`flexBasis: '100%'` forces every item after the title row
  * onto its own line). The fact grid does not display below `md` (#1979 L1): a
  * compact strip keeps the matchup near the top of a phone, and the same facts
- * are on the console. The advance-week feature is
+ * are on the console. The advance-week feature mounts only while the season
+ * is live (`isSeasonLive`: in season or playoffs, #1979 L24), never pre-draft,
+ * mid-draft or after the season, and is
  * composed as-is (ADR 0020 barrel rule: a feature's index is its whole
  * public surface, so this widget cannot reach into it to force its inner
  * button to `width: 100%`); only this widget's OWN administration link is
@@ -54,6 +56,7 @@ export default function CommissionerStrip({ leagueId }) {
   const {
     isCommissioner,
     pickemOnly,
+    seasonLive,
     currentWeek,
     facts,
     pendingJoinRequests,
@@ -72,9 +75,11 @@ export default function CommissionerStrip({ leagueId }) {
   if (!isCommissioner) return null;
 
   // A fantasy-league, in-season control: a pick'em-only league advances on
-  // the NFL calendar (the scheduler's job), and a league with no current week
-  // has no week to advance from.
-  const showAdvance = !pickemOnly && currentWeek != null;
+  // the NFL calendar (the scheduler's job), a league with no current week has
+  // no week to advance from, and before the draft finishes (or after the
+  // season) the server refuses the advance with a 409, so the control is not
+  // offered (#1979 L24). Administration and join requests are unaffected.
+  const showAdvance = !pickemOnly && seasonLive && currentWeek != null;
   const consoleHref = `/league/${leagueId}/commissioner`;
 
   return (
