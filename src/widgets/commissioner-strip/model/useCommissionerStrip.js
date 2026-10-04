@@ -62,12 +62,6 @@ export function useCommissionerStrip(leagueId) {
     currentWeek: league?.current_week ?? null,
     facts: commissionerFacts(league, teams).filter((fact) => STRIP_FACT_KEYS.includes(fact.key)),
     pendingJoinRequests,
-    // The creator plus every co-commissioner grant. `co_commissioners` rides
-    // on the payload for a commissioner (league.router.js), and the creator
-    // is named on the league itself rather than flagged inside that list,
-    // which is why the count is length + 1.
-    commissionerCount:
-      (Array.isArray(league?.co_commissioners) ? league.co_commissioners.length : 0) + 1,
     refetch,
   };
 }
