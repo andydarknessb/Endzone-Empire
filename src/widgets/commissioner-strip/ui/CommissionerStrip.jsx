@@ -11,8 +11,8 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  * commissioner-only band that REPLACES the commissioner-panel rail card
  * (a 377px card whose opened tree measured 690px wide). It reads the same
  * model the panel read (`is_commissioner`, `commissionerFacts`, the
- * join-requests count, the commissioner count) and states it as one row
- * instead of a tall rail card: a title block, five fact tiles, the pending
+ * join-requests count) and states it as one row
+ * instead of a tall rail card: a title block, five fact tiles (md and up), the pending
  * join count, the advance-week control, and a link to the commissioner
  * console for everything else. A member renders nothing.
  *
@@ -26,10 +26,11 @@ import useCommissionerStrip from '../model/useCommissionerStrip';
  * the join Badge, the advance-week feature, the administration link), each
  * item's `order` swapping per breakpoint rather than two duplicated DOM
  * trees. Below `md` the row wraps to a stack: a title row (title block plus
- * the join Badge), a 2x2 grid of the first four facts (Trade review is the
- * fifth and is hidden at this width - `flexBasis: '100%'` forces every item
- * after the title row onto its own line), then the advance-week feature and
- * the administration link, each full width. The advance-week feature is
+ * the join Badge), then the advance-week feature and the administration link,
+ * each full width (`flexBasis: '100%'` forces every item after the title row
+ * onto its own line). The fact grid does not display below `md` (#1979 L1): a
+ * compact strip keeps the matchup near the top of a phone, and the same facts
+ * are on the console. The advance-week feature is
  * composed as-is (ADR 0020 barrel rule: a feature's index is its whole
  * public surface, so this widget cannot reach into it to force its inner
  * button to `width: 100%`); only this widget's OWN administration link is
@@ -56,7 +57,6 @@ export default function CommissionerStrip({ leagueId }) {
     currentWeek,
     facts,
     pendingJoinRequests,
-    commissionerCount,
     refetch,
   } = useCommissionerStrip(leagueId);
   // Called unconditionally, ABOVE the presence gate below: a member's first
@@ -109,33 +109,32 @@ export default function CommissionerStrip({ leagueId }) {
             component="span"
             sx={{ fontSize: '12px', color: 'var(--dash-faint)' }}
           >
-            {`Commissioners only · ${commissionerCount}`}
+            Visible to commissioners only
           </Typography>
         </Box>
 
         {/* The settled state of the league, from fields the payload already
-            carries. Five tiles at `md` and up; the fifth (Trade review) is
-            hidden below it, leaving the first four in a 2x2 grid, per the
-            ticket's mobile layout. */}
+            carries. Five tiles at `md` and up; the whole grid is hidden
+            below it (#1979 L1), where four tiles in a 2x2 block pushed the
+            matchup well down the phone viewport. The same facts live on the
+            commissioner console one tap away. */}
         {facts.length > 0 && (
           <Box
             data-testid="commissioner-strip-facts"
             sx={{
-              order: { xs: 3, md: 2 },
-              flexBasis: { xs: '100%', md: 'auto' },
-              flex: { xs: 'none', md: '1 1 auto' },
-              display: 'grid',
-              gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' },
+              order: 2,
+              flex: '1 1 auto',
+              display: { xs: 'none', md: 'grid' },
+              gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
               gap: 1,
             }}
           >
-            {facts.map((fact, index) => (
+            {facts.map((fact) => (
               <StatTile
                 key={fact.key}
                 data-testid={`commissioner-fact-${fact.key}`}
                 label={fact.label}
                 value={fact.value}
-                sx={index === 4 ? { display: { xs: 'none', md: 'flex' } } : undefined}
               />
             ))}
           </Box>
