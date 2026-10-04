@@ -181,6 +181,8 @@ function LeagueManagement() {
   useEffect(() => {
     if (loading || !refocusAfterRetry.current) return;
     refocusAfterRetry.current = false;
+    // Focus the user has since moved elsewhere (say, into the New league dialog) is theirs.
+    if (document.activeElement && document.activeElement !== document.body) return;
     (retryRef.current || regionRef.current)?.focus();
   }, [loading]);
 

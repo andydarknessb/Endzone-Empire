@@ -163,6 +163,7 @@ test('creating a league surfaces the server error on failure', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
 
   expect(await screen.findByText('name already taken')).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Create League' })).toBeEnabled());
 });
 
 test('the "Require commissioner approval" toggle only appears once "Public league" is on', async () => {
@@ -426,6 +427,40 @@ test('a failed first read cannot be dismissed, so Try again is never left alone'
 
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+});
+
+test('a retry that settles while focus is elsewhere leaves it there', async () => {
+  let leagueReads = 0;
+  let finishRetry;
+  apiClient.get.mockImplementation((url) => {
+    if (url !== '/api/league') return Promise.resolve({ data: [] });
+    leagueReads += 1;
+    if (leagueReads === 1) return Promise.reject({ response: { data: { error: 'server exploded' } } });
+    return new Promise((resolve) => { finishRetry = () => resolve({ data: [league()] }); });
+  });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+  await openNewLeague();
+  await userEvent.click(screen.getByLabelText(/League name/));
+  expect(screen.getByLabelText(/League name/)).toHaveFocus();
+
+  finishRetry();
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.getByLabelText(/League name/)).toHaveFocus();
+});
+
+test.each([
+  ['leagues', () => apiClient.get.mockResolvedValue({ data: [league()] }), () => screen.findByText('Sunday Ballers')],
+  ['no leagues', () => apiClient.get.mockResolvedValue({ data: [] }), () => screen.findByText(/you aren't in any leagues yet/i)],
+  ['a failed read', () => apiClient.get.mockRejectedValue({ response: { data: { error: 'server exploded' } } }), () => screen.findByText('server exploded')],
+])('the first load with %s leaves focus where it was', async (name, arrange, settled) => {
+  arrange();
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await settled();
+
+  expect(document.body).toHaveFocus();
 });
 
 test('Try again re-reads the list and shows the leagues when it succeeds', async () => {
