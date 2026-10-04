@@ -20,7 +20,6 @@ import CopyInvite from '../../features/copy-invite';
 import MyTeamSummary from '../../widgets/my-team-summary';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StandingsTable from '../../widgets/standings-table';
-import DraftGrades from '../../widgets/draft-grades';
 import CommissionerStrip from '../../widgets/commissioner-strip';
 import AroundTheLeague from '../../widgets/around-the-league';
 import RecentActivity from '../../widgets/recent-activity';
@@ -77,20 +76,22 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * height), then the weekly recap directly under the hero (`slot-recap`, #1988
  * L20: the story under the final, and never between the manager and the live
  * score), a full-width Around the League strip, and the main grid (standings
- * + a rail) followed by a second grid row of the same tracks, and shows the
- * pre-draft countdown. The rail and the second row's rail
- * track swap their occupants with the phase (#1979 L5): while the season is
- * live the rail holds Recent activity (the live feed beside the standings) and
- * the second row holds Quick Actions plus Draft Grades; otherwise the rail
- * holds Draft Grades and the second row Quick Actions plus Recent activity.
+ * + a rail) followed by a full-width Quick Actions card, and shows the
+ * pre-draft countdown. The rail holds Recent activity in every phase, capped at
+ * `ceil(team count * 5 / 6)` rows so it ends about where the standings do
+ * (ADR 0034's comparable-height rule); Quick Actions is alone in its
+ * row, so it spans the content width with one column per group (#1993). Draft
+ * Grades is no longer on the dashboard (ADR 0034's 2026-10-04 amendment: League
+ * History and the My Team grade tile still carry it).
  * The header's team-count and Draft Complete chips show only outside the live
  * season (#1979 L12): in season the phase chip is the news. A pick'em-only league
  * has no fantasy team, matchups or draft, so none of those slices mount
  * (each would fire a fantasy
  * read that returns an empty or zeroed table): its body is the pick'em
- * standings, and Quick Actions renders full width on its own (the widget trims
- * itself to the pick'em surfaces; Recent activity does not mount at all, since
- * the activity log is a fantasy surface). The trophy case and league chat are
+ * standings, and Quick Actions renders in the same full-width row as a fantasy
+ * league's (the widget trims itself to the pick'em surfaces, two groups
+ * instead of three; Recent activity does not mount at all, since the activity
+ * log is a fantasy surface). The trophy case and league chat are
  * common to both. The recap and the pre-draft countdown are fantasy-only
  * (gated on isPickemOnly, matching the legacy page); the trophy case is NOT,
  * because trophy.service awards a pickem_champion type with no type filter on
@@ -105,7 +106,7 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  *
  * Team identity is live: a team-profile update (a rename or new avatar
  * published by another manager's session) is written through into the cached
- * league's teams[], so the standings rows, draft-grades rows and my-team card
+ * league's teams[], so the standings rows and my-team card
  * re-render without a second league GET. teamName is the canonical display
  * field the widgets read (teamIdentity.js), not the raw `name` column the route
  * leaks beside it, so the write-through targets teamName; the avatar rides the
@@ -243,26 +244,6 @@ export default function LeagueDashboardPage() {
   // no second source of phase truth. A pick'em-only league has no draft.
   const draftComplete =
     !pickemOnly && phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
-  // The rail and the second row's rail track trade occupants with the phase
-  // (#1979 L5; see the main grid below). Each slot keeps its own testid either
-  // way, so a query by slot finds it wherever it sits.
-  // In the rail the card is capped at the team count (8 at most), so the rail
-  // ends about where the standings table does (ADR 0034: no bare page under the
-  // standings); in the second row it keeps its own 8-row cap.
-  const recentActivitySlot = (
-    <Box data-testid="slot-recent-activity">
-      <RecentActivity
-        leagueId={leagueId}
-        rowLimit={seasonLive ? Math.min(8, teams.length) : undefined}
-      />
-    </Box>
-  );
-  const draftGradesSlot = (
-    <Box data-testid="slot-draft-grades">
-      <DraftGrades leagueId={leagueId} />
-    </Box>
-  );
-
   return (
     <DashboardShell>
       {/* A plain layout row, not a <header>: a top-level <header> maps to the
@@ -481,20 +462,18 @@ export default function LeagueDashboardPage() {
             <AroundTheLeague leagueId={leagueId} />
           </Box>
 
-          {/* MAIN: standings beside a rail holding Recent activity while the
-              season is live and Draft Grades otherwise (same
+          {/* MAIN: standings beside a rail holding Recent activity (same
               nameless-container reasoning as the hero). Collapses to one
               column at tablet width.
 
               The zero minimum is on the standings track only. A bare `1fr` or
               `8fr` track still floors at its item's min-content width, which is
               how a wide table dragged the whole document past the viewport. The
-              rail track keeps its automatic minimum: whichever card sits there
-              shrinks with it rather than clipping anything (the
-              #916/#917/#919/#921 rule). Draft Grades is a table in its own
-              horizontal scroller, so a narrower track scrolls it; Recent
-              activity's rows are flex rows with a zero-minimum text column that
-              ellipsises, so they have no min-content floor to protect. */}
+              rail track keeps its automatic minimum, so the card shrinks with it
+              rather than clipping anything (the #916/#917/#919/#921 rule).
+              Recent activity's rows are flex rows with a zero-minimum text
+              column that ellipsises, so they have no min-content floor to
+              protect. */}
           <Box
             component="section"
             data-testid="dashboard-main"
@@ -515,16 +494,16 @@ export default function LeagueDashboardPage() {
             <Box data-testid="slot-standings" sx={{ minWidth: 0, overflowX: 'clip' }}>
               <StandingsTable leagueId={leagueId} />
             </Box>
-            {/* The rail is usually shorter than the standings (and at most a
-                few rows taller, which the layout spec bounds at 120px), so
-                above md it rides down with the scroll instead of leaving a
-                column of bare page beside row 8. `top: 22px` and not an app-bar offset:
+            {/* Recent activity shows ceil(teams * 5 / 6) rows (a standings row is
+                49px, an activity row 58.8px), which measures within about 40px
+                of the standings for 4 to 20 teams once the feed has that many
+                rows, and falls shorter when the feed does not (a league early
+                in its life). The layout spec bounds the card at 60px and the
+                main row at 120px. It rides down with the scroll above md
+                instead of leaving bare page beside the last standings row. `top: 22px` and not an app-bar offset:
                 Nav.jsx:95 is position="static", so nothing is pinned above it.
                 One card (#1110): the commissioner panel that used to compose
-                below it here moved to the strip under the header. In season
-                (#1979 L5) that card is Recent activity, the live feed, and
-                Draft Grades moves to the second row; before and after the
-                season it is Draft Grades, as it always was. */}
+                below it here moved to the strip under the header. */}
             <Box
               data-testid="dashboard-rail"
               sx={{
@@ -535,47 +514,26 @@ export default function LeagueDashboardPage() {
                 top: { md: '22px' },
               }}
             >
-              {seasonLive ? recentActivitySlot : draftGradesSlot}
+              <Box data-testid="slot-recent-activity">
+                <RecentActivity leagueId={leagueId} rowLimit={Math.ceil((teams.length * 5) / 6)} />
+              </Box>
             </Box>
-          </Box>
-
-          {/* SECOND ROW (#1110): the same two tracks as the main grid, Quick
-              Actions in the wide track and, in the rail track, whichever of
-              Recent activity and Draft Grades the rail above does not hold
-              (#1979 L5). Recent activity is fantasy-only (the activity log is
-              a fantasy surface); this placement already guarantees that, being
-              inside the `!pickemOnly` branch, so no further gate is needed
-              here. */}
-          <Box
-            component="section"
-            data-testid="dashboard-second-row"
-            sx={{
-              display: 'grid',
-              gap: '22px',
-              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 8fr) 4fr' },
-            }}
-          >
-            <Box data-testid="dashboard-quick-actions" sx={EMPTY_HIDDEN_SX}>
-              <QuickActions leagueId={leagueId} />
-            </Box>
-            {seasonLive ? draftGradesSlot : recentActivitySlot}
           </Box>
         </>
       )}
 
-      {/* QUICK ACTIONS, pick'em-only: full width, on its own (a fantasy league
-          composes it in the second grid row above instead, alongside Recent
-          activity; the two are mutually exclusive with pickemOnly). The
-          widget trims itself to the pick'em surfaces. */}
-      {pickemOnly && (
-        <Box
-          component="section"
-          data-testid="dashboard-quick-actions"
-          sx={EMPTY_HIDDEN_SX}
-        >
-          <QuickActions leagueId={leagueId} />
-        </Box>
-      )}
+      {/* QUICK ACTIONS: one section for every league kind, alone in its row and
+          so the full content width (#1993): one column per group at md and up
+          (three for a fantasy league, two for a pick'em-only one, which the
+          widget trims itself to). It follows the main grid in a fantasy league
+          and the pick'em standings otherwise. */}
+      <Box
+        component="section"
+        data-testid="dashboard-quick-actions"
+        sx={EMPTY_HIDDEN_SX}
+      >
+        <QuickActions leagueId={leagueId} />
+      </Box>
 
       {/* Trophy case: common to both league kinds, as the legacy page mounted
           it (outside its !pickemOnly guard). A pick'em-only league earns a

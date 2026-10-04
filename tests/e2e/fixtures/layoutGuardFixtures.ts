@@ -131,7 +131,7 @@ function benchFor(offset: number) {
 // (shared/lib/commissionerFacts.js: a fact whose source field is ABSENT is
 // not rendered at all, so the strip's `commissioner-strip-facts` grid stays
 // unmounted without them).
-const LEAGUE_ROW = {
+export const LEAGUE_ROW = {
   id: LEAGUE_ID,
   name: LEAGUE_NAME,
   season: 2026,
@@ -149,7 +149,7 @@ const LEAGUE_ROW = {
   trade_review_hours: 24,
 };
 
-const TEAMS = [
+export const TEAMS = [
   { teamId: VIEWER_TEAM_ID, teamName: HOME_TEAM_NAME },
   { teamId: OPP_TEAM_ID, teamName: AWAY_TEAM_NAME },
   { teamId: 103, teamName: 'Windy City Gridiron Goblins' },
@@ -299,8 +299,8 @@ function standings() {
   };
 }
 
-// Draft grades (League Dashboard's `draft-grades` rail card and `my-team-summary`
-// hero tile, both `GET /api/league/:id/draft-grades`). One row per Team,
+// Draft grades (League Dashboard's `my-team-summary` hero tile,
+// `GET /api/league/:id/draft-grades`). One row per Team,
 // ranked best-first as the real endpoint sends it; the viewer sits mid-pack.
 function draftGrades() {
   const grades = ['A', 'B', 'C', 'C', 'D', 'F'];
@@ -362,11 +362,11 @@ function lineupForViewer() {
 // Recent activity (`GET /api/league/:id/transactions`, League Dashboard's
 // `recent-activity` card): a bare array of raw transaction rows
 // (entities/activity/model/activityModel.js `activityFromRow`'s own input
-// shape), newest first. Eight rows (#1980): the widget's own fetch limit and
-// what a live league serves. The card rides the rail beside the standings while
-// the season is live, where the page caps it at the team count; the rail-height
-// guard (league-dashboard-layout.spec.ts) is what proves that cap holds against
-// a feed longer than the fixture's six teams.
+// shape), newest first. Eight rows: more than the fixture's six teams. The card
+// rides the rail beside the standings, where the page caps it at the team count
+// (up to 12); the rail-height guard (league-dashboard-layout.spec.ts) is what
+// proves that cap holds against a feed longer than the six teams.
+// twelveTeamDashboardFixtures.ts serves twelve rows for its twelve-team league.
 function transactions() {
   const types = ['add', 'drop'];
   return Array.from({ length: 8 }, (_, i) => ({

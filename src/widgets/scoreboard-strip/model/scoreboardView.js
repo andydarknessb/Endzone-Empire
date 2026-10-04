@@ -81,7 +81,7 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     avatarUrl: s.avatarUrl ?? null,
     avatarStaticUrl: s.avatarStaticUrl ?? null,
     // The same strict, null-guarded id comparison the dashboard widgets use for
-    // their viewer row (standings-table, draft-grades): the page passes the
+    // their viewer row (standings-table): the page passes the
     // viewer's Team id in the model's own type.
     isViewer: viewerTeamId != null && s.teamId != null && s.teamId === viewerTeamId,
     record: recordFor(records, s.teamId),

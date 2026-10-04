@@ -17,8 +17,8 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * pill, the League Dashboard island's shared viewer-row marker (#671,
  * Badge.jsx): the ring is a border/box-shadow, colour and shape alone, so the
  * pill is what makes the viewer's row identifiable in the accessibility tree
- * rather than by colour only (WCAG 1.4.1), matching DraftGrades' and
- * StandingsTable's viewer rows. It sits on whichever SIDE (home or away) is
+ * rather than by colour only (WCAG 1.4.1), matching StandingsTable's
+ * viewer rows. It sits on whichever SIDE (home or away) is
  * the viewer's own Team, never on both and never guessed from seating.
  *
  * Each tile is one link to its Matchup's detail page
@@ -45,8 +45,8 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * different numbers share the same slot and the tile's own status is the
  * only thing that says which one is on screen; a missing figure (the "-"
  * placeholder) carries its own visually hidden "Not available" rather than
- * announcing silence. Both follow DraftGrades' and matchup-preview's own
- * NotAvailable/label convention.
+ * announcing silence. Both follow matchup-preview's own NotAvailable/label
+ * convention.
  *
  * The widget owns its own reads (useAroundTheLeague): while they are in
  * flight it holds its layout with six skeleton tiles, and if either fails it
@@ -61,7 +61,7 @@ import useAroundTheLeague from '../model/useAroundTheLeague';
  * registered in tokens.contrast.test.js: ink/dim/faint on the card surface
  * and on a `dash-surface2` tile (both pairs matchup-grid and the stat tiles
  * already certify), the "You" pill's accent-on-accent-soft over a card (the
- * same pairing DraftGrades' and StandingsTable's pill already composes), and
+ * same pairing StandingsTable's pill already composes), and
  * SplitBar's own home/away segments on its `dash-surface3` track. The accent
  * ring is a border and a box-shadow, never text, so it composes no new
  * ink-on-surface pairing (the same reasoning QuickActions.jsx's ActionTile

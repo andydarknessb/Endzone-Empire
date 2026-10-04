@@ -6,7 +6,7 @@ import { invalidate } from '../../../lib/resourceCache';
 import QuickActions from '../index';
 
 /**
- * quick-actions slice tests (T7; rows in two columns #1106). The page-level
+ * quick-actions slice tests (T7; one column per group #1993). The page-level
  * composition assertions (which cards a league type renders, the group
  * counts, the Set Lineup recommendation round trip) stay in
  * LeagueDashboardPage.test.jsx; what lives here is what only this slice can
@@ -195,26 +195,63 @@ test('a row is 40px tall at md and up and 48px tall below md, and its icon sits 
   expect(within(tile('waivers')).getByTestId('quick-action-chevron-waivers')).toBeInTheDocument();
 });
 
-// --- columns ----------------------------------------------------------
+// Red-tell (#1993 F2): with one column per group the status line has about a
+// third of the card between md (900) and lg (1200), and real copy ("2 empty
+// starting slots · 2 starters on bye") does not fit on one line there. It wraps
+// at md and only truncates (nowrap + ellipsis) from lg up, and below md, where
+// the single column is wide. Leaving it `nowrap` at md turns the first
+// assertion red; an ellipsis at md turns the second red.
+// cssFor flattens breakpoints, so this reads the declarations per media query.
+const declarationsAt = (el, minWidth) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let css = '';
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((media) => {
+      if (!media.media || !media.media.mediaText.replace(/\s/g, '').includes(`min-width:${minWidth}px`)) return;
+      Array.from(media.cssRules).forEach((rule) => {
+        if (rule.selectorText && rule.selectorText.startsWith(`.${cls}`)) css += `${rule.style.cssText};`;
+      });
+    });
+  });
+  return css;
+};
 
-test('the desktop body groups Play and Moves in the first column and League in the second, by test id', async () => {
+test('the status line wraps between md and lg and truncates only from lg', async () => {
   renderWidget();
   await screen.findByTestId('quick-actions');
 
-  const column1 = screen.getByTestId('quick-actions-column-1');
-  const column2 = screen.getByTestId('quick-actions-column-2');
-
-  // Red-tell: moving Moves into the second column turns this case red and no
-  // other.
-  expect(within(column1).getByTestId('quick-actions-group-play')).toBeInTheDocument();
-  expect(within(column1).getByTestId('quick-actions-group-moves')).toBeInTheDocument();
-  expect(within(column2).getByTestId('quick-actions-group-league')).toBeInTheDocument();
-  expect(within(column2).queryByTestId('quick-actions-group-play')).not.toBeInTheDocument();
-  expect(within(column2).queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
-  expect(within(column1).queryByTestId('quick-actions-group-league')).not.toBeInTheDocument();
+  const status = within(tile('waivers')).getByText('Claim free agents and place bids');
+  expect(declarationsAt(status, 900)).toMatch(/white-space:\s*normal/);
+  expect(declarationsAt(status, 900)).not.toMatch(/text-overflow:\s*ellipsis/);
+  expect(declarationsAt(status, 1200)).toMatch(/white-space:\s*nowrap/);
+  expect(declarationsAt(status, 1200)).toMatch(/text-overflow:\s*ellipsis/);
+  // xs is emitted as `min-width: 0px`: below md the line still truncates.
+  expect(declarationsAt(status, 0)).toMatch(/white-space:\s*nowrap/);
 });
 
-test("a pick'em-only trim still drops the fantasy rows, leaving Play alone in the first column", async () => {
+// --- columns ----------------------------------------------------------
+
+// Red-tell (#1993): the card spans the dashboard's full width now, so each group
+// is its own column at md and up. Putting two groups back in one column (the
+// old Play-over-Moves stack) turns the first case red; a track count that does
+// not follow the group count turns the second red.
+test('the desktop body is one column per group, Play then Moves then League', async () => {
+  renderWidget();
+  await screen.findByTestId('quick-actions');
+
+  const body = screen.getByTestId('quick-actions-body');
+  expect(cssFor(body)).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  expect(
+    within(body).getAllByRole('heading', { level: 3 }).map((h) => h.textContent.split(' · ')[0])
+  ).toEqual(['Play', 'Moves', 'League']);
+  ['play', 'moves', 'league'].forEach((group) => {
+    // A direct child of the grid, not wrapped in a shared column.
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(screen.getByTestId(`quick-actions-group-${group}`).parentElement).toBe(body);
+  });
+});
+
+test("a pick'em-only trim drops the fantasy rows and the Moves column, leaving two columns", async () => {
   renderWidget({ pickem_only: true, season_status: 'regular', current_week: 6 });
   await screen.findByTestId('quick-actions');
 
@@ -226,11 +263,12 @@ test("a pick'em-only trim still drops the fantasy rows, leaving Play alone in th
   });
   expect(screen.getByTestId('quick-action-pickem')).toBeInTheDocument();
 
-  const column1 = screen.getByTestId('quick-actions-column-1');
-  const column2 = screen.getByTestId('quick-actions-column-2');
-  expect(within(column1).getByTestId('quick-actions-group-play')).toBeInTheDocument();
-  expect(within(column1).queryByTestId('quick-actions-group-moves')).not.toBeInTheDocument();
-  expect(within(column2).getByTestId('quick-actions-group-league')).toBeInTheDocument();
+  const body = screen.getByTestId('quick-actions-body');
+  expect(cssFor(body)).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  /* eslint-disable testing-library/no-node-access */
+  expect(screen.getByTestId('quick-actions-group-play').parentElement).toBe(body);
+  expect(screen.getByTestId('quick-actions-group-league').parentElement).toBe(body);
+  /* eslint-enable testing-library/no-node-access */
 });
 
 // --- state-aware copy -----------------------------------------------------
