@@ -60,8 +60,15 @@ jest.mock('../../widgets/pickem-standings', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
-    default: ({ leagueId }) =>
-      ReactLib.createElement('div', { 'data-testid': 'pickem-standings' }, `pickem ${leagueId}`),
+    // Stands in for the widget's own Card, which names itself with its `title`
+    // prop (default `Standings`): the page must not wrap it in a second one.
+    default: ({ leagueId, title = 'Standings' }) =>
+      ReactLib.createElement(
+        'div',
+        { 'data-testid': 'pickem-standings' },
+        ReactLib.createElement('h2', null, title),
+        `pickem ${leagueId}`
+      ),
   };
 });
 
@@ -668,6 +675,17 @@ test("pick'em-only branch mounts the strip, pick'em standings and Quick Actions,
   expect(screen.queryByTestId('dashboard-main')).not.toBeInTheDocument();
   expect(screen.queryByTestId('dashboard-second-row')).not.toBeInTheDocument();
   expect(screen.queryByTestId('slot-recent-activity')).not.toBeInTheDocument();
+});
+
+test("pick'em-only: one Pick'em Standings heading names the card and no second Standings heading stacks under it", async () => {
+  mockGetByUrl({ '/api/league/1': pickemOnlyLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const region = screen.getByTestId('dashboard-pickem-standings');
+  expect(within(region).getAllByRole('heading', { name: "Pick'em Standings" })).toHaveLength(1);
+  expect(within(region).queryByRole('heading', { name: 'Standings' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('heading', { name: "Pick'em Standings" })).toHaveLength(1);
 });
 
 // Red-tell (pre-launch ruling #3): the hero-rule assertion below is the one
@@ -2413,6 +2431,18 @@ test('cutover: a pre-draft fantasy league with a draft_date renders the draft co
   expect(
     within(countdown).getByRole('heading', { level: 2, name: 'Draft Day' })
   ).toBeInTheDocument();
+});
+
+test('cutover: the Draft Day card links to the Draft Room', async () => {
+  mockGetByUrl({ '/api/league/1': cutoverPreDraftLeague() });
+  renderPage();
+
+  await screen.findByRole('heading', { level: 1, name: 'MinneApple' });
+  const countdown = screen.getByTestId('slot-draft-countdown');
+  expect(within(countdown).getByRole('link', { name: 'Draft Room' })).toHaveAttribute(
+    'href',
+    '/league/1/draft'
+  );
 });
 
 test('cutover: no draft countdown once the draft_date is absent, past pre-draft, or pick\'em-only', async () => {
