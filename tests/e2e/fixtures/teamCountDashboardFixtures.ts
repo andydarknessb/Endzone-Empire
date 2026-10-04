@@ -7,7 +7,7 @@
 // count (the league's teams, the standings, the week's matchups, and the
 // activity feed the rail draws its rows from) all grow, and the rail has to keep
 // up with the standings. `routeLeagueOfSize` routes those four reads at N
-// long-named Teams (7 to 20).
+// long-named Teams (an even number, 4 to 20: the week's matchups pair them).
 //
 // Registered AFTER `setupLayoutGuard`, so each route wins over the guard's
 // `/api/**` catch-all (Playwright tries the most recently registered route
@@ -112,7 +112,7 @@ function matchups(teams: Team[]) {
 
 /**
  * Re-routes the four team-count-following reads at `teamCount` Teams (an even
- * number, 8 to 20). Call after `setupLayoutGuard` and before the first
+ * number, 4 to 20). Call after `setupLayoutGuard` and before the first
  * `page.goto`.
  */
 export async function routeLeagueOfSize(page: Page, teamCount: number) {

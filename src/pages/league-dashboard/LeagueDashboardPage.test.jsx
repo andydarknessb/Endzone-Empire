@@ -587,9 +587,11 @@ test.each([
 // and an activity row 58.8px (6:5), so the card shows ceil(teams * 5 / 6) rows.
 // One row per Team (an earlier `min(teams, 12)`) turns every case red; the old
 // `min(8, teams)` turns the 12 and 20-team cases red; a cap above the 17 rows a
-// 20-team league needs turns the 25-team case red.
+// 20-team league needs turns the 25-team case red; rounding instead of ceil
+// turns the 10-team case red (9 rows, not 8).
 test.each([
   [6, 5],
+  [10, 9],
   [12, 10],
   [20, 17],
   [25, 17],
