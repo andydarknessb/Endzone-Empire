@@ -143,20 +143,24 @@ test('the eleven fantasy actions render as rows under their three h3 headings wi
 // --- Draft Settings is a draft-time card (#1981 L11) ---------------------------
 
 test.each([
-  ['pre-draft', { draft_status: 'pending', season_status: 'pending' }, true],
-  ['drafting', { draft_status: 'active', season_status: 'regular' }, true],
-  ['in season', { draft_status: 'complete', season_status: 'regular' }, false],
-  ['playoffs', { draft_status: 'complete', season_status: 'playoffs' }, false],
-  ['complete', { draft_status: 'complete', season_status: 'complete' }, false],
-])('a commissioner is offered Draft Settings %s: %s', async (_phase, league, offered) => {
+  ['pre-draft', { draft_status: 'pending', season_status: 'pending' }],
+  ['drafting', { draft_status: 'active', season_status: 'regular' }],
+])('a commissioner is offered Draft Settings %s', async (_phase, league) => {
   renderWidget({ is_commissioner: true, ...league });
   await screen.findByTestId('quick-actions');
 
-  if (offered) {
-    expect(tile('draft-settings')).toBeInTheDocument();
-  } else {
-    expect(screen.queryByTestId('quick-action-draft-settings')).not.toBeInTheDocument();
-  }
+  expect(tile('draft-settings')).toBeInTheDocument();
+});
+
+test.each([
+  ['in season', { draft_status: 'complete', season_status: 'regular' }],
+  ['in the playoffs', { draft_status: 'complete', season_status: 'playoffs' }],
+  ['complete', { draft_status: 'complete', season_status: 'complete' }],
+])('a commissioner is not offered Draft Settings %s', async (_phase, league) => {
+  renderWidget({ is_commissioner: true, ...league });
+  await screen.findByTestId('quick-actions');
+
+  expect(screen.queryByTestId('quick-action-draft-settings')).not.toBeInTheDocument();
 });
 
 test('the Recommended Badge sits on the recommended row only', async () => {

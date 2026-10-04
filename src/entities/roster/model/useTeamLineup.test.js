@@ -57,11 +57,11 @@ test('a null week binds no URL: the apiClient mock is never called', async () =>
 test('two mounts of the same league and week share one GET', async () => {
   apiClient.get.mockResolvedValue({ data: body });
 
-  const first = renderHook(() => useTeamLineup(7, 4));
-  const second = renderHook(() => useTeamLineup(7, 4));
+  const { result: first } = renderHook(() => useTeamLineup(7, 4));
+  const { result: second } = renderHook(() => useTeamLineup(7, 4));
 
-  await waitFor(() => expect(first.result.current.lineup).not.toBeNull());
-  await waitFor(() => expect(second.result.current.lineup).not.toBeNull());
+  await waitFor(() => expect(first.current.lineup).not.toBeNull());
+  await waitFor(() => expect(second.current.lineup).not.toBeNull());
   expect(apiClient.get).toHaveBeenCalledTimes(1);
 });
 
@@ -78,14 +78,14 @@ test('a failed read reports error and no lineup', async () => {
 test('a settled read is not served to a later mount: it reads again (a saved lineup must show)', async () => {
   apiClient.get.mockResolvedValue({ data: body });
 
-  const first = renderHook(() => useTeamLineup(7, 4));
-  await waitFor(() => expect(first.result.current.lineup).not.toBeNull());
-  first.unmount();
+  const { result: first, unmount } = renderHook(() => useTeamLineup(7, 4));
+  await waitFor(() => expect(first.current.lineup).not.toBeNull());
+  unmount();
 
-  const second = renderHook(() => useTeamLineup(7, 4));
+  const { result: second } = renderHook(() => useTeamLineup(7, 4));
   // The cached copy may paint, but the lineup is withheld while it reloads.
-  expect(second.result.current.lineup).toBeNull();
-  expect(second.result.current.loading).toBe(true);
-  await waitFor(() => expect(second.result.current.loading).toBe(false));
+  expect(second.current.lineup).toBeNull();
+  expect(second.current.loading).toBe(true);
+  await waitFor(() => expect(second.current.loading).toBe(false));
   expect(apiClient.get).toHaveBeenCalledTimes(2);
 });
