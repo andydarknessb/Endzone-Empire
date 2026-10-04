@@ -535,7 +535,7 @@ describe('capped tally', () => {
       expect(screen.getByTestId('tally-team-20')).not.toHaveStyle({ boxShadow: 'inset 3px 0 0 var(--dash-accent)' });
     });
 
-    test('without a viewerTeamId (League History) the collapsed tally is the plain top 5', async () => {
+    test('without a viewerTeamId (a viewer with no Team) the collapsed tally is the plain top 5', async () => {
       apiClient.get.mockResolvedValue({ data: data() });
       renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} />);
       await screen.findByTestId('trophy-case');

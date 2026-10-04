@@ -339,7 +339,7 @@ function AwardRow({ trophy, first }) {
             never wraps onto a second line of its own (the leading non-breaking space
             survives the flex item, which a plain space would not). */}
         <Box component="span" sx={{ display: 'flex', minWidth: 0, fontSize: '12.5px', color: 'var(--dash-dim)' }}>
-          <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <Box component="span" title={trophy.team_name} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {trophy.team_name}
           </Box>
           {!isSeasonAward(trophy) && (
@@ -408,8 +408,9 @@ function ShowAllToggle({ expanded, onToggle, label, controls }) {
 
 /**
  * `viewerTeamId` (optional) marks the viewer's own tally row, and keeps it on
- * screen while the tally is collapsed. League History mounts no tally and
- * passes nothing.
+ * screen while the tally is collapsed. The dashboard passes nothing for a
+ * viewer with no Team of their own (a commissioner who never joined); League
+ * History does not mount this component at all (it imports TrophyIcon only).
  */
 function TrophyCase({ leagueId, teams, viewerTeamId }) {
   const [trophies, setTrophies] = useState([]);
