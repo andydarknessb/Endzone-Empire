@@ -4,9 +4,15 @@
  * The audit fixture had no trophies, so the card self-hid and was never
  * rendered. At Week 17 it listed every award of the season as a pill: 3644px
  * tall at 390 (1280px at 1440). jsdom has no layout engine, so the bound on
- * the RENDERED height lives here, in headless Chromium: collapsed (6 award
- * rows), the card stays within a phone's two screens, and expanding all rows
- * (the negative control) is what makes the predicate go red.
+ * the RENDERED height lives here, in headless Chromium: collapsed, the card
+ * stays within a phone's two screens, and expanding everything (the negative
+ * control) is what makes the predicate go red.
+ *
+ * Ruling: BOTH lists are capped when collapsed. The awards show their first 6
+ * rows and the per-team tally collapses to its top 5 teams by total, so the
+ * card does not grow with the league; one toggle opens both. The 12-team
+ * variant (a larger league, six Teams only the trophies know about) holds the
+ * same bounds as the 6-team league.
  *
  * Fixture: `layoutGuardFixtures`' `setupLayoutGuard` plus a routed
  * `/api/league/4200/trophies` (trophyCaseFixtures.ts) registered after it so
@@ -20,12 +26,13 @@ import { expect, test, type Page } from '@playwright/test';
 import { setupLayoutGuard, DASHBOARD_URL } from './fixtures/layoutGuardFixtures';
 import { routeWeek17Trophies } from './fixtures/trophyCaseFixtures';
 
+const PHONE_SMALL = { width: 360, height: 800, maxCardHeight: 820 };
 const PHONE = { width: 390, height: 844, maxCardHeight: 820 };
 const DESKTOP = { width: 1440, height: 900, maxCardHeight: 640 };
 
-async function gotoTrophyCase(page: Page, width: number, height: number) {
+async function gotoTrophyCase(page: Page, width: number, height: number, teamCount = 6) {
   await setupLayoutGuard(page);
-  await routeWeek17Trophies(page);
+  await routeWeek17Trophies(page, teamCount);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
   await page.getByTestId('trophy-case').waitFor();
@@ -43,16 +50,18 @@ function probeDocumentWidth() {
   return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
 }
 
-for (const { width, height, maxCardHeight } of [PHONE, DESKTOP]) {
-  test(`Trophy Case @ ${width}x${height}: collapsed, the card is ${maxCardHeight}px tall or less`, async ({ page }) => {
-    await gotoTrophyCase(page, width, height);
-    const h = await page.evaluate(probeCardHeight);
-    expect(h, 'trophy-case must be found').not.toBeNull();
-    expect(h as number, `@ ${width}: trophy-case height=${h}`).toBeLessThanOrEqual(maxCardHeight);
-  });
+for (const teamCount of [6, 12]) {
+  for (const { width, height, maxCardHeight } of [PHONE_SMALL, PHONE, DESKTOP]) {
+    test(`Trophy Case, ${teamCount} teams @ ${width}x${height}: collapsed, the card is ${maxCardHeight}px tall or less`, async ({ page }) => {
+      await gotoTrophyCase(page, width, height, teamCount);
+      const h = await page.evaluate(probeCardHeight);
+      expect(h, 'trophy-case must be found').not.toBeNull();
+      expect(h as number, `${teamCount} teams @ ${width}: trophy-case height=${h}`).toBeLessThanOrEqual(maxCardHeight);
+    });
+  }
 }
 
-for (const width of [320, 390]) {
+for (const width of [320, 360, 390]) {
   test(`Trophy Case @ ${width}: the document has no horizontal scroll`, async ({ page }) => {
     await gotoTrophyCase(page, width, 844);
     const doc = await page.evaluate(probeDocumentWidth);
@@ -62,8 +71,8 @@ for (const width of [320, 390]) {
 
 // Permanent negative control: expanding every award row must push the card past
 // the phone bound, proving the height predicate can still go red on every run.
-test('negative control: expanding all awards trips the height predicate', async ({ page }) => {
-  await gotoTrophyCase(page, PHONE.width, PHONE.height);
+test('negative control: expanding both lists trips the height predicate', async ({ page }) => {
+  await gotoTrophyCase(page, PHONE.width, PHONE.height, 12);
   const collapsed = await page.evaluate(probeCardHeight);
   expect(collapsed as number, `collapsed height=${collapsed}`).toBeLessThanOrEqual(PHONE.maxCardHeight);
 

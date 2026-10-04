@@ -7,6 +7,9 @@
 // Streak (both week 0, as trophy.service writes them). A 2025 champion makes the
 // season select appear. Awards rotate over the same six Teams the layout-guard
 // league holds, with long names so a row that cannot shrink would overflow.
+// `teamCount` 12 adds six more long-named Teams that only the trophies know
+// about (the tally lists a trophy-only Team), the larger-league variant the
+// tally's top-5 cap exists for.
 //
 // Kept apart from `layoutGuardFixtures.ts` on purpose: other specs extend that
 // file, and the trophies route is this spec's own.
@@ -21,6 +24,12 @@ const TEAMS = [
   { id: 104, name: 'Emerald Coast Storm Chasers' },
   { id: 105, name: 'Kilimanjaro Ridge Wildebeests' },
   { id: 106, name: 'Patagonia Frostbite Penguins' },
+  { id: 107, name: 'Tallahassee Swamp Gator Wranglers' },
+  { id: 108, name: 'Saskatchewan Prairie Thunderchickens' },
+  { id: 109, name: 'Appalachian Trail Mix Marauders' },
+  { id: 110, name: 'Mississippi Delta Blues Brothers' },
+  { id: 111, name: 'Northern Lights Aurora Borealis' },
+  { id: 112, name: 'Rocky Mountain Oyster Bandits' },
 ];
 
 type Trophy = {
@@ -35,11 +44,11 @@ type Trophy = {
   awarded_at: string;
 };
 
-export function buildWeek17Trophies(): Trophy[] {
+export function buildWeek17Trophies(teamCount = 6): Trophy[] {
   const out: Trophy[] = [];
   let id = 1;
   const add = (type: string, label: string, week: number, season: number, teamIdx: number) => {
-    const team = TEAMS[teamIdx % TEAMS.length];
+    const team = TEAMS[teamIdx % teamCount];
     out.push({
       id: id++,
       type,
@@ -69,7 +78,7 @@ export function buildWeek17Trophies(): Trophy[] {
  * Playwright tries the most recently registered matching route first, so this
  * one wins over the guard's `/api/**` catch-all.
  */
-export async function routeWeek17Trophies(page: Page) {
-  const trophies = buildWeek17Trophies();
+export async function routeWeek17Trophies(page: Page, teamCount = 6) {
+  const trophies = buildWeek17Trophies(teamCount);
   await page.route(`**/api/league/${LEAGUE_ID}/trophies`, (route) => json(route, 200, trophies));
 }

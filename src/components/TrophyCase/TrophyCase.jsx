@@ -136,9 +136,11 @@ function typeName(trophy) {
   return TYPE_NAMES[trophy.type] || String(trophy.label).replace(/\s*\([^)]*\)\s*$/, '');
 }
 
-// Award rows shown before "Show all": a phone gets the season's headline
-// awards and the latest weeks, not the whole season's 40-odd rows.
+// Rows shown before "Show all": a phone gets the season's headline awards and
+// latest weeks and the top of the leaderboard, not 40-odd award rows and a row
+// for every team in the league.
 const COLLAPSED_ROWS = 6;
+const TALLY_ROWS = 5;
 
 // A season award (champion, best draft, win streak) carries week 0 or none; a
 // weekly award carries the week it was won.
@@ -220,15 +222,79 @@ const ROW_SX = (first) => ({
   py: '8px',
   minWidth: 0,
   // Two text lines per row: a tighter leading than the page's 1.5 keeps a row
-  // near 50px, which is what lets six of each list fit a phone's second screen.
+  // near 50px, which is what lets the capped lists fit a phone's second screen.
   lineHeight: 1.3,
   borderTop: first ? 0 : '1px solid var(--dash-line)',
 });
 
 const LIST_SX = { listStyle: 'none', m: 0, p: 0, minWidth: 0 };
 
-function TrophyTally({ seasonTrophies, teams }) {
-  const rows = useMemo(() => buildTally(seasonTrophies, teams), [seasonTrophies, teams]);
+/**
+ * One tally row as a grid: the avatar spans both lines, the Team name (one
+ * line, ellipsized like the standings' names) and the total share the first,
+ * and the type breakdown takes the second across the name and total columns
+ * so it can wrap without ever pushing the total.
+ */
+function TallyRow({ row, first }) {
+  return (
+    <Box
+      component="li"
+      data-testid={`tally-team-${row.teamId}`}
+      sx={{
+        ...ROW_SX(first),
+        display: 'grid',
+        gridTemplateColumns: '24px minmax(0, 1fr) auto',
+        columnGap: '10px',
+        rowGap: '1px',
+        fontFamily: 'var(--dash-font-body)',
+      }}
+    >
+      <Box sx={{ gridRow: '1 / span 2', alignSelf: 'center', display: 'inline-flex' }}>
+        <TeamAvatar
+          name={row.teamName}
+          avatarUrl={row.avatar_url}
+          avatarStaticUrl={row.avatar_static_url}
+          size={24}
+        />
+      </Box>
+      <Box
+        component="span"
+        title={row.teamName}
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: '13.5px',
+          fontWeight: 600,
+          color: 'var(--dash-ink)',
+        }}
+      >
+        {row.teamName}
+      </Box>
+      <Box
+        component="span"
+        data-testid="tally-total"
+        sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', whiteSpace: 'nowrap' }}
+      >
+        {row.total === 1 ? '1 trophy' : `${row.total} trophies`}
+      </Box>
+      {row.breakdown.length > 0 && (
+        <Box
+          component="span"
+          data-testid="tally-breakdown"
+          // A non-breaking space keeps each count with its type name; only the
+          // middots break.
+          sx={{ gridColumn: '2 / 4', fontSize: '12px', color: 'var(--dash-dim)' }}
+        >
+          {row.breakdown.map(({ name, count }) => `${name} ×${count}`).join(' · ')}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function TrophyTally({ rows, listId }) {
   if (rows.length === 0) return null;
   return (
     <Box
@@ -236,48 +302,13 @@ function TrophyTally({ seasonTrophies, teams }) {
       // WebKit drops the list mapping from a list-style: none <ul>, so VoiceOver
       // would read the rows as loose text without the explicit role.
       role="list"
+      id={listId}
       data-testid="trophy-tally"
       aria-label="Trophies by team"
       sx={LIST_SX}
     >
       {rows.map((row, i) => (
-        <Box
-          component="li"
-          key={row.teamId}
-          data-testid={`tally-team-${row.teamId}`}
-          sx={{ ...ROW_SX(i === 0), fontFamily: 'var(--dash-font-body)' }}
-        >
-          <TeamAvatar
-            name={row.teamName}
-            avatarUrl={row.avatar_url}
-            avatarStaticUrl={row.avatar_static_url}
-            size={24}
-          />
-          <Box sx={{ display: 'grid', gap: '1px', flex: '1 1 0', minWidth: 0 }}>
-            <Box
-              component="span"
-              sx={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}
-            >
-              {row.teamName}
-            </Box>
-            {row.breakdown.length > 0 && (
-              <Box
-                component="span"
-                data-testid="tally-breakdown"
-                sx={{ fontSize: '12px', color: 'var(--dash-dim)' }}
-              >
-                {row.breakdown.map(({ name, count }) => `${name} ×${count}`).join(' · ')}
-              </Box>
-            )}
-          </Box>
-          <Box
-            component="span"
-            data-testid="tally-total"
-            sx={{ flex: 'none', fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', whiteSpace: 'nowrap' }}
-          >
-            {row.total === 1 ? '1 trophy' : `${row.total} trophies`}
-          </Box>
-        </Box>
+        <TallyRow key={row.teamId} row={row} first={i === 0} />
       ))}
     </Box>
   );
@@ -301,20 +332,7 @@ function AwardRow({ trophy, first }) {
   );
 }
 
-/**
- * The season's awards as rows, season awards first and then weekly awards
- * newest first. Only the first COLLAPSED_ROWS show until "Show all" opens the
- * rest; the toggle names the list it controls.
- */
-function TrophyAwards({ seasonTrophies, season }) {
-  const [expanded, setExpanded] = useState(false);
-  const listId = useId();
-  const ordered = useMemo(() => orderAwards(seasonTrophies), [seasonTrophies]);
-  // A different season is a different list: start it collapsed.
-  useEffect(() => setExpanded(false), [season]);
-
-  const collapsible = ordered.length > COLLAPSED_ROWS;
-  const shown = collapsible && !expanded ? ordered.slice(0, COLLAPSED_ROWS) : ordered;
+function TrophyAwards({ awards, listId }) {
   return (
     <Box
       sx={{
@@ -325,40 +343,44 @@ function TrophyAwards({ seasonTrophies, season }) {
       }}
     >
       <Box component="ul" role="list" id={listId} aria-label="Awards" sx={LIST_SX}>
-        {shown.map((trophy, i) => (
+        {awards.map((trophy, i) => (
           <AwardRow key={trophy.id} trophy={trophy} first={i === 0} />
         ))}
       </Box>
-      {collapsible && (
-        <Box
-          component="button"
-          type="button"
-          data-testid="trophy-show-all"
-          aria-expanded={expanded}
-          aria-controls={listId}
-          onClick={() => setExpanded((open) => !open)}
-          sx={{
-            display: 'block',
-            width: '100%',
-            minHeight: 44,
-            px: '18px',
-            border: 0,
-            borderTop: '1px solid var(--dash-line)',
-            background: 'none',
-            font: 'inherit',
-            fontFamily: 'var(--dash-font-body)',
-            fontSize: '13px',
-            fontWeight: 600,
-            textAlign: 'left',
-            color: 'var(--dash-dim)',
-            cursor: 'pointer',
-            '&:hover': { color: 'var(--dash-ink)' },
-            '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
-          }}
-        >
-          {expanded ? 'Show fewer' : `Show all ${ordered.length} awards`}
-        </Box>
-      )}
+    </Box>
+  );
+}
+
+/** The one text button that opens or closes both capped lists. */
+function ShowAllToggle({ expanded, onToggle, label, controls }) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      data-testid="trophy-show-all"
+      aria-expanded={expanded}
+      aria-controls={controls}
+      onClick={onToggle}
+      sx={{
+        display: 'block',
+        width: '100%',
+        minHeight: 44,
+        px: '18px',
+        border: 0,
+        borderTop: '1px solid var(--dash-line)',
+        background: 'none',
+        font: 'inherit',
+        fontFamily: 'var(--dash-font-body)',
+        fontSize: '13px',
+        fontWeight: 600,
+        textAlign: 'left',
+        color: 'var(--dash-dim)',
+        cursor: 'pointer',
+        '&:hover': { color: 'var(--dash-ink)' },
+        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
+      }}
+    >
+      {label}
     </Box>
   );
 }
@@ -368,6 +390,9 @@ function TrophyCase({ leagueId, teams }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [season, setSeason] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const tallyId = useId();
+  const awardsId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -399,6 +424,9 @@ function TrophyCase({ leagueId, teams }) {
     };
   }, [leagueId]);
 
+  // A different season is a different pair of lists: start it collapsed.
+  useEffect(() => setExpanded(false), [season]);
+
   const seasonOptions = useMemo(
     () => Array.from(new Set(trophies.map((t) => t.season))).sort((a, b) => b - a),
     [trophies]
@@ -409,9 +437,25 @@ function TrophyCase({ leagueId, teams }) {
     [trophies, season]
   );
 
+  const tallyRows = useMemo(() => buildTally(visibleTrophies, teams), [visibleTrophies, teams]);
+  const awards = useMemo(() => orderAwards(visibleTrophies), [visibleTrophies]);
+
   if (loading || error || trophies.length === 0) {
     return null;
   }
+
+  // Both lists are capped so the card does not grow with the league or the
+  // season: the top TALLY_ROWS teams and the first COLLAPSED_ROWS awards, with
+  // one toggle for the pair. It names only the list(s) that are actually cut.
+  const tallyCapped = tallyRows.length > TALLY_ROWS;
+  const awardsCapped = awards.length > COLLAPSED_ROWS;
+  const capped = tallyCapped || awardsCapped;
+  const hiddenNouns = [
+    tallyCapped && `${tallyRows.length} teams`,
+    awardsCapped && `${awards.length} awards`,
+  ]
+    .filter(Boolean)
+    .join(' and ');
 
   return (
     <Card
@@ -444,12 +488,22 @@ function TrophyCase({ leagueId, teams }) {
           No trophies for this season yet
         </Typography>
       ) : (
-        // The tally and the awards stack on a phone and sit side by side from
-        // md, so a wide card is not two screens of single-column rows.
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start' }}>
-          <TrophyTally seasonTrophies={visibleTrophies} teams={teams} />
-          <TrophyAwards seasonTrophies={visibleTrophies} season={season} />
-        </Box>
+        <>
+          {/* The tally and the awards stack on a phone and sit side by side
+              from md, so a wide card is not two screens of single-column rows. */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start' }}>
+            <TrophyTally rows={expanded ? tallyRows : tallyRows.slice(0, TALLY_ROWS)} listId={tallyId} />
+            <TrophyAwards awards={expanded ? awards : awards.slice(0, COLLAPSED_ROWS)} listId={awardsId} />
+          </Box>
+          {capped && (
+            <ShowAllToggle
+              expanded={expanded}
+              onToggle={() => setExpanded((open) => !open)}
+              label={expanded ? 'Show fewer' : `Show all ${hiddenNouns}`}
+              controls={`${tallyId} ${awardsId}`}
+            />
+          )}
+        </>
       )}
     </Card>
   );

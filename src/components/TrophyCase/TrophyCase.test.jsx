@@ -56,7 +56,7 @@ test('renders trophies with team names, defaulting to the current (latest) seaso
   renderWithProviders(<TrophyCase leagueId={1} />);
 
   expect(await screen.findByTestId('trophy-case')).toBeInTheDocument();
-  // The per-team tally repeats names and labels, so read the chips by id.
+  // The per-team tally repeats names and labels, so read the award rows by id.
   expect(screen.getByTestId('trophy-1')).toHaveTextContent('Weekly High Score');
   expect(screen.getByTestId('trophy-1')).toHaveTextContent('Sunday Ballers');
   expect(screen.getByTestId('trophy-3')).toHaveTextContent('Closest Game');
@@ -112,7 +112,7 @@ test('marks each trophy with a decorative stroke icon, no emoji', async () => {
 
 // #1854: the two lineup trophies are weekly, so each reads "team · Week N", and
 // each has its own glyph rather than the medal fallback.
-test('shows Perfect Lineup and Captain Hindsight as chips with team and week', async () => {
+test('shows Perfect Lineup and Captain Hindsight as rows with team and week', async () => {
   apiClient.get.mockResolvedValue({
     data: [
       { ...trophies[0], id: 5, type: 'perfect_lineup', label: 'Perfect Lineup', week: 6, team_name: 'Sunday Ballers', data: { points: 98 } },
@@ -134,7 +134,7 @@ test('shows Perfect Lineup and Captain Hindsight as chips with team and week', a
 });
 
 // #1860: a hit Called shot is a weekly trophy: "team · Week N" and its own glyph.
-test('shows Called Shot as a weekly chip with team and week', async () => {
+test('shows Called Shot as a weekly row with team and week', async () => {
   apiClient.get.mockResolvedValue({
     data: [
       { ...trophies[0], id: 7, type: 'called_shot', label: 'Called Shot', week: 8, team_name: 'Sunday Ballers', data: { bold: true } },
@@ -166,8 +166,8 @@ test('hides itself when there are no trophies', async () => {
   expect(screen.queryByTestId('trophy-tally')).not.toBeInTheDocument();
 });
 
-// #1855, #1986 L17/L18: the per-team leaderboard above the award rows, for the
-// selected season. Non-zero type counts only, named by type rather than by the
+// #1855, #1986 L17/L18: the per-team leaderboard (stacked above the award rows on a
+// phone, beside them from md), for the selected season. Non-zero type counts only, named by type rather than by the
 // first award's parameterised label.
 describe('per-team tally', () => {
   const t = (id, type, label, teamId, teamName, season = 2026, week = 4) => ({
@@ -398,6 +398,103 @@ describe('per-team tally', () => {
     expect(screen.getByTestId('trophy-tally')).toHaveStyle({ minWidth: '0' });
     expect(screen.getByTestId('tally-team-10')).toHaveStyle({ minWidth: '0' });
   });
+
+  // The standings truncate names this way; a wrapping name made rows 2 to 3
+  // lines tall at 360.
+  test('a team name is one ellipsized line, so a long name never pushes the total', async () => {
+    apiClient.get.mockResolvedValue({ data: season2026 });
+    renderWithProviders(<TrophyCase leagueId={1} teams={teams} />);
+    await screen.findByTestId('trophy-case');
+
+    const name = within(screen.getByTestId('tally-team-10')).getByText('Sunday Ballers');
+    expect(name).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '0' });
+    expect(screen.getByTestId('tally-team-10')).toHaveStyle({ display: 'grid' });
+  });
+
+  // A count must not wrap away from its type name ("Top Scorer" / "×3"); only
+  // the middots break.
+  test('each count is bound to its type name with a non-breaking space', async () => {
+    apiClient.get.mockResolvedValue({ data: season2026 });
+    renderWithProviders(<TrophyCase leagueId={1} teams={teams} />);
+    await screen.findByTestId('trophy-case');
+
+    expect(breakdownOf(10).textContent).toBe('Weekly High\u00a0×2 · Closest Game\u00a0×1');
+  });
+});
+
+// #1986: the tally collapses to its top 5 teams so the card does not grow with
+// the league; the one toggle opens it together with the awards.
+describe('capped tally', () => {
+  const league = (n) =>
+    Array.from({ length: n }, (_, i) => ({ id: 20 + i, teamId: 20 + i, teamName: `Team ${String(i + 1).padStart(2, '0')}`, name: `Team ${i + 1}`, avatar_url: null }));
+  // Team 01 holds a trophy more than team 02, and so on: totals are distinct
+  // down to Team 06, so the top 5 are Teams 01 to 05.
+  const awardsFor = (teamList, perTeam) =>
+    teamList.flatMap((tm, i) =>
+      Array.from({ length: Math.max(perTeam - i, 0) }, (_, k) => ({
+        id: tm.teamId * 100 + k, type: 'top_scorer', label: 'Top Scorer', week: k + 1, season: 2026,
+        team_id: tm.teamId, team_name: tm.teamName, data: {}, awarded_at: '2026-07-01T00:00:00.000Z',
+      }))
+    );
+  const tallyRowCount = () => within(screen.getByTestId('trophy-tally')).getAllByRole('listitem').length;
+
+  test('12 teams show the top 5 collapsed and all 12 expanded', async () => {
+    const user = userEvent.setup();
+    const twelveTeams = league(12);
+    apiClient.get.mockResolvedValue({ data: awardsFor(twelveTeams, 8) });
+    renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} />);
+    await screen.findByTestId('trophy-case');
+
+    expect(tallyRowCount()).toBe(5);
+    expect(screen.getByTestId('tally-team-20')).toBeInTheDocument();
+    expect(screen.getByTestId('tally-team-24')).toBeInTheDocument();
+    expect(screen.queryByTestId('tally-team-25')).not.toBeInTheDocument();
+    // 8 + 7 + ... + 1 = 36 awards: both lists are cut.
+    const toggle = screen.getByRole('button', { name: 'Show all 12 teams and 36 awards' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute(
+      'aria-controls',
+      `${screen.getByTestId('trophy-tally').id} ${screen.getByRole('list', { name: 'Awards' }).id}`
+    );
+
+    await user.click(toggle);
+    expect(tallyRowCount()).toBe(12);
+    expect(within(screen.getByRole('list', { name: 'Awards' })).getAllByRole('listitem')).toHaveLength(36);
+    const fewer = screen.getByRole('button', { name: 'Show fewer' });
+    expect(fewer).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(fewer);
+    expect(tallyRowCount()).toBe(5);
+    expect(within(screen.getByRole('list', { name: 'Awards' })).getAllByRole('listitem')).toHaveLength(6);
+  });
+
+  test('the toggle names only the list that is cut', async () => {
+    // 12 teams, 4 awards: only the tally is capped.
+    const twelveTeams = league(12);
+    apiClient.get.mockResolvedValue({ data: awardsFor(twelveTeams, 3).slice(0, 4) });
+    const { unmount } = renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} />);
+    await screen.findByTestId('trophy-case');
+    expect(screen.getByRole('button', { name: 'Show all 12 teams' })).toBeInTheDocument();
+    unmount();
+
+    // 3 teams, 10 awards: only the awards are capped.
+    const threeTeams = league(3);
+    apiClient.get.mockResolvedValue({ data: awardsFor(threeTeams, 10) });
+    renderWithProviders(<TrophyCase leagueId={1} teams={threeTeams} />);
+    await screen.findByTestId('trophy-case');
+    expect(screen.getByRole('button', { name: 'Show all 27 awards' })).toBeInTheDocument();
+  });
+
+  test('5 teams with 4 awards show everything and no toggle', async () => {
+    const fiveTeams = league(5);
+    apiClient.get.mockResolvedValue({ data: awardsFor(fiveTeams, 3).slice(0, 4) });
+    renderWithProviders(<TrophyCase leagueId={1} teams={fiveTeams} />);
+    await screen.findByTestId('trophy-case');
+
+    expect(tallyRowCount()).toBe(5);
+    expect(within(screen.getByRole('list', { name: 'Awards' })).getAllByRole('listitem')).toHaveLength(4);
+    expect(screen.queryByTestId('trophy-show-all')).not.toBeInTheDocument();
+  });
 });
 
 // #1986 L16: a bounded, ordered list of award rows.
@@ -464,14 +561,14 @@ describe('award rows', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(6);
     const toggle = screen.getByRole('button', { name: 'Show all 12 awards' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(toggle).toHaveAttribute('aria-controls', list.id);
+    expect(toggle.getAttribute('aria-controls').split(' ')).toContain(list.id);
     expect(toggle).toHaveStyle({ minHeight: '44px' });
 
     await user.click(toggle);
     expect(within(list).getAllByRole('listitem')).toHaveLength(12);
     const fewer = screen.getByRole('button', { name: 'Show fewer' });
     expect(fewer).toHaveAttribute('aria-expanded', 'true');
-    expect(fewer).toHaveAttribute('aria-controls', list.id);
+    expect(fewer.getAttribute('aria-controls').split(' ')).toContain(list.id);
 
     await user.click(fewer);
     expect(within(list).getAllByRole('listitem')).toHaveLength(6);
@@ -532,7 +629,7 @@ test('hides itself on a fetch error', async () => {
 
 // #1861: the season's fewest points left is a season trophy: the team name
 // alone (no week) beside its own glyph, the number carried by the label.
-test('shows Fewest Left on the Bench as a season chip with its number and no week', async () => {
+test('shows Fewest Left on the Bench as a season row with its number and no week', async () => {
   apiClient.get.mockResolvedValue({
     data: [
       { ...trophies[0], id: 8, type: 'fewest_left_on_bench', label: 'Fewest Left on the Bench (31.2)', week: 0, team_name: 'Sunday Ballers', data: { pointsLeft: 31.2 } },
