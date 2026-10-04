@@ -30,7 +30,11 @@ const FOLDED_COLUMN_SX = { display: { xs: 'none', sm: 'table-cell' } };
  *
  * The columns fold rather than scroll on a phone: PCT, PF and PA are sm-and-up,
  * and PF/PA return at xs as a second line inside the Team cell, so the four
- * columns that remain fit 390px with no hidden horizontal scroll.
+ * columns that remain fit 390px with no hidden horizontal scroll. Below sm the
+ * Rank head reads `#` (its accessible name stays Rank), the viewer row's "You"
+ * pill is not displayed (visually hidden "your team" stands in, and the row's
+ * tint and accent bar still mark it), and the PF/PA line wraps at its middot
+ * instead of ellipsizing, so a four-digit total is never cut off (#1981).
  *
  * The PLAYOFF CUT is the 2px rule above the first Team outside the bracket
  * (`cutIndex`, useStandingsTable.js), carrying a visually hidden "Playoff cut
@@ -93,7 +97,17 @@ export default function StandingsTable({ leagueId }) {
           >
             <Box component="thead">
               <Box component="tr">
-                <HeadCell align="right">Rank</HeadCell>
+                {/* A phone has no room for the word: `#` is painted below sm and
+                    the column's name stays Rank for assistive tech. The label
+                    is on the cell, so neither painted glyph is read. */}
+                <HeadCell align="right" aria-label="Rank">
+                  <Box component="span" aria-hidden="true" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                    Rank
+                  </Box>
+                  <Box component="span" aria-hidden="true" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                    #
+                  </Box>
+                </HeadCell>
                 <HeadCell>Team</HeadCell>
                 <HeadCell align="right">Record</HeadCell>
                 <HeadCell align="right" sx={FOLDED_COLUMN_SX}>PCT</HeadCell>
@@ -207,8 +221,9 @@ function StandingsRow({ row, preseason, cutLine = false }) {
             />
           </Box>
           {/* The zero minimum lets the name column shrink below its longest
-              word; both lines inside clip, so it shrinks rather than pushing
-              the number cells off the card. */}
+              word; the name clips with an ellipsis and the phone points line
+              wraps, so the column shrinks rather than pushing the number
+              cells off the card. */}
           <Box sx={{ display: 'grid', gap: 0.25, minWidth: 0, overflow: 'hidden' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
               <Box
@@ -225,7 +240,21 @@ function StandingsRow({ row, preseason, cutLine = false }) {
               >
                 {row.teamName}
               </Box>
-              {row.isViewer && <Badge variant="you" sx={{ flex: 'none' }}>You</Badge>}
+              {/* Below sm the pill costs the name its width, so it is not
+                  displayed there: the row's tint and accent bar still mark it,
+                  and the hidden text below names it for assistive tech. At sm
+                  and up the pill is the marker and the hidden text steps aside,
+                  so a screen reader never hears both. */}
+              {row.isViewer && (
+                <Badge variant="you" sx={{ flex: 'none', display: { xs: 'none', sm: 'inline-flex' } }}>
+                  You
+                </Badge>
+              )}
+              {row.isViewer && (
+                <Box component="span" sx={{ ...visuallyHidden, display: { xs: 'inline', sm: 'none' } }}>
+                  your team
+                </Box>
+              )}
             </Box>
             {/* Where PF and PA go on a phone: the columns fold away below sm and
                 come back here, so both point totals stay on the row instead of
@@ -237,14 +266,19 @@ function StandingsRow({ row, preseason, cutLine = false }) {
                 data-testid="standings-table-points-line"
                 sx={{
                   display: { xs: 'block', sm: 'none' },
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  // Wraps rather than ellipsizing (#1981): with four-digit
+                  // totals the line outgrows the cell at 390, and a clipped
+                  // total is a wrong number. The two halves never split, so it
+                  // breaks at the middot.
+                  whiteSpace: 'normal',
                   fontSize: '11.5px',
                   fontWeight: 400,
                   color: 'var(--dash-dim)',
                 }}
               >
-                {`${row.pointsFor} PF · ${row.pointsAgainst} PA`}
+                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>{`${row.pointsFor} PF`}</Box>
+                {' · '}
+                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>{`${row.pointsAgainst} PA`}</Box>
               </Box>
             )}
           </Box>
@@ -267,11 +301,12 @@ function StandingsRow({ row, preseason, cutLine = false }) {
   );
 }
 
-function HeadCell({ children, align = 'left', sx }) {
+function HeadCell({ children, align = 'left', sx, ...rest }) {
   return (
     <Box
       component="th"
       scope="col"
+      {...rest}
       sx={{
         // The column names stay on screen while the rows scroll past. `top: 0`,
         // not an app-bar offset: Nav is position="static" (Nav.jsx), so nothing

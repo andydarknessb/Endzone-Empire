@@ -15,6 +15,10 @@ const API_ALLOWLIST = [
   /^\/api\/league\/\d+$/,
   /^\/api\/league\/\d+\/matchups(\/\d+)?$/,
   /^\/api\/team\/roster$/,
+  // The viewer's weekly lineup (shared cached read, ADR 0004): viewer-scoped
+  // like the roster above. Matched on the pathname alone, so the
+  // `?leagueId=&week=` query does not defeat it; the cache keys the full URL.
+  /^\/api\/team\/lineup$/,
   /^\/api\/scoring\/league\/\d+\/standings$/,
   /^\/api\/scoring\/league\/\d+\/power-rankings$/,
   /^\/api\/scoring\/league\/\d+\/recap$/,

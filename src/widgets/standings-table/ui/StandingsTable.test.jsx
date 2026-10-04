@@ -4,6 +4,7 @@ import renderWithProviders from '../../../test-utils/renderWithProviders';
 import apiClient from '../../../api/apiClient';
 import { invalidate, setResource } from '../../../lib/resourceCache';
 import StandingsTable from '../index';
+import { winPctLabel } from '../model/useStandingsTable';
 import { teamStandingFromRow } from '../../../entities/standings';
 
 /**
@@ -345,7 +346,7 @@ test('standings-table: the header cells stick to the top of the scroll wrapper',
 
   const card = await screen.findByTestId('standings-table');
   await within(card).findByText('Squad 1');
-  const head = within(card).getByText('Rank');
+  const head = within(card).getByRole('columnheader', { name: 'Rank' });
   const headRules = allRules(head);
   expect(headRules).toMatch(/position:\s*sticky/);
   // top: 0, not an app-bar offset: Nav is position="static".
@@ -383,6 +384,76 @@ test('standings-table: PF and PA fold into the Team cell below sm', async () => 
   const pointsRules = rulesUnder(points);
   expect(pointsRules[XS]).toMatch(/display:\s*block/);
   expect(pointsRules[SM]).toMatch(/display:\s*none/);
+});
+
+// --- the phone fold, viewer row and rank (#1981 L7) ------------------------
+
+test('standings-table: the Rank head reads # below sm and keeps Rank as its name', async () => {
+  primeLeague();
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  await within(card).findByText('Squad 1');
+  // The accessible name is Rank at every width; only the painted glyph changes.
+  const head = within(card).getByRole('columnheader', { name: 'Rank' });
+  const word = within(head).getByText('Rank');
+  const glyph = within(head).getByText('#');
+  expect(rulesUnder(word)[XS]).toMatch(/display:\s*none/);
+  expect(rulesUnder(word)[SM]).toMatch(/display:\s*inline/);
+  expect(rulesUnder(glyph)[XS]).toMatch(/display:\s*inline/);
+  expect(rulesUnder(glyph)[SM]).toMatch(/display:\s*none/);
+});
+
+test('standings-table: below sm the viewer row shows no You badge and says your team instead', async () => {
+  primeLeague();
+  mockGetByUrl({ '/api/scoring/league/1/standings': standingsResponse() });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  // The badge is not displayed at xs and is back at sm...
+  const badge = within(youRow).getByText('You');
+  // eslint-disable-next-line testing-library/no-node-access -- the Chip's label sits inside the styled root the display rule is on
+  const badgeRoot = badge.closest('[data-testid="badge"]');
+  expect(rulesUnder(badgeRoot)[XS]).toMatch(/display:\s*none/);
+  expect(rulesUnder(badgeRoot)[SM]).toMatch(/display:\s*inline-flex/);
+  // ...and the row keeps its tint and accent bar, with the identity as text.
+  expect(allRules(youRow)).toMatch(/background-color:\s*var\(--dash-accent-soft\)/);
+  expect(allRules(youRow)).toMatch(/box-shadow:\s*inset 3px 0 0 var\(--dash-accent\)/);
+  const hidden = within(youRow).getByText('your team');
+  expect(rulesUnder(hidden)[SM]).toMatch(/display:\s*none/);
+  expect(within(card).getAllByText('your team')).toHaveLength(1);
+});
+
+test('standings-table: the phone points line wraps instead of clipping', async () => {
+  primeLeague();
+  mockGetByUrl({
+    '/api/scoring/league/1/standings': standingsResponse({
+      rows: standingsRows().map((r) => ({ ...r, pf: 1234.5, pa: 1234.5 })),
+    }),
+  });
+  renderTable();
+
+  const card = await screen.findByTestId('standings-table');
+  const youRow = await within(card).findByTestId('standings-table-you-row');
+  const points = within(youRow).getByTestId('standings-table-points-line');
+  expect(points).toHaveTextContent('1234.5 PF · 1234.5 PA');
+  // Nothing on the line clips or ellipsizes (it wraps between PF and PA), so
+  // the totals are never cut at 390.
+  expect(allRules(points)).not.toMatch(/text-overflow/);
+  expect(allRules(points)).not.toMatch(/overflow:\s*hidden/);
+});
+
+test.each([null, undefined, ''])('winPctLabel(%p) is null so the cell shows the placeholder', (value) => {
+  expect(winPctLabel(value)).toBeNull();
+});
+
+test('winPctLabel keeps real fractions, including a true 0', () => {
+  expect(winPctLabel(0.875)).toBe('.875');
+  expect(winPctLabel('0.5')).toBe('.500');
+  expect(winPctLabel(0)).toBe('.000');
+  expect(winPctLabel(1)).toBe('1.000');
 });
 
 // --- the loading shape -----------------------------------------------------
