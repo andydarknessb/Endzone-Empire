@@ -252,6 +252,38 @@ test('a league with no current week shows no advance control', async () => {
   expect(within(card).queryByTestId('advance-week')).not.toBeInTheDocument();
 });
 
+// --- the Advance control is a season control (#1979 L24) ---------------------
+
+// Red-tell: restoring `!pickemOnly && currentWeek != null` as the whole gate
+// turns the pre-draft, drafting and complete cases red; the server refuses an
+// advance in those phases with a 409, so the strip must not offer it.
+test.each([
+  ['pre-draft', { draft_status: 'pending', season_status: 'regular' }],
+  ['drafting', { draft_status: 'active', season_status: 'regular' }],
+  ['complete', { draft_status: 'complete', season_status: 'complete' }],
+])('no Advance control while the league is %s, but administration stays', async (_phase, league) => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: { current_week: 1, ...league } }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  await settleReads();
+  expect(within(card).queryByTestId('advance-week')).not.toBeInTheDocument();
+  expect(within(card).queryByRole('button', { name: /advance/i })).not.toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: /league administration/i })).toBeInTheDocument();
+});
+
+test.each([
+  ['in season', { draft_status: 'complete', season_status: 'regular' }],
+  ['in the playoffs', { draft_status: 'complete', season_status: 'playoffs' }],
+])('the Advance control shows %s', async (_phase, league) => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: { current_week: 6, ...league } }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  expect(within(card).getByTestId('advance-week')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: /advance to week 7/i })).toBeInTheDocument();
+});
+
 // --- the subtitle ------------------------------------------------------------
 
 // Red-tell (#1979 L14): restoring the count (`Commissioners only · N`) turns
