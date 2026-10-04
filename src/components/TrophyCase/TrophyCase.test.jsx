@@ -411,14 +411,14 @@ describe('per-team tally', () => {
     expect(screen.getByTestId('tally-team-10')).toHaveStyle({ display: 'grid' });
   });
 
-  // A count must not wrap away from its type name ("Top Scorer" / "×3"); only
-  // the middots break.
-  test('each count is bound to its type name with a non-breaking space', async () => {
+  // A breakdown item is unbreakable ("Top Scorer ×3" never splits into "Top" /
+  // "Scorer ×3"); the middots are the only place the line can break.
+  test('every space inside a breakdown item is non-breaking', async () => {
     apiClient.get.mockResolvedValue({ data: season2026 });
     renderWithProviders(<TrophyCase leagueId={1} teams={teams} />);
     await screen.findByTestId('trophy-case');
 
-    expect(breakdownOf(10).textContent).toBe('Weekly High\u00a0×2 · Closest Game\u00a0×1');
+    expect(breakdownOf(10).textContent).toBe('Weekly\u00a0High\u00a0×2 · Closest\u00a0Game\u00a0×1');
   });
 });
 
@@ -483,6 +483,66 @@ describe('capped tally', () => {
     renderWithProviders(<TrophyCase leagueId={1} teams={threeTeams} />);
     await screen.findByTestId('trophy-case');
     expect(screen.getByRole('button', { name: 'Show all 27 awards' })).toBeInTheDocument();
+  });
+
+  // The viewer's own Team stays on screen while the tally is collapsed.
+  describe('the viewer team', () => {
+    const twelveTeams = league(12);
+    // Team NN holds 13 - NN trophies, so Team 08 (id 27) ranks 8th of 12.
+    const data = () => awardsFor(twelveTeams, 12);
+    const tallyIds = () =>
+      within(screen.getByTestId('trophy-tally')).getAllByRole('listitem').map((li) => li.getAttribute('data-testid'));
+
+    test('ranked 8th of 12, it is a 6th row after the top 5, in its true rank order', async () => {
+      apiClient.get.mockResolvedValue({ data: data() });
+      renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} viewerTeamId={27} />);
+      await screen.findByTestId('trophy-case');
+
+      expect(tallyIds()).toEqual(['tally-team-20', 'tally-team-21', 'tally-team-22', 'tally-team-23', 'tally-team-24', 'tally-team-27']);
+      // The toggle still counts every team.
+      expect(screen.getByRole('button', { name: /^Show all 12 teams and \d+ awards$/ })).toBeInTheDocument();
+    });
+
+    test('expanded, the viewer sits at its true rank among all 12', async () => {
+      const user = userEvent.setup();
+      apiClient.get.mockResolvedValue({ data: data() });
+      renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} viewerTeamId={27} />);
+      await screen.findByTestId('trophy-case');
+      await user.click(screen.getByTestId('trophy-show-all'));
+
+      expect(tallyIds()).toHaveLength(12);
+      expect(tallyIds()[7]).toBe('tally-team-27');
+    });
+
+    test('ranked in the top 5, nothing is added', async () => {
+      apiClient.get.mockResolvedValue({ data: data() });
+      renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} viewerTeamId={22} />);
+      await screen.findByTestId('trophy-case');
+
+      expect(tallyIds()).toHaveLength(5);
+      expect(within(screen.getByTestId('tally-team-22')).getByText('your team')).toBeInTheDocument();
+    });
+
+    test('its row carries the hidden "your team" text and the accent treatment; no other row does', async () => {
+      apiClient.get.mockResolvedValue({ data: data() });
+      renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} viewerTeamId={27} />);
+      await screen.findByTestId('trophy-case');
+
+      const mine = screen.getByTestId('tally-team-27');
+      expect(within(mine).getByText('your team')).toBeInTheDocument();
+      expect(mine).toHaveStyle({ backgroundColor: 'var(--dash-accent-soft)', boxShadow: 'inset 3px 0 0 var(--dash-accent)' });
+      expect(screen.getAllByText('your team')).toHaveLength(1);
+      expect(screen.getByTestId('tally-team-20')).not.toHaveStyle({ boxShadow: 'inset 3px 0 0 var(--dash-accent)' });
+    });
+
+    test('without a viewerTeamId (League History) the collapsed tally is the plain top 5', async () => {
+      apiClient.get.mockResolvedValue({ data: data() });
+      renderWithProviders(<TrophyCase leagueId={1} teams={twelveTeams} />);
+      await screen.findByTestId('trophy-case');
+
+      expect(tallyIds()).toHaveLength(5);
+      expect(screen.queryByText('your team')).not.toBeInTheDocument();
+    });
   });
 
   test('5 teams with 4 awards show everything and no toggle', async () => {

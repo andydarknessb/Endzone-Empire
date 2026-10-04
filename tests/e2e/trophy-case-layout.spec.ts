@@ -12,7 +12,8 @@
  * rows and the per-team tally collapses to its top 5 teams by total, so the
  * card does not grow with the league; one toggle opens both. The 12-team
  * variant (a larger league, six Teams only the trophies know about) holds the
- * same bounds as the 6-team league.
+ * same bounds as the 6-team league, including the extra row that keeps the
+ * viewer's own Team on screen when it ranks below the top 5.
  *
  * Fixture: `layoutGuardFixtures`' `setupLayoutGuard` plus a routed
  * `/api/league/4200/trophies` (trophyCaseFixtures.ts) registered after it so
@@ -60,6 +61,16 @@ for (const teamCount of [6, 12]) {
     });
   }
 }
+
+// The collapsed 12-team bounds above hold WITH the viewer's row: the layout-guard
+// viewer (team 101) ranks below the top 5 here, so it is kept as a 6th tally row.
+test('Trophy Case, 12 teams: the viewer ranks below the top 5 and is kept as a 6th row', async ({ page }) => {
+  await gotoTrophyCase(page, PHONE.width, PHONE.height, 12);
+  const rows = page.getByTestId('trophy-tally').getByRole('listitem');
+  await expect(rows).toHaveCount(6);
+  await expect(rows.last()).toHaveAttribute('data-testid', 'tally-team-101');
+  await expect(rows.last()).toContainText('your team');
+});
 
 for (const width of [320, 360, 390]) {
   test(`Trophy Case @ ${width}: the document has no horizontal scroll`, async ({ page }) => {

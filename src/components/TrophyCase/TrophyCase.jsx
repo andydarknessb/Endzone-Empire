@@ -7,6 +7,7 @@ import {
   Select,
   MenuItem,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Card, TeamAvatar } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
@@ -155,10 +156,6 @@ function orderAwards(seasonTrophies) {
   return [...seasonTrophies].sort((a, b) => rank(b) - rank(a));
 }
 
-function trophySubLabel(trophy) {
-  return isSeasonAward(trophy) ? trophy.team_name : `${trophy.team_name} · Week ${trophy.week}`;
-}
-
 /**
  * The season's per-team leaderboard: one row per team, ordered by total then
  * name, each with its count of every trophy type it holds (only the types it
@@ -235,11 +232,12 @@ const LIST_SX = { listStyle: 'none', m: 0, p: 0, minWidth: 0 };
  * and the type breakdown takes the second across the name and total columns
  * so it can wrap without ever pushing the total.
  */
-function TallyRow({ row, first }) {
+function TallyRow({ row, first, isViewer }) {
   return (
     <Box
       component="li"
       data-testid={`tally-team-${row.teamId}`}
+      data-viewer-team={isViewer || undefined}
       sx={{
         ...ROW_SX(first),
         display: 'grid',
@@ -247,6 +245,17 @@ function TallyRow({ row, first }) {
         columnGap: '10px',
         rowGap: '1px',
         fontFamily: 'var(--dash-font-body)',
+        // The island's one viewer treatment (the standings and Draft Grades
+        // paint the same pair): the accent tint plus a 3px inset accent bar.
+        // Ink and dim on the tint over a card are registered in
+        // tokens.contrast.test.js, so no new pairing is composed here.
+        ...(isViewer
+          ? {
+              position: 'relative',
+              backgroundColor: 'var(--dash-accent-soft)',
+              boxShadow: 'inset 3px 0 0 var(--dash-accent)',
+            }
+          : {}),
       }}
     >
       <Box sx={{ gridRow: '1 / span 2', alignSelf: 'center', display: 'inline-flex' }}>
@@ -272,6 +281,8 @@ function TallyRow({ row, first }) {
       >
         {row.teamName}
       </Box>
+      {/* Not colour alone (1.4.1): the tint and bar are the sighted mark. */}
+      {isViewer && <Box component="span" sx={visuallyHidden}>your team</Box>}
       <Box
         component="span"
         data-testid="tally-total"
@@ -283,18 +294,18 @@ function TallyRow({ row, first }) {
         <Box
           component="span"
           data-testid="tally-breakdown"
-          // A non-breaking space keeps each count with its type name; only the
-          // middots break.
+          // Every space inside an item is a non-breaking space, so a type name
+          // and its count stay whole and the middots are the only break.
           sx={{ gridColumn: '2 / 4', fontSize: '12px', color: 'var(--dash-dim)' }}
         >
-          {row.breakdown.map(({ name, count }) => `${name} ×${count}`).join(' · ')}
+          {row.breakdown.map(({ name, count }) => `${name.replace(/ /g, '\u00a0')}\u00a0×${count}`).join(' · ')}
         </Box>
       )}
     </Box>
   );
 }
 
-function TrophyTally({ rows, listId }) {
+function TrophyTally({ rows, listId, viewerTeamId }) {
   if (rows.length === 0) return null;
   return (
     <Box
@@ -308,7 +319,7 @@ function TrophyTally({ rows, listId }) {
       sx={LIST_SX}
     >
       {rows.map((row, i) => (
-        <TallyRow key={row.teamId} row={row} first={i === 0} />
+        <TallyRow key={row.teamId} row={row} first={i === 0} isViewer={viewerTeamId != null && row.teamId === viewerTeamId} />
       ))}
     </Box>
   );
@@ -324,8 +335,18 @@ function AwardRow({ trophy, first }) {
         <Box component="span" sx={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}>
           {trophy.label}
         </Box>
-        <Box component="span" sx={{ fontSize: '12.5px', color: 'var(--dash-dim)', overflowWrap: 'anywhere' }}>
-          {trophySubLabel(trophy)}
+        {/* The Team ellipsizes (as the standings' names do) so the week suffix
+            never wraps onto a second line of its own (the leading non-breaking space
+            survives the flex item, which a plain space would not). */}
+        <Box component="span" sx={{ display: 'flex', minWidth: 0, fontSize: '12.5px', color: 'var(--dash-dim)' }}>
+          <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {trophy.team_name}
+          </Box>
+          {!isSeasonAward(trophy) && (
+            <Box component="span" sx={{ flex: 'none', whiteSpace: 'nowrap' }}>
+              {`\u00a0· Week ${trophy.week}`}
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>
@@ -385,7 +406,12 @@ function ShowAllToggle({ expanded, onToggle, label, controls }) {
   );
 }
 
-function TrophyCase({ leagueId, teams }) {
+/**
+ * `viewerTeamId` (optional) marks the viewer's own tally row, and keeps it on
+ * screen while the tally is collapsed. League History mounts no tally and
+ * passes nothing.
+ */
+function TrophyCase({ leagueId, teams, viewerTeamId }) {
   const [trophies, setTrophies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -450,6 +476,13 @@ function TrophyCase({ leagueId, teams }) {
   const tallyCapped = tallyRows.length > TALLY_ROWS;
   const awardsCapped = awards.length > COLLAPSED_ROWS;
   const capped = tallyCapped || awardsCapped;
+  // Collapsed, the viewer's own Team stays visible even when it ranks below the
+  // top TALLY_ROWS: it is appended as one more row, in its true rank order.
+  const viewerIndex = viewerTeamId == null ? -1 : tallyRows.findIndex((r) => r.teamId === viewerTeamId);
+  const collapsedTally =
+    viewerIndex >= TALLY_ROWS
+      ? [...tallyRows.slice(0, TALLY_ROWS), tallyRows[viewerIndex]]
+      : tallyRows.slice(0, TALLY_ROWS);
   const hiddenNouns = [
     tallyCapped && `${tallyRows.length} teams`,
     awardsCapped && `${awards.length} awards`,
@@ -492,7 +525,7 @@ function TrophyCase({ leagueId, teams }) {
           {/* The tally and the awards stack on a phone and sit side by side
               from md, so a wide card is not two screens of single-column rows. */}
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start' }}>
-            <TrophyTally rows={expanded ? tallyRows : tallyRows.slice(0, TALLY_ROWS)} listId={tallyId} />
+            <TrophyTally rows={expanded ? tallyRows : collapsedTally} listId={tallyId} viewerTeamId={viewerTeamId} />
             <TrophyAwards awards={expanded ? awards : awards.slice(0, COLLAPSED_ROWS)} listId={awardsId} />
           </Box>
           {capped && (
