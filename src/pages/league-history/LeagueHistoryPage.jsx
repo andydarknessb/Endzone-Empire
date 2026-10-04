@@ -456,7 +456,7 @@ function HeadCell({ children, align = 'left' }) {
 }
 
 // The Team cell is the row header (`th scope="row"`), matching the
-// established island table convention (StandingsTable.jsx, DraftGrades.jsx):
+// established island table convention (StandingsTable.jsx):
 // a screen reader reading a number cell hears which Team it belongs to.
 function BodyCell({ children, align = 'left', asRowHeader = false }) {
   return (

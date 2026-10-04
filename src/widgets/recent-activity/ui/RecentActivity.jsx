@@ -23,23 +23,26 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * accent (`src/theme/base.css`'s bare `a` rule), matching the mockup's plain
  * (non-accented) "All activity" text.
  *
- * The card fetches exactly 12 rows (`useLeagueTransactions`'s own `limit`), the
+ * The card fetches exactly 17 rows (`useLeagueTransactions`'s own `limit`), the
  * most the rail ever shows; below the `md` breakpoint only the first 5 of those
  * render, matching the mockup's mobile artboard. At and above it the cap is the
- * optional `rowLimit` (never more than the 12 fetched): the dashboard passes
- * `min(team count, 12)` because this card rides the rail beside the standings,
- * one row per Team, so the rail ends about where the standings table does
- * instead of leaving bare page under it (#1993). The loading skeleton follows
- * the SAME cap (5 rows below `md`, `rowLimit` or 12 at and above it) rather
- * than always holding 12, so loading never overshoots the row count the
- * breakpoint is about to show.
+ * optional `rowLimit` (never more than the 17 fetched): the dashboard passes
+ * `ceil(team count * 5 / 6)` because this card rides the rail beside the
+ * standings, and a standings row measures 49px against 58.8px for an activity
+ * row (6:5), so that many rows end the rail about where the standings table
+ * does instead of leaving bare page under it (#1993). 17 is that count for a
+ * 20-team league, the largest. The loading skeleton follows the SAME cap (5
+ * rows below `md`, `rowLimit` or 17 at and above it) rather than always
+ * holding 17, so loading never overshoots the row count the breakpoint is
+ * about to show.
  *
  * The card is the region that owns its one read, so it carries `aria-busy`
  * while `status` is 'loading' (Skeleton.jsx: the loading state is announced
  * by the owning region, not by each aria-hidden shape).
  */
 
-const FETCH_LIMIT = 12;
+// ceil(20 * 5 / 6): the rail rows for the largest league (20 teams), see below.
+const FETCH_LIMIT = 17;
 const MOBILE_LIMIT = 5;
 
 const ELLIPSIS_SX = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
@@ -123,7 +126,7 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, rowLim
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
 
   // The md+ cap: the caller's `rowLimit` when it is a positive number, never
-  // above the 8 rows the read returns. Below md the phone cap wins regardless.
+  // above the rows the read returns. Below md the phone cap wins regardless.
   const wideLimit = rowLimit > 0 ? Math.min(rowLimit, FETCH_LIMIT) : FETCH_LIMIT;
   const limit = mobile ? MOBILE_LIMIT : wideLimit;
   const list = Array.isArray(rows) ? rows.filter(Boolean) : [];

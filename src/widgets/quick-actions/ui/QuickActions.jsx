@@ -48,7 +48,8 @@ import useQuickActions from '../model/useQuickActions';
  * and `focusable="false"` on its own, so the plate icon needs no attribute of
  * its own either); the row's accessible name is instead everything BOTH
  * icons are excluded from - label, the "Recommended" text when present, and
- * the full (untruncated - the ellipsis below is CSS-only) status line - which
+ * the full (untruncated - the ellipsis below is CSS-only, and absent between
+ * md and lg, where the line wraps) status line - which
  * is deliberately richer than the label alone, so a screen-reader user
  * navigating by link text hears the same status a sighted user reads.
  *
@@ -190,8 +191,13 @@ function ActionRow({ card }) {
               lineHeight: 1.35,
               color: 'var(--dash-dim)',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              // Wraps between md and lg: with one column per group each has a
+              // third of the card there, and real copy ("2 empty starting
+              // slots · 2 starters on bye") would truncate. Truncation (nowrap
+              // plus the ellipsis) returns from lg, and below md where the one
+              // column is wide.
+              textOverflow: { xs: 'ellipsis', md: 'clip', lg: 'ellipsis' },
+              whiteSpace: { xs: 'nowrap', md: 'normal', lg: 'nowrap' },
             }}
           >
             {card.status}

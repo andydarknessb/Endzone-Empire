@@ -110,3 +110,16 @@ The comparable-height rule reads, for a row with a single card, as that card
 spanning the row: a lone full-width card has no neighbour to leave bare page
 beside. `src/widgets/draft-grades` and `src/features/toggle-grade-details` (its
 only consumer) are deleted. The earlier text of this ADR stands as written.
+
+### Correction (2026-10-04, #1993, after QA)
+
+The amendment above says Recent activity shows `min(teams, 12)` rows, "one row
+per Team as the standings have", so the rail ends about with the standings.
+Measured, a standings row is 49.0px and an activity row 58.8px (6:5), so one
+row per Team overshoots. The card shows `ceil(teams * 5 / 6)` rows instead (5 at
+6 teams, 10 at 12, 17 at 20, the largest league) and fetches 17. That measures
+within about 40px of the standings for 4 to 20 teams once the feed has that
+many rows, and falls shorter when the feed is short (a league early in its
+life); the layout spec bounds the rail card at 60px of the standings and the
+main row at 120px. Quick Actions' status line also wraps between `md` and `lg`
+now, since each of its three columns has a third of the card there.

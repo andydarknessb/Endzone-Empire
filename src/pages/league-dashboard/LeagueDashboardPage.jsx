@@ -78,8 +78,8 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * score), a full-width Around the League strip, and the main grid (standings
  * + a rail) followed by a full-width Quick Actions card, and shows the
  * pre-draft countdown. The rail holds Recent activity in every phase, capped at
- * `min(team count, 12)` rows so it ends about where the standings do (one row
- * per Team, ADR 0034's comparable-height rule); Quick Actions is alone in its
+ * `ceil(team count * 5 / 6)` rows so it ends about where the standings do
+ * (ADR 0034's comparable-height rule); Quick Actions is alone in its
  * row, so it spans the content width with one column per group (#1993). Draft
  * Grades is no longer on the dashboard (ADR 0034's 2026-10-04 amendment: League
  * History and the My Team grade tile still carry it).
@@ -106,7 +106,7 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  *
  * Team identity is live: a team-profile update (a rename or new avatar
  * published by another manager's session) is written through into the cached
- * league's teams[], so the standings rows, draft-grades rows and my-team card
+ * league's teams[], so the standings rows and my-team card
  * re-render without a second league GET. teamName is the canonical display
  * field the widgets read (teamIdentity.js), not the raw `name` column the route
  * leaks beside it, so the write-through targets teamName; the avatar rides the
@@ -494,12 +494,13 @@ export default function LeagueDashboardPage() {
             <Box data-testid="slot-standings" sx={{ minWidth: 0, overflowX: 'clip' }}>
               <StandingsTable leagueId={leagueId} />
             </Box>
-            {/* Recent activity shows one row per Team up to 12, as the standings
-                do, so the two columns end about together at any team count
-                (the layout spec bounds the difference at 120px; the rail is
-                usually the shorter column). It rides down with the scroll
-                above md instead of leaving bare page beside the last
-                standings row. `top: 22px` and not an app-bar offset:
+            {/* Recent activity shows ceil(teams * 5 / 6) rows (a standings row is
+                49px, an activity row 58.8px), which measures within about 40px
+                of the standings for 4 to 20 teams once the feed has that many
+                rows, and falls shorter when the feed does not (a league early
+                in its life). The layout spec bounds the card at 60px and the
+                main row at 120px. It rides down with the scroll above md
+                instead of leaving bare page beside the last standings row. `top: 22px` and not an app-bar offset:
                 Nav.jsx:95 is position="static", so nothing is pinned above it.
                 One card (#1110): the commissioner panel that used to compose
                 below it here moved to the strip under the header. */}
@@ -514,7 +515,7 @@ export default function LeagueDashboardPage() {
               }}
             >
               <Box data-testid="slot-recent-activity">
-                <RecentActivity leagueId={leagueId} rowLimit={Math.min(teams.length, 12)} />
+                <RecentActivity leagueId={leagueId} rowLimit={Math.ceil((teams.length * 5) / 6)} />
               </Box>
             </Box>
           </Box>

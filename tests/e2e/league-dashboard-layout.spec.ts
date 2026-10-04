@@ -27,10 +27,10 @@
  * activity rows, so the page's team-count cap on the rail card (6 rows) is what
  * the height bound below measures.
  *
- * The 12-team variant (#1993) re-routes the reads whose row count follows the
- * team count (`fixtures/twelveTeamDashboardFixtures.ts`: the league's teams, the
- * standings, the week's matchups, 12 activity rows), registered after
- * `setupLayoutGuard`. The regression behind it showed only at 12 teams: the
+ * The 12 and 20-team variants (#1993) re-route the reads whose row count
+ * follows the team count (`fixtures/teamCountDashboardFixtures.ts`: the
+ * league's teams, the standings, the week's matchups, 20 activity rows),
+ * registered after `setupLayoutGuard`. The regression behind them showed only at 12 teams: the
  * rail ended well above the standings, and a second row paired Quick Actions
  * with a card of another height, leaving bare page under it. Draft Grades left
  * the dashboard and Quick Actions now spans the row alone (#1993).
@@ -54,10 +54,10 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { setupLayoutGuard, DASHBOARD_URL } from './fixtures/layoutGuardFixtures';
-import { routeTwelveTeamLeague } from './fixtures/twelveTeamDashboardFixtures';
+import { routeLeagueOfSize } from './fixtures/teamCountDashboardFixtures';
 
-type TeamCount = 6 | 12;
-const TEAM_COUNTS: TeamCount[] = [6, 12];
+type TeamCount = 6 | 12 | 20;
+const TEAM_COUNTS: TeamCount[] = [6, 12, 20];
 
 const WIDTHS = [320, 390, 768, 900, 1440];
 const HEIGHT = 900;
@@ -245,7 +245,7 @@ async function fontsReady(page: Page) {
  */
 async function gotoDashboard(page: Page, width: number, height: number, teams: TeamCount = 6) {
   await setupLayoutGuard(page);
-  if (teams === 12) await routeTwelveTeamLeague(page);
+  if (teams !== 6) await routeLeagueOfSize(page, teams);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
   // Attached, not visible: the fact grid does not display below md (#1980), so
@@ -277,16 +277,18 @@ for (const width of WIDTHS) {
   });
 }
 
-test(`League Dashboard, 12 teams @ ${MEASURED_WIDTH}x${HEIGHT}: no card wider than its column, document never wider than the viewport`, async ({ page }) => {
-  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12);
+for (const teams of [12, 20] as TeamCount[]) {
+test(`League Dashboard, ${teams} teams @ ${MEASURED_WIDTH}x${HEIGHT}: no card wider than its column, document never wider than the viewport`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, teams);
 
   const cards = await page.evaluate(probeCardWidths, { cardTestIds: CARD_TESTIDS, tol: 1 });
   const bad = cards.cards.filter((c) => !c.found || c.selfOverflow || c.widerThanColumn || c.overhangsColumn);
   expect(bad, cardWidthMessage(MEASURED_WIDTH, cards)).toEqual([]);
 
   const doc = await page.evaluate(probeDocumentWidth);
-  expect(doc.scrollWidth, `12 teams: document scrollWidth=${doc.scrollWidth} clientWidth=${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
+  expect(doc.scrollWidth, `${teams} teams: document scrollWidth=${doc.scrollWidth} clientWidth=${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
 });
+}
 
 // ---- Geometry: the hero cards share a row height (measured once, at the
 // audit's own width) ----
@@ -309,10 +311,10 @@ test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal h
 // ---- Geometry: the rail tracks the standings, Quick Actions spans the row ----
 
 // ADR 0034's bound: `dashboard-main` is within 120px of the standings table, so
-// a rail that outgrows the standings is what fails, and (the 12-team
-// regression) so is a rail card that stops short of them: it shows one row per
-// Team up to 12, as the standings do. Run for both the 6-team fixture and the
-// 12-team variant.
+// a rail that outgrows the standings is what fails. The rail card itself is held
+// to 60px of the standings, so a card that stops short of them (the 12-team
+// regression) fails too: it shows ceil(teams * 5 / 6) rows, because a standings
+// row is 49px and an activity row 58.8px. Run at 6, 12 and 20 teams.
 for (const teams of TEAM_COUNTS) {
   test(`League Dashboard, ${teams} teams @ ${MEASURED_WIDTH}x${HEIGHT}: the rail tracks the standings within 120px and stays sticky`, async ({ page }) => {
     await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, teams);
@@ -327,10 +329,14 @@ for (const teams of TEAM_COUNTS) {
       `${teams} teams: dashboard-main height=${bound.mainHeight} standings height=${bound.standingsHeight}`,
     ).toBeLessThanOrEqual(120);
     const railDiff = Math.abs((bound.railCardHeight as number) - (bound.standingsHeight as number));
+    // Measured deltas, reported in the PR.
+    console.log(
+      `[league-dashboard-layout] ${teams} teams: standings=${bound.standingsHeight} main=${bound.mainHeight} rail card=${bound.railCardHeight} |main-standings|=${mainDiff.toFixed(1)} |rail-standings|=${railDiff.toFixed(1)}`,
+    );
     expect(
       railDiff,
       `${teams} teams: recent-activity height=${bound.railCardHeight} standings height=${bound.standingsHeight}`,
-    ).toBeLessThanOrEqual(120);
+    ).toBeLessThanOrEqual(60);
     expect(bound.railPosition, 'dashboard-rail must compute position: sticky at md').toBe('sticky');
   });
 
@@ -370,7 +376,7 @@ for (const teams of TEAM_COUNTS) {
 
     const before = await diffs();
     expect(before.main).toBeLessThanOrEqual(120);
-    expect(before.card).toBeLessThanOrEqual(120);
+    expect(before.card).toBeLessThanOrEqual(60);
 
     await page.evaluate(() => {
       const rail = document.querySelector('[data-testid="dashboard-rail"]') as HTMLElement | null;
@@ -390,7 +396,7 @@ for (const teams of TEAM_COUNTS) {
         card.style.overflow = 'hidden';
       }
     });
-    expect((await diffs()).card, 'a rail card cut to 150px must be reported as short of the standings').toBeGreaterThan(120);
+    expect((await diffs()).card, 'a rail card cut to 150px must be reported as short of the standings').toBeGreaterThan(60);
     await page.evaluate(() => {
       const card = document.querySelector('[data-testid="recent-activity"]') as HTMLElement | null;
       if (card) {
@@ -398,7 +404,7 @@ for (const teams of TEAM_COUNTS) {
         card.style.overflow = '';
       }
     });
-    expect((await diffs()).card).toBeLessThanOrEqual(120);
+    expect((await diffs()).card).toBeLessThanOrEqual(60);
   });
 }
 

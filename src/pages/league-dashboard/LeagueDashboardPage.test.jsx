@@ -583,22 +583,23 @@ test.each([
   expect(cssFor(rail)).toMatch(/position:\s*sticky/);
 });
 
-// Red-tell (#1993): the rail tracks the standings, one row per Team up to 12.
-// A cap that stays at the old `min(8, teams)` turns the 12-team case red;
-// dropping the cap turns the 6-team case red (the card would hold all twelve
-// fetched rows beside six standings rows); a cap above 12 turns the 15-team
-// case red.
+// Red-tell (#1993): the rail tracks the standings. A standings row measures 49px
+// and an activity row 58.8px (6:5), so the card shows ceil(teams * 5 / 6) rows.
+// One row per Team (an earlier `min(teams, 12)`) turns every case red; the old
+// `min(8, teams)` turns the 12 and 20-team cases red; a cap above the 17 rows a
+// 20-team league needs turns the 25-team case red.
 test.each([
-  [6, 6],
-  [12, 12],
-  [15, 12],
-])('the rail card shows min(teams, 12) rows at md: %i teams, %i rows', async (teams, rows) => {
+  [6, 5],
+  [12, 10],
+  [20, 17],
+  [25, 17],
+])('the rail card shows ceil(teams * 5 / 6) rows at md, at most 17: %i teams, %i rows', async (teams, rows) => {
   mockGetByUrl({
     '/api/league/1': leagueDetail({
       league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
       teams: buildTeams(teams),
     }),
-    '/api/league/1/transactions': { data: transactionRows(15) },
+    '/api/league/1/transactions': { data: transactionRows(20) },
   });
   renderPage();
 

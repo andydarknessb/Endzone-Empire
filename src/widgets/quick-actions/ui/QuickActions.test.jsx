@@ -195,6 +195,40 @@ test('a row is 40px tall at md and up and 48px tall below md, and its icon sits 
   expect(within(tile('waivers')).getByTestId('quick-action-chevron-waivers')).toBeInTheDocument();
 });
 
+// Red-tell (#1993 F2): with one column per group the status line has about a
+// third of the card between md (900) and lg (1200), and real copy ("2 empty
+// starting slots · 2 starters on bye") does not fit on one line there. It wraps
+// at md and only truncates (nowrap + ellipsis) from lg up, and below md, where
+// the single column is wide. Leaving it `nowrap` at md turns the first
+// assertion red; an ellipsis at md turns the second red.
+// cssFor flattens breakpoints, so this reads the declarations per media query.
+const declarationsAt = (el, minWidth) => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  let css = '';
+  Array.from(document.styleSheets).forEach((sheet) => {
+    Array.from(sheet.cssRules).forEach((media) => {
+      if (!media.media || !media.media.mediaText.replace(/\s/g, '').includes(`min-width:${minWidth}px`)) return;
+      Array.from(media.cssRules).forEach((rule) => {
+        if (rule.selectorText && rule.selectorText.startsWith(`.${cls}`)) css += `${rule.style.cssText};`;
+      });
+    });
+  });
+  return css;
+};
+
+test('the status line wraps between md and lg and truncates only from lg', async () => {
+  renderWidget();
+  await screen.findByTestId('quick-actions');
+
+  const status = within(tile('waivers')).getByText('Claim free agents and place bids');
+  expect(declarationsAt(status, 900)).toMatch(/white-space:\s*normal/);
+  expect(declarationsAt(status, 900)).not.toMatch(/text-overflow:\s*ellipsis/);
+  expect(declarationsAt(status, 1200)).toMatch(/white-space:\s*nowrap/);
+  expect(declarationsAt(status, 1200)).toMatch(/text-overflow:\s*ellipsis/);
+  // xs is emitted as `min-width: 0px`: below md the line still truncates.
+  expect(declarationsAt(status, 0)).toMatch(/white-space:\s*nowrap/);
+});
+
 // --- columns ----------------------------------------------------------
 
 // Red-tell (#1993): the card spans the dashboard's full width now, so each group
