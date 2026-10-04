@@ -8,9 +8,10 @@ import useMatchupPreview from '../model/useMatchupPreview';
 /**
  * League Dashboard hero-right widget (ticket #640): the viewer's own Team and
  * this week's opponent side by side, each with an avatar, Team name, a figure
- * in the display slot and a label, split by a "VS" divider, and two footer
- * actions ("Compare rosters" to the matchup detail, "Set Lineup" to the lineup
- * page) rendered as MUI Buttons that are router links.
+ * in the display slot and a label, split by a "VS" divider, and one footer
+ * action ("Compare rosters" to the matchup detail) rendered as a DashButton
+ * that is a router link. The lineup page is not linked from here (#1979 L4):
+ * the My Team card and Quick Actions both carry Set Lineup.
  *
  * The card has two faces, and which one it wears is the server's `status`, read
  * through the entity predicate in the model (ADR 0030), never inferred here:
@@ -116,7 +117,7 @@ export default function MatchupPreview({ leagueId }) {
 
       {status === 'ready' && (
         <>
-          <Box sx={{ p: 2.25, display: 'grid', gap: 1.75 }}>
+          <Box sx={{ p: { xs: 1.5, sm: 2.25 }, display: 'grid', gap: 1.75 }}>
             <Box data-testid="matchup-versus" sx={VERSUS_SX}>
               <Side testid="matchup-side-viewer" side={viewer} started={started} />
               <Box sx={VS_PILL_SX}>VS</Box>
@@ -160,13 +161,6 @@ export default function MatchupPreview({ leagueId }) {
             >
               Compare rosters
             </DashButton>
-            <DashButton
-              component={RouterLink}
-              to={`/league/${leagueId}/lineup`}
-              sx={BUTTON_ROW_SX}
-            >
-              Set Lineup
-            </DashButton>
           </Box>
         </>
       )}
@@ -174,15 +168,18 @@ export default function MatchupPreview({ leagueId }) {
   );
 }
 
-// The versus block. One column on a phone, where two 125px columns ellipsised
-// both Team names; the mockup's three columns from `sm` up. The pill has to
-// claim its own centre in the one-column case or it stretches into a
-// full-width bar.
+// The versus block: three columns at every width (#1979 L2), so the two scores
+// sit side by side and the card stays above the fold on a phone, where the
+// earlier one-column stack pushed the opponent below it. The side tracks carry
+// a zero minimum so a long Team name or a wide tile shrinks its column instead
+// of widening the card; at 320px each side is about 90px, which is why the
+// Team name clamps to two lines (Side below) and the gap and pill tighten
+// below `sm`. The pill claims its own centre so it never stretches to a track.
 const VERSUS_SX = {
   display: 'grid',
-  gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '1fr auto 1fr' },
+  gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
   alignItems: 'center',
-  gap: 1.5,
+  gap: { xs: 0.75, sm: 1.5 },
 };
 
 const VS_PILL_SX = {
@@ -193,7 +190,7 @@ const VS_PILL_SX = {
   color: 'var(--dash-faint)',
   border: '1px solid var(--dash-line)',
   borderRadius: 'var(--radius-pill)',
-  px: 1.5,
+  px: { xs: 1, sm: 1.5 },
   py: 0.75,
 };
 
@@ -228,9 +225,14 @@ function Side({ testid, side, started }) {
         component="div"
         sx={{
           maxWidth: '100%',
+          // Two lines then an ellipsis (#1979 L2): a ~90px phone column cannot
+          // hold a Team name on one line. `anywhere` breaks an unbroken name
+          // inside its column rather than past it.
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: 2,
           overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
+          overflowWrap: 'anywhere',
           fontSize: '14px',
           fontWeight: 600,
           color: 'var(--dash-ink)',
@@ -408,11 +410,10 @@ function Placeholder() {
 
 // The loading shape carries the SAME track and centring rules as the real
 // versus block (and the same testid, since only one of the two is ever
-// mounted), or the card reflows from one column to three the moment the read
-// lands.
+// mounted), or the card reflows the moment the read lands.
 function VersusSkeleton() {
   return (
-    <Box data-testid="matchup-versus" sx={{ ...VERSUS_SX, p: 2.25 }}>
+    <Box data-testid="matchup-versus" sx={{ ...VERSUS_SX, p: { xs: 1.5, sm: 2.25 } }}>
       <SideSkeleton />
       <Skeleton
         data-testid="matchup-skeleton"

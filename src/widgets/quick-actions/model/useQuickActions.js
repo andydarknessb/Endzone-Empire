@@ -1,5 +1,4 @@
 import {
-  useEndpoint,
   parseRosterSlots,
   deriveLeaguePhase,
   isSeasonLive,
@@ -8,6 +7,7 @@ import {
   lineupAttention,
 } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
+import { useTeamLineup } from '../../../entities/roster';
 
 /**
  * Data model for the quick-actions widget (League Dashboard, ticket #643): the
@@ -17,37 +17,46 @@ import { useLeague } from '../../../hooks/useLeague';
  *
  * Almost every card's status copy is CHEAP and LOCAL: it comes from the league
  * row the page already holds (phase and current week) or is a fixed descriptive
- * line. The one sanctioned extra read is the viewer's roster, used only for the
+ * line. The one sanctioned extra read is the viewer's lineup, used only for the
  * Set Lineup recommendation.
  *
- *   - The roster read is `/api/team/roster?leagueId=N`, on the service-worker
- *     allowlist (public/service-worker.js). It is a plain useEndpoint read, NOT
- *     a shared useResource resource, because this widget is the SINGLE mount of
- *     that URL on the League Dashboard (ADR 0004: cache through useResource when
- *     the GET is on the allowlist AND read by more than one mount per typical
- *     navigation - here only the first half holds). If a second consumer of the
- *     roster read ever lands on this page, move it to useResource, the way the
- *     league read already is.
- *   - The recommendation is BEST EFFORT and never an error state: a roster read
+ *   - The lineup read is `useTeamLineup` from `entities/roster`, the SAME read
+ *     My Team's Starters section makes (#1981): both mounts are on this page
+ *     and share one `/api/team/lineup` request through the `useResource` cache
+ *     (ADR 0004), so the two can never disagree about an empty slot or a spent
+ *     one. It replaced a `/api/team/roster` read, whose query joins from
+ *     `team_players` and drops a departed starter's row, so a spent slot read
+ *     as empty here and as filled on My Team.
+ *   - The recommendation is BEST EFFORT and never an error state: a lineup read
  *     that fails (or is still loading) simply yields no recommendation and the
  *     Set Lineup card renders its plain copy. It is skipped entirely for a
  *     pick'em-only league, which has no lineup (the Set Lineup card is hidden
  *     there), so the read never fires.
  *
+ * The Set Lineup recommendation is only made while the season is live (in
+ * season or playoffs, `isSeasonLive`): before the draft finishes the card reads
+ * `Lineups open after the draft` and is never recommended (#1979 L25).
+ *
  * The empty-starting-slot count and starters-on-bye come from the shared
  * lineupAttention helper (src/shared/lib/lineupAttention.js), the SAME implementation
  * the lineup screen's warning banner reads, so the dashboard's recommendation
  * and the lineup screen can never disagree about whether a manager is set. This
- * widget supplies the "on bye" predicate the helper leaves to its caller:
- * `bye_week === current_week` on each roster row (the roster route annotates
- * every row with its NFL team's bye for the league's current season).
+ * widget supplies the "on bye" predicate the helper leaves to its caller: the
+ * lineup wire's own per-entry `onBye` (annotateLineupEntries computes it against
+ * the requested week and never sets it on a spent row), passed through the
+ * entity's read model rather than re-derived from a bye week here.
  */
+
+// The phases in which the draft can still be configured (#1981 L11). After the
+// draft the card would invite a settings page with nothing left to change.
+const DRAFT_TIME_PHASES = [LEAGUE_PHASE.PRE_DRAFT, LEAGUE_PHASE.DRAFTING];
 
 // The action catalog, grouped by intent. Mirrors the legacy dashboard's
 // NAV_GROUPS (slug -> /league/:id/<slug>) so destinations carry over unchanged.
 // `fantasyOnly` cards have no surface in a pick'em-only league (no draft,
 // rosters or matchups); `commissionerOnly` cards need the league's commissioner
-// flag. A group with nothing left after filtering is dropped.
+// flag; `phases`, when present, limits a card to those league phases. A group
+// with nothing left after filtering is dropped.
 const GROUPS = [
   {
     label: 'Play',
@@ -72,17 +81,17 @@ const GROUPS = [
       { key: 'power-rankings', label: 'Power Rankings', slug: 'power-rankings', fantasyOnly: true },
       { key: 'history', label: 'History', slug: 'history' },
       { key: 'rules', label: 'League Rules', slug: 'rules' },
-      { key: 'draft-settings', label: 'Draft Settings', slug: 'draft-settings', fantasyOnly: true, commissionerOnly: true },
+      {
+        key: 'draft-settings',
+        label: 'Draft Settings',
+        slug: 'draft-settings',
+        fantasyOnly: true,
+        commissionerOnly: true,
+        phases: DRAFT_TIME_PHASES,
+      },
     ],
   },
 ];
-
-// The roster read below uses the shared useEndpoint (src/shared/lib, #669) and
-// ignores its `httpStatus` field deliberately: this widget needs only
-// ready-vs-not and the payload, never the failure's status code, because a
-// failed roster read and a loading one both mean "no recommendation yet" (the
-// recommendation is best effort). Ignoring the status is a decision, not an
-// oversight.
 
 // The league's starting-slot config, as the lineupAttention helper wants it.
 // `roster_slots` rides on the league row (SELECT leagues.*); it is jsonb, so it
@@ -136,7 +145,7 @@ function tradeDeadlinePassed(week, tradeDeadlineWeek) {
 }
 
 // Per-card status copy + whether it is Recommended, from local signals only.
-// `attention` is null unless the roster read has resolved.
+// `attention` is null unless the lineup read has resolved.
 function describeCard(key, ctx) {
   const {
     phase, pickemOnly, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
@@ -153,7 +162,13 @@ function describeCard(key, ctx) {
       }
       return { status: 'Draft complete · review the board', recommended: false };
     case 'lineup': {
-      if (attention && (attention.emptyStarterSlots > 0 || attention.startersOnBye.length > 0)) {
+      // Before the draft finishes the roster is empty, so every starting slot
+      // reads empty and a recommendation would nag about a lineup nobody can
+      // set yet (#1979 L25). Recommend only while the season is live.
+      if (phase === LEAGUE_PHASE.PRE_DRAFT || phase === LEAGUE_PHASE.DRAFTING) {
+        return { status: 'Lineups open after the draft', recommended: false };
+      }
+      if (seasonLive && attention && (attention.emptyStarterSlots > 0 || attention.startersOnBye.length > 0)) {
         return { status: lineupRecommendationCopy(attention), recommended: true };
       }
       return {
@@ -217,22 +232,23 @@ export function useQuickActions(leagueId) {
 
   // The one sanctioned extra read, for the Set Lineup recommendation. Skipped
   // for a pick'em-only league (Set Lineup is hidden there) and until the league
-  // id is known.
-  const rosterUrl =
-    leagueId != null && !pickemOnly ? `/api/team/roster?leagueId=${leagueId}` : null;
-  const roster = useEndpoint(rosterUrl);
+  // and its week are known. It ignores the read's `error`: a failed read and a
+  // loading one both mean "no recommendation yet" (best effort), which is a
+  // decision, not an oversight.
+  const { lineup } = useTeamLineup(
+    leagueId != null && !pickemOnly ? leagueId : null,
+    week,
+  );
 
-  // Attention signals only once the roster read has resolved; a failed or
-  // pending read yields no recommendation (best effort).
-  let attention = null;
-  if (roster.status === 'ready') {
-    const rows = Array.isArray(roster.data) ? roster.data : [];
-    const entries = rows.map((row) => ({
-      slot: row.lineup_slot,
-      onBye: row.bye_week != null && Number(row.bye_week) === Number(week),
-    }));
-    attention = lineupAttention({ rosterSlots: rosterSlotsOf(league), entries });
-  }
+  // Attention signals only once the lineup read has resolved. Fed `entries`, not
+  // `starters`, for the reason My Team gives: a spent row keeps its original
+  // starting slot and must count as filled.
+  const attention = lineup
+    ? lineupAttention({
+        rosterSlots: rosterSlotsOf(league),
+        entries: lineup.entries.map((e) => ({ slot: e.slot, onBye: e.onBye })),
+      })
+    : null;
 
   const ctx = {
     phase, pickemOnly, seasonLive, week, attention, transactionsLocked, tradeDeadlineWeek,
@@ -245,6 +261,7 @@ export function useQuickActions(leagueId) {
     const cards = group.links
       .filter((link) => !(link.fantasyOnly && pickemOnly))
       .filter((link) => !(link.commissionerOnly && !isCommissioner))
+      .filter((link) => !link.phases || link.phases.includes(phase))
       .map((link) => {
         const { status, recommended } = describeCard(link.key, ctx);
         return {

@@ -7,7 +7,8 @@ import {
   Select,
   MenuItem,
 } from '@mui/material';
-import { Card, Badge, TeamAvatar } from '../../shared/ui';
+import { visuallyHidden } from '@mui/utils';
+import { Card, TeamAvatar } from '../../shared/ui';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 
@@ -111,41 +112,60 @@ export function TrophyIcon({ type, size = 20 }) {
   );
 }
 
-const WEEKLY_TROPHY_TYPES = [
-  'weekly_high',
-  'top_scorer',
-  'closest_game',
-  'biggest_blowout',
-  'perfect_lineup',
-  'captain_hindsight',
-  'called_shot',
-];
+// What the tally calls each trophy type. The server's labels carry parameters
+// (`Best Draft (A)`, `Longest Win Streak (7)`, `2026 League Champion`), which
+// name an award but not a column, so the tally reads the type instead. A type
+// a newer server awards falls back to its label with the trailing `(...)`
+// removed (see `typeName`), so it still shows up with no client change.
+const TYPE_NAMES = {
+  top_scorer: 'Top Scorer',
+  captain_hindsight: 'Captain Hindsight',
+  perfect_lineup: 'Perfect Lineup',
+  called_shot: 'Called Shot',
+  champion: 'Champion',
+  pickem_champion: "Pick'em Champion",
+  draft_grade: 'Best Draft',
+  win_streak: 'Longest Win Streak',
+  comeback: 'Biggest Comeback',
+  fewest_left_on_bench: 'Fewest Left on the Bench',
+  weekly_high: 'Weekly High',
+  closest_game: 'Closest Game',
+  biggest_blowout: 'Biggest Blowout',
+};
 
-function trophySubLabel(trophy) {
-  if (WEEKLY_TROPHY_TYPES.includes(trophy.type) && trophy.week != null) {
-    return `${trophy.team_name} · Week ${trophy.week}`;
-  }
-  return trophy.team_name;
+function typeName(trophy) {
+  return TYPE_NAMES[trophy.type] || String(trophy.label).replace(/\s*\([^)]*\)\s*$/, '');
+}
+
+// Rows shown before "Show all": a phone gets the season's headline awards and
+// latest weeks and the top of the leaderboard, not 40-odd award rows and a row
+// for every team in the league.
+const COLLAPSED_ROWS = 6;
+const TALLY_ROWS = 5;
+
+// A season award (champion, best draft, win streak) carries week 0 or none; a
+// weekly award carries the week it was won.
+const isSeasonAward = (trophy) => !trophy.week;
+
+/**
+ * The award rows' order: season awards first, then weekly awards newest week
+ * first. A stable sort, so awards of the same week keep the server's order.
+ */
+function orderAwards(seasonTrophies) {
+  const rank = (t) => (isSeasonAward(t) ? Infinity : t.week);
+  return [...seasonTrophies].sort((a, b) => rank(b) - rank(a));
 }
 
 /**
- * The season's per-team tally: one row per team, a count for every trophy type
- * awarded that season, ordered by total then name. Types come from the trophies
- * themselves (label included), so a type a newer server awards appears with no
- * client change. `teams` (the league's roster, already loaded by the page)
- * supplies teams that won nothing; a team only the trophies know about is
- * still listed, so the tally is complete with or without the roster.
+ * The season's per-team leaderboard: one row per team, ordered by total then
+ * name, each with its count of every trophy type it holds (only the types it
+ * holds, most first). Types are named by `typeName`, so a type a newer server
+ * awards appears with no client change. `teams` (the league's roster, already
+ * loaded by the page) supplies teams that won nothing; a team only the
+ * trophies know about is still listed, so the tally is complete with or
+ * without the roster.
  */
 function buildTally(seasonTrophies, teams = []) {
-  const types = new Map();
-  seasonTrophies.forEach((t) => {
-    if (!types.has(t.type)) types.set(t.type, { type: t.type, label: t.label, total: 0 });
-    types.get(t.type).total += 1;
-  });
-  const typeList = Array.from(types.values()).sort(
-    (a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label))
-  );
-
   const byTeam = new Map();
   // One row shape, keyed on the canonical Team identity (`teamId`, `teamName`)
   // rather than the raw `id`/`name` columns the league-detail route leaks
@@ -156,7 +176,7 @@ function buildTally(seasonTrophies, teams = []) {
       teamName: tm.teamName,
       avatar_url: tm.avatar_url,
       avatar_static_url: tm.avatar_static_url,
-      counts: {},
+      counts: new Map(),
       total: 0,
     })
   );
@@ -167,23 +187,125 @@ function buildTally(seasonTrophies, teams = []) {
         teamName: t.team_name,
         avatar_url: null,
         avatar_static_url: null,
-        counts: {},
+        counts: new Map(),
         total: 0,
       });
     }
     const row = byTeam.get(t.team_id);
-    row.counts[t.type] = (row.counts[t.type] || 0) + 1;
+    const name = typeName(t);
+    row.counts.set(name, (row.counts.get(name) || 0) + 1);
     row.total += 1;
   });
-  const rows = Array.from(byTeam.values()).sort(
-    (a, b) =>
-      b.total - a.total || String(a.teamName).localeCompare(String(b.teamName))
-  );
-  return { typeList, rows };
+  return Array.from(byTeam.values())
+    .map((row) => ({
+      ...row,
+      breakdown: Array.from(row.counts, ([name, count]) => ({ name, count })).sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name)
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        b.total - a.total || String(a.teamName).localeCompare(String(b.teamName))
+    );
 }
 
-function TrophyTally({ seasonTrophies, teams }) {
-  const { typeList, rows } = useMemo(() => buildTally(seasonTrophies, teams), [seasonTrophies, teams]);
+// Row rules and padding follow the other dashboard cards' lists
+// (RecentActivity.jsx): 18px sides, a 1px `dash-line` rule between rows.
+const ROW_SX = (first) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+  px: '18px',
+  py: '8px',
+  minWidth: 0,
+  // Two text lines per row: a tighter leading than the page's 1.5 keeps a row
+  // near 50px, which is what lets the capped lists fit a phone's second screen.
+  lineHeight: 1.3,
+  borderTop: first ? 0 : '1px solid var(--dash-line)',
+});
+
+const LIST_SX = { listStyle: 'none', m: 0, p: 0, minWidth: 0 };
+
+/**
+ * One tally row as a grid: the avatar spans both lines, the Team name (one
+ * line, ellipsized like the standings' names) and the total share the first,
+ * and the type breakdown takes the second across the name and total columns
+ * so it can wrap without ever pushing the total.
+ */
+function TallyRow({ row, first, isViewer }) {
+  return (
+    <Box
+      component="li"
+      data-testid={`tally-team-${row.teamId}`}
+      data-viewer-team={isViewer || undefined}
+      sx={{
+        ...ROW_SX(first),
+        display: 'grid',
+        gridTemplateColumns: '24px minmax(0, 1fr) auto',
+        columnGap: '10px',
+        rowGap: '1px',
+        fontFamily: 'var(--dash-font-body)',
+        // The island's one viewer treatment (the standings and Draft Grades
+        // paint the same pair): the accent tint plus a 3px inset accent bar.
+        // Ink and dim on the tint over a card are registered in
+        // tokens.contrast.test.js, so no new pairing is composed here.
+        ...(isViewer
+          ? {
+              position: 'relative',
+              backgroundColor: 'var(--dash-accent-soft)',
+              boxShadow: 'inset 3px 0 0 var(--dash-accent)',
+            }
+          : {}),
+      }}
+    >
+      <Box sx={{ gridRow: '1 / span 2', alignSelf: 'center', display: 'inline-flex' }}>
+        <TeamAvatar
+          name={row.teamName}
+          avatarUrl={row.avatar_url}
+          avatarStaticUrl={row.avatar_static_url}
+          size={24}
+        />
+      </Box>
+      <Box
+        component="span"
+        title={row.teamName}
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: '13.5px',
+          fontWeight: 600,
+          color: 'var(--dash-ink)',
+        }}
+      >
+        {row.teamName}
+      </Box>
+      {/* Not colour alone (1.4.1): the tint and bar are the sighted mark. */}
+      {isViewer && <Box component="span" sx={visuallyHidden}>your team</Box>}
+      <Box
+        component="span"
+        data-testid="tally-total"
+        sx={{ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', whiteSpace: 'nowrap' }}
+      >
+        {row.total === 1 ? '1 trophy' : `${row.total} trophies`}
+      </Box>
+      {row.breakdown.length > 0 && (
+        <Box
+          component="span"
+          data-testid="tally-breakdown"
+          // Every space inside an item is a non-breaking space, so a type name
+          // and its count stay whole and the middots are the only break.
+          sx={{ gridColumn: '2 / 4', fontSize: '12px', color: 'var(--dash-dim)' }}
+        >
+          {row.breakdown.map(({ name, count }) => `${name.replace(/ /g, '\u00a0')}\u00a0×${count}`).join(' · ')}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function TrophyTally({ rows, listId, viewerTeamId }) {
   if (rows.length === 0) return null;
   return (
     <Box
@@ -191,62 +313,113 @@ function TrophyTally({ seasonTrophies, teams }) {
       // WebKit drops the list mapping from a list-style: none <ul>, so VoiceOver
       // would read the rows as loose text without the explicit role.
       role="list"
+      id={listId}
       data-testid="trophy-tally"
       aria-label="Trophies by team"
-      sx={{ listStyle: 'none', m: 0, mb: 2, p: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}
+      sx={LIST_SX}
     >
-      {rows.map((row) => (
-        <Box
-          component="li"
-          key={row.teamId}
-          data-testid={`tally-team-${row.teamId}`}
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            columnGap: 1.5,
-            rowGap: 0.5,
-            minWidth: 0,
-            fontFamily: 'var(--dash-font-body)',
-          }}
-        >
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-            <TeamAvatar
-              name={row.teamName}
-              avatarUrl={row.avatar_url}
-              avatarStaticUrl={row.avatar_static_url}
-              size={24}
-            />
-            <Typography variant="body2" sx={{ fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}>
-              {row.teamName}
-            </Typography>
-          </Box>
-          <Typography variant="caption" sx={{ color: 'var(--dash-ink)', fontWeight: 600 }}>
-            Total {row.total}
-          </Typography>
-          {typeList.map(({ type, label }) => (
-            <Typography
-              key={type}
-              variant="caption"
-              sx={{ color: row.counts[type] ? 'var(--dash-ink)' : 'var(--dash-dim)' }}
-            >
-              {label} {row.counts[type] || 0}
-            </Typography>
-          ))}
-        </Box>
+      {rows.map((row, i) => (
+        <TallyRow key={row.teamId} row={row} first={i === 0} isViewer={viewerTeamId != null && row.teamId === viewerTeamId} />
       ))}
     </Box>
   );
 }
 
-function TrophyCase({ leagueId, teams }) {
+function AwardRow({ trophy, first }) {
+  return (
+    <Box component="li" data-testid={`trophy-${trophy.id}`} sx={{ ...ROW_SX(first), fontFamily: 'var(--dash-font-body)' }}>
+      <Box sx={{ display: 'inline-flex', flex: 'none', color: 'var(--dash-dim)' }}>
+        <TrophyIcon type={trophy.type} />
+      </Box>
+      <Box sx={{ display: 'grid', gap: '1px', flex: '1 1 0', minWidth: 0 }}>
+        <Box component="span" sx={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--dash-ink)', overflowWrap: 'anywhere' }}>
+          {trophy.label}
+        </Box>
+        {/* The Team ellipsizes (as the standings' names do) so the week suffix
+            never wraps onto a second line of its own (the leading non-breaking space
+            survives the flex item, which a plain space would not). */}
+        <Box component="span" sx={{ display: 'flex', minWidth: 0, fontSize: '12.5px', color: 'var(--dash-dim)' }}>
+          <Box component="span" title={trophy.team_name} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {trophy.team_name}
+          </Box>
+          {!isSeasonAward(trophy) && (
+            <Box component="span" sx={{ flex: 'none', whiteSpace: 'nowrap' }}>
+              {`\u00a0· Week ${trophy.week}`}
+            </Box>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+function TrophyAwards({ awards, listId }) {
+  return (
+    <Box
+      sx={{
+        minWidth: 0,
+        // Under the tally on a phone, beside it from md.
+        borderTop: { xs: '1px solid var(--dash-line)', md: 0 },
+        borderLeft: { xs: 0, md: '1px solid var(--dash-line)' },
+      }}
+    >
+      <Box component="ul" role="list" id={listId} aria-label="Awards" sx={LIST_SX}>
+        {awards.map((trophy, i) => (
+          <AwardRow key={trophy.id} trophy={trophy} first={i === 0} />
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+/** The one text button that opens or closes both capped lists. */
+function ShowAllToggle({ expanded, onToggle, label, controls }) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      data-testid="trophy-show-all"
+      aria-expanded={expanded}
+      aria-controls={controls}
+      onClick={onToggle}
+      sx={{
+        display: 'block',
+        width: '100%',
+        minHeight: 44,
+        px: '18px',
+        border: 0,
+        borderTop: '1px solid var(--dash-line)',
+        background: 'none',
+        font: 'inherit',
+        fontFamily: 'var(--dash-font-body)',
+        fontSize: '13px',
+        fontWeight: 600,
+        textAlign: 'left',
+        color: 'var(--dash-dim)',
+        cursor: 'pointer',
+        '&:hover': { color: 'var(--dash-ink)' },
+        '&:focus-visible': { outline: '2px solid var(--focus-ring)', outlineOffset: -2 },
+      }}
+    >
+      {label}
+    </Box>
+  );
+}
+
+/**
+ * `viewerTeamId` (optional) marks the viewer's own tally row, and keeps it on
+ * screen while the tally is collapsed. The dashboard passes nothing for a
+ * viewer with no Team of their own (a commissioner who never joined); League
+ * History does not mount this component at all (it imports TrophyIcon only).
+ */
+function TrophyCase({ leagueId, teams, viewerTeamId }) {
   const [trophies, setTrophies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [season, setSeason] = useState('');
-  // Named from its own heading rather than from an id plumbed out to whichever
-  // page wrapper mounts it (RecapCard does the same).
-  const headingId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const tallyId = useId();
+  const awardsId = useId();
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +451,9 @@ function TrophyCase({ leagueId, teams }) {
     };
   }, [leagueId]);
 
+  // A different season is a different pair of lists: start it collapsed.
+  useEffect(() => setExpanded(false), [season]);
+
   const seasonOptions = useMemo(
     () => Array.from(new Set(trophies.map((t) => t.season))).sort((a, b) => b - a),
     [trophies]
@@ -288,23 +464,41 @@ function TrophyCase({ leagueId, teams }) {
     [trophies, season]
   );
 
+  const tallyRows = useMemo(() => buildTally(visibleTrophies, teams), [visibleTrophies, teams]);
+  const awards = useMemo(() => orderAwards(visibleTrophies), [visibleTrophies]);
+
   if (loading || error || trophies.length === 0) {
     return null;
   }
 
+  // Both lists are capped so the card does not grow with the league or the
+  // season: the top TALLY_ROWS teams and the first COLLAPSED_ROWS awards, with
+  // one toggle for the pair. It names only the list(s) that are actually cut.
+  const tallyCapped = tallyRows.length > TALLY_ROWS;
+  const awardsCapped = awards.length > COLLAPSED_ROWS;
+  const capped = tallyCapped || awardsCapped;
+  // Collapsed, the viewer's own Team stays visible even when it ranks below the
+  // top TALLY_ROWS: it is appended as one more row, in its true rank order.
+  const viewerIndex = viewerTeamId == null ? -1 : tallyRows.findIndex((r) => r.teamId === viewerTeamId);
+  const collapsedTally =
+    viewerIndex >= TALLY_ROWS
+      ? [...tallyRows.slice(0, TALLY_ROWS), tallyRows[viewerIndex]]
+      : tallyRows.slice(0, TALLY_ROWS);
+  const hiddenNouns = [
+    tallyCapped && `${tallyRows.length} teams`,
+    awardsCapped && `${awards.length} awards`,
+  ]
+    .filter(Boolean)
+    .join(' and ');
+
   return (
-    <Card sx={{ p: 2 }} aria-labelledby={headingId} data-testid="trophy-case">
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography
-          id={headingId}
-          variant="h6"
-          component="h2"
-          sx={{ fontFamily: 'var(--dash-font-display)' }}
-        >
-          Trophy Case
-        </Typography>
-        {seasonOptions.length > 1 && (
-          <FormControl size="small" sx={{ minWidth: 140 }}>
+    <Card
+      data-testid="trophy-case"
+      title="Trophy Case"
+      count={String(visibleTrophies.length)}
+      tail={
+        seasonOptions.length > 1 ? (
+          <FormControl size="small" sx={{ minWidth: 110 }}>
             <InputLabel id="trophy-season-select-label">Season</InputLabel>
             <Select
               labelId="trophy-season-select-label"
@@ -320,44 +514,30 @@ function TrophyCase({ leagueId, teams }) {
               ))}
             </Select>
           </FormControl>
-        )}
-      </Box>
-      {visibleTrophies.length > 0 && <TrophyTally seasonTrophies={visibleTrophies} teams={teams} />}
+        ) : undefined
+      }
+    >
       {visibleTrophies.length === 0 ? (
-        <Typography variant="body2" sx={{ color: 'var(--dash-dim)', fontFamily: 'var(--dash-font-body)' }}>
+        <Typography variant="body2" sx={{ p: '18px', color: 'var(--dash-dim)', fontFamily: 'var(--dash-font-body)' }}>
           No trophies for this season yet
         </Typography>
       ) : (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-          {visibleTrophies.map((trophy) => (
-            <Badge
-              key={trophy.id}
-              data-testid={`trophy-${trophy.id}`}
-              sx={{
-                height: 'auto',
-                '& .MuiChip-label': { px: 1.25, py: 1, whiteSpace: 'normal' },
-              }}
-            >
-              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                <TrophyIcon type={trophy.type} />
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 600, fontFamily: 'var(--dash-font-body)', color: 'var(--dash-ink)' }}
-                  >
-                    {trophy.label}
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{ fontFamily: 'var(--dash-font-body)', color: 'var(--dash-dim)' }}
-                  >
-                    {trophySubLabel(trophy)}
-                  </Typography>
-                </Box>
-              </Box>
-            </Badge>
-          ))}
-        </Box>
+        <>
+          {/* The tally and the awards stack on a phone and sit side by side
+              from md, so a wide card is not two screens of single-column rows. */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start' }}>
+            <TrophyTally rows={expanded ? tallyRows : collapsedTally} listId={tallyId} viewerTeamId={viewerTeamId} />
+            <TrophyAwards awards={expanded ? awards : awards.slice(0, COLLAPSED_ROWS)} listId={awardsId} />
+          </Box>
+          {capped && (
+            <ShowAllToggle
+              expanded={expanded}
+              onToggle={() => setExpanded((open) => !open)}
+              label={expanded ? 'Show fewer' : `Show all ${hiddenNouns}`}
+              controls={`${tallyId} ${awardsId}`}
+            />
+          )}
+        </>
       )}
     </Card>
   );

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import {
   Badge as MuiBadge,
   Box,
@@ -71,12 +71,20 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
  * v2 composition (ADR 0034, #1110): the commissioner strip sits directly under
  * the header at every width (`slot-commissioner-strip`) and replaces the old
  * three-branch commissioner rail card; the retired administration-panel
- * widget is deleted in this same PR. A fantasy league fills the hero (my-team
- * + matchup, `align-items: stretch` so the two cards share the row height), a
- * full-width Around the League strip, and the main grid (standings + a rail
- * holding Draft Grades only) followed by a second grid row of the same tracks
- * (Quick Actions in the wide track, Recent activity in the rail track), and
- * shows the weekly recap and the pre-draft countdown. A pick'em-only league
+ * widget is deleted in this same PR. A fantasy league fills the hero (matchup
+ * first, then my-team: the game-day order of #1979 L1, so the matchup is what
+ * a phone shows first; `align-items: stretch` so the two cards share the row
+ * height), then the weekly recap directly under the hero (`slot-recap`, #1988
+ * L20: the story under the final, and never between the manager and the live
+ * score), a full-width Around the League strip, and the main grid (standings
+ * + a rail) followed by a second grid row of the same tracks, and shows the
+ * pre-draft countdown. The rail and the second row's rail
+ * track swap their occupants with the phase (#1979 L5): while the season is
+ * live the rail holds Recent activity (the live feed beside the standings) and
+ * the second row holds Quick Actions plus Draft Grades; otherwise the rail
+ * holds Draft Grades and the second row Quick Actions plus Recent activity.
+ * The header's team-count and Draft Complete chips show only outside the live
+ * season (#1979 L12): in season the phase chip is the news. A pick'em-only league
  * has no fantasy team, matchups or draft, so none of those slices mount
  * (each would fire a fantasy
  * read that returns an empty or zeroed table): its body is the pick'em
@@ -235,6 +243,25 @@ export default function LeagueDashboardPage() {
   // no second source of phase truth. A pick'em-only league has no draft.
   const draftComplete =
     !pickemOnly && phase !== LEAGUE_PHASE.PRE_DRAFT && phase !== LEAGUE_PHASE.DRAFTING;
+  // The rail and the second row's rail track trade occupants with the phase
+  // (#1979 L5; see the main grid below). Each slot keeps its own testid either
+  // way, so a query by slot finds it wherever it sits.
+  // In the rail the card is capped at the team count (8 at most), so the rail
+  // ends about where the standings table does (ADR 0034: no bare page under the
+  // standings); in the second row it keeps its own 8-row cap.
+  const recentActivitySlot = (
+    <Box data-testid="slot-recent-activity">
+      <RecentActivity
+        leagueId={leagueId}
+        rowLimit={seasonLive ? Math.min(8, teams.length) : undefined}
+      />
+    </Box>
+  );
+  const draftGradesSlot = (
+    <Box data-testid="slot-draft-grades">
+      <DraftGrades leagueId={leagueId} />
+    </Box>
+  );
 
   return (
     <DashboardShell>
@@ -258,8 +285,10 @@ export default function LeagueDashboardPage() {
           {phaseChipLabel && (
             <Badge variant={seasonLive ? 'live' : 'neutral'}>{phaseChipLabel}</Badge>
           )}
-          <Badge variant="neutral">{`${teams.length} Teams`}</Badge>
-          {draftComplete && <Badge variant="neutral">Draft Complete</Badge>}
+          {/* In season the phase chip says what matters; the team count and
+              the finished draft are background then (#1979 L12). */}
+          {!seasonLive && <Badge variant="neutral">{`${teams.length} Teams`}</Badge>}
+          {!seasonLive && draftComplete && <Badge variant="neutral">Draft Complete</Badge>}
         </Box>
 
         {/* Commissioner-only, gated purely on the invite code the server sends
@@ -281,26 +310,19 @@ export default function LeagueDashboardPage() {
         <CommissionerStrip leagueId={leagueId} />
       </Box>
 
-      {/* Weekly recap: matchup-derived, so fantasy-only, gated on the same
-          isPickemOnly the legacy page used. Self-hides on a 404 (no recap
-          generated yet); a pick'em league never requests it. */}
-      {!pickemOnly && (
-        <Box component="section" data-testid="slot-recap" sx={EMPTY_HIDDEN_SX}>
-          <RecapCard leagueId={leagueId} />
-        </Box>
-      )}
-
       {pickemOnly ? (
         /* PICK'EM-ONLY body. A pick'em league has no fantasy team, matchups or
            draft, so the hero and main-grid slices never mount: each of them
            (my-team, matchup, standings table, draft grades) fires a fantasy
            read that would come back an empty or zeroed table. The pool
-           standings stand in their place, in a titled Card: this is the primary
-           content of a pick'em league, and as a bare section it was a nameless
-           region with no heading between the h1 and the quick-actions h2. */
-        <Card data-testid="dashboard-pickem-standings" title="Pick'em Standings">
-          <PickemStandings leagueId={leagueId} />
-        </Card>
+           standings stand in their place. The widget is its own titled Card
+           (`title` renames it), so this is a plain Box and not a second Card:
+           it is the primary content of a pick'em league, and as a bare section
+           it was a nameless region with no heading between the h1 and the
+           quick-actions h2. */
+        <Box data-testid="dashboard-pickem-standings">
+          <PickemStandings leagueId={leagueId} title="Pick'em Standings" />
+        </Box>
       ) : (
         <>
           {/* Pre-draft countdown to the scheduled draft, composed as-is from the
@@ -311,7 +333,36 @@ export default function LeagueDashboardPage() {
               the first block under the h1, and unwrapped it was an unlabelled
               section whose only text was a ticker. */}
           {preDraft && league.draft_date && (
-            <Card data-testid="slot-draft-countdown" title="Draft Day">
+            <Card
+              data-testid="slot-draft-countdown"
+              title="Draft Day"
+              tail={
+                <Button
+                  component={RouterLink}
+                  to={`/league/${leagueId}/draft`}
+                  variant="outlined"
+                  disableElevation
+                  sx={{
+                    ...MIN_TOUCH_TARGET_SX,
+                    textTransform: 'none',
+                    color: 'var(--dash-dim)',
+                    borderColor: 'var(--dash-line-strong)',
+                    borderRadius: 'var(--dash-radius-sm)',
+                    fontFamily: 'var(--dash-font-body)',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    whiteSpace: 'nowrap',
+                    '&:hover': {
+                      color: 'var(--dash-ink)',
+                      borderColor: 'var(--dash-accent-line)',
+                      backgroundColor: 'transparent',
+                    },
+                  }}
+                >
+                  Draft Room
+                </Button>
+              }
+            >
               <Box sx={{ px: 2.25, py: 2.25 }}>
                 <Countdown
                   variant="full"
@@ -324,7 +375,9 @@ export default function LeagueDashboardPage() {
             </Card>
           )}
 
-          {/* HERO: my-team beside matchup preview. Nameless <section> layout
+          {/* HERO: matchup preview beside my-team, matchup first in the DOM and
+              on the left (#1979 L1: game day opens on the matchup, and on a
+              phone the one column puts it at the top). Nameless <section> layout
               containers, deliberately NOT labelled landmarks: an empty labelled
               region is announced with nothing in it (noise). The real landmarks
               are the titled Cards the widgets render, each a labelled region via
@@ -332,10 +385,12 @@ export default function LeagueDashboardPage() {
 
               A viewer with no Team of their own (a commissioner who never
               joined) gets neither the left slot nor the track it sat in:
-              MyTeamSummary already returns null for them, and leaving the
+              MyTeamSummary already returns null for them, and leaving its
               5fr track in place bought 5/12 of the hero as bare `dash-bg`
-              beside a lone matchup card. viewerTeamId is the per-viewer field
-              that answers it (#112), not a scan of teams[].
+              beside a lone matchup card. With the matchup on the left, the
+              track that goes is the right-hand My Team one and the matchup
+              takes the whole row. viewerTeamId is the per-viewer field that
+              answers it (#112), not a scan of teams[].
 
               `alignItems: 'stretch'` (#1110) makes My Team and the matchup
               card share the row height, matching the canvas. Each slot Box is
@@ -359,18 +414,30 @@ export default function LeagueDashboardPage() {
               alignItems: 'stretch',
               gridTemplateColumns: {
                 xs: '1fr',
-                md: viewerTeamId == null ? '1fr' : '5fr 7fr',
+                md: viewerTeamId == null ? '1fr' : '7fr 5fr',
               },
             }}
           >
+            <Box data-testid="slot-matchup-preview" sx={{ display: 'grid' }}>
+              <MatchupPreview leagueId={leagueId} />
+            </Box>
             {viewerTeamId != null && (
               <Box data-testid="slot-my-team" sx={{ display: 'grid', ...EMPTY_HIDDEN_SX }}>
                 <MyTeamSummary leagueId={leagueId} />
               </Box>
             )}
-            <Box data-testid="slot-matchup-preview" sx={{ display: 'grid' }}>
-              <MatchupPreview leagueId={leagueId} />
-            </Box>
+          </Box>
+
+          {/* WEEKLY RECAP: directly after the hero, before Around the League, at
+              every width (#1988 L20). On a Tuesday the hero shows the final and
+              the recap right under it tells the story; on game day it no longer
+              sits between the manager and the live score (above the hero it
+              pushed the matchup card down a full phone screen). Matchup-derived,
+              so fantasy-only: it sits inside the `!pickemOnly` branch, so a
+              pick'em league never mounts it or requests it. Self-hides on a 404
+              (no recap generated yet); the wrapper then collapses. */}
+          <Box component="section" data-testid="slot-recap" sx={EMPTY_HIDDEN_SX}>
+            <RecapCard leagueId={leagueId} />
           </Box>
 
           {/* AROUND THE LEAGUE: full-width strip of the week's matchup tiles,
@@ -414,16 +481,20 @@ export default function LeagueDashboardPage() {
             <AroundTheLeague leagueId={leagueId} />
           </Box>
 
-          {/* MAIN: standings beside a rail holding Draft Grades only (same
+          {/* MAIN: standings beside a rail holding Recent activity while the
+              season is live and Draft Grades otherwise (same
               nameless-container reasoning as the hero). Collapses to one
               column at tablet width.
 
               The zero minimum is on the standings track only. A bare `1fr` or
               `8fr` track still floors at its item's min-content width, which is
               how a wide table dragged the whole document past the viewport. The
-              rail track keeps its automatic minimum: Draft Grades is a table
-              in its own horizontal scroller, so shrinking the track scrolls it
-              rather than clipping anything (the #916/#917/#919/#921 rule). */}
+              rail track keeps its automatic minimum: whichever card sits there
+              shrinks with it rather than clipping anything (the
+              #916/#917/#919/#921 rule). Draft Grades is a table in its own
+              horizontal scroller, so a narrower track scrolls it; Recent
+              activity's rows are flex rows with a zero-minimum text column that
+              ellipsises, so they have no min-content floor to protect. */}
           <Box
             component="section"
             data-testid="dashboard-main"
@@ -444,12 +515,16 @@ export default function LeagueDashboardPage() {
             <Box data-testid="slot-standings" sx={{ minWidth: 0, overflowX: 'clip' }}>
               <StandingsTable leagueId={leagueId} />
             </Box>
-            {/* The rail is short and the standings are long, so above md the
-                rail rides down with the scroll instead of leaving a column of
-                bare page beside row 8. `top: 22px` and not an app-bar offset:
+            {/* The rail is usually shorter than the standings (and at most a
+                few rows taller, which the layout spec bounds at 120px), so
+                above md it rides down with the scroll instead of leaving a
+                column of bare page beside row 8. `top: 22px` and not an app-bar offset:
                 Nav.jsx:95 is position="static", so nothing is pinned above it.
-                Draft Grades only now (#1110): the commissioner panel that used
-                to compose below it here moved to the strip under the header. */}
+                One card (#1110): the commissioner panel that used to compose
+                below it here moved to the strip under the header. In season
+                (#1979 L5) that card is Recent activity, the live feed, and
+                Draft Grades moves to the second row; before and after the
+                season it is Draft Grades, as it always was. */}
             <Box
               data-testid="dashboard-rail"
               sx={{
@@ -460,17 +535,17 @@ export default function LeagueDashboardPage() {
                 top: { md: '22px' },
               }}
             >
-              <Box data-testid="slot-draft-grades">
-                <DraftGrades leagueId={leagueId} />
-              </Box>
+              {seasonLive ? recentActivitySlot : draftGradesSlot}
             </Box>
           </Box>
 
           {/* SECOND ROW (#1110): the same two tracks as the main grid, Quick
-              Actions in the wide track and Recent activity in the rail track.
-              Recent activity is fantasy-only (the activity log is a fantasy
-              surface); this placement already guarantees that, being inside
-              the `!pickemOnly` branch, so no further gate is needed here. */}
+              Actions in the wide track and, in the rail track, whichever of
+              Recent activity and Draft Grades the rail above does not hold
+              (#1979 L5). Recent activity is fantasy-only (the activity log is
+              a fantasy surface); this placement already guarantees that, being
+              inside the `!pickemOnly` branch, so no further gate is needed
+              here. */}
           <Box
             component="section"
             data-testid="dashboard-second-row"
@@ -483,9 +558,7 @@ export default function LeagueDashboardPage() {
             <Box data-testid="dashboard-quick-actions" sx={EMPTY_HIDDEN_SX}>
               <QuickActions leagueId={leagueId} />
             </Box>
-            <Box data-testid="slot-recent-activity">
-              <RecentActivity leagueId={leagueId} />
-            </Box>
+            {seasonLive ? draftGradesSlot : recentActivitySlot}
           </Box>
         </>
       )}
@@ -511,7 +584,7 @@ export default function LeagueDashboardPage() {
           populated; gating it on fantasy would drop that. It self-hides on an
           empty list, so a league with no trophies renders nothing regardless. */}
       <Box component="section" data-testid="slot-trophy-case" sx={EMPTY_HIDDEN_SX}>
-        <TrophyCase leagueId={leagueId} teams={teams} />
+        <TrophyCase leagueId={leagueId} teams={teams} viewerTeamId={viewerTeamId} />
       </Box>
 
       {/* League chat: every member, in a drawer opened by a floating button that

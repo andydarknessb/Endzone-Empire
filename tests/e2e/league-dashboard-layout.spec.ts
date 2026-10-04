@@ -1,11 +1,13 @@
 /**
- * Layout guard for the League Dashboard v2 composition (#1110, ADR 0034).
+ * Layout guard for the League Dashboard v2 composition (#1110, ADR 0034) and
+ * its game-day order (#1980, spec #1979).
  *
  * jsdom has no layout engine, so the geometry this ticket's canvas measured
- * (equal-height hero cards via `align-items: stretch`, a Draft Grades rail
- * card close in height to the standings table it sits beside, no card ever
- * wider than its column) is measured by hand in headless Chromium and bound
- * here, exactly as tests/e2e/game-center-matchup-layout.spec.ts (#920) binds
+ * (equal-height hero cards via `align-items: stretch`, a rail that never
+ * leaves bare page under the standings table it sits beside and stays sticky,
+ * no card ever wider than its column, and since #1980 the matchup first:
+ * above the fold on a phone, left of My Team on desktop, its two scores side
+ * by side) is measured by hand in headless Chromium and bound here, exactly as tests/e2e/game-center-matchup-layout.spec.ts (#920) binds
  * the same family of invariants for Game Center and Matchup Detail. The jsdom
  * page test (LeagueDashboardPage.test.jsx) binds the CSS RULES (the grid
  * template strings, the `align-items: stretch` declaration); this spec binds
@@ -18,9 +20,12 @@
  * queue) alongside the nine endpoints Game Center and Matchup Detail already
  * used. The league row is a fantasy, in-season, commissioner league (#1110's
  * own `LEAGUE_ROW` extension), so every widget this ticket composes mounts
- * with real content: the strip, the hero (My Team + matchup), Around the
- * League, the main grid (standings + Draft Grades), and the second row (Quick
- * Actions + Recent activity).
+ * with real content: the strip, the hero (matchup + My Team), Around the
+ * League, the main grid (standings + a rail holding Recent activity, since the
+ * fixture's season is live, #1980), and the second row (Quick Actions + Draft
+ * Grades). The fixture serves the full 8 activity rows and 6 teams, so the
+ * page's team-count cap on the rail card (6 rows) is what the height bound
+ * below measures.
  *
  * It runs in the `browser-security` job (`npm run test:e2e`), which collects
  * every spec under tests/e2e with no file argument, so this file is picked up
@@ -117,17 +122,63 @@ function probeDocumentWidth() {
   return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
 }
 
-/** Bounding-box heights of the four cards the audit's geometry claims name. */
-function probeHeroAndRailHeights() {
+/** Bounding-box heights of the two hero cards the audit's equal-height claim names. */
+function probeHeroHeights() {
   const rectOf = (testId: string) => {
     const el = document.querySelector(`[data-testid="${testId}"]`);
     return el ? el.getBoundingClientRect().height : null;
   };
+  return { myTeam: rectOf('my-team-summary'), matchup: rectOf('matchup-preview') };
+}
+
+/**
+ * ADR 0034's one-sided rail bound: the main grid (standings beside the rail)
+ * is at most 120px taller than the standings table alone, so the rail never
+ * leaves bare page under the standings. The rail may be SHORTER than the
+ * standings (it rides down with the scroll, sticky). Also reads the rail's
+ * computed position.
+ */
+function probeRailBound() {
+  const el = (testId: string) => document.querySelector(`[data-testid="${testId}"]`);
+  const main = el('dashboard-main');
+  const standings = el('standings-table');
+  const rail = el('dashboard-rail');
   return {
-    myTeam: rectOf('my-team-summary'),
-    matchup: rectOf('matchup-preview'),
-    standings: rectOf('standings-table'),
-    draftGrades: rectOf('draft-grades'),
+    mainHeight: main ? main.getBoundingClientRect().height : null,
+    standingsHeight: standings ? standings.getBoundingClientRect().height : null,
+    railPosition: rail ? getComputedStyle(rail).position : null,
+  };
+}
+
+/** Top edges of the matchup card and of the two sides' score figures. */
+function probeMatchupGame() {
+  const topOf = (selector: string) => {
+    const el = document.querySelector(selector);
+    return el ? el.getBoundingClientRect().top + window.scrollY : null;
+  };
+  const card = document.querySelector('[data-testid="matchup-preview"]');
+  return {
+    cardTop: topOf('[data-testid="matchup-preview"]'),
+    cardHeight: card ? card.getBoundingClientRect().height : null,
+    viewerScoreTop: topOf('[data-testid="matchup-side-viewer"] [data-testid="matchup-side-score"]'),
+    opponentScoreTop: topOf('[data-testid="matchup-side-opponent"] [data-testid="matchup-side-score"]'),
+  };
+}
+
+/** Where the hero's two slots and the rail's occupant sit relative to each other. */
+function probeOrder() {
+  const rect = (testId: string) => {
+    const el = document.querySelector(`[data-testid="${testId}"]`);
+    return el ? el.getBoundingClientRect() : null;
+  };
+  const matchup = rect('slot-matchup-preview');
+  const myTeam = rect('slot-my-team');
+  const rail = document.querySelector('[data-testid="dashboard-rail"]');
+  const recent = document.querySelector('[data-testid="slot-recent-activity"]');
+  return {
+    matchupRight: matchup ? matchup.right : null,
+    myTeamLeft: myTeam ? myTeam.left : null,
+    recentActivityInRail: !!(rail && recent && rail.contains(recent)),
   };
 }
 
@@ -153,17 +204,19 @@ async function fontsReady(page: Page) {
  * Installs the harness, sizes the viewport, opens the dashboard and waits for
  * every widget this ticket composes to have rendered its real content (not
  * just its skeleton): the strip's facts, the hero's two cards, an Around the
- * League tile, a standings row, a Draft Grades row, and a Recent activity
- * row. Waiting on the LAST widget to settle (Recent activity, the rail track
- * of the second grid row - the furthest-down slice this ticket adds) is what
- * makes the width and height probes below measure the fully-loaded page
- * rather than a mid-load layout.
+ * League tile, a standings row, a Draft Grades row (second row), and a Recent
+ * activity row (the rail beside the standings in season). Quick Actions and
+ * Recent activity are the last of these to settle, which is what makes the
+ * width and height probes below measure the fully-loaded page rather than a
+ * mid-load layout.
  */
 async function gotoDashboard(page: Page, width: number, height: number) {
   await setupLayoutGuard(page);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
-  await page.getByTestId('commissioner-strip-facts').waitFor();
+  // Attached, not visible: the fact grid does not display below md (#1980), so
+  // visibility would never come at the phone widths this guard measures.
+  await page.getByTestId('commissioner-strip-facts').waitFor({ state: 'attached' });
   await page.getByTestId('my-team-summary').waitFor();
   await page.getByTestId('matchup-preview').waitFor();
   await page.getByTestId('around-the-league-tile').first().waitFor();
@@ -191,18 +244,15 @@ for (const width of WIDTHS) {
   });
 }
 
-// ---- Geometry: the hero cards share a row height, and Draft Grades sits
-// close to the standings table's height (measured once, at the audit's own
-// width) ----
+// ---- Geometry: the hero cards share a row height (measured once, at the
+// audit's own width) ----
 
-test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal height and Draft Grades is within 120px of the standings table`, async ({ page }) => {
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal height`, async ({ page }) => {
   await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
 
-  const heights = await page.evaluate(probeHeroAndRailHeights);
+  const heights = await page.evaluate(probeHeroHeights);
   expect(heights.myTeam, 'my-team-summary must be found').not.toBeNull();
   expect(heights.matchup, 'matchup-preview must be found').not.toBeNull();
-  expect(heights.standings, 'standings-table must be found').not.toBeNull();
-  expect(heights.draftGrades, 'draft-grades must be found').not.toBeNull();
 
   // `align-items: stretch` (#1110) on the hero grid: My Team and the matchup
   // card share the row height, within 1px (sub-pixel layout rounding).
@@ -210,14 +260,95 @@ test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the hero cards are equal h
     Math.abs((heights.myTeam as number) - (heights.matchup as number)),
     `My Team height=${heights.myTeam} matchup height=${heights.matchup}`,
   ).toBeLessThanOrEqual(1);
+});
 
-  // The audit's own bound (ADR 0034): Draft Grades within 120px of the
-  // standings table it sits beside, closing the 919px gap the audit measured
-  // under the old commissioner-panel rail card.
+// ---- Geometry: the rail never leaves bare page under the standings ----
+
+// ADR 0034's bound, one-sided: `dashboard-main` is at most 120px taller than
+// the standings table, so a rail that outgrows the standings is what fails
+// (a short rail rides down with the scroll, sticky). The rail card is Recent
+// activity here (season live), capped by the page at the team count.
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the rail adds at most 120px under the standings and stays sticky`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  const bound = await page.evaluate(probeRailBound);
+  expect(bound.mainHeight, 'dashboard-main must be found').not.toBeNull();
+  expect(bound.standingsHeight, 'standings-table must be found').not.toBeNull();
+  const extra = (bound.mainHeight as number) - (bound.standingsHeight as number);
   expect(
-    Math.abs((heights.standings as number) - (heights.draftGrades as number)),
-    `standings height=${heights.standings} draft-grades height=${heights.draftGrades}`,
+    extra,
+    `dashboard-main height=${bound.mainHeight} standings height=${bound.standingsHeight} extra=${extra}`,
   ).toBeLessThanOrEqual(120);
+  expect(bound.railPosition, 'dashboard-rail must compute position: sticky at md').toBe('sticky');
+});
+
+// Negative control: a rail forced tall enough to outgrow the standings must
+// push the bound over 120px, and removing the forcing must bring it back. A
+// bound that cannot go red would pass the uncapped 8-row rail it exists to
+// catch.
+test('negative control: the rail bound reports a rail that outgrows the standings', async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  const before = await page.evaluate(probeRailBound);
+  expect((before.mainHeight as number) - (before.standingsHeight as number)).toBeLessThanOrEqual(120);
+
+  await page.evaluate(() => {
+    const rail = document.querySelector('[data-testid="dashboard-rail"]') as HTMLElement | null;
+    if (rail) rail.style.minHeight = '2000px';
+  });
+  const during = await page.evaluate(probeRailBound);
+  expect(
+    (during.mainHeight as number) - (during.standingsHeight as number),
+    'a forced 2000px rail must be reported as over the bound',
+  ).toBeGreaterThan(120);
+
+  await page.evaluate(() => {
+    const rail = document.querySelector('[data-testid="dashboard-rail"]') as HTMLElement | null;
+    if (rail) rail.style.minHeight = '';
+  });
+  const after = await page.evaluate(probeRailBound);
+  expect((after.mainHeight as number) - (after.standingsHeight as number)).toBeLessThanOrEqual(120);
+});
+
+// ---- Game-day order (#1980, spec #1979 L1 L2 L4 L5) ----
+
+test('League Dashboard @ 390x844: the matchup is above the fold and its two scores sit side by side', async ({ page }) => {
+  await gotoDashboard(page, 390, 844);
+
+  const game = await page.evaluate(probeMatchupGame);
+  expect(game.cardTop, 'matchup-preview must be found').not.toBeNull();
+  expect(game.viewerScoreTop, 'the viewer side score must be found').not.toBeNull();
+  expect(game.opponentScoreTop, 'the opponent side score must be found').not.toBeNull();
+
+  // The commissioner strip is compact on a phone (no fact grid), so the
+  // matchup card starts in the upper part of the first screen.
+  expect(game.cardTop as number, `matchup card top=${game.cardTop}`).toBeLessThanOrEqual(600);
+  // Side by side, not stacked: the two scores' tops agree.
+  expect(
+    Math.abs((game.viewerScoreTop as number) - (game.opponentScoreTop as number)),
+    `viewer score top=${game.viewerScoreTop} opponent score top=${game.opponentScoreTop}`,
+  ).toBeLessThanOrEqual(4);
+});
+
+test('League Dashboard @ 390x844: the matchup card is 520px tall or less', async ({ page }) => {
+  await gotoDashboard(page, 390, 844);
+
+  const game = await page.evaluate(probeMatchupGame);
+  expect(game.cardHeight, 'matchup-preview must be found').not.toBeNull();
+  expect(game.cardHeight as number, `matchup card height=${game.cardHeight}`).toBeLessThanOrEqual(520);
+});
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the matchup is left of My Team and Recent activity rides the rail`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  const order = await page.evaluate(probeOrder);
+  expect(order.matchupRight, 'slot-matchup-preview must be found').not.toBeNull();
+  expect(order.myTeamLeft, 'slot-my-team must be found').not.toBeNull();
+  expect(
+    order.matchupRight as number,
+    `matchup right=${order.matchupRight} My Team left=${order.myTeamLeft}`,
+  ).toBeLessThanOrEqual(order.myTeamLeft as number);
+  expect(order.recentActivityInRail, 'slot-recent-activity must be inside dashboard-rail').toBe(true);
 });
 
 // ---- Permanent negative control ----
@@ -253,3 +384,100 @@ test('negative control: the width predicate reports a forced card overflow', asy
   const restored = after.cards.find((c) => c.testId === 'standings-table');
   expect(restored?.widerThanColumn, 'removing the forced width must restore the column fit').toBe(false);
 });
+
+// ======================================================================
+// BEGIN #1981 widget cases (Around the League fill, phone standings, one
+// lineup answer). Kept as one delimited block, below everything above, so a
+// rebase onto the page-layout ticket's edits to this file stays mechanical.
+// ======================================================================
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: the three Around the League tiles span at least 90% of the strip's inner width`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  const probe = await page.evaluate(() => {
+    const body = document.querySelector('[data-testid="around-the-league-body"]') as HTMLElement;
+    const tiles = Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]')) as HTMLElement[];
+    const style = getComputedStyle(body);
+    const inner = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const lefts = tiles.map((t) => t.getBoundingClientRect().left);
+    const rights = tiles.map((t) => t.getBoundingClientRect().right);
+    return { count: tiles.length, inner, span: Math.max(...rights) - Math.min(...lefts) };
+  });
+  expect(probe.count, 'the fixture week has three matchups').toBe(3);
+  expect(probe.span, `span=${probe.span} inner=${probe.inner}`).toBeGreaterThanOrEqual(probe.inner * 0.9);
+});
+
+test('League Dashboard @ 390x844: the viewer standings PF/PA line is never clipped and the You pill is not displayed', async ({ page }) => {
+  await gotoDashboard(page, 390, 844);
+
+  const row = page.getByTestId('standings-table-you-row');
+  const line = row.getByTestId('standings-table-points-line');
+  await expect(line).toBeVisible();
+  const fit = await line.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  expect(fit.scrollWidth, `scrollWidth=${fit.scrollWidth} clientWidth=${fit.clientWidth}`).toBeLessThanOrEqual(fit.clientWidth);
+  // The fit alone would also hold for a line that clips with an ellipsis, so
+  // pin the mechanism too: it wraps, and nothing truncates it.
+  const style = await line.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { textOverflow: cs.textOverflow, whiteSpace: cs.whiteSpace, overflow: cs.overflowX };
+  });
+  expect(style.textOverflow, 'the points line must not ellipsize').not.toBe('ellipsis');
+  expect(style.overflow, 'the points line must not clip').not.toBe('hidden');
+  expect(['normal', 'pre-wrap', 'pre-line', 'break-spaces'], `white-space=${style.whiteSpace}`).toContain(style.whiteSpace);
+
+  await expect(row.getByTestId('badge')).toBeHidden();
+  await expect(row.getByText('your team')).toBeAttached();
+});
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: six Around the League tiles (a twelve-team week) share one row`, async ({ page }) => {
+  // A route override local to this case (registered after the shared fixture's
+  // catch-all, so it wins): six current-week matchups instead of the fixture's three.
+  await setupLayoutGuard(page);
+  const week = 18;
+  const rows = Array.from({ length: 6 }, (_, i) => ({
+    id: 700 + i,
+    season: 2026,
+    week,
+    final: false,
+    status: 'scheduled',
+    first_kickoff_at: null,
+    synced_at: null,
+    home_team_id: 201 + 2 * i,
+    home_team_name: `Home Squad ${i + 1}`,
+    home_score: 0,
+    home_expected_final: 110 + i,
+    home_players_remaining: 9,
+    away_team_id: 202 + 2 * i,
+    away_team_name: `Away Squad ${i + 1}`,
+    away_score: 0,
+    away_expected_final: 100 + i,
+    away_players_remaining: 9,
+  }));
+  await page.route(
+    (u) => /^\/api\/league\/\d+\/matchups$/.test(u.pathname),
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
+  );
+  await page.setViewportSize({ width: MEASURED_WIDTH, height: HEIGHT });
+  await page.goto(DASHBOARD_URL);
+  await page.getByTestId('around-the-league-tile').first().waitFor();
+  await fontsReady(page);
+
+  const tops = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="around-the-league-tile"]')).map(
+      (t) => Math.round(t.getBoundingClientRect().top),
+    ),
+  );
+  expect(tops, `tile tops=${tops.join(',')}`).toHaveLength(6);
+  expect(new Set(tops).size, `tile tops=${tops.join(',')}`).toBe(1);
+});
+
+test(`League Dashboard @ ${MEASURED_WIDTH}x${HEIGHT}: a full lineup shows no empty starting slot copy anywhere`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT);
+
+  // The Set Lineup row settles on its plain copy once the lineup read lands, so
+  // the absence below is not a race with an unresolved read.
+  await expect(page.getByTestId('quick-action-lineup')).toContainText('Set your Week 18 lineup');
+  await expect(page.getByText(/empty starting slot/)).toHaveCount(0);
+});
+
+// END #1981 widget cases

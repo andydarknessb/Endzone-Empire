@@ -252,9 +252,44 @@ test('a league with no current week shows no advance control', async () => {
   expect(within(card).queryByTestId('advance-week')).not.toBeInTheDocument();
 });
 
-// --- the commissioner count --------------------------------------------------
+// --- the Advance control is a season control (#1979 L24) ---------------------
 
-test('the title block counts the commissioners instead of claiming the box is private', async () => {
+// Red-tell: restoring `!pickemOnly && currentWeek != null` as the whole gate
+// turns the pre-draft, drafting and complete cases red; the server refuses an
+// advance in those phases with a 409, so the strip must not offer it.
+test.each([
+  ['pre-draft', { draft_status: 'pending', season_status: 'regular' }],
+  ['drafting', { draft_status: 'active', season_status: 'regular' }],
+  ['complete', { draft_status: 'complete', season_status: 'complete' }],
+])('no Advance control while the league is %s, but administration stays', async (_phase, league) => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: { current_week: 1, ...league } }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  await settleReads();
+  expect(within(card).queryByTestId('advance-week')).not.toBeInTheDocument();
+  expect(within(card).queryByRole('button', { name: /advance/i })).not.toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: /league administration/i })).toBeInTheDocument();
+});
+
+test.each([
+  ['in season', { draft_status: 'complete', season_status: 'regular' }],
+  ['in the playoffs', { draft_status: 'complete', season_status: 'playoffs' }],
+])('the Advance control shows %s', async (_phase, league) => {
+  mockGetByUrl({ '/api/league/42': leagueResponse({ league: { current_week: 6, ...league } }) });
+  renderStrip();
+
+  const card = await screen.findByTestId('commissioner-strip');
+  expect(within(card).getByTestId('advance-week')).toBeInTheDocument();
+  expect(within(card).getByRole('button', { name: /advance to week 7/i })).toBeInTheDocument();
+});
+
+// --- the subtitle ------------------------------------------------------------
+
+// Red-tell (#1979 L14): restoring the count (`Commissioners only · N`) turns
+// this case red. The count was the only number in the title block and told a
+// commissioner nothing they act on.
+test('the title block states who can see the strip, with no count', async () => {
   mockGetByUrl({
     '/api/league/42': leagueResponse({
       league: { co_commissioners: [{ teamId: 4 }, { teamId: 7 }] },
@@ -263,13 +298,54 @@ test('the title block counts the commissioners instead of claiming the box is pr
   renderStrip();
 
   const card = await screen.findByTestId('commissioner-strip');
-  expect(within(card).getByText('Commissioners only · 3')).toBeInTheDocument();
+  expect(within(card).getByText('Visible to commissioners only')).toBeInTheDocument();
+  expect(within(card).queryByText(/Commissioners only/)).not.toBeInTheDocument();
 });
 
-test('a league with no grants still counts the creator', async () => {
-  mockGetByUrl({ '/api/league/42': leagueResponse() });
+// --- the phone strip ---------------------------------------------------------
+
+// An sx rule is neither laid out nor computed by jsdom, but emotion inserts
+// every rule it generates into `document.styleSheets` under the element's
+// generated class: this gathers one element's declarations under one media
+// condition (`''` for the unconditional rule).
+const rulesUnder = (el, media = '') => {
+  const cls = Array.from(el.classList).find((c) => c.startsWith('css-'));
+  const norm = (value) => String(value).replace(/\s+/g, '');
+  let found = '';
+  const walk = (rules, condition) => {
+    Array.from(rules).forEach((rule) => {
+      if (rule.media) {
+        walk(rule.cssRules || [], rule.media.mediaText || '');
+        return;
+      }
+      if (rule.selectorText === `.${cls}` && norm(condition) === norm(media)) {
+        found += `${rule.style.cssText};`;
+      }
+    });
+  };
+  Array.from(document.styleSheets).forEach((sheet) => walk(sheet.cssRules, ''));
+  return found;
+};
+
+// Red-tell (#1979 L1): dropping the `xs: 'none'` from the fact grid turns this
+// case red. The grid stays in the DOM (the facts are real content at md and
+// up); it is the display that leaves a phone's strip at heading, join
+// requests, Advance and League administration.
+test('the fact grid does not display below md and is a five-column grid from md up', async () => {
+  mockGetByUrl({
+    '/api/league/42': leagueResponse({
+      league: fullyConfiguredLeague({ is_public: true, join_approval: true }),
+      teams: teamsWithLocks(12, 2),
+    }),
+  });
   renderStrip();
 
   const card = await screen.findByTestId('commissioner-strip');
-  expect(within(card).getByText('Commissioners only · 1')).toBeInTheDocument();
+  const facts = within(card).getByTestId('commissioner-strip-facts');
+  expect(rulesUnder(facts, '(min-width:0px)')).toMatch(/display: none/);
+  expect(rulesUnder(facts, '(min-width:900px)')).toMatch(/display: grid/);
+  expect(rulesUnder(facts)).toMatch(/grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
+  // The controls that stay on a phone are still there.
+  expect(within(card).getByRole('heading', { name: 'Commissioner' })).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: 'League administration' })).toBeInTheDocument();
 });

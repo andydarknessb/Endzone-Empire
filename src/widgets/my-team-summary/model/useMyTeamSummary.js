@@ -37,8 +37,8 @@ import { draftRosterSize } from '../../../lib/rosterShape';
  *     useResource the moment a second mount on this page reads it, exactly as
  *     standings did.
  *   - Draft grade and roster value come from the league draft-grades read. When
- *     it 404s (grades not generated yet) both tiles degrade to a placeholder
- *     with no number, rather than erroring the card.
+ *     it 404s (grades not generated yet) both tiles are absent (#1979 L13),
+ *     rather than erroring the card or showing a dash.
  *   - Projected finish, playoff odds and rank movement are all one plain read of
  *     the power-rankings endpoint (see the one-mount trigger above). It 404s
  *     until first computed; until then those tiles are simply absent, not
@@ -47,9 +47,9 @@ import { draftRosterSize } from '../../../lib/rosterShape';
  *     entry, both already in the league cache above, so it costs no request.
  *   - The starters section reads the ROSTER ENTITY's lineup
  *     (src/entities/roster, `useTeamLineup`, #1101), keyed by the league's
- *     current week exactly like standings above. It is a plain read (this
- *     widget is its only mount on this page) and is skipped entirely for a
- *     pick'em-only viewer, who has no roster to read: `useTeamLineup`'s own
+ *     current week exactly like standings above. It is a shared cached read
+ *     (ADR 0004): quick-actions mounts the same one, and the two share a
+ *     single request. It is skipped entirely for a pick'em-only viewer, who has no roster to read: `useTeamLineup`'s own
  *     null-leagueId contract means the request never fires. The section is
  *     independent of the card's SPINE (standings): a slow or failed lineup
  *     read never blocks or errors the tiles above it, and a slow standings
@@ -59,7 +59,7 @@ import { draftRosterSize } from '../../../lib/rosterShape';
 // Both plain reads below use the shared useEndpoint (src/shared/lib, #669) and
 // ignore its `httpStatus` field deliberately: every failure is one 'error'
 // state here, because the widget degrades the same way whether a read 404s or
-// 500s (a missing grade is a placeholder either way, a missing projection an
+// 500s (a missing grade is an absent tile either way, a missing projection an
 // absent tile either way). Dropping the status is a decision, not an oversight,
 // so a later reader should not wire it in expecting it to matter.
 
@@ -199,8 +199,8 @@ export function useMyTeamSummary(leagueId) {
   }
 
   // Draft grade + roster value share the one draft-grades read. A 404 (or any
-  // failure, or a ready read with no row for the viewer) degrades both tiles to
-  // a placeholder; a null grade/value degrades just that tile.
+  // failure, or a ready read with no row for the viewer) hides both tiles;
+  // a null grade/value hides just that tile.
   const gradeRow = grades.status === 'ready' ? findById(grades.data?.grades, viewerTeamId) : null;
   const gradesUnavailable = grades.status === 'error' || (grades.status === 'ready' && !gradeRow);
   const rawGrade = gradeRow && gradeRow.grade != null ? String(gradeRow.grade).trim() : '';
@@ -291,15 +291,9 @@ export function useMyTeamSummary(leagueId) {
       // by one for every spent slot, which is exactly the false "Lineup
       // incomplete" this rule exists to stop.)
       //
-      // Known gap, left as a comment rather than fixed silently: quick-actions
-      // reads a DIFFERENT wire for this same rule, `/api/team/roster`, whose
-      // query joins from `team_players` and so drops a departed starter's row
-      // entirely once he leaves the roster - unlike `/api/team/lineup`, which
-      // deliberately keeps the spent record (lineup.service.js's
-      // `spentStartingSlots`). The two widgets can still disagree on a spent
-      // slot because they read different inputs, even though they now share
-      // the same rule. Reconciling the data source is a quick-actions change
-      // and is out of this ticket's scope.
+      // Quick Actions' Set Lineup recommendation reads this SAME lineup
+      // (`useTeamLineup`, one shared request), so the two cannot disagree about
+      // a spent slot.
       const { emptyStarterSlots } = lineupAttention({
         rosterSlots,
         entries: lineup.entries.map((e) => ({ slot: e.slot })),

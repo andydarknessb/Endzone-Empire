@@ -25,8 +25,12 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  *
  * The card fetches exactly 8 rows (`useLeagueTransactions`'s own `limit`);
  * below the `md` breakpoint only the first 5 of those render, matching the
- * mockup's mobile artboard. The loading skeleton follows the SAME cap (5
- * rows below `md`, 8 at and above it) rather than always holding 8, so
+ * mockup's mobile artboard. At and above it the cap is the optional `rowLimit`
+ * (never more than the 8 fetched): the dashboard passes the team count when
+ * this card rides the rail beside the standings (#1980), so the rail ends
+ * about where the standings table does instead of leaving bare page under it.
+ * The loading skeleton follows the SAME cap (5
+ * rows below `md`, `rowLimit` or 8 at and above it) rather than always holding 8, so
  * loading never overshoots the row count the breakpoint is about to show -
  * the shape `draft-grades/ui/DraftGrades.jsx` uses for the same reason
  * ("so the rail does not jump ... when the grades land").
@@ -114,13 +118,17 @@ function ActivityRow({ row, first, now }) {
  * `now` (epoch ms or a Date) is the clock the row times are measured
  * against; it defaults to the render time and exists so a test can pin it.
  */
-export default function RecentActivity({ leagueId, now, headingLevel = 2, sx, ...rest }) {
+export default function RecentActivity({ leagueId, now, headingLevel = 2, rowLimit, sx, ...rest }) {
   const { status, rows } = useLeagueTransactions(leagueId, { limit: FETCH_LIMIT });
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('md'));
 
+  // The md+ cap: the caller's `rowLimit` when it is a positive number, never
+  // above the 8 rows the read returns. Below md the phone cap wins regardless.
+  const wideLimit = rowLimit > 0 ? Math.min(rowLimit, FETCH_LIMIT) : FETCH_LIMIT;
+  const limit = mobile ? MOBILE_LIMIT : wideLimit;
   const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
-  const shown = list.slice(0, mobile ? MOBILE_LIMIT : FETCH_LIMIT);
+  const shown = list.slice(0, limit);
   const busy = status === 'loading';
 
   return (
@@ -162,7 +170,7 @@ export default function RecentActivity({ leagueId, now, headingLevel = 2, sx, ..
     >
       {status === 'loading' && (
         <Box aria-hidden="true">
-          {Array.from({ length: mobile ? MOBILE_LIMIT : FETCH_LIMIT }, (_, i) => (
+          {Array.from({ length: limit }, (_, i) => (
             <ActivitySkeletonRow key={i} first={i === 0} />
           ))}
         </Box>

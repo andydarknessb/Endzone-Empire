@@ -1,0 +1,93 @@
+/**
+ * Layout guard for the League Dashboard Trophy Case (#1986, spec #1979 L16 to L19).
+ *
+ * The audit fixture had no trophies, so the card self-hid and was never
+ * rendered. At Week 17 it listed every award of the season as a pill: 3644px
+ * tall at 390 (1280px at 1440). jsdom has no layout engine, so the bound on
+ * the RENDERED height lives here, in headless Chromium: collapsed, the card
+ * stays within a phone's two screens, and expanding everything (the negative
+ * control) is what makes the predicate go red.
+ *
+ * Ruling: BOTH lists are capped when collapsed. The awards show their first 6
+ * rows and the per-team tally collapses to its top 5 teams by total, so the
+ * card does not grow with the league; one toggle opens both. The 12-team
+ * variant (a larger league, six Teams only the trophies know about) holds the
+ * same bounds as the 6-team league, including the extra row that keeps the
+ * viewer's own Team on screen when it ranks below the top 5.
+ *
+ * Fixture: `layoutGuardFixtures`' `setupLayoutGuard` plus a routed
+ * `/api/league/4200/trophies` (trophyCaseFixtures.ts) registered after it so
+ * it wins over the guard's catch-all.
+ *
+ * What this does NOT cover: the card's colors in either theme (the tokens
+ * contrast test owns pairings) and the other dashboard cards' geometry
+ * (league-dashboard-layout.spec.ts).
+ */
+import { expect, test, type Page } from '@playwright/test';
+import { setupLayoutGuard, DASHBOARD_URL } from './fixtures/layoutGuardFixtures';
+import { routeWeek17Trophies } from './fixtures/trophyCaseFixtures';
+
+const PHONE_SMALL = { width: 360, height: 800, maxCardHeight: 820 };
+const PHONE = { width: 390, height: 844, maxCardHeight: 820 };
+const DESKTOP = { width: 1440, height: 900, maxCardHeight: 640 };
+
+async function gotoTrophyCase(page: Page, width: number, height: number, teamCount = 6) {
+  await setupLayoutGuard(page);
+  await routeWeek17Trophies(page, teamCount);
+  await page.setViewportSize({ width, height });
+  await page.goto(DASHBOARD_URL);
+  await page.getByTestId('trophy-case').waitFor();
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+}
+
+/** The card's bounding-box height, or null when it is absent. */
+function probeCardHeight() {
+  const el = document.querySelector('[data-testid="trophy-case"]');
+  return el ? el.getBoundingClientRect().height : null;
+}
+
+function probeDocumentWidth() {
+  const el = document.documentElement;
+  return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+}
+
+for (const teamCount of [6, 12]) {
+  for (const { width, height, maxCardHeight } of [PHONE_SMALL, PHONE, DESKTOP]) {
+    test(`Trophy Case, ${teamCount} teams @ ${width}x${height}: collapsed, the card is ${maxCardHeight}px tall or less`, async ({ page }) => {
+      await gotoTrophyCase(page, width, height, teamCount);
+      const h = await page.evaluate(probeCardHeight);
+      expect(h, 'trophy-case must be found').not.toBeNull();
+      expect(h as number, `${teamCount} teams @ ${width}: trophy-case height=${h}`).toBeLessThanOrEqual(maxCardHeight);
+    });
+  }
+}
+
+// The collapsed 12-team bounds above hold WITH the viewer's row: the layout-guard
+// viewer (team 101) ranks below the top 5 here, so it is kept as a 6th tally row.
+test('Trophy Case, 12 teams: the viewer ranks below the top 5 and is kept as a 6th row', async ({ page }) => {
+  await gotoTrophyCase(page, PHONE.width, PHONE.height, 12);
+  const rows = page.getByTestId('trophy-tally').getByRole('listitem');
+  await expect(rows).toHaveCount(6);
+  await expect(rows.last()).toHaveAttribute('data-testid', 'tally-team-101');
+  await expect(rows.last()).toContainText('your team');
+});
+
+for (const width of [320, 360, 390]) {
+  test(`Trophy Case @ ${width}: the document has no horizontal scroll`, async ({ page }) => {
+    await gotoTrophyCase(page, width, 844);
+    const doc = await page.evaluate(probeDocumentWidth);
+    expect(doc.scrollWidth, `@ ${width}: scrollWidth=${doc.scrollWidth} clientWidth=${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
+  });
+}
+
+// Permanent negative control: expanding every award row must push the card past
+// the phone bound, proving the height predicate can still go red on every run.
+test('negative control: expanding both lists trips the height predicate', async ({ page }) => {
+  await gotoTrophyCase(page, PHONE.width, PHONE.height, 12);
+  const collapsed = await page.evaluate(probeCardHeight);
+  expect(collapsed as number, `collapsed height=${collapsed}`).toBeLessThanOrEqual(PHONE.maxCardHeight);
+
+  await page.getByTestId('trophy-show-all').click();
+  const expanded = await page.evaluate(probeCardHeight);
+  expect(expanded as number, `expanded height=${expanded}`).toBeGreaterThan(PHONE.maxCardHeight);
+});

@@ -360,14 +360,22 @@ function lineupForViewer() {
 }
 
 // Recent activity (`GET /api/league/:id/transactions`, League Dashboard's
-// `recent-activity` rail card): a bare array of raw transaction rows
+// `recent-activity` card): a bare array of raw transaction rows
 // (entities/activity/model/activityModel.js `activityFromRow`'s own input
-// shape), newest first.
+// shape), newest first. Eight rows (#1980): the widget's own fetch limit and
+// what a live league serves. The card rides the rail beside the standings while
+// the season is live, where the page caps it at the team count; the rail-height
+// guard (league-dashboard-layout.spec.ts) is what proves that cap holds against
+// a feed longer than the fixture's six teams.
 function transactions() {
-  return [
-    { id: 9001, type: 'add', team_name: TEAMS[0].teamName, player_name: 'Waiver Wire Wonder', created_at: '2026-09-08T20:00:00.000Z' },
-    { id: 9000, type: 'drop', team_name: TEAMS[1].teamName, player_name: 'Bench Warmer', created_at: '2026-09-08T12:00:00.000Z' },
-  ];
+  const types = ['add', 'drop'];
+  return Array.from({ length: 8 }, (_, i) => ({
+    id: 9001 - i,
+    type: types[i % 2],
+    team_name: TEAMS[i % 2].teamName,
+    player_name: i % 2 === 0 ? `Waiver Wire Wonder ${i + 1}` : `Bench Warmer ${i + 1}`,
+    created_at: new Date(Date.UTC(2026, 8, 8, 20 - i, 0, 0)).toISOString(),
+  }));
 }
 
 // The pending join-request queue (`GET /api/league/:id/join-requests`,
@@ -377,10 +385,10 @@ function joinRequestRows() {
   return [{ id: 1 }];
 }
 
-// The viewer's own roster (`GET /api/team/roster?leagueId=<id>`, quick-actions'
-// best-effort Set-Lineup recommendation read): a bare array, empty. The
-// widget degrades this read's absence/failure the same way (no
-// recommendation), so an empty roster is a legitimate, simple fixture.
+// The viewer's own roster (`GET /api/team/roster?leagueId=<id>`): a bare array,
+// empty. The League Dashboard no longer reads it (quick-actions' Set Lineup
+// recommendation reads `/api/team/lineup` above, #1981); it stays answered for
+// any page that still reads the roster, rather than falling to the 500.
 function rosterRows() {
   return [];
 }

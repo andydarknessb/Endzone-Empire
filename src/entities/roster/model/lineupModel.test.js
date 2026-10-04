@@ -102,7 +102,20 @@ describe('lineupModel: the one shape from the lineup body', () => {
       photoUrl: null,
       spent: false,
       opponent: 'KC',
+      onBye: false,
     });
+  });
+
+  test('onBye arrives as a boolean off the wire, false when the wire carries none', () => {
+    const model = lineupModel({
+      ...body,
+      entries: [
+        row({ id: 1, slot: 'QB', onBye: true }),
+        row({ id: 2, slot: 'RB', onBye: false }),
+        { id: 3, name: 'No flag', slot: 'WR' },
+      ],
+    });
+    expect(model.entries.map((e) => e.onBye)).toEqual([true, false, false]);
   });
 
   test('passes through rosterSlots, benchSlots, irSlots and currentWeek unchanged (#1237)', () => {
@@ -182,6 +195,7 @@ describe('lineupModel: the one shape from the lineup body', () => {
       photoUrl: null,
       spent: true,
       opponent: 'NYJ',
+      onBye: false,
     });
   });
 

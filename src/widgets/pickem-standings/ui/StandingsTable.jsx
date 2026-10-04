@@ -29,6 +29,12 @@ const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'va
  * same "no visible text -> no new pairing" shape as shared/ui's RangeBar),
  * so nothing here registers a new row in tokens.contrast.test.js.
  *
+ * The Card heading is `title` (default `Standings`, so PickemPage mounts it
+ * bare and reads as before); the League Dashboard passes `Pick'em Standings`
+ * and mounts the widget with no Card of its own, so one heading names it
+ * (#1979 L26). The Card's team `count` shows only once the read is ready: a
+ * loading or failed read has no count to state, and used to read `0 teams`.
+ *
  * Renders from the standings entity only (`usePickemStandingsTable`); the
  * widget never calls a fetch client itself.
  *
@@ -49,7 +55,7 @@ const MEDAL_COLOR = { 1: 'var(--dash-warning)', 2: 'var(--medal-silver)', 3: 'va
  * regardless of fill, and the underlying values are always available to
  * assistive tech via `aria-label`.
  */
-export default function StandingsTable({ leagueId, seasons }) {
+export default function StandingsTable({ leagueId, seasons, title = 'Standings' }) {
   const {
     status,
     rows,
@@ -66,11 +72,13 @@ export default function StandingsTable({ leagueId, seasons }) {
 
   return (
     <Card
-      title="Standings"
+      title={title}
       count={
-        <Box component="span" data-testid="pickem-standings-count">
-          {`${teamCount} team${teamCount === 1 ? '' : 's'}`}
-        </Box>
+        status === 'ready' ? (
+          <Box component="span" data-testid="pickem-standings-count">
+            {`${teamCount} team${teamCount === 1 ? '' : 's'}`}
+          </Box>
+        ) : undefined
       }
       data-testid="pickem-standings"
       aria-busy={busy}

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Typography, TextField, Button, Paper, Stack, Alert,
   Switch, FormControlLabel, Select, MenuItem, InputLabel, FormControl,
   Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Box,
-  Dialog, DialogTitle, DialogContent, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions, Container, Skeleton,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import apiClient from '../../api/apiClient';
@@ -21,7 +21,6 @@ import {
   leagueTypePayload,
 } from '../../shared/lib/leagueType';
 import { JOIN_REFUSAL_REASON } from '../../shared/lib/leaguePhase';
-import './LeagueManagement.css';
 
 // The invite preview's closed-joining note, keyed on the server's joinability
 // reason (the same strings the phase module names): a league with a fantasy
@@ -35,6 +34,18 @@ const JOIN_CLOSED_COPY = {
 function LeagueManagement() {
   const notify = useSnackbar();
   const [leagues, setLeagues] = useState([]);
+  // True until the first /api/league read settles, so the empty state never
+  // flashes before the list has been asked for.
+  const [loading, setLoading] = useState(true);
+  // A failed read says nothing about whether the list is empty, so the empty
+  // state must not render for it; the user gets Try again instead.
+  const [loadFailed, setLoadFailed] = useState(false);
+  // One create or join request in flight at a time: the submit buttons stay
+  // disabled until it settles, so a double click cannot post twice.
+  const [submitting, setSubmitting] = useState(false);
+  const regionRef = useRef(null);
+  const retryRef = useRef(null);
+  const refocusAfterRetry = useRef(false);
   const [activeTab, setActiveTab] = useState('create');
   const [leagueName, setLeagueName] = useState('');
   const [teamName, setTeamName] = useState('');
@@ -43,9 +54,9 @@ function LeagueManagement() {
   const [inviteCode, setInviteCode] = useState('');
   const [joinTeamName, setJoinTeamName] = useState('');
   const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
   const [newLeagueOpen, setNewLeagueOpen] = useState(false);
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const joinButtonRef = useRef(null);
   // What the invite code in the field points at, fetched read-only so the
   // joiner sees the league's name and type before committing. `null` while
@@ -148,13 +159,42 @@ function LeagueManagement() {
     try {
       const response = await apiClient.get('/api/league');
       setLeagues(response.data);
+      setLoadFailed(false);
     } catch (err) {
+      setLoadFailed(true);
       report(err);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const retryLeagues = () => {
+    refocusAfterRetry.current = true;
+    setError(null);
+    setLoading(true);
+    fetchLeagues();
+  };
+
+  // Try again unmounts while the retry runs, which drops focus to <body>. When
+  // the read settles, put it on the new Try again, or on the region if the
+  // leagues loaded.
+  useEffect(() => {
+    if (loading || !refocusAfterRetry.current) return;
+    refocusAfterRetry.current = false;
+    // Focus the user has since moved elsewhere (say, into the New league dialog) is theirs.
+    if (document.activeElement && document.activeElement !== document.body) return;
+    (retryRef.current || regionRef.current)?.focus();
+  }, [loading]);
+
+  const openNewLeague = (tab) => {
+    setActiveTab(tab);
+    setNewLeagueOpen(true);
   };
 
   const createLeague = async (event) => {
     event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     try {
       // maxTeams is always explicit: the server's default is the fantasy 10
@@ -173,7 +213,6 @@ function LeagueManagement() {
       if (isPublic && joinApproval) payload.joinApproval = true;
 
       const response = await apiClient.post('/api/league', payload);
-      setNotice(`League created! Invite code: ${response.data.invite_code}`);
       notify('League created!');
       setLeagueName('');
       setTeamName('');
@@ -189,27 +228,36 @@ function LeagueManagement() {
       setDraftTimezone(browserTimeZone());
       setDraftAcknowledged(false);
       setNewLeagueOpen(false);
-      fetchLeagues();
+      // The new league's dashboard shows the commissioner its invite code. A
+      // response without an id keeps the old behaviour: stay and refetch.
+      if (response.data?.id) navigate(`/league/${response.data.id}`);
+      else fetchLeagues();
     } catch (err) {
       report(err);
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const joinLeague = async (event) => {
     event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     try {
-      await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
-      setNotice('Joined league!');
+      const response = await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
       notify('Joined league!');
       setInviteCode('');
       setJoinTeamName('');
       setNewLeagueOpen(false);
-      fetchLeagues();
+      if (response.data?.league?.id) navigate(`/league/${response.data.league.id}`);
+      else fetchLeagues();
     } catch (err) {
       report(err);
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -223,32 +271,45 @@ function LeagueManagement() {
     }
   };
 
+  const readFailedEmpty = loadFailed && leagues.length === 0;
+
   return (
-    <div className="container">
+    <Container maxWidth="md" sx={{ py: { xs: 2, sm: 3 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2 }}>
         <Typography variant="h4">My Leagues</Typography>
         <Button variant="contained" onClick={() => setNewLeagueOpen(true)}>New league</Button>
       </Box>
-      {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice(null)}>{notice}</Alert>}
+      {/* A failed first read is not dismissable: Try again is what is left to act on. */}
+      {error && <Alert severity="error" onClose={readFailedEmpty ? undefined : () => setError(null)}>{error}</Alert>}
 
       <DraftCentralCard />
 
-      {leagues.length === 0 ? (
-        <Typography color="text.secondary" sx={{ my: 2 }}>
-          You aren&apos;t in any leagues yet. Create one or join with an invite code.
-        </Typography>
-      ) : (
-        <Stack spacing={2} sx={{ my: 2 }}>
-          {leagues.map((league) => (
-            <LeagueCard
-              key={league.id}
-              league={league}
-              onDelete={deleteLeague}
-            />
-          ))}
-        </Stack>
-      )}
+      <Stack spacing={2} role="region" aria-label="Your leagues" aria-busy={loading} tabIndex={-1} ref={regionRef} sx={{ my: 2, outline: 'none' }}>
+        {loading && [0, 1, 2].map((i) => (
+          <Skeleton key={i} variant="rounded" sx={{ height: { xs: 210, sm: 180 } }} data-testid="league-skeleton" />
+        ))}
+        {!loading && readFailedEmpty && (
+          <Box>
+            <Button ref={retryRef} variant="outlined" sx={{ minHeight: 44 }} onClick={retryLeagues}>Try again</Button>
+          </Box>
+        )}
+        {!loading && !readFailedEmpty && leagues.length === 0 && (
+          <Stack spacing={2} alignItems="flex-start">
+            <Typography color="text.secondary">You aren&apos;t in any leagues yet.</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+              <Button variant="contained" sx={{ minHeight: 44 }} onClick={() => openNewLeague('create')}>Create a league</Button>
+              <Button variant="outlined" sx={{ minHeight: 44 }} onClick={() => openNewLeague('join')}>Join with a code</Button>
+            </Stack>
+          </Stack>
+        )}
+        {!loading && leagues.map((league) => (
+          <LeagueCard
+            key={league.id}
+            league={league}
+            onDelete={deleteLeague}
+          />
+        ))}
+      </Stack>
 
       <Dialog open={newLeagueOpen} onClose={() => setNewLeagueOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>New league</DialogTitle>
@@ -380,7 +441,7 @@ function LeagueManagement() {
               </AccordionDetails>
             </Accordion>
 
-            <Button type="submit" variant="contained" disabled={!teamLimitsValid || !draftScheduleReady}>Create League</Button>
+            <Button type="submit" variant="contained" disabled={!teamLimitsValid || !draftScheduleReady || submitting}>Create League</Button>
             {!teamLimitsValid && (
               <Typography variant="caption" color="error">
                 Check the team limits under Advanced Settings.
@@ -452,7 +513,7 @@ function LeagueManagement() {
                 )}
               </Paper>
             )}
-            <Button ref={joinButtonRef} type="submit" variant="contained">Join League</Button>
+            <Button ref={joinButtonRef} type="submit" variant="contained" disabled={submitting}>Join League</Button>
           </Stack>
         </Paper>
           )}
@@ -461,7 +522,7 @@ function LeagueManagement() {
           <Button onClick={() => setNewLeagueOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
-    </div>
+    </Container>
   );
 }
 
