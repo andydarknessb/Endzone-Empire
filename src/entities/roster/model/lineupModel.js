@@ -104,6 +104,10 @@ function playerFromLineupEntry(row) {
     photoUrl: r.photo_url ?? null,
     spent: !!r.spent,
     opponent: r.opponent ?? null,
+    // The server's own per-entry bye verdict for the selected week
+    // (annotateLineupEntries: false on a spent row), passed through so the
+    // dashboard's Set Lineup recommendation reads the bye the lineup screen does.
+    onBye: !!r.onBye,
   };
 }
 

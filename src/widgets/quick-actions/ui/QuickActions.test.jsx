@@ -109,7 +109,8 @@ const tile = (key) => screen.getByTestId(`quick-action-${key}`);
 // --- rows -------------------------------------------------------------
 
 test('the eleven fantasy actions render as rows under their three h3 headings with hrefs and status copy', async () => {
-  renderWidget({ is_commissioner: true });
+  // Pre-draft, so a commissioner is offered Draft Settings as the eleventh row.
+  renderWidget({ is_commissioner: true, draft_status: 'pending', season_status: 'pending' });
   await screen.findByTestId('quick-actions');
 
   expect(screen.getByRole('heading', { level: 3, name: 'Play · 4' })).toBeInTheDocument();
@@ -134,9 +135,28 @@ test('the eleven fantasy actions render as rows under their three h3 headings wi
     expect(tile(key).getAttribute('href')).toMatch(route);
   });
 
-  expect(within(tile('draft')).getByText('Draft complete · review the board')).toBeInTheDocument();
+  expect(within(tile('draft')).getByText('Draft has not started yet')).toBeInTheDocument();
   expect(within(tile('waivers')).getByText('Claim free agents and place bids')).toBeInTheDocument();
   expect(within(tile('activity')).getByText('Recent roster and league moves')).toBeInTheDocument();
+});
+
+// --- Draft Settings is a draft-time card (#1981 L11) ---------------------------
+
+test.each([
+  ['pre-draft', { draft_status: 'pending', season_status: 'pending' }, true],
+  ['drafting', { draft_status: 'active', season_status: 'regular' }, true],
+  ['in season', { draft_status: 'complete', season_status: 'regular' }, false],
+  ['playoffs', { draft_status: 'complete', season_status: 'playoffs' }, false],
+  ['complete', { draft_status: 'complete', season_status: 'complete' }, false],
+])('a commissioner is offered Draft Settings %s: %s', async (_phase, league, offered) => {
+  renderWidget({ is_commissioner: true, ...league });
+  await screen.findByTestId('quick-actions');
+
+  if (offered) {
+    expect(tile('draft-settings')).toBeInTheDocument();
+  } else {
+    expect(screen.queryByTestId('quick-action-draft-settings')).not.toBeInTheDocument();
+  }
 });
 
 test('the Recommended Badge sits on the recommended row only', async () => {

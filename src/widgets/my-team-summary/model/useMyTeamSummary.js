@@ -291,15 +291,9 @@ export function useMyTeamSummary(leagueId) {
       // by one for every spent slot, which is exactly the false "Lineup
       // incomplete" this rule exists to stop.)
       //
-      // Known gap, left as a comment rather than fixed silently: quick-actions
-      // reads a DIFFERENT wire for this same rule, `/api/team/roster`, whose
-      // query joins from `team_players` and so drops a departed starter's row
-      // entirely once he leaves the roster - unlike `/api/team/lineup`, which
-      // deliberately keeps the spent record (lineup.service.js's
-      // `spentStartingSlots`). The two widgets can still disagree on a spent
-      // slot because they read different inputs, even though they now share
-      // the same rule. Reconciling the data source is a quick-actions change
-      // and is out of this ticket's scope.
+      // Quick Actions' Set Lineup recommendation reads this SAME lineup
+      // (`useTeamLineup`, one shared request), so the two cannot disagree about
+      // a spent slot.
       const { emptyStarterSlots } = lineupAttention({
         rosterSlots,
         entries: lineup.entries.map((e) => ({ slot: e.slot })),

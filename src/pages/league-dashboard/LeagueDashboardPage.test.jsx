@@ -1672,29 +1672,32 @@ const quickActionsStandardSlots = [
   { key: 'DEF', count: 1 },
 ];
 
-// GET /api/team/roster?leagueId=1 - a BARE ARRAY of roster rows (the real
-// endpoint's shape). The widget reads only `lineup_slot` and `bye_week`.
-const quickActionsRosterResponse = (rows) => ({ data: rows });
+// GET /api/team/lineup?leagueId=1&week=3 - the lineup envelope. Quick Actions
+// and My Team read this ONE wire (#1981), so the Set Lineup recommendation reads
+// each entry's `slot` and the server's own `onBye` verdict (annotateLineupEntries).
+const quickActionsLineupResponse = (entries) => ({
+  data: { leagueId: 1, teamId: 1, season: 2026, week: 3, currentWeek: 3, entries },
+});
 
 // A full standard starting lineup: one player per starting slot instance of
 // quickActionsStandardSlots. Nobody is on the CURRENT week's bye. DEF One
-// deliberately carries an OFF-week bye (bye_week 5, never the fixtures'
-// current_week 3): a widget that counted "any non-null bye_week" instead of the
-// current week would flag it, so its presence in the no-current-week-bye cases
-// pins the comparison to the current week.
+// deliberately carries an OFF-week bye (bye_week 5, so `onBye` false, as the
+// server annotates it for week 3): a widget that read `bye_week` instead of the
+// entry's `onBye` would flag it, so its presence in the no-current-week-bye
+// cases pins the read to the server's verdict.
 const quickActionsFullRoster = () => [
-  { id: 11, name: 'QB One', lineup_slot: 'QB', bye_week: null },
-  { id: 12, name: 'RB One', lineup_slot: 'RB', bye_week: null },
-  { id: 13, name: 'RB Two', lineup_slot: 'RB', bye_week: null },
-  { id: 14, name: 'WR One', lineup_slot: 'WR', bye_week: null },
-  { id: 15, name: 'WR Two', lineup_slot: 'WR', bye_week: null },
-  { id: 16, name: 'TE One', lineup_slot: 'TE', bye_week: null },
-  { id: 17, name: 'FLEX One', lineup_slot: 'FLEX', bye_week: null },
-  { id: 18, name: 'K One', lineup_slot: 'K', bye_week: null },
-  { id: 19, name: 'DEF One', lineup_slot: 'DEF', bye_week: 5 },
+  { id: 11, name: 'QB One', slot: 'QB', bye_week: null, onBye: false },
+  { id: 12, name: 'RB One', slot: 'RB', bye_week: null, onBye: false },
+  { id: 13, name: 'RB Two', slot: 'RB', bye_week: null, onBye: false },
+  { id: 14, name: 'WR One', slot: 'WR', bye_week: null, onBye: false },
+  { id: 15, name: 'WR Two', slot: 'WR', bye_week: null, onBye: false },
+  { id: 16, name: 'TE One', slot: 'TE', bye_week: null, onBye: false },
+  { id: 17, name: 'FLEX One', slot: 'FLEX', bye_week: null, onBye: false },
+  { id: 18, name: 'K One', slot: 'K', bye_week: null, onBye: false },
+  { id: 19, name: 'DEF One', slot: 'DEF', bye_week: 5, onBye: false },
 ];
 
-const QUICK_ACTIONS_ROSTER_URL = '/api/team/roster?leagueId=1';
+const QUICK_ACTIONS_LINEUP_URL = '/api/team/lineup?leagueId=1&week=3';
 
 test('quick-actions: in-season fantasy member renders Play/Moves/League labels with counts and cards linking to league sub-routes', async () => {
   mockGetByUrl({ '/api/league/1': quickActionsLeague() });
@@ -1728,8 +1731,8 @@ test('quick-actions: in-season fantasy member renders Play/Moves/League labels w
   });
 });
 
-test('quick-actions: a commissioner fixture adds Draft Settings and the League count becomes 5', async () => {
-  mockGetByUrl({ '/api/league/1': quickActionsLeague({ league: { draft_status: 'complete', season_status: 'regular', current_week: 3, is_commissioner: true } }) });
+test('quick-actions: a pre-draft commissioner fixture adds Draft Settings and the League count becomes 5', async () => {
+  mockGetByUrl({ '/api/league/1': quickActionsLeague({ league: { draft_status: 'pending', season_status: 'pending', current_week: 3, is_commissioner: true } }) });
   renderPage();
 
   const card = await screen.findByTestId('quick-actions');
@@ -1740,7 +1743,7 @@ test('quick-actions: a commissioner fixture adds Draft Settings and the League c
 
 test('quick-actions: two starters on a current-week bye mark Set Lineup Recommended with the bye copy', async () => {
   const roster = quickActionsFullRoster().map((row) =>
-    row.lineup_slot === 'QB' || row.id === 12 ? { ...row, bye_week: 3 } : row
+    row.slot === 'QB' || row.id === 12 ? { ...row, bye_week: 3, onBye: true } : row
   );
   mockGetByUrl({
     '/api/league/1': quickActionsLeague({
@@ -1751,13 +1754,13 @@ test('quick-actions: two starters on a current-week bye mark Set Lineup Recommen
         roster_slots: quickActionsStandardSlots,
       },
     }),
-    [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(roster),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(roster),
   });
   renderPage();
 
   const card = await screen.findByTestId('quick-actions');
   const tile = within(card).getByTestId('quick-action-lineup');
-  // The recommendation lands once the roster read resolves.
+  // The recommendation lands once the lineup read resolves.
   expect(await within(tile).findByText('Recommended')).toBeInTheDocument();
   expect(within(tile).getByText('2 starters on bye · fix before Sunday')).toBeInTheDocument();
 });
@@ -1778,13 +1781,13 @@ test('quick-actions: a full roster with no current-week byes shows no Recommende
         roster_slots: quickActionsStandardSlots,
       },
     }),
-    [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(quickActionsFullRoster()),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
   });
   renderPage();
 
   const card = await screen.findByTestId('quick-actions');
   const tile = within(card).getByTestId('quick-action-lineup');
-  // Wait for the roster read to resolve into the plain Set Lineup copy, so the
+  // Wait for the lineup read to resolve into the plain Set Lineup copy, so the
   // absence assertion below is not merely racing an unresolved read.
   expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
   // A page-level claim on purpose: no card, in this widget or any sibling on the
@@ -1804,7 +1807,7 @@ test('quick-actions: a starter missing from a slot the league requires marks Set
         roster_slots: quickActionsStandardSlots,
       },
     }),
-    [QUICK_ACTIONS_ROSTER_URL]: quickActionsRosterResponse(roster),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(roster),
   });
   renderPage();
 
@@ -1814,10 +1817,10 @@ test('quick-actions: a starter missing from a slot the league requires marks Set
   expect(within(tile).getByText('1 empty starting slot')).toBeInTheDocument();
 });
 
-test('quick-actions: a 500 from the roster read leaves every card rendered and none in an error state', async () => {
+test('quick-actions: a 500 from the lineup read leaves every card rendered and none in an error state', async () => {
   mockGetByUrl({
     '/api/league/1': quickActionsLeague(),
-    [QUICK_ACTIONS_ROSTER_URL]: { reject: { response: { status: 500 } } },
+    [QUICK_ACTIONS_LINEUP_URL]: { reject: { response: { status: 500 } } },
   });
   renderPage();
 
@@ -1832,6 +1835,84 @@ test('quick-actions: a 500 from the roster read leaves every card rendered and n
   ['draft', 'lineup', 'game-center', 'pickem', 'waivers', 'trades', 'activity', 'power-rankings', 'history', 'rules'].forEach((key) => {
     expect(within(card).getByTestId(`quick-action-${key}`)).toBeInTheDocument();
   });
+});
+
+// One lineup answer (#1981 L3): Quick Actions and My Team read the SAME
+// /api/team/lineup wire through the shared cache, so they cannot disagree about
+// an empty slot or a spent one, and the page pays one request for both.
+const quickActionsAgreementLeague = () =>
+  quickActionsLeague({
+    league: {
+      draft_status: 'complete',
+      season_status: 'regular',
+      current_week: 3,
+      roster_slots: quickActionsStandardSlots,
+    },
+  });
+
+const lineupGets = () =>
+  apiClient.get.mock.calls.filter(([url]) => String(url).startsWith('/api/team/lineup'));
+
+test('quick-actions: with a full lineup, Quick Actions and My Team agree it is set, off one lineup request', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsAgreementLeague(),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
+  });
+  renderPage();
+
+  const tile = within(await screen.findByTestId('quick-actions')).getByTestId('quick-action-lineup');
+  expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
+  const myTeam = screen.getByTestId('my-team-summary');
+  expect(await within(myTeam).findByText(/Lineup set/)).toBeInTheDocument();
+  expect(screen.queryByText(/empty starting slot/)).not.toBeInTheDocument();
+  expect(lineupGets()).toHaveLength(1);
+});
+
+test('quick-actions: with an empty starting slot, Quick Actions and My Team both report it', async () => {
+  const entries = quickActionsFullRoster().filter((row) => row.id !== 15);
+  mockGetByUrl({
+    '/api/league/1': quickActionsAgreementLeague(),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(entries),
+  });
+  renderPage();
+
+  const tile = within(await screen.findByTestId('quick-actions')).getByTestId('quick-action-lineup');
+  expect(await within(tile).findByText('1 empty starting slot')).toBeInTheDocument();
+  const myTeam = screen.getByTestId('my-team-summary');
+  expect(await within(myTeam).findByText(/Lineup incomplete · 8 of 9/)).toBeInTheDocument();
+  expect(lineupGets()).toHaveLength(1);
+});
+
+test('quick-actions: a spent starting slot counts as filled in Quick Actions and My Team alike', async () => {
+  // FLEX One has left the roster: the lineup wire keeps his settled row
+  // (`spent`, original slot), which /api/team/roster would have dropped.
+  const entries = quickActionsFullRoster().map((row) =>
+    row.slot === 'FLEX' ? { ...row, spent: true, onBye: false } : row
+  );
+  mockGetByUrl({
+    '/api/league/1': quickActionsAgreementLeague(),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(entries),
+  });
+  renderPage();
+
+  const tile = within(await screen.findByTestId('quick-actions')).getByTestId('quick-action-lineup');
+  expect(await within(tile).findByText('Set your Week 3 lineup')).toBeInTheDocument();
+  const myTeam = screen.getByTestId('my-team-summary');
+  expect(await within(myTeam).findByText(/Lineup set · 9 of 9/)).toBeInTheDocument();
+  expect(within(tile).queryByText('Recommended')).not.toBeInTheDocument();
+  expect(lineupGets()).toHaveLength(1);
+});
+
+test('quick-actions: the page never reads /api/team/roster', async () => {
+  mockGetByUrl({
+    '/api/league/1': quickActionsAgreementLeague(),
+    [QUICK_ACTIONS_LINEUP_URL]: quickActionsLineupResponse(quickActionsFullRoster()),
+  });
+  renderPage();
+
+  await screen.findByTestId('quick-actions');
+  await screen.findByText(/Lineup set/);
+  expect(apiClient.get.mock.calls.some(([url]) => String(url).includes('/api/team/roster'))).toBe(false);
 });
 
 test('quick-actions: a drafting-phase fixture marks Draft Room Recommended', async () => {
