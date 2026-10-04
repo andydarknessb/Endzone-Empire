@@ -1,9 +1,15 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event';
+import { Route } from 'react-router-dom';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import LeagueManagement from './LeagueManagement';
+
+// The provider lives above the routes in the app, so a navigation keeps its toast;
+// here the toast is the notify call itself.
+const mockNotify = jest.fn();
+jest.mock('../Snackbar/SnackbarProvider', () => ({ useSnackbar: () => mockNotify }));
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -33,6 +39,13 @@ const league = (overrides = {}) => ({
 // Accepts an optional userEvent instance so a caller with its own setup()
 // (e.g. a fake-timers session) can reuse this instead of re-inlining it.
 const openNewLeague = (user = userEvent) => user.click(screen.getByRole('button', { name: 'New league' }));
+
+// A stand-in for the league dashboard, so a navigation shows as visible text.
+const dashboardRoute = <Route path="/league/:id" element={<p>Dashboard opened</p>} />;
+const renderWithDashboard = () => renderWithProviders(
+  <LeagueManagement />,
+  { state: { user: { id: 1 } }, routes: dashboardRoute },
+);
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -94,11 +107,11 @@ test('the Delete action only appears for leagues the user owns', async () => {
   expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument();
 });
 
-test('creating a league posts the form data and shows the returned invite code', async () => {
+test('creating a league posts the form data, then opens the new league', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+  apiClient.post.mockResolvedValue({ data: { id: 77, invite_code: 'abc123' } });
 
-  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  renderWithDashboard();
   await screen.findByText(/you aren't in any leagues yet/i);
   await openNewLeague();
 
@@ -115,8 +128,26 @@ test('creating a league posts the form data and shows the returned invite code',
       leagueType: 'fantasy',
     })
   );
-  expect(await screen.findByText(/Invite code: abc123/)).toBeInTheDocument();
-  expect(apiClient.get).toHaveBeenCalledTimes(3); // Draft Central + initial fetch + refetch after create
+  expect(await screen.findByText('Dashboard opened')).toBeInTheDocument();
+  expect(mockNotify).toHaveBeenCalledWith('League created!');
+  expect(screen.queryByText(/Invite code: abc123/)).not.toBeInTheDocument();
+});
+
+test('a create response with no id stays on the page and refetches the list', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+
+  renderWithDashboard();
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+  await userEvent.type(screen.getByLabelText(/League name/), 'Monday Mayhem');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Monday Mavericks');
+  await userEvent.click(screen.getByRole('button', { name: 'Create League' }));
+
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(3)); // Draft Central + initial fetch + refetch after create
+  expect(mockNotify).toHaveBeenCalledWith('League created!');
+  expect(screen.queryByText('Dashboard opened')).not.toBeInTheDocument();
+  expect(screen.getByText('My Leagues')).toBeInTheDocument();
 });
 
 test('creating a league surfaces the server error on failure', async () => {
@@ -193,17 +224,16 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
   // regardless of outcome. See listIanaTimeZones mock above for why the
   // zone picker itself is cheap here.
   apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockResolvedValue({ data: { invite_code: 'abc123' } });
+  apiClient.post.mockResolvedValue({ data: { id: 77, invite_code: 'abc123' } });
 
   // Mount happens on REAL timers, before the fake-timer window opens.
   // Rendering inside that window left the mount fetch's setLeagues landing
-  // outside act (measured: one warning per run, #169). Note this findByText
-  // does not itself gate on the fetch - `leagues` starts [] so the empty
-  // state is in the first synchronous render - it is the awaited boundary
-  // that lets the fetch settle before the fake window opens.
+  // outside act (measured: one warning per run, #169). This findByText also
+  // waits out the loading skeletons: the empty state only renders once the
+  // fetch settled, which is the awaited boundary before the fake window opens.
   // Nothing here needs faking; the transitions #149 added it for all start
   // at the first interaction below.
-  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  renderWithDashboard();
   await screen.findByText(/you aren't in any leagues yet/i);
 
   jest.useFakeTimers();
@@ -267,7 +297,7 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
     // `waitFor` above is satisfied the moment post is CALLED, so on its own it
     // says nothing about what the component did with the answer. Assert the
     // visible outcome too, as the sibling create test does.
-    expect(await screen.findByText(/Invite code: abc123/)).toBeInTheDocument();
+    expect(await screen.findByText('Dashboard opened')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }
@@ -275,9 +305,9 @@ test('creating a public, approval-required, best-ball, PPR league with a draft d
 
 test('joining a league posts the trimmed invite code', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockResolvedValue({});
+  apiClient.post.mockResolvedValue({ data: { league: { id: 31 }, team: { id: 5 } } });
 
-  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  renderWithDashboard();
   await screen.findByText(/you aren't in any leagues yet/i);
   await openNewLeague();
 
@@ -289,7 +319,89 @@ test('joining a league posts the trimmed invite code', async () => {
   await waitFor(() =>
     expect(apiClient.post).toHaveBeenCalledWith('/api/league/join', { inviteCode: 'xyz789', teamName: 'Joiner FC' })
   );
-  expect(await screen.findByText('Joined league!')).toBeInTheDocument();
+  expect(await screen.findByText('Dashboard opened')).toBeInTheDocument();
+  expect(mockNotify).toHaveBeenCalledWith('Joined league!');
+});
+
+test('a join response with no league id stays on the page', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  apiClient.post.mockResolvedValue({});
+
+  renderWithDashboard();
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+  await userEvent.click(screen.getByRole('tab', { name: 'Join League' }));
+  await userEvent.type(screen.getByLabelText(/Invite code/), 'xyz789');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Joiner FC');
+  await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
+
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Joined league!'));
+  expect(screen.queryByText('Dashboard opened')).not.toBeInTheDocument();
+});
+
+test('no empty-state copy while the first read is pending: three skeleton cards in a busy region', () => {
+  apiClient.get.mockReturnValue(new Promise(() => {}));
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(screen.getByRole('region', { name: 'Your leagues' })).toHaveAttribute('aria-busy', 'true');
+  expect(screen.getAllByTestId('league-skeleton')).toHaveLength(3);
+  expect(screen.queryByText(/you aren't in any leagues yet/i)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Create a league' })).not.toBeInTheDocument();
+});
+
+test('the skeletons give way to the cards once the read settles', async () => {
+  apiClient.get.mockResolvedValue({ data: [league()] });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
+  expect(screen.getByRole('region', { name: 'Your leagues' })).toHaveAttribute('aria-busy', 'false');
+});
+
+test('a failed first read drops the skeletons and keeps the error alert', async () => {
+  apiClient.get.mockRejectedValue({ response: { data: { error: 'server exploded' } } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
+});
+
+test('the empty state offers Create a league and Join with a code, each at least 44px tall', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText("You aren't in any leagues yet.")).toBeInTheDocument();
+  const create = screen.getByRole('button', { name: 'Create a league' });
+  const join = screen.getByRole('button', { name: 'Join with a code' });
+  expect(create).toHaveClass('MuiButton-contained');
+  expect(join).toHaveClass('MuiButton-outlined');
+  expect(create).toHaveStyle({ minHeight: '44px' });
+  expect(join).toHaveStyle({ minHeight: '44px' });
+});
+
+test('Create a league opens the New league dialog on the Create tab', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Create a league' }));
+
+  expect(screen.getByRole('dialog', { name: 'New league' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Create League' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('Join with a code opens the New league dialog on the Join tab', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Join with a code' }));
+
+  expect(screen.getByRole('dialog', { name: 'New league' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Join League' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByLabelText(/Invite code/)).toBeInTheDocument();
 });
 
 test('deleting a league calls the delete endpoint and refetches', async () => {
@@ -341,9 +453,9 @@ test('renders Dashboard/Draft Room/Matchups links pointing at the correct league
 
 test("creating an NFL pick'em league hides the fantasy fields and sends leagueType, pickemMode and an explicit maxTeams only", async () => {
   apiClient.get.mockResolvedValue({ data: [] });
-  apiClient.post.mockResolvedValue({ data: { invite_code: 'pool99' } });
+  apiClient.post.mockResolvedValue({ data: { id: 77, invite_code: 'pool99' } });
 
-  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  renderWithDashboard();
   await screen.findByText(/you aren't in any leagues yet/i);
   await openNewLeague();
 
@@ -377,7 +489,7 @@ test("creating an NFL pick'em league hides the fantasy fields and sends leagueTy
       pickemMode: 'straight',
     })
   );
-  expect(await screen.findByText(/Invite code: pool99/)).toBeInTheDocument();
+  expect(await screen.findByText('Dashboard opened')).toBeInTheDocument();
 });
 
 test("choosing Both keeps the fantasy fields, caps teams at 20, and sends the chosen confidence mode", async () => {
