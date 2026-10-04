@@ -9,7 +9,9 @@
  * no recap, so the card self-hides there and was never measured; this spec routes
  * a busy-week recap in (fixtures/recapFixtures.ts: ten sentences, four facts) on
  * top of `setupLayoutGuard`. The recap route is registered AFTER setupLayoutGuard
- * so it wins over the guard's catch-all API handler.
+ * so it wins over the guard's catch-all API handler. The league row is served
+ * with `current_season: 2026`, so the commissioner's Rebuild button shows and
+ * the 480/380 bounds measure the commissioner header, the tallest the card has.
  *
  * Measured before this ticket (integration 34fc950a): at 390x844 the card was
  * 1003px tall and the matchup card started at y=2309; at 1440x900 the card was
@@ -45,6 +47,9 @@ async function openDashboard(page: Page, viewport: { width: number; height: numb
     async (url) => (await fetch(url)).json(),
     `/api/league/${LEAGUE_ID}`
   );
+  // Leave the app so the dashboard below cold-loads like every other layout
+  // guard, not as an in-app navigation from the page used for the fetch.
+  await page.goto('about:blank');
   leagueBody.league.current_season = RECAP_PAYLOAD.season;
   // Registered after the guard's catch-all, so both of these are matched first.
   await page.route(new RegExp(`/api/league/${LEAGUE_ID}(\\?.*)?$`), (route) =>

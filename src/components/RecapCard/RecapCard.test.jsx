@@ -413,10 +413,12 @@ describe('collapsed narrative', () => {
   describe('with a ResizeObserver', () => {
     let callbacks;
     let observed;
+    let disconnects;
 
     beforeEach(() => {
       callbacks = [];
       observed = [];
+      disconnects = 0;
       global.ResizeObserver = class {
         constructor(cb) {
           callbacks.push(cb);
@@ -426,7 +428,9 @@ describe('collapsed narrative', () => {
           observed.push(el);
         }
 
-        disconnect() {}
+        disconnect() {
+          disconnects += 1;
+        }
       };
     });
 
@@ -471,6 +475,36 @@ describe('collapsed narrative', () => {
 
       await waitFor(() => expect(screen.queryByRole('button', { name: 'Read the full recap' })).not.toBeInTheDocument());
       expect(screen.getByText(/exploded for a league-high/)).toHaveFocus();
+    });
+
+    // Opening the narrative tears down the collapsed-state observer, but its
+    // callback is still held by the test (a real browser can have one queued).
+    // That stale callback must not measure the now-unclamped text, find "no
+    // overflow" and pull focus off Show less; and unmounting must disconnect
+    // whatever observer is live.
+    test('a stale observer callback leaves Show less focused, and unmount disconnects', async () => {
+      stubOverflow(180, 63);
+      apiClient.get.mockResolvedValue(recapResponse());
+
+      const { unmount } = renderWithProviders(<RecapCard leagueId={1} />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Read the full recap' }));
+      const showLess = screen.getByRole('button', { name: 'Show less' });
+      act(() => showLess.focus());
+      expect(showLess).toHaveFocus();
+      // Expanded, the text is unclamped: scrollHeight equals clientHeight.
+      jest.restoreAllMocks();
+      stubOverflow(180, 180);
+
+      fireResize();
+
+      expect(showLess).toHaveFocus();
+      expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+
+      unmount();
+      // Every observer the card created is disconnected: expanding closed the
+      // collapsed-state one, and none is live while open.
+      expect(callbacks.length).toBeGreaterThan(0);
+      expect(disconnects).toBe(callbacks.length);
     });
   });
 
