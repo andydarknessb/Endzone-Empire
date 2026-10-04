@@ -37,6 +37,9 @@ function LeagueManagement() {
   // True until the first /api/league read settles, so the empty state never
   // flashes before the list has been asked for.
   const [loading, setLoading] = useState(true);
+  // A failed read says nothing about whether the list is empty, so the empty
+  // state must not render for it; the user gets Try again instead.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [activeTab, setActiveTab] = useState('create');
   const [leagueName, setLeagueName] = useState('');
   const [teamName, setTeamName] = useState('');
@@ -150,11 +153,19 @@ function LeagueManagement() {
     try {
       const response = await apiClient.get('/api/league');
       setLeagues(response.data);
+      setLoadFailed(false);
     } catch (err) {
+      setLoadFailed(true);
       report(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const retryLeagues = () => {
+    setError(null);
+    setLoading(true);
+    fetchLeagues();
   };
 
   const openNewLeague = (tab) => {
@@ -248,7 +259,12 @@ function LeagueManagement() {
         {loading && [0, 1, 2].map((i) => (
           <Skeleton key={i} variant="rounded" height={132} data-testid="league-skeleton" />
         ))}
-        {!loading && leagues.length === 0 && (
+        {!loading && loadFailed && leagues.length === 0 && (
+          <Box>
+            <Button variant="outlined" sx={{ minHeight: 44 }} onClick={retryLeagues}>Try again</Button>
+          </Box>
+        )}
+        {!loading && !loadFailed && leagues.length === 0 && (
           <Stack spacing={2} alignItems="flex-start">
             <Typography color="text.secondary">You aren&apos;t in any leagues yet.</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>

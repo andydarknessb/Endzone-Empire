@@ -367,6 +367,41 @@ test('a failed first read drops the skeletons and keeps the error alert', async 
 
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
   expect(screen.queryAllByTestId('league-skeleton')).toHaveLength(0);
+  // A failed read does not mean the list is empty: no empty-state copy or buttons.
+  expect(screen.queryByText(/you aren't in any leagues yet/i)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Create a league' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Join with a code' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Try again' })).toHaveClass('MuiButton-outlined');
+  expect(screen.getByRole('button', { name: 'Try again' })).toHaveStyle({ minHeight: '44px' });
+});
+
+test('Try again re-reads the list and shows the leagues when it succeeds', async () => {
+  let leagueReads = 0;
+  apiClient.get.mockImplementation((url) => {
+    if (url !== '/api/league') return Promise.resolve({ data: [] });
+    leagueReads += 1;
+    return leagueReads === 1
+      ? Promise.reject({ response: { data: { error: 'server exploded' } } })
+      : Promise.resolve({ data: [league()] });
+  });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+
+  expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.queryByText('server exploded')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+});
+
+test('Try again on a still-failing read keeps the error and offers it again', async () => {
+  apiClient.get.mockRejectedValue({ response: { data: { error: 'server exploded' } } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+
+  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  expect(screen.queryByText(/you aren't in any leagues yet/i)).not.toBeInTheDocument();
 });
 
 test('the empty state offers Create a league and Join with a code, each at least 44px tall', async () => {
