@@ -323,6 +323,48 @@ test('joining a league posts the trimmed invite code', async () => {
   expect(mockNotify).toHaveBeenCalledWith('Joined league!');
 });
 
+test('a second click while Create League is in flight sends no second POST', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  let finish;
+  apiClient.post.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+
+  renderWithDashboard();
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+  await userEvent.type(screen.getByLabelText(/League name/), 'Monday Mayhem');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Monday Mavericks');
+  const create = screen.getByRole('button', { name: 'Create League' });
+  await userEvent.click(create);
+  expect(create).toBeDisabled();
+  fireEvent.submit(screen.getByLabelText(/League name/)); // a disabled button takes no click; the handler's own guard is what is tested
+
+  expect(apiClient.post).toHaveBeenCalledTimes(1);
+  finish({ data: { id: 77 } });
+  expect(await screen.findByText('Dashboard opened')).toBeInTheDocument();
+});
+
+test('a second click while Join League is in flight sends no second POST, and a failure re-enables it', async () => {
+  apiClient.get.mockResolvedValue({ data: [] });
+  let fail;
+  apiClient.post.mockReturnValue(new Promise((resolve, reject) => { fail = reject; }));
+
+  renderWithDashboard();
+  await screen.findByText(/you aren't in any leagues yet/i);
+  await openNewLeague();
+  await userEvent.click(screen.getByRole('tab', { name: 'Join League' }));
+  await userEvent.type(screen.getByLabelText(/Invite code/), 'xyz789');
+  await userEvent.type(screen.getByLabelText(/Team name/), 'Joiner FC');
+  const join = screen.getByRole('button', { name: 'Join League' });
+  await userEvent.click(join);
+  expect(join).toBeDisabled();
+  fireEvent.submit(screen.getByLabelText(/Invite code/));
+  expect(apiClient.post).toHaveBeenCalledTimes(1);
+
+  fail({ response: { data: { error: 'code expired' } } });
+  expect(await screen.findByText('code expired')).toBeInTheDocument();
+  await waitFor(() => expect(join).toBeEnabled());
+});
+
 test('a join response with no league id stays on the page', async () => {
   apiClient.get.mockResolvedValue({ data: [] });
   apiClient.post.mockResolvedValue({});
@@ -336,6 +378,8 @@ test('a join response with no league id stays on the page', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Join League' }));
 
   await waitFor(() => expect(mockNotify).toHaveBeenCalledWith('Joined league!'));
+  // Initial read + the refetch after join (the 6-character code also triggers a preview read).
+  await waitFor(() => expect(apiClient.get.mock.calls.filter(([url]) => url === '/api/league')).toHaveLength(2));
   expect(screen.queryByText('Dashboard opened')).not.toBeInTheDocument();
 });
 
@@ -375,6 +419,15 @@ test('a failed first read drops the skeletons and keeps the error alert', async 
   expect(screen.getByRole('button', { name: 'Try again' })).toHaveStyle({ minHeight: '44px' });
 });
 
+test('a failed first read cannot be dismissed, so Try again is never left alone', async () => {
+  apiClient.get.mockRejectedValue({ response: { data: { error: 'server exploded' } } });
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+
+  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+});
+
 test('Try again re-reads the list and shows the leagues when it succeeds', async () => {
   let leagueReads = 0;
   apiClient.get.mockImplementation((url) => {
@@ -391,16 +444,17 @@ test('Try again re-reads the list and shows the leagues when it succeeds', async
   expect(await screen.findByText('Sunday Ballers')).toBeInTheDocument();
   expect(screen.queryByText('server exploded')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Your leagues' })).toHaveFocus());
 });
 
-test('Try again on a still-failing read keeps the error and offers it again', async () => {
+test('Try again on a still-failing read keeps the error, offers it again and puts focus on it', async () => {
   apiClient.get.mockRejectedValue({ response: { data: { error: 'server exploded' } } });
 
   renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
   await userEvent.click(await screen.findByRole('button', { name: 'Try again' }));
 
   expect(await screen.findByText('server exploded')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Try again' })).toHaveFocus());
   expect(screen.queryByText(/you aren't in any leagues yet/i)).not.toBeInTheDocument();
 });
 
@@ -452,6 +506,29 @@ test('deleting a league calls the delete endpoint and refetches', async () => {
 
   await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/api/league/7'));
   expect(apiClient.get).toHaveBeenCalledTimes(3);
+});
+
+test('a delete whose refetch fails keeps the card and the error, with no Try again', async () => {
+  let leagueReads = 0;
+  apiClient.get.mockImplementation((url) => {
+    if (url !== '/api/league') return Promise.resolve({ data: [] });
+    leagueReads += 1;
+    return leagueReads === 1
+      ? Promise.resolve({ data: [league({ id: 7 })] })
+      : Promise.reject({ response: { data: { error: 'server exploded' } } });
+  });
+  apiClient.delete.mockResolvedValue({});
+
+  renderWithProviders(<LeagueManagement />, { state: { user: { id: 1 } } });
+  await screen.findByText('Sunday Ballers');
+  await userEvent.click(screen.getByRole('button', { name: /^League actions for / }));
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Delete League' }));
+
+  expect(await screen.findByText('server exploded')).toBeInTheDocument();
+  expect(screen.getByText('Sunday Ballers')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/you aren't in any leagues yet/i)).not.toBeInTheDocument();
 });
 
 test('canceling the delete confirmation dialog leaves the league intact', async () => {

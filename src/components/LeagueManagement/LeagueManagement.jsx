@@ -40,6 +40,12 @@ function LeagueManagement() {
   // A failed read says nothing about whether the list is empty, so the empty
   // state must not render for it; the user gets Try again instead.
   const [loadFailed, setLoadFailed] = useState(false);
+  // One create or join request in flight at a time: the submit buttons stay
+  // disabled until it settles, so a double click cannot post twice.
+  const [submitting, setSubmitting] = useState(false);
+  const regionRef = useRef(null);
+  const retryRef = useRef(null);
+  const refocusAfterRetry = useRef(false);
   const [activeTab, setActiveTab] = useState('create');
   const [leagueName, setLeagueName] = useState('');
   const [teamName, setTeamName] = useState('');
@@ -163,10 +169,20 @@ function LeagueManagement() {
   };
 
   const retryLeagues = () => {
+    refocusAfterRetry.current = true;
     setError(null);
     setLoading(true);
     fetchLeagues();
   };
+
+  // Try again unmounts while the retry runs, which drops focus to <body>. When
+  // the read settles, put it on the new Try again, or on the region if the
+  // leagues loaded.
+  useEffect(() => {
+    if (loading || !refocusAfterRetry.current) return;
+    refocusAfterRetry.current = false;
+    (retryRef.current || regionRef.current)?.focus();
+  }, [loading]);
 
   const openNewLeague = (tab) => {
     setActiveTab(tab);
@@ -175,6 +191,8 @@ function LeagueManagement() {
 
   const createLeague = async (event) => {
     event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     try {
       // maxTeams is always explicit: the server's default is the fantasy 10
@@ -215,11 +233,15 @@ function LeagueManagement() {
     } catch (err) {
       report(err);
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const joinLeague = async (event) => {
     event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setError(null);
     try {
       const response = await apiClient.post('/api/league/join', { inviteCode: inviteCode.trim(), teamName: joinTeamName.trim() });
@@ -232,6 +254,8 @@ function LeagueManagement() {
     } catch (err) {
       report(err);
       notify(readHttpFailure(err).message || err.message, { severity: 'error' });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -245,26 +269,29 @@ function LeagueManagement() {
     }
   };
 
+  const readFailedEmpty = loadFailed && leagues.length === 0;
+
   return (
     <Container maxWidth="md" sx={{ py: { xs: 2, sm: 3 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2 }}>
         <Typography variant="h4">My Leagues</Typography>
         <Button variant="contained" onClick={() => setNewLeagueOpen(true)}>New league</Button>
       </Box>
-      {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+      {/* A failed first read is not dismissable: Try again is what is left to act on. */}
+      {error && <Alert severity="error" onClose={readFailedEmpty ? undefined : () => setError(null)}>{error}</Alert>}
 
       <DraftCentralCard />
 
-      <Stack spacing={2} sx={{ my: 2 }} role="region" aria-label="Your leagues" aria-busy={loading}>
+      <Stack spacing={2} role="region" aria-label="Your leagues" aria-busy={loading} tabIndex={-1} ref={regionRef} sx={{ my: 2, outline: 'none' }}>
         {loading && [0, 1, 2].map((i) => (
-          <Skeleton key={i} variant="rounded" height={132} data-testid="league-skeleton" />
+          <Skeleton key={i} variant="rounded" sx={{ height: { xs: 210, sm: 180 } }} data-testid="league-skeleton" />
         ))}
-        {!loading && loadFailed && leagues.length === 0 && (
+        {!loading && readFailedEmpty && (
           <Box>
-            <Button variant="outlined" sx={{ minHeight: 44 }} onClick={retryLeagues}>Try again</Button>
+            <Button ref={retryRef} variant="outlined" sx={{ minHeight: 44 }} onClick={retryLeagues}>Try again</Button>
           </Box>
         )}
-        {!loading && !loadFailed && leagues.length === 0 && (
+        {!loading && !readFailedEmpty && leagues.length === 0 && (
           <Stack spacing={2} alignItems="flex-start">
             <Typography color="text.secondary">You aren&apos;t in any leagues yet.</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
@@ -412,7 +439,7 @@ function LeagueManagement() {
               </AccordionDetails>
             </Accordion>
 
-            <Button type="submit" variant="contained" disabled={!teamLimitsValid || !draftScheduleReady}>Create League</Button>
+            <Button type="submit" variant="contained" disabled={!teamLimitsValid || !draftScheduleReady || submitting}>Create League</Button>
             {!teamLimitsValid && (
               <Typography variant="caption" color="error">
                 Check the team limits under Advanced Settings.
@@ -484,7 +511,7 @@ function LeagueManagement() {
                 )}
               </Paper>
             )}
-            <Button ref={joinButtonRef} type="submit" variant="contained">Join League</Button>
+            <Button ref={joinButtonRef} type="submit" variant="contained" disabled={submitting}>Join League</Button>
           </Stack>
         </Paper>
           )}
