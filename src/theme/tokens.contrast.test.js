@@ -393,19 +393,20 @@ const PAIRINGS = [
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over a stat tile', 'dash-surface2'),
   pairing('dash-ink', 'dash-accent-soft', AA_TEXT, 'the me-row team name on the accent tint over the raised tile', 'dash-surface3'),
   pairing('dash-faint', 'dash-accent-soft', AA_TEXT, 'the me-row rank cell on the accent tint over a card (the only guarded tinted-faint backdrop)', 'dash-surface'),
-  // The "You" pill inside the viewer's own row (standings-table and
-  // draft-grades): an accent-tinted pill on an accent-tinted row on a card, so
+  // The "You" pill inside the viewer's own row (standings-table): an accent-tinted pill on an accent-tinted row on a card, so
   // the pill's own tint composites over an already-tinted backdrop rather than
   // over the bare surface. 4.68 light, 5.74 dark - light clears AA_TEXT by 0.18,
   // the thinnest margin in this group, so retuning `dash-accent` or the tint's
   // alpha breaks this row before it breaks any other.
   pairing('dash-accent', 'dash-accent-soft', AA_TEXT, 'the You pill on the viewer row tint over a card', 'viewer-row-tint'),
-  // draft-grades widget (#642): the roster-value number in the viewer's own
-  // (tinted) row. First dim-on-tint consumer in this group; the guidance
-  // above warns dim fails the tint on the raised tile (dash-surface3), but
-  // this widget's tint is only ever painted on the card itself
-  // (dash-surface), where it clears AA_TEXT (5.15 light / 5.36 dark).
-  pairing('dash-dim', 'dash-accent-soft', AA_TEXT, 'the draft-grades roster value on the accent tint over a card', 'dash-surface'),
+  // A dim number in a viewer's own tinted row (the roster value of the
+  // draft-grades widget, #642, which #1993 removed from the dashboard; the
+  // pairing stays registered so the next dim-on-tint consumer starts from a
+  // measured floor). First dim-on-tint pairing in this group; the guidance
+  // above warns dim fails the tint on the raised tile (dash-surface3), but the
+  // tint here is only ever painted on the card itself (dash-surface), where it
+  // clears AA_TEXT (5.15 light / 5.36 dark).
+  pairing('dash-dim', 'dash-accent-soft', AA_TEXT, 'a roster value on the accent tint over a card', 'dash-surface'),
   // Lineup Ledger (#1957 L3): an Unavailable row's reason in the numbers column
   // is warning text, and an eligible or highlighted row paints the accent tint
   // under it (on the card itself).
