@@ -225,7 +225,7 @@ export function matchupStatusView(status) {
  * status). It reads from the viewer's side ("You won by 6.2", "You lost by
  * 6.2"), names the winner for a spectator ("Duluth Dockworkers won by 6.2"),
  * and reads "Tied" on equal scores. The margin is one decimal, from the two
- * scores. `played` is prefixed "Unofficial: " because the score of record is
+ * scores (two when a real win would round to 0.0). `played` is prefixed "Unofficial: " because the score of record is
  * not yet written (ADR 0030).
  */
 export function matchupResultLine(matchup, viewerTeamId) {
@@ -238,7 +238,9 @@ export function matchupResultLine(matchup, viewerTeamId) {
   const prefix = m.status === 'played' ? 'Unofficial: ' : '';
   if (homeScore === awayScore) return `${prefix}Tied`;
   const winner = homeScore > awayScore ? home : away;
-  const margin = Math.abs(homeScore - awayScore).toFixed(1);
+  const diff = Math.abs(homeScore - awayScore);
+  // One decimal, unless that would round a real win down to "0.0".
+  const margin = diff.toFixed(1) === '0.0' ? diff.toFixed(2) : diff.toFixed(1);
   const isViewer = (side) => viewerTeamId != null && side.teamId != null && side.teamId === viewerTeamId;
   if (isViewer(home) || isViewer(away)) {
     return `${prefix}You ${isViewer(winner) ? 'won' : 'lost'} by ${margin}`;
