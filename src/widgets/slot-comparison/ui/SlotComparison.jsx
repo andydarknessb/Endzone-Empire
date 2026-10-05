@@ -1,5 +1,6 @@
 import React, { useId } from 'react';
-import { Box, useMediaQuery } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
+import { Box, Link, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
 import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
@@ -27,8 +28,14 @@ import {
  * OPP · clock" on the second line, an inline pace bar with the projection on
  * desktop, and the tabular points. An Unavailable starter shows his reason
  * ("on bye", "out", "on IR") in place of the projection and no pace bar. On
- * mobile a cell is two lines, the points on the second, and the pace bar is
- * dropped.
+ * mobile a cell is two lines (#2008): the name alone on the first, and on the
+ * second the figure, then "vs OPP" and the live clock. The figure is the
+ * points, or "proj 17.9" for a starter yet to play (his points would read
+ * 0.0); the clock sits in its own non-shrinking span so a long opponent
+ * ellipsizes and the clock never does. The pace bar is dropped. An unfilled
+ * slot reads "Empty" at both widths and, on the viewer's own side (`viewerSide`
+ * 'home' or 'away', with the `leagueId` the link needs), adds a "Set lineup"
+ * link to the Lineup page.
  *
  * The rows arrive already paired and ordered by the Matchup page model
  * (`pairStartersBySlot`, from `entities/roster`, in the league's slot order;
@@ -60,6 +67,8 @@ export default function SlotComparison({
   onOpenPlayer,
   expandedId,
   onToggle,
+  viewerSide,
+  leagueId,
 }) {
   const baseId = useId();
   // The headshot is a number-sized avatar, so its two sizes (38 desktop, 30
@@ -74,6 +83,7 @@ export default function SlotComparison({
   const totals = columnTotals(list);
   const ef = expectedFinal || {};
   const count = `${list.length} ${list.length === 1 ? 'slot' : 'slots'}`;
+  const lineupHref = `/league/${leagueId}/lineup`;
 
   return (
     <Card data-testid="slot-comparison" title="Starters" count={count} tail={<Legend />}>
@@ -128,6 +138,8 @@ export default function SlotComparison({
                       expanded={homeOpen}
                       panelId={panelId}
                       avatarSize={avatarSize}
+                      compact={compact}
+                      lineupHref={viewerSide === 'home' ? lineupHref : null}
                       onToggle={onToggle}
                       onOpenPlayer={onOpenPlayer}
                     />
@@ -140,6 +152,8 @@ export default function SlotComparison({
                       expanded={awayOpen}
                       panelId={panelId}
                       avatarSize={avatarSize}
+                      compact={compact}
+                      lineupHref={viewerSide === 'away' ? lineupHref : null}
                       onToggle={onToggle}
                       onOpenPlayer={onOpenPlayer}
                     />
@@ -289,14 +303,16 @@ function StateMark({ view }) {
   );
 }
 
-// The header's legend (desktop only, as the design): the three markers with
+// The header's legend, at every width (#2008; the design drew it desktop-only,
+// but a phone row carries the same three markers): the three markers with
 // their words. Each marker is decorative here because its word sits beside it.
+// On a phone it wraps under the heading (the Card header wraps its tail).
 function Legend() {
   return (
     <Box
       component="span"
       data-testid="slot-legend"
-      sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: '12px', whiteSpace: 'nowrap' }}
+      sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', columnGap: '12px', rowGap: '2px' }}
     >
       <Box component="span" sx={LEGEND_ITEM}><LiveDot />In progress</Box>
       <Box component="span" sx={LEGEND_ITEM}><Icon name="check" size={13} />Final</Box>
@@ -305,7 +321,7 @@ function Legend() {
   );
 }
 
-const LEGEND_ITEM = { display: 'inline-flex', alignItems: 'center', gap: '4px' };
+const LEGEND_ITEM = { display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' };
 
 /**
  * The inline pace bar: the design's `.pace` track (5px, surface3) with the
@@ -343,13 +359,13 @@ function PaceBar({ pace, width }) {
 
 // The cell's grid: named areas so ONE markup serves both breakpoints. Desktop
 // is the design's three-column cell (headshot, the name/line-two/pace stack,
-// the 56px points column); mobile folds the points onto the second line beside
-// line two and drops the pace row. The away side is the mirror image.
+// the 56px points column); mobile has no points column (the figure rides line
+// two, #2008) and drops the pace row. The away side is the mirror image.
 const CELL_GRID = {
   home: {
     xs: {
-      gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-      gridTemplateAreas: '"avatar name name" "avatar line2 points" "avatar pace pace"',
+      gridTemplateColumns: 'auto minmax(0, 1fr)',
+      gridTemplateAreas: '"avatar name" "avatar line2" "avatar pace"',
     },
     md: {
       gridTemplateColumns: 'auto minmax(0, 1fr) 56px',
@@ -358,8 +374,8 @@ const CELL_GRID = {
   },
   away: {
     xs: {
-      gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-      gridTemplateAreas: '"name name avatar" "points line2 avatar" "pace pace avatar"',
+      gridTemplateColumns: 'minmax(0, 1fr) auto',
+      gridTemplateAreas: '"name avatar" "line2 avatar" "pace avatar"',
     },
     md: {
       gridTemplateColumns: '56px minmax(0, 1fr) auto',
@@ -369,8 +385,44 @@ const CELL_GRID = {
 };
 
 /**
- * One side of a row. An empty side (a slot only the other manager filled)
- * keeps the column and draws nothing. A filled side is the design's
+ * An unfilled slot's cell (a slot only the other manager filled, or one this
+ * manager left open): "Empty", plus the "Set lineup" link when `lineupHref` is
+ * given (the viewer's own side). The link is a real router link with a 44px
+ * target.
+ */
+function EmptyCell({ side, lineupHref }) {
+  const away = side === 'away';
+  return (
+    <Box
+      data-testid={`slot-cell-${side}`}
+      sx={{
+        flex: '1 1 0',
+        minWidth: 0,
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: away ? 'flex-end' : 'flex-start',
+        columnGap: '10px',
+        px: { xs: '2px', md: '12px' },
+        py: { xs: '8px', md: '10px' },
+      }}
+    >
+      <Box component="span" sx={{ fontSize: { xs: '13px', md: '14px' }, color: 'var(--dash-dim)' }}>Empty</Box>
+      {lineupHref && (
+        <Link
+          component={RouterLink}
+          to={lineupHref}
+          sx={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, fontSize: '13px', fontWeight: 600 }}
+        >
+          Set lineup
+        </Link>
+      )}
+    </Box>
+  );
+}
+
+/**
+ * One side of a row. An empty side renders EmptyCell. A filled side is the design's
  * playerCell: two sibling controls, the full-cell expand button underneath
  * and the name button on top (see the widget docblock), and the content laid
  * over the expand button with pointer events off so a click on the headshot,
@@ -378,10 +430,8 @@ const CELL_GRID = {
  * The expand button names its panel through `aria-controls` only while the
  * panel is mounted, so the IDREF always resolves.
  */
-function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpenPlayer }) {
-  if (!player) {
-    return <Box data-testid={`slot-cell-${side}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
-  }
+function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineupHref, onToggle, onOpenPlayer }) {
+  if (!player) return <EmptyCell side={side} lineupHref={lineupHref} />;
   const away = side === 'away';
   const state = starterStateView(player.game_state);
   // A starter yet to play is de-emphasized (the design's `dim`): dim name,
@@ -510,9 +560,13 @@ function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpe
           <InjuryTag status={player.injury_status} />
         </Box>
 
-        <Box component="span" data-testid="slot-line2" sx={{ gridArea: 'line2', minWidth: 0, ...NOTE, ...ELLIPSIS }}>
-          {lineTwo(player)}
-        </Box>
+        {compact ? (
+          <PhoneLineTwo player={player} away={away} dim={dim} proj={!reason} />
+        ) : (
+          <Box component="span" data-testid="slot-line2" sx={{ gridArea: 'line2', minWidth: 0, ...NOTE, ...ELLIPSIS }}>
+            {lineTwo(player)}
+          </Box>
+        )}
 
         {reason ? (
           <Box
@@ -538,22 +592,78 @@ function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpe
           </Box>
         ) : null}
 
-        <Box
-          component="span"
-          data-testid="slot-points"
-          sx={{
-            gridArea: 'points',
-            alignSelf: 'center',
-            justifySelf: 'end',
-            textAlign: 'right',
-            ...DISPLAY_NUM,
-            fontSize: { xs: '18px', md: '24px' },
-            color: dim ? 'var(--dash-faint)' : 'var(--dash-ink)',
-          }}
-        >
-          {formatPoints(player.points)}
-        </Box>
+        {!compact && (
+          <Box
+            component="span"
+            data-testid="slot-points"
+            sx={{
+              gridArea: 'points',
+              alignSelf: 'center',
+              justifySelf: 'end',
+              textAlign: 'right',
+              ...DISPLAY_NUM,
+              fontSize: '24px',
+              color: dim ? 'var(--dash-faint)' : 'var(--dash-ink)',
+            }}
+          >
+            {formatPoints(player.points)}
+          </Box>
+        )}
       </Box>
+    </Box>
+  );
+}
+
+/**
+ * A phone cell's second line (#2008): the figure, then "vs OPP" and the live
+ * clock, each part dropped when absent. The figure is the points, or
+ * "proj 17.9" for a starter yet to play with a projection (`proj` is false for
+ * an Unavailable starter, whose projection is stale and whose reason shows
+ * instead). The opponent is the one part that shrinks and ellipsizes; the
+ * clock is its own span that never shrinks or clips. The away side keeps the
+ * same reading order, right-aligned.
+ */
+function PhoneLineTwo({ player, away, dim, proj }) {
+  const yetToPlay = player.game_state === 'scheduled' && proj && player.projected != null;
+  const figure = yetToPlay ? `proj ${formatPoints(player.projected)}` : formatPoints(player.points);
+  return (
+    <Box
+      data-testid="slot-line2"
+      sx={{
+        gridArea: 'line2',
+        minWidth: 0,
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: away ? 'flex-end' : 'flex-start',
+        gap: '4px',
+        ...NOTE,
+      }}
+    >
+      <Box
+        component="span"
+        data-testid="slot-points"
+        sx={{
+          ...DISPLAY_NUM,
+          flex: 'none',
+          whiteSpace: 'nowrap',
+          fontSize: '16px',
+          color: dim ? 'var(--dash-faint)' : 'var(--dash-ink)',
+        }}
+      >
+        {figure}
+      </Box>
+      {player.opponent && (
+        <>
+          <Box component="span" aria-hidden="true" sx={{ flex: 'none' }}>·</Box>
+          <Box component="span" sx={{ minWidth: 0, ...ELLIPSIS }}>{`vs ${player.opponent}`}</Box>
+        </>
+      )}
+      {player.game_clock && (
+        <>
+          <Box component="span" aria-hidden="true" sx={{ flex: 'none' }}>·</Box>
+          <Box component="span" sx={{ flex: 'none', whiteSpace: 'nowrap' }}>{player.game_clock}</Box>
+        </>
+      )}
     </Box>
   );
 }

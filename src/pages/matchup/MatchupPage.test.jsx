@@ -300,8 +300,9 @@ test('renders the header, both teams\' starters with points, and the strip\'s sc
   const points = within(table).getAllByTestId('slot-points').map((el) => el.textContent);
   expect(points).toEqual(['24.1', '15.4']);
 
-  // Set lineup links to the Lineup page (ADR 0019) from the header on desktop.
-  expect(screen.getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/1/lineup');
+  // Set lineup links to the Lineup page (ADR 0019) from the header on desktop (by test id: the
+  // viewer's open WR slot in the table carries its own Set lineup link, #2008).
+  expect(screen.getByTestId('set-lineup')).toHaveAttribute('href', '/league/1/lineup');
   expect(screen.getByTestId('set-lineup')).toHaveAttribute('data-placement', 'header');
   expect(screen.queryByTestId('matchup-playoff-chip')).not.toBeInTheDocument();
 
@@ -1231,10 +1232,10 @@ test('below the sm breakpoint the toggle fills its row and Set lineup sits at th
   renderPage();
 
   await screen.findByTestId('slot-comparison');
-  const link = screen.getByRole('link', { name: 'Set lineup' });
+  const link = screen.getByTestId('set-lineup');
   expect(link).toHaveAttribute('href', '/league/1/lineup');
   expect(screen.getByTestId('set-lineup')).toHaveAttribute('data-placement', 'bottom');
-  expect(screen.getAllByRole('link', { name: 'Set lineup' })).toHaveLength(1);
+  expect(screen.getAllByTestId('set-lineup')).toHaveLength(1);
   // The bench card precedes the action in document order.
   const bench = screen.getByTestId('bench-card');
   expect(bench.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1362,4 +1363,31 @@ test("the away team's called shot shows on the away side", async () => {
   renderPage();
   expect(await screen.findByTestId('called-shot-away')).toHaveTextContent('Called shot: D. Adams over Away Bench · 15.4 to 4.0');
   expect(screen.queryByTestId('called-shot-home')).not.toBeInTheDocument();
+});
+
+// --- an empty slot's "Set lineup" link: the viewer's side and the league id ---
+
+// The page hands SlotComparison which side is the viewer's and the league id
+// (#2008): an unfilled slot on the viewer's own side links to /league/:id/lineup,
+// the other manager's does not. Red-tell: passing the wrong side, or no
+// league id, turns one of the two reads red.
+test('an unfilled starting slot reads Empty, with a Set lineup link only on the viewer own side', async () => {
+  const qb = starter({ id: 8, name: 'J. Allen', slot: 'QB' });
+  mockApi({ matchup: matchupResponse({ homeStarters: [], awayStarters: [qb] }) });
+  const { unmount } = renderPage();
+  const table = await screen.findByTestId('slot-comparison');
+
+  // The viewer (Team 1) is the home side, and his QB slot is open.
+  expect(within(within(table).getByTestId('slot-cell-home')).getByText('Empty')).toBeInTheDocument();
+  expect(within(within(table).getByTestId('slot-cell-home')).getByRole('link', { name: 'Set lineup' }))
+    .toHaveAttribute('href', '/league/1/lineup');
+  unmount();
+
+  // The viewer (Team 2) is the away side: the home side's open slot is not his.
+  mockApi({ matchup: matchupResponse({ viewerTeamId: 2, homeStarters: [], awayStarters: [qb] }) });
+  renderPage();
+  const awayViewTable = await screen.findByTestId('slot-comparison');
+
+  expect(within(within(awayViewTable).getByTestId('slot-cell-home')).getByText('Empty')).toBeInTheDocument();
+  expect(within(awayViewTable).queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
 });

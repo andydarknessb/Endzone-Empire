@@ -138,6 +138,11 @@ export default function MatchupPage() {
   const homeName = matchup?.home?.name;
   const awayName = matchup?.away?.name;
   const lineupHref = `/league/${leagueId}/lineup`;
+  // Which side of the table is the viewer's, for the empty slot's "Set lineup"
+  // link (#2008): null for a non-participant.
+  const viewerSide = viewerTeamId == null ? null
+    : matchup?.home?.teamId === viewerTeamId ? 'home'
+      : matchup?.away?.teamId === viewerTeamId ? 'away' : null;
 
   // The Decision card's entry for whichever player a name link opened
   // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the
@@ -235,6 +240,8 @@ export default function MatchupPage() {
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}
                 onToggle={toggleRow}
+                viewerSide={viewerSide}
+                leagueId={leagueId}
               />
               <BenchCard
                 homeName={homeName}
