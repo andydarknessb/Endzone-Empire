@@ -172,9 +172,10 @@ function Side({ player, side }) {
 }
 
 // One side of the Totals row: the score, with its Expected final beside it
-// when the server priced one (a settled Matchup has none).
-function Total({ team, side }) {
-  const ef = team?.expectedFinal;
+// when the server priced one. A settled (played or final) Matchup shows none,
+// as the LED board hides it, though the server still prices one (#2010 QA).
+function Total({ team, side, settled }) {
+  const ef = settled ? null : team?.expectedFinal;
   const score = <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{ledScore(team?.score)}</Box>;
   const note = ef != null && ef !== '' ? <Box component="span" data-testid="lineup-exp-final" sx={TOTAL_NOTE}>Exp final {ledFigure(ef)}</Box> : null;
   return (
@@ -194,6 +195,7 @@ const DISPLAY_NUM = {
 
 export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullComparison, mobile }) {
   const list = rows || [];
+  const settled = matchup?.status === 'played' || matchup?.status === 'final';
   return (
     <Card
       data-testid="lineups-card"
@@ -265,11 +267,11 @@ export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullCom
               borderRadius: '0 0 var(--dash-radius) var(--dash-radius)',
             }}
           >
-            <Total team={matchup?.home} side="home" />
+            <Total team={matchup?.home} side="home" settled={settled} />
             <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--dash-faint)' }}>
               Totals
             </Box>
-            <Total team={matchup?.away} side="away" />
+            <Total team={matchup?.away} side="away" settled={settled} />
           </Box>
         </>
       )}

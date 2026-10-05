@@ -259,6 +259,7 @@ export default function MatchupPage() {
                 homeName={homeName}
                 awayName={awayName}
                 expectedFinal={{ home: matchup.home.expectedFinal, away: matchup.away.expectedFinal }}
+                status={matchup.status}
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}
                 onToggle={toggleRow}

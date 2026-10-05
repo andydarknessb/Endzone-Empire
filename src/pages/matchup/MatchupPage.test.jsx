@@ -1436,6 +1436,29 @@ test("the away team's called shot shows on the away side", async () => {
   expect(screen.queryByTestId('called-shot-home')).not.toBeInTheDocument();
 });
 
+// The server still prices an Expected final on a played or final Matchup, and
+// the strip and LED board hide it; so does the Starters footer (#2008 QA).
+// Red-tell: dropping the status the page hands SlotComparison turns the
+// played/final reads red.
+test.each([
+  ['live', true],
+  ['played', false],
+  ['final', false],
+])('a %s matchup shows the Starters footer Exp final: %s', async (status, shown) => {
+  mockApi({
+    matchup: matchupResponse({
+      matchup: { status, final: status === 'final' },
+      home: { expectedFinal: 118.9 },
+      away: { expectedFinal: 114.2 },
+    }),
+  });
+  renderPage();
+  const table = await screen.findByTestId('slot-comparison');
+
+  const note = within(within(table).getByTestId('slot-totals')).queryByText('Exp final 118.9');
+  expect(Boolean(note)).toBe(shown);
+});
+
 // --- an empty slot's "Set lineup" link: the viewer's side and the league id ---
 
 // The page hands SlotComparison which side is the viewer's and the league id

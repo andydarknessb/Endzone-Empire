@@ -65,6 +65,7 @@ export default function SlotComparison({
   homeName,
   awayName,
   expectedFinal,
+  status,
   onOpenPlayer,
   expandedId,
   onToggle,
@@ -82,7 +83,9 @@ export default function SlotComparison({
   const avatarSize = compact ? 30 : 38;
   const list = rows || [];
   const totals = columnTotals(list);
-  const ef = expectedFinal || {};
+  // A settled Matchup (played or final) has no Expected final to show: the
+  // strip and the LED board hide it, and the server still prices one (#2008 QA).
+  const ef = status === 'played' || status === 'final' ? {} : expectedFinal || {};
   const count = `${list.length} ${list.length === 1 ? 'slot' : 'slots'}`;
   const lineupHref = `/league/${leagueId}/lineup`;
 

@@ -244,6 +244,19 @@ test('the footer Exp final notes wrap, so 320px never scrolls sideways (#2008 QA
   }
 });
 
+test.each(['played', 'final'])('a %s matchup hides the footer Exp final though the server priced one (#2008 QA)', (status) => {
+  render(<SlotComparison {...baseProps} status={status} />);
+
+  expect(screen.queryByText(/Exp final/)).not.toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-total-home')).getByText('42.6')).toBeInTheDocument();
+});
+
+test.each(['live', 'scheduled', undefined])('a %s matchup keeps the footer Exp final', (status) => {
+  render(<SlotComparison {...baseProps} status={status} />);
+
+  expect(screen.getAllByText(/Exp final/)).toHaveLength(2);
+});
+
 test('omits an Expected final the model does not carry', () => {
   render(<SlotComparison {...baseProps} expectedFinal={{ home: null, away: null }} />);
 

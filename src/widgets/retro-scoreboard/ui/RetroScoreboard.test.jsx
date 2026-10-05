@@ -536,6 +536,15 @@ test('the Totals row Exp final notes wrap, so 320px never scrolls sideways (#201
   for (const note of notes) expect(note).not.toHaveStyle({ whiteSpace: 'nowrap' });
 });
 
+test.each(['played', 'final'])('a %s matchup hides the Totals row Exp final though the server priced one (#2010 QA)', (status) => {
+  renderBoard({ matchup: matchup({ status }) });
+  const totals = within(screen.getByTestId('lineup-totals'));
+
+  expect(totals.getByTestId('lineup-total-home')).toHaveTextContent('82.2');
+  expect(totals.getByTestId('lineup-total-home')).not.toHaveTextContent('Exp final');
+  expect(totals.getByTestId('lineup-total-away')).not.toHaveTextContent('Exp final');
+});
+
 test('the Totals row drops an Expected final the server did not price', () => {
   const m = matchup();
   renderBoard({ matchup: matchup({ home: { ...m.home, expectedFinal: null } }) });
