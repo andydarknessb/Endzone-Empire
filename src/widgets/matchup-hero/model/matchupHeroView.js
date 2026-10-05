@@ -130,6 +130,7 @@ export function matchupHeroView(matchup, viewerTeamId) {
       awayScore: finite(away.score) ?? 0,
       homeExpectedFinal: home.expectedFinal,
       awayExpectedFinal: away.expectedFinal,
+      status: m.status,
     });
     // Rounded exactly as SplitBar rounds its segments, so the two visible
     // percentages equal the ones the bar announces.

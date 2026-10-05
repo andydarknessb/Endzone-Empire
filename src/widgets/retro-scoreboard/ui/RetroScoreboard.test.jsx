@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within, act } from '@testing-library/react';
+import { render, screen, within, act, isInaccessible } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RetroScoreboard } from '..';
 
@@ -161,7 +161,7 @@ test('the LED board renders both one-decimal scores, both win percentages, and E
 
 test('the LED board blanks an unpriced Expected final and an unknown win probability rather than printing a zero', () => {
   renderBoard({
-    matchup: matchup({ status: 'final', home: { ...matchup().home, expectedFinal: null, playersRemaining: 0 } }),
+    matchup: matchup({ status: 'live', home: { ...matchup().home, expectedFinal: null, playersRemaining: 0 } }),
     homeProb: null,
   });
 
@@ -170,9 +170,48 @@ test('the LED board blanks an unpriced Expected final and an unknown win probabi
   expect(board.getByTestId('led-home-pmr')).toHaveTextContent('0');
   expect(board.getByTestId('led-win-home')).toHaveTextContent('-');
   expect(board.getByTestId('led-win-away')).toHaveTextContent('-');
-  expect(board.getByText('FINAL')).toBeInTheDocument();
+  expect(board.getByText('LIVE')).toBeInTheDocument();
   // ADR 0030: an unknown status shows blank, never a guessed "NOT STARTED".
   expect(board.queryByText('NOT STARTED')).not.toBeInTheDocument();
+});
+
+// A final or played matchup states the result instead (#2007): the WIN row and
+// the EXP FINAL / TO PLAY row give way to one result line, which is real text.
+test.each([
+  ['final', 'You won by 5.2', false],
+  ['final', 'You won by 5.2', true],
+  ['played', 'Unofficial: You won by 5.2', false],
+])('a %s LED board (mobile: %s) renders the result line in place of the WIN and EXP FINAL rows', (status, line, mobileBoard) => {
+  stacked = mobileBoard;
+  renderBoard({ matchup: matchup({ status }), homeProb: 1, viewerTeamId: 1 });
+  const board = within(screen.getByTestId('led-board'));
+  const result = board.getByTestId('led-result');
+  expect(result).toHaveTextContent(line);
+  expect(isInaccessible(result)).toBe(false);
+  expect(board.queryByTestId('led-win')).not.toBeInTheDocument();
+  expect(board.queryByText('WIN')).not.toBeInTheDocument();
+  expect(board.queryByText('EXP FINAL')).not.toBeInTheDocument();
+  expect(board.queryByText('TO PLAY')).not.toBeInTheDocument();
+  expect(board.queryByTestId('led-home-ef')).not.toBeInTheDocument();
+  // The scores and the status stay.
+  expect(board.getByTestId('led-score-home')).toHaveTextContent('82.2');
+});
+
+test('the LED result line names the winner for a spectator and reads Tied on a tie', () => {
+  const { unmount } = renderBoard({ matchup: matchup({ status: 'final' }), homeProb: 1 });
+  expect(screen.getByTestId('led-result')).toHaveTextContent('Duluth Dockworkers won by 5.2');
+  unmount();
+  renderBoard({
+    matchup: matchup({ status: 'final', away: { ...matchup().away, score: 82.2 } }),
+    homeProb: 0.5,
+    viewerTeamId: 2,
+  });
+  expect(screen.getByTestId('led-result')).toHaveTextContent('Tied');
+});
+
+test.each(['scheduled', 'live', null])('a %s LED board has no result line', (status) => {
+  renderBoard({ matchup: matchup({ status }), homeProb: 0.5, viewerTeamId: 1 });
+  expect(screen.queryByTestId('led-result')).not.toBeInTheDocument();
 });
 
 // --- Field -------------------------------------------------------------------
@@ -402,11 +441,124 @@ test('every Lineups headshot wears its position\'s pos-* ring, the treatment the
   expect(within(slotRows[1]).getByTestId('headshot-home')).toHaveStyle({ boxShadow: '0 0 0 2px var(--pos-rb)' });
 });
 
+// A starter with the game fields the wire carries (league.router.js buildPlayer).
+const gameRows = [
+  {
+    slot: 'QB',
+    home: starter({ game_state: 'in_progress', game_clock: 'Q3 7:22', opponent: 'GB' }),
+    away: starter({ id: 11, name: 'J. Allen', nfl_team: 'BUF', game_state: 'final', opponent: 'MIA', game_clock: null }),
+  },
+  {
+    slot: 'RB',
+    home: starter({ id: 12, name: 'A. Jones', position: 'RB', slot: 'RB', game_state: 'scheduled', opponent: 'DET', game_clock: null }),
+    away: starter({ id: 15, name: 'No State', position: 'RB', slot: 'RB' }),
+  },
+];
+
+test('each Lineups row carries the state marker Standard draws, named for a screen reader', () => {
+  renderBoard({ rows: gameRows });
+  const [qb, rb] = within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row');
+
+  expect(within(within(qb).getByTestId('lineup-side-home')).getByRole('img', { name: 'In progress' })).toHaveAttribute('data-testid', 'state-live');
+  expect(within(within(qb).getByTestId('lineup-side-away')).getByRole('img', { name: 'Final' })).toHaveAttribute('data-testid', 'state-final');
+  expect(within(within(rb).getByTestId('lineup-side-home')).getByRole('img', { name: 'Yet to play' })).toHaveAttribute('data-testid', 'state-scheduled');
+  // A starter whose state the wire does not speak gets no marker, nothing guessed.
+  expect(within(within(rb).getByTestId('lineup-side-away')).queryByRole('img', { name: /progress|final|yet to play/i })).not.toBeInTheDocument();
+});
+
+test('on desktop the marker sits beside the name and the name ellipsizes', () => {
+  renderBoard({ rows: gameRows });
+  const home = within(within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row')[0]).getByTestId('lineup-side-home');
+  expect(within(home).getByText('J. Goff')).toHaveStyle({ textOverflow: 'ellipsis' });
+  expect(within(within(home).getByTestId('lineup-line1')).getByTestId('state-live')).toBeInTheDocument();
+  expect(within(within(home).getByTestId('lineup-line2')).queryByTestId('state-live')).not.toBeInTheDocument();
+});
+
+test('on a phone the marker leads the second line and the name wraps instead of ellipsizing', () => {
+  stacked = true;
+  renderBoard({ rows: gameRows });
+  const [qb, rb] = within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row');
+  const home = within(within(qb).getByTestId('lineup-side-home'));
+
+  const line2 = home.getByTestId('lineup-line2');
+  expect(within(line2).getByRole('img', { name: 'In progress' })).toBeInTheDocument();
+  // The marker comes before the points note, and leaves the name's line.
+  expect(within(line2).getByTestId('state-live').compareDocumentPosition(within(line2).getByTestId('lineup-note')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(home.getByTestId('lineup-line1')).not.toContainElement(home.getByTestId('state-live'));
+
+  const name = home.getByText('J. Goff');
+  expect(name).not.toHaveStyle({ textOverflow: 'ellipsis' });
+  expect(name).not.toHaveStyle({ whiteSpace: 'nowrap' });
+  // 'break-word', not 'anywhere': a short word is never split mid-word at 320px.
+  expect(name).toHaveStyle({ overflowWrap: 'break-word' });
+
+  // Final and scheduled starters lead their second line with their markers too.
+  expect(within(within(within(qb).getByTestId('lineup-side-away')).getByTestId('lineup-line2')).getByTestId('state-final')).toBeInTheDocument();
+  expect(within(within(within(rb).getByTestId('lineup-side-home')).getByTestId('lineup-line2')).getByTestId('state-scheduled')).toBeInTheDocument();
+});
+
+test('a live Lineups row names the opponent and the game clock on its second line', () => {
+  renderBoard({ rows: gameRows });
+  const [qb, rb] = within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row');
+
+  const live = within(within(qb).getByTestId('lineup-side-home'));
+  expect(live.getByText('Q3 7:22')).toBeInTheDocument();
+  expect(live.getByTestId('lineup-game')).toHaveTextContent('vs GB · Q3 7:22');
+  // Final and scheduled starters have no clock: the opponent alone.
+  expect(within(within(qb).getByTestId('lineup-side-away')).getByTestId('lineup-game')).toHaveTextContent(/^vs MIA$/);
+  expect(within(within(rb).getByTestId('lineup-side-home')).getByTestId('lineup-game')).toHaveTextContent(/^vs DET$/);
+  // No opponent and no clock: no game line at all, and the points note is untouched.
+  const bare = within(within(rb).getByTestId('lineup-side-away'));
+  expect(bare.queryByTestId('lineup-game')).not.toBeInTheDocument();
+  expect(bare.getByTestId('lineup-note')).toHaveTextContent('18.6 · proj 19.2');
+});
+
+test('the Lineups card ends with a Totals row of both scores and Expected finals', () => {
+  renderBoard();
+  const card = within(screen.getByTestId('lineups-card'));
+  const totals = within(card.getByTestId('lineup-totals'));
+
+  expect(totals.getByText('Totals')).toBeInTheDocument();
+  expect(totals.getByTestId('lineup-total-home')).toHaveTextContent('82.2');
+  expect(totals.getByTestId('lineup-total-home')).toHaveTextContent('Exp final 110.5');
+  expect(totals.getByTestId('lineup-total-away')).toHaveTextContent('77.0');
+  expect(totals.getByTestId('lineup-total-away')).toHaveTextContent('Exp final 123.9');
+  // It is the card's last row, below the slot rows.
+  const rowsInCard = card.getAllByTestId('slot-row');
+  expect(rowsInCard[rowsInCard.length - 1].compareDocumentPosition(totals.getByTestId('lineup-total-home')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('the Totals row Exp final notes wrap, so 320px never scrolls sideways (#2010 QA)', () => {
+  renderBoard();
+  const notes = within(screen.getByTestId('lineup-totals')).getAllByTestId('lineup-exp-final');
+
+  expect(notes).toHaveLength(2);
+  for (const note of notes) expect(note).not.toHaveStyle({ whiteSpace: 'nowrap' });
+});
+
+test.each(['played', 'final'])('a %s matchup hides the Totals row Exp final though the server priced one (#2010 QA)', (status) => {
+  renderBoard({ matchup: matchup({ status }) });
+  const totals = within(screen.getByTestId('lineup-totals'));
+
+  expect(totals.getByTestId('lineup-total-home')).toHaveTextContent('82.2');
+  expect(totals.getByTestId('lineup-total-home')).not.toHaveTextContent('Exp final');
+  expect(totals.getByTestId('lineup-total-away')).not.toHaveTextContent('Exp final');
+});
+
+test('the Totals row drops an Expected final the server did not price', () => {
+  const m = matchup();
+  renderBoard({ matchup: matchup({ home: { ...m.home, expectedFinal: null } }) });
+  const totals = within(screen.getByTestId('lineup-totals'));
+  expect(totals.getByTestId('lineup-total-home')).not.toHaveTextContent('Exp final');
+  expect(totals.getByTestId('lineup-total-away')).toHaveTextContent('Exp final 123.9');
+});
+
 test('the Lineups card shows an empty line until the paired rows arrive', () => {
   renderBoard({ rows: [] });
   const card = within(screen.getByTestId('lineups-card'));
   expect(card.queryAllByTestId('slot-row')).toHaveLength(0);
   expect(card.getByText('No starters to show yet.')).toBeInTheDocument();
+  expect(card.queryByTestId('lineup-totals')).not.toBeInTheDocument();
 });
 
 test('the Lineups card offers a Full comparison action only when the page gives it one', async () => {

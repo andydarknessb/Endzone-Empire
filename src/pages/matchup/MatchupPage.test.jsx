@@ -253,6 +253,63 @@ test('shows an error alert when the fetch fails', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('matchup not found');
 });
 
+// #2009: the error state is no dead end - Retry re-runs the detail read through
+// the entity's refetch, and a link leads back to the league's Game Center.
+test('a 500 on the detail read offers Retry, and Retry with a good read renders the Starters table', async () => {
+  const ok = matchupResponse();
+  let calls = 0;
+  mockApi();
+  const base = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) => {
+    if (url !== MATCHUP_URL) return base(url);
+    calls += 1;
+    return calls === 1 ? Promise.reject({ response: { status: 500, data: { error: 'boom' } } }) : Promise.resolve(ok);
+  });
+  renderPage();
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+  expect(screen.queryByRole('heading', { level: 2, name: 'Starters' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('heading', { level: 2, name: 'Starters' })).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 1, name: 'Week 3 Matchup' })).toHaveFocus();
+});
+
+test("the error state links back to the league's Game Center", async () => {
+  apiClient.get.mockRejectedValue({ response: { status: 500, data: { error: 'boom' } } });
+  renderPage();
+
+  await screen.findByRole('alert');
+  expect(screen.getByRole('link', { name: 'Back to Game Center' })).toHaveAttribute('href', '/league/1/game-center');
+});
+
+// A failed resync leaves the box score on screen with the alert above it:
+// Retry then refreshes without swapping the page for the skeleton, and a good
+// read hands focus to the h1 (the Retry button unmounts under the pointer).
+test('Retry on a failed resync keeps the box score on screen and focuses the h1 once the read succeeds', async () => {
+  renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'Week 3 Matchup' });
+  const base = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) => (
+    url === MATCHUP_URL ? Promise.reject({ response: { status: 500, data: { error: 'boom' } } }) : base(url)
+  ));
+  act(() => { socket.reconnect(); });
+  const alert = await screen.findByRole('alert');
+  expect(screen.getByTestId('slot-comparison')).toBeInTheDocument();
+
+  let release;
+  const held = new Promise((resolve) => { release = () => resolve(matchupResponse()); });
+  apiClient.get.mockImplementation((url) => (url === MATCHUP_URL ? held : base(url)));
+  await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+
+  // Mid-read: the box score is still there, no skeleton.
+  expect(screen.queryByTestId('matchup-loading')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-comparison')).toBeInTheDocument();
+  await act(async () => { release(); });
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Week 3 Matchup' })).toHaveFocus());
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
 // A code+message envelope with no `error` key (the shape the global express
 // error handler and the rate limiter emit). The old hand-rolled read of
 // `err.response.data.error` found no `error` key here and fell through to
@@ -300,8 +357,9 @@ test('renders the header, both teams\' starters with points, and the strip\'s sc
   const points = within(table).getAllByTestId('slot-points').map((el) => el.textContent);
   expect(points).toEqual(['24.1', '15.4']);
 
-  // Set lineup links to the Lineup page (ADR 0019) from the header on desktop.
-  expect(screen.getByRole('link', { name: 'Set lineup' })).toHaveAttribute('href', '/league/1/lineup');
+  // Set lineup links to the Lineup page (ADR 0019) from the header on desktop (by test id: the
+  // viewer's open WR slot in the table carries its own Set lineup link, #2008).
+  expect(screen.getByTestId('set-lineup')).toHaveAttribute('href', '/league/1/lineup');
   expect(screen.getByTestId('set-lineup')).toHaveAttribute('data-placement', 'header');
   expect(screen.queryByTestId('matchup-playoff-chip')).not.toBeInTheDocument();
 
@@ -347,6 +405,20 @@ test('a scheduled matchup reads Scheduled with no win-probability bar, and the S
   expect(screen.getByRole('img', { name: /^Field position/ })).toHaveAccessibleName('Field position: win probability not yet available');
 });
 
+// A final matchup states the result on both views (#2007), from the viewer's
+// side: the page hands the strip and the board the same viewer Team id.
+test('a final matchup reads the result line on the strip and on the LED board', async () => {
+  mockApi({ matchup: matchupResponse({ matchup: { final: true, home_score: '115.9', away_score: '109.7' } }) });
+  renderPage();
+
+  expect(await screen.findByTestId('scoreboard-result')).toHaveTextContent('You won by 6.2');
+  expect(screen.queryByRole('img', { name: /^Win probability:/ })).not.toBeInTheDocument();
+
+  await toScoreboard();
+  expect(screen.getByTestId('led-result')).toHaveTextContent('You won by 6.2');
+  expect(screen.queryByTestId('led-win')).not.toBeInTheDocument();
+});
+
 // The LIVE chip comes from the fetched status alone: no socket event is fired
 // here. Red-tell: forcing the predicate to return Scheduled for `live` turns
 // this case red and no other.
@@ -368,16 +440,17 @@ test('a live matchup reads LIVE from the fetch alone, with no socket event', asy
 
 // Triage #872/#887's page-level promise: on the composed page ONE announced
 // Win probability image and the plain "Win probability" caption (never "Live
-// win probability") for every started status, not only live. The retro
-// field's image is named "Field position: ...", so nothing else can double it.
-test.each(['played', 'final'])('a %s matchup exposes exactly one Win probability image and the plain caption on the composed page', async (status) => {
+// win probability"). The retro field's image is named "Field position: ...",
+// so nothing else can double it. A settled matchup (played or final) states
+// the result instead (#2007), so it exposes no Win probability at all.
+test.each(['played', 'final'])('a %s matchup exposes no Win probability image or caption, only the result line', async (status) => {
   mockApi({ matchup: matchupResponse({ matchup: { status, final: status === 'final', home_score: '99', away_score: '92' } }) });
   renderPage();
 
   await screen.findByTestId('matchup-status-chip');
-  expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
-  expect(screen.getByText('Win probability')).toBeInTheDocument();
-  expect(screen.queryByText(/Live win probability/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: /^Win probability:/ })).not.toBeInTheDocument();
+  expect(screen.queryByText('Win probability')).not.toBeInTheDocument();
+  expect(screen.getByTestId('scoreboard-result')).toHaveTextContent(status === 'played' ? 'Unofficial: You won by 7.0' : 'You won by 7.0');
 });
 
 // A played (games done, not finalised) matchup reads "Awaiting final", never a
@@ -452,10 +525,9 @@ test('a scores:updated event moves the strip\'s score, Expected final, players r
   });
 
   expect(stripScores()).toEqual(['110.0', '90.0']);
-  expect(screen.getByText('Projected 130.2')).toBeInTheDocument();
-  expect(screen.getByText('Projected 96.4')).toBeInTheDocument();
-  expect(screen.getByText('Players remaining 3')).toBeInTheDocument();
-  expect(screen.getByText('Players remaining 1')).toBeInTheDocument();
+  // Played settles the strip (#2007): the figures give way to the result line.
+  expect(screen.queryByText(/Projected|Players remaining/)).not.toBeInTheDocument();
+  expect(screen.getByTestId('scoreboard-result')).toHaveTextContent('Unofficial: You won by 20.0');
   expect(statusChip()).toHaveTextContent('Awaiting final');
   expect(matchupFetches()).toHaveLength(1);
 });
@@ -1231,10 +1303,10 @@ test('below the sm breakpoint the toggle fills its row and Set lineup sits at th
   renderPage();
 
   await screen.findByTestId('slot-comparison');
-  const link = screen.getByRole('link', { name: 'Set lineup' });
+  const link = screen.getByTestId('set-lineup');
   expect(link).toHaveAttribute('href', '/league/1/lineup');
   expect(screen.getByTestId('set-lineup')).toHaveAttribute('data-placement', 'bottom');
-  expect(screen.getAllByRole('link', { name: 'Set lineup' })).toHaveLength(1);
+  expect(screen.getAllByTestId('set-lineup')).toHaveLength(1);
   // The bench card precedes the action in document order.
   const bench = screen.getByTestId('bench-card');
   expect(bench.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1362,4 +1434,79 @@ test("the away team's called shot shows on the away side", async () => {
   renderPage();
   expect(await screen.findByTestId('called-shot-away')).toHaveTextContent('Called shot: D. Adams over Away Bench · 15.4 to 4.0');
   expect(screen.queryByTestId('called-shot-home')).not.toBeInTheDocument();
+});
+
+// The server still prices an Expected final on a played or final Matchup, and
+// the strip and LED board hide it; so does the Starters footer (#2008 QA).
+// Red-tell: dropping the status the page hands SlotComparison turns the
+// played/final reads red.
+test.each([
+  ['live', true],
+  ['played', false],
+  ['final', false],
+])('a %s matchup shows the Starters footer Exp final: %s', async (status, shown) => {
+  mockApi({
+    matchup: matchupResponse({
+      matchup: { status, final: status === 'final' },
+      home: { expectedFinal: 118.9 },
+      away: { expectedFinal: 114.2 },
+    }),
+  });
+  renderPage();
+  const table = await screen.findByTestId('slot-comparison');
+
+  const note = within(within(table).getByTestId('slot-totals')).queryByText('Exp final 118.9');
+  expect(Boolean(note)).toBe(shown);
+});
+
+// --- an empty slot's "Set lineup" link: the viewer's side and the league id ---
+
+// The page hands SlotComparison which side is the viewer's and the league id
+// (#2008): an unfilled slot on the viewer's own side links to /league/:id/lineup,
+// the other manager's does not. Red-tell: passing the wrong side, or no
+// league id, turns one of the two reads red.
+// The link needs a lineup that can still be set (#2008 QA): a scheduled or
+// live Matchup in a league that is not best ball. "Empty" always shows.
+// Red-tell: passing `canSetLineup` as always-true turns the final, played and
+// best-ball rows red.
+test.each([
+  ['scheduled', false, true],
+  ['live', false, true],
+  ['played', false, false],
+  ['final', false, false],
+  ['live', true, false],
+  ['scheduled', true, false],
+])('a %s matchup (best ball %s) shows the empty slot Set lineup link: %s', async (status, bestBall, link) => {
+  useLeague.mockReturnValue({ league: { ...LEAGUE, best_ball: bestBall }, viewerTeamId: 1, loading: false, error: null });
+  const qb = starter({ id: 8, name: 'J. Allen', slot: 'QB' });
+  mockApi({
+    matchup: matchupResponse({ matchup: { status, final: status === 'final' }, homeStarters: [], awayStarters: [qb] }),
+  });
+  renderPage();
+  const table = await screen.findByTestId('slot-comparison');
+  const home = within(table).getByTestId('slot-cell-home');
+
+  expect(within(home).getByText('Empty')).toBeInTheDocument();
+  expect(Boolean(within(home).queryByRole('link', { name: 'Set lineup' }))).toBe(link);
+});
+
+test('an unfilled starting slot reads Empty, with a Set lineup link only on the viewer own side', async () => {
+  const qb = starter({ id: 8, name: 'J. Allen', slot: 'QB' });
+  mockApi({ matchup: matchupResponse({ homeStarters: [], awayStarters: [qb] }) });
+  const { unmount } = renderPage();
+  const table = await screen.findByTestId('slot-comparison');
+
+  // The viewer (Team 1) is the home side, and his QB slot is open.
+  expect(within(within(table).getByTestId('slot-cell-home')).getByText('Empty')).toBeInTheDocument();
+  expect(within(within(table).getByTestId('slot-cell-home')).getByRole('link', { name: 'Set lineup' }))
+    .toHaveAttribute('href', '/league/1/lineup');
+  unmount();
+
+  // The viewer (Team 2) is the away side: the home side's open slot is not his.
+  mockApi({ matchup: matchupResponse({ viewerTeamId: 2, homeStarters: [], awayStarters: [qb] }) });
+  renderPage();
+  const awayViewTable = await screen.findByTestId('slot-comparison');
+
+  expect(within(within(awayViewTable).getByTestId('slot-cell-home')).getByText('Empty')).toBeInTheDocument();
+  expect(within(awayViewTable).queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
 });

@@ -56,3 +56,8 @@ export { default as PositionChip, positionColorSx } from './PositionChip';
 export { default as PlayerAvatar } from './PlayerAvatar';
 export { default as InjuryBadge } from './InjuryBadge';
 export { statLine } from './statLine';
+// A starter's state marker (live dot, final check, yet-to-play clock) beside his
+// name (#2010, ADR 0031's component amendment): the slot-comparison and
+// retro-scoreboard widgets each held a copy; moved here at the second island
+// consumer. `StateGlyph` is the bare decorative glyph for the Starters legend.
+export { default as StateMark, StateGlyph } from './StateMark';

@@ -217,3 +217,44 @@ export function matchupStatusView(status) {
     hasStarted: KNOWN_STATUSES.has(status) ? STARTED_STATUSES.has(status) : null,
   };
 }
+
+// A missing score is NaN, not Number(null) = 0.
+function scoreOf(value) {
+  return value == null || value === '' ? NaN : Number(value);
+}
+
+/**
+ * The result line of a settled Matchup (#2007): what both scoreboards print in
+ * place of the win bar and the Expected final figures once the week is decided.
+ * Only `played` and `final` have one (null for scheduled, live and an unknown
+ * status). It reads from the viewer's side ("You won by 6.2", "You lost by
+ * 6.2"), names the winner for a spectator ("Duluth Dockworkers won by 6.2"),
+ * and reads "Tied" on equal scores. The margin is one decimal, from the two
+ * scores (two when the boards would print the same figure for both). A score
+ * that is not a finite number gives no line (null). `played` is prefixed
+ * "Unofficial: " because the score of record is not yet written (ADR 0030).
+ */
+export function matchupResultLine(matchup, viewerTeamId) {
+  const m = matchup || {};
+  if (m.status !== 'played' && m.status !== 'final') return null;
+  const home = m.home || {};
+  const away = m.away || {};
+  // A score the server could not say is not zero: no line, rather than a
+  // "Tied" or a margin invented from nothing.
+  const homeScore = scoreOf(home.score);
+  const awayScore = scoreOf(away.score);
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
+  const prefix = m.status === 'played' ? 'Unofficial: ' : '';
+  if (homeScore === awayScore) return `${prefix}Tied`;
+  const winner = homeScore > awayScore ? home : away;
+  const diff = Math.abs(homeScore - awayScore);
+  // One decimal, unless the boards print the two scores as the same figure
+  // (they round to one decimal): then two, so the line never says a margin
+  // the boards do not show (100.04 v 99.96 prints 100.0 / 100.0, "won by 0.08").
+  const margin = homeScore.toFixed(1) === awayScore.toFixed(1) ? diff.toFixed(2) : diff.toFixed(1);
+  const isViewer = (side) => viewerTeamId != null && side.teamId != null && side.teamId === viewerTeamId;
+  if (isViewer(home) || isViewer(away)) {
+    return `${prefix}You ${isViewer(winner) ? 'won' : 'lost'} by ${margin}`;
+  }
+  return `${prefix}${winner.name || (winner === home ? 'Home' : 'Away')} won by ${margin}`;
+}

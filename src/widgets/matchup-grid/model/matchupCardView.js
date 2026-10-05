@@ -75,6 +75,7 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
         awayScore,
         homeExpectedFinal: home.expectedFinal,
         awayExpectedFinal: away.expectedFinal,
+        status,
       })
     : null;
   const homePct = probability ? Math.round(probability.home * 100) : null;

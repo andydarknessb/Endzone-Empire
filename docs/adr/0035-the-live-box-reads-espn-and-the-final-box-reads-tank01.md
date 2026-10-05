@@ -110,3 +110,21 @@ Two rules above, measured against the week 3 noon slot:
   first quarter is now `box_not_ready`: skipped, neither a failure nor a
   success. With a score on the board or past the first quarter, an empty box
   is a shape failure again.
+
+## Amendment (2026-10-05, #2002)
+
+One key is no longer corrected by the Final box. Tank01's per-player
+`Defense.fumblesRecovered` counts a player falling on his own team's fumble
+(2026 week 4: ten rows, Drake Maye 2 own and 0 opponent per nflverse), so the
+Final box credited IDP fumble recoveries the Live box had rightly left out. The
+Tank01 adapter no longer emits `idpFumbleRecovery`, and the box write keeps the
+stored value when a box line lacks it (`BOX_KEEP_IF_ABSENT`). The Live box's
+play-text pass is the only same-day source; the Tue/Wed nflverse correction
+settles it. Until that correction IDP fumble recoveries undercount, rather
+than overcount, wherever the Live box missed them: a game ESPN never covered
+or stopped covering (Tank01 fallback), a recovery in the last poll window
+before the game turns final, or a recoverer the play text cannot name. A
+recovery the officials reverse is still credited by the play-text pass and
+now stands until the correction too (#2003). The
+team DST `fumbleRecovery` is opponent-only in Tank01 and still comes from the
+Final box.

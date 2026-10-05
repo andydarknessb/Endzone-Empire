@@ -122,6 +122,7 @@ function myWinProbability(matchup) {
     awayScore: matchup.opp?.score,
     homeExpectedFinal: matchup.my?.expectedFinal,
     awayExpectedFinal: matchup.opp?.expectedFinal,
+    status: matchup.status,
   }).home;
 }
 

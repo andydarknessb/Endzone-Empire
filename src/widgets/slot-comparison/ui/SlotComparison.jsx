@@ -1,8 +1,9 @@
 import React, { useId } from 'react';
-import { Box, useMediaQuery } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
+import { Box, Link, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
-import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
+import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark, StateGlyph } from '../../../shared/ui';
 import {
   columnTotals,
   formatPoints,
@@ -27,8 +28,18 @@ import {
  * OPP · clock" on the second line, an inline pace bar with the projection on
  * desktop, and the tabular points. An Unavailable starter shows his reason
  * ("on bye", "out", "on IR") in place of the projection and no pace bar. On
- * mobile a cell is two lines, the points on the second, and the pace bar is
- * dropped.
+ * mobile a cell is two lines (#2008): the name on the first (it wraps, never
+ * ellipsized) with the injury tag right after it, and on the second the state
+ * marker, the figure, then "vs OPP" and the live clock, wrapping rather than
+ * overflowing the half-width cell. The figure is the points, or "proj 17.9"
+ * for a starter yet to play (his points would read 0.0); the clock sits in its
+ * own non-shrinking span so a long opponent ellipsizes and the clock never
+ * does. The pace bar is dropped. An unfilled
+ * slot reads "Empty" at both widths and, on the viewer's own side (`viewerSide`
+ * 'home' or 'away', with the `leagueId` the link needs) while the lineup can
+ * still be set (`canSetLineup`, which the page derives: a scheduled or live
+ * Matchup in a league that is not best ball; #2008 QA), adds a "Set lineup"
+ * link to the Lineup page.
  *
  * The rows arrive already paired and ordered by the Matchup page model
  * (`pairStartersBySlot`, from `entities/roster`, in the league's slot order;
@@ -40,7 +51,7 @@ import {
  * under the cell's content, the name a button laid over it, so a click on
  * the name opens the player and a click anywhere else on the cell toggles.
  *
- * Composes `shared/ui` (Card, PosChip) and reaches below the island only for
+ * Composes `shared/ui` (Card, PosChip, StateMark) and reaches below the island only for
  * PlayerAvatar, the sanctioned headshot (ADR 0031). Paints `dash-*` tokens,
  * the `pos-*` ring, and four app-group tokens: `--danger` for the live dot,
  * `--focus-ring` for the two controls' focus rings, `--radius-pill` for the
@@ -57,9 +68,13 @@ export default function SlotComparison({
   homeName,
   awayName,
   expectedFinal,
+  status,
   onOpenPlayer,
   expandedId,
   onToggle,
+  viewerSide,
+  canSetLineup = false,
+  leagueId,
 }) {
   const baseId = useId();
   // The headshot is a number-sized avatar, so its two sizes (38 desktop, 30
@@ -72,8 +87,11 @@ export default function SlotComparison({
   const avatarSize = compact ? 30 : 38;
   const list = rows || [];
   const totals = columnTotals(list);
-  const ef = expectedFinal || {};
+  // A settled Matchup (played or final) has no Expected final to show: the
+  // strip and the LED board hide it, and the server still prices one (#2008 QA).
+  const ef = status === 'played' || status === 'final' ? {} : expectedFinal || {};
   const count = `${list.length} ${list.length === 1 ? 'slot' : 'slots'}`;
+  const lineupHref = `/league/${leagueId}/lineup`;
 
   return (
     <Card data-testid="slot-comparison" title="Starters" count={count} tail={<Legend />}>
@@ -128,6 +146,8 @@ export default function SlotComparison({
                       expanded={homeOpen}
                       panelId={panelId}
                       avatarSize={avatarSize}
+                      compact={compact}
+                      lineupHref={canSetLineup && viewerSide === 'home' ? lineupHref : null}
                       onToggle={onToggle}
                       onOpenPlayer={onOpenPlayer}
                     />
@@ -140,6 +160,8 @@ export default function SlotComparison({
                       expanded={awayOpen}
                       panelId={panelId}
                       avatarSize={avatarSize}
+                      compact={compact}
+                      lineupHref={canSetLineup && viewerSide === 'away' ? lineupHref : null}
                       onToggle={onToggle}
                       onOpenPlayer={onOpenPlayer}
                     />
@@ -166,11 +188,11 @@ export default function SlotComparison({
           >
             <Box data-testid="slot-total-home" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{formatPoints(totals.home)}</Box>
-              {ef.home != null && <Box component="span" sx={NOTE_NUM}>EF {formatPoints(ef.home)}</Box>}
+              {ef.home != null && <Box component="span" data-testid="slot-exp-final" sx={NOTE_WRAP}>Exp final {formatPoints(ef.home)}</Box>}
             </Box>
             <Box component="span" sx={LABEL}>Totals</Box>
             <Box data-testid="slot-total-away" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-              {ef.away != null && <Box component="span" sx={NOTE_NUM}>EF {formatPoints(ef.away)}</Box>}
+              {ef.away != null && <Box component="span" data-testid="slot-exp-final" sx={NOTE_WRAP}>Exp final {formatPoints(ef.away)}</Box>}
               <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{formatPoints(totals.away)}</Box>
             </Box>
           </Box>
@@ -188,6 +210,9 @@ const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'no
 // The design's `.note`: 12px faint; `.num` adds tabular figures.
 const NOTE = { fontSize: '12px', color: 'var(--dash-faint)' };
 const NOTE_NUM = { ...NOTE, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+// The footer's "Exp final 110.5" note wraps (#2008 QA): nowrap held it at its
+// full width and pushed the document past the viewport at 320px.
+const NOTE_WRAP = { ...NOTE, fontVariantNumeric: 'tabular-nums' };
 
 // The design's `.label`: the uppercase faint table label.
 const LABEL = {
@@ -209,21 +234,11 @@ const DISPLAY_NUM = {
 
 const FOCUS_RING = { outline: '2px solid var(--focus-ring)', outlineOffset: -2 };
 
-// Inline stroke icons on the design's 20px grid, one style (1.6 stroke, round
-// caps and joins). Decorative: every use sits beside its meaning as text or
-// inside a labelled marker.
-const ICON_PATHS = {
-  check: <path d="M4 10.5 8 14.5 16 6" />,
-  clock: (
-    <>
-      <circle cx="10" cy="10" r="7" />
-      <path d="M10 6v4l3 2" />
-    </>
-  ),
-  chevU: <path d="M5 12.5 10 7.5l5 5" />,
-};
-
-function Icon({ name, size = 14 }) {
+// The expanded strip's chevron, an inline stroke icon on the design's 20px
+// grid (1.6 stroke, round caps and joins). Decorative: it sits beside its
+// meaning as text. The state glyphs (live dot, check, clock) live in
+// `shared/ui`'s StateMark.
+function ChevronUp({ size = 16 }) {
   return (
     <svg
       width={size}
@@ -238,74 +253,30 @@ function Icon({ name, size = 14 }) {
       focusable="false"
       style={{ display: 'block', flex: 'none' }}
     >
-      {ICON_PATHS[name]}
+      <path d="M5 12.5 10 7.5l5 5" />
     </svg>
   );
 }
 
-// The design's `.dot` in the in-progress color: an 8px disc painted `--danger`,
-// as build.mjs stateDot() and the slotList() legend paint it. The dashboard
-// group has no dash-danger; `danger` is an app token defined in both themes
-// (tokens.js), reached the way `--focus-ring` and `--radius-pill` are here, so
-// the live marker stays red beside the pace bar's green at-or-ahead fill.
-// `data-tone` declares that paint where a test can read it (jsdom drops a
-// var() color from computed and inline style alike), as Badge's `data-variant`
-// does; a regression to the accent changes both or is caught.
-function LiveDot() {
-  return (
-    <Box
-      component="span"
-      data-testid="live-dot"
-      data-tone="danger"
-      aria-hidden="true"
-      sx={{
-        width: 8,
-        height: 8,
-        borderRadius: 'var(--radius-pill)',
-        backgroundColor: 'var(--danger)',
-        flex: 'none',
-      }}
-    />
-  );
-}
-
-/**
- * A starter's state marker beside his name: the live dot, the final check or
- * the yet-to-play clock, as a labelled image so a screen reader hears the
- * state ("In progress") and not just a glyph. Nothing for an unknown state.
- */
-function StateMark({ view }) {
-  if (!view) return null;
-  return (
-    <Box
-      component="span"
-      role="img"
-      aria-label={view.label}
-      data-testid={`state-${view.kind}`}
-      sx={{ display: 'flex', flex: 'none', color: 'var(--dash-faint)' }}
-    >
-      {view.kind === 'live' ? <LiveDot /> : <Icon name={view.kind === 'final' ? 'check' : 'clock'} size={14} />}
-    </Box>
-  );
-}
-
-// The header's legend (desktop only, as the design): the three markers with
+// The header's legend, at every width (#2008; the design drew it desktop-only,
+// but a phone row carries the same three markers): the three markers with
 // their words. Each marker is decorative here because its word sits beside it.
+// On a phone it wraps under the heading (the Card header wraps its tail).
 function Legend() {
   return (
     <Box
       component="span"
       data-testid="slot-legend"
-      sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: '12px', whiteSpace: 'nowrap' }}
+      sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', columnGap: '12px', rowGap: '2px' }}
     >
-      <Box component="span" sx={LEGEND_ITEM}><LiveDot />In progress</Box>
-      <Box component="span" sx={LEGEND_ITEM}><Icon name="check" size={13} />Final</Box>
-      <Box component="span" sx={LEGEND_ITEM}><Icon name="clock" size={13} />Yet to play</Box>
+      <Box component="span" sx={LEGEND_ITEM}><StateGlyph kind="live" />In progress</Box>
+      <Box component="span" sx={LEGEND_ITEM}><StateGlyph kind="final" size={13} />Final</Box>
+      <Box component="span" sx={LEGEND_ITEM}><StateGlyph kind="scheduled" size={13} />Yet to play</Box>
     </Box>
   );
 }
 
-const LEGEND_ITEM = { display: 'inline-flex', alignItems: 'center', gap: '4px' };
+const LEGEND_ITEM = { display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' };
 
 /**
  * The inline pace bar: the design's `.pace` track (5px, surface3) with the
@@ -343,13 +314,13 @@ function PaceBar({ pace, width }) {
 
 // The cell's grid: named areas so ONE markup serves both breakpoints. Desktop
 // is the design's three-column cell (headshot, the name/line-two/pace stack,
-// the 56px points column); mobile folds the points onto the second line beside
-// line two and drops the pace row. The away side is the mirror image.
+// the 56px points column); mobile has no points column (the figure rides line
+// two, #2008) and drops the pace row. The away side is the mirror image.
 const CELL_GRID = {
   home: {
     xs: {
-      gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-      gridTemplateAreas: '"avatar name name" "avatar line2 points" "avatar pace pace"',
+      gridTemplateColumns: 'auto minmax(0, 1fr)',
+      gridTemplateAreas: '"avatar name" "avatar line2" "avatar pace"',
     },
     md: {
       gridTemplateColumns: 'auto minmax(0, 1fr) 56px',
@@ -358,8 +329,8 @@ const CELL_GRID = {
   },
   away: {
     xs: {
-      gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-      gridTemplateAreas: '"name name avatar" "points line2 avatar" "pace pace avatar"',
+      gridTemplateColumns: 'minmax(0, 1fr) auto',
+      gridTemplateAreas: '"name avatar" "line2 avatar" "pace avatar"',
     },
     md: {
       gridTemplateColumns: '56px minmax(0, 1fr) auto',
@@ -369,8 +340,44 @@ const CELL_GRID = {
 };
 
 /**
- * One side of a row. An empty side (a slot only the other manager filled)
- * keeps the column and draws nothing. A filled side is the design's
+ * An unfilled slot's cell (a slot only the other manager filled, or one this
+ * manager left open): "Empty", plus the "Set lineup" link when `lineupHref` is
+ * given (the viewer's own side). The link is a real router link with a 44px
+ * target.
+ */
+function EmptyCell({ side, lineupHref }) {
+  const away = side === 'away';
+  return (
+    <Box
+      data-testid={`slot-cell-${side}`}
+      sx={{
+        flex: '1 1 0',
+        minWidth: 0,
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: away ? 'flex-end' : 'flex-start',
+        columnGap: '10px',
+        px: { xs: '2px', md: '12px' },
+        py: { xs: '8px', md: '10px' },
+      }}
+    >
+      <Box component="span" sx={{ fontSize: { xs: '13px', md: '14px' }, color: 'var(--dash-dim)' }}>Empty</Box>
+      {lineupHref && (
+        <Link
+          component={RouterLink}
+          to={lineupHref}
+          sx={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, fontSize: '13px', fontWeight: 600 }}
+        >
+          Set lineup
+        </Link>
+      )}
+    </Box>
+  );
+}
+
+/**
+ * One side of a row. An empty side renders EmptyCell. A filled side is the design's
  * playerCell: two sibling controls, the full-cell expand button underneath
  * and the name button on top (see the widget docblock), and the content laid
  * over the expand button with pointer events off so a click on the headshot,
@@ -378,10 +385,8 @@ const CELL_GRID = {
  * The expand button names its panel through `aria-controls` only while the
  * panel is mounted, so the IDREF always resolves.
  */
-function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpenPlayer }) {
-  if (!player) {
-    return <Box data-testid={`slot-cell-${side}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
-  }
+function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineupHref, onToggle, onOpenPlayer }) {
+  if (!player) return <EmptyCell side={side} lineupHref={lineupHref} />;
   const away = side === 'away';
   const state = starterStateView(player.game_state);
   // A starter yet to play is de-emphasized (the design's `dim`): dim name,
@@ -488,7 +493,9 @@ function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpe
               textAlign: 'inherit',
               color: dim ? 'var(--dash-dim)' : 'var(--dash-ink)',
               cursor: 'pointer',
-              ...ELLIPSIS,
+              // Desktop ellipsizes the name; a phone wraps it (two lines at most
+              // in practice), never cutting it (#2008).
+              ...(compact ? { overflowWrap: 'break-word' } : ELLIPSIS),
               '&:hover': { textDecoration: 'underline' },
               '&:focus-visible': { ...FOCUS_RING, outlineOffset: 2, borderRadius: '4px' },
               // The name is a line of text; on mobile its hit area grows to
@@ -506,13 +513,19 @@ function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpe
           >
             {player.name}
           </Box>
-          <StateMark view={state} />
+          {!compact && <StateMark view={state} />}
+          {/* On a phone the tag stays on line one beside the name: line two has
+              no room for it beside the figure and the game (#2008 QA). */}
           <InjuryTag status={player.injury_status} />
         </Box>
 
-        <Box component="span" data-testid="slot-line2" sx={{ gridArea: 'line2', minWidth: 0, ...NOTE, ...ELLIPSIS }}>
-          {lineTwo(player)}
-        </Box>
+        {compact ? (
+          <PhoneLineTwo player={player} away={away} dim={dim} proj={!reason} state={state} />
+        ) : (
+          <Box component="span" data-testid="slot-line2" sx={{ gridArea: 'line2', minWidth: 0, ...NOTE, ...ELLIPSIS }}>
+            {lineTwo(player)}
+          </Box>
+        )}
 
         {reason ? (
           <Box
@@ -538,22 +551,91 @@ function SideCell({ player, side, expanded, panelId, avatarSize, onToggle, onOpe
           </Box>
         ) : null}
 
+        {!compact && (
+          <Box
+            component="span"
+            data-testid="slot-points"
+            sx={{
+              gridArea: 'points',
+              alignSelf: 'center',
+              justifySelf: 'end',
+              textAlign: 'right',
+              ...DISPLAY_NUM,
+              fontSize: '24px',
+              color: dim ? 'var(--dash-faint)' : 'var(--dash-ink)',
+            }}
+          >
+            {formatPoints(player.points)}
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * A phone cell's second line (#2008): the state marker, the figure, then "vs
+ * OPP" and the live clock, each part dropped when absent (the injury tag sits
+ * on line one beside the name, #2008 QA). The figure is the points, or "proj
+ * 17.9" for a starter yet to play with a projection (`proj` is false for an
+ * Unavailable starter, whose projection is stale and whose reason shows
+ * instead). The half-width cell is about 100px wide at 360px, so the line
+ * wraps: the marker and figure lead, and the game ("vs OPP · clock") is one
+ * group that drops to its own line when it does not fit beside them. The dot
+ * renders only between the two game parts when both are present, never as an
+ * orphan. The opponent is the one part that shrinks and ellipsizes; the clock
+ * is its own span that never shrinks or clips. The away side keeps the same
+ * reading order, right-aligned.
+ */
+function PhoneLineTwo({ player, away, dim, proj, state }) {
+  const yetToPlay = player.game_state === 'scheduled' && proj && player.projected != null;
+  const figure = yetToPlay ? `proj ${formatPoints(player.projected)}` : formatPoints(player.points);
+  const justify = away ? 'flex-end' : 'flex-start';
+  return (
+    <Box
+      data-testid="slot-line2"
+      sx={{
+        gridArea: 'line2',
+        minWidth: 0,
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'baseline',
+        justifyContent: justify,
+        columnGap: '4px',
+        ...NOTE,
+      }}
+    >
+      <StateMark view={state} />
+      <Box
+        component="span"
+        data-testid="slot-points"
+        sx={{
+          ...DISPLAY_NUM,
+          flex: 'none',
+          whiteSpace: 'nowrap',
+          fontSize: '16px',
+          color: dim ? 'var(--dash-faint)' : 'var(--dash-ink)',
+        }}
+      >
+        {figure}
+      </Box>
+      {(player.opponent || player.game_clock) && (
         <Box
           component="span"
-          data-testid="slot-points"
-          sx={{
-            gridArea: 'points',
-            alignSelf: 'center',
-            justifySelf: 'end',
-            textAlign: 'right',
-            ...DISPLAY_NUM,
-            fontSize: { xs: '18px', md: '24px' },
-            color: dim ? 'var(--dash-faint)' : 'var(--dash-ink)',
-          }}
+          data-testid="slot-game"
+          sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: justify, columnGap: '4px', minWidth: 0, maxWidth: '100%' }}
         >
-          {formatPoints(player.points)}
+          {player.opponent && (
+            <Box component="span" sx={{ minWidth: 0, maxWidth: '100%', ...ELLIPSIS }}>{`vs ${player.opponent}`}</Box>
+          )}
+          {player.opponent && player.game_clock && (
+            <Box component="span" aria-hidden="true" sx={{ flex: 'none' }}>·</Box>
+          )}
+          {player.game_clock && (
+            <Box component="span" sx={{ flex: 'none', whiteSpace: 'nowrap' }}>{player.game_clock}</Box>
+          )}
         </Box>
-      </Box>
+      )}
     </Box>
   );
 }
@@ -605,7 +687,7 @@ function ExpandedStrip({ id, player }) {
           <Box component="span" sx={NOTE_NUM}>{formatPoints(player.points)} pts</Box>
         )}
         <Box sx={{ color: 'var(--dash-faint)', display: { xs: 'none', md: 'flex' } }}>
-          <Icon name="chevU" size={16} />
+          <ChevronUp size={16} />
         </Box>
       </Box>
     </Box>
