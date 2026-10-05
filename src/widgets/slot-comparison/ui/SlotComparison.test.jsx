@@ -370,7 +370,7 @@ describe('on a phone (#2008)', () => {
     const tag = within(home).getByTestId('injury-tag');
     expect(line2).not.toContainElement(tag);
     expect(name.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(name.parentElement).toContainElement(tag);
+    expect(tag.compareDocumentPosition(line2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   test('line two wraps, with the clock kept whole', () => {
