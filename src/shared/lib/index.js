@@ -40,6 +40,9 @@ export { parseRosterSlots } from './rosterSlots';
 // the retro-scoreboard widget model and the slot-comparison widget model
 // each carried an identical bye/out/ir label object.
 export { unavailableLabel } from './unavailableLabel';
+// The starter game-state marker map (#2010), promoted once the Standard
+// Starters table and the Scoreboard Lineups card both drew it.
+export { starterStateView } from './starterState';
 export { hasNoHistory, projectionLabel, NO_HISTORY_LABEL, NO_PRACTICE_LABEL, BACKUP_LABEL } from './projectionLabel';
 export { VOLATILITY_LABELS } from './volatilityLabels';
 // Touch-target sizing, Team identity, league type, NFL team colors, league
