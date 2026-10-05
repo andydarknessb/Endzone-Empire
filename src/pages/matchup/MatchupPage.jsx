@@ -212,6 +212,7 @@ export default function MatchupPage() {
             <RetroScoreboard
               matchup={matchup}
               leagueName={leagueName}
+              viewerTeamId={viewerTeamId}
               rows={starterRows}
               games={games}
               activePlay={retroActivePlay}

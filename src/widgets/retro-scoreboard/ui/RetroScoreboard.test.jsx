@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within, act } from '@testing-library/react';
+import { render, screen, within, act, isInaccessible } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RetroScoreboard } from '..';
 
@@ -161,7 +161,7 @@ test('the LED board renders both one-decimal scores, both win percentages, and E
 
 test('the LED board blanks an unpriced Expected final and an unknown win probability rather than printing a zero', () => {
   renderBoard({
-    matchup: matchup({ status: 'final', home: { ...matchup().home, expectedFinal: null, playersRemaining: 0 } }),
+    matchup: matchup({ status: 'live', home: { ...matchup().home, expectedFinal: null, playersRemaining: 0 } }),
     homeProb: null,
   });
 
@@ -170,9 +170,48 @@ test('the LED board blanks an unpriced Expected final and an unknown win probabi
   expect(board.getByTestId('led-home-pmr')).toHaveTextContent('0');
   expect(board.getByTestId('led-win-home')).toHaveTextContent('-');
   expect(board.getByTestId('led-win-away')).toHaveTextContent('-');
-  expect(board.getByText('FINAL')).toBeInTheDocument();
+  expect(board.getByText('LIVE')).toBeInTheDocument();
   // ADR 0030: an unknown status shows blank, never a guessed "NOT STARTED".
   expect(board.queryByText('NOT STARTED')).not.toBeInTheDocument();
+});
+
+// A final or played matchup states the result instead (#2007): the WIN row and
+// the EXP FINAL / TO PLAY row give way to one result line, which is real text.
+test.each([
+  ['final', 'You won by 5.2', false],
+  ['final', 'You won by 5.2', true],
+  ['played', 'Unofficial: You won by 5.2', false],
+])('a %s LED board (mobile: %s) renders the result line in place of the WIN and EXP FINAL rows', (status, line, mobileBoard) => {
+  stacked = mobileBoard;
+  renderBoard({ matchup: matchup({ status }), homeProb: 1, viewerTeamId: 1 });
+  const board = within(screen.getByTestId('led-board'));
+  const result = board.getByTestId('led-result');
+  expect(result).toHaveTextContent(line);
+  expect(isInaccessible(result)).toBe(false);
+  expect(board.queryByTestId('led-win')).not.toBeInTheDocument();
+  expect(board.queryByText('WIN')).not.toBeInTheDocument();
+  expect(board.queryByText('EXP FINAL')).not.toBeInTheDocument();
+  expect(board.queryByText('TO PLAY')).not.toBeInTheDocument();
+  expect(board.queryByTestId('led-home-ef')).not.toBeInTheDocument();
+  // The scores and the status stay.
+  expect(board.getByTestId('led-score-home')).toHaveTextContent('82.2');
+});
+
+test('the LED result line names the winner for a spectator and reads Tied on a tie', () => {
+  const { unmount } = renderBoard({ matchup: matchup({ status: 'final' }), homeProb: 1 });
+  expect(screen.getByTestId('led-result')).toHaveTextContent('Duluth Dockworkers won by 5.2');
+  unmount();
+  renderBoard({
+    matchup: matchup({ status: 'final', away: { ...matchup().away, score: 82.2 } }),
+    homeProb: 0.5,
+    viewerTeamId: 2,
+  });
+  expect(screen.getByTestId('led-result')).toHaveTextContent('Tied');
+});
+
+test.each(['scheduled', 'live', null])('a %s LED board has no result line', (status) => {
+  renderBoard({ matchup: matchup({ status }), homeProb: 0.5, viewerTeamId: 1 });
+  expect(screen.queryByTestId('led-result')).not.toBeInTheDocument();
 });
 
 // --- Field -------------------------------------------------------------------
