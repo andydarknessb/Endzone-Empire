@@ -466,6 +466,35 @@ test('each Lineups row carries the state marker Standard draws, named for a scre
   expect(within(within(rb).getByTestId('lineup-side-away')).queryByRole('img', { name: /progress|final|yet to play/i })).not.toBeInTheDocument();
 });
 
+test('on desktop the marker sits beside the name and the name ellipsizes', () => {
+  renderBoard({ rows: gameRows });
+  const home = within(within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row')[0]).getByTestId('lineup-side-home');
+  expect(within(home).getByText('J. Goff')).toHaveStyle({ textOverflow: 'ellipsis' });
+  expect(within(within(home).getByTestId('lineup-line1')).getByTestId('state-live')).toBeInTheDocument();
+  expect(within(within(home).getByTestId('lineup-line2')).queryByTestId('state-live')).not.toBeInTheDocument();
+});
+
+test('on a phone the marker leads the second line and the name wraps instead of ellipsizing', () => {
+  stacked = true;
+  renderBoard({ rows: gameRows });
+  const [qb, rb] = within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row');
+  const home = within(within(qb).getByTestId('lineup-side-home'));
+
+  const line2 = home.getByTestId('lineup-line2');
+  expect(within(line2).getByRole('img', { name: 'In progress' })).toBeInTheDocument();
+  // The marker comes before the points note, and leaves the name's line.
+  expect(within(line2).getByTestId('state-live').compareDocumentPosition(within(line2).getByTestId('lineup-note')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(home.getByTestId('lineup-line1')).not.toContainElement(home.getByTestId('state-live'));
+
+  const name = home.getByText('J. Goff');
+  expect(name).not.toHaveStyle({ textOverflow: 'ellipsis' });
+  expect(name).not.toHaveStyle({ whiteSpace: 'nowrap' });
+
+  // Final and scheduled starters lead their second line with their markers too.
+  expect(within(within(within(qb).getByTestId('lineup-side-away')).getByTestId('lineup-line2')).getByTestId('state-final')).toBeInTheDocument();
+  expect(within(within(within(rb).getByTestId('lineup-side-home')).getByTestId('lineup-line2')).getByTestId('state-scheduled')).toBeInTheDocument();
+});
+
 test('a live Lineups row names the opponent and the game clock on its second line', () => {
   renderBoard({ rows: gameRows });
   const [qb, rb] = within(screen.getByTestId('lineups-card')).getAllByTestId('slot-row');

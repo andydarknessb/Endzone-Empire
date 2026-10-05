@@ -1,5 +1,7 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
 import { starterStateView } from '../../../shared/lib';
 import { ledFigure, ledScore, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
@@ -23,7 +25,8 @@ import Icon from './icons';
  * through `starterStateView` from `shared/lib`, #2010: the one `game_state`
  * map both views read) and the note line adds "vs OPP · clock" so game day
  * shows who is playing; the line wraps rather than ellipsizes, so a phone
- * never loses the clock. The card ends with a Totals row: each side's score
+ * never loses the clock (below md the marker leads that line and the name wraps
+ * whole, #2010). The card ends with a Totals row: each side's score
  * and Expected final, read off the Matchup like the LED board's.
  *
  * It renders the rows AS GIVEN: the Matchup page model paired them under the
@@ -100,6 +103,13 @@ function Note({ player }) {
 
 function Side({ player, side }) {
   const mirrored = side === 'away';
+  // Below md the half-width side cannot hold the name, marker and tag on one
+  // line: the marker moves to lead the second line and the name wraps (never
+  // an ellipsis), so a phone shows whole names and keeps the clock. `useTheme`
+  // falls back to the default theme outside a provider, as the page widget's does.
+  const theme = useTheme();
+  const compact = useMediaQuery(theme.breakpoints.down('md'));
+  const mark = <StateMark view={starterStateView(player?.game_state)} />;
   if (!player) return <Box data-testid={`lineup-side-${side}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
   return (
     <Box
@@ -136,6 +146,7 @@ function Side({ player, side }) {
         }}
       >
         <Box
+          data-testid="lineup-line1"
           sx={{
             maxWidth: '100%',
             minWidth: 0,
@@ -149,9 +160,9 @@ function Side({ player, side }) {
             component="span"
             sx={{
               minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              ...(compact
+                ? { overflowWrap: 'anywhere' }
+                : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
               fontSize: '13px',
               fontWeight: 600,
               color: 'var(--dash-ink)',
@@ -159,18 +170,21 @@ function Side({ player, side }) {
           >
             {player.name}
           </Box>
-          <StateMark view={starterStateView(player.game_state)} />
+          {!compact && mark}
           <InjuryTag status={player.injury_status} />
         </Box>
         <Box
+          data-testid="lineup-line2"
           sx={{
             maxWidth: '100%',
             display: 'flex',
+            alignItems: 'center',
             flexWrap: 'wrap',
             columnGap: '8px',
             justifyContent: mirrored ? 'flex-end' : 'flex-start',
           }}
         >
+          {compact && mark}
           <Note player={player} />
           <Game player={player} />
         </Box>
