@@ -348,7 +348,7 @@ describe('on a phone (#2008)', () => {
     expect(screen.getByText('vs CAR')).toHaveStyle({ textOverflow: 'ellipsis' });
   });
 
-  test('the name is never ellipsized, and the state marker and injury tag lead the second line', () => {
+  test('the name is never ellipsized; the injury tag follows it on line one and the state marker leads line two', () => {
     const flagged = { ...taylor, injury_status: 'Q' };
     render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: flagged, away: null }]} />);
     const home = cell(0, 'home');
@@ -360,13 +360,38 @@ describe('on a phone (#2008)', () => {
     expect(name).not.toHaveStyle({ overflow: 'hidden' });
     // 'break-word', not 'anywhere': a short word is never split mid-word at 320px.
     expect(name).toHaveStyle({ overflowWrap: 'break-word' });
-    // Each appears once in the cell, and that once is inside line two (so not
-    // beside the name), before the figure.
+    // The marker appears once and leads line two, before the figure; the
+    // injury tag appears once and is NOT on line two (it overflowed the half
+    // cell there, #2008 QA): it sits right after the name.
     const marker = within(home).getByRole('img', { name: 'In progress' });
     expect(line2).toContainElement(marker);
-    expect(line2).toContainElement(within(home).getByTestId('injury-tag'));
     expect(marker.compareDocumentPosition(within(line2).getByTestId('slot-points')) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+    const tag = within(home).getByTestId('injury-tag');
+    expect(line2).not.toContainElement(tag);
+    expect(name.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(name.parentElement).toContainElement(tag);
+  });
+
+  test('line two wraps, with the clock kept whole', () => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: taylor, away: null }]} />);
+
+    expect(within(cell(0, 'home')).getByTestId('slot-line2')).toHaveStyle({ flexWrap: 'wrap' });
+    expect(screen.getByText('Q3 7:22')).toHaveStyle({ flexShrink: '0', whiteSpace: 'nowrap' });
+  });
+
+  test.each([
+    ['opponent and clock', { opponent: 'CAR', game_clock: 'Q3 7:22' }, 1],
+    ['opponent only', { opponent: 'CAR', game_clock: null }, 0],
+    ['clock only', { opponent: null, game_clock: 'Q3 7:22' }, 0],
+    ['neither', { opponent: null, game_clock: null }, 0],
+    ['empty strings', { opponent: '', game_clock: '' }, 0],
+  ])('a separator dot renders only between two present parts: %s', (_name, over, dots) => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: { ...taylor, ...over }, away: null }]} />);
+    const line2 = within(cell(0, 'home')).getByTestId('slot-line2');
+
+    expect((line2.textContent.match(/\u00b7/g) || []).length).toBe(dots);
+    expect(line2.textContent).not.toMatch(/^\u00b7|\u00b7$/);
   });
 
   test('a starter yet to play shows his projection as the figure, never 0.0', () => {

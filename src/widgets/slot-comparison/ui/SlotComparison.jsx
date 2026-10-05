@@ -28,12 +28,13 @@ import {
  * OPP · clock" on the second line, an inline pace bar with the projection on
  * desktop, and the tabular points. An Unavailable starter shows his reason
  * ("on bye", "out", "on IR") in place of the projection and no pace bar. On
- * mobile a cell is two lines (#2008): the name alone on the first (it wraps,
- * never ellipsized), and on the second the state marker and injury tag, the
- * figure, then "vs OPP" and the live clock. The figure is the
- * points, or "proj 17.9" for a starter yet to play (his points would read
- * 0.0); the clock sits in its own non-shrinking span so a long opponent
- * ellipsizes and the clock never does. The pace bar is dropped. An unfilled
+ * mobile a cell is two lines (#2008): the name on the first (it wraps, never
+ * ellipsized) with the injury tag right after it, and on the second the state
+ * marker, the figure, then "vs OPP" and the live clock, wrapping rather than
+ * overflowing the half-width cell. The figure is the points, or "proj 17.9"
+ * for a starter yet to play (his points would read 0.0); the clock sits in its
+ * own non-shrinking span so a long opponent ellipsizes and the clock never
+ * does. The pace bar is dropped. An unfilled
  * slot reads "Empty" at both widths and, on the viewer's own side (`viewerSide`
  * 'home' or 'away', with the `leagueId` the link needs) while the lineup can
  * still be set (`canSetLineup`, which the page derives: a scheduled or live
@@ -513,7 +514,9 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
             {player.name}
           </Box>
           {!compact && <StateMark view={state} />}
-          {!compact && <InjuryTag status={player.injury_status} />}
+          {/* On a phone the tag stays on line one beside the name: line two has
+              no room for it beside the figure and the game (#2008 QA). */}
+          <InjuryTag status={player.injury_status} />
         </Box>
 
         {compact ? (
@@ -571,18 +574,23 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
 }
 
 /**
- * A phone cell's second line (#2008): the state marker and injury tag (moved
- * off the name's line so the name keeps the width), the figure, then "vs OPP"
- * and the live clock, each part dropped when absent. The figure is the points, or
- * "proj 17.9" for a starter yet to play with a projection (`proj` is false for
- * an Unavailable starter, whose projection is stale and whose reason shows
- * instead). The opponent is the one part that shrinks and ellipsizes; the
- * clock is its own span that never shrinks or clips. The away side keeps the
- * same reading order, right-aligned.
+ * A phone cell's second line (#2008): the state marker, the figure, then "vs
+ * OPP" and the live clock, each part dropped when absent (the injury tag sits
+ * on line one beside the name, #2008 QA). The figure is the points, or "proj
+ * 17.9" for a starter yet to play with a projection (`proj` is false for an
+ * Unavailable starter, whose projection is stale and whose reason shows
+ * instead). The half-width cell is about 100px wide at 360px, so the line
+ * wraps: the marker and figure lead, and the game ("vs OPP · clock") is one
+ * group that drops to its own line when it does not fit beside them. The dot
+ * renders only between the two game parts when both are present, never as an
+ * orphan. The opponent is the one part that shrinks and ellipsizes; the clock
+ * is its own span that never shrinks or clips. The away side keeps the same
+ * reading order, right-aligned.
  */
 function PhoneLineTwo({ player, away, dim, proj, state }) {
   const yetToPlay = player.game_state === 'scheduled' && proj && player.projected != null;
   const figure = yetToPlay ? `proj ${formatPoints(player.projected)}` : formatPoints(player.points);
+  const justify = away ? 'flex-end' : 'flex-start';
   return (
     <Box
       data-testid="slot-line2"
@@ -590,14 +598,14 @@ function PhoneLineTwo({ player, away, dim, proj, state }) {
         gridArea: 'line2',
         minWidth: 0,
         display: 'flex',
+        flexWrap: 'wrap',
         alignItems: 'baseline',
-        justifyContent: away ? 'flex-end' : 'flex-start',
-        gap: '4px',
+        justifyContent: justify,
+        columnGap: '4px',
         ...NOTE,
       }}
     >
       <StateMark view={state} />
-      <InjuryTag status={player.injury_status} />
       <Box
         component="span"
         data-testid="slot-points"
@@ -611,17 +619,22 @@ function PhoneLineTwo({ player, away, dim, proj, state }) {
       >
         {figure}
       </Box>
-      {player.opponent && (
-        <>
-          <Box component="span" aria-hidden="true" sx={{ flex: 'none' }}>·</Box>
-          <Box component="span" sx={{ minWidth: 0, ...ELLIPSIS }}>{`vs ${player.opponent}`}</Box>
-        </>
-      )}
-      {player.game_clock && (
-        <>
-          <Box component="span" aria-hidden="true" sx={{ flex: 'none' }}>·</Box>
-          <Box component="span" sx={{ flex: 'none', whiteSpace: 'nowrap' }}>{player.game_clock}</Box>
-        </>
+      {(player.opponent || player.game_clock) && (
+        <Box
+          component="span"
+          data-testid="slot-game"
+          sx={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: justify, columnGap: '4px', minWidth: 0, maxWidth: '100%' }}
+        >
+          {player.opponent && (
+            <Box component="span" sx={{ minWidth: 0, maxWidth: '100%', ...ELLIPSIS }}>{`vs ${player.opponent}`}</Box>
+          )}
+          {player.opponent && player.game_clock && (
+            <Box component="span" aria-hidden="true" sx={{ flex: 'none' }}>·</Box>
+          )}
+          {player.game_clock && (
+            <Box component="span" sx={{ flex: 'none', whiteSpace: 'nowrap' }}>{player.game_clock}</Box>
+          )}
+        </Box>
       )}
     </Box>
   );
