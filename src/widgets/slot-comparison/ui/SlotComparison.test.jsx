@@ -337,6 +337,8 @@ describe('on a phone (#2008)', () => {
     expect(name).not.toHaveStyle({ textOverflow: 'ellipsis' });
     expect(name).not.toHaveStyle({ whiteSpace: 'nowrap' });
     expect(name).not.toHaveStyle({ overflow: 'hidden' });
+    // 'break-word', not 'anywhere': a short word is never split mid-word at 320px.
+    expect(name).toHaveStyle({ overflowWrap: 'break-word' });
     // Each appears once in the cell, and that once is inside line two (so not
     // beside the name), before the figure.
     const marker = within(home).getByRole('img', { name: 'In progress' });

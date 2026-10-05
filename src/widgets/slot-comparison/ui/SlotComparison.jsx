@@ -485,7 +485,7 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
               cursor: 'pointer',
               // Desktop ellipsizes the name; a phone wraps it (two lines at most
               // in practice), never cutting it (#2008).
-              ...(compact ? { overflowWrap: 'anywhere' } : ELLIPSIS),
+              ...(compact ? { overflowWrap: 'break-word' } : ELLIPSIS),
               '&:hover': { textDecoration: 'underline' },
               '&:focus-visible': { ...FOCUS_RING, outlineOffset: 2, borderRadius: '4px' },
               // The name is a line of text; on mobile its hit area grows to

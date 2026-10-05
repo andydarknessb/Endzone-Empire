@@ -136,7 +136,7 @@ function Side({ player, side }) {
             sx={{
               minWidth: 0,
               ...(compact
-                ? { overflowWrap: 'anywhere' }
+                ? { overflowWrap: 'break-word' }
                 : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
               fontSize: '13px',
               fontWeight: 600,

@@ -489,6 +489,8 @@ test('on a phone the marker leads the second line and the name wraps instead of 
   const name = home.getByText('J. Goff');
   expect(name).not.toHaveStyle({ textOverflow: 'ellipsis' });
   expect(name).not.toHaveStyle({ whiteSpace: 'nowrap' });
+  // 'break-word', not 'anywhere': a short word is never split mid-word at 320px.
+  expect(name).toHaveStyle({ overflowWrap: 'break-word' });
 
   // Final and scheduled starters lead their second line with their markers too.
   expect(within(within(within(qb).getByTestId('lineup-side-away')).getByTestId('lineup-line2')).getByTestId('state-final')).toBeInTheDocument();
