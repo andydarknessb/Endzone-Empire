@@ -408,7 +408,7 @@ describe('an empty slot (#2008)', () => {
   const emptyHome = [{ slot: 'TE', home: null, away: starter() }];
   const renderEmpty = (props) => render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <SlotComparison {...baseProps} rows={emptyHome} leagueId={7} {...props} />
+      <SlotComparison {...baseProps} rows={emptyHome} leagueId={7} canSetLineup {...props} />
     </MemoryRouter>
   );
 
@@ -432,6 +432,27 @@ describe('an empty slot (#2008)', () => {
         .toHaveAttribute('href', '/league/7/lineup');
     }
   );
+
+  test.each([['desktop', false], ['phone', true]])(
+    'no link when the lineup can no longer be set (a final week or best ball), but Empty still shows, on %s',
+    (_name, isPhone) => {
+      phone = isPhone;
+      renderEmpty({ viewerSide: 'home', canSetLineup: false });
+
+      expect(within(cell(0, 'home')).getByText('Empty')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
+    }
+  );
+
+  test('the link is off unless the page says the lineup can be set', () => {
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <SlotComparison {...baseProps} rows={emptyHome} leagueId={7} viewerSide="home" />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
+  });
 
   test('with no viewer side there is no link', () => {
     renderEmpty({ viewerSide: null });

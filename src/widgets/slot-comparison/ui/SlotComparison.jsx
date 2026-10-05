@@ -35,7 +35,9 @@ import {
  * 0.0); the clock sits in its own non-shrinking span so a long opponent
  * ellipsizes and the clock never does. The pace bar is dropped. An unfilled
  * slot reads "Empty" at both widths and, on the viewer's own side (`viewerSide`
- * 'home' or 'away', with the `leagueId` the link needs), adds a "Set lineup"
+ * 'home' or 'away', with the `leagueId` the link needs) while the lineup can
+ * still be set (`canSetLineup`, which the page derives: a scheduled or live
+ * Matchup in a league that is not best ball; #2008 QA), adds a "Set lineup"
  * link to the Lineup page.
  *
  * The rows arrive already paired and ordered by the Matchup page model
@@ -70,6 +72,7 @@ export default function SlotComparison({
   expandedId,
   onToggle,
   viewerSide,
+  canSetLineup = false,
   leagueId,
 }) {
   const baseId = useId();
@@ -143,7 +146,7 @@ export default function SlotComparison({
                       panelId={panelId}
                       avatarSize={avatarSize}
                       compact={compact}
-                      lineupHref={viewerSide === 'home' ? lineupHref : null}
+                      lineupHref={canSetLineup && viewerSide === 'home' ? lineupHref : null}
                       onToggle={onToggle}
                       onOpenPlayer={onOpenPlayer}
                     />
@@ -157,7 +160,7 @@ export default function SlotComparison({
                       panelId={panelId}
                       avatarSize={avatarSize}
                       compact={compact}
-                      lineupHref={viewerSide === 'away' ? lineupHref : null}
+                      lineupHref={canSetLineup && viewerSide === 'away' ? lineupHref : null}
                       onToggle={onToggle}
                       onOpenPlayer={onOpenPlayer}
                     />

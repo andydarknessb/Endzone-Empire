@@ -1465,6 +1465,31 @@ test.each([
 // (#2008): an unfilled slot on the viewer's own side links to /league/:id/lineup,
 // the other manager's does not. Red-tell: passing the wrong side, or no
 // league id, turns one of the two reads red.
+// The link needs a lineup that can still be set (#2008 QA): a scheduled or
+// live Matchup in a league that is not best ball. "Empty" always shows.
+// Red-tell: passing `canSetLineup` as always-true turns the final, played and
+// best-ball rows red.
+test.each([
+  ['scheduled', false, true],
+  ['live', false, true],
+  ['played', false, false],
+  ['final', false, false],
+  ['live', true, false],
+  ['scheduled', true, false],
+])('a %s matchup (best ball %s) shows the empty slot Set lineup link: %s', async (status, bestBall, link) => {
+  useLeague.mockReturnValue({ league: { ...LEAGUE, best_ball: bestBall }, viewerTeamId: 1, loading: false, error: null });
+  const qb = starter({ id: 8, name: 'J. Allen', slot: 'QB' });
+  mockApi({
+    matchup: matchupResponse({ matchup: { status, final: status === 'final' }, homeStarters: [], awayStarters: [qb] }),
+  });
+  renderPage();
+  const table = await screen.findByTestId('slot-comparison');
+  const home = within(table).getByTestId('slot-cell-home');
+
+  expect(within(home).getByText('Empty')).toBeInTheDocument();
+  expect(Boolean(within(home).queryByRole('link', { name: 'Set lineup' }))).toBe(link);
+});
+
 test('an unfilled starting slot reads Empty, with a Set lineup link only on the viewer own side', async () => {
   const qb = starter({ id: 8, name: 'J. Allen', slot: 'QB' });
   mockApi({ matchup: matchupResponse({ homeStarters: [], awayStarters: [qb] }) });
