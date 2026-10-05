@@ -3,7 +3,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { Box, Link, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
-import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
+import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark, StateGlyph } from '../../../shared/ui';
 import {
   columnTotals,
   formatPoints,
@@ -48,7 +48,7 @@ import {
  * under the cell's content, the name a button laid over it, so a click on
  * the name opens the player and a click anywhere else on the cell toggles.
  *
- * Composes `shared/ui` (Card, PosChip) and reaches below the island only for
+ * Composes `shared/ui` (Card, PosChip, StateMark) and reaches below the island only for
  * PlayerAvatar, the sanctioned headshot (ADR 0031). Paints `dash-*` tokens,
  * the `pos-*` ring, and four app-group tokens: `--danger` for the live dot,
  * `--focus-ring` for the two controls' focus rings, `--radius-pill` for the
@@ -224,21 +224,11 @@ const DISPLAY_NUM = {
 
 const FOCUS_RING = { outline: '2px solid var(--focus-ring)', outlineOffset: -2 };
 
-// Inline stroke icons on the design's 20px grid, one style (1.6 stroke, round
-// caps and joins). Decorative: every use sits beside its meaning as text or
-// inside a labelled marker.
-const ICON_PATHS = {
-  check: <path d="M4 10.5 8 14.5 16 6" />,
-  clock: (
-    <>
-      <circle cx="10" cy="10" r="7" />
-      <path d="M10 6v4l3 2" />
-    </>
-  ),
-  chevU: <path d="M5 12.5 10 7.5l5 5" />,
-};
-
-function Icon({ name, size = 14 }) {
+// The expanded strip's chevron, an inline stroke icon on the design's 20px
+// grid (1.6 stroke, round caps and joins). Decorative: it sits beside its
+// meaning as text. The state glyphs (live dot, check, clock) live in
+// `shared/ui`'s StateMark.
+function ChevronUp({ size = 16 }) {
   return (
     <svg
       width={size}
@@ -253,54 +243,8 @@ function Icon({ name, size = 14 }) {
       focusable="false"
       style={{ display: 'block', flex: 'none' }}
     >
-      {ICON_PATHS[name]}
+      <path d="M5 12.5 10 7.5l5 5" />
     </svg>
-  );
-}
-
-// The design's `.dot` in the in-progress color: an 8px disc painted `--danger`,
-// as build.mjs stateDot() and the slotList() legend paint it. The dashboard
-// group has no dash-danger; `danger` is an app token defined in both themes
-// (tokens.js), reached the way `--focus-ring` and `--radius-pill` are here, so
-// the live marker stays red beside the pace bar's green at-or-ahead fill.
-// `data-tone` declares that paint where a test can read it (jsdom drops a
-// var() color from computed and inline style alike), as Badge's `data-variant`
-// does; a regression to the accent changes both or is caught.
-function LiveDot() {
-  return (
-    <Box
-      component="span"
-      data-testid="live-dot"
-      data-tone="danger"
-      aria-hidden="true"
-      sx={{
-        width: 8,
-        height: 8,
-        borderRadius: 'var(--radius-pill)',
-        backgroundColor: 'var(--danger)',
-        flex: 'none',
-      }}
-    />
-  );
-}
-
-/**
- * A starter's state marker beside his name: the live dot, the final check or
- * the yet-to-play clock, as a labelled image so a screen reader hears the
- * state ("In progress") and not just a glyph. Nothing for an unknown state.
- */
-function StateMark({ view }) {
-  if (!view) return null;
-  return (
-    <Box
-      component="span"
-      role="img"
-      aria-label={view.label}
-      data-testid={`state-${view.kind}`}
-      sx={{ display: 'flex', flex: 'none', color: 'var(--dash-faint)' }}
-    >
-      {view.kind === 'live' ? <LiveDot /> : <Icon name={view.kind === 'final' ? 'check' : 'clock'} size={14} />}
-    </Box>
   );
 }
 
@@ -315,9 +259,9 @@ function Legend() {
       data-testid="slot-legend"
       sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', columnGap: '12px', rowGap: '2px' }}
     >
-      <Box component="span" sx={LEGEND_ITEM}><LiveDot />In progress</Box>
-      <Box component="span" sx={LEGEND_ITEM}><Icon name="check" size={13} />Final</Box>
-      <Box component="span" sx={LEGEND_ITEM}><Icon name="clock" size={13} />Yet to play</Box>
+      <Box component="span" sx={LEGEND_ITEM}><StateGlyph kind="live" />In progress</Box>
+      <Box component="span" sx={LEGEND_ITEM}><StateGlyph kind="final" size={13} />Final</Box>
+      <Box component="span" sx={LEGEND_ITEM}><StateGlyph kind="scheduled" size={13} />Yet to play</Box>
     </Box>
   );
 }
@@ -721,7 +665,7 @@ function ExpandedStrip({ id, player }) {
           <Box component="span" sx={NOTE_NUM}>{formatPoints(player.points)} pts</Box>
         )}
         <Box sx={{ color: 'var(--dash-faint)', display: { xs: 'none', md: 'flex' } }}>
-          <Icon name="chevU" size={16} />
+          <ChevronUp size={16} />
         </Box>
       </Box>
     </Box>

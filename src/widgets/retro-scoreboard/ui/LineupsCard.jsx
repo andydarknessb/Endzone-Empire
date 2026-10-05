@@ -2,7 +2,7 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
+import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
 import { starterStateView } from '../../../shared/lib';
 import { ledFigure, ledScore, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
@@ -44,31 +44,6 @@ import Icon from './icons';
  * comparison" action the page wires to its view toggle, meets the 44px target
  * on mobile.
  */
-// The state marker beside a name, as the Standard view draws it: the live
-// dot, the final check or the yet-to-play clock, a labelled image so a screen
-// reader hears the state and not just a glyph. Nothing for an unknown state.
-function StateMark({ view }) {
-  if (!view) return null;
-  return (
-    <Box
-      component="span"
-      role="img"
-      aria-label={view.label}
-      data-testid={`state-${view.kind}`}
-      sx={{ display: 'flex', flex: 'none', color: 'var(--dash-faint)' }}
-    >
-      {view.kind === 'live' ? (
-        <Box
-          aria-hidden="true"
-          sx={{ width: 8, height: 8, borderRadius: 'var(--radius-pill)', backgroundColor: 'var(--danger)' }}
-        />
-      ) : (
-        <Icon name={view.kind === 'final' ? 'check' : 'clock'} size={14} />
-      )}
-    </Box>
-  );
-}
-
 const NOTE = { fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)', whiteSpace: 'nowrap' };
 
 // "vs OPP · clock": the schedule's opponent code (no home/away marker rides

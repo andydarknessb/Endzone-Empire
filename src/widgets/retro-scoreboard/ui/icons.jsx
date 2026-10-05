@@ -13,7 +13,6 @@ const PATHS = {
       <path d="M10 6v4l3 2" />
     </>
   ),
-  check: <path d="M4 10.5 8 14.5 16 6" />,
   chevR: <path d="M7.5 4.5 13 10l-5.5 5.5" />,
 };
 
