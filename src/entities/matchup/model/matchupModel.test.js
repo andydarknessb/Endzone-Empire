@@ -322,6 +322,8 @@ describe('matchupResultLine (#2007)', () => {
     ['final', '115.90', '109.70', 12, 'You won by 6.2'],
     ['final', 100.04, 100, 12, 'You won by 0.04'],
     ['final', 100, 100.04, 12, 'You lost by 0.04'],
+    ['final', 100.04, 99.96, 12, 'You won by 0.08'],
+    ['final', 100.06, 99.94, 12, 'You won by 0.1'],
     ['played', 100, 100.04, 99, 'Unofficial: Fargo Frostbite won by 0.04'],
     ['played', 115.9, 109.7, 12, 'Unofficial: You won by 6.2'],
     ['played', 115.9, 109.7, 99, 'Unofficial: Duluth Dockworkers won by 6.2'],

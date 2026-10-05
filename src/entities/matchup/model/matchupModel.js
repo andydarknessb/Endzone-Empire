@@ -230,7 +230,7 @@ function scoreOf(value) {
  * status). It reads from the viewer's side ("You won by 6.2", "You lost by
  * 6.2"), names the winner for a spectator ("Duluth Dockworkers won by 6.2"),
  * and reads "Tied" on equal scores. The margin is one decimal, from the two
- * scores (two when a real win would round to 0.0). A score
+ * scores (two when the boards would print the same figure for both). A score
  * that is not a finite number gives no line (null). `played` is prefixed
  * "Unofficial: " because the score of record is not yet written (ADR 0030).
  */
@@ -248,8 +248,10 @@ export function matchupResultLine(matchup, viewerTeamId) {
   if (homeScore === awayScore) return `${prefix}Tied`;
   const winner = homeScore > awayScore ? home : away;
   const diff = Math.abs(homeScore - awayScore);
-  // One decimal, unless that would round a real win down to "0.0".
-  const margin = diff.toFixed(1) === '0.0' ? diff.toFixed(2) : diff.toFixed(1);
+  // One decimal, unless the boards print the two scores as the same figure
+  // (they round to one decimal): then two, so the line never says a margin
+  // the boards do not show (100.04 v 99.96 prints 100.0 / 100.0, "won by 0.08").
+  const margin = homeScore.toFixed(1) === awayScore.toFixed(1) ? diff.toFixed(2) : diff.toFixed(1);
   const isViewer = (side) => viewerTeamId != null && side.teamId != null && side.teamId === viewerTeamId;
   if (isViewer(home) || isViewer(away)) {
     return `${prefix}You ${isViewer(winner) ? 'won' : 'lost'} by ${margin}`;
