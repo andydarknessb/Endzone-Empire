@@ -839,7 +839,9 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
  * Pure: one combined-file player row -> our full flat stat line, mirroring
  * what normalizeTank01Stats + normalizeTank01IdpStats produce for a live
  * week, plus keys Tank01 can't supply at all (per-category two-point
- * conversions, exact FG distances without a play-by-play scan).
+ * conversions, exact FG distances without a play-by-play scan). Not
+ * idpFumbleRecovery's source: this file's fumble_recovery_opp is opponent-only,
+ * Tank01's fumblesRecovered is not and no longer feeds the key (#2002).
  *
  * Semantics matched to the Tank01 normalizers where the sources differ:
  * - fumbles = fumbles_lost_total (all lost fumbles, any category).

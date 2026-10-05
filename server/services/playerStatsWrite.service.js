@@ -41,6 +41,7 @@
 // two are ESPN-only (its return-yardage columns); the Tank01 box has no field
 // for them. kickReturnYards is removed by a box that lacks it (the old carry
 // list never held it); idpInterceptionReturnYards is on BOX_KEEP_IF_ABSENT.
+// idpFumbleRecovery is ESPN-only too since #2002 and kept the same way.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',

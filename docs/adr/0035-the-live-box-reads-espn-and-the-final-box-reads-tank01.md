@@ -120,7 +120,11 @@ Final box credited IDP fumble recoveries the Live box had rightly left out. The
 Tank01 adapter no longer emits `idpFumbleRecovery`, and the box write keeps the
 stored value when a box line lacks it (`BOX_KEEP_IF_ABSENT`). The Live box's
 play-text pass is the only same-day source; the Tue/Wed nflverse correction
-settles it. A game ESPN never covered (whole-game Tank01 fallback) undercounts
-IDP fumble recoveries until that correction, instead of overcounting them. The
+settles it. Until that correction IDP fumble recoveries undercount, rather
+than overcount, wherever the Live box missed them: a game ESPN never covered
+or stopped covering (Tank01 fallback), a recovery in the last poll window
+before the game turns final, or a recoverer the play text cannot name. A
+recovery the officials reverse is still credited by the play-text pass and
+now stands until the correction too (#2003). The
 team DST `fumbleRecovery` is opponent-only in Tank01 and still comes from the
 Final box.
