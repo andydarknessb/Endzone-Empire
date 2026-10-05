@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { matchupResultLine } from '../../../entities/matchup';
 import { ledScore, ledFigure, ledPercents, ledStatus } from '../model/scoreboardModel';
 
 /**
@@ -18,6 +19,11 @@ import { ledScore, ledFigure, ledPercents, ledStatus } from '../model/scoreboard
  * field image's accessible name, which already states the home side's win
  * probability, so the page announces the probability once. An unknown
  * probability under a started Matchup still prints the hyphens, visibly.
+ *
+ * A settled (played or final) Matchup states its result instead (#2007): one
+ * result line ("You won by 6.2", from `viewerTeamId`'s side) replaces the WIN
+ * row and the EXP FINAL / TO PLAY row. It is real text, never aria-hidden, set
+ * in capitals on the LED face by CSS so the DOM keeps the sentence as written.
  */
 export const LED_FONT = '"Press Start 2P", "Courier New", monospace';
 
@@ -90,10 +96,12 @@ function WinRow({ percents, mobile }) {
   );
 }
 
-export default function LedBoard({ matchup, leagueName, homeProb, showWin = true, mobile }) {
+export default function LedBoard({ matchup, leagueName, homeProb, showWin: showWinProp = true, viewerTeamId, mobile }) {
   const home = matchup.home || {};
   const away = matchup.away || {};
   const percents = ledPercents(homeProb);
+  const result = matchupResultLine(matchup, viewerTeamId);
+  const showWin = showWinProp && result == null;
   const status = ledStatus(matchup.status);
   const scoreSize = mobile ? 26 : 56;
   const figureSize = mobile ? 12 : 16;
@@ -169,16 +177,30 @@ export default function LedBoard({ matchup, leagueName, homeProb, showWin = true
         </Box>
       )}
 
-      <Box aria-hidden="true" sx={{ height: '1px', backgroundColor: 'var(--dash-led-dim)', my: vGap }} />
+      {result ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: vGap }}>
+          <Small
+            mobile={mobile}
+            align="center"
+            sx={{ textTransform: 'uppercase', whiteSpace: 'normal', fontSize: mobile ? '10px' : '14px', opacity: 1 }}
+          >
+            <span data-testid="led-result">{result}</span>
+          </Small>
+        </Box>
+      ) : (
+        <>
+          <Box aria-hidden="true" sx={{ height: '1px', backgroundColor: 'var(--dash-led-dim)', my: vGap }} />
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
-        {figures.map((f) => (
-          <Box key={f.key} sx={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: f.align, minWidth: 0 }}>
-            <Small mobile={mobile}>{f.label}</Small>
-            <Digit size={figureSize} testId={`led-${f.key}`}>{f.value}</Digit>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
+            {figures.map((f) => (
+              <Box key={f.key} sx={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: f.align, minWidth: 0 }}>
+                <Small mobile={mobile}>{f.label}</Small>
+                <Digit size={figureSize} testId={`led-${f.key}`}>{f.value}</Digit>
+              </Box>
+            ))}
           </Box>
-        ))}
-      </Box>
+        </>
+      )}
     </Box>
   );
 }

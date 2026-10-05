@@ -405,6 +405,20 @@ test('a scheduled matchup reads Scheduled with no win-probability bar, and the S
   expect(screen.getByRole('img', { name: /^Field position/ })).toHaveAccessibleName('Field position: win probability not yet available');
 });
 
+// A final matchup states the result on both views (#2007), from the viewer's
+// side: the page hands the strip and the board the same viewer Team id.
+test('a final matchup reads the result line on the strip and on the LED board', async () => {
+  mockApi({ matchup: matchupResponse({ matchup: { final: true, home_score: '115.9', away_score: '109.7' } }) });
+  renderPage();
+
+  expect(await screen.findByTestId('scoreboard-result')).toHaveTextContent('You won by 6.2');
+  expect(screen.queryByRole('img', { name: /^Win probability:/ })).not.toBeInTheDocument();
+
+  await toScoreboard();
+  expect(screen.getByTestId('led-result')).toHaveTextContent('You won by 6.2');
+  expect(screen.queryByTestId('led-win')).not.toBeInTheDocument();
+});
+
 // The LIVE chip comes from the fetched status alone: no socket event is fired
 // here. Red-tell: forcing the predicate to return Scheduled for `live` turns
 // this case red and no other.
@@ -426,16 +440,17 @@ test('a live matchup reads LIVE from the fetch alone, with no socket event', asy
 
 // Triage #872/#887's page-level promise: on the composed page ONE announced
 // Win probability image and the plain "Win probability" caption (never "Live
-// win probability") for every started status, not only live. The retro
-// field's image is named "Field position: ...", so nothing else can double it.
-test.each(['played', 'final'])('a %s matchup exposes exactly one Win probability image and the plain caption on the composed page', async (status) => {
+// win probability"). The retro field's image is named "Field position: ...",
+// so nothing else can double it. A settled matchup (played or final) states
+// the result instead (#2007), so it exposes no Win probability at all.
+test.each(['played', 'final'])('a %s matchup exposes no Win probability image or caption, only the result line', async (status) => {
   mockApi({ matchup: matchupResponse({ matchup: { status, final: status === 'final', home_score: '99', away_score: '92' } }) });
   renderPage();
 
   await screen.findByTestId('matchup-status-chip');
-  expect(screen.getAllByRole('img', { name: /^Win probability:/ })).toHaveLength(1);
-  expect(screen.getByText('Win probability')).toBeInTheDocument();
-  expect(screen.queryByText(/Live win probability/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: /^Win probability:/ })).not.toBeInTheDocument();
+  expect(screen.queryByText('Win probability')).not.toBeInTheDocument();
+  expect(screen.getByTestId('scoreboard-result')).toHaveTextContent(status === 'played' ? 'Unofficial: You won by 7.0' : 'You won by 7.0');
 });
 
 // A played (games done, not finalised) matchup reads "Awaiting final", never a
@@ -510,10 +525,9 @@ test('a scores:updated event moves the strip\'s score, Expected final, players r
   });
 
   expect(stripScores()).toEqual(['110.0', '90.0']);
-  expect(screen.getByText('Projected 130.2')).toBeInTheDocument();
-  expect(screen.getByText('Projected 96.4')).toBeInTheDocument();
-  expect(screen.getByText('Players remaining 3')).toBeInTheDocument();
-  expect(screen.getByText('Players remaining 1')).toBeInTheDocument();
+  // Played settles the strip (#2007): the figures give way to the result line.
+  expect(screen.queryByText(/Projected|Players remaining/)).not.toBeInTheDocument();
+  expect(screen.getByTestId('scoreboard-result')).toHaveTextContent('Unofficial: You won by 20.0');
   expect(statusChip()).toHaveTextContent('Awaiting final');
   expect(matchupFetches()).toHaveLength(1);
 });

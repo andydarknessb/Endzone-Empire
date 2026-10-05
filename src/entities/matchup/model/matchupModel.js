@@ -217,3 +217,33 @@ export function matchupStatusView(status) {
     hasStarted: KNOWN_STATUSES.has(status) ? STARTED_STATUSES.has(status) : null,
   };
 }
+
+/**
+ * The result line of a settled Matchup (#2007): what both scoreboards print in
+ * place of the win bar and the Expected final figures once the week is decided.
+ * Only `played` and `final` have one (null for scheduled, live and an unknown
+ * status). It reads from the viewer's side ("You won by 6.2", "You lost by
+ * 6.2"), names the winner for a spectator ("Duluth Dockworkers won by 6.2"),
+ * and reads "Tied" on equal scores. The margin is one decimal, from the two
+ * scores (two when a real win would round to 0.0). `played` is prefixed "Unofficial: " because the score of record is
+ * not yet written (ADR 0030).
+ */
+export function matchupResultLine(matchup, viewerTeamId) {
+  const m = matchup || {};
+  if (m.status !== 'played' && m.status !== 'final') return null;
+  const home = m.home || {};
+  const away = m.away || {};
+  const homeScore = Number(home.score || 0);
+  const awayScore = Number(away.score || 0);
+  const prefix = m.status === 'played' ? 'Unofficial: ' : '';
+  if (homeScore === awayScore) return `${prefix}Tied`;
+  const winner = homeScore > awayScore ? home : away;
+  const diff = Math.abs(homeScore - awayScore);
+  // One decimal, unless that would round a real win down to "0.0".
+  const margin = diff.toFixed(1) === '0.0' ? diff.toFixed(2) : diff.toFixed(1);
+  const isViewer = (side) => viewerTeamId != null && side.teamId != null && side.teamId === viewerTeamId;
+  if (isViewer(home) || isViewer(away)) {
+    return `${prefix}You ${isViewer(winner) ? 'won' : 'lost'} by ${margin}`;
+  }
+  return `${prefix}${winner.name || (winner === home ? 'Home' : 'Away')} won by ${margin}`;
+}
