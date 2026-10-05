@@ -17,6 +17,7 @@ import { matchupWinProbability as serverV1 } from '../../../server/services/winP
 // can be far ahead or behind.
 const SCORES = [null, 0, 12.5, 71.2, '87.40', 140];
 const EXPECTED_FINALS = [null, 0, 60, 95, '104.10', 118.6, 180.25];
+const STATUSES = [null, 'scheduled', 'live', 'played', 'final'];
 
 test('the server v1 port equals the client matchupWinProbability over a grid of inputs', () => {
   let compared = 0;
@@ -24,17 +25,19 @@ test('the server v1 port equals the client matchupWinProbability over a grid of 
     for (const awayScore of SCORES) {
       for (const homeExpectedFinal of EXPECTED_FINALS) {
         for (const awayExpectedFinal of EXPECTED_FINALS) {
-          const input = { homeScore, awayScore, homeExpectedFinal, awayExpectedFinal };
-          const client = clientV1(input);
-          const server = serverV1(input);
-          expect(server.home).toBe(client.home);
-          expect(server.away).toBe(client.away);
-          compared += 1;
+          for (const status of STATUSES) {
+            const input = { homeScore, awayScore, homeExpectedFinal, awayExpectedFinal, status };
+            const client = clientV1(input);
+            const server = serverV1(input);
+            expect(server.home).toBe(client.home);
+            expect(server.away).toBe(client.away);
+            compared += 1;
+          }
         }
       }
     }
   }
-  expect(compared).toBe(SCORES.length ** 2 * EXPECTED_FINALS.length ** 2);
+  expect(compared).toBe(SCORES.length ** 2 * EXPECTED_FINALS.length ** 2 * STATUSES.length);
 });
 
 test('the port is the logistic of the Expected final margin at scale 24', () => {
@@ -46,18 +49,27 @@ test('the port is the logistic of the Expected final margin at scale 24', () => 
   expect(clientV1(input).home).toBeCloseTo(0.6026853379784917, 12);
 });
 
-test('the decided branch (nothing left on either side) matches and resolves to the result', () => {
+test('a played or final matchup matches and resolves to the result by the scores', () => {
   const cases = [
     [{ homeScore: 115.9, awayScore: 109.7, homeExpectedFinal: 115.9, awayExpectedFinal: 109.7 }, 1],
     [{ homeScore: 109.7, awayScore: 115.9, homeExpectedFinal: 109.7, awayExpectedFinal: 115.9 }, 0],
     [{ homeScore: 100, awayScore: 100, homeExpectedFinal: 100, awayExpectedFinal: 100 }, 0.5],
-    // Expected finals below the score floor to nothing left; null counts as nothing left.
-    [{ homeScore: 90, awayScore: 80, homeExpectedFinal: 60, awayExpectedFinal: null }, 1],
-    [{ homeScore: '87.40', awayScore: 87.4, homeExpectedFinal: null, awayExpectedFinal: 0 }, 0.5],
+    // pg strings and nulls: the scores still decide it.
+    [{ homeScore: '87.40', awayScore: 80, homeExpectedFinal: null, awayExpectedFinal: null }, 1],
+    [{ homeScore: '87.40', awayScore: 87.4, homeExpectedFinal: 150, awayExpectedFinal: null }, 0.5],
   ];
-  for (const [input, home] of cases) {
-    expect(clientV1(input).home).toBe(home);
-    expect(serverV1(input).home).toBe(home);
-    expect(serverV1(input).away).toBe(1 - home);
+  for (const status of ['played', 'final']) {
+    for (const [scores, home] of cases) {
+      const input = { ...scores, status };
+      expect(clientV1(input).home).toBe(home);
+      expect(serverV1(input).home).toBe(home);
+      expect(serverV1(input).away).toBe(1 - home);
+    }
   }
+});
+
+test('a live matchup with no Expected finals stays below 1 in both copies', () => {
+  const input = { homeScore: 60, awayScore: 40, homeExpectedFinal: null, awayExpectedFinal: null, status: 'live' };
+  expect(clientV1(input).home).toBeLessThan(1);
+  expect(serverV1(input).home).toBe(clientV1(input).home);
 });

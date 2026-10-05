@@ -198,21 +198,30 @@ test('played rows report how many are exactly 0 or 1, for v1 and v2', () => {
     mu, sigma: '0.000', home_probability: p,
   });
   const notExact = played(14, 0.9999, '1.000', '100.00', '99.00');
+  // Expected final above the score on a played row: the status, not the
+  // remaining points, is what settles v1.
+  const aboveScore = shadowRow({
+    matchup_id: 15, status: 'played', captured_at: '2026-10-05T03:00:00Z',
+    home_score: '90.00', away_score: '80.00', home_expected_final: '130.00', away_expected_final: '110.00',
+    mu: '20.000', sigma: '0.000', home_probability: 1,
+  });
+  results.set(15, { homeScore: 90, awayScore: 80 });
   const rows = [
     played(11, 1, '10.000', '100.00', '90.00'),
     played(12, 0, '-10.000', '80.00', '90.00'),
     // A tie once over: equal Expected finals, v2 says 0.5, which is exact.
     played(13, 0.5, '0.000', '95.00', '95.00'),
     notExact,
+    aboveScore,
   ];
 
   const { certainty } = evaluateShadowRows({ rows, results }).checkpoints.played;
 
-  assert.equal(certainty.v2.rows, 4);
-  assert.equal(certainty.v2.exact, 3);
+  assert.equal(certainty.v2.rows, 5);
+  assert.equal(certainty.v2.exact, 4);
   assert.deepEqual(certainty.v2.nonExactRowIds, [notExact.id]);
-  // v1 resolves once nothing is left to play (#2006): 1, 0 and 0.5 on the tie, and 1 on 100 to 99.
-  assert.equal(certainty.v1.exact, 4);
+  // v1 resolves on a played row from the scores alone (#2006): 1, 0, 0.5 on the tie, 1, 1.
+  assert.equal(certainty.v1.exact, 5);
 });
 
 test('an optional k rescales each stored v2 probability from its own mu and sigma', () => {

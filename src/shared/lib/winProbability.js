@@ -24,10 +24,6 @@ export function remainingPoints(projectedTotal, currentScore) {
  * Probability (0..1) that the home side wins, given both current scores and
  * both sides' projected points remaining. Symmetric: swapping home/away gives
  * the complement. With no information (equal scores, equal remaining) it is 0.5.
- * When neither side has points remaining the matchup is decided: 1 if home
- * leads, 0 if away leads, 0.5 on an exact tie, rather than a logistic that
- * would still read a settled 6-point result as 56%. src/shared/lib/winProbability.parity.test.js
- * pins server/services/winProbabilityV1.js to this, so edit both or neither.
  */
 export function homeWinProbability({
   homeScore,
@@ -35,10 +31,9 @@ export function homeWinProbability({
   homeRemaining,
   awayRemaining,
 }) {
-  const homeLeft = Number(homeRemaining) || 0;
-  const awayLeft = Number(awayRemaining) || 0;
-  const margin = (Number(homeScore) || 0) + homeLeft - ((Number(awayScore) || 0) + awayLeft);
-  if (homeLeft === 0 && awayLeft === 0) return Math.sign(margin) / 2 + 0.5;
+  const expectedHome = (Number(homeScore) || 0) + (Number(homeRemaining) || 0);
+  const expectedAway = (Number(awayScore) || 0) + (Number(awayRemaining) || 0);
+  const margin = expectedHome - expectedAway;
   return 1 / (1 + Math.exp(-margin / MARGIN_SCALE));
 }
 
@@ -49,14 +44,26 @@ export function homeWinProbability({
  * summed over the starters). An expected final never falls below the score, so
  * the remaining points here are simply expected final minus score, and a side
  * whose expected final is unknown (null) is treated as having nothing left
- * to add. Returns { home, away } probabilities summing to 1.
+ * to add. Once the matchup's `status` is 'played' or 'final' the result is
+ * decided by the scores alone: home 1 if ahead, 0 if behind, 0.5 on a tie,
+ * rather than a logistic that would still read a settled 6-point result as
+ * 56%. The gate is the status, not "nothing remaining", because a missing
+ * Expected final (a projection outage, an unreadable overtime clock) also
+ * reads as nothing remaining on a game still in play. server/services/winProbabilityV1.js
+ * mirrors this and src/shared/lib/winProbability.parity.test.js pins the two,
+ * so edit both or neither. Returns { home, away } probabilities summing to 1.
  */
 export function matchupWinProbability({
   homeScore,
   awayScore,
   homeExpectedFinal,
   awayExpectedFinal,
+  status,
 }) {
+  if (status === 'played' || status === 'final') {
+    const home = Math.sign((Number(homeScore) || 0) - (Number(awayScore) || 0)) / 2 + 0.5;
+    return { home, away: 1 - home };
+  }
   const home = homeWinProbability({
     homeScore,
     awayScore,

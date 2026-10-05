@@ -10,9 +10,9 @@
  * v1 is a logistic of the Expected final margin at a fixed scale of 24:
  * each side's expected final is its score plus the projected points it still
  * has to add (never negative), and a side whose Expected final is unknown
- * (null) is treated as having nothing left to add. When neither side has
- * points remaining the result is decided: 1 if home leads, 0 if away leads,
- * 0.5 on an exact tie.
+ * (null) is treated as having nothing left to add. Once the matchup's status
+ * is 'played' or 'final' the scores alone decide it: 1 if home leads, 0 if
+ * away leads, 0.5 on an exact tie.
  */
 
 const MARGIN_SCALE = 24;
@@ -26,15 +26,18 @@ function remainingPoints(projectedTotal, currentScore) {
 
 /** Probability (0..1) that the home side wins from scores and points remaining. */
 function homeWinProbability({ homeScore, awayScore, homeRemaining, awayRemaining }) {
-  const homeLeft = Number(homeRemaining) || 0;
-  const awayLeft = Number(awayRemaining) || 0;
-  const margin = (Number(homeScore) || 0) + homeLeft - ((Number(awayScore) || 0) + awayLeft);
-  if (homeLeft === 0 && awayLeft === 0) return Math.sign(margin) / 2 + 0.5;
+  const expectedHome = (Number(homeScore) || 0) + (Number(homeRemaining) || 0);
+  const expectedAway = (Number(awayScore) || 0) + (Number(awayRemaining) || 0);
+  const margin = expectedHome - expectedAway;
   return 1 / (1 + Math.exp(-margin / MARGIN_SCALE));
 }
 
 /** `{ home, away }` from the matchup shape, exactly as the client computes it. */
-function matchupWinProbability({ homeScore, awayScore, homeExpectedFinal, awayExpectedFinal }) {
+function matchupWinProbability({ homeScore, awayScore, homeExpectedFinal, awayExpectedFinal, status }) {
+  if (status === 'played' || status === 'final') {
+    const home = Math.sign((Number(homeScore) || 0) - (Number(awayScore) || 0)) / 2 + 0.5;
+    return { home, away: 1 - home };
+  }
   const home = homeWinProbability({
     homeScore,
     awayScore,

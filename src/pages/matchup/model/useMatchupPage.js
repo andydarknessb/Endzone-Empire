@@ -312,6 +312,7 @@ export function useMatchupPage(leagueId, matchupId) {
       awayScore: matchup.away.score,
       homeExpectedFinal: matchup.home.expectedFinal,
       awayExpectedFinal: matchup.away.expectedFinal,
+      status: matchup.status,
     }).home;
   }, [matchup]);
 
