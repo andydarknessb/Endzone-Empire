@@ -44,7 +44,11 @@ const OFFENSE_ZERO_KEYS = [
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
   'extraPoint', 'extraPointMissed', 'returnTDs', 'puntReturns', 'puntReturnYards',
 ];
-/** The IDP keys the Tank01 path writes for every player (zeros included). */
+/**
+ * The IDP keys the Tank01 path writes for every player (zeros included), plus
+ * idpFumbleRecovery, which Tank01 no longer supplies (#2002): this pass is its
+ * only same-day source.
+ */
 const IDP_ZERO_KEYS = [
   'soloTackle', 'assistedTackle', 'idpSack', 'idpInterception', 'forcedFumble', 'idpFumbleRecovery',
   'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD', 'twoPointReturn',

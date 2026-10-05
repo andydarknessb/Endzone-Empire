@@ -92,7 +92,6 @@ test('normalizeTank01IdpStats maps a defender\'s Defense category to IDP scoring
     idpSack: 1,
     idpInterception: 0,
     forcedFumble: 1,
-    idpFumbleRecovery: 0,
     passDeflection: 2,
     qbHit: 1,
     tacklesForLoss: 1,
@@ -106,10 +105,17 @@ test('normalizeTank01IdpStats: an interception-return TD counts fully as idpDefe
   assert.equal(result.idpDefensiveTD, 1);
 });
 
+test('normalizeTank01IdpStats: fumblesRecovered (own and opponent recoveries mixed) is not an IDP fumble recovery (#2002)', () => {
+  // Tank01 lists a QB falling on his own fumble here (Drake Maye, 2026 week 4:
+  // 2 own, 0 opponent per nflverse); the Live box and nflverse own the key.
+  const result = normalizeTank01IdpStats({ Defense: { fumblesRecovered: '2' } });
+  assert.equal('idpFumbleRecovery' in result, false);
+});
+
 test('normalizeTank01IdpStats: missing/empty Defense category is all-zero', () => {
   assert.deepEqual(normalizeTank01IdpStats({}), {
     soloTackle: 0, assistedTackle: 0, idpSack: 0, idpInterception: 0, forcedFumble: 0,
-    idpFumbleRecovery: 0, passDeflection: 0, qbHit: 0, tacklesForLoss: 0, idpDefensiveTD: 0,
+    passDeflection: 0, qbHit: 0, tacklesForLoss: 0, idpDefensiveTD: 0,
     twoPointReturn: 0,
   });
   assert.equal(normalizeTank01IdpStats(null).soloTackle, 0);

@@ -72,6 +72,17 @@ test('box keeps a stored idpInterceptionReturnYards a Tank01 box has no field fo
   assert.equal(fresh.idpInterceptionReturnYards, 31);
 });
 
+test('a Tank01 Final box keeps the Live box idpFumbleRecovery instead of its own-team recoveries (#2002)', () => {
+  const { normalizeTank01IdpStats } = require('../services/tank01Normalizers');
+  const finalBox = normalizeTank01IdpStats({ Defense: { fumblesRecovered: '1' } });
+  const ownOnly = stats(storedStatLine({ source: 'box', fresh: finalBox, prior: { idpFumbleRecovery: 0, passingYards: 225 } }));
+  assert.equal(ownOnly.idpFumbleRecovery, 0, 'a QB falling on his own fumble stays at the Live box 0');
+  const real = stats(storedStatLine({ source: 'box', fresh: finalBox, prior: { idpFumbleRecovery: 1 } }));
+  assert.equal(real.idpFumbleRecovery, 1, 'a real opponent recovery the Live box credited survives');
+  const live = stats(storedStatLine({ source: 'box', fresh: { idpFumbleRecovery: 2 }, prior: { idpFumbleRecovery: 1 } }));
+  assert.equal(live.idpFumbleRecovery, 2, 'a box that does carry the key still replaces it');
+});
+
 test('box: a fresh key with value undefined counts as absent', () => {
   const out = stats(storedStatLine({ source: 'box', fresh: { passingYards: undefined, receptions: 3 }, prior: BOX_ONLY_PRIOR }));
   assert.equal('passingYards' in out, false);

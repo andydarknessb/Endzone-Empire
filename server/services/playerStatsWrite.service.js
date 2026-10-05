@@ -41,6 +41,7 @@
 // two are ESPN-only (its return-yardage columns); the Tank01 box has no field
 // for them. kickReturnYards is removed by a box that lacks it (the old carry
 // list never held it); idpInterceptionReturnYards is on BOX_KEEP_IF_ABSENT.
+// idpFumbleRecovery is ESPN-only too since #2002 and kept the same way.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
   'receivingYards', 'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed',
@@ -52,8 +53,10 @@ const BOX_PLAYER_KEYS = [
 ];
 // Owned by the box (ESPN writes it) but also patched by nflverse's finalization
 // pass, and the old carry list kept it: a box line without it (any Tank01 box)
-// leaves the stored value alone instead of removing it.
-const BOX_KEEP_IF_ABSENT = ['idpInterceptionReturnYards'];
+// leaves the stored value alone instead of removing it. idpFumbleRecovery the
+// same way: the Tank01 box no longer emits it (its count mixes in own-team
+// recoveries, #2002), so the Final box keeps the Live box's figure.
+const BOX_KEEP_IF_ABSENT = ['idpInterceptionReturnYards', 'idpFumbleRecovery'];
 const BOX_TEAM_DEFENSE_KEYS = [
   'sack', 'interceptionReturn', 'fumbleRecovery', 'defensiveTD', 'safety', 'blockedKick',
   'pointsAllowed', 'yardsAllowed',
