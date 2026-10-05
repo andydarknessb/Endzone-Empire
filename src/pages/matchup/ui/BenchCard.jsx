@@ -1,12 +1,14 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Card, InjuryTag, PosChip } from '../../../shared/ui';
 import { unavailableLabel } from '../../../widgets/slot-comparison';
 
 /**
  * The Bench card of the Matchup page (ADR 0031, #903), transcribed from the
  * canvas's `benchSection()` (docs/design/game-center-matchups/build.mjs): a
- * card header reading "Bench" with the two bench counts ("6 · 7 players")
+ * card header reading "Bench" with the two bench counts ("7 players each", or "6 · 7 players" when
+ * they differ, #2009)
  * and a Show / Hide action with the chevron, collapsed by default. Open, it
  * lists both benches side by side, home on the left and away on the right:
  * each row is the player's position chip, his name (a button that opens the
@@ -37,6 +39,19 @@ import { unavailableLabel } from '../../../widgets/slot-comparison';
  * (the Card's own) through `sx`, so the card's edge is one line and not a
  * doubled one; the hairline returns as soon as a body follows the header.
  */
+const players = (n) => `${n} player${n === 1 ? '' : 's'}`;
+// Equal counts read once and two empty benches print nothing; unequal ones show
+// both, the visible text hidden from assistive tech in favour of a line naming
+// each team (#2009).
+function benchCount(home, away, homeName, awayName) {
+  if (home === away) return home === 0 ? undefined : `${players(home)} each`;
+  return (
+    <>
+      <span aria-hidden="true">{`${home} · ${away} players`}</span>
+      <Box component="span" sx={visuallyHidden}>{`${homeName} ${players(home)}, ${awayName} ${players(away)}`}</Box>
+    </>
+  );
+}
 const HEADER_ONLY_SX = { '& > :first-of-type': { borderBottom: 0 } };
 export default function BenchCard({
   homeName,
@@ -54,7 +69,7 @@ export default function BenchCard({
   const panelId = useId();
   const home = homeBench || [];
   const away = awayBench || [];
-  const count = `${home.length} · ${away.length} players`;
+  const count = benchCount(home.length, away.length, homeName || 'Home', awayName || 'Away');
   const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
   const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
   // Collapsed with no bench-left line: the header is the whole card.

@@ -215,7 +215,7 @@ export function useMatchupPage(leagueId, matchupId) {
     }
   }, [handlePlays]);
 
-  const { matchup, detail, homeStarters, awayStarters, loading, error } = useMatchup(leagueId, matchupId, {
+  const { matchup, detail, homeStarters, awayStarters, loading, error, refetch } = useMatchup(leagueId, matchupId, {
     onScores: handleScores,
     slotOrder,
   });
@@ -333,6 +333,7 @@ export function useMatchupPage(leagueId, matchupId) {
     starterRows,
     loading,
     error,
+    refetch,
     records,
     status,
     statusChip: statusChipFor(matchup?.status),
