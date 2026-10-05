@@ -276,8 +276,15 @@ test('the mobile layout keeps both names, scores, the bar, the chip, Exp final a
   expect(screen.getByTestId('scoreboard-status')).toHaveTextContent('LIVE');
 
   const [homeFigures, awayFigures] = screen.getAllByTestId('scoreboard-figures');
-  expect(homeFigures).toHaveTextContent('Exp final 110.5 · 4 to play');
-  expect(awayFigures).toHaveTextContent('Exp final 123.9 · 6 to play');
+  // Two stacked lines per side, never one phrase that wraps mid-way.
+  expect(within(homeFigures).getByTestId('scoreboard-figure-ef')).toHaveTextContent('Exp final 110.5');
+  expect(within(homeFigures).getByTestId('scoreboard-figure-pmr')).toHaveTextContent('4 to play');
+  expect(within(awayFigures).getByTestId('scoreboard-figure-ef')).toHaveTextContent('Exp final 123.9');
+  expect(within(awayFigures).getByTestId('scoreboard-figure-pmr')).toHaveTextContent('6 to play');
+  expect(homeFigures).not.toHaveTextContent('·');
+  screen.getAllByTestId(/^scoreboard-figure-(ef|pmr)$/).forEach((line) => {
+    expect(line).toHaveStyle({ whiteSpace: 'nowrap' });
+  });
   expect(screen.getByText('Projected 110.5')).toBeInTheDocument();
   expect(screen.getByText('Players remaining 6')).toBeInTheDocument();
 });

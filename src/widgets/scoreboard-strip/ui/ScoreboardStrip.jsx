@@ -451,13 +451,14 @@ function Caption() {
 }
 
 /**
- * Expected final and Players remaining under a side. The visible line spells
- * the labels out ("Exp final 110.5 · 4 to play", two spans on desktop, one
- * joined span on mobile, #2007: a phone cannot hover an abbreviation) with the
- * figures in ink on the dim label; a missing figure is a dash. It is
- * aria-hidden, and the two visually-hidden expansions carry the full captions
- * ("Projected 110.5", "Players remaining 4") in their place. The joined line
- * may wrap, each side toward its own edge, so two of them fit beside the chip.
+ * Expected final and Players remaining under a side. The visible text spells
+ * the labels out ("Exp final 110.5", "4 to play", #2007: a phone cannot hover
+ * an abbreviation) with the figures in ink on the dim label; a missing figure
+ * is a dash. Each figure is its own nowrap line, side by side on desktop and
+ * stacked on mobile (`joined`), so a narrow row never breaks one mid-phrase.
+ * The visible text is aria-hidden, and the two visually-hidden expansions
+ * carry the full captions ("Projected 110.5", "Players remaining 4") in its
+ * place.
  */
 function Figures({ side, joined = false, align }) {
   const ef = side.expectedFinal;
@@ -473,24 +474,23 @@ function Figures({ side, joined = false, align }) {
         ...(joined ? { flex: 1, textAlign: align } : {}),
       }}
     >
-      {joined ? (
-        <Box component="span" aria-hidden="true">
-          Exp final <Figure value={ef} /> · <Figure value={pmr} /> to play
+      <Box
+        component="span"
+        aria-hidden="true"
+        sx={{
+          display: joined ? 'flex' : 'inline-flex',
+          flexDirection: joined ? 'column' : 'row',
+          alignItems: joined ? (align === 'right' ? 'flex-end' : 'flex-start') : 'center',
+          gap: joined ? '2px' : '10px',
+        }}
+      >
+        <Box component="span" data-testid="scoreboard-figure-ef" sx={{ whiteSpace: 'nowrap' }}>
+          Exp final <Figure value={ef} />
         </Box>
-      ) : (
-        <Box
-          component="span"
-          aria-hidden="true"
-          sx={{ display: 'inline-flex', alignItems: 'center', gap: '10px', whiteSpace: 'nowrap' }}
-        >
-          <span>
-            Exp final <Figure value={ef} />
-          </span>
-          <span>
-            <Figure value={pmr} /> to play
-          </span>
+        <Box component="span" data-testid="scoreboard-figure-pmr" sx={{ whiteSpace: 'nowrap' }}>
+          <Figure value={pmr} /> to play
         </Box>
-      )}
+      </Box>
       <Box component="span" sx={visuallyHidden}>
         Projected {ef ?? 'not available'}
       </Box>
