@@ -45,6 +45,9 @@ import Icon from './icons';
  * on mobile.
  */
 const NOTE = { fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)', whiteSpace: 'nowrap' };
+// The Totals row's "Exp final" note wraps (#2010 QA): nowrap held it at its
+// full width and pushed the document past the viewport at 320px.
+const TOTAL_NOTE = { ...NOTE, whiteSpace: 'normal' };
 
 // "vs OPP · clock": the schedule's opponent code (no home/away marker rides
 // the wire, ADR 0011) and the live clock, each dropped when absent.
@@ -173,7 +176,7 @@ function Side({ player, side }) {
 function Total({ team, side }) {
   const ef = team?.expectedFinal;
   const score = <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{ledScore(team?.score)}</Box>;
-  const note = ef != null && ef !== '' ? <Box component="span" sx={NOTE}>Exp final {ledFigure(ef)}</Box> : null;
+  const note = ef != null && ef !== '' ? <Box component="span" data-testid="lineup-exp-final" sx={TOTAL_NOTE}>Exp final {ledFigure(ef)}</Box> : null;
   return (
     <Box data-testid={`lineup-total-${side}`} sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
       {side === 'home' ? <>{score}{note}</> : <>{note}{score}</>}

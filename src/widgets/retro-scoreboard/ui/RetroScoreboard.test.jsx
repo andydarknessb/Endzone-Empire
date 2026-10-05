@@ -528,6 +528,14 @@ test('the Lineups card ends with a Totals row of both scores and Expected finals
   expect(rowsInCard[rowsInCard.length - 1].compareDocumentPosition(totals.getByTestId('lineup-total-home')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
+test('the Totals row Exp final notes wrap, so 320px never scrolls sideways (#2010 QA)', () => {
+  renderBoard();
+  const notes = within(screen.getByTestId('lineup-totals')).getAllByTestId('lineup-exp-final');
+
+  expect(notes).toHaveLength(2);
+  for (const note of notes) expect(note).not.toHaveStyle({ whiteSpace: 'nowrap' });
+});
+
 test('the Totals row drops an Expected final the server did not price', () => {
   const m = matchup();
   renderBoard({ matchup: matchup({ home: { ...m.home, expectedFinal: null } }) });

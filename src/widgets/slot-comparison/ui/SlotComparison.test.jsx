@@ -236,6 +236,14 @@ test('the footer totals are the sum of each column points beside the Expected fi
   expect(screen.getByText('Totals')).toBeInTheDocument();
 });
 
+test('the footer Exp final notes wrap, so 320px never scrolls sideways (#2008 QA)', () => {
+  render(<SlotComparison {...baseProps} />);
+
+  for (const note of screen.getAllByTestId('slot-exp-final')) {
+    expect(note).not.toHaveStyle({ whiteSpace: 'nowrap' });
+  }
+});
+
 test('omits an Expected final the model does not carry', () => {
   render(<SlotComparison {...baseProps} expectedFinal={{ home: null, away: null }} />);
 

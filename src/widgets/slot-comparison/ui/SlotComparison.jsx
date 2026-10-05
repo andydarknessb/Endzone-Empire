@@ -181,11 +181,11 @@ export default function SlotComparison({
           >
             <Box data-testid="slot-total-home" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{formatPoints(totals.home)}</Box>
-              {ef.home != null && <Box component="span" sx={NOTE_NUM}>Exp final {formatPoints(ef.home)}</Box>}
+              {ef.home != null && <Box component="span" data-testid="slot-exp-final" sx={NOTE_WRAP}>Exp final {formatPoints(ef.home)}</Box>}
             </Box>
             <Box component="span" sx={LABEL}>Totals</Box>
             <Box data-testid="slot-total-away" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-              {ef.away != null && <Box component="span" sx={NOTE_NUM}>Exp final {formatPoints(ef.away)}</Box>}
+              {ef.away != null && <Box component="span" data-testid="slot-exp-final" sx={NOTE_WRAP}>Exp final {formatPoints(ef.away)}</Box>}
               <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{formatPoints(totals.away)}</Box>
             </Box>
           </Box>
@@ -203,6 +203,9 @@ const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'no
 // The design's `.note`: 12px faint; `.num` adds tabular figures.
 const NOTE = { fontSize: '12px', color: 'var(--dash-faint)' };
 const NOTE_NUM = { ...NOTE, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+// The footer's "Exp final 110.5" note wraps (#2008 QA): nowrap held it at its
+// full width and pushed the document past the viewport at 320px.
+const NOTE_WRAP = { ...NOTE, fontVariantNumeric: 'tabular-nums' };
 
 // The design's `.label`: the uppercase faint table label.
 const LABEL = {
