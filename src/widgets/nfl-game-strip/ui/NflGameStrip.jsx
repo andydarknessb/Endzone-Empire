@@ -31,7 +31,7 @@ import { gameTileView } from '../model/gameTileView';
  * The live dot is LIVE_DOT_COLOR, `dash-accent`, and that is a recorded
  * deviation from the canvas, whose `.dot` is the app's danger red (nflStrip(),
  * the Starters legend, the hero's "games in progress" line). The island's
- * other two 8px dots (slot-comparison's LiveDot, retro-scoreboard's Games
+ * other two 8px dots (shared/ui StateMark's live dot, retro-scoreboard's Games
  * tile) paint `dash-accent` on the same reasoning, the kit's own live
  * vocabulary being the accent (Badge's `live` variant); the scoring-feed
  * slice's Live PILL is the one danger element, and it brings its own

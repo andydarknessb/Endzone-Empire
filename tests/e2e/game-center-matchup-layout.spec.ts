@@ -468,6 +468,74 @@ for (const shape of SHAPES) {
   }
 }
 
+// ---- Phone starter rows (#2008 QA) ----
+//
+// A live starter with an injury tag and a game clock carries the longest second
+// line a phone cell holds. At 360-390px the half-width cell is about 100px of
+// content beside the headshot, and the old line two (state marker, injury tag,
+// figure, "vs OPP", clock, all flex:none but the opponent, no wrap) ran about
+// 45px across the slot PosChip. The ruling: the injury tag returns to line one
+// beside the name, line two wraps with the clock kept whole. This binds the
+// rendered geometry: every `slot-line2` box stays inside its `slot-cell-*` box
+// horizontally, the flagged cells really carry a tag (not on line two) and a
+// clock (so the case cannot go green vacuously), and at 320px the document never
+// scrolls sideways (the footers' "Exp final" notes wrap, the names break only
+// when one word cannot fit). Red-tell: moving InjuryTag back into PhoneLineTwo,
+// or dropping `flexWrap: 'wrap'` from it, turns the 360 and 390 cases red.
+for (const w of [320, 360, 390]) {
+  test(`Matchup Standard @ ${w}: a live flagged starter's line two stays inside its cell, no horizontal scroll`, async ({ page }) => {
+    await setupLayoutGuard(page, { view: 'standard', liveStarters: true });
+    await page.setViewportSize({ width: w, height: 844 });
+    await page.goto(MATCHUP_URL);
+    await page.getByRole('radio', { name: 'Standard', exact: true }).waitFor();
+    await page.getByTestId('slot-row').first().waitFor();
+    await fontsReady(page);
+
+    const res = await page.evaluate(() => {
+      const out: Array<{ cell: string; line2: { left: number; right: number }; box: { left: number; right: number }; text: string }> = [];
+      const cells = Array.from(document.querySelectorAll('[data-testid^="slot-cell-"]'));
+      let tags = 0;
+      let tagsOnLine2 = 0;
+      let clocks = 0;
+      for (const cell of cells) {
+        const line2 = cell.querySelector('[data-testid="slot-line2"]');
+        if (!line2) continue;
+        // The line's own box never exceeds its grid track; what overflows is its
+        // content, so the extent is the box widened by every descendant's rect.
+        const a = { left: line2.getBoundingClientRect().left, right: line2.getBoundingClientRect().right };
+        line2.querySelectorAll('*').forEach((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) return;
+          a.left = Math.min(a.left, r.left);
+          a.right = Math.max(a.right, r.right);
+        });
+        const b = cell.getBoundingClientRect();
+        out.push({
+          cell: cell.getAttribute('data-testid') || '',
+          line2: { left: a.left, right: a.right },
+          box: { left: b.left, right: b.right },
+          text: (line2.textContent || '').trim(),
+        });
+        if (cell.querySelector('[data-testid="injury-tag"]')) tags++;
+        if (line2.querySelector('[data-testid="injury-tag"]')) tagsOnLine2++;
+        if ((line2.textContent || '').includes('Q4 12:45')) clocks++;
+      }
+      const root = document.documentElement;
+      return { out, tags, tagsOnLine2, clocks, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
+    });
+
+    expect(res.out.length, 'every filled slot cell has a line two').toBeGreaterThan(0);
+    expect(res.tags, 'the flagged starters must render an injury tag (else the case is vacuous)').toBe(4);
+    expect(res.clocks, 'the live starters must render their clock (else the case is vacuous)').toBe(4);
+    expect(res.tagsOnLine2, 'the injury tag sits on line one, never on line two').toBe(0);
+    for (const r of res.out) {
+      expect(r.line2.left, `${r.cell} "${r.text}" starts inside its cell`).toBeGreaterThanOrEqual(r.box.left - 1);
+      expect(r.line2.right, `${r.cell} "${r.text}" ends inside its cell`).toBeLessThanOrEqual(r.box.right + 1);
+    }
+    expect(res.scrollWidth, `document scrolls sideways at ${w}`).toBeLessThanOrEqual(res.clientWidth + 1);
+  });
+}
+
 // ---- Red-tell outcomes (#920, each run in Chromium; see the PR body) ----
 //
 // Game Center (both fire, and each co-binds the jsdom case in

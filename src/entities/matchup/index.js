@@ -36,6 +36,7 @@ export {
   applyScoreEvent,
   applyIdentityPatch,
   matchupStatusView,
+  matchupResultLine,
   viewerMatchupOf,
 } from './model/matchupModel';
 export {

@@ -4,6 +4,7 @@ import {
   applyScoreEvent,
   applyIdentityPatch,
   matchupStatusView,
+  matchupResultLine,
   viewerMatchupOf,
 } from './matchupModel';
 
@@ -300,5 +301,49 @@ describe('viewerMatchupOf (#1872)', () => {
     expect(viewerMatchupOf([other], 3)).toBeNull();
     expect(viewerMatchupOf(null, 3)).toBeNull();
     expect(viewerMatchupOf([null, other], 3)).toBeNull();
+  });
+});
+
+describe('matchupResultLine (#2007)', () => {
+  const m = (status, homeScore, awayScore) => ({
+    status,
+    home: { teamId: 12, name: 'Duluth Dockworkers', score: homeScore },
+    away: { teamId: 34, name: 'Fargo Frostbite', score: awayScore },
+  });
+
+  test.each([
+    ['final', 115.9, 109.7, 12, 'You won by 6.2'],
+    ['final', 109.7, 115.9, 12, 'You lost by 6.2'],
+    ['final', 109.7, 115.9, 34, 'You won by 6.2'],
+    ['final', 115.9, 109.7, 34, 'You lost by 6.2'],
+    ['final', 115.9, 109.7, 99, 'Duluth Dockworkers won by 6.2'],
+    ['final', 109.7, 115.9, null, 'Fargo Frostbite won by 6.2'],
+    ['final', 100, 100, 12, 'Tied'],
+    ['final', '115.90', '109.70', 12, 'You won by 6.2'],
+    ['final', 100.04, 100, 12, 'You won by 0.04'],
+    ['final', 100, 100.04, 12, 'You lost by 0.04'],
+    ['final', 100.04, 99.96, 12, 'You won by 0.08'],
+    ['final', 100.06, 99.94, 12, 'You won by 0.1'],
+    ['played', 100, 100.04, 99, 'Unofficial: Fargo Frostbite won by 0.04'],
+    ['played', 115.9, 109.7, 12, 'Unofficial: You won by 6.2'],
+    ['played', 115.9, 109.7, 99, 'Unofficial: Duluth Dockworkers won by 6.2'],
+    ['played', 100, 100, 12, 'Unofficial: Tied'],
+  ])('%s %s to %s, viewer %s reads "%s"', (status, home, away, viewer, line) => {
+    expect(matchupResultLine(m(status, home, away), viewer)).toBe(line);
+  });
+
+  test.each(['scheduled', 'live', null, 'postponed'])('a %s matchup has no result line', (status) => {
+    expect(matchupResultLine(m(status, 115.9, 109.7), 12)).toBeNull();
+  });
+
+  test.each([null, undefined, '', 'abc', NaN])('an unknown score (%s) gives no result line', (bad) => {
+    expect(matchupResultLine(m('final', bad, 109.7), 12)).toBeNull();
+    expect(matchupResultLine(m('played', 109.7, bad), 12)).toBeNull();
+    expect(matchupResultLine({ status: 'final', home: {}, away: {} }, 12)).toBeNull();
+  });
+
+  test('a nameless winner reads Home or Away, as the scoreboards do', () => {
+    const nameless = { status: 'final', home: { score: 1 }, away: { score: 2 } };
+    expect(matchupResultLine(nameless, null)).toBe('Away won by 1.0');
   });
 });

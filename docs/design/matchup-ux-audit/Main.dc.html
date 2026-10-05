@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Matchup page audit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Barlow+Condensed:wght@600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f6a41}a:hover{color:#0b4f31}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1900px; box-sizing: border-box; padding: 72px 96px; background: #eef2f6; color: #141b23; font-family: 'Archivo', 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column; gap: 40px">
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #55636f">Spec #2005 · tickets #2006 #2007 #2008 #2009 #2010</div>
+    <h1 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 64px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1">Matchup page UX audit</h1>
+    <p style="margin: 0; max-width: 1000px; font-size: 18px; line-height: 1.5; color: #55636f">Standard and Scoreboard views of /league/:id/matchups/:matchupId, rendered in Chromium at 390x844 and 1440x900 in both themes: scheduled, live, final, an empty slot, a playoff matchup, best ball, loading and error, plus a scroll probe. The frame holds: no overflow, and the Standard strip stays pinned. What fails is the number a manager came for.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+    <sc-for list="{{tiles}}" as="t" hint-placeholder-count="4">
+      <div style="background: #ffffff; border: 1px solid rgba(31,45,58,0.12); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 6px">
+        <div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5e6a74">{{t.label}}</div>
+        <div style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 44px; font-weight: 700">{{t.value}}</div>
+        <div style="font-size: 14px; color: #55636f">{{t.note}}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="background: #ffffff; border: 1px solid rgba(31,45,58,0.12); border-radius: 14px; overflow: hidden">
+    <div style="padding: 18px 24px; border-bottom: 1px solid rgba(31,45,58,0.12); display: flex; align-items: baseline; gap: 12px">
+      <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 22px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase">Findings and rulings</h2>
+      <span style="font-size: 13px; color: #5e6a74">10 findings · 3 high · 4 medium · 3 low</span>
+    </div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.45">
+      <thead>
+        <tr style="background: #f4f7fa; text-align: left; color: #5e6a74; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase">
+          <th scope="col" style="padding: 10px 16px 10px 24px; width: 48px">ID</th>
+          <th scope="col" style="padding: 10px 16px; width: 84px">Sev</th>
+          <th scope="col" style="padding: 10px 16px">Finding</th>
+          <th scope="col" style="padding: 10px 16px">Ruling</th>
+          <th scope="col" style="padding: 10px 24px 10px 16px; width: 70px">Ticket</th>
+        </tr>
+      </thead>
+      <tbody>
+        <sc-for list="{{findings}}" as="f" hint-placeholder-count="10">
+          <tr style="border-top: 1px solid rgba(31,45,58,0.12); vertical-align: top">
+            <td style="padding: 14px 16px 14px 24px; font-weight: 600">{{f.id}}</td>
+            <td style="padding: 14px 16px"><span style="{{f.sevStyle}}">{{f.sev}}</span></td>
+            <td style="padding: 14px 16px">{{f.finding}}</td>
+            <td style="padding: 14px 16px">{{f.ruling}}</td>
+            <td style="padding: 14px 24px 14px 16px; font-weight: 600">{{f.ticket}}</td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="background: #ffffff; border: 1px solid rgba(31,45,58,0.12); border-radius: 14px; padding: 20px 24px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.5; color: #55636f">
+    <h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 22px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #141b23">Checked, not filed</h2>
+    <div>Doubled live points and "TD TD" in the first capture were harness artifacts: a StrictMode double mount with a no-op stub disconnect, and fixture play types. Real types read "rushing TD".</div>
+    <div>"Games: No games listed" is fixture data (empty nflGameIds). The Standard strip is sticky at both widths; the Scoreboard view's board is not, which #2010's totals row answers.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const sev = { High: 'display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(198,40,40,0.08);color:#c62828', Medium: 'display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(138,90,0,0.12);color:#8a5a00', Low: 'display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:#e6ecf2;color:#55636f' };
+    const rows = [
+      ['F1', 'High', 'A final or played matchup shows a live-looking win probability: 56% to 44% on a 115.9 to 109.7 final, on the strip, the LED board and the field. The shared function applies the logistic even when nothing remains, so Game Center, Around the League and every other caller show it too.', 'Decided once neither side has points left: 1 or 0 by the margin, 0.5 on a tie. Fix it in the shared function and its server parity copy.', '#2006'],
+      ['F2', 'High', 'A final matchup never states the result. The strip keeps its win bar and EF/PMR figures; nothing says who won.', 'Played or final: one result line from the viewer’s side, "You won by 6.2", in place of the bar and the figures. Played reads "Unofficial:".', '#2007'],
+      ['F3', 'Medium', '"EF" and "PMR" are unexplained on the strip, and a phone cannot hover. The LED board already says EXP FINAL and TO PLAY.', 'Spell out "Exp final" and "to play" at both widths.', '#2007'],
+      ['F4', 'High', 'Phone rows truncate half the names and cut "DET vs CAR · Q3 7:22" to "DET vs C...": the live clock is gone.', 'Name alone on line 1; figure, then "OPP · clock" on line 2, the clock never ellipsized.', '#2008'],
+      ['F5', 'High', 'Before kickoff every phone row reads 0.0, eighteen zeros and no projection.', 'A starter yet to play shows "proj 17.9" until his game starts.', '#2008'],
+      ['F6', 'Medium', 'An empty starting slot is a blank cell: no label, no warning.', '"Empty", with a Set lineup link on the viewer’s own side.', '#2008'],
+      ['F7', 'Low', 'The In progress / Final / Yet to play legend is desktop only.', 'Show it at every width, wrapping under the heading.', '#2008'],
+      ['F8', 'Medium', 'Scoreboard Lineups rows have no game state, opponent or clock, and the score scrolls away with the LED board.', 'Same marker and "OPP · clock" as Standard, plus a Totals row.', '#2010'],
+      ['F9', 'Low', 'The error state is a dead end: one alert, no retry, no way back.', 'Retry re-runs the read; a link returns to Game Center.', '#2009'],
+      ['F10', 'Low', 'The bench header reads "4 · 4 players".', '"4 players each" when equal; per-team counts in the accessible label otherwise.', '#2009'],
+    ];
+    return {
+      tiles: [
+        { label: 'Final shown as', value: '56%', note: 'Win probability on a decided 6.2-point final' },
+        { label: 'Phone names truncated', value: '5 of 18', note: 'Names cut in the live fixture; the clock cut from both in-progress rows' },
+        { label: 'Zeros before kickoff', value: '18', note: 'No projection on a phone row' },
+        { label: 'Surfaces on the shared win prob', value: '9', note: 'Fixed once in shared/lib' },
+      ],
+      findings: rows.map(([id, s, finding, ruling, ticket]) => ({ id, sev: s, sevStyle: sev[s], finding, ruling, ticket })),
+    };
+  }
+}
+</script>
+</body>
+</html>

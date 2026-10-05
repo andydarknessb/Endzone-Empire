@@ -31,6 +31,8 @@ import GamesTile from './GamesTile';
  *     reads each side's name, score, Expected final and Players remaining, the
  *     week and the status.
  *   - `leagueName`: the league's name for the board's top line.
+ *   - `viewerTeamId`: the viewer's own Team id; a settled Matchup's result line
+ *     on the board reads from that side ("You won by 6.2", #2007).
  *   - `rows`: the paired starter rows the Matchup page model hands down
  *     (`[{ slot, home, away }]`, `pairStartersBySlot` from `entities/roster`;
  *     #1210 moved the pairing out of `entities/matchup`), rendered as given.
@@ -62,6 +64,7 @@ import GamesTile from './GamesTile';
 export default function RetroScoreboard({
   matchup,
   leagueName,
+  viewerTeamId,
   rows,
   games,
   activePlay,
@@ -92,7 +95,7 @@ export default function RetroScoreboard({
       data-testid="retro-scoreboard"
       sx={{ display: 'flex', flexDirection: 'column', gap, fontFamily: 'var(--dash-font-body)' }}
     >
-      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={shownProb} showWin={started} mobile={mobile} />
+      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={shownProb} showWin={started} viewerTeamId={viewerTeamId} mobile={mobile} />
       <RetroField
         homeName={matchup.home?.name}
         awayName={matchup.away?.name}
@@ -111,7 +114,7 @@ export default function RetroScoreboard({
         }}
       >
         <Box data-testid="lineups-slot" sx={{ order: { xs: 2, md: 1 }, minWidth: 0 }}>
-          <LineupsCard rows={rows} headingLevel={headingLevel} onFullComparison={onFullComparison} mobile={mobile} />
+          <LineupsCard rows={rows} matchup={matchup} headingLevel={headingLevel} onFullComparison={onFullComparison} mobile={mobile} />
         </Box>
         <Box
           data-testid="right-column"

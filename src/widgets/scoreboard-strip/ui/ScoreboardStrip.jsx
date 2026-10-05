@@ -29,17 +29,20 @@ import { scoreboardView } from '../model/scoreboardView';
  * Accessibility: the SplitBar is the one `role="img"` and its accessible name
  * already says "Win probability: <home> 36%, <away> 64%", so the printed
  * percentages and the caption are aria-hidden (#878, #887: one announcement
- * per surface, never two). The visible "EF" / "PMR" abbreviations are likewise
- * aria-hidden and each side carries a visually-hidden "Projected 110.5" and
- * "Players remaining 4" expansion, the captions the totals block this strip
- * replaces used to print, so a screen reader hears the full words and the
- * page's own assertions on those captions find them here. TeamAvatar is
+ * per surface, never two). The visible "Exp final" / "to play" figures are
+ * likewise aria-hidden and each side carries a visually-hidden "Projected
+ * 110.5" and "Players remaining 4" expansion, the captions the totals block
+ * this strip replaces used to print, so a screen reader hears the full words
+ * and the page's own assertions on those captions find them here. Once the
+ * matchup is played or final the bar and the figures give way to one result
+ * line (#2007, "You won by 6.2"), which is plain text, read once. TeamAvatar is
  * aria-hidden by design (#327); the avatar is decorative here because the Team
  * name is the adjacent text, so it is not wrapped in a second named image.
  *
  * Layout: below the `md` breakpoint (where the dashboard collapses its columns
  * too) the mobile mock applies - names on one row, the scores around the bar on
- * the next, EF and PMR (with the chip between them) on a third. The layout in
+ * the next, Exp final and to play (with the chip between them) on a third, or
+ * the chip and the result line there once the matchup is settled. The layout in
  * use is exposed as `data-layout` so a test can assert which one rendered.
  */
 export default function ScoreboardStrip({
@@ -93,12 +96,13 @@ function DesktopLayout({ view }) {
         alignItems: 'center',
       }}
     >
-      <DesktopSide side={view.home} tone="home" align="left" />
+      <DesktopSide side={view.home} tone="home" align="left" result={view.result} />
       <Box
         data-testid="scoreboard-center"
         sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', minWidth: 0 }}
       >
         {view.chip && <StatusChip chip={view.chip} />}
+        {view.result && <ResultLine text={view.result} />}
         {view.showBar && (
           <>
             <Box
@@ -126,12 +130,12 @@ function DesktopLayout({ view }) {
           </>
         )}
       </Box>
-      <DesktopSide side={view.away} tone="away" align="right" />
+      <DesktopSide side={view.away} tone="away" align="right" result={view.result} />
     </Box>
   );
 }
 
-function DesktopSide({ side, tone, align }) {
+function DesktopSide({ side, tone, align, result }) {
   const end = align === 'right';
   return (
     <Box
@@ -173,7 +177,7 @@ function DesktopSide({ side, tone, align }) {
         </Box>
       </Box>
       <Score value={side.score} size={60} />
-      <Figures side={side} />
+      {!result && <Figures side={side} />}
     </Box>
   );
 }
@@ -243,9 +247,18 @@ function MobileLayout({ view }) {
           mt: '8px',
         }}
       >
-        <Figures side={view.home} joined />
-        {view.chip && <StatusChip chip={view.chip} />}
-        <Figures side={view.away} joined />
+        {view.result ? (
+          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            {view.chip && <StatusChip chip={view.chip} />}
+            <ResultLine text={view.result} />
+          </Box>
+        ) : (
+          <>
+            <Figures side={view.home} joined align="left" />
+            {view.chip && <StatusChip chip={view.chip} />}
+            <Figures side={view.away} joined align="right" />
+          </>
+        )}
       </Box>
     </>
   );
@@ -409,6 +422,20 @@ function WinBar({ view, height }) {
   );
 }
 
+// The settled matchup's result line (#2007): plain text, not aria-hidden, the
+// one statement of the result on the strip.
+function ResultLine({ text }) {
+  return (
+    <Typography
+      component="span"
+      data-testid="scoreboard-result"
+      sx={{ fontSize: '14px', fontWeight: 600, textAlign: 'center', color: 'var(--dash-ink)' }}
+    >
+      {text}
+    </Typography>
+  );
+}
+
 // The caption carries no time claim (#872: "Win probability" in every started
 // state) and is aria-hidden (#878: the bar's own label is the sole name).
 function Caption() {
@@ -424,38 +451,46 @@ function Caption() {
 }
 
 /**
- * Expected final and Players remaining under a side. The visible line is the
- * mock's abbreviated copy ("EF 110.5 · PMR 4", two spans on desktop, one joined
- * span on mobile) with the figures in ink on the dim label; a missing figure is
- * a dash. It is aria-hidden, and the two visually-hidden expansions carry the
- * full captions ("Projected 110.5", "Players remaining 4") in their place.
+ * Expected final and Players remaining under a side. The visible text spells
+ * the labels out ("Exp final 110.5", "4 to play", #2007: a phone cannot hover
+ * an abbreviation) with the figures in ink on the dim label; a missing figure
+ * is a dash. Each figure is its own nowrap line, side by side on desktop and
+ * stacked on mobile (`joined`), so a narrow row never breaks one mid-phrase.
+ * The visible text is aria-hidden, and the two visually-hidden expansions
+ * carry the full captions ("Projected 110.5", "Players remaining 4") in its
+ * place.
  */
-function Figures({ side, joined = false }) {
+function Figures({ side, joined = false, align }) {
   const ef = side.expectedFinal;
   const pmr = side.playersRemaining;
   return (
     <Box
       data-testid="scoreboard-figures"
-      sx={{ fontSize: '12px', color: 'var(--dash-dim)', fontVariantNumeric: 'tabular-nums', minWidth: 0 }}
+      sx={{
+        fontSize: '12px',
+        color: 'var(--dash-dim)',
+        fontVariantNumeric: 'tabular-nums',
+        minWidth: 0,
+        ...(joined ? { flex: 1, textAlign: align } : {}),
+      }}
     >
-      {joined ? (
-        <Box component="span" aria-hidden="true" sx={{ whiteSpace: 'nowrap' }}>
-          EF <Figure value={ef} /> · PMR <Figure value={pmr} />
+      <Box
+        component="span"
+        aria-hidden="true"
+        sx={{
+          display: joined ? 'flex' : 'inline-flex',
+          flexDirection: joined ? 'column' : 'row',
+          alignItems: joined ? (align === 'right' ? 'flex-end' : 'flex-start') : 'center',
+          gap: joined ? '2px' : '10px',
+        }}
+      >
+        <Box component="span" data-testid="scoreboard-figure-ef" sx={{ whiteSpace: 'nowrap' }}>
+          Exp final <Figure value={ef} />
         </Box>
-      ) : (
-        <Box
-          component="span"
-          aria-hidden="true"
-          sx={{ display: 'inline-flex', alignItems: 'center', gap: '10px', whiteSpace: 'nowrap' }}
-        >
-          <span>
-            EF <Figure value={ef} />
-          </span>
-          <span>
-            PMR <Figure value={pmr} />
-          </span>
+        <Box component="span" data-testid="scoreboard-figure-pmr" sx={{ whiteSpace: 'nowrap' }}>
+          <Figure value={pmr} /> to play
         </Box>
-      )}
+      </Box>
       <Box component="span" sx={visuallyHidden}>
         Projected {ef ?? 'not available'}
       </Box>
