@@ -229,10 +229,10 @@ test('the footer totals are the sum of each column points beside the Expected fi
 
   // 18.6 + 14.3 + 0 + 9.7 (points, never projections, which would read 58.2).
   expect(within(home).getByText('42.6')).toBeInTheDocument();
-  expect(within(home).getByText('EF 110.5')).toBeInTheDocument();
+  expect(within(home).getByText('Exp final 110.5')).toBeInTheDocument();
   // 24.1 + 4.8 + 0 over three filled sides (projections would read 52.0).
   expect(within(away).getByText('28.9')).toBeInTheDocument();
-  expect(within(away).getByText('EF 123.9')).toBeInTheDocument();
+  expect(within(away).getByText('Exp final 123.9')).toBeInTheDocument();
   expect(screen.getByText('Totals')).toBeInTheDocument();
 });
 
