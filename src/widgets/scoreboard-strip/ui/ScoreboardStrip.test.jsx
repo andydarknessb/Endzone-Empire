@@ -79,7 +79,9 @@ test('a started matchup shows the bar with both percentages and the caption', ()
 test.each(['played', 'final'])('a %s matchup has started, so the bar shows', (status) => {
   render(<ScoreboardStrip matchup={detail({ matchup: { status } })} />);
   expect(winBar()).toBeInTheDocument();
-  expect(screen.getByText('36%')).toBeInTheDocument();
+  // Settled by the scores (82.2 to 77.0), not the Expected finals (#2006).
+  expect(screen.getByText('100%')).toBeInTheDocument();
+  expect(screen.getByText('0%')).toBeInTheDocument();
 });
 
 test('the bar is the one announced image; the percentages and caption are aria-hidden', () => {

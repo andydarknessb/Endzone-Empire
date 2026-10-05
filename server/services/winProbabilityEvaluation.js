@@ -103,6 +103,7 @@ function v1ForRow(row) {
     awayScore: row.away_score,
     homeExpectedFinal: row.home_expected_final,
     awayExpectedFinal: row.away_expected_final,
+    status: row.status,
   }).home;
 }
 

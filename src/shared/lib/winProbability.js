@@ -44,14 +44,26 @@ export function homeWinProbability({
  * summed over the starters). An expected final never falls below the score, so
  * the remaining points here are simply expected final minus score, and a side
  * whose expected final is unknown (null) is treated as having nothing left
- * to add. Returns { home, away } probabilities summing to 1.
+ * to add. Once the matchup's `status` is 'played' or 'final' the result is
+ * decided by the scores alone: home 1 if ahead, 0 if behind, 0.5 on a tie,
+ * rather than a logistic that would still read a settled 6-point result as
+ * 56%. The gate is the status, not "nothing remaining", because a missing
+ * Expected final (a projection outage, an unreadable overtime clock) also
+ * reads as nothing remaining on a game still in play. server/services/winProbabilityV1.js
+ * mirrors this and src/shared/lib/winProbability.parity.test.js pins the two,
+ * so edit both or neither. Returns { home, away } probabilities summing to 1.
  */
 export function matchupWinProbability({
   homeScore,
   awayScore,
   homeExpectedFinal,
   awayExpectedFinal,
+  status,
 }) {
+  if (status === 'played' || status === 'final') {
+    const home = Math.sign((Number(homeScore) || 0) - (Number(awayScore) || 0)) / 2 + 0.5;
+    return { home, away: 1 - home };
+  }
   const home = homeWinProbability({
     homeScore,
     awayScore,

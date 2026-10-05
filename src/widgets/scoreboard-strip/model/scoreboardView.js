@@ -69,6 +69,7 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     awayScore: away.score,
     homeExpectedFinal: home.expectedFinal,
     awayExpectedFinal: away.expectedFinal,
+    status: m.status,
   });
   const homeShare = Math.max(0, Math.min(1, Number(probability.home) || 0));
   // Rounded once, with the away side as the complement, so the two printed

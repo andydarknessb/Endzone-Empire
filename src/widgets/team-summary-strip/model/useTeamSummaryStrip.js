@@ -103,6 +103,7 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
       awayScore: finite(myMatchup.away.score) ?? 0,
       homeExpectedFinal: myMatchup.home.expectedFinal,
       awayExpectedFinal: myMatchup.away.expectedFinal,
+      status: myMatchup.status,
     });
     const raw = myMatchup.home.teamId === viewerTeamId ? shares.home : shares.away;
     const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
