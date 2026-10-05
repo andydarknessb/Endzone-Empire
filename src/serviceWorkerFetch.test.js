@@ -21,6 +21,7 @@ function loadServiceWorker({ scriptUrl = `${SITE}/service-worker.js`, fetchImpl 
   // recorded: ignoreVary is load-bearing against the API's Vary: Origin.
   const stores = new Map();
   const matchOptions = [];
+  const deleted = [];
   const storeFor = (name) => { if (!stores.has(name)) stores.set(name, new Map()); return stores.get(name); };
   const cacheFor = (name) => ({
     match: async (request, options) => { matchOptions.push(options); return storeFor(name).get(typeof request === 'string' ? request : request.url) || undefined; },
@@ -38,13 +39,13 @@ function loadServiceWorker({ scriptUrl = `${SITE}/service-worker.js`, fetchImpl 
   };
   const context = vm.createContext({
     self,
-    caches: { open: async (name) => cacheFor(name), keys: async () => Array.from(stores.keys()), delete: async () => true },
+    caches: { open: async (name) => cacheFor(name), keys: async () => Array.from(stores.keys()), delete: async (name) => { deleted.push(name); return true; } },
     fetch: fetchImpl || (() => Promise.reject(new Error('offline'))),
     URL,
     console,
   });
   vm.runInContext(source, context, { filename: 'service-worker.js' });
-  return { listeners, store, stores, matchOptions };
+  return { listeners, store, stores, matchOptions, deleted };
 }
 
 // A minimal FetchEvent: records whether the worker took the request over.
@@ -74,7 +75,7 @@ test('with the API origin configured, an allowlisted cross-origin API GET is ser
   // Authorization header and credentials ride along).
   expect(fetched).toEqual([event.request]);
   expect(store.has(`${API}/api/pickem/league/7/settings`)).toBe(true);
-  expect(stores.has('endzone-shell-v1') ? stores.get('endzone-shell-v1').size : 0).toBe(0);
+  expect(stores.has('endzone-shell-v2') ? stores.get('endzone-shell-v2').size : 0).toBe(0);
 });
 
 test('with the API origin configured, the cached copy is served when the network is down', async () => {
@@ -146,4 +147,48 @@ test('non-GET requests to the API origin are never intercepted', () => {
   const put = fetchEvent(`${API}/api/pickem/league/7/settings`, { method: 'PUT' });
   listeners.fetch(put);
   expect(put.responded).toBeNull();
+});
+
+// #stale-asset: after a deploy an old tab asks for a hashed asset that no
+// longer exists, and the host's SPA fallback answers 200 with index.html. That
+// HTML must never be stored under the asset's URL, or every later request for
+// it is served the page instead of the script until the cache is cleared.
+const typedResponse = (body, contentType) => ({
+  ok: true, status: 200, body, headers: { get: (h) => (h.toLowerCase() === 'content-type' ? contentType : null) }, clone() { return this; },
+});
+
+test('a static asset answered with HTML (the SPA fallback for a missing file) is passed through but never cached', async () => {
+  const { listeners, stores } = loadServiceWorker({
+    fetchImpl: () => Promise.resolve(typedResponse('<!doctype html>', 'text/html; charset=UTF-8')),
+  });
+  const event = fetchEvent(`${SITE}/static/js/8784.deadbeef.chunk.js`);
+  listeners.fetch(event);
+  expect((await event.responded).body).toBe('<!doctype html>');
+  const shell = Array.from(stores.entries()).filter(([name]) => name.startsWith('endzone-shell'));
+  expect(shell.every(([, s]) => !s.has(`${SITE}/static/js/8784.deadbeef.chunk.js`))).toBe(true);
+});
+
+test('a static asset answered with its real type is still cached cache-first', async () => {
+  let calls = 0;
+  const { listeners } = loadServiceWorker({
+    fetchImpl: () => { calls += 1; return Promise.resolve(typedResponse('js', 'application/javascript')); },
+  });
+  const first = fetchEvent(`${SITE}/static/js/main.a33c8f95.js`);
+  listeners.fetch(first);
+  await first.responded;
+  const second = fetchEvent(`${SITE}/static/js/main.a33c8f95.js`);
+  listeners.fetch(second);
+  expect((await second.responded).body).toBe('js');
+  expect(calls).toBe(1);
+});
+
+test('activating the worker drops the v1 shell cache, so an entry poisoned before this fix is cleared without the user clearing anything', async () => {
+  const { listeners, stores, deleted } = loadServiceWorker();
+  stores.set('endzone-shell-v1', new Map([[`${SITE}/static/js/main.old.js`, typedResponse('<!doctype html>', 'text/html')]]));
+  stores.set('api-cache-v1', new Map());
+  let done;
+  listeners.activate({ waitUntil: (p) => { done = p; } });
+  await done;
+  expect(deleted).toContain('endzone-shell-v1');
+  expect(deleted).not.toContain('api-cache-v1');
 });

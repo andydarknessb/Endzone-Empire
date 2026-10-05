@@ -2,7 +2,9 @@
 // Plain hand-rolled service worker — no imports, no workbox. Bump CACHE_NAME
 // whenever the precached app-shell assets change so old clients pick up the
 // new shell instead of being stuck on a stale cached copy.
-const CACHE_NAME = 'endzone-shell-v1';
+// v2: drops every v1 shell cache on activate, clearing any static URL that a
+// pre-fix worker stored the SPA's index.html under (see cacheFirstStatic).
+const CACHE_NAME = 'endzone-shell-v2';
 const API_CACHE_NAME = 'api-cache-v1';
 const APP_SHELL = ['/', '/index.html'];
 
@@ -156,13 +158,22 @@ async function networkFirstNavigation(request) {
   }
 }
 
+// Never cache HTML for a non-navigation request. After a deploy an old tab can
+// ask for a hashed asset that no longer exists, and an SPA host answers it 200
+// with index.html; stored here, that page would be served as the script on
+// every later load until the user cleared the cache.
+function isHtml(response) {
+  const type = response.headers && response.headers.get ? response.headers.get('content-type') : null;
+  return /text\/html/i.test(type || '');
+}
+
 async function cacheFirstStatic(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   if (cached) return cached;
   try {
     const response = await fetch(request);
-    if (response && response.ok) {
+    if (response && response.ok && !isHtml(response)) {
       cache.put(request, response.clone());
     }
     return response;
