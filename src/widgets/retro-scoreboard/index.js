@@ -14,7 +14,8 @@
  * files (since #1137, `playLabel` moved there too), and `shared/lib`
  * (`FIELD_GREEN`, `getSpriteColors`, promoted from `src/lib/nflTeamColors`
  * by #1272: the touchdown sprite kits and the field green the kits are
- * checked against) - ordinary island layering now, not a below-island
+ * checked against; since #2010 also `starterStateView`, the starter state
+ * marker map promoted out of slot-comparison's model) - ordinary island layering now, not a below-island
  * reach. It imports no widget, feature or page.
  */
 export { default as RetroScoreboard } from './ui/RetroScoreboard';
