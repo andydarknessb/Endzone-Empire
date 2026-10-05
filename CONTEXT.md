@@ -1345,7 +1345,8 @@ _Avoid_: PMR (in prose), players left, yet to play
 
 **Win probability**:
 A Team's chance of winning its Matchup as best known now, from both sides'
-Expected finals and the scores so far, sharpening as games finish. Distinct
+Expected finals and the scores so far, sharpening as games finish and settling
+to 1 or 0 (0.5 on a tie) once neither side has points left. Distinct
 from the home side's win probability inside an NFL game's Situation, which is
 ESPN's.
 _Avoid_: odds (the odds bar is its display), win chance, WP

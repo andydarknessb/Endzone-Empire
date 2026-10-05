@@ -45,3 +45,19 @@ test('the port is the logistic of the Expected final margin at scale 24', () => 
   expect(serverV1(input).home).toBeCloseTo(0.6026853379784917, 12);
   expect(clientV1(input).home).toBeCloseTo(0.6026853379784917, 12);
 });
+
+test('the decided branch (nothing left on either side) matches and resolves to the result', () => {
+  const cases = [
+    [{ homeScore: 115.9, awayScore: 109.7, homeExpectedFinal: 115.9, awayExpectedFinal: 109.7 }, 1],
+    [{ homeScore: 109.7, awayScore: 115.9, homeExpectedFinal: 109.7, awayExpectedFinal: 115.9 }, 0],
+    [{ homeScore: 100, awayScore: 100, homeExpectedFinal: 100, awayExpectedFinal: 100 }, 0.5],
+    // Expected finals below the score floor to nothing left; null counts as nothing left.
+    [{ homeScore: 90, awayScore: 80, homeExpectedFinal: 60, awayExpectedFinal: null }, 1],
+    [{ homeScore: '87.40', awayScore: 87.4, homeExpectedFinal: null, awayExpectedFinal: 0 }, 0.5],
+  ];
+  for (const [input, home] of cases) {
+    expect(clientV1(input).home).toBe(home);
+    expect(serverV1(input).home).toBe(home);
+    expect(serverV1(input).away).toBe(1 - home);
+  }
+});

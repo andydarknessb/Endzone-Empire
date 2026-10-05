@@ -24,6 +24,10 @@ export function remainingPoints(projectedTotal, currentScore) {
  * Probability (0..1) that the home side wins, given both current scores and
  * both sides' projected points remaining. Symmetric: swapping home/away gives
  * the complement. With no information (equal scores, equal remaining) it is 0.5.
+ * When neither side has points remaining the matchup is decided: 1 if home
+ * leads, 0 if away leads, 0.5 on an exact tie, rather than a logistic that
+ * would still read a settled 6-point result as 56%. src/shared/lib/winProbability.parity.test.js
+ * pins server/services/winProbabilityV1.js to this, so edit both or neither.
  */
 export function homeWinProbability({
   homeScore,
@@ -31,9 +35,10 @@ export function homeWinProbability({
   homeRemaining,
   awayRemaining,
 }) {
-  const expectedHome = (Number(homeScore) || 0) + (Number(homeRemaining) || 0);
-  const expectedAway = (Number(awayScore) || 0) + (Number(awayRemaining) || 0);
-  const margin = expectedHome - expectedAway;
+  const homeLeft = Number(homeRemaining) || 0;
+  const awayLeft = Number(awayRemaining) || 0;
+  const margin = (Number(homeScore) || 0) + homeLeft - ((Number(awayScore) || 0) + awayLeft);
+  if (homeLeft === 0 && awayLeft === 0) return Math.sign(margin) / 2 + 0.5;
   return 1 / (1 + Math.exp(-margin / MARGIN_SCALE));
 }
 

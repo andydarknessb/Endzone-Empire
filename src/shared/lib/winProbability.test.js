@@ -29,6 +29,26 @@ describe('win probability', () => {
     expect(p.home).toBeLessThan(0.5);
   });
 
+  test('a decided matchup (nothing left on either side) resolves to the result', () => {
+    const final = { homeScore: 115.9, awayScore: 109.7, homeExpectedFinal: 115.9, awayExpectedFinal: 109.7 };
+    expect(matchupWinProbability(final)).toEqual({ home: 1, away: 0 });
+    expect(matchupWinProbability({
+      homeScore: 109.7, awayScore: 115.9, homeExpectedFinal: 109.7, awayExpectedFinal: 115.9,
+    })).toEqual({ home: 0, away: 1 });
+    expect(matchupWinProbability({
+      homeScore: 100, awayScore: 100, homeExpectedFinal: 100, awayExpectedFinal: 100,
+    })).toEqual({ home: 0.5, away: 0.5 });
+  });
+
+  test('a live matchup with points remaining keeps the logistic', () => {
+    const p = matchupWinProbability({
+      homeScore: 97.9, awayScore: 95.7, homeExpectedFinal: 120.6, awayExpectedFinal: 112.4,
+    });
+    expect(p.home).toBeCloseTo(1 / (1 + Math.exp(-(120.6 - 112.4) / MARGIN_SCALE)), 12);
+    expect(p.home).toBeGreaterThan(0.5);
+    expect(p.home).toBeLessThan(0.7);
+  });
+
   test('MARGIN_SCALE is exposed for the bar to reason about certainty', () => {
     expect(MARGIN_SCALE).toBeGreaterThan(0);
   });

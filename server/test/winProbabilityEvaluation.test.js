@@ -211,8 +211,8 @@ test('played rows report how many are exactly 0 or 1, for v1 and v2', () => {
   assert.equal(certainty.v2.rows, 4);
   assert.equal(certainty.v2.exact, 3);
   assert.deepEqual(certainty.v2.nonExactRowIds, [notExact.id]);
-  // v1's fixed scale never arrives at certainty.
-  assert.equal(certainty.v1.exact, 1); // only the tie: 0.5 on equal Expected finals
+  // v1 resolves once nothing is left to play (#2006): 1, 0 and 0.5 on the tie, and 1 on 100 to 99.
+  assert.equal(certainty.v1.exact, 4);
 });
 
 test('an optional k rescales each stored v2 probability from its own mu and sigma', () => {
