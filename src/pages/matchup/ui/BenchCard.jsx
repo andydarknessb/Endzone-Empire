@@ -1,5 +1,6 @@
 import React, { useId } from 'react';
 import { Box } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import { Card, InjuryTag, PosChip } from '../../../shared/ui';
 import { unavailableLabel } from '../../../widgets/slot-comparison';
 
@@ -38,6 +39,19 @@ import { unavailableLabel } from '../../../widgets/slot-comparison';
  * (the Card's own) through `sx`, so the card's edge is one line and not a
  * doubled one; the hairline returns as soon as a body follows the header.
  */
+const players = (n) => `${n} player${n === 1 ? '' : 's'}`;
+// Equal counts read once and two empty benches print nothing; unequal ones show
+// both, the visible text hidden from assistive tech in favour of a line naming
+// each team (#2009).
+function benchCount(home, away, homeName, awayName) {
+  if (home === away) return home === 0 ? undefined : `${players(home)} each`;
+  return (
+    <>
+      <span aria-hidden="true">{`${home} · ${away} players`}</span>
+      <Box component="span" sx={visuallyHidden}>{`${homeName} ${players(home)}, ${awayName} ${players(away)}`}</Box>
+    </>
+  );
+}
 const HEADER_ONLY_SX = { '& > :first-of-type': { borderBottom: 0 } };
 export default function BenchCard({
   homeName,
@@ -55,14 +69,7 @@ export default function BenchCard({
   const panelId = useId();
   const home = homeBench || [];
   const away = awayBench || [];
-  // Equal counts read once; unequal ones keep both, the label naming each team.
-  const count = home.length === away.length ? (
-    `${home.length} players each`
-  ) : (
-    <span role="img" aria-label={`${homeName} ${home.length}, ${awayName} ${away.length}`}>
-      {`${home.length} · ${away.length} players`}
-    </span>
-  );
+  const count = benchCount(home.length, away.length, homeName || 'Home', awayName || 'Away');
   const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
   const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
   // Collapsed with no bench-left line: the header is the whole card.

@@ -110,6 +110,19 @@ export default function MatchupPage() {
   // checked option once the view has swapped (the Full comparison action).
   const toggleRef = useRef(null);
   const [focusToggle, setFocusToggle] = useState(false);
+  // Retry's button unmounts as the read starts, so a good read moves focus to
+  // the h1; a failed one leaves the re-mounted alert to announce itself.
+  const titleRef = useRef(null);
+  const [retried, setRetried] = useState(false);
+  const retry = useCallback(async () => {
+    await refetch({ silent: matchup != null });
+    setRetried(true);
+  }, [refetch, matchup]);
+  useEffect(() => {
+    if (!retried) return;
+    setRetried(false);
+    if (!error) titleRef.current?.focus();
+  }, [retried, error]);
 
   const toggleRow = useCallback((id) => {
     setExpandedId((current) => (current === id ? null : id));
@@ -192,7 +205,7 @@ export default function MatchupPage() {
         <Alert severity="error" sx={{ mb: compact ? '12px' : '16px' }}>
           {error}
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', mt: '8px' }}>
-            <DashButton size="sm" onClick={() => refetch()}>Retry</DashButton>
+            <DashButton size="sm" onClick={retry}>Retry</DashButton>
             <DashButton size="sm" variant="ghost" component={RouterLink} to={`/league/${leagueId}/game-center`}>
               Back to Game Center
             </DashButton>
@@ -211,6 +224,7 @@ export default function MatchupPage() {
             view={view}
             onViewChange={setView}
             toggleRef={toggleRef}
+            titleRef={titleRef}
             lineupHref={lineupHref}
             compact={compact}
           />
@@ -316,7 +330,7 @@ function Shell({ compact, children }) {
  * view toggle (its group element on `toggleRef`, for the Full comparison
  * focus move) and (desktop) the Set lineup action.
  */
-function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onViewChange, toggleRef, lineupHref, compact }) {
+function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onViewChange, toggleRef, titleRef, lineupHref, compact }) {
   return (
     <Box
       data-testid="matchup-header"
@@ -333,6 +347,8 @@ function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onVie
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <Typography
             component="h1"
+            ref={titleRef}
+            tabIndex={-1}
             sx={{
               m: 0,
               fontFamily: 'var(--dash-font-display)',

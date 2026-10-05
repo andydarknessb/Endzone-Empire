@@ -272,6 +272,7 @@ test('a 500 on the detail read offers Retry, and Retry with a good read renders 
   await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByRole('heading', { level: 2, name: 'Starters' })).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 1, name: 'Week 3 Matchup' })).toHaveFocus();
 });
 
 test("the error state links back to the league's Game Center", async () => {
@@ -280,6 +281,33 @@ test("the error state links back to the league's Game Center", async () => {
 
   await screen.findByRole('alert');
   expect(screen.getByRole('link', { name: 'Back to Game Center' })).toHaveAttribute('href', '/league/1/game-center');
+});
+
+// A failed resync leaves the box score on screen with the alert above it:
+// Retry then refreshes without swapping the page for the skeleton, and a good
+// read hands focus to the h1 (the Retry button unmounts under the pointer).
+test('Retry on a failed resync keeps the box score on screen and focuses the h1 once the read succeeds', async () => {
+  renderPage();
+  await screen.findByRole('heading', { level: 1, name: 'Week 3 Matchup' });
+  const base = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) => (
+    url === MATCHUP_URL ? Promise.reject({ response: { status: 500, data: { error: 'boom' } } }) : base(url)
+  ));
+  act(() => { socket.reconnect(); });
+  const alert = await screen.findByRole('alert');
+  expect(screen.getByTestId('slot-comparison')).toBeInTheDocument();
+
+  let release;
+  const held = new Promise((resolve) => { release = () => resolve(matchupResponse()); });
+  apiClient.get.mockImplementation((url) => (url === MATCHUP_URL ? held : base(url)));
+  await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+
+  // Mid-read: the box score is still there, no skeleton.
+  expect(screen.queryByTestId('matchup-loading')).not.toBeInTheDocument();
+  expect(screen.getByTestId('slot-comparison')).toBeInTheDocument();
+  await act(async () => { release(); });
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Week 3 Matchup' })).toHaveFocus());
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
 // A code+message envelope with no `error` key (the shape the global express
