@@ -53,6 +53,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     awayScore: finite(away.score) ?? 0,
     homeExpectedFinal: home.expectedFinal,
     awayExpectedFinal: away.expectedFinal,
+    status: m.status,
   });
 
   // Per-side, so the UI can name WHICH side is the viewer's own (the "You"

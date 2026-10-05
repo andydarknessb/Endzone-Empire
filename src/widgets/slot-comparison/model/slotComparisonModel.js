@@ -8,7 +8,11 @@
  * photo_url, stats.
  */
 
-import { unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
+import { unavailableLabel as sharedUnavailableLabel, starterStateView } from '../../../shared/lib';
+
+// The state marker map lives in shared/lib (#2010); re-exported so this
+// widget's UI and tests keep one import path.
+export { starterStateView };
 
 /**
  * The reason an Unavailable starter (CONTEXT.md, Roster and lineup) shows in
@@ -71,26 +75,6 @@ const POSITION_KEYS = {
 /** The `pos-*` palette key for a starter's headshot ring. */
 export function positionRingKey(position) {
   return POSITION_KEYS[String(position || '').toUpperCase()] || 'def';
-}
-
-// The three per-starter game states the wire speaks (#892; the Expected final
-// producer's classification) and how each is shown: a live dot, a check, a
-// clock. `kind` is the marker, `label` its accessible name and the legend's
-// word for it.
-const STATE_VIEWS = {
-  in_progress: { kind: 'live', label: 'In progress' },
-  final: { kind: 'final', label: 'Final' },
-  scheduled: { kind: 'scheduled', label: 'Yet to play' },
-};
-
-/**
- * The state marker for a starter's `game_state`, or null for an unknown state
- * (null, absent, or a value the wire does not speak): no marker is drawn and
- * nothing is guessed, the same refusal the Matchup status view makes for an
- * unknown Matchup status (ADR 0030).
- */
-export function starterStateView(gameState) {
-  return STATE_VIEWS[gameState] || null;
 }
 
 /**

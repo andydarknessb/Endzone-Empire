@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { SlotComparison } from '..';
 
 // A Matchup detail starter row as the Matchup page model pairs it (the wire
@@ -90,9 +91,25 @@ const avatarOf = (i, side) => {
   return photo ? { photo: photo.getAttribute('src') } : { initials: wrapper.textContent };
 };
 
+// The cell reads the theme's `md` breakpoint (a max-width) through
+// useMediaQuery: `phone` answers it. Set fresh every test because the jest
+// preset runs with `resetMocks: true`, which wipes a jest.fn() implementation
+// between tests (the AroundTheLeague and MatchupPage tests do the same).
+let phone;
+
 beforeEach(() => {
   baseProps.onOpenPlayer.mockClear();
   baseProps.onToggle.mockClear();
+  phone = false;
+  window.matchMedia = jest.fn().mockImplementation((query) => ({
+    matches: /max-width/.test(query) ? phone : false,
+    media: query,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  }));
 });
 
 test('renders the header with both Team names, a headshot per filled side and the slots in the given order', () => {
@@ -212,11 +229,32 @@ test('the footer totals are the sum of each column points beside the Expected fi
 
   // 18.6 + 14.3 + 0 + 9.7 (points, never projections, which would read 58.2).
   expect(within(home).getByText('42.6')).toBeInTheDocument();
-  expect(within(home).getByText('EF 110.5')).toBeInTheDocument();
+  expect(within(home).getByText('Exp final 110.5')).toBeInTheDocument();
   // 24.1 + 4.8 + 0 over three filled sides (projections would read 52.0).
   expect(within(away).getByText('28.9')).toBeInTheDocument();
-  expect(within(away).getByText('EF 123.9')).toBeInTheDocument();
+  expect(within(away).getByText('Exp final 123.9')).toBeInTheDocument();
   expect(screen.getByText('Totals')).toBeInTheDocument();
+});
+
+test('the footer Exp final notes wrap, so 320px never scrolls sideways (#2008 QA)', () => {
+  render(<SlotComparison {...baseProps} />);
+
+  for (const note of screen.getAllByTestId('slot-exp-final')) {
+    expect(note).not.toHaveStyle({ whiteSpace: 'nowrap' });
+  }
+});
+
+test.each(['played', 'final'])('a %s matchup hides the footer Exp final though the server priced one (#2008 QA)', (status) => {
+  render(<SlotComparison {...baseProps} status={status} />);
+
+  expect(screen.queryByText(/Exp final/)).not.toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-total-home')).getByText('42.6')).toBeInTheDocument();
+});
+
+test.each(['live', 'scheduled', undefined])('a %s matchup keeps the footer Exp final', (status) => {
+  render(<SlotComparison {...baseProps} status={status} />);
+
+  expect(screen.getAllByText(/Exp final/)).toHaveLength(2);
 });
 
 test('omits an Expected final the model does not carry', () => {
@@ -274,4 +312,195 @@ test('with no rows it shows an empty note and no totals', () => {
   expect(screen.getByText('No starters to compare yet.')).toBeInTheDocument();
   expect(screen.queryByTestId('slot-totals')).not.toBeInTheDocument();
   expect(screen.queryByTestId('slot-row')).not.toBeInTheDocument();
+});
+
+describe('on a phone (#2008)', () => {
+  beforeEach(() => {
+    phone = true;
+  });
+
+  const taylor = starter({
+    id: 20, name: 'Jonathan Taylor', position: 'RB', nfl_team: 'DET', opponent: 'CAR',
+    points: 12.4, projected: 15.0, game_state: 'in_progress', game_clock: 'Q3 7:22',
+  });
+
+  test('line one is the name alone; line two is the figure, then the opponent and the clock', () => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: taylor, away: null }]} />);
+    const home = cell(0, 'home');
+    const line2 = within(home).getByTestId('slot-line2');
+
+    expect(within(home).getByRole('button', { name: 'Jonathan Taylor' })).toBeInTheDocument();
+    expect(within(line2).getByTestId('slot-points')).toHaveTextContent('12.4');
+    expect(within(line2).getByText('vs CAR')).toBeInTheDocument();
+    // The NFL team code and the points no longer sit on the name's line.
+    expect(line2).not.toHaveTextContent('DET');
+    expect(within(home).getByRole('img', { name: 'In progress' })).toBeInTheDocument();
+  });
+
+  test('the live clock sits in its own element with no ellipsis, while the opponent may ellipsize', () => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: taylor, away: null }]} />);
+    const clock = screen.getByText('Q3 7:22');
+
+    expect(clock).toBeInTheDocument();
+    expect(clock).not.toHaveStyle({ textOverflow: 'ellipsis' });
+    expect(clock).not.toHaveStyle({ overflow: 'hidden' });
+    expect(clock).toHaveStyle({ flexShrink: '0' });
+    expect(screen.getByText('vs CAR')).toHaveStyle({ textOverflow: 'ellipsis' });
+  });
+
+  test('the name is never ellipsized; the injury tag follows it on line one and the state marker leads line two', () => {
+    const flagged = { ...taylor, injury_status: 'Q' };
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: flagged, away: null }]} />);
+    const home = cell(0, 'home');
+    const name = within(home).getByRole('button', { name: 'Jonathan Taylor' });
+    const line2 = within(home).getByTestId('slot-line2');
+
+    expect(name).not.toHaveStyle({ textOverflow: 'ellipsis' });
+    expect(name).not.toHaveStyle({ whiteSpace: 'nowrap' });
+    expect(name).not.toHaveStyle({ overflow: 'hidden' });
+    // 'break-word', not 'anywhere': a short word is never split mid-word at 320px.
+    expect(name).toHaveStyle({ overflowWrap: 'break-word' });
+    // The marker appears once and leads line two, before the figure; the
+    // injury tag appears once and is NOT on line two (it overflowed the half
+    // cell there, #2008 QA): it sits right after the name.
+    const marker = within(home).getByRole('img', { name: 'In progress' });
+    expect(line2).toContainElement(marker);
+    expect(marker.compareDocumentPosition(within(line2).getByTestId('slot-points')) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    const tag = within(home).getByTestId('injury-tag');
+    expect(line2).not.toContainElement(tag);
+    expect(name.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tag.compareDocumentPosition(line2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test('line two wraps, with the clock kept whole', () => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: taylor, away: null }]} />);
+
+    expect(within(cell(0, 'home')).getByTestId('slot-line2')).toHaveStyle({ flexWrap: 'wrap' });
+    expect(screen.getByText('Q3 7:22')).toHaveStyle({ flexShrink: '0', whiteSpace: 'nowrap' });
+  });
+
+  test.each([
+    ['opponent and clock', { opponent: 'CAR', game_clock: 'Q3 7:22' }, 1],
+    ['opponent only', { opponent: 'CAR', game_clock: null }, 0],
+    ['clock only', { opponent: null, game_clock: 'Q3 7:22' }, 0],
+    ['neither', { opponent: null, game_clock: null }, 0],
+    ['empty strings', { opponent: '', game_clock: '' }, 0],
+  ])('a separator dot renders only between two present parts: %s', (_name, over, dots) => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: { ...taylor, ...over }, away: null }]} />);
+    const line2 = within(cell(0, 'home')).getByTestId('slot-line2');
+
+    expect((line2.textContent.match(/\u00b7/g) || []).length).toBe(dots);
+    expect(line2.textContent).not.toMatch(/^\u00b7|\u00b7$/);
+  });
+
+  test('a starter yet to play shows his projection as the figure, never 0.0', () => {
+    const scheduled = starter({
+      id: 21, name: 'D. Adams', points: 0, projected: 17.9, game_state: 'scheduled', stats: null,
+    });
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'WR', home: scheduled, away: null }]} />);
+
+    expect(within(cell(0, 'home')).getByText('proj 17.9')).toBeInTheDocument();
+    expect(within(cell(0, 'home')).queryByText('0.0')).not.toBeInTheDocument();
+  });
+
+  test('once the game starts the figure is points, and a scheduled starter with no projection falls back to points', () => {
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: taylor, away: null }]} />);
+    expect(within(cell(0, 'home')).queryByText(/^proj /)).not.toBeInTheDocument();
+
+    const noProj = starter({ id: 22, points: 0, projected: null, game_state: 'scheduled' });
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'QB', home: noProj, away: null }]} />);
+    expect(screen.getAllByTestId('slot-points').map((el) => el.textContent)).toEqual(['12.4', '0.0']);
+  });
+
+  test('an Unavailable starter yet to play shows no projection as the figure', () => {
+    render(<SlotComparison {...baseProps} />);
+    const collins = cell(2, 'away');
+
+    expect(within(collins).queryByText(/proj/)).not.toBeInTheDocument();
+    expect(within(collins).getByTestId('unavailable-reason')).toHaveTextContent('on IR');
+  });
+
+  test('a starter with no scheduled game has no opponent and no clock', () => {
+    const bye = starter({ id: 23, opponent: null, game_clock: null, game_state: null });
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'QB', home: bye, away: null }]} />);
+
+    expect(within(cell(0, 'home')).getByTestId('slot-line2')).toHaveTextContent(/^18\.6$/);
+  });
+});
+
+describe('an empty slot (#2008)', () => {
+  const emptyHome = [{ slot: 'TE', home: null, away: starter() }];
+  const renderEmpty = (props) => render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <SlotComparison {...baseProps} rows={emptyHome} leagueId={7} canSetLineup {...props} />
+    </MemoryRouter>
+  );
+
+  test.each([['desktop', false], ['phone', true]])('reads "Empty" on %s', (_name, isPhone) => {
+    phone = isPhone;
+    renderEmpty({ viewerSide: 'away' });
+
+    expect(within(cell(0, 'home')).getByText('Empty')).toBeInTheDocument();
+    // Not the viewer's side: no link to set a lineup that is not his.
+    expect(within(cell(0, 'home')).queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  test.each([['desktop', false], ['phone', true]])(
+    'the viewer own side adds a Set lineup link to the Lineup page on %s',
+    (_name, isPhone) => {
+      phone = isPhone;
+      renderEmpty({ viewerSide: 'home' });
+
+      expect(within(cell(0, 'home')).getByText('Empty')).toBeInTheDocument();
+      expect(within(cell(0, 'home')).getByRole('link', { name: 'Set lineup' }))
+        .toHaveAttribute('href', '/league/7/lineup');
+    }
+  );
+
+  test.each([['desktop', false], ['phone', true]])(
+    'no link when the lineup can no longer be set (a final week or best ball), but Empty still shows, on %s',
+    (_name, isPhone) => {
+      phone = isPhone;
+      renderEmpty({ viewerSide: 'home', canSetLineup: false });
+
+      expect(within(cell(0, 'home')).getByText('Empty')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
+    }
+  );
+
+  test('the link is off unless the page says the lineup can be set', () => {
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <SlotComparison {...baseProps} rows={emptyHome} leagueId={7} viewerSide="home" />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
+  });
+
+  test('with no viewer side there is no link', () => {
+    renderEmpty({ viewerSide: null });
+
+    expect(screen.queryByRole('link', { name: 'Set lineup' })).not.toBeInTheDocument();
+  });
+});
+
+test.each([['desktop', false], ['phone', true]])('the state legend renders at every width (%s)', (_name, isPhone) => {
+  phone = isPhone;
+  render(<SlotComparison {...baseProps} />);
+  const legend = screen.getByTestId('slot-legend');
+
+  expect(within(legend).getByText('In progress')).toBeInTheDocument();
+  expect(within(legend).getByText('Final')).toBeInTheDocument();
+  expect(within(legend).getByText('Yet to play')).toBeInTheDocument();
+});
+
+test('desktop keeps the points column and the three-part second line for a scheduled starter', () => {
+  render(<SlotComparison {...baseProps} />);
+  const adams = cell(2, 'home');
+
+  expect(within(adams).getByTestId('slot-points')).toHaveTextContent('0.0');
+  expect(within(adams).queryByText(/^proj 14\.2$/)).not.toBeInTheDocument();
+  expect(within(adams).getByTestId('slot-line2')).toHaveTextContent('NYJ vs CIN');
 });

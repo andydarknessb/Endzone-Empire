@@ -1,7 +1,10 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { Card, InjuryTag, PosChip, PlayerAvatar } from '../../../shared/ui';
-import { lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
+import { starterStateView } from '../../../shared/lib';
+import { ledFigure, ledScore, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
 
 /**
@@ -17,7 +20,14 @@ import Icon from './icons';
  * shows, #903), and a note line of points and projection ("18.6 · proj 19.2")
  * or, for an
  * Unavailable starter, the reason ("0.0 · on bye"), the reason carrying the
- * `unavailable-reason` test id the Matchup Detail page tests read.
+ * `unavailable-reason` test id the Matchup Detail page tests read. Each name
+ * carries the Standard view's state marker (a live dot, a check, a clock,
+ * through `starterStateView` from `shared/lib`, #2010: the one `game_state`
+ * map both views read) and the note line adds "vs OPP · clock" so game day
+ * shows who is playing; the line wraps rather than ellipsizes, so a phone
+ * never loses the clock (below md the marker leads that line and the name wraps
+ * whole, #2010). The card ends with a Totals row: each side's score
+ * and Expected final, read off the Matchup like the LED board's.
  *
  * It renders the rows AS GIVEN: the Matchup page model paired them under the
  * league's slot order (ADR 0029, #1210), so this card neither pairs nor
@@ -34,14 +44,28 @@ import Icon from './icons';
  * comparison" action the page wires to its view toggle, meets the 44px target
  * on mobile.
  */
+const NOTE = { fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)', whiteSpace: 'nowrap' };
+// The Totals row's "Exp final" note wraps (#2010 QA): nowrap held it at its
+// full width and pushed the document past the viewport at 320px.
+const TOTAL_NOTE = { ...NOTE, whiteSpace: 'normal' };
+
+// "vs OPP · clock": the schedule's opponent code (no home/away marker rides
+// the wire, ADR 0011) and the live clock, each dropped when absent.
+function Game({ player }) {
+  if (!player.opponent && !player.game_clock) return null;
+  return (
+    <Box component="span" data-testid="lineup-game" sx={NOTE}>
+      {player.opponent ? `vs ${player.opponent}` : null}
+      {player.opponent && player.game_clock ? ' · ' : null}
+      {player.game_clock ? <span>{player.game_clock}</span> : null}
+    </Box>
+  );
+}
+
 function Note({ player }) {
   const { points, reason, projected } = lineupNoteParts(player);
   return (
-    <Box
-      component="span"
-      data-testid="lineup-note"
-      sx={{ fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--dash-faint)', whiteSpace: 'nowrap' }}
-    >
+    <Box component="span" data-testid="lineup-note" sx={NOTE}>
       {points}
       {reason ? (
         <>
@@ -57,6 +81,13 @@ function Note({ player }) {
 
 function Side({ player, side }) {
   const mirrored = side === 'away';
+  // Below md the half-width side cannot hold the name, marker and tag on one
+  // line: the marker moves to lead the second line and the name wraps (never
+  // an ellipsis), so a phone shows whole names and keeps the clock. `useTheme`
+  // falls back to the default theme outside a provider, as the page widget's does.
+  const theme = useTheme();
+  const compact = useMediaQuery(theme.breakpoints.down('md'));
+  const mark = <StateMark view={starterStateView(player?.game_state)} />;
   if (!player) return <Box data-testid={`lineup-side-${side}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
   return (
     <Box
@@ -93,6 +124,7 @@ function Side({ player, side }) {
         }}
       >
         <Box
+          data-testid="lineup-line1"
           sx={{
             maxWidth: '100%',
             minWidth: 0,
@@ -106,9 +138,9 @@ function Side({ player, side }) {
             component="span"
             sx={{
               minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              ...(compact
+                ? { overflowWrap: 'break-word' }
+                : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
               fontSize: '13px',
               fontWeight: 600,
               color: 'var(--dash-ink)',
@@ -116,16 +148,54 @@ function Side({ player, side }) {
           >
             {player.name}
           </Box>
+          {!compact && mark}
           <InjuryTag status={player.injury_status} />
         </Box>
-        <Note player={player} />
+        <Box
+          data-testid="lineup-line2"
+          sx={{
+            maxWidth: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            columnGap: '8px',
+            justifyContent: mirrored ? 'flex-end' : 'flex-start',
+          }}
+        >
+          {compact && mark}
+          <Note player={player} />
+          <Game player={player} />
+        </Box>
       </Box>
     </Box>
   );
 }
 
-export default function LineupsCard({ rows, headingLevel = 2, onFullComparison, mobile }) {
+// One side of the Totals row: the score, with its Expected final beside it
+// when the server priced one. A settled (played or final) Matchup shows none,
+// as the LED board hides it, though the server still prices one (#2010 QA).
+function Total({ team, side, settled }) {
+  const ef = settled ? null : team?.expectedFinal;
+  const score = <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{ledScore(team?.score)}</Box>;
+  const note = ef != null && ef !== '' ? <Box component="span" data-testid="lineup-exp-final" sx={TOTAL_NOTE}>Exp final {ledFigure(ef)}</Box> : null;
+  return (
+    <Box data-testid={`lineup-total-${side}`} sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+      {side === 'home' ? <>{score}{note}</> : <>{note}{score}</>}
+    </Box>
+  );
+}
+
+const DISPLAY_NUM = {
+  fontFamily: 'var(--dash-font-display)',
+  fontVariantNumeric: 'tabular-nums',
+  fontWeight: 700,
+  lineHeight: 1,
+  color: 'var(--dash-ink)',
+};
+
+export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullComparison, mobile }) {
   const list = rows || [];
+  const settled = matchup?.status === 'played' || matchup?.status === 'final';
   return (
     <Card
       data-testid="lineups-card"
@@ -166,7 +236,8 @@ export default function LineupsCard({ rows, headingLevel = 2, onFullComparison, 
           No starters to show yet.
         </Box>
       ) : (
-        list.map((row, i) => (
+        <>
+          {list.map((row, i) => (
           <Box
             data-testid="slot-row"
             key={`${row.slot}-${row.home?.id ?? 'x'}-${row.away?.id ?? 'x'}-${i}`}
@@ -182,7 +253,27 @@ export default function LineupsCard({ rows, headingLevel = 2, onFullComparison, 
             <PosChip position={row.slot} sx={{ flex: 'none' }} />
             <Side player={row.away} side="away" />
           </Box>
-        ))
+          ))}
+          <Box
+            data-testid="lineup-totals"
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              p: mobile ? '10px 12px' : '12px 18px',
+              borderTop: '1px solid var(--dash-line)',
+              backgroundColor: 'var(--dash-surface2)',
+              borderRadius: '0 0 var(--dash-radius) var(--dash-radius)',
+            }}
+          >
+            <Total team={matchup?.home} side="home" settled={settled} />
+            <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--dash-faint)' }}>
+              Totals
+            </Box>
+            <Total team={matchup?.away} side="away" settled={settled} />
+          </Box>
+        </>
       )}
     </Card>
   );

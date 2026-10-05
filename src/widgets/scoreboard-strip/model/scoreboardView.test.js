@@ -57,13 +57,27 @@ test('derives both sides from the entity model: names, scores, figures and compl
 // gating on `hasStarted !== false` turns the null-status case red and no other.
 test.each([
   ['live', true],
-  ['played', true],
-  ['final', true],
+  // Played and final state the result instead of a bar (#2007).
+  ['played', false],
+  ['final', false],
   ['scheduled', false],
   [null, false],
   ['bogus', false],
 ])('showBar for status %p is %p', (status, expected) => {
   expect(scoreboardView(detail({ matchup: { status } })).showBar).toBe(expected);
+});
+
+test('result is the settled line for played and final only, from the viewer side', () => {
+  const settled = (status, viewerTeamId) => scoreboardView(
+    detail({ matchup: { status, home_score: 115.9, away_score: 109.7 } }),
+    { viewerTeamId },
+  ).result;
+  expect(settled('final', 12)).toBe('You won by 6.2');
+  expect(settled('final', 99)).toBe('Duluth Dockworkers won by 6.2');
+  expect(settled('played', 12)).toBe('Unofficial: You won by 6.2');
+  expect(settled('live', 12)).toBeNull();
+  expect(settled('scheduled', 12)).toBeNull();
+  expect(settled(null, 12)).toBeNull();
 });
 
 // The chip variants are the canvas's statusChip() per status (#903 review),

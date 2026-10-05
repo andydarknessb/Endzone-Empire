@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, isInaccessible } from '@testing-library/react';
 import { matchupFromDetailBody } from '../../../entities/matchup';
 import { ScoreboardStrip } from '../index';
 
@@ -44,10 +44,10 @@ test('renders both scores, and each side\'s Expected final and Players remaining
   expect(screen.getByText('77.0')).toBeInTheDocument();
 
   const [homeFigures, awayFigures] = screen.getAllByTestId('scoreboard-figures');
-  expect(homeFigures).toHaveTextContent(/EF 110\.5/);
-  expect(homeFigures).toHaveTextContent(/PMR 4/);
-  expect(awayFigures).toHaveTextContent(/EF 123\.9/);
-  expect(awayFigures).toHaveTextContent(/PMR 6/);
+  expect(homeFigures).toHaveTextContent(/Exp final 110\.5/);
+  expect(homeFigures).toHaveTextContent(/4 to play/);
+  expect(awayFigures).toHaveTextContent(/Exp final 123\.9/);
+  expect(awayFigures).toHaveTextContent(/6 to play/);
 
   // The full captions ride with the abbreviations for a screen reader, and are
   // what the page's own assertions on the retired totals block look for.
@@ -76,10 +76,73 @@ test('a started matchup shows the bar with both percentages and the caption', ()
   expect(screen.getByText('Win probability')).toBeInTheDocument();
 });
 
-test.each(['played', 'final'])('a %s matchup has started, so the bar shows', (status) => {
-  render(<ScoreboardStrip matchup={detail({ matchup: { status } })} />);
+// A final or played matchup states the result instead (#2007): the bar, its
+// percentages, the caption and the Expected final and Players remaining
+// figures give way to the one result line.
+const settled = (status, mobileLayout = false) => {
+  mobile = mobileLayout;
+  render(
+    <ScoreboardStrip
+      matchup={detail({ matchup: { status, home_score: 115.9, away_score: 109.7 } })}
+      viewerTeamId={12}
+    />
+  );
+};
+
+test.each([
+  ['final', false], ['final', true], ['played', false], ['played', true],
+])('a %s matchup (mobile: %s) shows the result line and no bar, percentages or figures', (status, mobileLayout) => {
+  settled(status, mobileLayout);
+  const prefix = status === 'played' ? 'Unofficial: ' : '';
+  expect(screen.getByTestId('scoreboard-result')).toHaveTextContent(`${prefix}You won by 6.2`);
+  expect(winBar()).not.toBeInTheDocument();
+  expect(screen.queryByTestId('scoreboard-percentages')).not.toBeInTheDocument();
+  expect(screen.queryByText('Win probability')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('scoreboard-figures')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Exp final/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/to play/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Projected|Players remaining/)).not.toBeInTheDocument();
+  // The chip still names the status.
+  expect(screen.getByTestId('scoreboard-status')).toBeInTheDocument();
+});
+
+test('the result line is real text, read once, and never aria-hidden', () => {
+  settled('final');
+  const line = screen.getByText('You won by 6.2');
+  expect(isInaccessible(line)).toBe(false);
+  expect(screen.getAllByText(/won by/)).toHaveLength(1);
+});
+
+test('the result line reads from the viewer side, names the winner for a spectator, and reads Tied on a tie', () => {
+  const final = (viewerTeamId, scores) => (
+    <ScoreboardStrip
+      matchup={detail({ matchup: { status: 'final', home_score: scores[0], away_score: scores[1] } })}
+      viewerTeamId={viewerTeamId}
+    />
+  );
+  const { rerender } = render(final(12, [115.9, 109.7]));
+  const line = () => screen.getByTestId('scoreboard-result');
+  expect(line()).toHaveTextContent('You won by 6.2');
+  rerender(final(34, [115.9, 109.7]));
+  expect(line()).toHaveTextContent('You lost by 6.2');
+  rerender(final(99, [115.9, 109.7]));
+  expect(line()).toHaveTextContent('Duluth Dockworkers won by 6.2');
+  rerender(final(undefined, [109.7, 115.9]));
+  expect(line()).toHaveTextContent('Fargo Frostbite won by 6.2');
+  rerender(final(12, [100, 100]));
+  expect(line()).toHaveTextContent('Tied');
+});
+
+test.each(['scheduled', 'live', null])('a %s matchup shows no result line', (status) => {
+  render(<ScoreboardStrip matchup={detail({ matchup: { status } })} viewerTeamId={12} />);
+  expect(screen.queryByTestId('scoreboard-result')).not.toBeInTheDocument();
+});
+
+test('a live matchup keeps the bar and spells out Exp final and to play, never EF or PMR', () => {
+  render(<ScoreboardStrip matchup={detail()} />);
   expect(winBar()).toBeInTheDocument();
-  expect(screen.getByText('36%')).toBeInTheDocument();
+  expect(screen.queryByText(/\bEF\b/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/\bPMR\b/)).not.toBeInTheDocument();
 });
 
 test('the bar is the one announced image; the percentages and caption are aria-hidden', () => {
@@ -171,8 +234,8 @@ test('a side with no Expected final or Players remaining shows a dash and says s
     />
   );
   const [homeFigures] = screen.getAllByTestId('scoreboard-figures');
-  expect(homeFigures).toHaveTextContent(/EF -/);
-  expect(homeFigures).toHaveTextContent(/PMR -/);
+  expect(homeFigures).toHaveTextContent(/Exp final -/);
+  expect(homeFigures).toHaveTextContent(/- to play/);
   expect(screen.getByText('Projected not available')).toBeInTheDocument();
   expect(screen.getByText('Players remaining not available')).toBeInTheDocument();
 });
@@ -194,7 +257,7 @@ test('is a labelled Scoreboard region with no heading of its own', () => {
   expect(screen.queryByRole('heading')).not.toBeInTheDocument();
 });
 
-test('the mobile layout keeps both names, scores, the bar, the chip, EF and PMR', () => {
+test('the mobile layout keeps both names, scores, the bar, the chip, Exp final and to play', () => {
   mobile = true;
   render(<ScoreboardStrip matchup={detail()} viewerTeamId={12} records={{ 12: '2-0', 34: '1-1' }} />);
   expect(screen.getByTestId('scoreboard-strip')).toHaveAttribute('data-layout', 'mobile');
@@ -213,8 +276,15 @@ test('the mobile layout keeps both names, scores, the bar, the chip, EF and PMR'
   expect(screen.getByTestId('scoreboard-status')).toHaveTextContent('LIVE');
 
   const [homeFigures, awayFigures] = screen.getAllByTestId('scoreboard-figures');
-  expect(homeFigures).toHaveTextContent('EF 110.5 · PMR 4');
-  expect(awayFigures).toHaveTextContent('EF 123.9 · PMR 6');
+  // Two stacked lines per side, never one phrase that wraps mid-way.
+  expect(within(homeFigures).getByTestId('scoreboard-figure-ef')).toHaveTextContent('Exp final 110.5');
+  expect(within(homeFigures).getByTestId('scoreboard-figure-pmr')).toHaveTextContent('4 to play');
+  expect(within(awayFigures).getByTestId('scoreboard-figure-ef')).toHaveTextContent('Exp final 123.9');
+  expect(within(awayFigures).getByTestId('scoreboard-figure-pmr')).toHaveTextContent('6 to play');
+  expect(homeFigures).not.toHaveTextContent('·');
+  screen.getAllByTestId(/^scoreboard-figure-(ef|pmr)$/).forEach((line) => {
+    expect(line).toHaveStyle({ whiteSpace: 'nowrap' });
+  });
   expect(screen.getByText('Projected 110.5')).toBeInTheDocument();
   expect(screen.getByText('Players remaining 6')).toBeInTheDocument();
 });

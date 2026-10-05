@@ -10,7 +10,9 @@
  * v1 is a logistic of the Expected final margin at a fixed scale of 24:
  * each side's expected final is its score plus the projected points it still
  * has to add (never negative), and a side whose Expected final is unknown
- * (null) is treated as having nothing left to add.
+ * (null) is treated as having nothing left to add. Once the matchup's status
+ * is 'played' or 'final' the scores alone decide it: 1 if home leads, 0 if
+ * away leads, 0.5 on an exact tie.
  */
 
 const MARGIN_SCALE = 24;
@@ -31,7 +33,11 @@ function homeWinProbability({ homeScore, awayScore, homeRemaining, awayRemaining
 }
 
 /** `{ home, away }` from the matchup shape, exactly as the client computes it. */
-function matchupWinProbability({ homeScore, awayScore, homeExpectedFinal, awayExpectedFinal }) {
+function matchupWinProbability({ homeScore, awayScore, homeExpectedFinal, awayExpectedFinal, status }) {
+  if (status === 'played' || status === 'final') {
+    const home = Math.sign((Number(homeScore) || 0) - (Number(awayScore) || 0)) / 2 + 0.5;
+    return { home, away: 1 - home };
+  }
   const home = homeWinProbability({
     homeScore,
     awayScore,

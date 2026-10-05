@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scoreboard Lineups card, live</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=Barlow+Condensed:wght@600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0f6a41}a:hover{color:#0b4f31}
+</style>
+</helmet>
+<div style="width: 900px; min-height: 820px; box-sizing: border-box; padding: 24px; background: #eef2f6; color: #141b23; font-family: 'Archivo', 'Helvetica Neue', Arial, sans-serif">
+  <section aria-label="Lineups" style="background: #ffffff; border: 1px solid rgba(31,45,58,0.12); border-radius: 14px; overflow: hidden">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid rgba(31,45,58,0.12)">
+      <div style="display: flex; align-items: baseline; gap: 10px"><h2 style="margin: 0; font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase">Lineups</h2><span style="font-size: 12px; color: #5e6a74">Slot by slot</span></div>
+      <a href="#standard" style="font-size: 13px; color: #55636f; text-decoration: none">Full comparison ›</a>
+    </div>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr); align-items: center; gap: 12px; padding: 9px 16px; border-bottom: 1px solid rgba(31,45,58,0.08)">
+        <div style="display: flex; align-items: center; gap: 10px; min-width: 0">
+          <span style="{{r.h.avatar}}">{{r.h.ini}}</span>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600">{{r.h.name}}<span style="{{r.h.mark}}"></span></div>
+            <div style="font-size: 12px; color: #55636f; white-space: nowrap"><b style="color: #141b23">{{r.h.pts}}</b> · {{r.h.sub}} <span style="color: #c62828; font-weight: 600">{{r.h.clock}}</span></div>
+          </div>
+        </div>
+        <span style="{{r.chip}}">{{r.slot}}</span>
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; text-align: right">
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600"><span style="{{r.a.mark}}"></span>{{r.a.name}}</div>
+            <div style="font-size: 12px; color: #55636f; white-space: nowrap"><span style="color: #c62828; font-weight: 600">{{r.a.clock}}</span> {{r.a.sub}} · <b style="color: #141b23">{{r.a.pts}}</b></div>
+          </div>
+          <span style="{{r.a.avatar}}">{{r.a.ini}}</span>
+        </div>
+      </div>
+    </sc-for>
+    <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 12px 18px; background: #f4f7fa; font-size: 12px; color: #55636f">
+      <span><b style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 22px; color: #141b23">97.9</b> Exp final 120.6</span>
+      <span style="font-weight: 600; letter-spacing: 0.08em">TOTALS</span>
+      <span>Exp final 112.4 <b style="font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 22px; color: #141b23">95.7</b></span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":900,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const POS = { QB: '#c62828', RB: '#15663f', WR: '#1e5bb8', TE: '#9a5100', FLEX: '#4b5c66', K: '#6d28d9', 'D/ST': '#4b5c66' };
+    const ring = { QB: '#c62828', RB: '#15663f', WR: '#1e5bb8', TE: '#9a5100', K: '#6d28d9', DEF: '#4b5c66' };
+    const mark = {
+      live: 'width:7px;height:7px;border-radius:50%;background:#c62828;flex:none',
+      final: 'width:9px;height:5px;border-left:1.6px solid #55636f;border-bottom:1.6px solid #55636f;transform:rotate(-45deg) translateY(-2px);flex:none',
+      sched: 'width:9px;height:9px;border-radius:50%;border:1.4px solid #55636f;box-sizing:border-box;flex:none',
+    };
+    const side = (name, pos, pts, sub, state, clock) => ({
+      name, pts, sub, clock: clock || '', mark: mark[state],
+      ini: name.split(' ').map((w) => w[0]).slice(0, 2).join(''),
+      avatar: `width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;color:#fff;background:${ring[pos]};box-shadow:0 0 0 2px #fff,0 0 0 4px ${ring[pos]}`,
+    });
+    const rows = [
+      ['QB', side('Jalen Hurts', 'QB', '18.6', 'vs LAR', 'final'), side('Drake Maye', 'QB', '24.1', 'vs BUF', 'final')],
+      ['RB', side('Bijan Robinson', 'RB', '0.0', 'proj 17.9 · vs NO', 'sched'), side('Bucky Irving', 'RB', '0.0', 'out', 'final')],
+      ['RB', side('Jonathan Taylor', 'RB', '28.3', 'vs WSH', 'final'), side('Chase Brown', 'RB', '11.2', 'vs JAX', 'final')],
+      ['WR', side('Puka Nacua', 'WR', '15.8', 'vs PHI', 'final'), side('Amon-Ra St. Brown', 'WR', '12.9', 'vs CAR ·', 'live', 'Q3 7:22')],
+      ['WR', side('Garrett Wilson', 'WR', '6.1', 'vs CHI', 'final'), side('Drake London', 'WR', '0.0', 'proj 15.0 · vs NO', 'sched')],
+      ['TE', side('Sam LaPorta', 'TE', '11.0', 'vs CAR ·', 'live', 'Q3 7:22'), side('Trey McBride', 'TE', '0.0', 'on bye', 'final')],
+      ['FLEX', side('Kyren Williams', 'RB', '14.7', 'vs PHI', 'final'), side('Emanuel Wilson', 'RB', '34.5', 'vs LAC', 'final')],
+      ['K', side('Brandon Aubrey', 'K', '8.0', 'vs HOU', 'final'), side('Cam Little', 'K', '13.0', 'vs CIN', 'final')],
+      ['D/ST', side('Bills', 'DEF', '3.0', 'vs NE', 'final'), side('Seahawks', 'DEF', '6.0', 'vs LAC', 'final')],
+    ];
+    return {
+      rows: rows.map(([slot, h, a]) => ({ slot, h, a, chip: `display:grid;place-items:center;height:22px;border-radius:6px;font-size:11px;font-weight:700;color:#fff;background:${POS[slot]}` })),
+    };
+  }
+}
+</script>
+</body>
+</html>

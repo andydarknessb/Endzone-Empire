@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupStatusView, matchupResultLine } from '../../../entities/matchup';
 import { matchupWinProbability, finite } from '../../../shared/lib';
 
 /**
@@ -60,15 +60,19 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   // Status is the server's fact read through the entity's one predicate (ADR
   // 0030). The bar shows only for `hasStarted === true`: false (scheduled) and
   // null (the server could not say) both show no bar, so an unknown status
-  // never paints a probability the page cannot stand behind.
+  // never paints a probability the page cannot stand behind. A settled
+  // (played or final) Matchup states its result instead (#2007): the bar and
+  // the Expected final and Players remaining figures give way to `result`.
   const status = matchupStatusView(m.status);
-  const showBar = status.hasStarted === true;
+  const result = matchupResultLine(m, viewerTeamId);
+  const showBar = status.hasStarted === true && result == null;
 
   const probability = matchupWinProbability({
     homeScore: home.score,
     awayScore: away.score,
     homeExpectedFinal: home.expectedFinal,
     awayExpectedFinal: away.expectedFinal,
+    status: m.status,
   });
   const homeShare = Math.max(0, Math.min(1, Number(probability.home) || 0));
   // Rounded once, with the away side as the complement, so the two printed
@@ -96,6 +100,7 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     away: side(away, 'Away', 100 - homePct),
     homeShare,
     showBar,
+    result,
     // The chip is the entity's own label; a null label (unknown status) is no
     // chip at all, never a guessed one. The variant is the canvas's
     // statusChip() per status (CHIP_VARIANTS), the same map the hero and the

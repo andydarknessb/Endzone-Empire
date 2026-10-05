@@ -83,7 +83,8 @@ import LastPlays from './ui/LastPlays';
  *
  * Loading: the first load renders a skeleton region carrying `aria-busy`
  * (the shapes stay aria-hidden, the region announces); a background refetch
- * (a reconnect) never blanks the page. A failed read renders an Alert.
+ * (a reconnect) never blanks the page. A failed read renders an Alert with Retry
+ * (the entity's refetch) and a link back to Game Center (#2009).
  *
  * Paints the island's own token context (`dash-bg` / `dash-ink`, the display
  * and body faces) and only `dash-*` tokens plus the app's radius, transition
@@ -98,7 +99,7 @@ export default function MatchupPage() {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
-    matchup, starterRows, loading, error, leagueName, viewerTeamId, records,
+    matchup, starterRows, loading, error, refetch, league, leagueName, viewerTeamId, records,
     statusChip, isLive, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
@@ -109,6 +110,19 @@ export default function MatchupPage() {
   // checked option once the view has swapped (the Full comparison action).
   const toggleRef = useRef(null);
   const [focusToggle, setFocusToggle] = useState(false);
+  // Retry's button unmounts as the read starts, so a good read moves focus to
+  // the h1; a failed one leaves the re-mounted alert to announce itself.
+  const titleRef = useRef(null);
+  const [retried, setRetried] = useState(false);
+  const retry = useCallback(async () => {
+    await refetch({ silent: matchup != null });
+    setRetried(true);
+  }, [refetch, matchup]);
+  useEffect(() => {
+    if (!retried) return;
+    setRetried(false);
+    if (!error) titleRef.current?.focus();
+  }, [retried, error]);
 
   const toggleRow = useCallback((id) => {
     setExpandedId((current) => (current === id ? null : id));
@@ -138,6 +152,17 @@ export default function MatchupPage() {
   const homeName = matchup?.home?.name;
   const awayName = matchup?.away?.name;
   const lineupHref = `/league/${leagueId}/lineup`;
+  // Which side of the table is the viewer's, for the empty slot's "Set lineup"
+  // link (#2008): null for a non-participant.
+  const viewerSide = viewerTeamId == null ? null
+    : matchup?.home?.teamId === viewerTeamId ? 'home'
+      : matchup?.away?.teamId === viewerTeamId ? 'away' : null;
+
+  // The empty slot's "Set lineup" link only makes sense while a lineup can
+  // still be set: a scheduled or live Matchup, in a league that is not best
+  // ball (best ball sets no lineup, ADR 0023). Held until the league is known.
+  const canSetLineup = !!league && !league.best_ball
+    && (matchup?.status === 'scheduled' || matchup?.status === 'live');
 
   // The Decision card's entry for whichever player a name link opened
   // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the
@@ -190,6 +215,12 @@ export default function MatchupPage() {
       {error && (
         <Alert severity="error" sx={{ mb: compact ? '12px' : '16px' }}>
           {error}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', mt: '8px' }}>
+            <DashButton size="sm" onClick={retry}>Retry</DashButton>
+            <DashButton size="sm" variant="ghost" component={RouterLink} to={`/league/${leagueId}/game-center`}>
+              Back to Game Center
+            </DashButton>
+          </Box>
         </Alert>
       )}
 
@@ -204,6 +235,7 @@ export default function MatchupPage() {
             view={view}
             onViewChange={setView}
             toggleRef={toggleRef}
+            titleRef={titleRef}
             lineupHref={lineupHref}
             compact={compact}
           />
@@ -212,6 +244,7 @@ export default function MatchupPage() {
             <RetroScoreboard
               matchup={matchup}
               leagueName={leagueName}
+              viewerTeamId={viewerTeamId}
               rows={starterRows}
               games={games}
               activePlay={retroActivePlay}
@@ -232,9 +265,13 @@ export default function MatchupPage() {
                 homeName={homeName}
                 awayName={awayName}
                 expectedFinal={{ home: matchup.home.expectedFinal, away: matchup.away.expectedFinal }}
+                status={matchup.status}
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}
                 onToggle={toggleRow}
+                viewerSide={viewerSide}
+                canSetLineup={canSetLineup}
+                leagueId={leagueId}
               />
               <BenchCard
                 homeName={homeName}
@@ -309,7 +346,7 @@ function Shell({ compact, children }) {
  * view toggle (its group element on `toggleRef`, for the Full comparison
  * focus move) and (desktop) the Set lineup action.
  */
-function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onViewChange, toggleRef, lineupHref, compact }) {
+function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onViewChange, toggleRef, titleRef, lineupHref, compact }) {
   return (
     <Box
       data-testid="matchup-header"
@@ -326,6 +363,8 @@ function Header({ leagueId, leagueName, week, isPlayoff, statusChip, view, onVie
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <Typography
             component="h1"
+            ref={titleRef}
+            tabIndex={-1}
             sx={{
               m: 0,
               fontFamily: 'var(--dash-font-display)',
