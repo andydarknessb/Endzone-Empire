@@ -334,6 +334,12 @@ describe('matchupResultLine (#2007)', () => {
     expect(matchupResultLine(m(status, 115.9, 109.7), 12)).toBeNull();
   });
 
+  test.each([null, undefined, '', 'abc', NaN])('an unknown score (%s) gives no result line', (bad) => {
+    expect(matchupResultLine(m('final', bad, 109.7), 12)).toBeNull();
+    expect(matchupResultLine(m('played', 109.7, bad), 12)).toBeNull();
+    expect(matchupResultLine({ status: 'final', home: {}, away: {} }, 12)).toBeNull();
+  });
+
   test('a nameless winner reads Home or Away, as the scoreboards do', () => {
     const nameless = { status: 'final', home: { score: 1 }, away: { score: 2 } };
     expect(matchupResultLine(nameless, null)).toBe('Away won by 1.0');

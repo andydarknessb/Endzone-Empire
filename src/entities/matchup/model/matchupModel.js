@@ -218,6 +218,11 @@ export function matchupStatusView(status) {
   };
 }
 
+// A missing score is NaN, not Number(null) = 0.
+function scoreOf(value) {
+  return value == null || value === '' ? NaN : Number(value);
+}
+
 /**
  * The result line of a settled Matchup (#2007): what both scoreboards print in
  * place of the win bar and the Expected final figures once the week is decided.
@@ -225,16 +230,20 @@ export function matchupStatusView(status) {
  * status). It reads from the viewer's side ("You won by 6.2", "You lost by
  * 6.2"), names the winner for a spectator ("Duluth Dockworkers won by 6.2"),
  * and reads "Tied" on equal scores. The margin is one decimal, from the two
- * scores (two when a real win would round to 0.0). `played` is prefixed "Unofficial: " because the score of record is
- * not yet written (ADR 0030).
+ * scores (two when a real win would round to 0.0). A score
+ * that is not a finite number gives no line (null). `played` is prefixed
+ * "Unofficial: " because the score of record is not yet written (ADR 0030).
  */
 export function matchupResultLine(matchup, viewerTeamId) {
   const m = matchup || {};
   if (m.status !== 'played' && m.status !== 'final') return null;
   const home = m.home || {};
   const away = m.away || {};
-  const homeScore = Number(home.score || 0);
-  const awayScore = Number(away.score || 0);
+  // A score the server could not say is not zero: no line, rather than a
+  // "Tied" or a margin invented from nothing.
+  const homeScore = scoreOf(home.score);
+  const awayScore = scoreOf(away.score);
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
   const prefix = m.status === 'played' ? 'Unofficial: ' : '';
   if (homeScore === awayScore) return `${prefix}Tied`;
   const winner = homeScore > awayScore ? home : away;
