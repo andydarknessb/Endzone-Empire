@@ -2,7 +2,9 @@ import React, {
   Suspense, useCallback, useEffect, useState,
 } from 'react';
 import PropTypes from 'prop-types';
-import { lazyWithReload } from '../../../shared/lib';
+// The file, not the shared/lib barrel: this module is on Home's initial
+// bundle, and the barrel would pull every shared/lib module in with it.
+import { lazyWithReload } from '../../../shared/lib/lazyWithReload';
 
 // One chunk holds the title card, the queue, the scenes and (later) the audio,
 // and it is fetched only when the list is non-empty: Home stays inside the
