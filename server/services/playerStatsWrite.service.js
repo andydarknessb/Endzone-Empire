@@ -52,8 +52,10 @@ const BOX_PLAYER_KEYS = [
 ];
 // Owned by the box (ESPN writes it) but also patched by nflverse's finalization
 // pass, and the old carry list kept it: a box line without it (any Tank01 box)
-// leaves the stored value alone instead of removing it.
-const BOX_KEEP_IF_ABSENT = ['idpInterceptionReturnYards'];
+// leaves the stored value alone instead of removing it. idpFumbleRecovery the
+// same way: the Tank01 box no longer emits it (its count mixes in own-team
+// recoveries, #2002), so the Final box keeps the Live box's figure.
+const BOX_KEEP_IF_ABSENT = ['idpInterceptionReturnYards', 'idpFumbleRecovery'];
 const BOX_TEAM_DEFENSE_KEYS = [
   'sack', 'interceptionReturn', 'fumbleRecovery', 'defensiveTD', 'safety', 'blockedKick',
   'pointsAllowed', 'yardsAllowed',

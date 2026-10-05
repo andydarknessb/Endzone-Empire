@@ -97,12 +97,15 @@ test('tank01BoxSource: the neutral shape carries every key the live path scores 
     'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs', 'receivingYards',
     'receivingTDs', 'receptions', 'fumbles', 'fieldGoal', 'fieldGoalMissed', 'extraPoint',
     'extraPointMissed', 'returnTDs', 'puntReturns', 'puntReturnYards',
-    'soloTackle', 'assistedTackle', 'idpSack', 'idpInterception', 'forcedFumble', 'idpFumbleRecovery',
+    'soloTackle', 'assistedTackle', 'idpSack', 'idpInterception', 'forcedFumble',
     'passDeflection', 'qbHit', 'tacklesForLoss', 'idpDefensiveTD', 'twoPointReturn',
     'fieldGoalDistances', 'passingTDLengths', 'rushingTDLengths', 'receivingTDLengths',
   ]) {
     assert.ok(keys.has(key), `${key} must be produced by the Tank01 adapter`);
   }
+  // Tank01's per-player fumblesRecovered counts own-team recoveries; the Final
+  // box leaves idpFumbleRecovery to the Live box and nflverse (#2002).
+  assert.equal(keys.has('idpFumbleRecovery'), false);
   // Team defense is keyed by folded Team code (WAS, never WSH), one line per side.
   assert.deepEqual(Object.keys(liveBox.teamDefense).sort(), ['JAX', 'WAS']);
   assert.deepEqual(Object.keys(liveBox.teamDefense.WAS).sort(), [

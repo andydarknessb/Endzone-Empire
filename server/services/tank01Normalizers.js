@@ -65,7 +65,12 @@ function normalizeTank01Stats(entry) {
  * scoring keys (individual defenders — DP roster slots). Confirmed live
  * field names: totalTackles, soloTackles, sacks, defensiveInterceptions
  * (+ interceptionTDs), forcedFumbles, fumblesRecovered, passDeflections,
- * qbHits, tfl, twoPointConversionReturn, defTD. Sack/TFL/fumble-return/
+ * qbHits, tfl, twoPointConversionReturn, defTD. `fumblesRecovered` is NOT
+ * mapped: it counts a player falling on his own team's fumble too (Drake Maye,
+ * 2026 week 4: 2 own, 0 opponent), so idpFumbleRecovery comes from the ESPN
+ * Live box and nflverse, and the box write keeps it when this line lacks it
+ * (#2002). The team DST side's fumblesRecovered is opponent-only and stays.
+ * Sack/TFL/fumble-return/
  * INT-return YARDAGE has no Tank01 field at all — those score 0 here and are
  * filled in later by nflverseSync.service.js's post-game finalization pass.
  * `defTD` is scored whole as the generic defensiveTD bucket (fumble-,
@@ -89,7 +94,6 @@ function normalizeTank01IdpStats(entry) {
     idpSack: num(d.sacks),
     idpInterception: num(d.defensiveInterceptions),
     forcedFumble: num(d.forcedFumbles),
-    idpFumbleRecovery: num(d.fumblesRecovered),
     passDeflection: num(d.passDeflections),
     qbHit: num(d.qbHits),
     tacklesForLoss: num(d.tfl),
