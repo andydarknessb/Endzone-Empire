@@ -28,8 +28,9 @@ import {
  * OPP · clock" on the second line, an inline pace bar with the projection on
  * desktop, and the tabular points. An Unavailable starter shows his reason
  * ("on bye", "out", "on IR") in place of the projection and no pace bar. On
- * mobile a cell is two lines (#2008): the name alone on the first, and on the
- * second the figure, then "vs OPP" and the live clock. The figure is the
+ * mobile a cell is two lines (#2008): the name alone on the first (it wraps,
+ * never ellipsized), and on the second the state marker and injury tag, the
+ * figure, then "vs OPP" and the live clock. The figure is the
  * points, or "proj 17.9" for a starter yet to play (his points would read
  * 0.0); the clock sits in its own non-shrinking span so a long opponent
  * ellipsizes and the clock never does. The pace bar is dropped. An unfilled
@@ -538,7 +539,9 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
               textAlign: 'inherit',
               color: dim ? 'var(--dash-dim)' : 'var(--dash-ink)',
               cursor: 'pointer',
-              ...ELLIPSIS,
+              // Desktop ellipsizes the name; a phone wraps it (two lines at most
+              // in practice), never cutting it (#2008).
+              ...(compact ? { overflowWrap: 'anywhere' } : ELLIPSIS),
               '&:hover': { textDecoration: 'underline' },
               '&:focus-visible': { ...FOCUS_RING, outlineOffset: 2, borderRadius: '4px' },
               // The name is a line of text; on mobile its hit area grows to
@@ -556,12 +559,12 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
           >
             {player.name}
           </Box>
-          <StateMark view={state} />
-          <InjuryTag status={player.injury_status} />
+          {!compact && <StateMark view={state} />}
+          {!compact && <InjuryTag status={player.injury_status} />}
         </Box>
 
         {compact ? (
-          <PhoneLineTwo player={player} away={away} dim={dim} proj={!reason} />
+          <PhoneLineTwo player={player} away={away} dim={dim} proj={!reason} state={state} />
         ) : (
           <Box component="span" data-testid="slot-line2" sx={{ gridArea: 'line2', minWidth: 0, ...NOTE, ...ELLIPSIS }}>
             {lineTwo(player)}
@@ -615,15 +618,16 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
 }
 
 /**
- * A phone cell's second line (#2008): the figure, then "vs OPP" and the live
- * clock, each part dropped when absent. The figure is the points, or
+ * A phone cell's second line (#2008): the state marker and injury tag (moved
+ * off the name's line so the name keeps the width), the figure, then "vs OPP"
+ * and the live clock, each part dropped when absent. The figure is the points, or
  * "proj 17.9" for a starter yet to play with a projection (`proj` is false for
  * an Unavailable starter, whose projection is stale and whose reason shows
  * instead). The opponent is the one part that shrinks and ellipsizes; the
  * clock is its own span that never shrinks or clips. The away side keeps the
  * same reading order, right-aligned.
  */
-function PhoneLineTwo({ player, away, dim, proj }) {
+function PhoneLineTwo({ player, away, dim, proj, state }) {
   const yetToPlay = player.game_state === 'scheduled' && proj && player.projected != null;
   const figure = yetToPlay ? `proj ${formatPoints(player.projected)}` : formatPoints(player.points);
   return (
@@ -639,6 +643,8 @@ function PhoneLineTwo({ player, away, dim, proj }) {
         ...NOTE,
       }}
     >
+      <StateMark view={state} />
+      <InjuryTag status={player.injury_status} />
       <Box
         component="span"
         data-testid="slot-points"

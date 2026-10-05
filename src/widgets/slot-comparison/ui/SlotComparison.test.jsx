@@ -327,6 +327,25 @@ describe('on a phone (#2008)', () => {
     expect(screen.getByText('vs CAR')).toHaveStyle({ textOverflow: 'ellipsis' });
   });
 
+  test('the name is never ellipsized, and the state marker and injury tag lead the second line', () => {
+    const flagged = { ...taylor, injury_status: 'Q' };
+    render(<SlotComparison {...baseProps} rows={[{ slot: 'RB', home: flagged, away: null }]} />);
+    const home = cell(0, 'home');
+    const name = within(home).getByRole('button', { name: 'Jonathan Taylor' });
+    const line2 = within(home).getByTestId('slot-line2');
+
+    expect(name).not.toHaveStyle({ textOverflow: 'ellipsis' });
+    expect(name).not.toHaveStyle({ whiteSpace: 'nowrap' });
+    expect(name).not.toHaveStyle({ overflow: 'hidden' });
+    // Each appears once in the cell, and that once is inside line two (so not
+    // beside the name), before the figure.
+    const marker = within(home).getByRole('img', { name: 'In progress' });
+    expect(line2).toContainElement(marker);
+    expect(line2).toContainElement(within(home).getByTestId('injury-tag'));
+    expect(marker.compareDocumentPosition(within(line2).getByTestId('slot-points')) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
   test('a starter yet to play shows his projection as the figure, never 0.0', () => {
     const scheduled = starter({
       id: 21, name: 'D. Adams', points: 0, projected: 17.9, game_state: 'scheduled', stats: null,
