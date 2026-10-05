@@ -83,7 +83,8 @@ import LastPlays from './ui/LastPlays';
  *
  * Loading: the first load renders a skeleton region carrying `aria-busy`
  * (the shapes stay aria-hidden, the region announces); a background refetch
- * (a reconnect) never blanks the page. A failed read renders an Alert.
+ * (a reconnect) never blanks the page. A failed read renders an Alert with Retry
+ * (the entity's refetch) and a link back to Game Center (#2009).
  *
  * Paints the island's own token context (`dash-bg` / `dash-ink`, the display
  * and body faces) and only `dash-*` tokens plus the app's radius, transition
@@ -98,7 +99,7 @@ export default function MatchupPage() {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
-    matchup, starterRows, loading, error, leagueName, viewerTeamId, records,
+    matchup, starterRows, loading, error, refetch, leagueName, viewerTeamId, records,
     statusChip, isLive, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
@@ -190,6 +191,12 @@ export default function MatchupPage() {
       {error && (
         <Alert severity="error" sx={{ mb: compact ? '12px' : '16px' }}>
           {error}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', mt: '8px' }}>
+            <DashButton size="sm" onClick={() => refetch()}>Retry</DashButton>
+            <DashButton size="sm" variant="ghost" component={RouterLink} to={`/league/${leagueId}/game-center`}>
+              Back to Game Center
+            </DashButton>
+          </Box>
         </Alert>
       )}
 

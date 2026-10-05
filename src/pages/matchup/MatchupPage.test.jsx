@@ -253,6 +253,35 @@ test('shows an error alert when the fetch fails', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('matchup not found');
 });
 
+// #2009: the error state is no dead end - Retry re-runs the detail read through
+// the entity's refetch, and a link leads back to the league's Game Center.
+test('a 500 on the detail read offers Retry, and Retry with a good read renders the Starters table', async () => {
+  const ok = matchupResponse();
+  let calls = 0;
+  mockApi();
+  const base = apiClient.get.getMockImplementation();
+  apiClient.get.mockImplementation((url) => {
+    if (url !== MATCHUP_URL) return base(url);
+    calls += 1;
+    return calls === 1 ? Promise.reject({ response: { status: 500, data: { error: 'boom' } } }) : Promise.resolve(ok);
+  });
+  renderPage();
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+  expect(screen.queryByRole('heading', { level: 2, name: 'Starters' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(await screen.findByRole('heading', { level: 2, name: 'Starters' })).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test("the error state links back to the league's Game Center", async () => {
+  apiClient.get.mockRejectedValue({ response: { status: 500, data: { error: 'boom' } } });
+  renderPage();
+
+  await screen.findByRole('alert');
+  expect(screen.getByRole('link', { name: 'Back to Game Center' })).toHaveAttribute('href', '/league/1/game-center');
+});
+
 // A code+message envelope with no `error` key (the shape the global express
 // error handler and the rate limiter emit). The old hand-rolled read of
 // `err.response.data.error` found no `error` key here and fell through to

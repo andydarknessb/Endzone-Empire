@@ -6,7 +6,8 @@ import { unavailableLabel } from '../../../widgets/slot-comparison';
 /**
  * The Bench card of the Matchup page (ADR 0031, #903), transcribed from the
  * canvas's `benchSection()` (docs/design/game-center-matchups/build.mjs): a
- * card header reading "Bench" with the two bench counts ("6 · 7 players")
+ * card header reading "Bench" with the two bench counts ("7 players each", or "6 · 7 players" when
+ * they differ, #2009)
  * and a Show / Hide action with the chevron, collapsed by default. Open, it
  * lists both benches side by side, home on the left and away on the right:
  * each row is the player's position chip, his name (a button that opens the
@@ -54,7 +55,14 @@ export default function BenchCard({
   const panelId = useId();
   const home = homeBench || [];
   const away = awayBench || [];
-  const count = `${home.length} · ${away.length} players`;
+  // Equal counts read once; unequal ones keep both, the label naming each team.
+  const count = home.length === away.length ? (
+    `${home.length} players each`
+  ) : (
+    <span role="img" aria-label={`${homeName} ${home.length}, ${awayName} ${away.length}`}>
+      {`${home.length} · ${away.length} players`}
+    </span>
+  );
   const leftHome = showBenchLeft && benchLeft?.home != null ? benchLeft.home : null;
   const leftAway = showBenchLeft && benchLeft?.away != null ? benchLeft.away : null;
   // Collapsed with no bench-left line: the header is the whole card.
