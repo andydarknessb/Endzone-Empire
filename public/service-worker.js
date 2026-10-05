@@ -167,20 +167,23 @@ function isHtml(response) {
   return /text\/html/i.test(type || '');
 }
 
+const usable = (response) => response && response.ok && !isHtml(response);
+
 async function cacheFirstStatic(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
   if (cached) return cached;
-  try {
-    const response = await fetch(request);
-    if (response && response.ok && !isHtml(response)) {
-      cache.put(request, response.clone());
-    }
-    return response;
-  } catch (err) {
-    if (cached) return cached;
-    throw err;
+  let response = await fetch(request);
+  // The bad copy can also live in the browser's HTTP cache (the host answered
+  // with /static/*'s immutable year-long header), out of this cache's reach.
+  // One retry with cache: 'reload' skips and overwrites it.
+  if (!usable(response)) {
+    response = await fetch(request, { cache: 'reload' });
   }
+  if (usable(response)) {
+    cache.put(request, response.clone());
+  }
+  return response;
 }
 
 self.addEventListener('push', (event) => {

@@ -192,3 +192,39 @@ test('activating the worker drops the v1 shell cache, so an entry poisoned befor
   expect(deleted).toContain('endzone-shell-v1');
   expect(deleted).not.toContain('api-cache-v1');
 });
+
+// A stale copy can also sit in the browser's own HTTP cache (the host sent the
+// HTML, and now a 404, with /static/*'s immutable year-long header), which the
+// worker's own cache bump cannot reach. One retry with cache: 'reload'
+// bypasses and overwrites it.
+test('an HTML or failed static response is retried once from the network, bypassing the browser cache', async () => {
+  const calls = [];
+  const { listeners, stores } = loadServiceWorker({
+    fetchImpl: (request, init) => {
+      calls.push(init && init.cache);
+      return Promise.resolve(calls.length === 1
+        ? typedResponse('<!doctype html>', 'text/html')
+        : typedResponse('real js', 'application/javascript'));
+    },
+  });
+  const event = fetchEvent(`${SITE}/static/js/main.restored1.js`);
+  listeners.fetch(event);
+  expect((await event.responded).body).toBe('real js');
+  expect(calls).toEqual([undefined, 'reload']);
+  const shell = Array.from(stores.entries()).find(([name]) => name.startsWith('endzone-shell'));
+  expect(shell && shell[1].has(`${SITE}/static/js/main.restored1.js`)).toBe(true);
+});
+
+test('a static 404 is retried once with cache: reload and the 404 is returned, uncached, when the file is really gone', async () => {
+  const calls = [];
+  const notFound = { ok: false, status: 404, body: 'Not found', headers: { get: () => 'text/html' }, clone() { return this; } };
+  const { listeners, stores } = loadServiceWorker({
+    fetchImpl: (request, init) => { calls.push(init && init.cache); return Promise.resolve(notFound); },
+  });
+  const event = fetchEvent(`${SITE}/static/js/8784.gone0000.chunk.js`);
+  listeners.fetch(event);
+  expect((await event.responded).status).toBe(404);
+  expect(calls).toEqual([undefined, 'reload']);
+  const shell = Array.from(stores.entries()).filter(([name]) => name.startsWith('endzone-shell'));
+  expect(shell.every(([, s]) => s.size === 0)).toBe(true);
+});
