@@ -2,7 +2,7 @@
  * Week 5 2026 editorial waiver board, seeded from the Week 5 Darkness Report's
  * "The Full Board" table (src/content/articles/week5-waiver-wire-darkness-report.jsx),
  * in the column's order. Bids are percent of a $100 FAAB budget; the `$1` rows
- * are 1..1. All 20 are kept so the endpoint's cap still fills after the Ownership
+ * are 1..1. All 21 are kept so the endpoint's cap still fills after the Ownership
  * cutoff drops some. `playerId` values are the production `players.id` rows from
  * the editorial rulings for issue #2022.
  *
@@ -15,9 +15,16 @@ module.exports = {
     {
       playerId: 363,
       name: 'Emanuel Wilson',
-      bidMin: 16,
-      bidMax: 22,
-      reason: 'Charbonnet out, Price on IR. 81 yards, two TDs, 28.5 points.',
+      bidMin: 12,
+      bidMax: 18,
+      reason: 'Charbonnet out Week 5, Price on IR. 81 yards, two TDs, 28.5 points.',
+    },
+    {
+      playerId: 845,
+      name: 'Will Shipley',
+      bidMin: 10,
+      bidMax: 15,
+      reason: 'Barkley week-to-week (hamstring), Bigsby to IR. Projected for 15+ touches.',
     },
     {
       playerId: 1388,
@@ -29,16 +36,9 @@ module.exports = {
     {
       playerId: 398,
       name: 'T.J. Hockenson',
-      bidMin: 8,
-      bidMax: 12,
-      reason: '13 for 119 on a 39% target share without Jefferson.',
-    },
-    {
-      playerId: 237,
-      name: 'MarShawn Lloyd',
       bidMin: 6,
       bidMax: 10,
-      reason: 'Jacobs out, no timeline. Pass-down back: 5 catches. Brooks hurt (ankle).',
+      reason: '13 for 119 on a 39% target share without Jefferson.',
     },
     {
       playerId: 714,
@@ -55,11 +55,18 @@ module.exports = {
       reason: '347 yards, 2 TDs. Draws Tennessee (16.25 implied).',
     },
     {
-      playerId: 845,
-      name: 'Will Shipley',
+      playerId: 546,
+      name: 'Jameis Winston',
       bidMin: 3,
       bidMax: 6,
-      reason: 'Barkley week-to-week (hamstring), Bigsby to IR (core surgery).',
+      reason: 'Dart out for the regular season. 250 yards, 3 TDs in Week 4.',
+    },
+    {
+      playerId: 1347,
+      name: 'Romeo Doubs',
+      bidMin: 3,
+      bidMax: 6,
+      reason: '6 for 58 and two TDs, 25% target share. A.J. Brown on IR.',
     },
     {
       playerId: 1268,
@@ -76,13 +83,6 @@ module.exports = {
       reason: 'Three rushing TDs. The goal-line half of a committee.',
     },
     {
-      playerId: 902,
-      name: 'Athan Kaliakmanis',
-      bidMin: 2,
-      bidMax: 5,
-      reason: 'Daniels out, Mariota doubtful (knee). Started Week 4: 186 yards, TD.',
-    },
-    {
       playerId: 1048,
       name: 'Darius Cooper',
       bidMin: 2,
@@ -94,7 +94,14 @@ module.exports = {
       name: 'Jalon Daniels',
       bidMin: 2,
       bidMax: 4,
-      reason: 'Mayfield out 3-6 weeks (thumb). 148 passing, 55 rushing in relief.',
+      reason: 'Mayfield out until Week 7 at the earliest (thumb). Debut start: 148 passing, 55 rushing.',
+    },
+    {
+      playerId: 237,
+      name: 'MarShawn Lloyd',
+      bidMin: 2,
+      bidMax: 4,
+      reason: 'Has had the job since Week 1 with Jacobs out: 2.7 yards a carry. Committee with Kaleb Johnson.',
     },
     {
       playerId: 965,
@@ -108,14 +115,14 @@ module.exports = {
       name: 'Tyler Allgeier',
       bidMin: 2,
       bidMax: 4,
-      reason: 'Love questionable. 42 yards and a TD. Handcuff in a 54.5 total.',
+      reason: 'Jeremiyah Love questionable. 42 yards and a TD. Handcuff in a 54.5 total.',
     },
     {
       playerId: 1204,
       name: 'Tyson Bagent',
       bidMin: 1,
       bidMax: 3,
-      reason: 'Caleb Williams week-to-week (hamstring). 268 yards in Week 4.',
+      reason: 'Caleb Williams week-to-week (hamstring). Named the Week 5 starter.',
     },
     {
       playerId: 900,
@@ -150,7 +157,7 @@ module.exports = {
       name: 'Roman Wilson',
       bidMin: 1,
       bidMax: 1,
-      reason: '3 for 74 and a TD. Two straight double-digit weeks.',
+      reason: '3 for 74 and a TD. Role shrinking since Pittman\'s return.',
     },
   ],
 };

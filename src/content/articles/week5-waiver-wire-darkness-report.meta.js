@@ -5,7 +5,7 @@ const meta = {
   category: 'Waivers',
   author: 'Andy Darkness',
   excerpt:
-    'Emanuel Wilson, Keon Coleman and T.J. Hockenson lead a Week 5 wire reshaped by Charbonnet, DJ Moore and Jefferson. A FAAB ladder, the full board, a superflex corner, a D/ST streaming chart built on implied totals, an IDP board, the injury ledger, a Week 4 report card and the bid sheet.',
+    'Emanuel Wilson, Will Shipley and Keon Coleman lead a Week 5 wire reshaped by Charbonnet, Barkley and DJ Moore. A FAAB ladder, the full board, a superflex corner, a D/ST streaming chart built on implied totals, an IDP board, the injury ledger, a Week 4 report card and the bid sheet.',
   readMinutes: 15,
   date: '2026-10-06',
 };

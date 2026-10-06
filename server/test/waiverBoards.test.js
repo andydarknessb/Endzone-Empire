@@ -67,17 +67,18 @@ test('every Week 4 entry carries a non-empty reason', () => {
 // The article's "The Full Board" table order (Week 5 2026 Darkness Report).
 const WEEK5_NAMES = [
   'Emanuel Wilson',
+  'Will Shipley',
   'Keon Coleman',
   'T.J. Hockenson',
-  'MarShawn Lloyd',
   'Kirk Cousins',
   'C.J. Stroud',
-  'Will Shipley',
+  'Jameis Winston',
+  'Romeo Doubs',
   'Brenton Strange',
   'Brian Robinson Jr.',
-  'Athan Kaliakmanis',
   'Darius Cooper',
   'Jalon Daniels',
+  'MarShawn Lloyd',
   'Michael Mayer',
   'Tyler Allgeier',
   'Tyson Bagent',
@@ -88,18 +89,18 @@ const WEEK5_NAMES = [
   'Roman Wilson',
 ];
 
-test('getBoard(2026, 5) lists the 20 Darkness Report players in the column order', () => {
+test('getBoard(2026, 5) lists the 21 Darkness Report players in the column order', () => {
   const board = waiverBoards.getBoard(2026, 5);
   assert.ok(board, 'Week 5 2026 board is listed');
   assert.equal(board.season, 2026);
   assert.equal(board.week, 5);
-  assert.equal(board.entries.length, 20);
+  assert.equal(board.entries.length, 21);
   assert.deepEqual(
     board.entries.map((e) => e.name),
     WEEK5_NAMES
   );
   assert.equal(board.entries[0].name, 'Emanuel Wilson');
-  assert.equal(board.entries[19].name, 'Roman Wilson');
+  assert.equal(board.entries[20].name, 'Roman Wilson');
 });
 
 test('every Week 5 entry has a distinct positive integer playerId', () => {

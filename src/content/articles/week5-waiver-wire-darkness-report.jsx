@@ -20,10 +20,10 @@ function HeroBanner() {
   // Claim cards fanned across the field: taller card, bigger bid. The Big Three are green.
   const bids = [
     { x: 150, h: 150, label: 'WILSON', fill: '#2fd97b' },
-    { x: 262, h: 96, label: 'COLEMAN', fill: '#2fd97b' },
-    { x: 374, h: 96, label: 'HOCKENSON', fill: '#2fd97b' },
-    { x: 486, h: 74, label: 'LLOYD', fill: '#7eaaff' },
-    { x: 598, h: 58, label: 'COUSINS', fill: '#7eaaff' },
+    { x: 262, h: 125, label: 'SHIPLEY', fill: '#2fd97b' },
+    { x: 374, h: 100, label: 'COLEMAN', fill: '#2fd97b' },
+    { x: 486, h: 83, label: 'HOCKENSON', fill: '#7eaaff' },
+    { x: 598, h: 67, label: 'COUSINS', fill: '#7eaaff' },
   ];
   return (
     <Box
@@ -37,7 +37,7 @@ function HeroBanner() {
       <title id="wk5ww-hero-title">Week 5 Waiver Wire: The Darkness Report</title>
       <desc id="wk5ww-hero-desc">
         A night field under a floodlight with five glowing bid bars rising from the turf, tallest
-        first: Emanuel Wilson, Keon Coleman, T.J. Hockenson, MarShawn Lloyd and Kirk Cousins, over
+        first: Emanuel Wilson, Will Shipley, Keon Coleman, T.J. Hockenson and Kirk Cousins, over
         the headline Week 5 Waiver Wire. The first three are the Big Three.
       </desc>
       <defs>
@@ -102,8 +102,8 @@ const Chip = ({ children, tone = 'var(--accent)' }) => (
   </Box>
 );
 
-// A bid range drawn on a 0 to 24% track, so every card and the ladder read on the same scale.
-const TRACK_MAX = 24;
+// A bid range drawn on a 0 to 20% track, so every card and the ladder read on the same scale.
+const TRACK_MAX = 20;
 function BidTrack({ min, max, highlight }) {
   return (
     <Box aria-hidden="true" sx={{ position: 'relative', height: 10, borderRadius: 'var(--radius-pill, 999px)', bgcolor: 'var(--surface-sunken)', overflow: 'hidden' }}>
@@ -168,36 +168,37 @@ function PriorityCard({ p }) {
 const BIG_THREE = [
   {
     id: 'emanuel-wilson', rank: 1, name: 'Emanuel Wilson', pos: 'RB', team: 'SEA', matchup: 'vs SF',
-    min: 16, max: 22, rostered: '50.1% rostered', window: '2+ weeks', windowTone: 'var(--warning)',
-    take: 'Wilson ran for 81 yards and a touchdown, caught 3 for 39 and another score, and finished with 28.5 points. Zach Charbonnet is ruled out for Week 5 per Seahawks reporting, and Jadarian Price is on injured reserve. Holani trails Wilson by 18 yards. He is the wire\'s only lead back with a clear path.',
-    pro: 'The job is his through at least Week 5 and probably longer. Seattle is implied for 25.0 against San Francisco, the kind of number that keeps a lead back on the field.',
-    con: 'Half the league already rosters him (50.1%), so check whether you are in the other half before you reserve the budget. Two touchdowns built that 28.5. Bid for the job, because the scores will not repeat.',
+    min: 12, max: 18, rostered: '50.1% rostered', window: '1 to 2 weeks', windowTone: 'var(--warning)',
+    take: 'Wilson ran for 81 yards and a touchdown, caught 3 for 39 and another score, and finished with 28.5 points. Zach Charbonnet is ruled out for Week 5 per Seahawks reporting, and Jadarian Price is on injured reserve. George Holani had 18 rushing yards. Wilson ran for 3.6 yards a carry, so this is a rental.',
+    pro: 'With Charbonnet out and Price on IR, the job is his this week. Seattle is implied for 25.0 against San Francisco, the kind of number that keeps a lead back on the field.',
+    con: 'Charbonnet is coming back from his ACL, gets team practice reps this week and projects to debut in Week 6. Half the league already rosters Wilson (50.1%), and two touchdowns built that 28.5. Bid for the job you can see, which is one or two weeks.',
   },
   {
-    id: 'keon-coleman', rank: 2, name: 'Keon Coleman', pos: 'WR', team: 'BUF', matchup: 'at LAR (Mon)',
-    min: 8, max: 12, rostered: '4.2% rostered', window: 'Season', windowTone: 'var(--success)',
-    take: 'Six catches for 116 yards and a touchdown on a 23% target share, worth 20.6 points. DJ Moore re-aggravated an AC joint sprain and is Questionable. Buffalo goes to Los Angeles on Monday night, in a game with the week\'s co-highest total (54.5).',
+    id: 'will-shipley', rank: 2, name: 'Will Shipley', pos: 'RB', team: 'PHI', matchup: 'at JAX (London)',
+    min: 10, max: 15, rostered: '0.6% rostered', window: '1 to 3 weeks', windowTone: 'var(--warning)',
+    take: 'Saquon Barkley (hamstring) is week-to-week, and Tank Bigsby is headed to injured reserve after core muscle surgery. Shipley is projected for 15-plus touches (NBC, October 5). In Week 4 he ran for 23 yards behind Barkley and Bigsby, so the production is still a projection.',
+    pro: 'Two backs ahead of him are hurt or headed to IR, and he is at 0.6% rostered.',
+    con: 'Philadelphia plays in London on Sunday morning, at Jacksonville, and is implied for just 18.0. DeVonta Smith and Hollywood Brown are out too, so the offense around him is thin. If Barkley is back, the window closes.',
+  },
+  {
+    id: 'keon-coleman', rank: 3, name: 'Keon Coleman', pos: 'WR', team: 'BUF', matchup: 'at LAR (Mon)',
+    min: 8, max: 12, rostered: '4.2% rostered', window: 'While Moore is out', windowTone: 'var(--warning)',
+    take: 'Six catches for 116 yards and a touchdown on a 23% target share, worth 20.6 points, and it came with DJ Moore out from late in the second quarter. Moore re-aggravated an AC joint sprain, reported as not long-term, and is Questionable. Buffalo goes to Los Angeles on Monday night, in a game with the week\'s co-highest total (54.5).',
     pro: 'Buffalo is implied for 26.0 in that shootout, and Coleman just drew 23% of the targets. He is barely rostered (4.2%), so nobody is bidding against a crowd.',
-    con: 'Moore is Questionable, not out, and this bid is a bet on an injury report. If he plays, the target share gets split. It is also a Monday night game, so you will not see how it breaks until the end of the week.',
-  },
-  {
-    id: 'tj-hockenson', rank: 3, name: 'T.J. Hockenson', pos: 'TE', team: 'MIN', matchup: 'at NO',
-    min: 8, max: 12, rostered: '54.7% rostered', window: 'Season', windowTone: 'var(--success)',
-    take: 'Thirteen catches for 119 yards on a 39% target share, 18.4 points, with Justin Jefferson inactive. Jefferson (Out, ankle) is described as optimistic for Week 5. Minnesota is implied for 22.0 at New Orleans.',
-    pro: 'Tight end is a thin position, and he is a TE1 whether Jefferson plays or not. If your tight end is a streamer, this is your fix.',
-    con: 'If Jefferson returns, Hockenson\'s volume falls from that 39% share. The bid is for the floor, not the 13 catches.',
+    con: 'Moore is Questionable, not out, and this bid is a bet on an injury report. When Moore is back, the target share gets split. It is also a Monday night game, so you will not see how it breaks until the end of the week.',
   },
 ];
 
 // Bid ranges, % of a $100 budget. Big Three first, then the top of the priced board.
 const LADDER = [
-  ['Emanuel Wilson', 'RB', 16, 22, true],
+  ['Emanuel Wilson', 'RB', 12, 18, true],
+  ['Will Shipley', 'RB', 10, 15, true],
   ['Keon Coleman', 'WR', 8, 12, true],
-  ['T.J. Hockenson', 'TE', 8, 12, true],
-  ['MarShawn Lloyd', 'RB', 6, 10, false],
+  ['T.J. Hockenson', 'TE', 6, 10, false],
   ['Kirk Cousins', 'QB', 5, 8, false],
   ['C.J. Stroud', 'QB', 4, 7, false],
-  ['Will Shipley', 'RB', 3, 6, false],
+  ['Jameis Winston', 'QB', 3, 6, false],
+  ['Romeo Doubs', 'WR', 3, 6, false],
   ['Brenton Strange', 'TE', 3, 6, false],
   ['B. Robinson Jr.', 'RB', 3, 6, false],
 ];
@@ -218,7 +219,7 @@ function FaabLadder() {
       ))}
       <Box aria-hidden="true" sx={{ display: 'grid', gridTemplateColumns: { xs: '8.5em 1fr 3.6em', sm: '11em 1fr 4em' }, gap: 1, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
         <span />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><span>0%</span><span>12%</span><span>24%</span></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><span>0%</span><span>10%</span><span>20%</span></Box>
         <span />
       </Box>
     </Box>
@@ -273,26 +274,36 @@ const Body = () => (
   <>
     <HeroBanner />
     <Lead>
-      Week 4 left the wire with a Seattle backfield down to one name, a Buffalo receiver who caught
-      six for 116, and a Minnesota tight end who saw 39% of the targets with Jefferson in street
-      clothes. Charbonnet is out, DJ Moore&apos;s shoulder is sore, and the Eagles are missing
-      DeVonta Smith and Hollywood Brown. The darkness has a shape this week. Let&apos;s spend.
+      Week 4 left the wire with a Seattle backfield missing Charbonnet and Price, a Philadelphia
+      backfield missing Barkley and Bigsby, and a Buffalo receiver who caught six for 116 once DJ
+      Moore left the game. The darkness has a shape this week, and half of it is rentals. Let&apos;s
+      spend.
     </Lead>
     <P>
       Every bid below is a percentage of a $100 FAAB budget. The league is half-PPR with one
       quarterback slot and a superflex. Rostered figures come from our own snapshot, taken early
-      Tuesday. Lines are ESPN&apos;s as of Tuesday morning. Injury statuses are our database as of
-      Tuesday with the last few days of reporting layered on, and where the two disagree I trust the
-      database and say so. Carolina and Kansas City are on bye, so 30 teams play. Thursday is Tampa
-      Bay at Dallas, Sunday night is Baltimore at Atlanta, and Monday night is Buffalo at the Rams.
+      Tuesday. Lines are ESPN&apos;s as of Tuesday morning, and the Baltimore at Atlanta line
+      flipped from Baltimore -2.5 to Atlanta -1.5 that morning. Injury statuses are our database as
+      of Tuesday with the last few days of reporting layered on, and where the two disagree I trust
+      the database and say so. Carolina and Kansas City are on bye, so 30 teams play. Thursday is
+      Tampa Bay at Dallas, Philadelphia at Jacksonville kicks off Sunday at 9:30 a.m. ET in London,
+      Sunday night is Baltimore at Atlanta, and Monday night is Buffalo at the Rams.
     </P>
 
     <H2>The Big Three</H2>
     <P>
-      Wilson for the backfield, Coleman for the receiver room, Hockenson for the tight end hole. If
-      you have the budget, you want all three, and the first one costs the most.
+      Wilson and Shipley for the backfields, Coleman for the receiver room. Every one of the three
+      has a clock on it, so price them that way. If you have the budget, you want all three.
     </P>
     {BIG_THREE.map((p) => <PriorityCard key={p.id} p={p} />)}
+    <H3>Just outside the Big Three: T.J. Hockenson</H3>
+    <P>
+      Hockenson (TE, MIN, 54.7% rostered) caught 13 for 119 on a 39% target share for 18.4 points
+      with Justin Jefferson inactive. Jefferson (ankle) was Out in Week 4 and could play Week 5.
+      With Jefferson playing in Weeks 2 and 3, Hockenson scored 4.4 and 2.1. Minnesota is
+      implied for 22.0 at New Orleans. Bid 6&ndash;10%, and treat the window as however long
+      Jefferson is out.
+    </P>
 
     <H2>The FAAB Ladder</H2>
     <P>
@@ -303,8 +314,9 @@ const Body = () => (
 
     <H2>The Full Board</H2>
     <P>
-      Window is how long the role should last. Season means no starter is coming back to take it.
-      Rostered% is our snapshot, so a name at 50% is already in half the leagues out there.
+      Window is how long the role should last. Season means no starter is coming back to take it,
+      and &quot;While X is out&quot; means exactly that. Rostered% is our snapshot, so a name at
+      50% is already in half the leagues out there.
     </P>
     <Table aria-label="Week 5 offensive waiver board">
       <THead>
@@ -313,28 +325,33 @@ const Body = () => (
         </TR>
       </THead>
       <TBody>
-        <TR><TD>1</TD><TD><strong>Emanuel Wilson</strong></TD><TD>RB</TD><TD>SEA</TD><TD>Charbonnet out, Price on IR. 81 yards, two TDs, 28.5 points.</TD><TD>vs SF</TD><TD>2+ wks</TD><TD>16&ndash;22%</TD><TD>50.1%</TD></TR>
-        <TR><TD>2</TD><TD><strong>Keon Coleman</strong></TD><TD>WR</TD><TD>BUF</TD><TD>6 for 116 and a TD. DJ Moore hurt (AC joint).</TD><TD>at LAR (Mon)</TD><TD>Season</TD><TD>8&ndash;12%</TD><TD>4.2%</TD></TR>
-        <TR><TD>3</TD><TD><strong>T.J. Hockenson</strong></TD><TD>TE</TD><TD>MIN</TD><TD>13 for 119 on a 39% target share without Jefferson.</TD><TD>at NO</TD><TD>Season</TD><TD>8&ndash;12%</TD><TD>54.7%</TD></TR>
-        <TR><TD>4</TD><TD><strong>MarShawn Lloyd</strong></TD><TD>RB</TD><TD>GB</TD><TD>Jacobs out, no timeline. Pass-down back: 5 catches. Brooks hurt (ankle).</TD><TD>vs CHI</TD><TD>Indef.</TD><TD>6&ndash;10%</TD><TD>48.9%</TD></TR>
+        <TR><TD>1</TD><TD><strong>Emanuel Wilson</strong></TD><TD>RB</TD><TD>SEA</TD><TD>Charbonnet out Week 5, Price on IR. 81 yards, two TDs, 28.5 points.</TD><TD>vs SF</TD><TD>1&ndash;2 wks</TD><TD>12&ndash;18%</TD><TD>50.1%</TD></TR>
+        <TR><TD>2</TD><TD><strong>Will Shipley</strong></TD><TD>RB</TD><TD>PHI</TD><TD>Barkley week-to-week (hamstring), Bigsby to IR. Projected for 15+ touches.</TD><TD>at JAX (London)</TD><TD>1&ndash;3 wks</TD><TD>10&ndash;15%</TD><TD>0.6%</TD></TR>
+        <TR><TD>3</TD><TD><strong>Keon Coleman</strong></TD><TD>WR</TD><TD>BUF</TD><TD>6 for 116 and a TD. DJ Moore hurt (AC joint).</TD><TD>at LAR (Mon)</TD><TD>While Moore is out</TD><TD>8&ndash;12%</TD><TD>4.2%</TD></TR>
+        <TR><TD>4</TD><TD><strong>T.J. Hockenson</strong></TD><TD>TE</TD><TD>MIN</TD><TD>13 for 119 on a 39% target share without Jefferson.</TD><TD>at NO</TD><TD>While Jefferson is out</TD><TD>6&ndash;10%</TD><TD>54.7%</TD></TR>
         <TR><TD>5</TD><TD><strong>Kirk Cousins</strong></TD><TD>QB</TD><TD>LV</TD><TD>20+ points three straight weeks. Superflex starter.</TD><TD>at NE</TD><TD>Season</TD><TD>5&ndash;8%</TD><TD>16.9%</TD></TR>
         <TR><TD>6</TD><TD><strong>C.J. Stroud</strong></TD><TD>QB</TD><TD>HOU</TD><TD>347 yards, 2 TDs. Draws Tennessee (16.25 implied).</TD><TD>at TEN</TD><TD>Season</TD><TD>4&ndash;7%</TD><TD>37.2%</TD></TR>
-        <TR><TD>7</TD><TD><strong>Will Shipley</strong></TD><TD>RB</TD><TD>PHI</TD><TD>Barkley week-to-week (hamstring), Bigsby to IR (core surgery).</TD><TD>at JAX</TD><TD>1&ndash;3 wks</TD><TD>3&ndash;6%</TD><TD>0.6%</TD></TR>
-        <TR><TD>8</TD><TD><strong>Brenton Strange</strong></TD><TD>TE</TD><TD>JAX</TD><TD>7 for 95 on a 35% target share.</TD><TD>vs PHI</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>16.7%</TD></TR>
-        <TR><TD>9</TD><TD><strong>Brian Robinson Jr.</strong></TD><TD>RB</TD><TD>ATL</TD><TD>Three rushing TDs. The goal-line half of a committee.</TD><TD>vs BAL (SNF)</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>27.0%</TD></TR>
-        <TR><TD>10</TD><TD><strong>Athan Kaliakmanis</strong></TD><TD>QB</TD><TD>WSH</TD><TD>Daniels out, Mariota doubtful (knee). Started Week 4: 186 yards, TD.</TD><TD>vs NYG</TD><TD>1&ndash;4 wks</TD><TD>2&ndash;5%</TD><TD>0.0%</TD></TR>
-        <TR><TD>11</TD><TD><strong>Darius Cooper</strong></TD><TD>WR</TD><TD>PHI</TD><TD>Two TDs, 28% target share. DeVonta Smith and Hollywood Brown out.</TD><TD>at JAX</TD><TD>1&ndash;3 wks</TD><TD>2&ndash;5%</TD><TD>0.2%</TD></TR>
-        <TR><TD>12</TD><TD><strong>Jalon Daniels</strong></TD><TD>QB</TD><TD>TB</TD><TD>Mayfield out 3&ndash;6 weeks (thumb). 148 passing, 55 rushing in relief.</TD><TD>at DAL (Thu)</TD><TD>3&ndash;6 wks</TD><TD>2&ndash;4%</TD><TD>1.6%</TD></TR>
-        <TR><TD>13</TD><TD><strong>Michael Mayer</strong></TD><TD>TE</TD><TD>LV</TD><TD>8 for 82, 21% target share.</TD><TD>at NE</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>12.0%</TD></TR>
-        <TR><TD>14</TD><TD><strong>Tyler Allgeier</strong></TD><TD>RB</TD><TD>ARI</TD><TD>Love questionable. 42 yards and a TD. Handcuff in a 54.5 total.</TD><TD>vs DET</TD><TD>Handcuff</TD><TD>2&ndash;4%</TD><TD>28.2%</TD></TR>
-        <TR><TD>15</TD><TD><strong>Tyson Bagent</strong></TD><TD>QB</TD><TD>CHI</TD><TD>Caleb Williams week-to-week (hamstring). 268 yards in Week 4.</TD><TD>at GB</TD><TD>1&ndash;3 wks</TD><TD>1&ndash;3%</TD><TD>1.3%</TD></TR>
-        <TR><TD>16</TD><TD><strong>Dohnte Meyers</strong></TD><TD>WR</TD><TD>CIN</TD><TD>7 for 82. Chase in concussion protocol, Higgins day-to-day.</TD><TD>at MIA</TD><TD>1&ndash;2 wks</TD><TD>1&ndash;3%</TD><TD>0.2%</TD></TR>
-        <TR><TD>17</TD><TD><strong>Keaton Mitchell</strong></TD><TD>RB</TD><TD>LAC</TD><TD>5 catches, 19% target share. Pass-down role.</TD><TD>vs DEN</TD><TD>Season</TD><TD>1&ndash;3%</TD><TD>18.1%</TD></TR>
-        <TR><TD>18</TD><TD><strong>Malik Washington</strong></TD><TD>WR</TD><TD>MIA</TD><TD>29% target share, 5 for 67.</TD><TD>vs CIN</TD><TD>Season</TD><TD>1&ndash;3%</TD><TD>28.3%</TD></TR>
-        <TR><TD>19</TD><TD><strong>Isaac TeSlaa</strong></TD><TD>WR</TD><TD>DET</TD><TD>4 for 95. Detroit has the week&apos;s top implied total (29.5).</TD><TD>at ARI</TD><TD>Stream</TD><TD>$1</TD><TD>2.0%</TD></TR>
-        <TR><TD>20</TD><TD><strong>Roman Wilson</strong></TD><TD>WR</TD><TD>PIT</TD><TD>3 for 74 and a TD. Two straight double-digit weeks.</TD><TD>vs IND</TD><TD>Season</TD><TD>$1</TD><TD>3.6%</TD></TR>
+        <TR><TD>7</TD><TD><strong>Jameis Winston</strong></TD><TD>QB</TD><TD>NYG</TD><TD>Dart out for the regular season. 250 yards, 3 TDs in Week 4.</TD><TD>at WSH</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>2.8%</TD></TR>
+        <TR><TD>8</TD><TD><strong>Romeo Doubs</strong></TD><TD>WR</TD><TD>NE</TD><TD>6 for 58 and two TDs, 25% target share. A.J. Brown on IR.</TD><TD>vs LV</TD><TD>2+ wks</TD><TD>3&ndash;6%</TD><TD>58.4%</TD></TR>
+        <TR><TD>9</TD><TD><strong>Brenton Strange</strong></TD><TD>TE</TD><TD>JAX</TD><TD>7 for 95 on a 35% target share.</TD><TD>vs PHI (London)</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>16.7%</TD></TR>
+        <TR><TD>10</TD><TD><strong>Brian Robinson Jr.</strong></TD><TD>RB</TD><TD>ATL</TD><TD>Three rushing TDs. The goal-line half of a committee.</TD><TD>vs BAL (SNF)</TD><TD>Season</TD><TD>3&ndash;6%</TD><TD>27.0%</TD></TR>
+        <TR><TD>11</TD><TD><strong>Darius Cooper</strong></TD><TD>WR</TD><TD>PHI</TD><TD>Two TDs, 28% target share. DeVonta Smith and Hollywood Brown out.</TD><TD>at JAX (London)</TD><TD>1&ndash;3 wks</TD><TD>2&ndash;5%</TD><TD>0.2%</TD></TR>
+        <TR><TD>12</TD><TD><strong>Jalon Daniels</strong></TD><TD>QB</TD><TD>TB</TD><TD>Mayfield out until Week 7 at the earliest (thumb). Debut start: 148 passing, 55 rushing.</TD><TD>at DAL (Thu)</TD><TD>2 wks</TD><TD>2&ndash;4%</TD><TD>1.6%</TD></TR>
+        <TR><TD>13</TD><TD><strong>MarShawn Lloyd</strong></TD><TD>RB</TD><TD>GB</TD><TD>Has had the job since Week 1 with Jacobs out: 2.7 yards a carry. Committee with Kaleb Johnson.</TD><TD>vs CHI</TD><TD>Committee</TD><TD>2&ndash;4%</TD><TD>48.9%</TD></TR>
+        <TR><TD>14</TD><TD><strong>Michael Mayer</strong></TD><TD>TE</TD><TD>LV</TD><TD>8 for 82, 21% target share.</TD><TD>at NE</TD><TD>Season</TD><TD>2&ndash;4%</TD><TD>12.0%</TD></TR>
+        <TR><TD>15</TD><TD><strong>Tyler Allgeier</strong></TD><TD>RB</TD><TD>ARI</TD><TD>Jeremiyah Love questionable. 42 yards and a TD. Handcuff in a 54.5 total.</TD><TD>vs DET</TD><TD>Handcuff</TD><TD>2&ndash;4%</TD><TD>28.2%</TD></TR>
+        <TR><TD>16</TD><TD><strong>Tyson Bagent</strong></TD><TD>QB</TD><TD>CHI</TD><TD>Caleb Williams week-to-week (hamstring). Named the Week 5 starter.</TD><TD>at GB</TD><TD>1&ndash;3 wks</TD><TD>1&ndash;3%</TD><TD>1.3%</TD></TR>
+        <TR><TD>17</TD><TD><strong>Dohnte Meyers</strong></TD><TD>WR</TD><TD>CIN</TD><TD>7 for 82. Chase in concussion protocol, Higgins day-to-day.</TD><TD>at MIA</TD><TD>1&ndash;2 wks</TD><TD>1&ndash;3%</TD><TD>0.2%</TD></TR>
+        <TR><TD>18</TD><TD><strong>Keaton Mitchell</strong></TD><TD>RB</TD><TD>LAC</TD><TD>5 catches, 19% target share. Pass-down role.</TD><TD>vs DEN</TD><TD>Season</TD><TD>1&ndash;3%</TD><TD>18.1%</TD></TR>
+        <TR><TD>19</TD><TD><strong>Malik Washington</strong></TD><TD>WR</TD><TD>MIA</TD><TD>29% target share, 5 for 67.</TD><TD>vs CIN</TD><TD>Season</TD><TD>1&ndash;3%</TD><TD>28.3%</TD></TR>
+        <TR><TD>20</TD><TD><strong>Isaac TeSlaa</strong></TD><TD>WR</TD><TD>DET</TD><TD>4 for 95. Detroit has the week&apos;s top implied total (29.5).</TD><TD>at ARI</TD><TD>Stream</TD><TD>$1</TD><TD>2.0%</TD></TR>
+        <TR><TD>21</TD><TD><strong>Roman Wilson</strong></TD><TD>WR</TD><TD>PIT</TD><TD>3 for 74 and a TD. Role shrinking since Pittman&apos;s return.</TD><TD>vs IND</TD><TD>Stream</TD><TD>$1</TD><TD>3.6%</TD></TR>
       </TBody>
     </Table>
+    <P>
+      MarShawn Lloyd fell from the top of this board for a reason: the vacancy is four weeks old
+      and the job has not paid. That is the doctrine below, working on my own list.
+    </P>
 
     <H2>Superflex Corner</H2>
     <P>
@@ -347,15 +364,32 @@ const Body = () => (
         Both are starters, but Cousins is the steadier one.
       </LI>
       <LI>
-        <strong>Aaron Rodgers</strong> (PIT, 6.5% rostered) is the deeper stream. He scored 19.96
-        in Week 4 with 3 TD and 2 INT, and he gets Indianapolis at home.
+        <strong>Jameis Winston</strong> (NYG, 2.8% rostered) is next. Jaxson Dart is out for the
+        regular season, which makes Winston the full-season starter, and he threw for 250 yards
+        and 3 TDs in Week 4.
       </LI>
       <LI>
-        <strong>Athan Kaliakmanis</strong>, <strong>Jalon Daniels</strong> and{' '}
-        <strong>Tyson Bagent</strong> are fill-in starters. Kaliakmanis is a drop the moment Jayden
-        Daniels practices in full.
+        <strong>Aaron Rodgers</strong> (PIT, 6.5%) is the deeper stream. He scored 19.96 in Week 4
+        with 3 TD and 2 INT, and he gets Indianapolis at home.
       </LI>
-      <LI><strong>Malik Willis</strong> and <strong>Geno Smith</strong> are not streams.</LI>
+      <LI>
+        Starters under 10% worth a line: <strong>Michael Penix Jr.</strong> (ATL, 6.0%, 12.72
+        points, vs BAL), <strong>Deshaun Watson</strong> (CLE, 8.6%, 14.92, at NYJ) and{' '}
+        <strong>Cam Ward</strong> (TEN, 6.1%, 13.58, vs HOU).
+      </LI>
+      <LI>
+        <strong>Jalon Daniels</strong> and <strong>Tyson Bagent</strong> are the fill-ins. A few
+        dollars each, no more.
+      </LI>
+      <LI>
+        Hold, don&apos;t cut, <strong>Jacoby Brissett</strong> (ARI hosts DET, ARI implied 25.0)
+        and <strong>Geno Smith</strong>. Both are starters.
+      </LI>
+      <LI>
+        Speculative: <strong>Tyler Huntley</strong> (BAL, 0.1%) starts Sunday night if Lamar
+        Jackson sits. <strong>Athan Kaliakmanis</strong> (WSH) only matters if Jayden Daniels has a
+        setback in practice.
+      </LI>
     </UL>
 
     <H2>D/ST Streaming Board</H2>
@@ -368,11 +402,11 @@ const Body = () => (
     <OpponentChart />
     <UL>
       <LI>
-        <strong>Jacksonville</strong> hosts Philadelphia (18.0 implied). The Eagles are missing
-        DeVonta Smith and Hollywood Brown, and Barkley is Questionable.
+        <strong>Jacksonville</strong> hosts Philadelphia (18.0 implied) in London. The Eagles are
+        missing DeVonta Smith and Hollywood Brown, and Barkley is hurt.
       </LI>
       <LI>
-        <strong>Dallas</strong> hosts Tampa Bay (19.0) in Jalon Daniels&apos; first start. It is
+        <strong>Dallas</strong> hosts Tampa Bay (19.0) in Jalon Daniels&apos; second start. It is
         Thursday night, so set it early.
       </LI>
       <LI>
@@ -417,7 +451,7 @@ const Body = () => (
         <TR><TH scope="col">#</TH><TH scope="col">Player</TH><TH scope="col">Team</TH><TH scope="col">Type</TH><TH scope="col">Week 4</TH><TH scope="col">Wk 5</TH></TR>
       </THead>
       <TBody>
-        <TR><TD>1</TD><TD><strong>Jeremiah Trotter Jr.</strong></TD><TD>PHI</TD><TD><Tag kind="T" /></TD><TD>10 solo and 4 assisted tackles.</TD><TD>at JAX</TD></TR>
+        <TR><TD>1</TD><TD><strong>Jeremiah Trotter Jr.</strong></TD><TD>PHI</TD><TD><Tag kind="T" /></TD><TD>10 solo and 4 assisted tackles.</TD><TD>at JAX (London)</TD></TR>
         <TR><TD>2</TD><TD><strong>Jacob Rodriguez</strong></TD><TD>MIA</TD><TD><Tag kind="T" /></TD><TD>18 tackles, 9 solo and 9 assisted.</TD><TD>vs CIN</TD></TR>
         <TR><TD>3</TD><TD><strong>Ernest Jones IV</strong></TD><TD>SEA</TD><TD><Tag kind="both" /></TD><TD>6 solo, 6 assisted, a sack and an interception.</TD><TD>vs SF</TD></TR>
         <TR><TD>4</TD><TD><strong>Jamien Sherwood</strong></TD><TD>NYJ</TD><TD><Tag kind="T" /></TD><TD>5 solo, 7 assisted and a forced fumble.</TD><TD>vs CLE</TD></TR>
@@ -458,26 +492,32 @@ const Body = () => (
     <H2>The Injury Ledger</H2>
     <H3>Out or on IR</H3>
     <UL>
-      <LI><strong>Jayden Daniels</strong> (WSH QB): Out in our database. Reports split on Week 5, so treat him as out until he practices. <strong>Marcus Mariota</strong> is Doubtful (knee), about a month per reports. Kaliakmanis.</LI>
-      <LI><strong>Caleb Williams</strong> (CHI QB): Out, hamstring, week-to-week. Bagent.</LI>
-      <LI><strong>Baker Mayfield</strong> (TB QB): Out, dislocated thumb on the throwing hand, 3&ndash;6 weeks. Jalon Daniels.</LI>
+      <LI><strong>Marcus Mariota</strong> (WSH QB): started Week 4 and sprained his MCL in London. Out indefinitely, no timetable. <strong>Athan Kaliakmanis</strong> (186 yards, a TD and an INT in relief) is the backup.</LI>
+      <LI><strong>Caleb Williams</strong> (CHI QB): Out, hamstring, week-to-week. Bagent is named the Week 5 starter.</LI>
+      <LI><strong>Baker Mayfield</strong> (TB QB): dislocated thumb on the throwing hand. Todd Bowles named Week 7 as the earliest return. Jalon Daniels made his first start in Week 4 against Green Bay, and Thursday at Dallas is his second.</LI>
       <LI><strong>Zach Charbonnet</strong> (SEA RB): Out, ruled out for Week 5. Jadarian Price is on IR. Emanuel Wilson.</LI>
-      <LI><strong>Josh Jacobs</strong> (GB RB): Out, no timeline. Lloyd.</LI>
+      <LI><strong>Josh Jacobs</strong> (GB RB): Out, no timeline.</LI>
       <LI><strong>Tank Bigsby</strong> (PHI RB): Out, core muscle surgery, headed to IR. Shipley.</LI>
       <LI><strong>DeVonta Smith</strong> (PHI WR): Out, hamstring, up to three weeks. <strong>Hollywood Brown</strong>: Out, ankle. Darius Cooper.</LI>
       <LI><strong>Terry McLaurin</strong> (WSH WR): Out, hamstring. <strong>Jaylin Lane</strong>: season over, fractured and dislocated ankle.</LI>
       <LI><strong>Breece Hall</strong> (NYJ RB): Out, quad, week-to-week. Braelon Allen is 75.9% rostered, so he is gone.</LI>
       <LI><strong>Mason Taylor</strong> (NYJ TE): Out, thumb. Sadiq keeps the job despite a zero in Week 4.</LI>
-      <LI><strong>Keenan Allen</strong> (IND WR): Out, groin. <strong>Alec Pierce</strong> is on IR.</LI>
-      <LI><strong>Tyquan Thornton</strong> (KC WR): Out in our database, and Kansas City is on bye. Do not chase the 25.6.</LI>
+      <LI><strong>Alec Pierce</strong> (IND WR): on IR.</LI>
+      <LI><strong>Tyquan Thornton</strong> (KC WR): Out in our database, and Kansas City is on bye. Do not chase the 25.6 points.</LI>
+    </UL>
+    <H3>Out in Week 4, Week 5 still open</H3>
+    <UL>
+      <LI><strong>Jayden Daniels</strong> (WSH QB): Out in Week 4 with a left elbow. Dan Quinn is aiming for a full practice week and a Week 5 start.</LI>
+      <LI><strong>Justin Jefferson</strong> (MIN WR): Out in Week 4 with an ankle, and he could play Week 5. Decides how much Hockenson sees.</LI>
+      <LI><strong>Keenan Allen</strong> (IND WR): Out in Week 4 with a groin. No Week 5 designation yet.</LI>
     </UL>
     <H3>Questionable and week-to-week</H3>
     <UL>
+      <LI><strong>Lamar Jackson</strong> (BAL QB): Questionable. He sprained his left ankle in Week 4 and did not play the second half. The Baltimore at Atlanta line flipped from Baltimore -2.5 to Atlanta -1.5 on Tuesday morning. Tyler Huntley starts if he sits.</LI>
       <LI><strong>Saquon Barkley</strong> (PHI RB): Questionable, hamstring, week-to-week. Decides how big Shipley gets.</LI>
-      <LI><strong>Justin Jefferson</strong> (MIN WR): out in Week 4 with an ankle, and the reporting is optimistic for Week 5. Decides how much Hockenson sees.</LI>
       <LI><strong>Ja&apos;Marr Chase</strong> (CIN WR): Questionable, concussion protocol. <strong>Tee Higgins</strong>: Questionable, adductor, day-to-day (11 for 157 in Week 4). Dohnte Meyers.</LI>
-      <LI><strong>DJ Moore</strong> (BUF WR): Questionable, AC joint. Coleman.</LI>
-      <LI><strong>Chris Brooks</strong> (GB RB): Questionable, ankle. Lloyd.</LI>
+      <LI><strong>DJ Moore</strong> (BUF WR): Questionable, AC joint, reported as not long-term. Coleman.</LI>
+      <LI><strong>Chris Brooks</strong> (GB RB): Questionable, ankle.</LI>
     </UL>
 
     <H2>Receipts: Grading Week 4</H2>
@@ -497,9 +537,10 @@ const Body = () => (
       </TBody>
     </Table>
     <P>
-      Cousins was the best return on the board: a $1 bid for 20.6 points. Now the misses.
+      Cousins was the best return on the board: a $1 bid for 20.6 points. Now the misses and the
+      shrugs.
     </P>
-    <Table aria-label="Week 4 board misses">
+    <Table aria-label="Week 4 board misses and pushes">
       <THead>
         <TR><TH scope="col">Player</TH><TH scope="col">Points</TH><TH scope="col">Wk 4 bid</TH><TH scope="col">What happened</TH></TR>
       </THead>
@@ -509,6 +550,11 @@ const Body = () => (
         <TR><TD><strong>Jaylen Wright</strong></TD><TD>0.7</TD><TD>3&ndash;7%</TD><TD>The losing half of a backfield.</TD></TR>
         <TR><TD><strong>Kendre Miller</strong></TD><TD>0.9</TD><TD>$1</TD><TD>The losing half of a backfield.</TD></TR>
         <TR><TD><strong>Keenan Allen</strong></TD><TD>DNP</TD><TD>3&ndash;6%</TD><TD>Groin. Did not play.</TD></TR>
+        <TR><TD><strong>Jakobi Meyers</strong></TD><TD>4.8</TD><TD>2&ndash;4%</TD><TD>Not enough.</TD></TR>
+        <TR><TD><strong>Darren Waller</strong></TD><TD>5.1</TD><TD>2&ndash;4%</TD><TD>Not enough, and Carolina is on bye.</TD></TR>
+        <TR><TD><strong>Mack Hollins</strong></TD><TD>6.8</TD><TD>1&ndash;2%</TD><TD>Questionable now.</TD></TR>
+        <TR><TD><strong>Tre&apos; Harris</strong></TD><TD>7.5</TD><TD>1&ndash;2%</TD><TD>Not enough.</TD></TR>
+        <TR><TD><strong>Marcus Mariota</strong></TD><TD>n/a</TD><TD>$1</TD><TD>Started in London and got hurt. Our stat feed is missing a rushing TD, so there is no point figure.</TD></TR>
       </TBody>
     </Table>
     <H3>The lesson</H3>
@@ -526,18 +572,19 @@ const Body = () => (
 
     <H2>The Darkness Doctrine</H2>
     <P>
-      Last week&apos;s misses wrote this week&apos;s rules. Four of them.
+      Last week&apos;s misses wrote this week&apos;s rules. Five of them.
     </P>
     <H3>Rule 1: Pay for the job, not the vacancy</H3>
     <P>
-      A hurt starter creates a hole, and the hole is not the same thing as a role. Wilson is
-      priced at the top because the snaps are his. Wright and Miller were priced like jobs when
-      they were halves of one, and the box score sent the bill.
+      A hurt starter creates a hole, and the hole is not the same thing as a role. Wright and
+      Miller were priced like jobs when they were halves of one, and the box score sent the bill.
+      MarShawn Lloyd is this week&apos;s example: the vacancy is four weeks old, the job has not
+      paid, and he dropped off the top of the board.
     </P>
     <H3>Rule 2: A fill-in quarterback is worth a few dollars</H3>
     <P>
       In superflex, a fill-in starting QB is worth a few dollars. A backup to a backup is not.
-      That is why Kaliakmanis, Jalon Daniels and Bagent sit at 1&ndash;5%.
+      That is why Jalon Daniels and Bagent sit at 1&ndash;4%.
     </P>
     <H3>Rule 3: On a bye week, check the lineup before you bid</H3>
     <P>
@@ -549,6 +596,11 @@ const Body = () => (
       Tampa Bay at Dallas kicks off the week. Jalon Daniels and the Dallas D/ST have to be set
       before Thursday night.
     </P>
+    <H3>Rule 5: London locks early</H3>
+    <P>
+      Philadelphia at Jacksonville kicks off Sunday at 9:30 a.m. ET. Shipley, Cooper, Strange,
+      Trotter and the Jacksonville D/ST lock then, so set them before you go to bed Saturday.
+    </P>
     <Quote>
       The vacancy gets the headline. The snaps get the points. Buy the snaps.
     </Quote>
@@ -557,27 +609,27 @@ const Body = () => (
     <UL>
       <LI><strong>Jaylen Wright</strong> and <strong>Kendre Miller</strong>: the losing halves. Receipts above.</LI>
       <LI><strong>Darren Waller</strong>: Carolina is on bye, and he scored 5.1.</LI>
-      <LI><strong>Geno Smith</strong>: not a stream.</LI>
-      <LI><strong>Jacoby Brissett</strong>: three interceptions.</LI>
       <LI><strong>Mack Hollins</strong>: Questionable.</LI>
-      <LI><strong>Tyquan Thornton</strong>: Out, and Kansas City is on bye.</LI>
-      <LI><strong>Hold</strong> Kenyon Sadiq. Hold Keenan Allen only if you have an open IR slot.</LI>
+      <LI><strong>Tyquan Thornton</strong>: Out, and Kansas City is on bye. Do not chase the 25.6 points.</LI>
+      <LI><strong>Hold</strong> Jacoby Brissett and Geno Smith in superflex. Hold Kenyon Sadiq. Hold Keenan Allen until Friday&apos;s injury report.</LI>
     </UL>
 
     <H2>The Week 5 Bid Sheet</H2>
     <P>Set your claims in this order.</P>
     <OL>
-      <LI><strong>Emanuel Wilson</strong> at 16&ndash;22%. This is the one to win.</LI>
+      <LI><strong>Emanuel Wilson</strong> at 12&ndash;18%. A rental, so don&apos;t go past the top of the range.</LI>
+      <LI><strong>Will Shipley</strong> at 10&ndash;15%. He locks Sunday morning in London.</LI>
       <LI><strong>Keon Coleman</strong> at 8&ndash;12%.</LI>
-      <LI><strong>T.J. Hockenson</strong> at 8&ndash;12% if your tight end is a streamer.</LI>
-      <LI><strong>MarShawn Lloyd</strong> at 6&ndash;10%.</LI>
+      <LI><strong>T.J. Hockenson</strong> at 6&ndash;10% if your tight end is a streamer.</LI>
       <LI>Superflex: <strong>Kirk Cousins</strong> at 5&ndash;8%, then <strong>C.J. Stroud</strong> at 4&ndash;7%.</LI>
+      <LI><strong>Jameis Winston</strong> at 3&ndash;6% if you need a third quarterback.</LI>
       <LI>The rest of the Full Board at the ranges listed, and $1 on Isaac TeSlaa and Roman Wilson.</LI>
     </OL>
     <P>
-      Injury statuses are as of Tuesday. Jefferson, Moore, Barkley and Chase decide four of these
-      bids before kickoff, so check the report before you lock lineups. Thursday night is Tampa Bay
-      at Dallas. Andy Darkness is a pen name and has no rooting interest, allegedly.
+      Injury statuses are as of Tuesday. Jefferson, Moore and Barkley decide three of these bids
+      before kickoff, and Lamar Jackson decides the Sunday night quarterback picture, so check the
+      report before you lock lineups. Thursday night is Tampa Bay at Dallas. Andy Darkness is a pen
+      name and has no rooting interest, allegedly.
     </P>
   </>
 );
