@@ -1,5 +1,5 @@
 import React, {
-  useState, useEffect, useMemo, lazy, Suspense,
+  useState, useEffect, useMemo, Suspense,
 } from 'react';
 import { useSelector } from 'react-redux';
 import {
@@ -24,11 +24,12 @@ import {
   DISPLAY_FONT, alertActionSx, alertSx, dimSx, ghostButtonSx, homeRootSx, panelSx, panelTitleSx,
   primaryButtonSx, sectionTitleSx, skeletonSx,
 } from '../common/homeIslandSx';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 
 // Lazy: PublicHighlights imports the strategy-article registry (full JSX
 // bodies), which must not ride in the initial main bundle. See the note in
 // PublicHighlights.jsx.
-const PublicHighlights = lazy(() => import('./PublicHighlights'));
+const PublicHighlights = lazyWithReload(() => import('./PublicHighlights'));
 
 // The greeting's "Week 4 · Sunday, Oct 4" line: the NFL week the manager's
 // in-season leagues are in, or null when none is in season or they disagree
@@ -66,8 +67,8 @@ const heroGhostSx = {
 
 // The create and join flows load when a Manager first opens them: Home is in
 // the initial bundle, and neither dialog is needed to paint it.
-const JoinLeagueDialog = lazy(() => import('./JoinLeagueDialog'));
-const CreateLeagueStepper = lazy(() => import('./CreateLeagueStepper'));
+const JoinLeagueDialog = lazyWithReload(() => import('./JoinLeagueDialog'));
+const CreateLeagueStepper = lazyWithReload(() => import('./CreateLeagueStepper'));
 
 function UserPage() {
   const user = useSelector((store) => store.user);

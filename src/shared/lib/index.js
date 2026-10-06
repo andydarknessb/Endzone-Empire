@@ -6,6 +6,7 @@
  */
 export { useEndpoint } from './useEndpoint';
 export { subscribeToScoreFeed } from './scoreFeed';
+export { lazyWithReload, loadWithReload } from './lazyWithReload';
 // The League Dashboard commissioner strip and the commissioner-console page
 // (ADR 0034) both read this one derivation off the league payload.
 export { commissionerFacts } from './commissionerFacts';

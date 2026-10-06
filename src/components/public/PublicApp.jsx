@@ -1,21 +1,22 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Container } from '@mui/material';
 import { HelmetProvider } from 'react-helmet-async';
 import AppThemeProvider from '../../theme/AppThemeProvider';
 import { LoadingRows } from './kit/DataState';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 
 // Lazy-load every public page so the authed bundle doesn't grow — the public
 // tree is only ever fetched when a visitor lands on a public URL.
-const RankingsPage = lazy(() => import('./pages/RankingsPage'));
-const DraftSimPage = lazy(() => import('./pages/DraftSimPage'));
-const PlayerProfilePage = lazy(() => import('./pages/PlayerProfilePage'));
-const WaiverWirePage = lazy(() => import('./pages/WaiverWirePage'));
-const StrategyIndexPage = lazy(() => import('./pages/StrategyIndexPage'));
-const ArticlePage = lazy(() => import('./pages/ArticlePage'));
-const RecapsPage = lazy(() => import('./pages/RecapsPage'));
-const RecapDetailPage = lazy(() => import('./pages/RecapDetailPage'));
-const LegalPage = lazy(() => import('./pages/LegalPage'));
+const RankingsPage = lazyWithReload(() => import('./pages/RankingsPage'));
+const DraftSimPage = lazyWithReload(() => import('./pages/DraftSimPage'));
+const PlayerProfilePage = lazyWithReload(() => import('./pages/PlayerProfilePage'));
+const WaiverWirePage = lazyWithReload(() => import('./pages/WaiverWirePage'));
+const StrategyIndexPage = lazyWithReload(() => import('./pages/StrategyIndexPage'));
+const ArticlePage = lazyWithReload(() => import('./pages/ArticlePage'));
+const RecapsPage = lazyWithReload(() => import('./pages/RecapsPage'));
+const RecapDetailPage = lazyWithReload(() => import('./pages/RecapDetailPage'));
+const LegalPage = lazyWithReload(() => import('./pages/LegalPage'));
 
 function SuspenseFallback() {
   return (
