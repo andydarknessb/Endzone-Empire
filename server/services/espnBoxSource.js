@@ -310,6 +310,10 @@ function readScoreSummaryLines(summary, roster, teamDefense) {
 
 // A fumble line names the recoverer as `RECOVERED by TEAM-X.Name` (any case).
 const RECOVERED_BY_RE = /recovered by ([A-Z]{2,3})-([A-Za-z'.-]+)/i;
+// A penalty that wipes the play ends `- No Play`; a replay review that overturned
+// it says `REVERSED` (no space after the period) and the text after it is the
+// play as it stands. ESPN keeps the original description in front of both (#2003).
+const NO_PLAY_RE = /- No Play/;
 // `FUMBLES (X.Name)` names the player who forced it; `(Aborted)` is a snap.
 const FORCED_BY_RE = /FUMBLES \(([^)]+)\)/;
 // Blocked kicks: `field goal is BLOCKED (X)`, `punt is BLOCKED by X`,
@@ -367,8 +371,10 @@ function scanPlays(summary, teams, roster, teamDefense) {
         return other ? other.teamCode : null;
       };
 
-      if (/\bFUMBLES\b|\bMUFFS\b/.test(text)) {
-        const rec = RECOVERED_BY_RE.exec(text);
+      const reversedAt = text.lastIndexOf('REVERSED');
+      const fumbleText = reversedAt < 0 ? text : text.slice(reversedAt + 'REVERSED'.length);
+      if (/\bFUMBLES\b|\bMUFFS\b/.test(fumbleText) && !NO_PLAY_RE.test(text)) {
+        const rec = RECOVERED_BY_RE.exec(fumbleText);
         if (rec) {
           const recTeam = teamCodeOf(rec[1]);
           if (recTeam && possession && recTeam !== possession) {
@@ -381,7 +387,7 @@ function scanPlays(summary, teams, roster, teamDefense) {
             }
           }
         }
-        const forced = FORCED_BY_RE.exec(text);
+        const forced = FORCED_BY_RE.exec(fumbleText);
         if (forced && !/^Aborted$/i.test(forced[1].trim()) && possession) {
           const defTeam = opponentOf(possession);
           const p = defTeam ? roster.findByGamebookName(defTeam, forced[1].trim()) : null;
