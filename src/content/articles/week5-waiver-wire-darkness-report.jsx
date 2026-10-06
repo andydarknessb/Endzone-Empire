@@ -275,8 +275,8 @@ const Body = () => (
     <HeroBanner />
     <Lead>
       Week 4 left the wire with a Seattle backfield missing Charbonnet and Price, a Philadelphia
-      backfield missing Barkley and Bigsby, and a Buffalo receiver who caught six for 116 once DJ
-      Moore left the game. The darkness has a shape this week, and half of it is rentals. Let&apos;s
+      backfield missing Barkley and Bigsby, and a Buffalo receiver who caught six for 116 in a
+      game DJ Moore left in the second quarter. The darkness has a shape this week, and half of it is rentals. Let&apos;s
       spend.
     </Lead>
     <P>
@@ -373,9 +373,9 @@ const Body = () => (
         with 3 TD and 2 INT, and he gets Indianapolis at home.
       </LI>
       <LI>
-        Starters under 10% worth a line: <strong>Michael Penix Jr.</strong> (ATL, 6.0%, 12.72
-        points, vs BAL), <strong>Deshaun Watson</strong> (CLE, 8.6%, 14.92, at NYJ) and{' '}
-        <strong>Cam Ward</strong> (TEN, 6.1%, 13.58, vs HOU).
+        Starters under 10% worth a line, with their Week 4 points: <strong>Michael Penix
+        Jr.</strong> (ATL, 6.0%, 12.72, vs BAL), <strong>Deshaun Watson</strong> (CLE, 8.6%,
+        14.92, at NYJ) and <strong>Cam Ward</strong> (TEN, 6.1%, 13.58, vs HOU).
       </LI>
       <LI>
         <strong>Jalon Daniels</strong> and <strong>Tyson Bagent</strong> are the fill-ins. A few
