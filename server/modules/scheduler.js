@@ -252,8 +252,10 @@ async function tickUnlocked() {
     // never delay any of those. Both jobs are free and keyless, so unlike the
     // nightly projection fill above they need no off-peak hour of their own.
     // Roster status (#1766) BEFORE the depth chart: the daily run, then the
-    // Saturday run after the 4pm ET elevation deadline. The pre-holdout-capture
-    // run lives in runHoldoutSnapshots, ahead of the capture itself.
+    // Saturday run after the 4pm ET elevation deadline, then the game-day run
+    // (#1995: hourly from 6 hours before to 4 hours after a kickoff). The
+    // pre-holdout-capture run lives in runHoldoutSnapshots, ahead of the
+    // capture itself.
     try {
       await runDailyEspnRosterStatusSync();
     } catch (err) {
@@ -473,8 +475,8 @@ const ET_PARTS = new Intl.DateTimeFormat('en-US', {
 });
 
 /**
- * The NFL roster-status Sync run (#1766, ADR 0041 amendment), three triggers on
- * one job, all ordered before what reads or follows them. The daily run is the
+ * The NFL roster-status Sync run (#1766, ADR 0041 amendment), four triggers on
+ * one job (daily, Saturday, pre-capture, and the game-day run of #1995), all ordered before what reads or follows them. The daily run is the
  * plain cadence gate, exactly like the depth-chart run it precedes.
  */
 async function runDailyEspnRosterStatusSync({ now = new Date() } = {}) {

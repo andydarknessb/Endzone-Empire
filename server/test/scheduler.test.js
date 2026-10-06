@@ -2318,7 +2318,7 @@ test('runGameDayEspnRosterStatusSync: a success 59 minutes old holds it, a never
 
 test('runGameDayEspnRosterStatusSync: a nearest kickoff 7 hours ahead or 5 hours past does not run, 5 hours ahead and 3 hours past do (window)', async (t) => {
   const now = new Date('2026-10-04T14:00:00Z');
-  for (const [offsetH, runs] of [[7, 0], [-5, 0], [5, 1], [-3, 1]]) {
+  for (const [offsetH, runs] of [[7, 0], [-5, 0], [5, 1], [-3, 1], [-3.75, 1]]) {
     stubKickoff(t, new Date(now.getTime() + offsetH * HOUR_MS));
     const calls = stubRosterRun(t, rosterOk(new Date(now.getTime() - 2 * HOUR_MS)));
     await scheduler.runGameDayEspnRosterStatusSync({ now });
