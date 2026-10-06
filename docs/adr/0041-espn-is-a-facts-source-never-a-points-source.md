@@ -86,3 +86,15 @@ nothing on the card blocks on ESPN.
   chart does. This is a fact and never a point: the card shows "Practice squad"
   or "Reserve" as context, Active shows nothing, and no projected number moves
   and nothing reads the status for availability yet.
+- 2026-10-06 (#1995). A fourth trigger on the roster-status Sync run: a
+  game-day run. It is due when any `nfl_games` kickoff falls between 4 hours
+  ago and 6 hours ahead and no successful run finished in the last 60
+  minutes, so an elevation ESPN flips overnight or on game day is read within
+  the hour up to kickoff and corrected during the game. It sits beside the
+  daily and Saturday runs at the end of the tick, before the depth-chart run,
+  and after a failed attempt it holds off 30 minutes as the pre-capture run
+  does, so a dead ESPN host cannot put 32 timeouts into every game-day tick.
+  The other three triggers stand. Accepted residual: a player ESPN has not
+  flipped by kickoff reads Practice squad, projects to zero and is never
+  auto-started until the next hourly run. No tolerance rule is built, because
+  no source lists elevations (#1764).

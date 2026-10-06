@@ -2297,3 +2297,71 @@ test('runPreHoldoutEspnRosterStatusSync does not re-run every tick behind a rece
   assert.deepEqual(await scheduler.runPreHoldoutEspnRosterStatusSync({ now }), { results: [] }, 'the failure is old enough to retry');
   assert.equal(calls.length, 1);
 });
+
+// ---- game-day roster-status run (#1995) -------------------------------------
+
+// A pool.query stub standing in for nfl_games: one kickoff at `kickoff`, matched
+// against the [from, to] window the trigger passes, so the window is bound by
+// the bounds themselves and not by a canned answer.
+function stubKickoff(t, kickoff) {
+  const pool = require('../modules/pool');
+  t.mock.method(pool, 'query', async (sql, [from, to]) => {
+    assert.match(sql, /"nfl_games"/);
+    return { rows: kickoff >= from && kickoff <= to ? [{ '?column?': 1 }] : [] };
+  });
+}
+
+test('runGameDayEspnRosterStatusSync runs when a kickoff is within 4 hours back to 6 hours ahead and no success finished in the last 60 minutes (#1995)', async (t) => {
+  const now = new Date('2026-10-04T14:00:00Z');
+  stubKickoff(t, new Date(now.getTime() + 3 * HOUR_MS));
+  const calls = stubRosterRun(t, rosterOk(new Date(now.getTime() - 61 * 60 * 1000)));
+  assert.deepEqual(await scheduler.runGameDayEspnRosterStatusSync({ now }), { results: [] });
+  assert.deepEqual(calls, [{ now }]);
+});
+
+test('runGameDayEspnRosterStatusSync: a success 59 minutes old holds it, a never-run job is due (60-minute interval)', async (t) => {
+  const now = new Date('2026-10-04T14:00:00Z');
+  stubKickoff(t, new Date(now.getTime() + 3 * HOUR_MS));
+  let calls = stubRosterRun(t, rosterOk(new Date(now.getTime() - 59 * 60 * 1000)));
+  assert.equal(await scheduler.runGameDayEspnRosterStatusSync({ now }), null);
+  assert.equal(calls.length, 0);
+  t.mock.method(require('../modules/syncRun'), 'lastRun', async () => NEVER_RUN);
+  assert.ok(await scheduler.runGameDayEspnRosterStatusSync({ now }));
+  assert.equal(calls.length, 1);
+});
+
+test('runGameDayEspnRosterStatusSync: a nearest kickoff 7 hours ahead or 5 hours past does not run, 5 hours ahead and 3 hours past do (window)', async (t) => {
+  const now = new Date('2026-10-04T14:00:00Z');
+  for (const [offsetH, runs] of [[7, 0], [-5, 0], [5, 1], [-3, 1], [-3.75, 1]]) {
+    stubKickoff(t, new Date(now.getTime() + offsetH * HOUR_MS));
+    const calls = stubRosterRun(t, rosterOk(new Date(now.getTime() - 2 * HOUR_MS)));
+    await scheduler.runGameDayEspnRosterStatusSync({ now });
+    assert.equal(calls.length, runs, `kickoff ${offsetH}h from now`);
+    t.mock.restoreAll();
+  }
+});
+
+test('runGameDayEspnRosterStatusSync: a failed attempt 10 minutes ago holds it, one 31 minutes ago does not (30-minute hold-off)', async (t) => {
+  const now = new Date('2026-10-04T14:00:00Z');
+  const old = { finishedAt: new Date(now.getTime() - 2 * HOUR_MS), detail: {} };
+  stubKickoff(t, new Date(now.getTime() + 3 * HOUR_MS));
+  let calls = stubRosterRun(t, { latest: { ok: false, finishedAt: new Date(now.getTime() - 10 * 60 * 1000) }, latestOk: old });
+  assert.equal(await scheduler.runGameDayEspnRosterStatusSync({ now }), null, 'ESPN failed 10 minutes ago');
+  assert.equal(calls.length, 0);
+  t.mock.restoreAll();
+
+  stubKickoff(t, new Date(now.getTime() + 3 * HOUR_MS));
+  calls = stubRosterRun(t, { latest: { ok: false, finishedAt: new Date(now.getTime() - 31 * 60 * 1000) }, latestOk: old });
+  assert.deepEqual(await scheduler.runGameDayEspnRosterStatusSync({ now }), { results: [] });
+  assert.equal(calls.length, 1);
+});
+
+test('tickUnlocked runs the game-day roster-status trigger contained, after the Saturday run and before the depth-chart run (#1995)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(source.indexOf('async function tickUnlocked'), source.indexOf('async function runRetention'));
+  assert.match(tickBody, /try \{\s*await runGameDayEspnRosterStatusSync\(\);\s*\} catch/);
+  assert.ok(tickBody.indexOf('runSaturdayEspnRosterStatusSync()') < tickBody.indexOf('runGameDayEspnRosterStatusSync()'));
+  assert.ok(tickBody.indexOf('runGameDayEspnRosterStatusSync()') < tickBody.indexOf('runDailyEspnDepthChartSync()'));
+});

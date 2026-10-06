@@ -258,8 +258,10 @@ async function tickUnlocked() {
     // never delay any of those. Both jobs are free and keyless, so unlike the
     // nightly projection fill above they need no off-peak hour of their own.
     // Roster status (#1766) BEFORE the depth chart: the daily run, then the
-    // Saturday run after the 4pm ET elevation deadline. The pre-holdout-capture
-    // run lives in runHoldoutSnapshots, ahead of the capture itself.
+    // Saturday run after the 4pm ET elevation deadline, then the game-day run
+    // (#1995: hourly from 6 hours before to 4 hours after a kickoff). The
+    // pre-holdout-capture run lives in runHoldoutSnapshots, ahead of the
+    // capture itself.
     try {
       await runDailyEspnRosterStatusSync();
     } catch (err) {
@@ -269,6 +271,11 @@ async function tickUnlocked() {
       await runSaturdayEspnRosterStatusSync();
     } catch (err) {
       console.error('Saturday ESPN roster-status sync failed (will retry next tick):', err.message);
+    }
+    try {
+      await runGameDayEspnRosterStatusSync();
+    } catch (err) {
+      console.error('game-day ESPN roster-status sync failed (will retry next tick):', err.message);
     }
     try {
       await runDailyEspnDepthChartSync();
@@ -474,8 +481,8 @@ const ET_PARTS = new Intl.DateTimeFormat('en-US', {
 });
 
 /**
- * The NFL roster-status Sync run (#1766, ADR 0041 amendment), three triggers on
- * one job, all ordered before what reads or follows them. The daily run is the
+ * The NFL roster-status Sync run (#1766, ADR 0041 amendment), four triggers on
+ * one job (daily, Saturday, pre-capture, and the game-day run of #1995), all ordered before what reads or follows them. The daily run is the
  * plain cadence gate, exactly like the depth-chart run it precedes.
  */
 async function runDailyEspnRosterStatusSync({ now = new Date() } = {}) {
@@ -554,6 +561,32 @@ async function runPreHoldoutEspnRosterStatusSync({ now = new Date() } = {}) {
   // timeouts ahead of the capture on every five-minute tick for the whole
   // window (#1766 risk review). The daily and Saturday runs keep their own
   // retry-next-tick behaviour at the end of the tick, where they delay nothing.
+  if (latest && latest.ok === false && latest.finishedAt &&
+      now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
+  return require('./espnFactsSync').runRosterStatusSync({ now });
+}
+
+const GAME_DAY_RUN_INTERVAL_MS = 60 * 60 * 1000;
+const GAME_DAY_KICKOFF_BEHIND_MS = 4 * 60 * 60 * 1000;
+const GAME_DAY_KICKOFF_AHEAD_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * The game-day run (#1995): due when any `nfl_games` kickoff falls between 4
+ * hours ago and 6 hours ahead and no successful run finished in the last hour,
+ * so an elevation ESPN flips overnight or on game day is read within the hour
+ * up to kickoff and corrected during the game. After a failed attempt it holds
+ * off PRE_HOLDOUT_RETRY_MS like the pre-capture run, so a dead ESPN host cannot
+ * put its timeouts into every game-day tick. A player ESPN has not flipped by
+ * kickoff still reads Practice squad until the next run (ADR 0041, accepted).
+ */
+async function runGameDayEspnRosterStatusSync({ now = new Date() } = {}) {
+  const kickoff = await pool.query(
+    `SELECT 1 FROM "nfl_games" WHERE "kickoff_at" BETWEEN $1 AND $2 LIMIT 1`,
+    [new Date(now.getTime() - GAME_DAY_KICKOFF_BEHIND_MS), new Date(now.getTime() + GAME_DAY_KICKOFF_AHEAD_MS)]
+  );
+  if (!kickoff.rows[0]) return null;
+  const { latest, latestOk } = await require('./syncRun').lastRun(ROSTER_STATUS_JOB);
+  if (latestOk && now.getTime() - latestOk.finishedAt.getTime() < GAME_DAY_RUN_INTERVAL_MS) return null;
   if (latest && latest.ok === false && latest.finishedAt &&
       now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
   return require('./espnFactsSync').runRosterStatusSync({ now });
@@ -1671,6 +1704,7 @@ module.exports = {
   runDailyEspnOwnershipSync,
   runDailyEspnRosterStatusSync,
   runSaturdayEspnRosterStatusSync,
+  runGameDayEspnRosterStatusSync,
   runPreHoldoutEspnRosterStatusSync,
   saturdayElevationDeadline,
   holdoutWindowOpenedAt,
