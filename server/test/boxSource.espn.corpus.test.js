@@ -170,6 +170,43 @@ test('phase two: a Defensive PAT Conversion Score summary line credits the named
   assert.equal(box.players.filter((p) => p.stats.twoPointReturn > 0).length, 1);
 });
 
+// --- reviews and penalties (#2003) ---------------------------------------------
+// ESPN keeps the original description in front of the review sentence, so a
+// fumble that did not stand still reads FUMBLES and RECOVERED by.
+
+test('corpus: a fumble the replay REVERSED credits no recovery, no IDP recovery and no forced fumble', () => {
+  const box = apply(byLabel('reversed fumble: DEN at PHI'));
+  assert.equal(def(box, 'PHI').fumbleRecovery, 0);
+  assert.equal(def(box, 'DEN').fumbleRecovery, 0);
+  assert.equal(box.players.filter((p) => p.stats.idpFumbleRecovery > 0).length, 0);
+  assert.equal(box.players.filter((p) => p.stats.forcedFumble > 0).length, 0);
+  assert.equal(box.playTextFindings.length, 0);
+});
+
+test('corpus: a fumble erased by a penalty ("- No Play") credits no recovery, no IDP recovery and no forced fumble', () => {
+  const box = apply(byLabel('No Play fumble: CAR at ARI'));
+  assert.equal(def(box, 'ARI').fumbleRecovery, 0);
+  assert.equal(def(box, 'CAR').fumbleRecovery, 0);
+  assert.equal(box.players.filter((p) => p.stats.idpFumbleRecovery > 0).length, 0);
+  assert.equal(box.players.filter((p) => p.stats.forcedFumble > 0).length, 0);
+  assert.equal(box.playTextFindings.length, 0);
+});
+
+test('corpus: an UPHELD review leaves the fumble standing (control: the guard must not skip every review)', () => {
+  const box = apply(byLabel('upheld review: PHI-K.Ringo'));
+  assert.equal(def(box, 'PHI').fumbleRecovery, 1);
+  assert.equal(box.players.filter((p) => p.stats.idpFumbleRecovery === 1).length, 1, 'K.Ringo');
+  assert.equal(box.players.filter((p) => p.stats.forcedFumble === 1).length, 1, 'J.Hunt');
+});
+
+test('corpus: a reversal INTO a fumble credits the fumble that follows the last REVERSED (control: no blanket skip)', () => {
+  const box = apply(byLabel('reversal into a fumble'));
+  assert.equal(def(box, 'HOU').fumbleRecovery, 1);
+  assert.equal(def(box, 'LAR').fumbleRecovery, 0);
+  assert.equal(box.players.filter((p) => p.stats.idpFumbleRecovery === 1).length, 1, 'D.Hunter');
+  assert.equal(box.players.filter((p) => p.stats.forcedFumble === 1).length, 1, 'A.Al-Shaair');
+});
+
 test('corpus: the whole corpus produces exactly the expected takeaway totals', () => {
   let recoveries = 0;
   let blocks = 0;
@@ -182,9 +219,9 @@ test('corpus: the whole corpus produces exactly the expected takeaway totals', (
     }
     for (const p of box.players) forced += p.stats.forcedFumble;
   }
-  assert.equal(recoveries, 5, 'IND, PIT, TEN, SF, DAL recoveries; none from blocks, own recoveries or two-point tries');
+  assert.equal(recoveries, 7, 'IND, PIT, TEN, SF, DAL, PHI (upheld), HOU (reversal into a fumble); none from blocks, own recoveries, two-point tries, a REVERSED fumble or a No Play');
   assert.equal(blocks, 4, 'two blocked FGs, one blocked punt, one blocked PAT');
-  assert.equal(forced, 7, 'K.Moore, K.Gainwell, M.McCrary-Ball, N.Bosa, K.Hamilton, J.Bosa, J.Houston; none for Q.Williams (ambiguous) or Aborted');
+  assert.equal(forced, 9, 'K.Moore, K.Gainwell, M.McCrary-Ball, N.Bosa, K.Hamilton, J.Bosa, J.Houston, J.Hunt (upheld), A.Al-Shaair (reversal into a fumble); none for a REVERSED or No Play fumble, Q.Williams (ambiguous) or Aborted');
   let twoPointReturns = 0;
   for (const line of corpus.lines) {
     for (const p of apply(line).players) twoPointReturns += p.stats.twoPointReturn;
