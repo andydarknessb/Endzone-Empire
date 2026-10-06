@@ -610,6 +610,64 @@ test.each([
   expect(within(rail).getAllByTestId('recent-activity-row')).toHaveLength(rows);
 });
 
+// Red-tell (#1998): at md the standings and Recent activity sit side by side only
+// when the feed fills the rail (ceil(12 * 5 / 6) = 10 rows at 12 teams). A feed
+// that resolved shorter (zero rows and a failed read included) stacks them: one
+// full-width column. Moving the threshold down one row turns the 9-row case red,
+// up one turns the 10-row case red; the other cases bind the stack existing at
+// all. The feed is read once per load.
+const mainColumns = () => cssFor(screen.getByTestId('dashboard-main'));
+
+test.each([
+  ['an empty feed', { data: [] }],
+  ['a failed read', { reject: new Error('boom') }],
+  ['3 rows', { data: transactionRows(3) }],
+  ['9 rows', { data: transactionRows(9) }],
+])('a short feed stacks Recent activity under the standings: %s', async (_name, feed) => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': feed,
+  });
+  renderPage();
+
+  const main = await screen.findByTestId('dashboard-main');
+  // The base (xs) rule is one column already, so the 8fr md rule going away is
+  // what shows the stack.
+  await waitFor(() => expect(cssFor(main)).not.toMatch(/8fr/));
+});
+
+test('a feed that fills the rail keeps the standings beside it (10 rows at 12 teams)', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': { data: transactionRows(10) },
+  });
+  renderPage();
+
+  const rail = await screen.findByTestId('dashboard-rail');
+  await within(rail).findAllByTestId('recent-activity-row');
+  expect(mainColumns()).toMatch(/8fr/);
+});
+
+test('while the feed is loading the main row stays two columns', async () => {
+  mockGetByUrl({
+    '/api/league/1': leagueDetail({
+      league: { draft_status: 'complete', season_status: 'regular', current_week: 3 },
+      teams: buildTeams(12),
+    }),
+    '/api/league/1/transactions': { pending: true },
+  });
+  renderPage();
+
+  await screen.findByTestId('dashboard-main');
+  expect(mainColumns()).toMatch(/8fr/);
+});
+
 // Red-tell (#1993): Quick Actions is alone under the main row, so it spans the
 // shell's full content width, in a fantasy league and a pick'em-only one alike,
 // mounted once. Re-pairing it in a two-track grid (the old second row), or

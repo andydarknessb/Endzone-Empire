@@ -53,7 +53,7 @@
  *     own new geometry.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { setupLayoutGuard, DASHBOARD_URL } from './fixtures/layoutGuardFixtures';
+import { setupLayoutGuard, DASHBOARD_URL, LEAGUE_ID } from './fixtures/layoutGuardFixtures';
 import { routeLeagueOfSize } from './fixtures/teamCountDashboardFixtures';
 
 type TeamCount = 6 | 12 | 20;
@@ -166,6 +166,29 @@ function probeRailBound() {
 }
 
 /**
+ * #1998: the standings' width against the main row's, and where Recent
+ * activity starts against where the standings end. Side by side, the standings
+ * are the 8fr column and Recent activity's top is level with theirs; stacked,
+ * the standings span the row and Recent activity starts at or below their
+ * bottom edge.
+ */
+function probeStack() {
+  const rect = (testId: string) => {
+    const el = document.querySelector(`[data-testid="${testId}"]`);
+    return el ? el.getBoundingClientRect() : null;
+  };
+  const main = rect('dashboard-main');
+  const standings = rect('slot-standings');
+  const recent = rect('slot-recent-activity');
+  return {
+    mainWidth: main ? main.width : null,
+    standingsWidth: standings ? standings.width : null,
+    standingsBottom: standings ? standings.bottom : null,
+    recentTop: recent ? recent.top : null,
+  };
+}
+
+/**
  * Quick Actions is alone in its row, so its card spans the shell's content
  * width (the shell's box minus its horizontal padding) and lays one column per
  * group out at md.
@@ -243,9 +266,15 @@ async function fontsReady(page: Page) {
  * of these to settle, which is what makes the width and height probes below
  * measure the fully-loaded page rather than a mid-load layout.
  */
-async function gotoDashboard(page: Page, width: number, height: number, teams: TeamCount = 6) {
+async function gotoDashboard(
+  page: Page,
+  width: number,
+  height: number,
+  teams: TeamCount = 6,
+  feedRows?: number,
+) {
   await setupLayoutGuard(page);
-  if (teams !== 6) await routeLeagueOfSize(page, teams);
+  if (teams !== 6 || feedRows !== undefined) await routeLeagueOfSize(page, teams, feedRows);
   await page.setViewportSize({ width, height });
   await page.goto(DASHBOARD_URL);
   // Attached, not visible: the fact grid does not display below md (#1980), so
@@ -256,7 +285,8 @@ async function gotoDashboard(page: Page, width: number, height: number, teams: T
   await page.getByTestId('around-the-league-tile').first().waitFor();
   await page.getByTestId('standings-table-count').waitFor();
   await page.getByTestId('quick-actions-body').waitFor();
-  await page.getByTestId('recent-activity-row').first().waitFor();
+  // An empty feed renders its sentence instead of a row (#1998).
+  await page.getByTestId(feedRows === 0 ? 'recent-activity-empty' : 'recent-activity-row').first().waitFor();
   await fontsReady(page);
 }
 
@@ -405,6 +435,76 @@ for (const teams of TEAM_COUNTS) {
       }
     });
     expect((await diffs()).card).toBeLessThanOrEqual(60);
+  });
+}
+
+// ---- Geometry: a feed too short to fill the rail stacks (#1998, ADR 0034) ----
+
+// ceil(12 * 5 / 6) = 10 rows fill the rail at 12 teams. Fewer (an empty feed
+// included) stack Recent activity under the full-width standings, so no bare
+// rail column is left beside them; moving the threshold down one row turns the
+// 9-row case red, up one turns the 10-row case red.
+for (const feedRows of [0, 3, 9]) {
+  test(`League Dashboard, 12 teams, ${feedRows}-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the standings span the row and Recent activity sits under them`, async ({ page }) => {
+    await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, feedRows);
+
+    const g = await page.evaluate(probeStack);
+    expect(g.mainWidth, 'dashboard-main must be found').not.toBeNull();
+    expect(
+      Math.abs((g.standingsWidth as number) - (g.mainWidth as number)),
+      `standings width=${g.standingsWidth} main width=${g.mainWidth}`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      g.recentTop as number,
+      `recent-activity top=${g.recentTop} standings bottom=${g.standingsBottom}`,
+    ).toBeGreaterThanOrEqual((g.standingsBottom as number) - 1);
+  });
+}
+
+test(`League Dashboard, 12 teams, 10-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the rail is full, so the row stays two columns within the 120px and 60px bounds`, async ({ page }) => {
+  await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, 10);
+
+  const g = await page.evaluate(probeStack);
+  expect(g.standingsWidth as number, `standings width=${g.standingsWidth} main width=${g.mainWidth}`).toBeLessThan(
+    (g.mainWidth as number) - 100,
+  );
+  expect(g.recentTop as number, `recent-activity top=${g.recentTop} standings bottom=${g.standingsBottom}`).toBeLessThan(
+    g.standingsBottom as number,
+  );
+  const bound = await page.evaluate(probeRailBound);
+  expect(Math.abs((bound.mainHeight as number) - (bound.standingsHeight as number))).toBeLessThanOrEqual(120);
+  expect(Math.abs((bound.railCardHeight as number) - (bound.standingsHeight as number))).toBeLessThanOrEqual(60);
+});
+
+// The widget stays the feed's only reader: a second caller of
+// `useLeagueTransactions` would be a second request (`useEndpoint` has no
+// cache). This runs against the dev server (`npm run client`), where
+// React.StrictMode (src/index.js) mounts every effect twice, so the one
+// widget's one read is two requests; a second caller, or the stack remounting
+// the card, makes it four or three. The 20-row case is the baseline that never
+// stacks. The 3-row case reads its count only after the stacked layout has
+// settled (`gotoDashboard` returns at the first feed row, before the restack),
+// so a card remounted by the restack is counted too.
+const STRICT_MODE_READS_PER_MOUNT = 2;
+for (const [feedRows, stacks] of [[3, true], [20, false]] as const) {
+  test(`League Dashboard, 12 teams, ${feedRows}-row feed: the feed is read once per card mount`, async ({ page }) => {
+    let requests = 0;
+    page.on('request', (req) => {
+      if (req.method() === 'GET' && new URL(req.url()).pathname === `/api/league/${LEAGUE_ID}/transactions`) requests += 1;
+    });
+    await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, feedRows);
+    if (stacks) {
+      await expect
+        .poll(
+          async () => {
+            const g = await page.evaluate(probeStack);
+            return Math.abs((g.standingsWidth as number) - (g.mainWidth as number));
+          },
+          { message: 'slot-standings must span dashboard-main once the 3-row feed stacks' },
+        )
+        .toBeLessThanOrEqual(1);
+    }
+    expect(requests).toBe(STRICT_MODE_READS_PER_MOUNT);
   });
 }
 

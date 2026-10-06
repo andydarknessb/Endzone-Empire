@@ -122,6 +122,9 @@ const EMPTY_HIDDEN_SX = { '&:empty': { display: 'none' } };
 export default function LeagueDashboardPage() {
   const { leagueId } = useParams();
   const { league, teams, viewerTeamId, loading, refetch, updateTeams } = useLeague(leagueId);
+  // Set by Recent activity once its feed resolves short of the rail (#1998);
+  // false while loading, so the row starts two columns.
+  const [feedShort, setFeedShort] = useState(false);
 
   // Live team identity: patch a rename or new avatar into the shared league
   // membership so every consumer reading teams[] reflects it with no request.
@@ -480,7 +483,10 @@ export default function LeagueDashboardPage() {
             sx={{
               display: 'grid',
               gap: '22px',
-              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 8fr) 4fr' },
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                md: feedShort ? 'minmax(0, 1fr)' : 'minmax(0, 8fr) 4fr',
+              },
               alignItems: 'start',
             }}
           >
@@ -497,11 +503,19 @@ export default function LeagueDashboardPage() {
             {/* Recent activity shows ceil(teams * 5 / 6) rows (a standings row is
                 49px, an activity row 58.8px), which measures within about 40px
                 of the standings for 4 to 20 teams once the feed has that many
-                rows, and falls shorter when the feed does not (a league early
-                in its life). The layout spec bounds the card at 60px and the
-                main row at 120px. It rides down with the scroll above md
-                instead of leaving bare page beside the last standings row. `top: 22px` and not an app-bar offset:
-                Nav.jsx:95 is position="static", so nothing is pinned above it.
+                rows. When the resolved feed has fewer (a league early in its
+                life, an empty or failed read), the card would leave the rail
+                column bare beside the standings, so the row goes to one column
+                and the card sits under them at full width (#1998, ADR 0034);
+                while the feed loads the row stays two columns. The layout spec
+                bounds the card at 60px and the main row at 120px for a filled
+                rail.
+
+                The rail is sticky above md, which matters only in the two-column
+                layout: it rides down with the scroll instead of leaving bare page
+                beside the last standings row. Stacked, it is inert. `top: 22px`
+                and not an app-bar offset: Nav.jsx:95 is position="static", so
+                nothing is pinned above it.
                 One card (#1110): the commissioner panel that used to compose
                 below it here moved to the strip under the header. */}
             <Box
@@ -515,7 +529,11 @@ export default function LeagueDashboardPage() {
               }}
             >
               <Box data-testid="slot-recent-activity">
-                <RecentActivity leagueId={leagueId} rowLimit={Math.ceil((teams.length * 5) / 6)} />
+                <RecentActivity
+                  leagueId={leagueId}
+                  rowLimit={Math.ceil((teams.length * 5) / 6)}
+                  onFeedShort={setFeedShort}
+                />
               </Box>
             </Box>
           </Box>
