@@ -21,3 +21,21 @@ test("netlify.toml's CSP connect-src allows the production API origin the worker
 test('netlify.toml keeps /service-worker.js uncached (Cache-Control: no-cache) so a new worker is picked up', () => {
   expect(toml).toMatch(/for = "\/service-worker\.js"[\s\S]*?Cache-Control = "no-cache"/);
 });
+
+// #stale-asset: a missing hashed asset must 404, not fall through to the SPA
+// rewrite that answers index.html with 200 under the year-long immutable cache
+// /static/* carries. Netlify applies redirect rules in order and, unforced,
+// only when no file exists, so the /static/* 404 must come before /*.
+test('netlify.toml answers a missing /static/* asset 404 before the SPA fallback can serve index.html', () => {
+  const rules = toml.split('[[redirects]]').slice(1).map((block) => ({
+    from: (/from\s*=\s*"([^"]+)"/.exec(block) || [])[1],
+    status: Number((/status\s*=\s*(\d+)/.exec(block) || [])[1]),
+    force: /force\s*=\s*true/.test(block),
+  }));
+  const staticRule = rules.findIndex((r) => r.from === '/static/*');
+  const spaRule = rules.findIndex((r) => r.from === '/*');
+  expect(staticRule).toBeGreaterThanOrEqual(0);
+  expect(rules[staticRule].status).toBe(404);
+  expect(rules[staticRule].force).toBe(false);
+  expect(staticRule).toBeLessThan(spaRule);
+});

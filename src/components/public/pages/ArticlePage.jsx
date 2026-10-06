@@ -11,6 +11,7 @@ import Prose from '../kit/Prose';
 import ArticleCard from '../kit/ArticleCard';
 import SectionHeading from '../kit/SectionHeading';
 import { EmptyState } from '../kit/DataState';
+import { loadWithReload } from '../../../shared/lib/lazyWithReload';
 import { getArticle, relatedArticles } from '../../../content/articles';
 
 // Frontmatter carries a date-only string, which Date parses as UTC midnight;
@@ -124,7 +125,7 @@ function ArticlePage() {
   // The body is not in the initial bundle: it is fetched when this page
   // renders it (one chunk per article, see content/articles/index.js).
   const Body = useMemo(
-    () => (article ? lazy(() => article.loadBody().then((component) => ({ default: component }))) : null),
+    () => (article ? lazy(() => loadWithReload(() => article.loadBody().then((component) => ({ default: component })))) : null),
     // A new slug is a new article; loadBody is stable per article.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [slug],
