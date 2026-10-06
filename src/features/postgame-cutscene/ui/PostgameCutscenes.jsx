@@ -1,12 +1,15 @@
 import React, {
-  lazy, Suspense, useCallback, useEffect, useState,
+  Suspense, useCallback, useEffect, useState,
 } from 'react';
 import PropTypes from 'prop-types';
+// The file, not the shared/lib barrel: this module is on Home's initial
+// bundle, and the barrel would pull every shared/lib module in with it.
+import { lazyWithReload } from '../../../shared/lib/lazyWithReload';
 
 // One chunk holds the title card, the queue, the scenes and (later) the audio,
 // and it is fetched only when the list is non-empty: Home stays inside the
 // initial JavaScript budget.
-const PostgameStage = lazy(() => import('./PostgameStage'));
+const PostgameStage = lazyWithReload(() => import('./PostgameStage'));
 
 const SNACKBAR_MS = 5000;
 

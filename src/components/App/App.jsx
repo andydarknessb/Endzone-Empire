@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import {
   HashRouter as Router,
   Navigate,
@@ -39,29 +39,30 @@ import NavigationGuard from '../NavigationGuard/NavigationGuard';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 import './App.css';
+import { lazyWithReload } from '../../shared/lib/lazyWithReload';
 
-const LeagueManagement = lazy(() => import('../LeagueManagement/LeagueManagement'));
-const LeagueDiscovery = lazy(() => import('../LeagueDiscovery/LeagueDiscovery'));
-const LineupPage = lazy(() => import('../../pages/lineup'));
-const PlayerManagement = lazy(() => import('../PlayerManagement/PlayerManagement'));
-const LeagueDashboardPage = lazy(() => import('../../pages/league-dashboard'));
-const MatchupPage = lazy(() => import('../../pages/matchup'));
-const GameCenterPage = lazy(() => import('../../pages/game-center'));
-const CommissionerConsolePage = lazy(() => import('../../pages/commissioner-console'));
-const DraftBoard = lazy(() => import('../DraftBoard/DraftBoard'));
-const DraftSettings = lazy(() => import('../DraftSettings/DraftSettings'));
-const LeagueRules = lazy(() => import('../LeagueRules/LeagueRules'));
-const PickemPage = lazy(() => import('../../pages/pickem'));
-const DraftPresenter = lazy(() => import('../DraftPresenter/DraftPresenter'));
-const WaiversPage = lazy(() => import('../../pages/waivers'));
-const TradeCenter = lazy(() => import('../TradeCenter/TradeCenter'));
-const TransactionLog = lazy(() => import('../TransactionLog/TransactionLog'));
-const PowerRankings = lazy(() => import('../PowerRankings/PowerRankings'));
-const LeagueHistoryPage = lazy(() => import('../../pages/league-history'));
-const NotificationPrefs = lazy(() => import('../NotificationPrefs/NotificationPrefs'));
-const AuthenticatedPlayerProfilePage = lazy(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
-const AdminDashboard = lazy(() => import('../AdminDashboard/AdminDashboard'));
-const DraftSimScreen = lazy(() => import('../DraftSim/DraftSimScreen'));
+const LeagueManagement = lazyWithReload(() => import('../LeagueManagement/LeagueManagement'));
+const LeagueDiscovery = lazyWithReload(() => import('../LeagueDiscovery/LeagueDiscovery'));
+const LineupPage = lazyWithReload(() => import('../../pages/lineup'));
+const PlayerManagement = lazyWithReload(() => import('../PlayerManagement/PlayerManagement'));
+const LeagueDashboardPage = lazyWithReload(() => import('../../pages/league-dashboard'));
+const MatchupPage = lazyWithReload(() => import('../../pages/matchup'));
+const GameCenterPage = lazyWithReload(() => import('../../pages/game-center'));
+const CommissionerConsolePage = lazyWithReload(() => import('../../pages/commissioner-console'));
+const DraftBoard = lazyWithReload(() => import('../DraftBoard/DraftBoard'));
+const DraftSettings = lazyWithReload(() => import('../DraftSettings/DraftSettings'));
+const LeagueRules = lazyWithReload(() => import('../LeagueRules/LeagueRules'));
+const PickemPage = lazyWithReload(() => import('../../pages/pickem'));
+const DraftPresenter = lazyWithReload(() => import('../DraftPresenter/DraftPresenter'));
+const WaiversPage = lazyWithReload(() => import('../../pages/waivers'));
+const TradeCenter = lazyWithReload(() => import('../TradeCenter/TradeCenter'));
+const TransactionLog = lazyWithReload(() => import('../TransactionLog/TransactionLog'));
+const PowerRankings = lazyWithReload(() => import('../PowerRankings/PowerRankings'));
+const LeagueHistoryPage = lazyWithReload(() => import('../../pages/league-history'));
+const NotificationPrefs = lazyWithReload(() => import('../NotificationPrefs/NotificationPrefs'));
+const AuthenticatedPlayerProfilePage = lazyWithReload(() => import('../PlayerDetail/AuthenticatedPlayerProfilePage'));
+const AdminDashboard = lazyWithReload(() => import('../AdminDashboard/AdminDashboard'));
+const DraftSimScreen = lazyWithReload(() => import('../DraftSim/DraftSimScreen'));
 
 // The Draft route path this session's skip link targets (issue #121). Kept
 // as a narrow, route-scoped check rather than a site-wide skip link: the
