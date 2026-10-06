@@ -25,7 +25,7 @@
 // name, position and team), and an athlete listed twice is served once. An entry
 // with no Ownership row on any of them is dropped.
 /** @type {WaiverBoard[]} */
-const BOARDS = [require('./week4-2026')];
+const BOARDS = [require('./week4-2026'), require('./week5-2026')];
 
 /**
  * The board for a season's week, or null when the column has none. Callers
