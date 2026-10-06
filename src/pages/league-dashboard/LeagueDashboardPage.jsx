@@ -509,9 +509,13 @@ export default function LeagueDashboardPage() {
                 and the card sits under them at full width (#1998, ADR 0034);
                 while the feed loads the row stays two columns. The layout spec
                 bounds the card at 60px and the main row at 120px for a filled
-                rail. It rides down with the scroll above md
-                instead of leaving bare page beside the last standings row. `top: 22px` and not an app-bar offset:
-                Nav.jsx:95 is position="static", so nothing is pinned above it.
+                rail.
+
+                The rail is sticky above md, which matters only in the two-column
+                layout: it rides down with the scroll instead of leaving bare page
+                beside the last standings row. Stacked, it is inert. `top: 22px`
+                and not an app-bar offset: Nav.jsx:95 is position="static", so
+                nothing is pinned above it.
                 One card (#1110): the commissioner panel that used to compose
                 below it here moved to the strip under the header. */}
             <Box

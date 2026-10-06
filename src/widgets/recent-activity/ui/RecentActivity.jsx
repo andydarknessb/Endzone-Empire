@@ -27,10 +27,11 @@ import { activityBadge, formatActivityTime } from '../model/recentActivityModel'
  * most the rail ever shows; below the `md` breakpoint only the first 5 of those
  * render, matching the mockup's mobile artboard. At and above it the cap is the
  * optional `rowLimit` (never more than the 17 fetched): the dashboard passes
- * `ceil(team count * 5 / 6)` because this card rides the rail beside the
- * standings, and a standings row measures 49px against 58.8px for an activity
- * row (6:5), so that many rows end the rail about where the standings table
- * does instead of leaving bare page under it (#1993). 17 is that count for a
+ * `ceil(team count * 5 / 6)` because, while the feed fills the rail, this card
+ * rides the rail beside the standings (a feed with fewer rows stacks it under
+ * them, see `onFeedShort` below), and a standings row measures 49px against
+ * 58.8px for an activity row (6:5), so that many rows end the rail about where
+ * the standings table does instead of leaving bare page under it (#1993). 17 is that count for a
  * 20-team league, the largest. The loading skeleton follows the SAME cap (5
  * rows below `md`, `rowLimit` or 17 at and above it) rather than always
  * holding 17, so loading never overshoots the row count the breakpoint is

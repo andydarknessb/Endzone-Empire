@@ -482,15 +482,28 @@ test(`League Dashboard, 12 teams, 10-row feed @ ${MEASURED_WIDTH}x${HEIGHT}: the
 // React.StrictMode (src/index.js) mounts every effect twice, so the one
 // widget's one read is two requests; a second caller, or the stack remounting
 // the card, makes it four or three. The 20-row case is the baseline that never
-// stacks.
+// stacks. The 3-row case reads its count only after the stacked layout has
+// settled (`gotoDashboard` returns at the first feed row, before the restack),
+// so a card remounted by the restack is counted too.
 const STRICT_MODE_READS_PER_MOUNT = 2;
-for (const feedRows of [3, 20]) {
+for (const [feedRows, stacks] of [[3, true], [20, false]] as const) {
   test(`League Dashboard, 12 teams, ${feedRows}-row feed: the feed is read once per card mount`, async ({ page }) => {
     let requests = 0;
     page.on('request', (req) => {
       if (req.method() === 'GET' && new URL(req.url()).pathname === `/api/league/${LEAGUE_ID}/transactions`) requests += 1;
     });
     await gotoDashboard(page, MEASURED_WIDTH, HEIGHT, 12, feedRows);
+    if (stacks) {
+      await expect
+        .poll(
+          async () => {
+            const g = await page.evaluate(probeStack);
+            return Math.abs((g.standingsWidth as number) - (g.mainWidth as number));
+          },
+          { message: 'slot-standings must span dashboard-main once the 3-row feed stacks' },
+        )
+        .toBeLessThanOrEqual(1);
+    }
     expect(requests).toBe(STRICT_MODE_READS_PER_MOUNT);
   });
 }
