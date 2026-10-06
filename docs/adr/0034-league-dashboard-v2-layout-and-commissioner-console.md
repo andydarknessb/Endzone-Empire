@@ -123,3 +123,25 @@ many rows, and falls shorter when the feed is short (a league early in its
 life); the layout spec bounds the rail card at 60px of the standings and the
 main row at 120px. Quick Actions' status line also wraps between `md` and `lg`
 now, since each of its three columns has a third of the card there.
+
+### Amendment (2026-10-06, #1998): a short feed stacks the rail card under the standings
+
+"The standings beside a rail holding Recent activity, in every phase" holds
+only while the feed fills the rail. At `md` and up the two sit side by side
+when the card shows `ceil(teams * 5 / 6)` rows, which is when the feed has at
+least that many. When the feed has resolved with fewer (zero rows and a failed
+read included), the card cannot fill its column and the rail would be bare page
+beside the standings (measured at 12 teams: 611px, 551px and 447px). The
+standings then span the full row and Recent activity sits under them at full
+width, showing every row it has: the lone full-width card rule above, applied to
+the main row. While the feed is loading the row stays two columns (the skeleton
+is already rail height), so a league with a short feed sees one reflow when the
+feed resolves and a league past its first weeks sees none. Below `md` nothing
+changes.
+
+The card reports the verdict up (`onFeedShort`) rather than the page reading
+the feed: `useEndpoint` has no cache, so a second caller of
+`useLeagueTransactions` would be a second `GET /api/league/:id/transactions`,
+and the dashboard keeps making one. A filler card and a Commissioner-only
+join-request card in the rail were both rejected: the first is new content with
+no design canvas, the second fills the rail for one role only.

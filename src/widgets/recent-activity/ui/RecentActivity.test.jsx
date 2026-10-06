@@ -259,6 +259,77 @@ test('rowLimit does not raise the phone cap of five', async () => {
   expect(screen.getAllByTestId('recent-activity-row')).toHaveLength(5);
 });
 
+// #1998: the dashboard stacks the card under the standings when the feed cannot
+// fill the rail, so the card reports whether it is short of `rowLimit` rows. The
+// feed is read once, here; the page never makes a second read to find out.
+// Red-tells: comparing against the shown count (mobile cap included) turns the
+// phone case red; `<=` for `<` turns the exact-fill case red; reporting while
+// loading turns the loading case red.
+describe('onFeedShort', () => {
+  const lastReport = (spy) => spy.mock.calls[spy.mock.calls.length - 1]?.[0];
+
+  test('a feed with fewer rows than rowLimit reports short', async () => {
+    const onFeedShort = jest.fn();
+    mockGet({ data: EIGHT_ROWS.slice(0, 3) });
+    renderWidget({ rowLimit: 10, onFeedShort });
+
+    await screen.findAllByTestId('recent-activity-row');
+    expect(lastReport(onFeedShort)).toBe(true);
+  });
+
+  test('a feed that fills rowLimit exactly reports not short', async () => {
+    const onFeedShort = jest.fn();
+    mockGet({ data: SEVENTEEN_ROWS });
+    renderWidget({ rowLimit: 10, onFeedShort });
+
+    await screen.findAllByTestId('recent-activity-row');
+    expect(lastReport(onFeedShort)).toBe(false);
+  });
+
+  test('an empty feed and a failed read both report short', async () => {
+    const empty = jest.fn();
+    mockGet({ data: [] });
+    const { unmount } = renderWidget({ rowLimit: 10, onFeedShort: empty });
+    await screen.findByTestId('recent-activity-empty');
+    expect(lastReport(empty)).toBe(true);
+    unmount();
+
+    const failed = jest.fn();
+    mockGet({ reject: { response: { status: 500 } } });
+    renderWidget({ rowLimit: 10, onFeedShort: failed });
+    await screen.findByTestId('recent-activity-error');
+    expect(lastReport(failed)).toBe(true);
+  });
+
+  test('while loading it never reports short', async () => {
+    const onFeedShort = jest.fn();
+    mockGet({ pending: true });
+    renderWidget({ rowLimit: 10, onFeedShort });
+
+    await screen.findAllByTestId('recent-activity-skeleton-row');
+    expect(onFeedShort).not.toHaveBeenCalledWith(true);
+  });
+
+  test('on a phone the md+ rowLimit still decides, not the phone cap of five', async () => {
+    mobile = true;
+    const onFeedShort = jest.fn();
+    mockGet({ data: EIGHT_ROWS });
+    renderWidget({ rowLimit: 10, onFeedShort });
+
+    await screen.findAllByTestId('recent-activity-row');
+    expect(lastReport(onFeedShort)).toBe(true);
+  });
+
+  test('without rowLimit the fetch limit of seventeen is the fill line', async () => {
+    const onFeedShort = jest.fn();
+    mockGet({ data: EIGHT_ROWS });
+    renderWidget({ onFeedShort });
+
+    await screen.findAllByTestId('recent-activity-row');
+    expect(lastReport(onFeedShort)).toBe(true);
+  });
+});
+
 test('an empty response renders the empty-state sentence', async () => {
   mockGet({ data: [] });
   renderWidget();
