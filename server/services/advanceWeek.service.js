@@ -47,8 +47,9 @@ async function advanceWeek({ leagueId }) {
     season: current_season,
     week: current_week, // the week just finalized
     mode: 'advance',
-    // The Advance that completes the season defers no Called shot (nothing
-    // later will judge it). Absent means false, judgeCalledShots' default.
+    // The one decider of season completion: the Advance that completes the
+    // season defers no Called shot (nothing later will judge it). Only true is
+    // sent; absent means false all the way down to judgeCalledShots.
     ...(advance.seasonStatus === 'complete' && { seasonComplete: true }),
   }).catch((err) => {
     console.error('settle follow-up failed for league %s week %s:', leagueId, current_week, err.message);
