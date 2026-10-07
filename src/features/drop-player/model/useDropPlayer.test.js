@@ -1,6 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../../../api/apiClient';
+import { clearWeekMatchupsCache } from '../../../entities/matchup';
 import { useDropPlayer } from './useDropPlayer';
+
+jest.mock('../../../entities/matchup', () => ({ clearWeekMatchupsCache: jest.fn() }));
 
 jest.mock('../../../api/apiClient', () => ({
   __esModule: true,
@@ -76,61 +79,43 @@ test('confirmDrop with no candidate is a no-op', async () => {
 });
 
 // #1881: a drop or an undo changes the roster behind Expected final, so the
-// page's `onLanded` runs once the write has landed, never on a failure.
-describe('onLanded after a drop or undo (#1881)', () => {
-  test('a confirmed drop whose DELETE resolves calls it once; the Undo POST brings it to two', async () => {
+// feature clears the league's Matchups cache once the write has landed, never
+// on a failure.
+describe('Matchups cache after a drop or undo (#1881)', () => {
+  test('a confirmed drop whose DELETE resolves clears it once; the Undo POST brings it to two', async () => {
     apiClient.delete.mockResolvedValue({});
     apiClient.post.mockResolvedValue({});
-    const onLanded = jest.fn();
-    const { result } = renderHook(() =>
-      useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue(), onLanded })
-    );
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue() }));
     act(() => result.current.requestDrop(entry));
     await act(async () => result.current.confirmDrop());
-    expect(onLanded).toHaveBeenCalledTimes(1);
+    expect(clearWeekMatchupsCache).toHaveBeenCalledTimes(1);
+    expect(clearWeekMatchupsCache).toHaveBeenCalledWith(7);
 
     const [, options] = mockNotify.mock.calls[0];
     await act(async () => options.onAction());
 
     expect(apiClient.post).toHaveBeenCalled();
-    expect(onLanded).toHaveBeenCalledTimes(2);
+    expect(clearWeekMatchupsCache).toHaveBeenCalledTimes(2);
   });
 
-  test('a drop and an undo with no onLanded passed do not throw', async () => {
-    apiClient.delete.mockResolvedValue({});
-    apiClient.post.mockResolvedValue({});
-    const refresh = jest.fn().mockResolvedValue();
-    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh }));
-    act(() => result.current.requestDrop(entry));
-    await act(async () => result.current.confirmDrop());
-    const [, options] = mockNotify.mock.calls[0];
-    await act(async () => options.onAction());
-
-    expect(refresh).toHaveBeenCalledTimes(2);
-  });
-
-  test('a drop whose DELETE is rejected never calls it', async () => {
+  test('a drop whose DELETE is rejected never clears it', async () => {
     apiClient.delete.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
-    const onLanded = jest.fn();
-    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn(), onLanded }));
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn() }));
     act(() => result.current.requestDrop(entry));
     await act(async () => result.current.confirmDrop());
 
-    expect(onLanded).not.toHaveBeenCalled();
+    expect(clearWeekMatchupsCache).not.toHaveBeenCalled();
   });
 
-  test('an Undo whose POST is rejected does not call it again', async () => {
+  test('an Undo whose POST is rejected does not clear it again', async () => {
     apiClient.delete.mockResolvedValue({});
     apiClient.post.mockRejectedValue({ response: { status: 500, data: { error: 'nope' } } });
-    const onLanded = jest.fn();
-    const { result } = renderHook(() =>
-      useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue(), onLanded })
-    );
+    const { result } = renderHook(() => useDropPlayer({ leagueId: 7, refresh: jest.fn().mockResolvedValue() }));
     act(() => result.current.requestDrop(entry));
     await act(async () => result.current.confirmDrop());
     const [, options] = mockNotify.mock.calls[0];
     await act(async () => options.onAction());
 
-    expect(onLanded).toHaveBeenCalledTimes(1);
+    expect(clearWeekMatchupsCache).toHaveBeenCalledTimes(1);
   });
 });

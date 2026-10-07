@@ -363,7 +363,7 @@ const unstubbed = [
   // Draft room's closure for the first time, replacing DraftQuickView. The
   // groups below are pulled in by its barrel imports (entities/player,
   // features/add-player,
-  // features/claim-player, features/swap-players) even though the Draft
+  // features/claim-player, features/lineup-write) even though the Draft
   // room's own `draft` context never renders the pieces that call them -
   // AddPlayerAction/ClaimPlayerAction only mount for context="free_agent"/
   // "waivers", and the bench-management save only fires when a caller passes
@@ -427,7 +427,7 @@ const unstubbed = [
   {
     file: 'hooks/useResilientLineupMutation.js',
     reason:
-      'Pulled in transitively through features/swap-players (the Decision ' +
+      'Pulled in transitively through features/lineup-write (the Decision ' +
       'card\'s bench-options legality rule, isEligibleMove); DraftBoard ' +
       'passes no `onSwap`/`entries`, so the card\'s `lineupManaged` gate is ' +
       'always false there and this mutation never fires.',

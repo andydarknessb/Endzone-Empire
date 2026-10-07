@@ -1787,9 +1787,6 @@ async function setLineup({ leagueId, userId, week, moves }) {
         season,
         week: targetWeek,
         updated: plan.changed.length,
-        attestationCleared: plan.attestationCleared,
-        // Until the client reads `undoable`/`irreversible` alone (spec #2042).
-        calledShotVoided: plan.voidCalledShot,
         undoable: plan.undoable,
         irreversible: plan.irreversible,
       };

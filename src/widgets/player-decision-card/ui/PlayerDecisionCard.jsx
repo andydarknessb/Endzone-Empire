@@ -51,7 +51,7 @@ import {
   NewsList,
   Bio,
 } from '../../../entities/player';
-import { isEligibleMove } from '../../../features/swap-players';
+import { isEligibleMove } from '../../../features/lineup-write';
 import { AddPlayerAction } from '../../../features/add-player';
 import { ClaimPlayerAction } from '../../../features/claim-player';
 import { WatchPlayerAction } from '../../../features/watch-player';
@@ -452,7 +452,7 @@ export default function PlayerDecisionCard(props) {
   const isSpent = Boolean(entry?.spent);
   // f1/r1/r2/r3 (formal review, round 2): Bench and Start now ask the SAME
   // eligibility rule the row path uses (`isEligibleMove`, exported from
-  // `swap-players`) rather than a hand-enumerated set of conditions - the
+  // `lineup-write`) rather than a hand-enumerated set of conditions - the
   // enumeration had already missed a spent starter's Bench button, a spent
   // Start target, and the whole rule while the league is unsettled, three
   // of `onRowClick`'s own refusals a second, independent copy could not

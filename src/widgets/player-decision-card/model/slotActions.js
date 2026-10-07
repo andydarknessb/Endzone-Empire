@@ -1,13 +1,13 @@
 import { hasNoHistory } from '../../../shared/lib';
 import { locked } from '../../../entities/roster';
-import { isEligibleMove } from '../../../features/swap-players';
+import { isEligibleMove } from '../../../features/lineup-write';
 
 /**
  * The Decision card's own two derived move sets (#1240, ADR 0037 AC2/AC4).
  *
  * Both are built on `isEligibleMove` (formal review round 2, findings
  * r1/r2/r3/r4/r5): the SAME pure legality rule `useSwapPlayers`' own
- * `onRowClick`/`isEligibleTarget` enforce, exported from `swap-players` so
+ * `onRowClick`/`isEligibleTarget` enforce, exported from `lineup-write` so
  * this card never keeps its own copy of that rule to fall out of sync with.
  * That is exactly what happened in round 1 - hand-enumerated
  * locked/spent/bestBall conditions here had already missed a spent
