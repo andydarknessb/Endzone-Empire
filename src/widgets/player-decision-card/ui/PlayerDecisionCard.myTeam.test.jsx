@@ -468,46 +468,59 @@ test('the injury tile and the Factor tile render together, independent of which 
   expect(await screen.findByTestId('decision-card-factor')).toHaveTextContent('Matchup +3.5');
 });
 
-test('"No practice this week" shows beside the Questionable tag when the entry is Questionable and its verdict reason is no_practice (ADR 0056)', async () => {
-  renderCard({ entry: entry({ injuryStatus: 'Q', verdictReason: 'no_practice' }) });
+// Start verdict (spec #2042): the notes read the card payload's own `startVerdict`,
+// never an entry field a particular opener decorates.
+const startVerdict = (reason, over = {}) => ({
+  startVerdict: { outcome: 'not_recommended', reason, numberTrusted: true, ...over },
+});
+
+test('"No practice this week" shows beside the Questionable tag when the card payload start verdict reason is no_practice (ADR 0056)', async () => {
+  mockCardRoute(startVerdict('no_practice'));
+  renderCard({ entry: entry({ injuryStatus: 'Q' }) });
   const note = await screen.findByTestId('decision-card-no-practice');
   expect(note).toHaveTextContent('No practice this week');
   expect(screen.getByTestId('injury-tag')).toHaveAttribute('data-status', 'Q');
 });
 
 test.each([
-  ['a Questionable player with no verdict reason', { injuryStatus: 'Q' }],
-  ['a Questionable player with another reason', { injuryStatus: 'Q', verdictReason: 'questionable' }],
-  ['a player now Out whose advice reason is stale', { injuryStatus: 'O', verdictReason: 'no_practice' }],
-  ['a healthy player whose advice reason is stale', { injuryStatus: null, verdictReason: 'no_practice' }],
-])('no practice note for %s', async (_name, over) => {
-  renderCard({ entry: entry(over) });
+  ['a card with no start verdict', {}],
+  ['a start verdict with another reason', startVerdict('questionable')],
+  ['an entry whose own stale verdictReason says no_practice', {}],
+])('no practice note for %s', async (_name, card) => {
+  mockCardRoute(card);
+  renderCard({ entry: entry({ injuryStatus: 'Q', verdictReason: 'no_practice' }) });
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
 });
 
-test('"Backup" shows on the entry whose verdict reason is backup, whatever his designation, and on a compared one (ADR 0057)', async () => {
-  const starter = entry({ injuryStatus: null, verdictReason: 'backup' });
-  renderCard({ entry: starter });
+test('"Backup" shows when the card payload start verdict reason is backup, whatever his designation (ADR 0057)', async () => {
+  mockCardRoute(startVerdict('backup', { numberTrusted: false }));
+  renderCard({ entry: entry({ injuryStatus: null }) });
   expect(await screen.findByTestId('decision-card-backup')).toHaveTextContent('Backup');
   expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
 });
 
-test('no Backup tag for an entry with another or no verdict reason (ADR 0057)', async () => {
-  renderCard({ entry: entry({ verdictReason: 'no_history' }) });
+test('no Backup tag for a start verdict with another reason or none (ADR 0057)', async () => {
+  mockCardRoute(startVerdict('no_history', { numberTrusted: false }));
+  renderCard({ entry: entry({ verdictReason: 'backup' }) });
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.queryByTestId('decision-card-backup')).not.toBeInTheDocument();
 });
 
-test('in compare mode the compared player gets the note by the same rule (ADR 0056)', async () => {
-  const starter = entry({ injuryStatus: 'Q', verdictReason: 'questionable' });
-  const other = entry({ playerId: 2, name: 'Compare Target', injuryStatus: 'Q', verdictReason: 'no_practice' });
+test('in compare mode the compared player gets the note from his own card payload (ADR 0056)', async () => {
+  apiClient.get.mockImplementation((url) => {
+    if (url.includes('/players/2/card?')) return Promise.resolve({ data: { ...ESPN_FACTS, ...startVerdict('no_practice') } });
+    if (url.includes('/card?')) return Promise.resolve({ data: { ...ESPN_FACTS, ...startVerdict('questionable') } });
+    return Promise.reject(new Error(`unexpected request: ${url}`));
+  });
+  const starter = entry({ injuryStatus: 'Q' });
+  const other = entry({ playerId: 2, name: 'Compare Target', injuryStatus: 'Q' });
   renderCard({ entry: starter, entries: [starter, other] });
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('decision-card-compare-action'));
   await user.click(await screen.findByRole('menuitem', { name: 'Compare Target' }));
   const compare = await screen.findByTestId('decision-card-compare');
-  expect(within(compare).getByTestId('decision-card-compare-no-practice')).toHaveTextContent('No practice this week');
+  expect(await within(compare).findByTestId('decision-card-compare-no-practice')).toHaveTextContent('No practice this week');
   expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
 });
 

@@ -13,14 +13,13 @@ const correction = require('../services/correction.service');
 const nflverseSync = require('../services/nflverseSync.service');
 const commissioner = require('../services/commissioner.service');
 const montecarlo = require('../services/montecarlo.service');
-const settleFollowUpSvc = require('../services/settleFollowUp.service');
+const advanceWeekSvc = require('../services/advanceWeek.service');
 const {
   isLeagueCommissioner,
   commissionerPredicate,
 } = require('../services/leagueRole.service');
 const { isMember, requireMember } = require('../services/leagueMembership.service');
 const { requireFantasyLeague } = require('../services/leagueType');
-const { seasonOperationsAvailable, SEASON_BEFORE_DRAFT_MESSAGE } = require('../services/leaguePhase');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -487,44 +486,8 @@ router.post('/league/:id/advance-week', async (req, res) => {
   const leagueId = Number(req.params.id);
   try {
     if (!(await requireLeagueCommissioner(req, res, leagueId))) return;
-    const leagueResult = await pool.query(
-      `SELECT "current_season", "current_week", "pickem_only", "draft_status", "season_status"
-       FROM "leagues" WHERE "id" = $1`,
-      [leagueId]
-    );
-    // #194: refuse before the week is scored, not after. finalizeWeekAndAdvance
-    // refuses too, but it runs SECOND here (see the note below on why scoring
-    // comes first), so a gate only there would answer 409 with a full week of
-    // scores already written.
-    if (!seasonOperationsAvailable(leagueResult.rows[0])) {
-      return res.status(409).json({ error: SEASON_BEFORE_DRAFT_MESSAGE });
-    }
-    const { current_season, current_week } = leagueResult.rows[0];
-    // The score of record, so SETTLE semantics rather than the live path
-    // (#190): the week as played, with no re-materialization and no join to
-    // whatever the roster looks like now. Pinned to the (season, week) read
-    // above, never to current_week afterwards - finalizeWeekAndAdvance moves
-    // it. Score still comes BEFORE finalize: finalize seeds the playoff
-    // bracket from computeStandings over these very scores.
-    const scoredResult = await matchupScoring.scoreMatchups({
-      leagueId,
-      season: current_season,
-      week: current_week,
-      settle: true,
-    });
-    const advance = await season.finalizeWeekAndAdvance({ leagueId });
-    // Post-week analytics in the background - display data, never worth
-    // failing (or delaying) the week advance over. Not awaited; the follow-up
-    // catches and logs each step itself.
-    settleFollowUpSvc.settleFollowUp({
-      leagueId,
-      season: current_season,
-      week: current_week, // the week just finalized
-      mode: 'advance',
-    }).catch((err) => {
-      console.error('settle follow-up failed for league %s:', leagueId, err.message);
-    });
-    res.json({ scored: scoredResult.scored, ...advance });
+    const { scored, advance } = await advanceWeekSvc.advanceWeek({ leagueId });
+    res.json({ scored, ...advance });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Advance week failed:', error);

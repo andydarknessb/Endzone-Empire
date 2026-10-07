@@ -801,6 +801,21 @@ final, the Lineup, the Decision card and the Players page never decide it
 separately. Questionable and Doubtful are not unavailable.
 _Avoid_: inactive, injured
 
+**Start verdict**:
+The one answer, per player per week, to whether he may be started and
+recommended, and why. It has three outcomes: Unavailable, Not recommended
+(startable if a manager insists, never auto-recommended), and Recommendable.
+Not recommended has two kinds of reason: his number does not speak to
+whether he plays (Position-baseline projection, Backup quarterback; he has
+no Upgrade), or his number stands but he may not play (Doubtful, a
+Questionable player with no practice all week). Every surface that shows or
+acts on it reads the same verdict and none re-decides it; a surface may
+ignore an outcome it has no use for, as a Lineup problem ignores Not
+recommended, and only the Start/sit advice acts on no practice all week (ADR
+0056).
+_Avoid_: availability verdict (Availability is the league state), verdict
+reason
+
 **Ledger row**:
 The single row presentation every occupied Lineup row uses, whether
 Starter, Bench, or IR: slot, profile image with the NFL team's colour, name
@@ -1304,7 +1319,13 @@ _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
 The commissioner action that closes out the current week: finalizes scores,
-settles standings, awards trophies and opens the next week.
+settles standings, awards trophies and opens the next week. One function,
+`advanceWeek`, owns the order: the week is scored, then finalized and
+advanced, then the Settle follow-up is started and not awaited (a failure
+there is logged with league and week, and the next Advance week re-judges any
+pending Called shot; the Advance that completes the season has no next one, so
+`advanceWeek` tells the judging the season is complete and it settles every
+shot at once).
 
 **Settle follow-up**:
 The work that follows a Settle pass, in one fixed order: power rankings
@@ -1667,9 +1688,11 @@ under the team's bench with both players' live points, then Hit or Miss once
 final (a void shows no word); a hit is a Trophy; a call made against a
 start/sit probability of 0.8 or higher is bold (spec #1846). The card shows it
 as "Your called shot": pending, locked once the first of the two games kicks
-off, live points once both have, then resolved. A failure anywhere in the
-shot path never blocks saving a lineup. Stored in `lineup_overrides`, which
-also holds Overrides.
+off, live points once both have, then resolved. A lineup save made before
+either player locks that contradicts the open Called shot voids it in the
+same write, so the saved lineup and the shot never disagree (ADR 0058); once
+either has locked, a save leaves it to Advance week. Stored in `lineup_overrides`,
+which also holds Overrides.
 _Avoid_: bet, wager, prediction, pick (that is pick'em), Maverick, lock in
 
 **Override**:

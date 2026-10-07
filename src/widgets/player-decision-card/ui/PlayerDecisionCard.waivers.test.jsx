@@ -163,3 +163,16 @@ test('the decision strip shows the Ownership and depth chart tiles in this conte
   expect(await screen.findByTestId('decision-strip-ownership')).toHaveTextContent('64.0%');
   expect(screen.getByTestId('decision-strip-depth')).toHaveTextContent('RB1');
 });
+
+// Start verdict (spec #2042): a card opened where no Lineup advice exists shows
+// the notes from its own payload.
+test('shows "No practice this week" and "Backup" from the card payload alone, with no Lineup advice', async () => {
+  mockCardRoute({ startVerdict: { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true } });
+  const { unmount } = renderCard({ entry: availabilityEntry({ injuryStatus: 'Q' }), availability: { waiverPriority: 3 } });
+  expect(await screen.findByTestId('decision-card-no-practice')).toHaveTextContent('No practice this week');
+  unmount();
+
+  mockCardRoute({ startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false } });
+  renderCard({ entry: availabilityEntry(), availability: { waiverPriority: 3 } });
+  expect(await screen.findByTestId('decision-card-backup')).toHaveTextContent('Backup');
+});
