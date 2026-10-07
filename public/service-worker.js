@@ -77,8 +77,13 @@ self.addEventListener('activate', (event) => {
         )
       )
       .then(() =>
-        // Older browsers have no navigationPreload; they activate without it.
-        self.registration.navigationPreload ? self.registration.navigationPreload.enable() : undefined
+        // Older browsers have no navigationPreload; they activate without it,
+        // and a rejected enable() never costs the clients.claim() below.
+        // Preload is a property of the REGISTRATION, so a rollback of #2072
+        // must call navigationPreload.disable() here, not just drop this line.
+        self.registration.navigationPreload
+          ? self.registration.navigationPreload.enable().catch(() => {})
+          : undefined
       )
       .then(() => self.clients.claim())
   );
