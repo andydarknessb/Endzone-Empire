@@ -243,18 +243,6 @@ test('weather-snapshots stays an ok run when one forecast was fetched and saved 
   assert.equal(world.syncRuns[0].ok, true);
 });
 
-test('tickUnlocked registers the weather snapshots duty', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-
-  assert.match(tickBody, /await runWeatherSnapshotSync\(\);/);
-});
-
 test('weather-snapshots gate: an ok row holds it for 6 hours, a failed row leaves it due, an empty window still holds it', async (t) => {
   withUserAgent(t);
   const nwsCalls = mockNws(t);

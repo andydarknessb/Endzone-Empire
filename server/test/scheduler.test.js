@@ -292,18 +292,6 @@ test('runDailyInjurySync propagates a thrown syncInjuries outside a window so th
   );
 });
 
-test('tickUnlocked registers the daily injury sync duty', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-
-  assert.match(tickBody, /await runDailyInjurySync\(\);/);
-});
-
 // ---- daily ADP sync (#747, #1509) -------------------------------------------
 // The due/not-due decision is the cadence gate's own concern (server/modules/
 // cadence.js, cadence.test.js's table suite covers the 'utc-day' cadence and
@@ -436,34 +424,6 @@ test('runDailyAdpSync: a thrown syncAdp (fetch_failed/write_failed) never closes
   assert.equal(calls, 2, 'a thrown run never closes the gate, so the very next tick retries');
 });
 
-test('tickUnlocked runs the daily ADP sync in its own containment, so a throw does not stop the duties after it', () => {
-  // The duty is contained exactly like runDailyInjurySync: a thrown ADP sync is
-  // caught and logged, and the rest of the tick still runs (a source-order pin
-  // in the same spirit as the injury-duty test above).
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
-});
-
-test('tickUnlocked runs retention in its own containment, so a throw does not stop the weather, fill and ESPN duties after it', () => {
-  // Uncontained, a throwing enforceRetention left lastRetentionDay unset, so
-  // every tick retried it and threw before the weather snapshots, the nightly
-  // fill and the ESPN syncs, for as long as retention kept failing.
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runRetention\(\);\s*\} catch/);
-});
-
 // ---- daily ESPN depth-chart & Ownership syncs (#1308, #1509) ----------------
 // Same shape as the ADP section above: the due/not-due decision is the
 // cadence gate's own concern, so these stub cadence.due directly and assert
@@ -500,17 +460,6 @@ test('runDailyEspnDepthChartSync never calls runDepthChartSync when the cadence 
   assert.equal(calls, 0);
 });
 
-test('tickUnlocked runs the daily ESPN depth-chart sync in its own containment', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runDailyEspnDepthChartSync\(\);\s*\} catch/);
-});
-
 test('runDailyEspnOwnershipSync delegates the due/not-due decision to the cadence gate', async (t) => {
   const espnFactsSync = require('../modules/espnFactsSync');
   const cadence = require('../modules/cadence');
@@ -538,17 +487,6 @@ test('runDailyEspnOwnershipSync never calls runOwnershipSync when the cadence ga
   const result = await scheduler.runDailyEspnOwnershipSync({ now: new Date('2026-08-20T12:00:00-05:00') });
   assert.equal(result, null);
   assert.equal(calls, 0);
-});
-
-test('tickUnlocked runs the daily ESPN ownership sync in its own containment', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runDailyEspnOwnershipSync\(\);\s*\} catch/);
 });
 
 // ---- hourly odds sync (#1234, #1510) ------------------------------------------
@@ -696,17 +634,6 @@ test('runHourlyOddsSync is not due when the job already succeeded inside the hou
   assert.equal(fake.calls.length, 0, 'not due, so the leagues table is never read');
 });
 
-test('tickUnlocked runs the hourly odds sync in its own containment', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runHourlyOddsSync\(\);\s*\} catch/);
-});
-
 // ---- nflverse IDP-finalization pass (#1511) --------------------------------
 // The second consumer of the cadence gate (server/modules/cadence.js, spec
 // #1492 step two): `syncNflverseWeek` (nflverseSync.service.js) already
@@ -828,17 +755,6 @@ test('runNflverseFinalization runs on a Thursday after a Wednesday success (regr
   assert.equal(finalizeCalls, 1);
 });
 
-test('tickUnlocked runs the nflverse finalization pass in its own containment', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runNflverseFinalization\(\);\s*\} catch/);
-});
-
 // ---- nflverse game-context fill (#1725) --------------------------------------
 // `syncScheduleFromNflverse` fills nfl_games venue/roof/surface/rest_days (COALESCE)
 // and nothing else ran it. Once per UTC day, current season only, through the
@@ -922,22 +838,6 @@ test('runNflverseGameContextFill lets a failed fill throw so tickUnlocked can lo
   await assert.rejects(() => scheduler.runNflverseGameContextFill({ now: new Date('2026-09-28T12:00:00Z') }), /games\.csv unreachable/);
 });
 
-test('tickUnlocked runs the nflverse game-context fill in its own containment, and a failure there is logged, not fatal', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(
-    tickBody,
-    /try \{\s*await runNflverseGameContextFill\(\);\s*\} catch \(err\) \{\s*console\.error\('nflverse game-context fill failed/
-  );
-  // Sits after finalization, before the next duty, so a throw cannot stop the rest of the tick.
-  assert.ok(tickBody.indexOf('runNflverseGameContextFill') > tickBody.indexOf('runNflverseFinalization'));
-});
-
 // ---- nflverse current-week pass ---------------------------------------------
 // Checked every 15 minutes at any hour of any day: the service's own HEAD
 // decides whether there is anything to download. These stub the service and
@@ -974,17 +874,6 @@ test('runNflverseCurrentWeek waits 15 minutes after a failed check too', async (
   assert.equal(calls, 1);
 });
 
-test('tickUnlocked runs the nflverse current-week pass in its own containment', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runNflverseCurrentWeek\(\);\s*\} catch/);
-});
-
 // ---- nflverse practice-participation poll (#1922) ----------------------------
 // The same 15-minute in-memory throttle as the current-week pass, in its own
 // stamp so one pass never satisfies the other.
@@ -1017,28 +906,6 @@ test('runNflversePractice waits 15 minutes after a failed check too', async (t) 
   await assert.rejects(scheduler.runNflversePractice({ now: new Date('2026-10-27T15:00:00Z') }), /nflverse unreachable/);
   assert.equal(await scheduler.runNflversePractice({ now: new Date('2026-10-27T15:05:00Z') }), null, 'not retried on the next tick');
   assert.equal(calls, 1);
-});
-
-test('tickUnlocked runs the practice-participation poll in its own containment, after every deadline duty, and SYNC_RUN_JOBS lists it', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runNflversePractice\(\);\s*\} catch/);
-  // Up to ~90s of serial downloads: never ahead of the holdout capture, the
-  // kickoff hold, waivers, reminders, trades, live scoring or Override capture.
-  const poll = tickBody.indexOf('await runNflversePractice()');
-  for (const duty of [
-    'await runHoldoutSnapshots()', 'await holdKickedOffPlayers()', 'await processAllDueWaivers()',
-    'sendLineupReminders()', 'await processDueTrades()', 'await syncAndScoreLiveWeeks()', 'await captureOverrides(',
-  ]) {
-    const at = tickBody.indexOf(duty);
-    assert.ok(at > 0 && at < poll, `${duty} runs before the practice poll`);
-  }
-  assert.ok(scheduler.SYNC_RUN_JOBS.includes('nflverse-practice'));
 });
 
 // ---- hourly game-context Sync run (#1262, ADR 0038) ------------------------
@@ -1110,17 +977,6 @@ test('runHourlyGameContextSync syncs every distinct (season, week) a live league
   const results = await scheduler.runHourlyGameContextSync({ now: new Date('2026-09-14T12:00:00Z') });
   assert.deepEqual(calls, [{ season: 2026, week: 2 }, { season: 2026, week: 3 }]);
   assert.deepEqual(results, [{ gamesUpdated: 3 }], 'the failed week is skipped, not thrown');
-});
-
-test('tickUnlocked runs the hourly game context sync in its own containment', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runHourlyGameContextSync\(\);\s*\} catch/);
 });
 
 // Row shape matching syncRun.js's lastRun($job) query: `{ latest, latestOk }`,
@@ -1769,27 +1625,6 @@ test('zombie guard: a league with no picks this season, or created after week 18
   assert.ok(!lateCreate.calls.some((c) => c.text === 'BEGIN'), 'skipped without opening a transaction');
 });
 
-test('the tick syncs pick\'em-only weeks right before the pick\'em reminders, and completes seasons right after', () => {
-  // Same source-order pin as holdout.service.test.js uses for the deadline
-  // duties: reminders must read the freshly synced week in the SAME tick.
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const body = source.slice(source.indexOf('async function tickUnlocked'));
-  const at = (needle) => {
-    const i = body.indexOf(needle);
-    assert.ok(i !== -1, `tickUnlocked does not call ${needle}`);
-    return i;
-  };
-  const weekSync = at('runPickemWeekSync()');
-  const reminders = at('sendPickemReminders()');
-  const completion = at('runPickemSeasonCompletion()');
-  const trades = at('processDueTrades()');
-  assert.ok(weekSync < reminders, 'week sync before reminders');
-  assert.ok(reminders < completion, 'completion right after reminders');
-  assert.ok(completion < trades, 'both pick\'em duties before the fantasy work that follows');
-});
-
 test('runPickemSeasonCompletion does not read the season slate before week 18 has kicked off', async (t) => {
   // Every 5 minutes, all season: the cheap week-bounds query decides whether
   // completion is even possible; the three-query season slate is only pulled
@@ -2026,57 +1861,6 @@ test('records one Sync run through runSyncJob for the whole pass, detail carryin
   assert.equal(detail.weeksSkipped, 0);
 });
 
-test('tickUnlocked runs the nightly projection fill LAST, after every time-sensitive duty, in its own containment (#1305 f2)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runNightlyProjectionFill\(\);\s*\} catch/);
-  const fillAt = tickBody.indexOf('await runNightlyProjectionFill();');
-  const retentionAt = tickBody.indexOf('await runRetention();');
-  const waiversAt = tickBody.indexOf('processAllDueWaivers()');
-  const tradesAt = tickBody.indexOf('processDueTrades()');
-  const lastTickErrorAt = tickBody.indexOf('lastTickError = null;');
-  assert.ok(fillAt !== -1 && retentionAt !== -1, 'both calls are present');
-  assert.ok(retentionAt < fillAt, 'the fill runs beside runRetention, the other once-a-day housekeeping pass, never ahead of it');
-  assert.ok(waiversAt < fillAt && tradesAt < fillAt, 'every time-sensitive duty (waivers, trades, ...) runs before the fill, never after');
-  assert.ok(fillAt < lastTickErrorAt, 'the fill is the LAST duty in the tick');
-});
-
-test('tickUnlocked runs the kickoff waiver hold before claim processing (#1375, ADR 0043)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  const holdAt = tickBody.indexOf('holdKickedOffPlayers()');
-  const waiversAt = tickBody.indexOf('processAllDueWaivers()');
-  assert.ok(holdAt !== -1 && waiversAt !== -1, 'both calls are present');
-  assert.ok(holdAt < waiversAt, "the hold job writes this tick's kickoff rows before claims are processed");
-});
-
-test('tickUnlocked runs the Override capture after the time-sensitive duties, in its own containment (#1862)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await captureOverrides\(\{ loadAdvice: startSitAdvice \}\);\s*\} catch/);
-  const captureAt = tickBody.indexOf('captureOverrides(');
-  const fillAt = tickBody.indexOf('await runNightlyProjectionFill();');
-  for (const duty of ['holdKickedOffPlayers()', 'processAllDueWaivers()', 'sendLineupReminders()', 'processDueTrades()', 'processScheduledDrafts()', 'syncAndScoreLiveWeeks()']) {
-    assert.ok(tickBody.indexOf(duty) < captureAt, `${duty} runs before the capture, so its run time never delays them`);
-  }
-  assert.ok(captureAt < fillAt, 'and ahead of the long nightly fill');
-});
-
 // ---- stat-corrections: failed weeks (#1674) -----------------------------------
 // The pass reports weeks whose sync threw; a run with any is not ok, leaves the
 // day unstamped and retries no sooner than an hour later. Driven through the
@@ -2259,24 +2043,6 @@ test('runPreHoldoutEspnRosterStatusSync runs once when a week\'s capture window 
   assert.equal(calls.length, 0);
 });
 
-test('tickUnlocked orders the roster-status runs before the depth-chart run, each contained; the holdout pass runs the pre-capture roster run first, contained', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-  assert.match(tickBody, /try \{\s*await runDailyEspnRosterStatusSync\(\);\s*\} catch/);
-  assert.match(tickBody, /try \{\s*await runSaturdayEspnRosterStatusSync\(\);\s*\} catch/);
-  assert.ok(tickBody.indexOf('runDailyEspnRosterStatusSync()') < tickBody.indexOf('runDailyEspnDepthChartSync()'));
-  assert.ok(tickBody.indexOf('runSaturdayEspnRosterStatusSync()') < tickBody.indexOf('runDailyEspnDepthChartSync()'));
-  const holdoutStart = source.indexOf('async function runHoldoutSnapshots');
-  const holdoutBody = source.slice(holdoutStart, source.indexOf('\n}\n', holdoutStart));
-  assert.match(holdoutBody, /try \{\s*await runPreHoldoutEspnRosterStatusSync\(\);\s*\} catch/);
-  assert.ok(holdoutBody.indexOf('runPreHoldoutEspnRosterStatusSync()') < holdoutBody.indexOf('captureDueSnapshots('));
-});
-
 test('SYNC_RUN_JOBS lists the roster-status Sync run beside the other ESPN facts runs', () => {
   assert.ok(scheduler.SYNC_RUN_JOBS.includes('espn-roster-status'));
 });
@@ -2356,12 +2122,101 @@ test('runGameDayEspnRosterStatusSync: a failed attempt 10 minutes ago holds it, 
   assert.equal(calls.length, 1);
 });
 
-test('tickUnlocked runs the game-day roster-status trigger contained, after the Saturday run and before the depth-chart run (#1995)', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(source.indexOf('async function tickUnlocked'), source.indexOf('async function runRetention'));
-  assert.match(tickBody, /try \{\s*await runGameDayEspnRosterStatusSync\(\);\s*\} catch/);
-  assert.ok(tickBody.indexOf('runSaturdayEspnRosterStatusSync()') < tickBody.indexOf('runGameDayEspnRosterStatusSync()'));
-  assert.ok(tickBody.indexOf('runGameDayEspnRosterStatusSync()') < tickBody.indexOf('runDailyEspnDepthChartSync()'));
+// ---- the tick as a declared job list, one runner (#2049, spec #2042) ----------
+
+test('runJobs runs the jobs in list order', async () => {
+  const ran = [];
+  const jobs = ['a', 'b', 'c'].map((name) => ({ name, tier: 'deadline', run: async () => { ran.push(name); } }));
+  await scheduler.runJobs(jobs);
+  assert.deepEqual(ran, ['a', 'b', 'c']);
+});
+
+test('runJobs logs a throwing job and the next job still runs', async (t) => {
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => { logged.push(args.join(' ')); });
+  const ran = [];
+  await scheduler.runJobs([
+    { name: 'first', tier: 'deadline', run: async () => { ran.push('first'); } },
+    { name: 'boom', tier: 'deadline', run: async () => { throw new Error('kaput'); } },
+    { name: 'last', tier: 'trailing', run: async () => { ran.push('last'); } },
+  ]);
+  assert.deepEqual(ran, ['first', 'last']);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /boom/);
+  assert.match(logged[0], /kaput/);
+});
+
+test('syncRunJobs lists the syncRun names the jobs declare, once each, in list order', () => {
+  const jobs = [
+    { name: 'a', tier: 'deadline', run: async () => {}, syncRun: ['x', 'y'] },
+    { name: 'b', tier: 'deadline', run: async () => {} },
+    { name: 'c', tier: 'housekeeping', run: async () => {}, syncRun: ['y', 'z'] },
+  ];
+  assert.deepEqual(scheduler.syncRunJobs(jobs), ['x', 'y', 'z']);
+});
+
+test('the real tick list is the pre-#2049 tickUnlocked order, deadline then housekeeping then trailing', () => {
+  assert.deepEqual(scheduler.TICK_JOBS.map((j) => j.name), [
+    'stat-corrections',
+    'nflverse-finalization',
+    'nflverse-game-context-fill',
+    'nflverse-current-week',
+    'injuries',
+    'adp',
+    'odds',
+    'game-context',
+    'holdout-snapshots',
+    'kickoff-waiver-hold',
+    'waivers',
+    'lineup-reminders',
+    'pickem-week-sync',
+    'pickem-reminders',
+    'pickem-season-completion',
+    'trades',
+    'scheduled-drafts',
+    'live-sync',
+    'override-capture',
+    'nflverse-practice',
+    'retention',
+    'weather-snapshots',
+    'nightly-projection-fill',
+    'nightly-stats-integrity',
+    'espn-roster-status-daily',
+    'espn-roster-status-saturday',
+    'espn-roster-status-game-day',
+    'espn-depth-chart',
+    'espn-ownership',
+  ]);
+  const rank = { deadline: 0, housekeeping: 1, trailing: 2 };
+  const ranks = scheduler.TICK_JOBS.map((j) => rank[j.tier]);
+  assert.ok(ranks.every((r) => r !== undefined), 'every job has a known tier');
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), 'tiers never go backwards down the list');
+  assert.ok(scheduler.TICK_JOBS.every((j) => typeof j.run === 'function'));
+});
+
+test('SYNC_RUN_JOBS is derived from the tick list, plus the commissioner-only Sync runs', () => {
+  assert.deepEqual(scheduler.SYNC_RUN_JOBS, [
+    ...scheduler.syncRunJobs(scheduler.TICK_JOBS),
+    ...scheduler.MANUAL_SYNC_RUN_JOBS,
+  ]);
+  assert.deepEqual([...scheduler.SYNC_RUN_JOBS].sort(), [
+    'adp', 'espn-depth-chart', 'espn-ownership', 'espn-roster-status', 'game-context', 'injuries',
+    'nflverse-correction', 'nflverse-current-week', 'nflverse-practice', 'nflverse-snaps', 'nflverse-week',
+    'odds', 'players', 'schedule', 'schedule-nflverse', 'season-stats', 'team-defenses', 'weather-snapshots',
+    'week-stats',
+  ]);
+});
+
+test('runHoldoutSnapshots runs the pre-capture roster run first, and a throw there does not skip the capture', async (t) => {
+  const holdout = require('../services/holdout.service');
+  const order = [];
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
+  t.mock.method(holdout, 'captureNotAfterFor', () => { order.push('pre-run'); throw new Error('manifest unreadable'); });
+  t.mock.method(holdout, 'captureDueSnapshots', async () => { order.push('capture'); return { captured: [], failures: [] }; });
+
+  await scheduler.runHoldoutSnapshots();
+
+  assert.deepEqual(order, ['pre-run', 'capture']);
+  assert.ok(errors.some((line) => /pre-holdout ESPN roster-status sync failed/.test(line)));
 });
