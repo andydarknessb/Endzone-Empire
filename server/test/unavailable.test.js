@@ -221,7 +221,7 @@ test('unavailableFor (practice): bye, no team, Practice squad and Position-basel
   assert.equal(noPractice([dnp()], { positionBaseline: true }).reason, 'no_history', 'Position-baseline wins');
 });
 
-// ADR 0057: a Backup quarterback is available but never auto-recommended, below
+// ADR 0057: a Backup quarterback is available but never auto-recommended, above
 // no_history and above Doubtful, no-practice and Questionable.
 test('unavailableFor: backup wins over no designation, Questionable and Doubtful, never auto-recommended', () => {
   for (const injuryStatus of [null, 'Q', 'D']) {
@@ -233,14 +233,20 @@ test('unavailableFor: backup wins over no designation, Questionable and Doubtful
   }
 });
 
-test('unavailableFor: bye, no team, Practice squad, Out, IR and Position-baseline all win over backup', () => {
+test('unavailableFor: backup outranks Position-baseline, so a QB who is both reads backup (ADR 0057, amended 2026-10-07)', () => {
+  const verdict = unavailableFor({ positionBaseline: true, backup: true });
+  assert.equal(verdict.reason, 'backup');
+  assert.equal(verdict.autoRecommend, false);
+  assert.equal(unavailableFor({ positionBaseline: true }).reason, 'no_history', 'Position-baseline alone is unchanged');
+});
+
+test('unavailableFor: bye, no team, Practice squad, Out and IR all win over backup', () => {
   const ps = { status: 'practice_squad', capturedAt: new Date().toISOString() };
   assert.equal(unavailableFor({ onBye: true, backup: true }).reason, 'bye');
   assert.equal(unavailableFor({ noTeam: true, backup: true }).reason, 'no_team');
   assert.equal(unavailableFor({ nflRosterStatus: ps, backup: true }).reason, 'practice_squad');
   assert.equal(unavailableFor({ injuryStatus: 'O', backup: true }).reason, 'out');
   assert.equal(unavailableFor({ injuryStatus: 'IR', backup: true }).reason, 'ir');
-  assert.equal(unavailableFor({ positionBaseline: true, backup: true }).reason, 'no_history');
 });
 
 test('unavailableFor: backup outranks the no_practice verdict, and false or absent changes nothing', () => {
@@ -264,7 +270,7 @@ const START_VERDICT_ROWS = [
   ['Out', { injuryStatus: 'O', positionBaseline: true, backup: true }, verdict('unavailable', 'out')],
   ['IR', { injuryStatus: 'IR', backup: true }, verdict('unavailable', 'ir')],
   ['Position-baseline', { injuryStatus: 'Q', positionBaseline: true }, verdict('not_recommended', 'no_history', false)],
-  ['Position-baseline over Backup', { positionBaseline: true, backup: true }, verdict('not_recommended', 'no_history', false)],
+  ['Backup over Position-baseline', { positionBaseline: true, backup: true }, verdict('not_recommended', 'backup', false)],
   ['Backup', { injuryStatus: 'D', backup: true }, verdict('not_recommended', 'backup', false)],
   ['Doubtful', { injuryStatus: 'D' }, verdict('not_recommended', 'doubtful')],
   ['no-practice Questionable', { injuryStatus: 'Q', practice: { observations: [dnp()], kickoffAt: SUNDAY_1PM } }, verdict('not_recommended', 'no_practice')],

@@ -91,7 +91,7 @@ function finiteNumber(value) {
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
- * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`/`backupFor`
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`startVerdictFor`
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
@@ -141,9 +141,14 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     || { opponent: null, opponentPointsAllowed: null, line: null, weather: null, volatility: null };
 
   const availabilityById = new Map();
+  const verdictById = new Map(); // the Start verdict, for ADR 0057's Backup zero
   const pinned = new Map();
   const candidates = [];
   for (const entry of entries) {
+    // The Start verdict (spec #2042) says whether he is Position-baseline or a
+    // Backup quarterback; `unavailableFor` below still shapes the availability
+    // object the wire carries (probability, status, lock).
+    const verdict = projections.startVerdictFor(entry.playerId);
     const availability = unavailableFor({
       injuryStatus: entry.injuryStatus ?? entry.injury_status ?? null,
       onBye: Boolean(entry.onBye),
@@ -154,16 +159,17 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       lockedSlot: entry.slot,
       // A Position-baseline projection is never auto-recommended (#1775),
       // through the same branch Doubtful uses below.
-      positionBaseline: projections.positionBaselineFor(entry.playerId),
+      positionBaseline: verdict.reason === 'no_history',
       // A Backup quarterback (ADR 0057) likewise: his number is his own, but
       // he is behind an available teammate and will not play.
-      backup: projections.backupFor(entry.playerId),
+      backup: verdict.reason === 'backup',
       // This week's Practice participation (ADR 0056): a Questionable player
       // with no practice all week is never auto-recommended, as Doubtful is.
       // Only this reader passes it; no observations is the status quo.
       practice: { observations: entry.practiceObservations || [], kickoffAt: entry.kickoff ?? null },
     });
     availabilityById.set(entry.playerId, availability);
+    verdictById.set(entry.playerId, verdict);
     if (entry.slot === IR) continue; // IR is never a lineup candidate
     if (entry.locked) {
       // Locked starters keep their slot; locked bench players cannot be started.
@@ -171,7 +177,10 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       continue;
     }
     if (!availability.available) continue; // bye / Out / IR designation
-    if (availability.autoRecommend === false && !isStarter(entry)) continue; // Doubtful, Position-baseline, Backup or no-practice on the bench
+    // Doubtful, Position-baseline, Backup or no-practice on the bench. The
+    // verdict gates too: a run that stored him Unavailable (a stale IR) is never
+    // recommended whatever his live entry says.
+    if (!isStarter(entry) && !(availability.autoRecommend && verdict.outcome === 'recommendable')) continue;
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
@@ -191,7 +200,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     // A Backup quarterback (ADR 0057) is available but will not play: valued
     // at 0 here exactly like an Unavailable player, so a started Backup is
     // advised to the bench. His displayed number (`players[].projection`) stays.
-    if (availability && (!availability.available || availability.reason === 'backup')) {
+    if (availability && (!availability.available || verdictById.get(playerId)?.reason === 'backup')) {
       // The DISTRIBUTION goes too, not just the mean. A player who cannot play
       // has no distribution of outcomes, and keeping one produced the nonsense
       // "0 (6.82-7.62)" — a zero next to a range that excludes zero. Dropping

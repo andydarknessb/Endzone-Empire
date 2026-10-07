@@ -301,7 +301,10 @@ async function computedTargets({ season, games, week }) {
       const id = Number(row.id);
       if (targets.length === MAX_TARGETS) break;
       if (isFull(row.position)) continue;
-      if (weekly.positionBaselineFor(id) || weekly.backupFor(id) || weekly.classify(id).unavailable) continue;
+      // Unavailable, or a number that is not his own evidence (Position-baseline,
+      // Backup quarterback): the Start verdict's two refusals, as the Upgrade's.
+      const verdict = weekly.startVerdictFor(id);
+      if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) continue;
       // Two rows of one athlete would resolve to one snapshot; serve him once.
       const athleteIds = [id, ...(identityIdsById.get(id) || [])];
       if (athleteIds.some((known) => servedIds.has(known))) continue;

@@ -427,6 +427,41 @@ test('getLineup: a Backup quarterback keeps his number and no bench-above-starte
   fake.assertClean();
 });
 
+// Start verdict (spec #2042, #2044): the Edge line gates on the verdict, not on
+// the wire booleans rebuilt from its reason. A run that stored a Position-baseline
+// rookie IR (cached before he was activated) reads Unavailable, so the booleans
+// are both false for him; the Edge line still never compares him. A QB who is
+// both Position-baseline and Backup reads `backup` (ADR 0057, amended 2026-10-07).
+test('getLineup: a stale-IR Position-baseline bench rookie is never bench-above-starter, and a QB who is both rides as backup (#2044)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Starter QB', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
+    { id: 2, name: 'Stale IR Rookie', position: 'QB', nfl_team: 'ARI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Both QB', position: 'QB', nfl_team: 'CHI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 12, median: 12, factors: {} }],
+      [2, {
+        mean: 15.37,
+        median: 15.37,
+        factors: { availability: { available: false, status: 'IR', reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } },
+      }],
+      [3, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+    ]),
+    backupIds: new Set([3]),
+  });
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.notEqual(byId.get(2).edge.kind, 'bench-above-starter', 'a stored-Unavailable rookie outprojects nobody');
+  assert.equal(byId.get(3).backup, true);
+  assert.equal(byId.get(3).positionBaseline, false);
+  assert.equal(byId.get(3).edge.kind, 'none', 'the QB who is both outprojects nobody');
+  fake.assertClean();
+});
+
 test("an injured player still carries the largest Factor's explanation, independent of which Edge kind won (#1281)", async (t) => {
   const entries = [
     { id: 1, name: 'Edge Case', position: 'WR', nfl_team: 'MIN', injury_status: 'Q', injury_detail: null, slot: 'WR', ir_attested: false },
