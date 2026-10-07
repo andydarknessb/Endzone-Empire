@@ -433,6 +433,25 @@ const unstubbed = [
       'always false there and this mutation never fires.',
     paths: [{ method: 'PUT', pattern: '/api/team/lineup' }],
   },
+  {
+    // Spec #2042: features/lineup-write imports clearWeekMatchupsCache from the
+    // Matchup entity's barrel, which widens the Decision card's closure to the
+    // whole entity.
+    file: 'entities/matchup/model/useLeagueMatchups.js',
+    reason:
+      'Pulled in transitively through features/lineup-write (it imports ' +
+      'clearWeekMatchupsCache from the entities/matchup barrel); the Draft ' +
+      'room mounts no Matchups reader, so this GET never fires there.',
+    paths: [{ method: 'GET', pattern: '/api/league/:id/matchups' }],
+  },
+  {
+    file: 'entities/matchup/model/useMatchup.js',
+    reason:
+      'Same reachability as useLeagueMatchups.js above: the entities/matchup ' +
+      'barrel, pulled in by features/lineup-write; never mounted by the Draft ' +
+      'room.',
+    paths: [{ method: 'GET', pattern: '/api/league/:id/matchups/:id' }],
+  },
 ];
 
 module.exports = {
