@@ -94,7 +94,9 @@ export function useApplyAdvice({ leagueId, raw, setRaw, onLanded }) {
       // that save offers no Undo; a voided called shot stays void after one.
       const { attestationCleared = [], calledShotVoided = false } = result.response?.data ?? {};
       if (attestationCleared.length > 0) {
-        notify('Lineup saved. This move ended a commissioner IR override and cannot be undone', { severity: 'success' });
+        notify(calledShotVoided
+          ? 'Lineup saved. This move ended a commissioner IR override and voided your called shot. It cannot be undone'
+          : 'Lineup saved. This move ended a commissioner IR override and cannot be undone', { severity: 'success' });
         return;
       }
       notify(`Lineup saved${calledShotVoided ? '. Your called shot was voided' : ''}`, {
