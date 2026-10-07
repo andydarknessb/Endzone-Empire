@@ -103,7 +103,7 @@ async function runJobs(jobs) {
     try {
       await job.run();
     } catch (err) {
-      console.error(`scheduler: job ${job.name} failed:`, err.message);
+      console.error('scheduler: job %s failed:', job.name, err.message);
     }
   }
 }

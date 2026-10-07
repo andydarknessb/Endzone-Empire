@@ -1,7 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const { createFakePool } = require('./helpers/fakePool');
 
 const scheduler = require('../modules/scheduler');
@@ -139,7 +137,22 @@ test('a thrown scan leaves the day unstamped so the next tick inside the window 
   );
 });
 
-test('the tick contains the integrity scan in its own try/catch so a failure cannot abort other duties', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  assert.match(source, /try \{\s*await runNightlyStatsIntegrityScan\(\);\s*\} catch/);
+test('the tick contains the integrity scan, so a failure cannot abort other duties', async (t) => {
+  // Date pinned inside the scan's off-peak window, on a day no other test stamps
+  // (the same-process day stamp would short-circuit the scan), so the job really reaches it.
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-17T09:10:00Z') });
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  let scans = 0;
+  t.mock.method(integrity, 'scanPlayerStats', async () => { scans += 1; throw new Error('relation does not exist'); });
+  createFakePool([[/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })]]).install(t);
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args.join(' ')); });
+  const job = scheduler.TICK_JOBS.find((j) => j.name === 'nightly-stats-integrity');
+  let ranAfter = false;
+
+  await scheduler.runJobs([job, { name: 'after', tier: 'trailing', run: async () => { ranAfter = true; } }]);
+
+  assert.equal(scans, 1, 'the job reached the scan');
+  assert.ok(ranAfter, 'the job after it still ran');
+  assert.ok(errors.some((line) => /nightly-stats-integrity/.test(line) && /relation does not exist/.test(line)));
 });
