@@ -390,9 +390,9 @@ test('getLineup: a bench player on a bye this week never Outprojects a starter, 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(2).unavailable, "bye");
+  assert.equal(byId.get(2).startVerdict.reason, 'bye');
   assert.equal(byId.get(2).edge.kind, 'none', 'a bench player on a bye outprojects nobody');
-  assert.equal(byId.get(3).unavailable, 'bye');
+  assert.equal(byId.get(3).startVerdict.reason, 'bye');
   assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a starter on a bye');
   fake.assertClean();
 });
@@ -454,7 +454,10 @@ test('getLineup: a stale-IR Position-baseline bench rookie is never bench-above-
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
   assert.notEqual(byId.get(2).edge.kind, 'bench-above-starter', 'a stored-Unavailable rookie outprojects nobody');
-  assert.equal(byId.get(2).startVerdict.outcome, 'unavailable');
+  // The stored run says IR but his live facts say available: the row keeps
+  // stating the live verdict (as the advice wire does), the stored one only
+  // keeps the Edge line off him.
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'recommendable', reason: null, numberTrusted: true });
   assert.equal(byId.get(3).startVerdict.reason, 'backup');
   assert.equal(byId.get(3).edge.kind, 'none', 'the QB who is both outprojects nobody');
   fake.assertClean();

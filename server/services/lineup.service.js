@@ -1473,16 +1473,26 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // (`backup`, ADR 0057) are its reasons. The row's own Unavailable facts
       // (bye, No NFL team, Practice squad, Out, IR) are live and always win, so
       // they state the verdict as they always did on this wire. `wontStart` is
-      // the verdict itself (Unavailable, or a number that is not his evidence),
+      // the STORED verdict (Unavailable, or a number that is not his evidence),
       // built for every row BEFORE any Edge line, since `findBenchAboveStarter`
-      // reads it off the other entries too.
+      // reads it off the other entries too. A stored Unavailable verdict over a
+      // live-available player (a stale IR, #2044) gates `wontStart` only: the
+      // row states the live-facts verdict, as the advice wire does, so what the
+      // row shows is unchanged.
       const wontStart = new Set();
       for (const row of annotated) {
-        const verdict = row.unavailable == null
-          ? weeklyResult.startVerdictFor(row.id)
-          : startVerdictOf({ available: false, reason: row.unavailable });
-        if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) wontStart.add(row.id);
-        row.startVerdict = verdict;
+        const stored = weeklyResult.startVerdictFor(row.id);
+        if (stored.outcome === 'unavailable' || !stored.numberTrusted) wontStart.add(row.id);
+        if (row.unavailable != null) {
+          row.startVerdict = startVerdictOf({ available: false, reason: row.unavailable });
+        } else if (stored.outcome === 'unavailable') {
+          row.startVerdict = startVerdictOf(unavailableFor({
+            injuryStatus: row.injury_status,
+            nflRosterStatus: row.nfl_roster_status ?? null,
+          }));
+        } else {
+          row.startVerdict = stored;
+        }
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
