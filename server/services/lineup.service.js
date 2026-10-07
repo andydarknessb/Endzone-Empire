@@ -1462,16 +1462,19 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // guard): a bench player outprojecting a departed starter's frozen
       // record is not a seat he could actually take.
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
-      // #1776: a Position-baseline projection (CONTEXT.md; `positionBaselineFor`,
-      // #1775) rides the wire as a boolean, false whenever an Unavailable reason
+      // #1776: a Position-baseline projection (CONTEXT.md; the Start verdict's
+      // `no_history`, #1775) rides the wire as a boolean, false whenever an Unavailable reason
       // applies (bye, No NFL team, Practice squad, Out, IR always win). Set for
       // every row BEFORE any Edge line, since `findBenchAboveStarter` reads it
       // off the other entries too.
       for (const row of annotated) {
-        row.positionBaseline = row.unavailable == null && weeklyResult.positionBaselineFor(row.id);
+        // Both flags read the Start verdict's reason (spec #2042), which already
+        // ranks Position-baseline over Backup.
+        const { reason } = weeklyResult.startVerdictFor(row.id);
+        row.positionBaseline = row.unavailable == null && reason === 'no_history';
         // ADR 0057: a Backup quarterback keeps his number; only the Edge line
         // stops comparing him against a starter.
-        row.backup = row.unavailable == null && weeklyResult.backupFor(row.id);
+        row.backup = row.unavailable == null && reason === 'backup';
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);

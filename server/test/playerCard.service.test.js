@@ -1165,6 +1165,50 @@ test('upgradesFor (ADR 0057): a rostered Backup quarterback does not mask a free
   assert.equal(control.get(FA_ID).points, 0);
 });
 
+// Start verdict (spec #2042, #2044): the Upgrade follows the verdict alone.
+// Unavailable, and Not recommended with an untrusted number (Position-baseline,
+// Backup), get null; a Doubtful candidate's number is his own evidence, so he
+// keeps his Upgrade. The verdicts are fixture data here, not derived, so the
+// rule under test is the reader's.
+test('upgradesFor (Start verdict): a Doubtful candidate keeps an Upgrade; Unavailable, Position-baseline and Backup get null', async (t) => {
+  const [DOUBTFUL, BASELINE, BACKUP, OUT] = [61, 62, 63, 64];
+  const qbSlots = { ...LEAGUE, roster_slots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [DOUBTFUL, BASELINE, BACKUP, OUT].map((id) => ({ id, position: 'QB', nfl_team: 'DET' })),
+    })],
+    ...buildHandlers({
+      league: qbSlots,
+      starterRows: [{ player_id: 999, slot: 'QB', name: 'Rostered QB', position: 'QB' }],
+      identityIds: [DOUBTFUL, BASELINE, BACKUP, OUT],
+    }),
+  ]).install(t);
+  mockServices(t);
+  const verdicts = new Map([
+    [DOUBTFUL, { outcome: 'not_recommended', reason: 'doubtful', numberTrusted: true }],
+    [BASELINE, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }],
+    [BACKUP, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }],
+    [OUT, { outcome: 'unavailable', reason: 'out', numberTrusted: true }],
+  ]);
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
+    ...projectionService.toWeeklyProjectionResult({
+      projections: new Map(playerIds.map((id) => [id, {
+        mean: id === 999 ? 16 : 20, median: id === 999 ? 16 : 20, factors: { availability: { available: true }, dataQuality: { reasons: [] } },
+      }])),
+    }),
+    startVerdictFor: (id) => verdicts.get(id) || { outcome: 'recommendable', reason: null, numberTrusted: true },
+  }));
+
+  const upgrades = await upgradesFor({
+    league: qbSlots, team: TEAM, season: 2026, week: 5, playerIds: [DOUBTFUL, BASELINE, BACKUP, OUT],
+  });
+
+  assert.equal(upgrades.get(DOUBTFUL).points, 4);
+  assert.equal(upgrades.get(BASELINE), null);
+  assert.equal(upgrades.get(BACKUP), null);
+  assert.equal(upgrades.get(OUT), null);
+});
+
 // Start verdict (spec #2042): the card payload carries the Weekly projection
 // read's verdict, so every surface that opens the card shows its notes.
 function cardWithRun(t, { designation = null, practice, backup = false }) {

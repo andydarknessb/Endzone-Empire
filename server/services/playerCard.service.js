@@ -204,10 +204,10 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   // A rostered Backup quarterback (ADR 0057) will not play either: the same
   // zero, with reason `backup`, so he does not hide a real starter's Upgrade.
   const roster = rosterRows.map((r) => {
-    const classification = projections.classify(r.player_id);
-    const zeroReason = classification.unavailable
-      ? classification.reason
-      : (projections.backupFor(r.player_id) ? 'backup' : null);
+    const verdict = projections.startVerdictFor(r.player_id);
+    const zeroReason = verdict.outcome === 'unavailable' || verdict.reason === 'backup'
+      ? verdict.reason
+      : null;
     return {
       playerId: r.player_id,
       slot: r.slot,
@@ -244,27 +244,17 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
       upgrades.set(id, null);
       continue;
     }
-    // Unavailable this week (bye, Out, IR): the engine keeps his full
-    // estimate (ADR 0044), but he adds nothing to this week's lineup, so he
-    // is no Upgrade either - otherwise the Waiver Wire's Upgrade sort ranks
-    // injured stars first.
-    if (projections.classify(id).unavailable) {
-      upgrades.set(id, null);
-      continue;
-    }
-    // Position-baseline projection (CONTEXT.md; #1809, spec #1774): his number
-    // is the position's average, not his own evidence, so it is no Upgrade
-    // either - otherwise the 15.37 backup QB outranks real starters on the
-    // Waiver Wire's default Upgrade sort. The number stays; only the verdict
-    // changes (null sorts after every candidate with an Upgrade).
-    if (projections.positionBaselineFor(id)) {
-      upgrades.set(id, null);
-      continue;
-    }
-    // Backup quarterback (ADR 0057): behind an available teammate on the Depth
-    // chart, so he will not play however high his own number is. Same verdict,
-    // same branch; his number stays.
-    if (projections.backupFor(id)) {
+    // The Start verdict (CONTEXT.md; spec #2042) refuses the rest: Unavailable
+    // this week (bye, Out, IR: the engine keeps his full estimate, ADR 0044,
+    // but he adds nothing to this week's lineup, so the Waiver Wire's Upgrade
+    // sort must not rank injured stars first), and Not recommended with an
+    // untrusted number (Position-baseline, #1809: the position's average, not
+    // his evidence; Backup quarterback, ADR 0057: behind an available
+    // teammate). The number stays; only the verdict changes (null sorts after
+    // every candidate with an Upgrade). Doubtful keeps a trusted number, so he
+    // keeps his Upgrade.
+    const verdict = projections.startVerdictFor(id);
+    if (verdict.outcome === 'unavailable' || (verdict.outcome === 'not_recommended' && !verdict.numberTrusted)) {
       upgrades.set(id, null);
       continue;
     }

@@ -1294,9 +1294,12 @@ function installComputed(t, candidates, { baseline = [], backup = [], unavailabl
   ));
   t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
     pointsFor: () => null,
-    positionBaselineFor: (id) => baseline.includes(id),
-    backupFor: (id) => backup.includes(id),
-    classify: (id) => (unavailable.includes(id) ? { unavailable: true, reason: 'bye' } : { unavailable: false, points: 1 }),
+    startVerdictFor: (id) => {
+      if (unavailable.includes(id)) return { outcome: 'unavailable', reason: 'bye', numberTrusted: true };
+      if (baseline.includes(id)) return { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
+      if (backup.includes(id)) return { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
+      return { outcome: 'recommendable', reason: null, numberTrusted: true };
+    },
     playerIds,
   }));
   const seen = { candidateParams: null };

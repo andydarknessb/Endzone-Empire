@@ -91,7 +91,7 @@ function finiteNumber(value) {
  * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
  * onBye? }] (slot includes BENCH/IR).
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
- * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`positionBaselineFor`/`backupFor`
+ * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`startVerdictFor`
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
@@ -144,6 +144,10 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const pinned = new Map();
   const candidates = [];
   for (const entry of entries) {
+    // The Start verdict (spec #2042) says whether he is Position-baseline or a
+    // Backup quarterback; `unavailableFor` below still shapes the availability
+    // object the wire carries (probability, status, lock).
+    const verdict = projections.startVerdictFor(entry.playerId);
     const availability = unavailableFor({
       injuryStatus: entry.injuryStatus ?? entry.injury_status ?? null,
       onBye: Boolean(entry.onBye),
@@ -154,10 +158,10 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
       lockedSlot: entry.slot,
       // A Position-baseline projection is never auto-recommended (#1775),
       // through the same branch Doubtful uses below.
-      positionBaseline: projections.positionBaselineFor(entry.playerId),
+      positionBaseline: verdict.reason === 'no_history',
       // A Backup quarterback (ADR 0057) likewise: his number is his own, but
       // he is behind an available teammate and will not play.
-      backup: projections.backupFor(entry.playerId),
+      backup: verdict.reason === 'backup',
       // This week's Practice participation (ADR 0056): a Questionable player
       // with no practice all week is never auto-recommended, as Doubtful is.
       // Only this reader passes it; no observations is the status quo.
