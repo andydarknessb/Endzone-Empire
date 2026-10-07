@@ -1221,7 +1221,11 @@ function factorEdgeText(factors) {
  * for a starting slot whose CURRENT occupant projects below him? The first
  * such starter found wins; `entries` is already ordered by position and name
  * (the entries query's own ORDER BY), so the result is deterministic without
- * a tie-break rule of its own.
+ * a tie-break rule of its own. The comparison refuses either side whose
+ * `unavailable` is set (#2066; CONTEXT.md, Unavailable: every surface shows
+ * the reason instead of a number, so no "Outprojects" is said of or against a
+ * player who cannot play); a starter on a bye or Out is already a Lineup
+ * problem, and the Start/sit advice owns that swap.
  */
 function findBenchAboveStarter(entry, entries, rosterSlots) {
   if (entry.slot !== BENCH || entry.projected_points == null) return null;
@@ -1229,9 +1233,11 @@ function findBenchAboveStarter(entry, entries, rosterSlots) {
   // player's own evidence: no "Outprojects" comparison is made with one on
   // either side; nor with a Backup quarterback (ADR 0057), who will not play.
   if (entry.positionBaseline || entry.backup) return null;
+  if (entry.unavailable) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
     if (other.projected_points == null || other.positionBaseline || other.backup) continue;
+    if (other.unavailable) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
