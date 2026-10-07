@@ -273,7 +273,7 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
 // so the client can read "no history" without holding a copy of the verdict.
 const POSITION_BASELINE_FACTORS = { dataQuality: { reasons: ['position baseline'] } };
 
-function installPositionBaselineWorld(t, { entries, projections, backupIds }) {
+function installPositionBaselineWorld(t, { entries, projections, backupIds, byeRows = [] }) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
     projections, backupIds,
   }));
@@ -290,7 +290,7 @@ function installPositionBaselineWorld(t, { entries, projections, backupIds }) {
     [/^SELECT "players"\."id"/, () => ({ rows: entries })],
     [/^SELECT "players"\."position"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/FROM "nfl_games" "ng"/, () => ({ rows: [] })], // computeByeWeeks
+    [/FROM "nfl_games" "ng"/, () => ({ rows: byeRows })], // computeByeWeeks
     [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
     [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
   ]).install(t);
@@ -359,6 +359,40 @@ test('getLineup: no bench-above-starter Edge line names a Position-baseline play
   assert.equal(byId.get(2).edge.kind, 'none', 'a Position-baseline bench player outprojects nobody');
   assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a Position-baseline starter');
   assert.deepEqual(byId.get(6).edge, { kind: 'bench-above-starter', text: 'Outprojects Real Starter Two at WR' });
+  fake.assertClean();
+});
+
+test('getLineup: a bench player on a bye this week never Outprojects a starter, and nobody Outprojects a starter on a bye (CONTEXT.md, Unavailable)', async (t) => {
+  const week = 8;
+  const entries = [
+    { id: 1, name: 'Omarion Hampton', position: 'RB', nfl_team: 'LAC', injury_status: null, injury_detail: null, slot: 'RB', ir_attested: false },
+    { id: 2, name: 'Chuba Hubbard', position: 'RB', nfl_team: 'CAR', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Bye Starter', position: 'WR', nfl_team: 'CAR', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
+    { id: 4, name: 'Healthy Bench', position: 'WR', nfl_team: 'LAC', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  // CAR plays every regular-season week except the selected one: a schedule-derived bye.
+  const byeRows = Array.from({ length: REG_SEASON_WEEKS }, (_, i) => i + 1)
+    .filter((w) => w !== week)
+    .map((w) => ({ nfl_team: 'CAR', week: w }));
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    byeRows,
+    projections: new Map([
+      [1, { mean: 11, median: 11, factors: {} }],
+      // The engine's own number for a bye player is higher than the starter's.
+      [2, { mean: 14, median: 14, factors: {} }],
+      [3, { mean: 9, median: 9, factors: {} }],
+      [4, { mean: 12, median: 12, factors: {} }],
+    ]),
+  });
+
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(2).unavailable, "bye");
+  assert.equal(byId.get(2).edge.kind, 'none', 'a bench player on a bye outprojects nobody');
+  assert.equal(byId.get(3).unavailable, 'bye');
+  assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a starter on a bye');
   fake.assertClean();
 });
 
