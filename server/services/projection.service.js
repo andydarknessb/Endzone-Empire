@@ -2,7 +2,8 @@ const pool = require('../modules/pool');
 const model = require('./projectionModel');
 // The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
 const { poolPointsFor, poolPointsMap } = require('./poolProjection');
-const { unavailableFor } = require('./unavailable');
+const { unavailableFor, startVerdictOf } = require('./unavailable');
+const practiceParticipation = require('./practiceParticipation.service');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -1309,22 +1310,23 @@ async function getWeeklyProjections({
   if (ids.length === 0) return toWeeklyProjectionResult(empty);
 
   const backupIds = await loadBackupQuarterbackIds({ client, playerIds: ids, now });
+  const practiceById = await loadPracticeFacts({ client, season, week, playerIds: ids });
   let run = refresh ? null : await findRun({ season, week, hashValue, client });
   let cached = new Map();
   if (run) {
     cached = await loadCachedRows({ runId: run.id, playerIds: ids, client });
     const missing = ids.filter((id) => !cached.has(id));
-    if (missing.length === 0) return cachedRunResult({ season, week, hashValue, run, cached, backupIds });
+    if (missing.length === 0) return cachedRunResult({ season, week, hashValue, run, cached, backupIds, practiceById });
   }
 
   const toGenerate = run ? ids.filter((id) => !cached.has(id)) : ids;
   return completeRun({
-    season, week, rules, hashValue, run, cached, playerIds: toGenerate, client, now, weatherService, backupIds,
+    season, week, rules, hashValue, run, cached, playerIds: toGenerate, client, now, weatherService, backupIds, practiceById,
   });
 }
 
 /** The result shape for a week every requested player already had cached. */
-function cachedRunResult({ season, week, hashValue, run, cached, backupIds }) {
+function cachedRunResult({ season, week, hashValue, run, cached, backupIds, practiceById }) {
   return toWeeklyProjectionResult({
     season,
     week,
@@ -1335,6 +1337,7 @@ function cachedRunResult({ season, week, hashValue, run, cached, backupIds }) {
     sourceCoverage: run.source_coverage || {},
     projections: cached,
     backupIds,
+    practiceById,
   });
 }
 
@@ -1373,7 +1376,7 @@ async function degradingRead({ client, savepoint, label, read, fallback }) {
  * same way from either path.
  */
 async function completeRun({
-  season, week, rules, hashValue, run, cached, playerIds, client, now, weatherService, backupIds,
+  season, week, rules, hashValue, run, cached, playerIds, client, now, weatherService, backupIds, practiceById,
 }) {
   // The NFL roster status is optional context on the same terms as weather:
   // a failed read degrades to "every player Active" rather than failing the
@@ -1436,6 +1439,7 @@ async function completeRun({
     sourceCoverage: generated.sourceCoverage,
     projections: merged,
     backupIds,
+    practiceById,
   });
 }
 
@@ -1744,6 +1748,34 @@ async function loadBackupQuarterbackIds({ client, playerIds, now }) {
 }
 
 /**
+ * This week's Practice participation for the requested players, as the
+ * `Map<playerId, { observations, kickoffAt }>` the Start verdict reads (ADR
+ * 0056): one batched observations read, then one kickoff read only for players
+ * that have an observation (coverage is anchored on his game's kickoff). A
+ * failed read degrades to "nobody has practice facts", the status quo verdict,
+ * as the QB depth chart read does. Read path only: nothing is stored.
+ */
+async function loadPracticeFacts({ client, season, week, playerIds }) {
+  return degradingRead({
+    client, savepoint: 'practice_facts', label: 'Practice participation', fallback: new Map(),
+    read: async () => {
+      const observed = await practiceParticipation.loadWeekObservations(client, { season, week, playerIds });
+      if (observed.size === 0) return new Map();
+      const kickoffs = await client.query(
+        `SELECT "p"."id" AS "player_id", MIN("g"."kickoff_at") AS "kickoff_at"
+         FROM "players" "p" JOIN "nfl_games" "g"
+           ON "g"."season" = $1 AND "g"."week" = $2
+          AND fn_normalize_nfl_team("g"."nfl_team") = fn_normalize_nfl_team("p"."nfl_team")
+         WHERE "p"."id" = ANY($3::int[]) GROUP BY "p"."id"`,
+        [season, week, [...observed.keys()]]
+      );
+      const kickoffById = new Map(kickoffs.rows.map((r) => [Number(r.player_id), r.kickoff_at]));
+      return new Map([...observed].map(([id, observations]) => [id, { observations, kickoffAt: kickoffById.get(id) ?? null }]));
+    },
+  });
+}
+
+/**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the
  * accessors (six at #1702, plus `positionBaselineFor` and `availabilityFor`
@@ -1884,6 +1916,28 @@ function toWeeklyProjectionResult(run) {
         positionBaseline: baseline,
         backup: !baseline,
       });
+    },
+
+    /**
+     * The Start verdict (CONTEXT.md; spec #2042): `{ outcome, reason,
+     * numberTrusted }`, the one verdict per player for this run's week, with
+     * every fact the read holds: the stored designation, Position-baseline, the
+     * Backup chart and this week's Practice participation (`run.practiceById`,
+     * `{ observations, kickoffAt }` per player; only the single-week reader
+     * loads it, so a multi-week run never reads `no_practice`). A stored
+     * Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) is taken
+     * as stored; every other precedence step is `unavailableFor`'s.
+     */
+    startVerdictFor(playerId) {
+      const entry = entryFor(playerId);
+      const stored = ((entry && entry.factors) || {}).availability || {};
+      if (stored.available === false) return startVerdictOf(stored);
+      return startVerdictOf(unavailableFor({
+        injuryStatus: stored.status || null,
+        positionBaseline: isPositionBaseline(playerId),
+        backup: isBackup(playerId),
+        practice: (run.practiceById && run.practiceById.get(Number(playerId))) || null,
+      }));
     },
 
     /** `{ mean, median, p10, p90, confidence, activeProbability } | null`. */
