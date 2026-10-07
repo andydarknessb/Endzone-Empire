@@ -8,7 +8,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
-const { lastRun, runSyncJob, recordDataSyncRun } = require('./syncRun');
+const { lastRun, runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
 
 /**
@@ -55,8 +55,11 @@ let lastSyncAt = null;
 // cache from week+1 onward, and repeating THAT on every release of a
 // correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
-// After a not-ok stat-corrections run the pass waits this long before retrying.
+// Each gated job sets its own retry interval: how long the cadence gate waits
+// after a failed run (fetch_failed, bad_response, write_failed) before the job
+// is due again. A refused run is not retried: it settles its UTC day.
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
+const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
 // The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
@@ -220,43 +223,23 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
 }
 
 /**
- * A `lastRun`-shaped reader for the ADP gate (pre-PR-ready risk review,
- * #1509): the cadence gate's `'utc-day'` cadence only ever reads `latestOk`
- * (cadence.js), but a thin-market/thin-match refusal (adp.service.js's wipe
- * guard) RESOLVES rather than throws and records `ok: false` - so on its own
- * the gate would never close for the day on a refusal, and every five-minute
- * tick would re-hit FFC for the rest of the UTC day while the market stays
- * thin (the pre-#1509 in-memory stamp closed on any non-throwing outcome,
- * refusal included, for exactly this reason - see the deleted
- * `lastAdpSyncDay` comment history). `latest` is always the same run as
- * `latestOk` or a STRICTLY NEWER one (`lastRun`'s own two-subquery
- * definition), so when the newest attempt is itself a same-UTC-day refusal,
- * substituting it for `latestOk` closes the gate the same way a real success
- * would; a genuinely thrown run (`fetch_failed`/`write_failed`) is excluded
- * by the `reason === 'refused'` check and still leaves `latestOk` (and so the
- * gate) untouched, so it keeps retrying every tick, same as before #1509.
- */
-async function adpLastRun(job) {
-  const { latest, latestOk } = await lastRun(job);
-  const latestIsRefusal = Boolean(latest) && !latest.ok && latest.detail && latest.detail.reason === 'refused';
-  return { latest, latestOk: latestIsRefusal ? latest : latestOk };
-}
-
-/**
  * Daily ADP market refresh (#747). Runs at most once per UTC calendar day,
  * all year - FFC is free and keyless, so unlike the injury sync there is no
  * credential gate. The due/not-due decision is the cadence gate's own concern
  * (server/modules/cadence.js, spec #1492 step two, #1509), reading the job's
- * own `data_sync_runs` rows (job: 'adp') through `adpLastRun` above rather
- * than the gate's plain default reader - `adp.syncAdp` already records one
+ * own `data_sync_runs` rows (job: 'adp') - `adp.syncAdp` already records one
  * row through `runSyncJob`, so this adds no second, scheduler-level row,
- * mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory
+ * mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. The gate reads
+ * the latest run's typed outcome: a thin-market/thin-match `refused` run
+ * settles the UTC day (otherwise every five-minute tick would re-hit FFC for
+ * the rest of the day while the market stays thin), a failed one retries
+ * after `ADP_RETRY_MS`. No in-memory
  * once-a-day stamp remains: the gate's own read survives a worker restart,
  * where the old in-memory stamp reset on every one. The wipe guard still
  * lives inside `adp.syncAdp` and is unaffected by this gate.
  */
 async function runDailyAdpSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'adp', every: 'utc-day', now }, { lastRun: adpLastRun });
+  const gate = await cadence.due({ job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS, now });
   if (!gate.due) return null;
   const adp = require('../services/adp.service');
   return adp.syncAdp({ now });
@@ -611,6 +594,7 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
           // An unset NWS_USER_AGENT is an unconfigured optional integration,
           // an ok run: the row says why nothing was fetched.
           ...(coverage.reason ? { reason: coverage.reason } : {}),
+          ...(coverage.reason === NWS_UNCONFIGURED_REASON ? { unconfigured: true } : {}),
         };
       },
     });
@@ -694,29 +678,6 @@ async function syncAndScoreLiveWeeks() {
 }
 
 /**
- * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
- * that treats a read failure as "never run" (`{ latest: null, latestOk:
- * null }`), the same safe direction `lastInjurySyncAt` takes above (and
- * `lastEspnFactsSyncAt` used to, before #1509 moved both ESPN facts jobs onto
- * the gate and removed it): the corrections pass is idempotent, so running it
- * on a flaky
- * read is the safe side, unlike silently skipping a correction day.
- * Otherwise passed straight through - the "day stamped at start" rule (QA
- * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01
- * Wednesday still belongs to Tuesday) is now the cadence gate's own
- * `'utc-day'` contract (spec #1493, "UTC day everywhere"; see cadence.js's
- * `lastSuccessDayKey`), so no job-specific translation lives here anymore.
- */
-async function statCorrectionsLastRun(job) {
-  try {
-    return await lastRun(job);
-  } catch (err) {
-    console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
-    return { latest: null, latestOk: null };
-  }
-}
-
-/**
  * Nightly player_stats integrity scan: records any row whose stored points
  * disagree with its stats (playerStatsIntegrity.service). A Sync run per ADR
  * 0036 with one unit and no lock (nothing else writes the anomalies table),
@@ -744,7 +705,7 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
     lastIntegrityScanDay = today;
     return null;
   }
-  const result = await runSyncJob({
+  const { results: [result] } = await runSyncJob({
     job: integrity.JOB,
     fetch: async () => ({ units: [{}], detail: { day: today } }),
     apply: (client) => integrity.scanPlayerStats({ db: client }),
@@ -768,83 +729,74 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * job on the cadence gate; every other job in this file keeps its own
  * hand-rolled once-a-day check for now.
  *
- * Recorded with `recordDataSyncRun` directly rather than through
- * `runSyncJob`: that wrapper runs its unit inside one `withTransaction`, and
- * a BEGIN'd client sitting idle for the minutes this pass takes - while
- * `correctLeagueWeek` opens its own transaction per league on other clients,
- * beside the tick's session-level advisory lock - is the idle-in-transaction
- * shape #839 already bit this repo with under the pooler. The row carries the
- * UTC `day` the pass ran for (see `statCorrectionsLastRun` above). A thrown
- * pass (including the aggregate cache-maintenance error resyncPriorWeeks
- * raises after finishing) records ok=false, does not move the gate, and
- * bubbles to runJobs's catch. A pass that finishes with failed week
- * syncs records ok=false with them in its detail and stamps nothing. Either
- * way the day stays due and the pass retries once the not-ok row is an hour
- * old, instead of silently skipping the rest of a correction day.
+ * A Sync run (ADR 0036) with one unit, `transaction: false`: a BEGIN'd client
+ * sitting idle for the minutes this pass takes - while `correctLeagueWeek`
+ * opens its own transaction per league on other clients, beside the tick's
+ * session-level advisory lock - is the idle-in-transaction shape #839 already
+ * bit this repo with under the pooler. The row carries the UTC `day` the pass
+ * ran for. A thrown pass (including the aggregate cache-maintenance error
+ * resyncPriorWeeks raises after finishing) records a failed row, does not move
+ * the gate, and bubbles to runJobs's catch. A pass that finishes with failed
+ * week syncs records a failed row with them in its detail and stamps nothing,
+ * without throwing. Either way the day stays due and the gate (which reads the
+ * latest run's typed outcome) holds the pass back until the failed row is
+ * STAT_CORRECTIONS_RETRY_MS old, instead of silently skipping the rest of a
+ * correction day. A gate read that fails reads as "never run": the pass is
+ * idempotent, so running it is the safe side of skipping a correction day.
  */
 async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
   if (!correction.isCorrectionDay(now)) return null;
   const today = cadence.utcDateKey(now);
   if (lastCorrectionDay === today) return null;
-  let latestRun = null;
-  const gate = await cadence.due(
-    { job: 'stat-corrections', every: 'utc-day', now },
-    {
-      lastRun: async (job) => {
-        const runs = await statCorrectionsLastRun(job);
-        latestRun = runs.latest;
-        return runs;
-      },
-    }
-  );
-  if (!gate.due) {
-    lastCorrectionDay = today;
-    return null;
-  }
-  // A not-ok latest run (a failed week or a thrown pass) leaves the day due
-  // but is retried no sooner than STAT_CORRECTIONS_RETRY_MS later, so a
-  // nflverse file broken all day costs one season-CSV fetch an hour, not one
-  // per tick. Not stamped in memory: the window reopens on its own.
-  if (
-    latestRun &&
-    latestRun.ok === false &&
-    latestRun.finishedAt &&
-    now.getTime() - latestRun.finishedAt.getTime() < STAT_CORRECTIONS_RETRY_MS
-  ) {
-    return null;
-  }
-  const startedAt = new Date();
-  let result;
+  let gate;
   try {
-    result = await correction.resyncPriorWeeks();
+    gate = await cadence.due({ job: 'stat-corrections', every: 'utc-day', retryMs: STAT_CORRECTIONS_RETRY_MS, now });
   } catch (err) {
-    await recordDataSyncRun({
-      job: 'stat-corrections',
-      startedAt,
-      ok: false,
-      detail: {
-        day: today,
-        reason: 'write_failed',
-        message: err && err.message ? err.message : String(err),
-        invalidated: (err && err.invalidated) || [],
-        ...(err && err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
-      },
-    });
-    throw err;
+    console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
+    gate = { due: true };
   }
-  const failedWeeks = result.failed || [];
-  await recordDataSyncRun({
-    job: 'stat-corrections',
-    startedAt,
-    ok: failedWeeks.length === 0,
-    detail: {
-      day: today,
-      corrected: (result.corrected || []).length,
-      invalidated: result.invalidated || [],
-      ...(failedWeeks.length > 0 ? { reason: 'write_failed', failedWeeks } : {}),
-    },
-  });
+  if (!gate.due) {
+    // A retry wait is not a settled day: unstamped, the window reopens on its own.
+    if (!gate.backoff) lastCorrectionDay = today;
+    return null;
+  }
+  let result;
+  let failedWeeks = [];
+  try {
+    ({ results: [result] } = await runSyncJob({
+      job: 'stat-corrections',
+      transaction: false,
+      fetch: async () => ({ units: [{}], detail: { day: today } }),
+      apply: async () => {
+        let run;
+        try {
+          run = await correction.resyncPriorWeeks();
+        } catch (err) {
+          if (err && typeof err === 'object') {
+            err.syncDetail = {
+              invalidated: err.invalidated || [],
+              ...(err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
+            };
+          }
+          throw err;
+        }
+        const summary = { corrected: (run.corrected || []).length, invalidated: run.invalidated || [] };
+        const failed = run.failed || [];
+        if (failed.length > 0) {
+          const error = new Error(`stat corrections failed for ${failed.length} week(s)`);
+          error.syncDetail = { ...summary, failedWeeks: failed };
+          error.partial = { ...summary, failedWeeks: failed };
+          throw error;
+        }
+        return summary;
+      },
+    }));
+  } catch (err) {
+    if (!err || !err.partial) throw err;
+    result = err.partial;
+    failedWeeks = err.partial.failedWeeks;
+  }
   if (failedWeeks.length === 0) {
     lastCorrectionDay = today;
   } else {
@@ -854,10 +806,10 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
         .join(', ')}; retrying after ${STAT_CORRECTIONS_RETRY_MS / 60000} minutes`
     );
   }
-  if (result.corrected && result.corrected.length > 0) {
-    console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
+  if (result.corrected > 0) {
+    console.log(`scheduler: stat corrections changed scores in ${result.corrected} league(s)`);
   }
-  if (result.invalidated && result.invalidated.length > 0) {
+  if (result.invalidated.length > 0) {
     console.log(
       `scheduler: stat corrections invalidated weekly projection runs (${result.invalidated
         .map((w) => `${w.season} from week ${w.fromWeek}: ${w.deletedRuns} run(s)`)
@@ -1068,10 +1020,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   } catch (err) {
     console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
   }
-  // `runSyncJob` resolves to the single unit's own return value when exactly
-  // one unit ran, or `{ results: [...] }` for zero or more than one (never
-  // a refusal: `fetch` above has no refusal path).
-  const perLeague = outcome && Array.isArray(outcome.results) ? outcome.results : (outcome ? [outcome] : []);
+  // One result per league's unit (`fetch` above has no refusal path).
+  const perLeague = outcome.results;
   const weeksGenerated = perLeague.reduce((sum, r) => sum + (r.weeksGenerated || 0), 0);
   const weeksSkipped = perLeague.reduce((sum, r) => sum + (r.weeksSkipped || 0), 0);
   if (weeksGenerated > 0 || weeksSkipped > 0) {
@@ -1493,12 +1443,6 @@ const SYNC_RUN_JOBS = [...syncRunJobs(TICK_JOBS), ...MANUAL_SYNC_RUN_JOBS];
 // ok (a failed row would not move the cadence gate), but the report names it.
 const NWS_UNCONFIGURED_REASON = 'NWS_USER_AGENT not configured';
 
-// The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
-// syncRun.js). Anything else - a legacy row written before that module
-// existed, such as an old ADP row's `reason: 'thin_market'` - reports
-// outcome: null rather than inventing a value (#1205).
-const SYNC_RUN_OUTCOMES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
-
 /**
  * `{ finishedAt, ok, outcome, failedWeeks }` for one `lastRun(job).latest`
  * row, or null. `failedWeeks` (#1242) is `detail.failedWeeks.length` when
@@ -1512,14 +1456,11 @@ function toLatestStatus(latest) {
   if (!latest) return null;
   const detail = latest.detail;
   const isDetailObject = detail !== null && typeof detail === 'object';
-  const reason = isDetailObject && detail.reason;
   const failedWeeks = isDetailObject && Array.isArray(detail.failedWeeks) ? detail.failedWeeks.length : null;
   return {
     finishedAt: latest.finishedAt,
     ok: latest.ok,
-    outcome: latest.ok
-      ? (reason === NWS_UNCONFIGURED_REASON ? 'unconfigured' : 'ok')
-      : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
+    outcome: latest.outcome ?? null,
     failedWeeks,
   };
 }
@@ -1633,7 +1574,6 @@ module.exports = {
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
-  adpLastRun,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,
   runDailyEspnRosterStatusSync,

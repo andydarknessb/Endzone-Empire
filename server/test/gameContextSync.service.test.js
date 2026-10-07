@@ -186,7 +186,7 @@ test('syncGameContext: fetches the slate once outside any transaction, writes in
 
   const result = await syncGameContext({ season: 2026, week: 2, transport });
 
-  assert.deepEqual(result, { gamesUpdated: 1 });
+  assert.deepEqual(result, { status: 'ok', results: [{ gamesUpdated: 1 }] });
   assert.equal(fake.matching(/^BEGIN$/).length, 1);
   assert.equal(fake.matching(liveGameStates).length, 1);
   const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
@@ -218,7 +218,7 @@ test('syncGameContext: a week with no Venue/Broadcast/Record fields opens no tra
   ]).install(t);
 
   const result = await syncGameContext({ season: 2026, week: 2, transport });
-  assert.deepEqual(result, { results: [] });
+  assert.deepEqual(result, { status: 'ok', results: [] });
   assert.equal(fake.matching(/^BEGIN$/).length, 0);
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs[0].params[2], true);

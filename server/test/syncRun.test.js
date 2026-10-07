@@ -30,7 +30,7 @@ test('runSyncJob success: one unit applies inside a transaction, one ok=true row
     },
   });
 
-  assert.deepEqual(result, { written: 1 }, 'a single-unit run resolves to that unit\'s apply result');
+  assert.deepEqual(result, { status: 'ok', results: [{ written: 1 }] }, 'a single-unit run still resolves results as an array of length 1');
   const records = dataSyncRuns(fake.calls);
   assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
   assert.equal(records[0].via, 'pool', 'the record is written on the pool, outside the transaction');
@@ -78,7 +78,7 @@ test('runSyncJob with transaction: false runs apply(null, unit) with no BEGIN or
   });
 
   assert.deepEqual(seen, [[null, 'w1']], 'apply gets null as its client');
-  assert.deepEqual(result, { written: 1 });
+  assert.deepEqual(result, { status: 'ok', results: [{ written: 1 }] });
   assert.equal(fake.calls.filter((c) => c.text === 'BEGIN' || c.text === 'COMMIT').length, 0);
   const records = dataSyncRuns(fake.calls);
   assert.equal(records.length, 1);
@@ -198,7 +198,7 @@ test('runSyncJob: fetch returning { refused: true, reason } records ok=false wit
     apply: async () => { throw new Error('apply must never run on a refusal'); },
   });
 
-  assert.deepEqual(result, { refused: true, reason: 'thin_market' });
+  assert.deepEqual(result, { status: 'refused', reason: 'thin_market', results: [] });
   const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
   assert.equal(detail.reason, 'refused');
   assert.equal(detail.refusalReason, 'thin_market');
@@ -218,7 +218,7 @@ test('runSyncJob: a refusal\'s detail reaches both the recorded row and the reso
     apply: async () => { throw new Error('apply must never run on a refusal'); },
   });
 
-  assert.deepEqual(result, { refused: true, reason: 'thin_market', detail: { adpPlayers: 50 } });
+  assert.deepEqual(result, { status: 'refused', reason: 'thin_market', results: [], detail: { adpPlayers: 50 } });
   const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
   assert.equal(detail.reason, 'refused');
   assert.equal(detail.refusalReason, 'thin_market');
@@ -332,9 +332,9 @@ test('runSyncJob: multiple units resolve to { results: [...] }, matching what is
     apply: async (client, unit) => ({ id: unit.id }),
   });
 
-  assert.deepEqual(result, { results: [{ id: 'w1' }, { id: 'w2' }] });
+  assert.deepEqual(result, { status: 'ok', results: [{ id: 'w1' }, { id: 'w2' }] });
   const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
-  assert.deepEqual(detail, result, 'the recorded detail matches the resolved value');
+  assert.deepEqual(detail, { results: result.results }, 'the recorded detail carries the same results');
 });
 
 test('runSyncJob: fetch returning { units, detail } merges detail into a single-unit ok row without changing the resolved value (#1202)', async (t) => {
@@ -349,7 +349,7 @@ test('runSyncJob: fetch returning { units, detail } merges detail into a single-
     apply: async (client, unit) => ({ id: unit.id, written: 1 }),
   });
 
-  assert.deepEqual(result, { id: 'w1', written: 1 }, 'the resolved value is the unit result alone, no wrapper leaks through');
+  assert.deepEqual(result, { status: 'ok', results: [{ id: 'w1', written: 1 }] }, 'the resolved value is the unit results alone, fetchDetail never leaks through');
   const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
   assert.deepEqual(detail, { skipped: ['w0'], id: 'w1', written: 1 }, 'fetchDetail and the unit result both land in the recorded row');
 });
@@ -368,7 +368,7 @@ test('runSyncJob: fetch returning { units, detail } merges detail into a multi-u
 
   // The resolved value is exactly runSyncJob's normal multi-unit shape - the
   // wrapper's detail never reaches a caller's return value, only the recorded row.
-  assert.deepEqual(result, { results: [{ id: 'w1' }, { id: 'w2' }] });
+  assert.deepEqual(result, { status: 'ok', results: [{ id: 'w1' }, { id: 'w2' }] });
   const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
   assert.deepEqual(detail.skipped, ['w3'], 'run-level detail is recorded even with two-or-more units, unlike a bare units array (formal review, PR #1244 f1)');
   assert.deepEqual(detail.results, result.results);
@@ -458,4 +458,85 @@ test('lastRun(job): both null when the job has never run', async (t) => {
   const { latest, latestOk } = await lastRun('never-run');
   assert.equal(latest, null);
   assert.equal(latestOk, null);
+});
+
+test('runSyncJob: every run resolves or records exactly one typed outcome status', async (t) => {
+  const outcomeOf = async (run) => {
+    const fake = createFakePool([
+      [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    ]).install(t);
+    let resolved = null;
+    let thrown = null;
+    try { resolved = await run(); } catch (err) { thrown = err; }
+    const row = dataSyncRuns(fake.calls)[0];
+    return { resolved, thrown, ok: row.params[2], detail: JSON.parse(row.params[3]) };
+  };
+  const job = (fetch, apply = async () => ({})) => () => runSyncJob({ job: 'widgets', lock: null, fetch, apply });
+
+  const ok = await outcomeOf(job(async () => [{ id: 'w1' }], async () => ({ written: 1 })));
+  assert.equal(ok.resolved.status, 'ok');
+  assert.equal(ok.resolved.results.length, 1, 'a single-unit run still has results of length 1');
+
+  const refused = await outcomeOf(job(async () => ({ refused: true, reason: 'thin_market' })));
+  assert.equal(refused.resolved.status, 'refused');
+  assert.deepEqual(refused.resolved.results, []);
+
+  const unconfigured = await outcomeOf(job(async () => [{}, {}], async () => ({ unconfigured: true })));
+  assert.equal(unconfigured.resolved.status, 'unconfigured');
+  assert.equal(unconfigured.ok, true, 'an unconfigured run is still an ok row');
+  assert.equal(unconfigured.detail.unconfigured, true);
+
+  const mixed = await outcomeOf(job(async () => [{}, {}], async (_c, _u) => ({ unconfigured: false })));
+  assert.equal(mixed.resolved.status, 'ok');
+
+  const fetchFailed = await outcomeOf(job(async () => { throw new Error('down'); }));
+  assert.equal(fetchFailed.thrown.syncFailureReason, 'fetch_failed');
+  assert.equal(fetchFailed.detail.reason, 'fetch_failed');
+
+  const badResponse = await outcomeOf(job(async () => {
+    const err = new Error('shape');
+    err.syncFailureReason = 'bad_response';
+    throw err;
+  }));
+  assert.equal(badResponse.thrown.syncFailureReason, 'bad_response');
+  assert.equal(badResponse.detail.reason, 'bad_response');
+
+  const writeFailed = await outcomeOf(job(async () => [{}], async () => { throw new Error('boom'); }));
+  assert.equal(writeFailed.thrown.syncFailureReason, 'write_failed');
+  assert.equal(writeFailed.detail.reason, 'write_failed');
+});
+
+test('runSyncJob: an apply error carrying syncDetail merges it into the write_failed row, reason/failed still winning', async (t) => {
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+  const boom = Object.assign(new Error('partial'), { syncDetail: { failedWeeks: [{ week: 3 }], reason: 'oops' } });
+
+  await assert.rejects(
+    runSyncJob({ job: 'widgets', lock: null, fetch: async () => [{}], apply: async () => { throw boom; } }),
+    /partial/,
+  );
+
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.deepEqual(detail.failedWeeks, [{ week: 3 }]);
+  assert.equal(detail.reason, 'write_failed');
+});
+
+test('lastRun(job): decodes each run row\'s typed outcome', async (t) => {
+  const row = (id, ok, detail) => ({ id, finished_at: '2026-09-10T00:00:00.000Z', ok, detail });
+  const decode = async (latest) => {
+    createFakePool([
+      [/^SELECT\s+\(SELECT row_to_json/, () => ({ rows: [{ latest, latestOk: null }] })],
+    ]).install(t);
+    return (await lastRun('widgets')).latest.outcome;
+  };
+
+  assert.equal(await decode(row(1, true, { written: 1 })), 'ok');
+  assert.equal(await decode(row(2, true, { unconfigured: true })), 'unconfigured');
+  assert.equal(await decode(row(3, false, { reason: 'refused', refusalReason: 'thin_market' })), 'refused');
+  assert.equal(await decode(row(4, false, { reason: 'fetch_failed' })), 'fetch_failed');
+  assert.equal(await decode(row(5, false, { reason: 'bad_response' })), 'bad_response');
+  assert.equal(await decode(row(6, false, { reason: 'write_failed' })), 'write_failed');
+  assert.equal(await decode(row(7, false, { reason: 'thin_market' })), null, 'a legacy non-ok reason reads as no outcome');
+  assert.equal(await decode(row(8, false, null)), null, 'a row with no detail reads as no outcome');
 });

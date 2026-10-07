@@ -223,3 +223,50 @@ test('utcDateKey: a Date\'s UTC calendar day as YYYY-MM-DD', () => {
   assert.equal(utcDateKey(new Date('2026-09-16T23:59:59.999Z')), '2026-09-16');
   assert.equal(utcDateKey(new Date('2026-09-15T23:59:59.999Z')), '2026-09-15');
 });
+
+// The gate reads the latest run's typed outcome (syncRun's `lastRun` decodes it
+// off the row): a refusal is a settled answer for the day, a failure retries
+// once the job's own `retryMs` has passed.
+const runAt = (id, iso, ok, outcome, detail = null) => ({ id, finishedAt: new Date(iso), ok, outcome, detail });
+const ADP_RETRY_MS = 15 * 60 * 1000;
+
+test('a refused run closes the UTC day the gate would otherwise reopen every tick', async () => {
+  const refused = runAt(7, '2026-09-16T05:00:00Z', false, 'refused', { day: '2026-09-16' });
+  const lastRun = async () => ({ latest: refused, latestOk: runAt(3, '2026-09-15T05:00:00Z', true, 'ok') });
+  const verdict = await due(
+    { job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS, now: new Date('2026-09-16T09:00:00Z') },
+    { lastRun },
+  );
+  assert.deepEqual(verdict, { due: false, reason: 'already succeeded today (UTC)' });
+
+  const nextDay = await due(
+    { job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS, now: new Date('2026-09-17T00:05:00Z') },
+    { lastRun },
+  );
+  assert.equal(nextDay.due, true, 'the refusal only settles its own UTC day');
+});
+
+test('a fetch_failed run retries after the job\'s own interval, not before and not never', async () => {
+  const failed = runAt(8, '2026-09-16T05:00:00Z', false, 'fetch_failed');
+  const lastRun = async () => ({ latest: failed, latestOk: runAt(3, '2026-09-15T05:00:00Z', true, 'ok') });
+  const args = { job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS };
+
+  const early = await due({ ...args, now: new Date('2026-09-16T05:10:00Z') }, { lastRun });
+  assert.equal(early.due, false, 'inside the interval the job waits');
+  assert.match(early.reason, /retry/);
+
+  const later = await due({ ...args, now: new Date('2026-09-16T05:16:00Z') }, { lastRun });
+  assert.equal(later.due, true, 'past the interval it is due again');
+
+  const noInterval = await due({ job: 'adp', every: 'utc-day', now: new Date('2026-09-16T05:00:01Z') }, { lastRun });
+  assert.equal(noInterval.due, true, 'a job that sets no retryMs retries on the next look');
+});
+
+test('retryMs never blocks a job whose latest run was a success or whose cadence is not due', async () => {
+  const ok = runAt(9, '2026-09-16T05:00:00Z', true, 'ok');
+  const verdict = await due(
+    { job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS, now: new Date('2026-09-16T05:01:00Z') },
+    { lastRun: async () => ({ latest: ok, latestOk: ok }) },
+  );
+  assert.deepEqual(verdict, { due: false, reason: 'already succeeded today (UTC)' });
+});

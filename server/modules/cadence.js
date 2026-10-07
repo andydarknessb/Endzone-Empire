@@ -41,14 +41,41 @@ const syncRun = require('./syncRun');
  *   the underlying rows in some way of its own - without this module knowing
  *   anything about that. It must still resolve `{ latest, latestOk }` in the
  *   shape `lastRun` itself returns.
+ * - The gate reads the latest run's typed `outcome` (`lastRun` decodes it off
+ *   the row, ADR 0036). A `refused` latest run settles the cadence period
+ *   like a success does (without moving `after`): the feed answered and the
+ *   job declined to write, so asking again the same day gets the same answer.
+ *   Any other failed latest run (`fetch_failed`,
+ *   `bad_response`, `write_failed`) leaves the period due but backs off for
+ *   `retryMs`, the job's OWN retry interval (default 0: retry on the next
+ *   look), so a feed broken all day costs one call per interval, not one per
+ *   tick.
  * - Never writes: every path through this module only ever reads, through
  *   `lastRun`.
  * - `now` defaults to `new Date()`.
  */
-async function due({ job, every, after, now = new Date() } = {}, { lastRun = syncRun.lastRun } = {}) {
+async function due({ job, every, after, retryMs = 0, now = new Date() } = {}, { lastRun = syncRun.lastRun } = {}) {
   assertValidEvery(every);
-  const { latestOk } = await lastRun(job);
-  const cadenceVerdict = evaluateCadence(every, latestOk, now);
+  const { latest, latestOk } = await lastRun(job);
+  // A refusal is the job's settled answer for its cadence period (the feed
+  // answered, the job declined to write: a thin ADP market), so it counts as
+  // the run the cadence is measured from, though only a success moves `after`.
+  const settled = latest && latest.outcome === 'refused' ? latest : latestOk;
+  const verdict = await dueByCadence({ every, after, now }, lastRun, settled, latestOk);
+  if (verdict.due && latest && !latest.ok && latest.outcome !== 'refused' && latest.finishedAt) {
+    const sinceFailure = now.getTime() - latest.finishedAt.getTime();
+    if (sinceFailure < retryMs) {
+      // `backoff: true` tells a caller this is a wait, not a settled period: it
+      // must not stamp the day done, the gate reopens on its own.
+      return { due: false, backoff: true, reason: `retrying after ${retryMs}ms, last run ${latest.outcome || 'failed'} ${sinceFailure}ms ago` };
+    }
+  }
+  return verdict;
+}
+
+/** The cadence verdict plus the `after` dependency, before any retry backoff. */
+async function dueByCadence({ every, after, now }, lastRun, settled, latestOk) {
+  const cadenceVerdict = evaluateCadence(every, settled, now);
   if (!after) return cadenceVerdict;
 
   const { latestOk: afterLatestOk } = await lastRun(after);
