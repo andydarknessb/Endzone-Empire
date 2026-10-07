@@ -450,6 +450,20 @@ test('tickUnlocked runs the daily ADP sync in its own containment, so a throw do
   assert.match(tickBody, /try \{\s*await runDailyAdpSync\(\);\s*\} catch/);
 });
 
+test('tickUnlocked runs retention in its own containment, so a throw does not stop the weather, fill and ESPN duties after it', () => {
+  // Uncontained, a throwing enforceRetention left lastRetentionDay unset, so
+  // every tick retried it and threw before the weather snapshots, the nightly
+  // fill and the ESPN syncs, for as long as retention kept failing.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
+  const tickBody = source.slice(
+    source.indexOf('async function tickUnlocked'),
+    source.indexOf('async function runRetention')
+  );
+  assert.match(tickBody, /try \{\s*await runRetention\(\);\s*\} catch/);
+});
+
 // ---- daily ESPN depth-chart & Ownership syncs (#1308, #1509) ----------------
 // Same shape as the ADP section above: the due/not-due decision is the
 // cadence gate's own concern, so these stub cadence.due directly and assert
