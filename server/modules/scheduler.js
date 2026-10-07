@@ -371,9 +371,9 @@ async function runPreHoldoutEspnRosterStatusSync({ now = new Date() } = {}) {
   // timeouts ahead of the capture on every five-minute tick for the whole
   // window (#1766 risk review). The daily and Saturday runs keep their own
   // retry-next-tick behaviour at the end of the tick, where they delay nothing.
-  // This backs off on any non-ok latest run, a refusal included, because
-  // runRosterStatusSync has no refusal path (ADR 0036, #2060); read
-  // `latest.outcome` here the day one is added.
+  // This trigger and runGameDayEspnRosterStatusSync both back off on any non-ok
+  // latest run, a refusal included, because runRosterStatusSync has no refusal
+  // path (ADR 0036, #2060); read `latest.outcome` in both the day one is added.
   if (latest && latest.ok === false && latest.finishedAt &&
       now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
   return require('./espnFactsSync').runRosterStatusSync({ now });
