@@ -22,6 +22,7 @@ function loadServiceWorker({ scriptUrl = `${SITE}/service-worker.js`, fetchImpl 
   const stores = new Map();
   const matchOptions = [];
   const deleted = [];
+  const preload = { enabled: false };
   const storeFor = (name) => { if (!stores.has(name)) stores.set(name, new Map()); return stores.get(name); };
   const cacheFor = (name) => ({
     match: async (request, options) => { matchOptions.push(options); return storeFor(name).get(typeof request === 'string' ? request : request.url) || undefined; },
@@ -35,7 +36,10 @@ function loadServiceWorker({ scriptUrl = `${SITE}/service-worker.js`, fetchImpl 
     addEventListener: (type, handler) => { listeners[type] = handler; },
     skipWaiting: () => Promise.resolve(),
     clients: { claim: () => Promise.resolve(), matchAll: () => Promise.resolve([]), openWindow: () => Promise.resolve() },
-    registration: { showNotification: () => Promise.resolve() },
+    registration: {
+      showNotification: () => Promise.resolve(),
+      navigationPreload: { enable: () => { preload.enabled = true; return Promise.resolve(); } },
+    },
   };
   const context = vm.createContext({
     self,
@@ -45,12 +49,12 @@ function loadServiceWorker({ scriptUrl = `${SITE}/service-worker.js`, fetchImpl 
     console,
   });
   vm.runInContext(source, context, { filename: 'service-worker.js' });
-  return { listeners, store, stores, matchOptions, deleted };
+  return { listeners, store, stores, matchOptions, deleted, preload };
 }
 
 // A minimal FetchEvent: records whether the worker took the request over.
-function fetchEvent(url, { method = 'GET', mode = 'cors' } = {}) {
-  const event = { request: { url, method, mode, headers: new Map(), clone() { return this; } }, responded: null };
+function fetchEvent(url, { method = 'GET', mode = 'cors', preloadResponse } = {}) {
+  const event = { request: { url, method, mode, headers: new Map(), clone() { return this; } }, responded: null, preloadResponse };
   event.respondWith = (promise) => {
     event.responded = Promise.resolve(promise);
     event.responded.catch(() => {}); // a rejected fallback is a legitimate outcome, not an unhandled rejection
@@ -227,4 +231,36 @@ test('a static 404 is retried once with cache: reload and the 404 is returned, u
   expect(calls).toEqual([undefined, 'reload']);
   const shell = Array.from(stores.entries()).filter(([name]) => name.startsWith('endzone-shell'));
   expect(shell.every(([, s]) => s.size === 0)).toBe(true);
+});
+
+// Navigation preload (#2072): the worker's cold start was measured at 1.1 to
+// 1.6 s ahead of every page request in production, and a stalled start left
+// the document "pending" with no fallback. With preload on, the browser sends
+// the page request in parallel with starting the worker; the worker takes
+// that response instead of opening a second one.
+test('activating the worker enables navigation preload', async () => {
+  const { listeners, preload } = loadServiceWorker();
+  let done;
+  listeners.activate({ waitUntil: (p) => { done = p; } });
+  await done;
+  expect(preload.enabled).toBe(true);
+});
+
+test('a navigation is answered from the preload response when the browser provides one, with no second fetch', async () => {
+  let fetched = 0;
+  const preloaded = { ok: true, status: 200, clone() { return this; } };
+  const { listeners } = loadServiceWorker({ fetchImpl: async () => { fetched += 1; return { ok: true, status: 200, clone() { return this; } }; } });
+  const event = fetchEvent(`${SITE}/`, { mode: 'navigate', preloadResponse: Promise.resolve(preloaded) });
+  listeners.fetch(event);
+  expect(await event.responded).toBe(preloaded);
+  expect(fetched).toBe(0);
+});
+
+test('a navigation still goes to the network when the browser provides no preload response', async () => {
+  let fetched = 0;
+  const { listeners } = loadServiceWorker({ fetchImpl: async () => { fetched += 1; return { ok: true, status: 200, clone() { return this; } }; } });
+  const event = fetchEvent(`${SITE}/`, { mode: 'navigate', preloadResponse: Promise.resolve(undefined) });
+  listeners.fetch(event);
+  expect((await event.responded).status).toBe(200);
+  expect(fetched).toBe(1);
 });
