@@ -270,3 +270,12 @@ test('retryMs never blocks a job whose latest run was a success or whose cadence
   );
   assert.deepEqual(verdict, { due: false, reason: 'already succeeded today (UTC)' });
 });
+
+test('a job with no retryMs is never held back by a failed latest run, even one stamped after now (clock skew)', async () => {
+  const failed = runAt(10, '2026-09-16T05:00:01Z', false, 'fetch_failed');
+  const verdict = await due(
+    { job: 'odds', every: { ms: 3600000 }, now: new Date('2026-09-16T05:00:00Z') },
+    { lastRun: async () => ({ latest: failed, latestOk: null }) },
+  );
+  assert.equal(verdict.due, true);
+});

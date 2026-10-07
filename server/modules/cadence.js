@@ -5,8 +5,8 @@ const syncRun = require('./syncRun');
 /**
  * The cadence gate (spec #1492, step two): is `job` due to run right now?
  * Read-side only - it never writes, and it never runs a job itself, it only
- * answers the question. `due({ job, every, after, now }, { lastRun })` ->
- * `{ due, reason }`.
+ * answers the question. `due({ job, every, after, retryMs, now }, { lastRun })`
+ * -> `{ due, reason }` (plus `backoff: true` on a wait for `retryMs`).
  *
  * - `every` is `'utc-day'` (due once the last successful run's UTC calendar
  *   day is not today's UTC calendar day - so a run finished one minute into a
@@ -64,7 +64,7 @@ async function due({ job, every, after, retryMs = 0, now = new Date() } = {}, { 
   const verdict = await dueByCadence({ every, after, now }, lastRun, settled, latestOk);
   if (verdict.due && latest && !latest.ok && latest.outcome !== 'refused' && latest.finishedAt) {
     const sinceFailure = now.getTime() - latest.finishedAt.getTime();
-    if (sinceFailure < retryMs) {
+    if (retryMs > 0 && sinceFailure < retryMs) {
       // `backoff: true` tells a caller this is a wait, not a settled period: it
       // must not stamp the day done, the gate reopens on its own.
       return { due: false, backoff: true, reason: `retrying after ${retryMs}ms, last run ${latest.outcome || 'failed'} ${sinceFailure}ms ago` };

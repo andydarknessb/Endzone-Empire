@@ -1351,8 +1351,8 @@ async function runLiveSync() {
  * writes, and `SYNC_RUN_JOBS` is derived from them.
  *
  * Throttles differ by job and live in the jobs, not here: most Sync runs ask
- * `cadence.due`; the stat-correction pass keeps a day stamp beside it (it
- * records its row by hand); the nflverse HEAD polls throttle in memory (a check
+ * `cadence.due`; the stat-correction pass keeps a day stamp beside it (a
+ * same-process short-circuit ahead of the gate's read); the nflverse HEAD polls throttle in memory (a check
  * that finds nothing writes no run row); retention has a day stamp (no run row);
  * the live sync is tick-counted.
  */
