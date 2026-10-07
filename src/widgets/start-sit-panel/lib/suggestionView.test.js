@@ -197,20 +197,20 @@ describe('buildSuggestionView injury designation (#1852)', () => {
     expect(view.start.injuryStatus).toBe('O');
   });
 
-  test('a side whose availability reason is no_practice is flagged, any other reason is not (ADR 0056)', () => {
+  test('a side whose Start verdict reason is no_practice is flagged, any other reason is not (ADR 0056)', () => {
     const view = build(
-      side({ availability: { available: true, status: 'Q', reason: 'no_practice' } }),
-      side({ playerId: 2, availability: { available: true, status: 'Q', reason: 'questionable' } }),
+      side({ availability: { available: true, status: 'Q' }, startVerdict: { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true } }),
+      side({ playerId: 2, availability: { available: true, status: 'Q' }, startVerdict: { outcome: 'recommendable', reason: 'questionable', numberTrusted: true } }),
     );
     expect(view.sit.noPractice).toBe(true);
     expect(view.start.noPractice).toBe(false);
     expect(build(side(), side({ playerId: 2 })).sit.noPractice).toBe(false);
   });
 
-  test('a side whose availability reason is backup is flagged, any other reason is not (ADR 0057)', () => {
+  test('a side whose Start verdict reason is backup is flagged, any other reason is not (ADR 0057)', () => {
     const view = build(
-      side({ availability: { available: true, status: null, reason: 'backup' } }),
-      side({ playerId: 2, availability: { available: true, status: 'Q', reason: 'questionable' } }),
+      side({ availability: { available: true, status: null }, startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false } }),
+      side({ playerId: 2, availability: { available: true, status: 'Q' }, startVerdict: { outcome: 'recommendable', reason: 'questionable', numberTrusted: true } }),
     );
     expect(view.sit.backup).toBe(true);
     expect(view.start.backup).toBe(false);

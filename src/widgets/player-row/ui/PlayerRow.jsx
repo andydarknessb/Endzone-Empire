@@ -110,7 +110,7 @@ function ProjWeekCell({ projWeek, noHistory = false }) {
   if (projWeek.reason) return <span>{unavailableLabel(projWeek.reason) || projWeek.reason}</span>;
   // #1778 (spec #1774): a Position-baseline projection is the position's
   // average, so the column reads "no history" in place of its number. The
-  // verdict is the server's (`verdictReason`); an Unavailable reason above
+  // verdict is the server's (`startVerdict`); an Unavailable reason above
   // already won.
   if (noHistory) return <span>{NO_HISTORY_LABEL}</span>;
   return <span>{formatPoints(projWeek.points)}</span>;

@@ -632,7 +632,7 @@ test('formal-1309-f2: upgradesFor nulls a player whose duplicate identity row is
 
 // #1778 (spec #1774): the Proj Wk column's "no history" is the server's verdict,
 // read off the current-week run the page already took.
-test('view=cards: a Position-baseline row carries verdictReason no_history, an evidenced or Unavailable row does not', async (t) => {
+test('view=cards: a Position-baseline row carries a no_history startVerdict, an evidenced or Unavailable row does not', async (t) => {
   const league = makeLeague({ currentWeek: 3 });
   const players = makePlayers(3);
   mockBasePool(t, { league, players });
@@ -652,7 +652,8 @@ test('view=cards: a Position-baseline row carries verdictReason no_history, an e
 
   assert.equal(res.status, 200, JSON.stringify(res.body));
   const [evidenced, baseline, out] = res.body.players;
-  assert.equal('verdictReason' in evidenced, false);
-  assert.equal(baseline.verdictReason, 'no_history');
-  assert.equal('verdictReason' in out, false, 'Out wins over no history');
+  assert.notEqual(evidenced.startVerdict.reason, 'no_history');
+  assert.equal(baseline.startVerdict.reason, 'no_history');
+  assert.equal(out.startVerdict.reason, 'out', 'Out wins over no history');
+  assert.equal('verdictReason' in baseline, false);
 });

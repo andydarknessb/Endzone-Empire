@@ -112,12 +112,12 @@ test('an Unavailable row shows the reason in the projection cell and a dash for 
   expect(screen.getByTestId('ledger-points')).toHaveTextContent('-');
 });
 
-test('a wire entry whose unavailable is no_team reads "no team" in the projection cell (#1675)', () => {
+test('a wire entry whose Start verdict is unavailable for no_team reads "no team" in the projection cell (#1675)', () => {
   const league = { roster_slots: [{ key: 'WR', count: 1, eligiblePositions: ['WR'] }] };
   const [wireEntry] = lineupEntries([{
     id: 9, name: 'Released Guy', position: 'WR', nfl_team: null, slot: 'WR', projected_points: null,
     injury_status: null, opponent: null, bye_week: null, locked: false, onBye: false,
-    valid_stash: false, unavailable: 'no_team',
+    valid_stash: false, startVerdict: { outcome: 'unavailable', reason: 'no_team', numberTrusted: true },
   }], league);
   render(<LedgerRow slotLabel="WR" entry={wireEntry} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no team');
@@ -198,7 +198,7 @@ test('a Position-baseline row headlines "no history" and no number (#1776)', () 
   render(
     <LedgerRow
       slotLabel="BENCH"
-      entry={entry({ name: 'Carson Beck', slot: 'BENCH', projectedPoints: 15.37, positionBaseline: true })}
+      entry={entry({ name: 'Carson Beck', slot: 'BENCH', projectedPoints: 15.37, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })}
       onClick={jest.fn()}
       data-testid="row"
     />
@@ -212,7 +212,7 @@ test('a Questionable or Doubtful Position-baseline row shows "no history" plus h
   const { rerender } = render(
     <LedgerRow
       slotLabel="BENCH"
-      entry={entry({ slot: 'BENCH', positionBaseline: true, projectedPoints: 15.37, injuryStatus: 'Q' })}
+      entry={entry({ slot: 'BENCH', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projectedPoints: 15.37, injuryStatus: 'Q' })}
       onClick={jest.fn()}
       data-testid="row"
     />
@@ -224,7 +224,7 @@ test('a Questionable or Doubtful Position-baseline row shows "no history" plus h
   rerender(
     <LedgerRow
       slotLabel="BENCH"
-      entry={entry({ slot: 'BENCH', positionBaseline: true, projectedPoints: 15.37, injuryStatus: 'D' })}
+      entry={entry({ slot: 'BENCH', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projectedPoints: 15.37, injuryStatus: 'D' })}
       onClick={jest.fn()}
       data-testid="row"
     />
@@ -240,7 +240,7 @@ test('a Backup row shows "Backup" beside his Game status tag and still headlines
   const { rerender } = render(
     <LedgerRow
       slotLabel="QB"
-      entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25, backup: true, injuryStatus: 'Q' })}
+      entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25, startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }, injuryStatus: 'Q' })}
       onClick={jest.fn()}
       data-testid="row"
     />
@@ -252,7 +252,7 @@ test('a Backup row shows "Backup" beside his Game status tag and still headlines
   rerender(
     <LedgerRow
       slotLabel="QB"
-      entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25, backup: false })}
+      entry={entry({ name: 'Case Keenum', slot: 'QB', projectedPoints: 20.25 })}
       onClick={jest.fn()}
       data-testid="row"
     />
@@ -269,7 +269,7 @@ test.each([
   render(
     <LedgerRow
       slotLabel="BENCH"
-      entry={entry({ slot: 'BENCH', positionBaseline: true, availability: { available: false, reason } })}
+      entry={entry({ slot: 'BENCH', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, availability: { available: false, reason } })}
       onClick={jest.fn()}
       data-testid="row"
     />
@@ -283,7 +283,7 @@ test('a wire Position-baseline entry headlines "no history" through the entity m
   const [wireEntry] = lineupEntries([{
     id: 9, name: 'Backup QB', position: 'QB', nfl_team: 'ARI', slot: 'BENCH', projected_points: 15.37,
     injury_status: null, opponent: null, bye_week: null, locked: false, onBye: false,
-    valid_stash: false, unavailable: null, positionBaseline: true,
+    valid_stash: false, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false },
   }], league);
   render(<LedgerRow slotLabel="BENCH" entry={wireEntry} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent('no history');
@@ -295,7 +295,7 @@ test('the Edge line shows no "Outprojects" text on a Position-baseline row (#177
       slotLabel="BENCH"
       entry={entry({
         slot: 'BENCH',
-        positionBaseline: true,
+        startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false },
         projectedPoints: 15.37,
         edge: { kind: 'bench-above-starter', text: 'Outprojects DK Metcalf at FLEX' },
       })}
@@ -706,7 +706,7 @@ test('an Unavailable row\'s accessible name does not repeat the designation or c
 test('a row with no projection or only a Position baseline claims no projection in its accessible name', () => {
   const { rerender } = render(<LedgerRow slotLabel="QB" entry={entry({ projectedPoints: null })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB');
-  rerender(<LedgerRow slotLabel="QB" entry={entry({ positionBaseline: true })} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('row-select')).toHaveAttribute('aria-label', 'Josh Allen, QB');
 });
 
@@ -727,7 +727,7 @@ test('an Unavailable row paints its reason in the warning colour and a label sta
   );
   expect(screen.getByTestId('ledger-projection')).toHaveStyle({ color: 'var(--dash-warning)' });
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^out$/);
-  rerender(<LedgerRow slotLabel="QB" entry={entry({ positionBaseline: true })} onClick={jest.fn()} data-testid="row" />);
+  rerender(<LedgerRow slotLabel="QB" entry={entry({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } })} onClick={jest.fn()} data-testid="row" />);
   expect(screen.getByTestId('ledger-projection')).toHaveTextContent(/^no history$/);
 });
 

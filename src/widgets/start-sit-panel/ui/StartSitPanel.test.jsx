@@ -208,8 +208,10 @@ test.each([['Q', 'Questionable'], ['D', 'Doubtful'], ['O', 'Out']])(
 
 test('a Questionable player with no practice all week shows "No practice this week" beside the tag, and only he does (ADR 0056)', () => {
   const s = suggestion();
-  s.current.availability = { available: true, status: 'Q', reason: 'no_practice' };
-  s.suggested.availability = { available: true, status: 'Q', reason: 'questionable' };
+  s.current.availability = { available: true, status: 'Q' };
+  s.current.startVerdict = { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true };
+  s.suggested.availability = { available: true, status: 'Q' };
+  s.suggested.startVerdict = { outcome: 'recommendable', reason: 'questionable', numberTrusted: true };
   render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
   const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
   expect(within(sitColumn).getByTestId('suggestion-no-practice')).toHaveTextContent('No practice this week');
@@ -219,8 +221,10 @@ test('a Questionable player with no practice all week shows "No practice this we
 
 test('a Backup quarterback shows "Backup" beside his name, and only he does (ADR 0057)', () => {
   const s = suggestion();
-  s.current.availability = { available: true, status: null, reason: 'backup' };
-  s.suggested.availability = { available: true, status: null, reason: null };
+  s.current.availability = { available: true, status: null };
+  s.current.startVerdict = { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
+  s.suggested.availability = { available: true, status: null };
+  s.suggested.startVerdict = { outcome: 'recommendable', reason: null, numberTrusted: true };
   render(<StartSitPanel advice={{ suggestions: [s], movePlan: [] }} entries={entries} bestBall={false} />);
   const [sitColumn, startColumn] = screen.getAllByTestId('suggestion-player');
   expect(within(sitColumn).getByTestId('suggestion-backup')).toHaveTextContent('Backup');

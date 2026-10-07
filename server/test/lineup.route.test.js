@@ -218,8 +218,9 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
   // Priority 1 (injury) wins over every live-game kind, and the Unavailable
   // reason is its own field, independent of the Edge line.
   assert.deepEqual(byId.get(8).edge, { kind: 'injury', text: 'out' });
-  assert.equal(byId.get(8).unavailable, 'out');
-  assert.equal(byId.get(2).unavailable, null, 'Questionable is not Unavailable');
+  assert.deepEqual(byId.get(8).startVerdict, { outcome: 'unavailable', reason: 'out', numberTrusted: true });
+  assert.notEqual(byId.get(2).startVerdict.outcome, 'unavailable', 'Questionable is not Unavailable');
+  assert.equal('unavailable' in byId.get(8), false, 'the wire carries the verdict alone');
   // f4: the 'result' kind's other branch - scoring UNDER projection.
   assert.deepEqual(byId.get(9).edge, { kind: 'result', text: 'Fell short of projection by 10 pts (10 of 20)' });
 

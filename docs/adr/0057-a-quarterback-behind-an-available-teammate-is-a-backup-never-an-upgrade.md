@@ -76,3 +76,11 @@ and in the Upgrade's roster baseline, and the Lineup wire carries
 `backup: true, positionBaseline: false` for him. His number stays untrusted
 either way (`numberTrusted: false`). Ruling, approved by Cory:
 https://github.com/andydarknessb/Endzone-Empire/issues/2044#issuecomment-6039675475
+
+## Amendment (#2045)
+
+The wire sentence in the 2026-10-07 amendment above is superseded: the Lineup
+wire no longer carries `backup` or `positionBaseline`. Every wire states the
+Start verdict as `startVerdict: { outcome, reason, numberTrusted }`, so the
+QB who is both Position-baseline and Backup carries reason `backup` there,
+with `numberTrusted: false`.

@@ -184,10 +184,9 @@ test('getLineup returns league-scored current-week projections and preserves una
     opponent: null,
     kickoff: null,
     game_key: null,
-    unavailable: null,
-    // #1776: no Position-baseline marker in his stored projection.
-    positionBaseline: false,
-    backup: false,
+    // The Start verdict (spec #2042): nothing in his stored projection
+    // holds him back, so he reads recommendable. `unavailable` is not on the wire.
+    startVerdict: { outcome: 'recommendable', reason: null, numberTrusted: true },
     // #1329: no game this week (weekOpponents carries no row for him here),
     // so both are null - never a bare undefined.
     line: null,
@@ -296,7 +295,7 @@ function installPositionBaselineWorld(t, { entries, projections, backupIds, byeR
   ]).install(t);
 }
 
-test('getLineup: each entry carries positionBaseline, false when an Unavailable reason wins (#1776)', async (t) => {
+test('getLineup: each entry carries a startVerdict, Unavailable winning over Position-baseline (#1776, spec #2042)', async (t) => {
   const entries = [
     { id: 1, name: 'Evidenced', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
     { id: 2, name: 'Backup QB', position: 'QB', nfl_team: 'ARI', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
@@ -318,14 +317,16 @@ test('getLineup: each entry carries positionBaseline, false when an Unavailable 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(1).positionBaseline, false, 'an evidenced player is not Position-baseline');
-  assert.equal(byId.get(2).positionBaseline, true);
-  assert.equal(byId.get(2).unavailable, null, 'Position-baseline is not an Unavailable reason');
-  assert.equal(byId.get(3).positionBaseline, true, 'a Doubtful Position-baseline player is still flagged');
-  assert.equal(byId.get(4).unavailable, 'out');
-  assert.equal(byId.get(4).positionBaseline, false, 'Out wins over Position-baseline');
-  assert.equal(byId.get(5).unavailable, 'no_team');
-  assert.equal(byId.get(5).positionBaseline, false, 'No NFL team wins over Position-baseline');
+  assert.deepEqual(byId.get(1).startVerdict, { outcome: 'recommendable', reason: null, numberTrusted: true }, 'an evidenced player is not Position-baseline');
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, 'Position-baseline is not an Unavailable reason');
+  assert.equal(byId.get(3).startVerdict.reason, 'no_history', 'a Doubtful Position-baseline player is still flagged');
+  assert.deepEqual(byId.get(4).startVerdict, { outcome: 'unavailable', reason: 'out', numberTrusted: true }, 'Out wins over Position-baseline');
+  assert.deepEqual(byId.get(5).startVerdict, { outcome: 'unavailable', reason: 'no_team', numberTrusted: true }, 'No NFL team wins over Position-baseline');
+  for (const entry of lineup.entries) {
+    assert.equal('unavailable' in entry, false, 'the wire states the verdict as startVerdict alone');
+    assert.equal('positionBaseline' in entry, false);
+    assert.equal('backup' in entry, false);
+  }
   fake.assertClean();
 });
 
@@ -389,9 +390,9 @@ test('getLineup: a bench player on a bye this week never Outprojects a starter, 
   const lineup = await getLineup({ leagueId: 5, userId: 7, week });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(2).unavailable, "bye");
+  assert.equal(byId.get(2).startVerdict.reason, 'bye');
   assert.equal(byId.get(2).edge.kind, 'none', 'a bench player on a bye outprojects nobody');
-  assert.equal(byId.get(3).unavailable, 'bye');
+  assert.equal(byId.get(3).startVerdict.reason, 'bye');
   assert.equal(byId.get(4).edge.kind, 'none', 'nobody is outprojected off a starter on a bye');
   fake.assertClean();
 });
@@ -417,21 +418,18 @@ test('getLineup: a Backup quarterback keeps his number and no bench-above-starte
   const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
-  assert.equal(byId.get(2).backup, true);
-  assert.equal(byId.get(2).positionBaseline, false, 'his number is evidence: not a no-history row');
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }, 'Backup is not an Unavailable reason');
   assert.equal(byId.get(2).projected_points, 20.25, 'his number stays');
-  assert.equal(byId.get(2).unavailable, null, 'Backup is not an Unavailable reason');
-  assert.equal(byId.get(1).backup, false);
+  assert.equal(byId.get(1).startVerdict.reason, null);
   assert.equal(byId.get(2).edge.kind, 'none', 'a Backup quarterback outprojects nobody');
   assert.deepEqual(byId.get(4).edge, { kind: 'bench-above-starter', text: 'Outprojects Real Starter Two at WR' });
   fake.assertClean();
 });
 
-// Start verdict (spec #2042, #2044): the Edge line gates on the verdict, not on
-// the wire booleans rebuilt from its reason. A run that stored a Position-baseline
-// rookie IR (cached before he was activated) reads Unavailable, so the booleans
-// are both false for him; the Edge line still never compares him. A QB who is
-// both Position-baseline and Backup reads `backup` (ADR 0057, amended 2026-10-07).
+// Start verdict (spec #2042, #2044): the Edge line gates on the verdict. A run
+// that stored a Position-baseline rookie IR (cached before he was activated)
+// reads Unavailable, and the Edge line never compares him. A QB who is both
+// Position-baseline and Backup reads `backup` (ADR 0057, amended 2026-10-07).
 test('getLineup: a stale-IR Position-baseline bench rookie is never bench-above-starter, and a QB who is both rides as backup (#2044)', async (t) => {
   const entries = [
     { id: 1, name: 'Starter QB', position: 'QB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'QB', ir_attested: false },
@@ -456,8 +454,11 @@ test('getLineup: a stale-IR Position-baseline bench rookie is never bench-above-
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
   assert.notEqual(byId.get(2).edge.kind, 'bench-above-starter', 'a stored-Unavailable rookie outprojects nobody');
-  assert.equal(byId.get(3).backup, true);
-  assert.equal(byId.get(3).positionBaseline, false);
+  // The stored run says IR but his live facts say available: the row keeps
+  // stating the live verdict (as the advice wire does), the stored one only
+  // keeps the Edge line off him.
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'recommendable', reason: null, numberTrusted: true });
+  assert.equal(byId.get(3).startVerdict.reason, 'backup');
   assert.equal(byId.get(3).edge.kind, 'none', 'the QB who is both outprojects nobody');
   fake.assertClean();
 });

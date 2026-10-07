@@ -7,7 +7,7 @@
  * unit-tested directly.
  */
 
-import { finite, ordinal, VOLATILITY_LABELS } from '../../../shared/lib';
+import { finite, ordinal, startVerdictReason, VOLATILITY_LABELS } from '../../../shared/lib';
 
 /**
  * vs {opponent}, plus the defense's points allowed to this position when
@@ -111,10 +111,10 @@ function sideView(side, entriesById) {
     // the Ledger row's tag reads off the lineup entry.
     injuryStatus: side.availability?.status ?? entry?.injuryStatus ?? null,
     // "No practice this week" beside a Questionable tag (ADR 0056): the server's
-    // verdict reason, carried as-is.
-    noPractice: side.availability?.reason === 'no_practice',
+    // Start verdict reason, carried as-is.
+    noPractice: startVerdictReason(side) === 'no_practice',
     // The "Backup" tag (ADR 0057): a quarterback behind an available teammate.
-    backup: side.availability?.reason === 'backup',
+    backup: startVerdictReason(side) === 'backup',
     volatility: VOLATILITY_LABELS[side.volatility] ?? null,
     floor: distribution?.p10 ?? null,
     ceiling: distribution?.p90 ?? null,

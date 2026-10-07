@@ -53,10 +53,10 @@ describe('benchOptionsForSlot', () => {
   });
 
   test('a Position-baseline candidate sorts after every evidenced option, even a lower or unknown one (#1777)', () => {
-    const baseline = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 30, positionBaseline: true });
+    const baseline = entry({ playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 30, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } });
     const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 4 });
     const unknown = entry({ playerId: 4, eligibleSlots: ['BENCH', 'RB'], projectedPoints: null });
-    const baselineToo = entry({ playerId: 5, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 31, positionBaseline: true });
+    const baselineToo = entry({ playerId: 5, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 31, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } });
     const result = benchOptionsForSlot([baseline, low, unknown, baselineToo], 'RB');
     // Evidenced first (points descending, unknown last among them), then the
     // Position-baseline pair in the order given (their hidden numbers tie).
@@ -65,7 +65,7 @@ describe('benchOptionsForSlot', () => {
 
   test('an Unavailable player is never treated as no history: the reason wins (#1777)', () => {
     const out = entry({
-      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, positionBaseline: true,
+      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false },
       availability: { available: false, reason: 'out' },
     });
     const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: -1 });

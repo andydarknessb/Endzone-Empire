@@ -332,11 +332,12 @@ test('a started Backup quarterback is advised to the bench, keeps his number, an
   assert.equal(advice.suggestions[0].suggested.playerId, 3);
   assert.deepEqual(advice.movePlan.map((m) => [m.playerId, m.toSlot]), [[3, 'QB'], [1, 'BENCH']]);
   const byId = new Map(advice.players.map((p) => [p.playerId, p]));
-  assert.equal(byId.get(1).availability.reason, 'backup');
+  assert.equal(byId.get(1).startVerdict.reason, 'backup');
   assert.equal(byId.get(1).availability.available, true);
+  assert.equal('reason' in byId.get(1).availability, false, 'the reason rides startVerdict alone (spec #2042)');
   assert.equal(byId.get(1).availability.autoRecommend, false);
   assert.equal(byId.get(1).projection, 20.25, 'his displayed number stays');
-  assert.equal(byId.get(3).availability.reason, null);
+  assert.equal(byId.get(3).startVerdict.reason, null);
   assert.deepEqual(advice.unavailable, [], 'a Backup is available, not Unavailable');
 });
 
@@ -410,7 +411,7 @@ test('a Questionable bench player with no practice all week is not promoted and 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
 
   assert.deepEqual(advice.suggestions, []);
-  assert.deepEqual(advice.players.map((p) => [p.playerId, p.availability.reason, p.availability.status]), [[1, null, null], [3, 'no_practice', 'Q']]);
+  assert.deepEqual(advice.players.map((p) => [p.playerId, p.startVerdict.reason, p.availability.status]), [[1, null, null], [3, 'no_practice', 'Q']]);
   const reads = queryLog.filter((q) => q.text.includes('FROM "player_practice_observations"'));
   assert.equal(reads.length, 1, 'one batched read for the roster');
   assert.deepEqual(reads[0].params, [2026, 6, [1, 3]]);
@@ -430,8 +431,8 @@ test('the same Questionable bench player with no observations, or with coverage 
   const advice = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
 
   assert.equal(advice.suggestions[0].suggested.playerId, 3);
-  assert.equal(advice.suggestions[0].suggested.availability.reason, 'questionable');
-  assert.equal(advice.players.find((p) => p.playerId === 3).availability.reason, 'questionable');
+  assert.equal(advice.suggestions[0].suggested.startVerdict.reason, 'questionable');
+  assert.equal(advice.players.find((p) => p.playerId === 3).startVerdict.reason, 'questionable');
 
   t.mock.restoreAll();
   mockAdviceDependencies(t, {
@@ -442,7 +443,7 @@ test('the same Questionable bench player with no observations, or with coverage 
   });
   const late = await decision.startSitAdvice({ leagueId: 3, userId: 7 });
   assert.equal(late.suggestions[0].suggested.playerId, 3, 'one Friday observation is not a week');
-  assert.equal(late.players.find((p) => p.playerId === 3).availability.reason, 'questionable');
+  assert.equal(late.players.find((p) => p.playerId === 3).startVerdict.reason, 'questionable');
 });
 
 test('a failed practice-participation read still answers the advice, as if no one had observations', async (t) => {
