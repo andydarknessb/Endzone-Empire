@@ -80,12 +80,17 @@ let lastIntegrityScanDay = null;
  * job is contained by `runJobs`, so a throw never reaches this function; the
  * catch is a last guard around the runner itself.
  */
-async function tickUnlocked() {
+async function tickUnlocked(jobs = TICK_JOBS) {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
-    await runJobs(TICK_JOBS);
-    lastTickError = null;
+    // Only the scheduler's own duties (no `syncRun`) reach lastTickError, and so
+    // the worker heartbeat and its Critical page (#2058). A feed job's failure
+    // stays on the console and in its Sync run row.
+    const feedNames = new Set(jobs.filter((job) => job.syncRun).map((job) => job.name));
+    const failures = (await runJobs(jobs)).filter((f) => !feedNames.has(f.name));
+    const last = failures[failures.length - 1];
+    lastTickError = last ? `${last.name}: ${last.message}` : null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
     lastTickError = err.message;
@@ -99,16 +104,21 @@ async function tickUnlocked() {
  * The one runner: each job in list order, each in its own containment. A throw
  * is logged to the console and the next job runs, so one failing duty (or one
  * that retries every tick because its stamp never lands) cannot skip the duties
- * after it. Non-feed failures go to the console only.
+ * after it. The console stays the log; each contained throw is also returned
+ * as `{ name, message }` (empty when nothing failed) so the tick can record the
+ * last one in `lastTickError` (#2058).
  */
 async function runJobs(jobs) {
+  const failures = [];
   for (const job of jobs) {
     try {
       await job.run();
     } catch (err) {
       console.error('scheduler: job %s failed:', job.name, err.message);
+      failures.push({ name: job.name, message: err.message });
     }
   }
+  return failures;
 }
 
 /** The Sync run names a job list declares through `syncRun`, once each, in list order. */
@@ -1560,6 +1570,7 @@ module.exports = {
   startScheduler,
   stopScheduler,
   tick,
+  tickUnlocked,
   draftTick,
   alertCloseMatchups,
   getSchedulerStatus,
