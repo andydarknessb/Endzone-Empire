@@ -35,12 +35,15 @@ const STEPS = {
   ],
 };
 
-async function settleFollowUp({ leagueId, season, week, mode }) {
+async function settleFollowUp({ leagueId, season, week, mode, seasonComplete }) {
   const steps = Object.hasOwn(STEPS, mode) ? STEPS[mode] : null;
   if (!steps) throw new Error(`settleFollowUp: mode must be 'advance' or 'correction', got ${mode}`);
+  // `seasonComplete` is advanceWeek's call, handed on to the Called shot
+  // judging by the trophy step; absent for a correction, which judges nothing.
+  const args = { leagueId, season, week, ...(seasonComplete && { seasonComplete }) };
   for (const step of steps) {
     try {
-      await step.run({ leagueId, season, week });
+      await step.run(args);
     } catch (err) {
       console.error('settle follow-up (%s): %s for league %s week %s:', mode, step.failed, leagueId, week, err.message);
     }

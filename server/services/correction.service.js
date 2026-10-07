@@ -164,6 +164,7 @@ async function correctLeagueWeek({ leagueId, season, week }) {
   // re-detect the change to retry it.
   const hasFinalChange = changes.some((c) => c.final);
 
+  let failure = null;
   try {
     // withTransaction owns connect, BEGIN, COMMIT-or-guarded-ROLLBACK and the
     // release rule (ADR 0033). The connect try is gone: the wrapper propagates a
@@ -231,15 +232,14 @@ async function correctLeagueWeek({ leagueId, season, week }) {
     // succeeded, so the recap rebuild still runs before this rethrows
     // (#1409 formal-001-f1). Power rankings go first on this path too (#1410),
     // and the weekly trophy reconcile follows the recap rebuild here too
-    // (#1411), in the Settle follow-up's order.
-    if (hasFinalChange) {
-      await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
-    }
-    throw error;
+    // (#1411), in the Settle follow-up's order. The one follow-up call below
+    // serves both paths; the rethrow waits for it.
+    failure = error;
   }
   if (hasFinalChange) {
     await settleFollowUpSvc.settleFollowUp({ leagueId, season, week, mode: 'correction' });
   }
+  if (failure) throw failure;
   return { leagueId, changes };
 }
 
