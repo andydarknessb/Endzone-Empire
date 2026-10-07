@@ -926,7 +926,7 @@ test('#1862 startSitAdvice reads the lineup at the as-of time and carries the ma
 });
 
 // ADR 0057: a Backup quarterback (his chart verdict rides the Weekly projection
-// result's `backupFor`) is never auto-recommended, like a Position-baseline one,
+// result's `startVerdictFor`) is never auto-recommended, like a Position-baseline one,
 // but his own number is untouched.
 const QB1 = [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }];
 

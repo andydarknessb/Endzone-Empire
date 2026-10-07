@@ -84,3 +84,11 @@ wire no longer carries `backup` or `positionBaseline`. Every wire states the
 Start verdict as `startVerdict: { outcome, reason, numberTrusted }`, so the
 QB who is both Position-baseline and Backup carries reason `backup` there,
 with `numberTrusted: false`.
+
+## Amendment (#2068)
+
+Rule 2's accessor names are superseded: the Weekly projection result no longer
+has the Backup and availability accessors that rule names. The one verdict
+read is `startVerdictFor(id)`, which takes the chart verdict and answers
+through `unavailableFor({ backup: true })`: available, never auto-recommended,
+reason `backup`. The precedence is the one in the 2026-10-07 amendment.
