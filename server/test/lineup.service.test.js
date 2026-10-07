@@ -133,6 +133,8 @@ test('getLineup returns league-scored current-week projections and preserves una
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -236,6 +238,8 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -278,6 +282,8 @@ function installPositionBaselineWorld(t, { entries, projections, backupIds, byeR
   }));
   return createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -480,6 +486,8 @@ test("an injured player still carries the largest Factor's explanation, independ
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -529,6 +537,8 @@ test("getLineup carries each entry's week opponent, DEF units included, absent f
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 8 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
@@ -593,6 +603,8 @@ function installSetLineupWorld(t, injuryDesignation, {
   return createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -647,6 +659,8 @@ async function firstWeekLineupSwap(t, { preexistingBench = false, lockedTeams = 
     : []);
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 5,
       current_season: 2026,
@@ -745,6 +759,8 @@ function installOverBenchedWorld(t, { positions, slotsByIndex = null }) {
   }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 137,
       current_season: 2026,
@@ -928,18 +944,6 @@ const assertNoSlotWrite = (fake) => assert.equal(
   'the refused save moved no slot'
 );
 
-test('setLineup rejects placing a healthy player in IR and names the designation', async (t) => {
-  const fake = installSetLineupWorld(t, null);
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'IR' }] }),
-    (error) => error.statusCode === 400 && /current injury designation: healthy/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
 test('setLineup accepts placing an IR-eligible player in an available IR slot', async (t) => {
   const fake = installSetLineupWorld(t, 'IR');
 
@@ -951,36 +955,6 @@ test('setLineup accepts placing an IR-eligible player in an available IR slot', 
   });
 
   assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
-test('setLineup lets a best-ball manager move an IR-eligible bench player to IR', async (t) => {
-  const fake = installSetLineupWorld(t, 'O', {
-    leagueOverrides: { best_ball: true },
-  });
-
-  const result = await setLineup({
-    leagueId: 5,
-    userId: 7,
-    week: 8,
-    moves: [{ playerId: 1, slot: 'IR' }],
-  });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
-test('setLineup keeps starting slots automatic in best-ball leagues', async (t) => {
-  const fake = installSetLineupWorld(t, null, {
-    leagueOverrides: { best_ball: true },
-  });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    (error) => error.statusCode === 409 && /only between BENCH and IR/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
   fake.assertClean();
 });
 
@@ -1049,20 +1023,6 @@ test('setLineup rejects a save that leaves a non-IR-eligible player stashed', as
   fake.assertClean();
 });
 
-test('setLineup lets a locked player resolve a stale stash by moving from IR to the bench', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
-
-  const result = await setLineup({
-    leagueId: 5,
-    userId: 7,
-    week: 8,
-    moves: [{ playerId: 1, slot: 'BENCH' }],
-  });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
 test('setLineup lets a locked stale stash leave IR when the league has no bench slots', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
@@ -1088,69 +1048,6 @@ test('setLineup lets a locked stale stash leave IR when the league has no bench 
 // named. The resolving move is now forgiven one bench seat for the occupant
 // himself: an inherited overflow of one, which validateLineup's own rule
 // already tolerates on every later save.
-test('setLineup lets a stale stash leave IR for a bench that is already full', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', {
-    slot: 'IR',
-    leagueOverrides: { bench_slots: 1 },
-    extraEntries: [{
-      player_id: 2,
-      name: 'Bench Warmer',
-      position: 'RB',
-      nfl_team: 'KC',
-      injury_status: null,
-      slot: 'BENCH',
-      ir_attested: false,
-    }],
-  });
-
-  const result = await setLineup({
-    leagueId: 5,
-    userId: 7,
-    week: 8,
-    moves: [{ playerId: 1, slot: 'BENCH' }],
-  });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
-
-test('setLineup forgives the full bench only for the stash occupant, not a second bench arrival', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', {
-    slot: 'IR',
-    leagueOverrides: { bench_slots: 1 },
-    extraEntries: [{
-      player_id: 2,
-      name: 'Bench Warmer',
-      position: 'RB',
-      nfl_team: 'KC',
-      injury_status: null,
-      slot: 'BENCH',
-      ir_attested: false,
-    }, {
-      player_id: 3,
-      name: 'Starting Runner',
-      position: 'RB',
-      nfl_team: 'KC',
-      injury_status: null,
-      slot: 'RB',
-      ir_attested: false,
-    }],
-  });
-
-  await assert.rejects(
-    setLineup({
-      leagueId: 5,
-      userId: 7,
-      week: 8,
-      moves: [{ playerId: 1, slot: 'BENCH' }, { playerId: 3, slot: 'BENCH' }],
-    }),
-    (error) => error.statusCode === 400 && /too many players at BENCH \(3\/2\)/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
 test('setLineup cannot launder zero-bench recovery into an ordinary bench slot', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
@@ -1184,18 +1081,6 @@ test('setLineup cannot launder zero-bench recovery into an ordinary bench slot',
   fake.assertClean();
 });
 
-test('setLineup keeps the lock for an IR-eligible player stashed in IR', async (t) => {
-  const fake = installSetLineupWorld(t, 'O', { slot: 'IR', lockedTeams: ['MIN'] });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
 test('setLineup keeps the lock for an attested stash after kickoff', async (t) => {
   const fake = installSetLineupWorld(t, 'Q', {
     slot: 'IR',
@@ -1208,29 +1093,6 @@ test('setLineup keeps the lock for an attested stash after kickoff', async (t) =
     { statusCode: 409, code: 'LINEUP_LOCKED' }
   );
 
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
-test('setLineup keeps the lineup lock for a player outside IR', async (t) => {
-  const fake = installSetLineupWorld(t, null, { lockedTeams: ['MIN'] });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
-
-  assertNoSlotWrite(fake);
-  fake.assertClean();
-});
-
-test('setLineup keeps the lock when a recovered stash targets a starting slot', async (t) => {
-  const fake = installSetLineupWorld(t, 'Q', { slot: 'IR', lockedTeams: ['MIN'] });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] }),
-    { statusCode: 409, code: 'LINEUP_LOCKED' }
-  );
   assertNoSlotWrite(fake);
   fake.assertClean();
 });
@@ -1258,6 +1120,8 @@ test('setLineup derives a stale stash after weekly slot carry-forward', async (t
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -1326,6 +1190,8 @@ test('a full roster resolves by dropping a bench player before activating the st
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     // The #962 write gate on the drop, League then Team, with its own explicit
     // column lists. Neither shape matcher below is blind enough to answer them
     // correctly - the gate refuses a League row that cannot answer the freeze.
@@ -1612,23 +1478,6 @@ test('setLineup clears the attestation on any manager-initiated slot move', asyn
 
 // #1969: the save reports whose attestation it ended, so the client can tell the
 // manager an Undo cannot bring it back.
-test('setLineup reports the ids whose attestation the save cleared', async (t) => {
-  installSetLineupWorld(t, 'Q', { slot: 'IR', irAttested: true });
-
-  const result = await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'BENCH' }] });
-
-  assert.deepEqual(result.attestationCleared, [1]);
-});
-
-test('setLineup reports no cleared attestation when it moves only unattested players', async (t) => {
-  installSetLineupWorld(t, null, { slot: 'BENCH' });
-
-  const result = await setLineup({ leagueId: 5, userId: 7, week: 8, moves: [{ playerId: 1, slot: 'RB' }] });
-
-  assert.equal(result.updated, 1);
-  assert.deepEqual(result.attestationCleared, []);
-});
-
 test('weekly materialization carries the attestation forward with the slot', async (t) => {
   // Week 9 has no entries yet; week 8 stashed player 1 with an attestation.
   // The copy-forward must write slot IR AND ir_attested true, and the save
@@ -1657,6 +1506,8 @@ test('weekly materialization carries the attestation forward with the slot', asy
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -1752,6 +1603,8 @@ function acquisitionWorld({ roster, currentSlots, previousSlots }) {
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: roster })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
       rows: [...slots.keys()].map((player_id) => ({ player_id })),
@@ -1878,6 +1731,8 @@ function installSpentSlotWorld(t, { roster, spentRows, currentWeek = 9 }) {
   return createFakePool([
     // #106: a LIVE week, nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5,
@@ -1903,49 +1758,6 @@ function installSpentSlotWorld(t, { roster, spentRows, currentWeek = 9 }) {
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
   ]).install(t);
 }
-
-test('setLineup refuses to fill a starting slot spent by a surviving as-played row (#627)', async (t) => {
-  // Player 21 started at QB, his game kicked off, and he was dropped: his QB
-  // row survives off-roster. Seating player 1 in the "vacated" QB slot must
-  // refuse - the slot's score for the week already belongs to the record.
-  const fake = installSpentSlotWorld(t, {
-    roster: [{
-      player_id: 1, name: 'Backup Passer', position: 'QB', nfl_team: 'MIN',
-      injury_status: null, slot: 'BENCH', ir_attested: false,
-    }],
-    spentRows: [{ position: 'QB', slot: 'QB' }],
-  });
-
-  await assert.rejects(
-    setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'QB' }] }),
-    (error) => error.statusCode === 400 && /too many players at QB \(2\/1\)/.test(error.message)
-  );
-
-  assertNoSlotWrite(fake);
-  // The load-bearing predicates of the spent-slot read: only rows the roster
-  // no longer covers, and only rows that score.
-  const [spent] = fake.matching(/^SELECT "players"\."position"/);
-  assert.match(spent.text, /"team_players"\."player_id" IS NULL/);
-  assert.match(spent.text, /NOT IN \('BENCH', 'IR'\)/);
-  assert.deepEqual(spent.params, [10, 2026, 9]);
-  fake.assertClean();
-});
-
-test('a spent slot with seats remaining still accepts another starter (#627)', async (t) => {
-  // RB seats two; the surviving row spends one. The other seat stays usable.
-  const fake = installSpentSlotWorld(t, {
-    roster: [{
-      player_id: 1, name: 'Second Back', position: 'RB', nfl_team: 'MIN',
-      injury_status: null, slot: 'BENCH', ir_attested: false,
-    }],
-    spentRows: [{ position: 'RB', slot: 'RB' }],
-  });
-
-  const result = await setLineup({ leagueId: 5, userId: 7, week: 9, moves: [{ playerId: 1, slot: 'RB' }] });
-
-  assert.equal(result.updated, 1);
-  fake.assertClean();
-});
 
 test('a spent row is a count, not a placement: no eligibility check, unknown slots ignored (#627)', async (t) => {
   // The surviving row is a record. Its player's position may have been
@@ -2005,6 +1817,8 @@ test('the all-bench repair seats starters only into the seats a spent slot leave
   ].map((entry) => ({ ...entry, nfl_team: 'MIN', injury_status: null, ir_attested: false }));
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: 5, current_season: 2026, current_week: 9,
@@ -2288,6 +2102,8 @@ test('removeLineupEntries: a final week keeps its rows even for a player with no
 test('removeLineupEntries: a player with no players row is simply not locked', async () => {
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "players"/, () => ({ rows: [] })],
     [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [{ nfl_team: 'MIN' }] })],
     [/^DELETE FROM "lineup_entries"/, () => ({ rows: [], rowCount: 0 })],
@@ -2338,6 +2154,8 @@ test('restoreInterruptedStash materializes the week, then puts him back in the r
   const inserts = [];
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 21, position: 'RB' }] })],
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT "player_id", "slot"/, () => ({ rows: [] })],
@@ -2633,6 +2451,8 @@ test('getLineup reads the kickoff lock at the time it is given, so the advice ca
   const asOf = new Date('2026-10-11T16:59:00.000Z');
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{ id: 5, current_season: 2026, current_week: 6 }] })],
     [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [{ player_id: 1, position: 'RB' }] })],

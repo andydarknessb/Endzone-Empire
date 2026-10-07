@@ -5,7 +5,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool } = require('./helpers/fakePool');
-const { loadCalledShot, voidShotContradictedBySave, declareCalledShot } = require('../services/lineupOverride.service');
+const { loadCalledShot, loadOpenShotForSave, voidShot, declareCalledShot } = require('../services/lineupOverride.service');
 
 const row = (over = {}) => ({
   id: 41, team_id: 10, season: 2026, week: 6, slot: 'RB',
@@ -17,41 +17,32 @@ const row = (over = {}) => ({
   ...over,
 });
 
-const slotsFake = (slots, calledRow = row()) => {
-  const fake = createFakePool([
-    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: calledRow ? [calledRow] : [] })],
-    [/^SELECT "player_id", "slot" FROM "lineup_entries"/, () => ({
-      rows: Object.entries(slots).map(([player_id, slot]) => ({ player_id: Number(player_id), slot })),
-    })],
-    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
-    [/^UPDATE "lineup_overrides"/, () => ({ rows: [] })],
-  ]);
-  return fake;
-};
+const shotFake = (calledRow = row(), { kickedOff = [] } = {}) => createFakePool([
+  [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: calledRow ? [calledRow] : [] })],
+  [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: kickedOff.map((nfl_team) => ({ nfl_team })) })],
+  [/^UPDATE "lineup_overrides"/, () => ({ rows: [] })],
+]);
+const SAVE = { teamId: 10, season: 2026, week: 6 };
 
-test('voidShotContradictedBySave leaves a shot alone while the lineup still matches it', async () => {
-  const fake = slotsFake({ 1: 'RB', 3: 'BENCH' });
-  assert.equal(await voidShotContradictedBySave(fake, { teamId: 10, season: 2026, week: 6 }), false);
-  assert.equal(fake.matching(/^UPDATE "lineup_overrides"/).length, 0);
+test('loadOpenShotForSave reads the open shot with its pair and whether a player has locked', async () => {
+  assert.deepEqual(await loadOpenShotForSave(shotFake(), SAVE), { id: 41, starterId: 1, benchedId: 3, locked: false });
+  const kicked = await loadOpenShotForSave(shotFake(row(), { kickedOff: ['BUF'] }), SAVE);
+  assert.equal(kicked.locked, true);
 });
 
-test('voidShotContradictedBySave voids a shot whose starter was benched', async () => {
-  const fake = slotsFake({ 1: 'BENCH', 3: 'BENCH' });
-  assert.equal(await voidShotContradictedBySave(fake, { teamId: 10, season: 2026, week: 6 }), true);
-  assert.equal(fake.matching(/^UPDATE "lineup_overrides" SET "outcome" = 'void'/).length, 1);
+test('loadOpenShotForSave is null without a pending shot', async () => {
+  assert.equal(await loadOpenShotForSave(shotFake(null), SAVE), null);
+  assert.equal(await loadOpenShotForSave(shotFake(row({ outcome: 'hit' })), SAVE), null);
 });
 
-test('voidShotContradictedBySave voids a shot whose benched player was started', async () => {
-  const fake = slotsFake({ 1: 'RB', 3: 'FLEX' });
-  assert.equal(await voidShotContradictedBySave(fake, { teamId: 10, season: 2026, week: 6 }), true);
+test('voidShot voids one pending row by id and nothing else', async () => {
+  const fake = shotFake();
+  await voidShot(fake, 41);
+  const [call] = fake.matching(/^UPDATE "lineup_overrides" SET "outcome" = 'void'/);
+  assert.deepEqual(call.params, [41]);
+  assert.match(call.text, /"outcome" = 'pending'/);
 });
 
-test('voidShotContradictedBySave does nothing without an open shot', async () => {
-  assert.equal(await voidShotContradictedBySave(slotsFake({}, null), { teamId: 10, season: 2026, week: 6 }), false);
-  const settled = slotsFake({ 1: 'BENCH', 3: 'BENCH' }, row({ outcome: 'hit' }));
-  assert.equal(await voidShotContradictedBySave(settled, { teamId: 10, season: 2026, week: 6 }), false);
-  assert.equal(settled.matching(/^UPDATE/).length, 0);
-});
 
 test('loadCalledShot carries the numbers as called and is null without a shot', async () => {
   const league = { id: 3 };

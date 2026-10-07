@@ -1,7 +1,8 @@
 /**
  * #1856: the called-shot routes (POST and DELETE /api/team/lineup/called-shot),
  * the advice's `calledShot` payload and pin, and the rule that a lineup save
- * survives a failing shot path. The pool is the shared fake: every statement
+ * and the void of the shot it contradicts commit or roll back together (ADR
+ * 0058). The pool is the shared fake: every statement
  * lands in `fake.calls`; `world.calledRow` is the one lineup_overrides row the
  * handlers serve, written by the INSERT and cleared by the DELETE.
  */
@@ -293,7 +294,7 @@ test('the advice still answers when the shot read fails (#1856)', async (t) => {
 
 // A saved lineup and the shot path -------------------------------------------
 
-function mountSaveWorld(t, { calledRow = null, shotFails = false, kickedOff = [] } = {}) {
+function mountSaveWorld(t, { calledRow = null, failOn = null, kickedOff = [] } = {}) {
   const entries = [
     { player_id: 1, name: 'p1', position: 'RB', nfl_team: 'BUF', injury_status: null, slot: 'RB', ir_attested: false },
     { player_id: 3, name: 'p3', position: 'RB', nfl_team: 'BUF', injury_status: null, slot: 'BENCH', ir_attested: false },
@@ -313,13 +314,14 @@ function mountSaveWorld(t, { calledRow = null, shotFails = false, kickedOff = []
     [/^UPDATE "lineup_entries" SET "slot"/, (text, params) => { world.slots.set(params[4], params[0]); return { rows: [] }; }],
     [/^UPDATE "lineup_entries"/, () => ({ rows: [] })],
     [/^SELECT .*FROM "lineup_overrides"/, () => {
-      if (shotFails) throw new Error('relation "lineup_overrides" does not exist');
+      if (failOn === 'read') throw new Error('relation "lineup_overrides" does not exist');
       return { rows: world.calledRow ? [world.calledRow] : [] };
     }],
-    [/^SELECT "player_id", "slot" FROM "lineup_entries"/, () => ({
-      rows: [...world.slots].map(([player_id, slot]) => ({ player_id, slot })),
-    })],
-    [/^UPDATE "lineup_overrides"/, () => { world.calledRow = { ...world.calledRow, outcome: 'void' }; return { rows: [] }; }],
+    [/^UPDATE "lineup_overrides"/, () => {
+      if (failOn === 'void') throw new Error('deadlock detected');
+      world.calledRow = { ...world.calledRow, outcome: 'void' };
+      return { rows: [] };
+    }],
   ]).install(t);
   return { fake, world };
 }
@@ -328,24 +330,41 @@ const saveSwap = () => request(app).put('/api/team/lineup').set(auth()).send({
   leagueId: 3, week: 6, moves: [{ playerId: 3, slot: 'RB' }, { playerId: 1, slot: 'BENCH' }],
 });
 
-test('saving a lineup succeeds and logs when the shot path throws (#1856)', async (t) => {
-  const logged = [];
-  t.mock.method(console, 'error', (...args) => logged.push(args.join(' ')));
-  const { fake } = mountSaveWorld(t, { shotFails: true });
-  const response = await saveSwap();
-  assert.equal(response.status, 200, JSON.stringify(response.body));
-  assert.equal(response.body.updated, 2);
-  assert.equal(response.body.calledShotVoided, false);
-  assert.ok(logged.some((line) => /called shot/.test(line)), 'the error is logged');
-  fake.assertClean();
-});
+// ADR 0058: the shot is read and voided on the save's own client, so a failure
+// in either refuses the save and rolls the lineup UPDATEs back with it. The
+// harness records effects only, so the proof is the statement order: the slot
+// UPDATEs, then a ROLLBACK, and no COMMIT. Voiding after the COMMIT (the
+// #1856 rule), or on the pool, turns these red.
+for (const failOn of ['void', 'read']) {
+  test(`a failing shot ${failOn} refuses the save and rolls the lineup UPDATEs back (ADR 0058)`, async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const { fake } = mountSaveWorld(t, { calledRow: joinedRow(), failOn });
+    const response = await saveSwap();
+    assert.equal(response.status, 500, JSON.stringify(response.body));
+    const texts = fake.calls.map((call) => call.text);
+    assert.ok(texts.includes('ROLLBACK'), 'the transaction rolled back');
+    assert.ok(!texts.includes('COMMIT'), 'nothing committed');
+    if (failOn === 'void') {
+      const rollbackAt = texts.indexOf('ROLLBACK');
+      assert.ok(texts.findIndex((text) => /^UPDATE "lineup_entries" SET "slot"/.test(text)) < rollbackAt,
+        'the slot UPDATEs were issued inside the transaction that rolled back');
+    }
+    fake.assertClean();
+  });
+}
 
-test('a saved lineup that contradicts the open shot voids it (#1856)', async (t) => {
-  const { world } = mountSaveWorld(t, { calledRow: joinedRow() });
+test('a saved lineup that contradicts the open shot voids it in the save\'s own transaction (ADR 0058)', async (t) => {
+  const { world, fake } = mountSaveWorld(t, { calledRow: joinedRow() });
   const response = await saveSwap();
   assert.equal(response.status, 200);
   assert.equal(world.calledRow.outcome, 'void');
   assert.equal(response.body.calledShotVoided, true);
+  assert.equal(response.body.undoable, false);
+  assert.deepEqual(response.body.irreversible, ['called_shot']);
+  const texts = fake.calls.map((call) => call.text);
+  const voidAt = texts.findIndex((text) => /^UPDATE "lineup_overrides" SET "outcome" = 'void'/.test(text));
+  assert.equal(fake.calls[voidAt].via, 'client');
+  assert.ok(voidAt > texts.indexOf('BEGIN') && voidAt < texts.indexOf('COMMIT'), 'void sits between BEGIN and COMMIT');
 });
 
 test('two declares racing for one team-week: the loser is told to try again, not a 500 (#1856)', async (t) => {

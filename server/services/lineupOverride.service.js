@@ -26,10 +26,6 @@ class CalledShotError extends Error {
   }
 }
 
-const BENCH = 'BENCH';
-const IR = 'IR';
-const isStartingSlot = (slot) => slot != null && slot !== BENCH && slot !== IR;
-
 const num = (value) => (value == null ? null : Number(value));
 
 /** A suggestion with a start/sit probability above the tossup line (ADR 0054 ruling 4): the one rule a Called shot and an Override share. */
@@ -287,31 +283,29 @@ async function withdrawCalledShot({ leagueId, userId, week, now = new Date() }) 
 }
 
 /**
- * After a lineup save: a pending shot whose pair the saved lineup no longer
- * matches (the starter left his starting slot, or the benched player took one)
- * stops describing what the Manager did, so it is voided. Best effort by
- * contract (the caller logs and swallows any error): it never blocks a save.
+ * The team's open Called shot as a lineup save reads it, inside the save's
+ * transaction (ADR 0058), or null when none is pending. `locked` is true once
+ * either player's game has started: the shot is then on the record and a save
+ * never voids it (Advance week settles it as played).
  */
-async function voidShotContradictedBySave(db, { teamId, season, week }) {
+async function loadOpenShotForSave(db, { teamId, season, week }) {
   const row = await readCalledRow(db, { teamId, season, week });
-  if (!row || row.outcome !== 'pending') return false;
-  const slots = await db.query(
-    `SELECT "player_id", "slot" FROM "lineup_entries"
-     WHERE "team_id" = $1 AND "season" = $2 AND "week" = $3 AND "player_id" = ANY($4::int[])`,
-    [teamId, season, week, [row.starter_player_id, row.benched_player_id]]
-  );
-  const slotOf = new Map(slots.rows.map((r) => [r.player_id, r.slot]));
-  const holds = isStartingSlot(slotOf.get(row.starter_player_id)) && !isStartingSlot(slotOf.get(row.benched_player_id));
-  if (holds) return false;
-  // Once either player has locked the shot is on the record: a later save that
-  // moves the other player does not erase a result in progress.
-  if ((await lockedAmong(db, row, new Date())).size > 0) return false;
+  if (!row || row.outcome !== 'pending') return null;
+  return {
+    id: row.id,
+    starterId: row.starter_player_id,
+    benchedId: row.benched_player_id,
+    locked: (await lockedAmong(db, row, new Date())).size > 0,
+  };
+}
+
+/** Voids one pending shot. The lineup save calls it on its own client, so it commits or rolls back with the save (ADR 0058). */
+async function voidShot(db, shotId) {
   await db.query(
     `UPDATE "lineup_overrides" SET "outcome" = 'void', "resolved_at" = now()
      WHERE "id" = $1 AND "outcome" = 'pending'`,
-    [row.id]
+    [shotId]
   );
-  return true;
 }
 
 /**
@@ -467,7 +461,8 @@ module.exports = {
   loadPublicCalledShot,
   declareCalledShot,
   withdrawCalledShot,
-  voidShotContradictedBySave,
+  loadOpenShotForSave,
+  voidShot,
   loadSeasonRecord,
   captureOverrides,
   writeOverride,

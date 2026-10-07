@@ -6,9 +6,7 @@ const { createRateLimiter } = require('../modules/rateLimit');
 const { addFreeAgent, dropPlayer, undoDrop } = require('../services/draft.service');
 const { getLineup, setLineup } = require('../services/lineup.service');
 const { startSitAdvice, weekHindsight, seasonHindsight } = require('../services/decision.service');
-const {
-  declareCalledShot, withdrawCalledShot, voidShotContradictedBySave,
-} = require('../services/lineupOverride.service');
+const { declareCalledShot, withdrawCalledShot } = require('../services/lineupOverride.service');
 const { uploadTeamAvatar, removeTeamAvatar, MAX_UPLOAD_BYTES } = require('../services/avatar.service');
 const { computeByeWeeks } = require('../services/bye.service');
 const { requireMember } = require('../services/leagueMembership.service');
@@ -187,21 +185,9 @@ async function updateLineup(req, res) {
     return res.status(400).json({ error: 'week must be a positive integer' });
   }
   try {
-    const outcome = await setLineup({ leagueId, userId: req.user.id, week, moves });
-    // A saved lineup that no longer matches the team's open called shot voids
-    // it (#1856). The save has already committed, and the shot path never
-    // blocks it: any failure here is logged and the save still answers 200.
-    // The answer tells the client whether it did (#1969), so an Undo can say
-    // the voided shot stays void.
-    let calledShotVoided = false;
-    try {
-      calledShotVoided = await voidShotContradictedBySave(pool, {
-        teamId: outcome.teamId, season: outcome.season, week: outcome.week,
-      });
-    } catch (shotError) {
-      console.error('called shot: reconciling after a lineup save failed, the save stands:', shotError.message);
-    }
-    res.json({ ...outcome, calledShotVoided });
+    // A save that contradicts the team's open called shot voids it in the same
+    // transaction (ADR 0058); the answer says whether it did (#1969).
+    res.json(await setLineup({ leagueId, userId: req.user.id, week, moves }));
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json(

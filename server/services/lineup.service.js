@@ -1543,6 +1543,137 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
   );
 }
 
+const isStartingSlot = (slot) => slot != null && slot !== BENCH && slot !== IR;
+
+/**
+ * Pure: everything a lineup save decides, from the rows it read (spec #2042,
+ * ADR 0058). `rows` are the team-week's lineup entries (player_id, slot,
+ * ir_attested, position, name, injury_status), `locked` a Set of locked player
+ * ids, `spent` the surviving as-played starting rows, `attested` the ids that
+ * stood attested before the save, `calledShot` the team's open Called shot
+ * { id, starterId, benchedId, locked } or null. Never mutates `rows`.
+ *
+ * Returns { changed, attestationCleared, voidCalledShot, undoable,
+ * irreversible, error }. `error` is { statusCode, message, code } for a
+ * refused save (the other fields are then empty). `irreversible` lists what
+ * an Undo could not put back (`ir_override`, `called_shot`); a save with any
+ * is not `undoable`.
+ */
+function planLineupSave({ rows, moves, locked, spent, attested, settings, bestBall, calledShot }) {
+  const refuse = (statusCode, message, code) => ({
+    changed: [], attestationCleared: [], voidCalledShot: false, undoable: true, irreversible: [],
+    error: { statusCode, message, code },
+  });
+  const entries = rows.map((r) => ({ ...r }));
+  const byPlayer = new Map(entries.map((r) => [r.player_id, r]));
+  // Who occupies an invalid stash BEFORE this save's moves (#1480). The move
+  // that takes one of them to BENCH is forgiven one bench seat below; the set
+  // is read now because the moves mutate these rows in place.
+  const staleStashIds = new Set(
+    bestBall ? [] : entries.filter((r) => r.slot === IR && !isValidStash(r)).map((r) => r.player_id)
+  );
+  // The pre-save slots: the repair and the moves mutate the rows in place, and
+  // the validation forgives only the overflow that stood before this save.
+  const baseline = entries.map((r) => ({ player_id: r.player_id, slot: r.slot }));
+
+  const changedByPlayer = new Map();
+  const markChanged = (entry) => changedByPlayer.set(entry.player_id, entry);
+  // Older first-week materializations placed every player on BENCH. Repair
+  // only that impossible state before applying the manager's requested
+  // moves; a partial or legal lineup remains entirely manager-controlled.
+  const allBenchOverflow = !bestBall
+    && entries.length > settings.benchSlots
+    && entries.every((entry) => entry.slot === BENCH);
+  if (allBenchOverflow) {
+    // The repair seats starters only into the seats actually free: a spent
+    // slot's seat is already taken by the surviving row (#627).
+    const spentBySlot = {};
+    for (const row of spent) spentBySlot[row.slot] = (spentBySlot[row.slot] || 0) + 1;
+    const { starters } = optimalLineup(
+      entries
+        .filter((entry) => !locked.has(entry.player_id))
+        .map(({ player_id, position }) => ({ playerId: player_id, position })),
+      settings.rosterSlots.map((slot) => ({
+        ...slot,
+        count: Math.max(0, slot.count - (spentBySlot[slot.key] || 0)),
+      }))
+    );
+    for (const starter of starters) {
+      const entry = byPlayer.get(starter.playerId);
+      entry.slot = starter.slot;
+      entry.ir_attested = false;
+      markChanged(entry);
+    }
+  }
+  for (const move of moves) {
+    const entry = byPlayer.get(move.playerId);
+    if (!entry) return refuse(404, `player ${move.playerId} is not on your roster`);
+    if (entry.slot === move.slot) continue;
+    if (bestBall
+        && (!BEST_BALL_MANAGED_SLOTS.has(entry.slot) || !BEST_BALL_MANAGED_SLOTS.has(move.slot))) {
+      return refuse(409, 'best-ball managers may move players only between BENCH and IR');
+    }
+    // The stale IR-stash lock exception: the one locked move allowed.
+    const resolvesStaleIrStash = !bestBall
+      && entry.slot === IR
+      && move.slot === BENCH
+      && !isValidStash(entry);
+    if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
+      return refuse(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
+    }
+    entry.slot = move.slot;
+    // A manager-initiated move ends any commissioner attestation on this
+    // player right here (#100), so the rule below judges the post-move stash
+    // by the normal gate - moving an attested player out and back within one
+    // save cannot relaunder the override.
+    entry.ir_attested = false;
+    markChanged(entry);
+  }
+
+  const invalidStash = entries.find((entry) => entry.slot === IR && !isValidStash(entry));
+  if (invalidStash) {
+    return refuse(
+      400,
+      `${invalidStash.name} cannot remain in IR; current injury designation: ${injuryDesignationName(invalidStash.injury_status)}`
+    );
+  }
+
+  // A full bench must never wedge the resolution (#1480). The occupant who
+  // ENDS this save on BENCH is forgiven one seat: the inherited overflow of
+  // one that leaves behind is exactly what validateLineup already tolerates
+  // on every later save. Forgiveness is counted per resolving occupant and
+  // only for himself: a second bench arrival in the same save, or the
+  // occupant passing through BENCH on his way to a starting slot while
+  // someone else takes the seat, is still refused at the ordinary cap.
+  const benchForgiven = [...staleStashIds].filter((id) => byPlayer.get(id).slot === BENCH).length;
+  const baselineBench = baseline.filter((entry) => entry.slot === BENCH).length;
+  const validationSettings = benchForgiven > 0
+    ? { ...settings, benchSlots: Math.max(settings.benchSlots, baselineBench) + benchForgiven }
+    : settings;
+  const league = { best_ball: bestBall };
+  const errors = validateLineup(
+    entriesForLineupValidation(entries, league).map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
+    { ...validationSettings, baseline: entriesForLineupValidation(baseline, league), spent }
+  );
+  if (errors.length > 0) return refuse(400, errors.join('; '));
+
+  const changed = [...changedByPlayer.values()];
+  const attestationCleared = [...new Set(changed.map((e) => e.player_id))].filter((id) => attested.has(id));
+  // A save made before either shot player locks that contradicts the open
+  // Called shot voids it in the same write (ADR 0058): the starter left his
+  // starting slot, or the benched player took one.
+  const holds = calledShot
+    && isStartingSlot(byPlayer.get(calledShot.starterId)?.slot)
+    && !isStartingSlot(byPlayer.get(calledShot.benchedId)?.slot);
+  const voidCalledShot = Boolean(calledShot) && !calledShot.locked && !holds;
+  const irreversible = [
+    ...(attestationCleared.length > 0 ? ['ir_override'] : []),
+    ...(voidCalledShot ? ['called_shot'] : []),
+  ];
+  return { changed, attestationCleared, voidCalledShot, undoable: irreversible.length === 0, irreversible, error: undefined };
+}
+
+
 /**
  * Apply one or more slot moves atomically. The team row is locked so
  * concurrent edits serialize; the FINAL lineup is validated against the
@@ -1589,27 +1720,11 @@ async function setLineup({ leagueId, userId, week, moves }) {
          FOR SHARE OF "players"`,
         [team.id, season, targetWeek]
       );
-      const byPlayer = new Map(entriesResult.rows.map((r) => [r.player_id, r]));
-      // Who occupies an invalid stash BEFORE this save's moves (#1480). The
-      // move that takes one of them to BENCH is forgiven one bench seat below;
-      // the set is read now because the moves mutate these rows in place.
-      const staleStashIds = new Set(
-        league.best_ball
-          ? []
-          : entriesResult.rows.filter((r) => r.slot === IR && !isValidStash(r)).map((r) => r.player_id)
-      );
-      // Snapshot the pre-save slots NOW: the repair below and the moves both
-      // mutate these rows in place, and the validation at the bottom forgives
-      // only the overflow that stood before this save touched anything.
-      const baseline = entriesResult.rows.map((r) => ({ player_id: r.player_id, slot: r.slot }));
-      // Who stood attested BEFORE this save (#1969): the moves clear the flag
-      // in place, and the response names whose attestation they ended.
-      const attestedIds = new Set(entriesResult.rows.filter((r) => r.ir_attested).map((r) => r.player_id));
-
+      const rows = entriesResult.rows;
       const locked = await lockedPlayerIds(client, {
         season,
         week: targetWeek,
-        players: entriesResult.rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
+        players: rows.map((row) => ({ id: row.player_id, nflTeam: row.nfl_team })),
       });
       const settings = parseLineupSettings(league);
       // A slot a surviving as-played row occupies is spent (#627): the row will
@@ -1619,105 +1734,29 @@ async function setLineup({ leagueId, userId, week, moves }) {
       // only the team row), and this order can only see the departing player in
       // at least one of the two sets, never in neither. Skipped in best ball,
       // whose validation covers IR rows alone. The rows are counted, never
-      // movable, and never in `baseline` (starting caps are absolute, #622), so
-      // they stay out of `byPlayer`; the repair below only learns how many
-      // seats each slot has left.
+      // movable, and never in the baseline (starting caps are absolute, #622).
       const spent = league.best_ball
         ? []
         : await spentStartingSlots(client, { teamId: team.id, season, week: targetWeek });
-      const changedByPlayer = new Map();
-      const markChanged = (entry) => changedByPlayer.set(entry.player_id, entry);
-      // Older first-week materializations placed every player on BENCH. Repair
-      // only that impossible state before applying the manager's requested
-      // moves; a partial or legal lineup remains entirely manager-controlled.
-      const allBenchOverflow = !league.best_ball
-        && entriesResult.rows.length > settings.benchSlots
-        && entriesResult.rows.every((entry) => entry.slot === BENCH);
-      if (allBenchOverflow) {
-        // The repair seats starters into the seats that are actually free: a
-        // spent slot's seat is already taken by the surviving row, and seating
-        // into it would have the validation below refuse the whole save for a
-        // collision the manager never asked for (#627).
-        const spentBySlot = {};
-        for (const row of spent) spentBySlot[row.slot] = (spentBySlot[row.slot] || 0) + 1;
-        const { starters } = optimalLineup(
-          entriesResult.rows
-            .filter((entry) => !locked.has(entry.player_id))
-            .map(({ player_id, position }) => ({ playerId: player_id, position })),
-          settings.rosterSlots.map((slot) => ({
-            ...slot,
-            count: Math.max(0, slot.count - (spentBySlot[slot.key] || 0)),
-          }))
-        );
-        for (const starter of starters) {
-          const entry = byPlayer.get(starter.playerId);
-          entry.slot = starter.slot;
-          entry.ir_attested = false;
-          markChanged(entry);
-        }
-      }
-      for (const move of moves) {
-        const entry = byPlayer.get(move.playerId);
-        if (!entry) throw new LineupError(404, `player ${move.playerId} is not on your roster`);
-        if (entry.slot === move.slot) continue;
-        if (league.best_ball
-            && (!BEST_BALL_MANAGED_SLOTS.has(entry.slot) || !BEST_BALL_MANAGED_SLOTS.has(move.slot))) {
-          throw new LineupError(409, 'best-ball managers may move players only between BENCH and IR');
-        }
-        const resolvesStaleIrStash = !league.best_ball
-          && entry.slot === IR
-          && move.slot === BENCH
-          && !isValidStash(entry);
-        if (!resolvesStaleIrStash && locked.has(entry.player_id)) {
-          throw new LineupError(409, 'that player is locked; his game has started', 'LINEUP_LOCKED');
-        }
-        entry.slot = move.slot;
-        // A manager-initiated move ends any commissioner attestation on this
-        // player right here (#100), so the save rule below judges the
-        // post-move stash by the normal gate - moving an attested player out
-        // and back within one save cannot relaunder the override.
-        entry.ir_attested = false;
-        markChanged(entry);
-      }
+      // Lazy: lineupOverride.service requires this module at load.
+      const { loadOpenShotForSave, voidShot } = require('./lineupOverride.service');
+      const calledShot = await loadOpenShotForSave(client, { teamId: team.id, season, week: targetWeek });
 
-      const invalidStash = Array.from(byPlayer.values()).find(
-        (entry) => entry.slot === IR && !isValidStash(entry)
-      );
-      if (invalidStash) {
-        throw new LineupError(
-          400,
-          `${invalidStash.name} cannot remain in IR; current injury designation: ${injuryDesignationName(invalidStash.injury_status)}`
-        );
-      }
+      const plan = planLineupSave({
+        rows,
+        moves,
+        locked,
+        spent,
+        // Who stood attested BEFORE this save (#1969): the moves clear the flag
+        // and the response names whose attestation they ended.
+        attested: new Set(rows.filter((r) => r.ir_attested).map((r) => r.player_id)),
+        settings,
+        bestBall: Boolean(league.best_ball),
+        calledShot,
+      });
+      if (plan.error) throw new LineupError(plan.error.statusCode, plan.error.message, plan.error.code);
 
-      // A full bench must never wedge the resolution (#1480). Every save that
-      // leaves a stale stash standing is refused above, and with the bench
-      // full the one save that resolves it - the occupant to BENCH - would be
-      // refused by the cap for the overflow it creates. No single save is
-      // legal, and the only way out is a drop the page never names. So the
-      // occupant who ENDS this save on BENCH is forgiven one seat: the
-      // inherited overflow of one that leaves behind is exactly what
-      // validateLineup already tolerates on every later save. Forgiveness is
-      // counted per resolving occupant and only for himself: a second bench
-      // arrival in the same save, or the occupant passing through BENCH on
-      // his way to a starting slot while someone else takes the seat, is still
-      // refused at the ordinary cap. This subsumes the earlier zero-bench,
-      // locked-only forgiveness (`benchSlots: 1`), which was this same rule
-      // for one league shape.
-      const benchForgiven = [...staleStashIds].filter((id) => byPlayer.get(id).slot === BENCH).length;
-      const baselineBench = baseline.filter((entry) => entry.slot === BENCH).length;
-      const validationSettings = benchForgiven > 0
-        ? { ...settings, benchSlots: Math.max(settings.benchSlots, baselineBench) + benchForgiven }
-        : settings;
-      const entriesToValidate = entriesForLineupValidation(byPlayer.values(), league);
-      const errors = validateLineup(
-        entriesToValidate.map((e) => ({ playerId: e.player_id, position: e.position, slot: e.slot })),
-        { ...validationSettings, baseline: entriesForLineupValidation(baseline, league), spent }
-      );
-      if (errors.length > 0) throw new LineupError(400, errors.join('; '));
-
-      const changed = [...changedByPlayer.values()];
-      for (const entry of changed) {
+      for (const entry of plan.changed) {
         await client.query(
           `UPDATE "lineup_entries" SET "slot" = $1, "ir_attested" = false, "updated_at" = now()
            WHERE "team_id" = $2 AND "season" = $3 AND "week" = $4 AND "player_id" = $5`,
@@ -1728,7 +1767,7 @@ async function setLineup({ leagueId, userId, week, moves }) {
       // materialized ahead of time (#100): the weekly copy-forward would have
       // planted the attested stash there already, and nothing later rewrites
       // it. Earlier weeks keep their history.
-      const movedPlayerIds = [...new Set(changed.map((entry) => entry.player_id))];
+      const movedPlayerIds = [...new Set(plan.changed.map((entry) => entry.player_id))];
       if (movedPlayerIds.length > 0) {
         await client.query(
           `UPDATE "lineup_entries" SET "ir_attested" = false, "updated_at" = now()
@@ -1737,15 +1776,22 @@ async function setLineup({ leagueId, userId, week, moves }) {
           [team.id, season, targetWeek, movedPlayerIds]
         );
       }
-      // Returning COMMITs the slot UPDATEs above (ADR 0033). Every refusal in
-      // this body throws, so a rejected save rolls back rather than committing.
+      // The contradicted Called shot is voided in this same transaction (ADR
+      // 0058): a failing void rolls the lineup UPDATEs back with it.
+      if (plan.voidCalledShot) await voidShot(client, calledShot.id);
+      // Returning COMMITs the writes above (ADR 0033). Every refusal in this
+      // body throws, so a rejected save rolls back rather than committing.
       return {
         leagueId,
         teamId: team.id,
         season,
         week: targetWeek,
-        updated: changed.length,
-        attestationCleared: movedPlayerIds.filter((id) => attestedIds.has(id)),
+        updated: plan.changed.length,
+        attestationCleared: plan.attestationCleared,
+        // Until the client reads `undoable`/`irreversible` alone (spec #2042).
+        calledShotVoided: plan.voidCalledShot,
+        undoable: plan.undoable,
+        irreversible: plan.irreversible,
       };
     },
     { label: 'set-lineup' }
@@ -1866,5 +1912,6 @@ module.exports = {
   annotateLineupEntries,
   getLineup,
   setLineup,
+  planLineupSave,
   optimalLineup,
 };
