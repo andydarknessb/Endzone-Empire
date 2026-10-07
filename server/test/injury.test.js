@@ -31,6 +31,8 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
@@ -137,6 +139,8 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
   const fake = createFakePool([
     // #106: every world here is a LIVE week, so nothing is frozen.
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT \* FROM "leagues"/, () => ({ rows: [{
       id: 5,
       current_season: 2026,
@@ -257,6 +261,8 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
   const written = [];
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
@@ -321,6 +327,8 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
   let writtenStatus = 'O'; // pre-write stored value
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [{ id: 71, external_id: 'tank-71', injury_status: 'O' }],
@@ -661,6 +669,8 @@ test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 n
   const written = [];
   const fake = createFakePool([
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    // ADR 0058: the save reads the team's open Called shot; none in this world.
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
