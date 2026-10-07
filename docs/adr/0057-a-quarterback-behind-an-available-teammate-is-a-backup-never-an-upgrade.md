@@ -26,9 +26,8 @@ We decide:
    the read loads the chart once per call, `backupFor(id)` answers it and
    `availabilityFor(id)` returns `unavailableFor({ backup: true })`: available,
    never auto-recommended, reason `backup`. Precedence: bye, No NFL team,
-   Practice squad, Out, IR, Backup, then Position-baseline (`no_history`),
-   then Doubtful, no-practice and Questionable. (Amended 2026-10-07: Backup
-   was below Position-baseline. See the amendment note below.)
+   Practice squad, Out, IR, Position-baseline (`no_history`), then Backup,
+   then Doubtful, no-practice and Questionable.
 3. Every reader that branches on Position-baseline takes the same branch for
    a Backup quarterback: the Upgrade is `null` (no pill or tile, sorts last),
    Waiver Targets skip him, Start/sit advice and the Optimizer never
@@ -63,13 +62,17 @@ We decide:
 
 ## Amendment (2026-10-07, #2044)
 
-Backup now outranks Position-baseline in the reason precedence. The old order
-was set while `backup` was a separate fact every reader could read beside the
-reason, so it only decided which note showed. Under the Start verdict (spec
-#2042) there is one reason per player, and it decides the zero in a valued
-lineup (rule 3): a rostered QB who is both Position-baseline and Backup reads
-`backup`, so he is worth 0 in Start/sit advice's optimal lineup and in the
-Upgrade's roster baseline, and the Lineup wire carries `backup: true,
-positionBaseline: false` for him. His number stays untrusted either way
-(`numberTrusted: false`). Ruling, approved by Cory:
+Backup now outranks Position-baseline in the reason precedence. Rule 2's
+precedence line above is superseded by this one: bye, No NFL team, Practice
+squad, Out, IR, Backup, then Position-baseline (`no_history`), then Doubtful,
+no-practice and Questionable.
+
+The old order was set while `backup` was a separate fact every reader could
+read beside the reason, so it only decided which note showed. Under the Start
+verdict (spec #2042) there is one reason per player, and it decides the zero in
+a valued lineup (rule 3): a rostered QB who is both Position-baseline and
+Backup reads `backup`, so he is worth 0 in Start/sit advice's optimal lineup
+and in the Upgrade's roster baseline, and the Lineup wire carries
+`backup: true, positionBaseline: false` for him. His number stays untrusted
+either way (`numberTrusted: false`). Ruling, approved by Cory:
 https://github.com/andydarknessb/Endzone-Empire/issues/2044#issuecomment-6039675475
