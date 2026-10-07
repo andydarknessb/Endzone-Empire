@@ -23,9 +23,9 @@ We decide:
    guessed appearances. A missing or stale chart, or a player absent from it,
    reads not-Backup.
 2. The verdict is the Weekly projection read's, beside Position-baseline:
-   the read loads the chart once per call, `backupFor(id)` answers it and
-   `availabilityFor(id)` returns `unavailableFor({ backup: true })`: available,
-   never auto-recommended, reason `backup`. Precedence: bye, No NFL team,
+   the read loads the chart once per call and `startVerdictFor(id)` answers it
+   through `unavailableFor({ backup: true })`: available, never
+   auto-recommended, reason `backup`. Precedence: bye, No NFL team,
    Practice squad, Out, IR, Position-baseline (`no_history`), then Backup,
    then Doubtful, no-practice and Questionable.
 3. Every reader that branches on Position-baseline takes the same branch for
