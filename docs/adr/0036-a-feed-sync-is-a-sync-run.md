@@ -89,3 +89,27 @@ resolves two shapes. The Tue/Wed stat-correction pass is a Sync run like the
 rest (`transaction: false`), no longer a hand-written row. An apply error may
 carry `syncDetail`, merged into the failed row's detail (the pass's failed
 weeks).
+
+## Amendment (#2060): retry default, refusal period, roster-status triggers
+
+The #2050 amendment overstated what the cadence gate does; the code is this:
+
+- A failed run (`fetch_failed`, `bad_response`, `write_failed`) is retried on
+  the next tick unless the job passes `retryMs` to `cadence.due`. Today only
+  `adp` (`ADP_RETRY_MS`, 15 minutes) and `stat-corrections`
+  (`STAT_CORRECTIONS_RETRY_MS`, 1 hour) do.
+- A `refused` run settles the job's cadence period: a UTC day for
+  `every: 'utc-day'` jobs, the interval for `every: { ms }` jobs (`odds`,
+  `game-context`, `weather-snapshots`). That corrects the #2050 amendment's
+  "settles its UTC day".
+- `unconfigured` needs at least one unit (`results.length > 0`) and every unit
+  reporting `unconfigured: true`; a run with no units is `ok`.
+- The Decision's "five outcomes" are six since #2050; the Decision bullet is
+  frozen, so the pointer lives here.
+- The pre-capture and game-day roster-status triggers back off
+  `PRE_HOLDOUT_RETRY_MS` on any non-ok latest run, a refusal included, because
+  `runRosterStatusSync` has no refusal path. They move onto `latest.outcome` the
+  day one is added.
+- The `stat-corrections` Sync run row joins `SYNC_RUN_JOBS` through the tick
+  job's `syncRun` list, so its typed outcome and `failedWeeks` reach the
+  scheduler status.
