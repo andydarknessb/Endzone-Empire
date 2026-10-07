@@ -197,7 +197,7 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
   // #1969: the save's answer says which side effects an Undo cannot reverse.
   test('a save that ended an IR override says so and offers no Undo', async () => {
-    apiClient.put.mockResolvedValue({ data: { attestationCleared: [1], calledShotVoided: true } });
+    apiClient.put.mockResolvedValue({ data: { attestationCleared: [1], calledShotVoided: false } });
     const { result } = setup(RAW);
 
     await act(async () => {
@@ -206,6 +206,21 @@ describe('Undo on the Lineup saved toast (#1964)', () => {
 
     expect(mockNotify).toHaveBeenCalledWith(
       'Lineup saved. This move ended a commissioner IR override and cannot be undone',
+      { severity: 'success' }
+    );
+  });
+
+  // A save that does both names both; neither can be undone, so no Undo.
+  test('a save that ended an IR override and voided a called shot names both and offers no Undo', async () => {
+    apiClient.put.mockResolvedValue({ data: { attestationCleared: [1], calledShotVoided: true } });
+    const { result } = setup(RAW);
+
+    await act(async () => {
+      await result.current.apply(PLAN);
+    });
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      'Lineup saved. This move ended a commissioner IR override and voided your called shot. It cannot be undone',
       { severity: 'success' }
     );
   });
