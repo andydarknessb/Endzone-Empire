@@ -117,7 +117,8 @@ function noPracticeAllWeek(observations, kickoffAt) {
  * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  *
  * `practice` (`{ observations, kickoffAt }`, ADR 0056) is passed ONLY by
- * Start/sit advice: a Questionable player with no practice all week
+ * Start/sit advice and the Weekly projection read's `startVerdictFor` (the
+ * Decision card's verdict, spec #2042): a Questionable player with no practice all week
  * (`noPracticeAllWeek`, with `kickoffAt` his game for the coverage deadline)
  * reads `no_practice`, never auto-recommended, after Position-baseline and
  * Doubtful and before plain Questionable. Every other reader omits it, so its

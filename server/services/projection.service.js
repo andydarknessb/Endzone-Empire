@@ -3,7 +3,6 @@ const model = require('./projectionModel');
 // The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
 const { poolPointsFor, poolPointsMap } = require('./poolProjection');
 const { unavailableFor, startVerdictOf } = require('./unavailable');
-const practiceParticipation = require('./practiceParticipation.service');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -1756,6 +1755,10 @@ async function loadBackupQuarterbackIds({ client, playerIds, now }) {
  * as the QB depth chart read does. Read path only: nothing is stored.
  */
 async function loadPracticeFacts({ client, season, week, playerIds }) {
+  // Required here, not at the top: practiceParticipation.service reaches the
+  // sync services, which reach this module, so a top-level require changes the
+  // load order of that cycle (settleFollowUp.service's `computeLeagueOdds`).
+  const practiceParticipation = require('./practiceParticipation.service');
   return degradingRead({
     client, savepoint: 'practice_facts', label: 'Practice participation', fallback: new Map(),
     read: async () => {
