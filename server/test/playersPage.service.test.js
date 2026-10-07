@@ -470,7 +470,7 @@ test('a Backup quarterback carries verdictReason backup and keeps his place in a
   const byId = new Map(result.players.map((p) => [p.id, p]));
   assert.deepEqual(result.players.map((p) => p.id), [2, 1, 5, 3, 4], 'the sort is the same as without the verdict');
   assert.equal(byId.get(2).verdictReason, 'backup');
-  assert.equal(byId.get(3).verdictReason, 'no_history', 'Position-baseline wins over backup');
+  assert.equal(byId.get(3).verdictReason, 'backup', 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
   assert.equal('verdictReason' in byId.get(1), false);
 });
 

@@ -205,6 +205,8 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   // zero, with reason `backup`, so he does not hide a real starter's Upgrade.
   const roster = rosterRows.map((r) => {
     const verdict = projections.startVerdictFor(r.player_id);
+    // Backup outranks Position-baseline in the verdict (ADR 0057, amended
+    // 2026-10-07), so a rostered QB who is both is still zeroed.
     const zeroReason = verdict.outcome === 'unavailable' || verdict.reason === 'backup'
       ? verdict.reason
       : null;

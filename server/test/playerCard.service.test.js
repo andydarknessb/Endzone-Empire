@@ -1165,6 +1165,43 @@ test('upgradesFor (ADR 0057): a rostered Backup quarterback does not mask a free
   assert.equal(control.get(FA_ID).points, 0);
 });
 
+// ADR 0057, amended 2026-10-07 (#2044): Backup outranks Position-baseline, so a
+// rostered QB who is both is still worth 0 in the roster baseline and does not
+// hide a free-agent starter's Upgrade.
+test('upgradesFor (ADR 0057): a rostered QB who is both Position-baseline and Backup is valued 0, so a free-agent QB keeps his Upgrade', async (t) => {
+  const BOTH_ID = 458;
+  const FA_ID = 77;
+  const qbSlots = { ...LEAGUE, roster_slots: [{ key: 'QB', label: 'QB', count: 1, eligiblePositions: ['QB'] }] };
+  createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: [{ id: FA_ID, position: 'QB', nfl_team: 'DET' }],
+    })],
+    ...buildHandlers({
+      league: qbSlots,
+      starterRows: [
+        { player_id: BOTH_ID, slot: 'QB', name: 'Both QB', position: 'QB' },
+        { player_id: 999, slot: 'BENCH', name: 'Rostered QB', position: 'QB' },
+      ],
+      identityIds: [FA_ID],
+    }),
+  ]).install(t);
+  mockServices(t);
+  const entry = (points, reasons = []) => ({ mean: points, median: points, factors: { availability: { available: true }, dataQuality: { reasons } } });
+  const points = new Map([[999, 16], [BOTH_ID, 20.25], [FA_ID, 18]]);
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
+    projections: new Map(playerIds.map((id) => [id, entry(points.get(id), id === BOTH_ID ? ['position baseline'] : [])])),
+    backupIds: new Set([BOTH_ID]),
+  }));
+
+  const upgrades = await upgradesFor({ league: qbSlots, team: TEAM, season: 2026, week: 5, playerIds: [FA_ID] });
+
+  assert.deepEqual(upgrades.get(FA_ID), {
+    points: 2,
+    overPlayer: { id: 999, name: 'Rostered QB', points: 16, unavailable: null },
+    slot: 'QB',
+  });
+});
+
 // Start verdict (spec #2042, #2044): the Upgrade follows the verdict alone.
 // Unavailable, and Not recommended with an untrusted number (Position-baseline,
 // Backup), get null; a Doubtful candidate's number is his own evidence, so he

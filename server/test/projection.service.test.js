@@ -3540,7 +3540,7 @@ test('toWeeklyProjectionResult: backupFor reads run.backupIds, and is false with
   assert.equal(projection.toWeeklyProjectionResult({ projections }).backupFor(2), false);
 });
 
-test('toWeeklyProjectionResult: availabilityFor returns the backup verdict after the Position-baseline check, keeping the number', () => {
+test('toWeeklyProjectionResult: availabilityFor returns the backup verdict, over Position-baseline, keeping the number', () => {
   const evidenced = (availability) => ({ mean: 20.25, median: 20.25, factors: { availability, dataQuality: { reasons: ['small sample'] } } });
   const baseline = { mean: 15, median: 15, factors: { availability: { available: true, status: null, reason: null }, dataQuality: { reasons: ['position baseline'] } } };
   const result = projection.toWeeklyProjectionResult({
@@ -3559,7 +3559,7 @@ test('toWeeklyProjectionResult: availabilityFor returns the backup verdict after
   assert.equal(result.availabilityFor(2).reason, 'backup', 'backup wins over a stored Doubtful');
   assert.equal(result.availabilityFor(2).status, 'D');
   assert.equal(result.availabilityFor(3).reason, 'out', 'a stored Unavailable verdict wins over backup');
-  assert.equal(result.availabilityFor(4).reason, 'no_history', 'Position-baseline wins over backup');
+  assert.equal(result.availabilityFor(4).reason, 'backup', 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
   assert.equal(result.availabilityFor(5), null, 'not in backupIds: no verdict from the read');
   assert.equal(result.pointsFor(1), 20.25, 'his number stays');
 });
@@ -3752,7 +3752,7 @@ test('getWeeklyProjections: a failed Practice participation read degrades to pla
   assert.ok(logged.mock.calls.some((c) => require('node:util').format(...c.arguments).includes('Practice participation read failed')));
 });
 
-test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdict as stored, then Position-baseline over Backup', () => {
+test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdict as stored, then Backup over Position-baseline', () => {
   const stored = (availability, reasons = []) => ({ mean: 12, median: 12, factors: { availability, dataQuality: { reasons } } });
   const result = projection.toWeeklyProjectionResult({
     projections: new Map([
@@ -3763,7 +3763,7 @@ test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdi
     backupIds: new Set([1, 2, 3]),
   });
   assert.deepEqual(result.startVerdictFor(1), { outcome: 'unavailable', reason: 'out', numberTrusted: true });
-  assert.deepEqual(result.startVerdictFor(2), { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  assert.deepEqual(result.startVerdictFor(2), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
   assert.deepEqual(result.startVerdictFor(3), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
   assert.deepEqual(result.startVerdictFor(999), { outcome: 'recommendable', reason: null, numberTrusted: true }, 'no entry: basic facts only');
 });

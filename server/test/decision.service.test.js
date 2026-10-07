@@ -936,3 +936,19 @@ test('buildSuggestions: a Backup quarterback on the bench is never suggested, ev
   const result = buildSuggestions(lineup, projections, new Map(), QB1);
   assert.equal(result.suggestions.length, 0);
 });
+
+// Start verdict (spec #2042, #2044): a run that stored the bench rookie
+// Unavailable (IR when it was cached; he has since been activated, so his lineup
+// entry reads active) and marked him Position-baseline is never a candidate.
+// The verdict's outcome gates, not the flags rebuilt from its reason (#1775).
+test('buildSuggestions: a stale-IR Position-baseline bench rookie is never a candidate, however active his entry reads', () => {
+  const lineup = [entry(1, 'RB', 'RB'), { ...entry(2, 'RB', 'BENCH'), injuryStatus: null }];
+  const staleIr = {
+    points: 20,
+    factors: { availability: { available: false, status: 'IR', reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } },
+  };
+  const projections = resultFromLegacyMap(new Map([[1, { points: 12 }], [2, staleIr]]));
+  assert.equal(projections.startVerdictFor(2).outcome, 'unavailable', 'the fixture: the run says Unavailable');
+  const result = buildSuggestions(lineup, projections, new Map(), RB1);
+  assert.equal(result.suggestions.length, 0);
+});

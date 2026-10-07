@@ -1900,12 +1900,12 @@ function toWeeklyProjectionResult(run) {
      * availability). A stored Unavailable verdict (bye, No NFL team, Practice
      * squad, Out, IR: the engine took it from `unavailableFor` before
      * projecting) always wins and is returned as stored, so the precedence
-     * reads bye, No NFL team, Practice squad, Out, IR, then Position-baseline,
-     * then a Backup quarterback (ADR 0057: `unavailableFor({ backup: true })`,
-     * reason `backup`).
+     * reads bye, No NFL team, Practice squad, Out, IR, then a Backup
+     * quarterback (ADR 0057, amended 2026-10-07: reason `backup`), then
+     * Position-baseline.
      * Otherwise the one verdict function, `unavailableFor`, is taken with
-     * `positionBaseline: true` over the row's stored designation: available,
-     * not auto-recommended, reason `no_history`. Derived on read, never stored:
+     * both facts over the row's stored designation: available, not
+     * auto-recommended, reason `backup` or `no_history`. Derived on read, never stored:
      * the engine, the stored rows and every holdout capture are unchanged.
      */
     availabilityFor(playerId) {
@@ -1917,7 +1917,7 @@ function toWeeklyProjectionResult(run) {
       return unavailableFor({
         injuryStatus: stored.status || null,
         positionBaseline: baseline,
-        backup: !baseline,
+        backup: isBackup(playerId),
       });
     },
 
