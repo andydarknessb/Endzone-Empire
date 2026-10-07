@@ -470,7 +470,7 @@ test('a Backup quarterback carries verdictReason backup and keeps his place in a
   const byId = new Map(result.players.map((p) => [p.id, p]));
   assert.deepEqual(result.players.map((p) => p.id), [2, 1, 5, 3, 4], 'the sort is the same as without the verdict');
   assert.equal(byId.get(2).verdictReason, 'backup');
-  assert.equal(byId.get(3).verdictReason, 'no_history', 'Position-baseline wins over backup');
+  assert.equal(byId.get(3).verdictReason, 'backup', 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
   assert.equal('verdictReason' in byId.get(1), false);
 });
 
@@ -496,6 +496,34 @@ test('an Unavailable Position-baseline row keeps its own place and carries no no
   assert.equal('verdictReason' in byId.get(3), false, 'Out wins over no history');
   assert.equal(byId.get(4).verdictReason, 'no_history');
   assert.equal(result.players[result.players.length - 1].id, 4);
+});
+
+// #2044: the sort-last set is Position-baseline AND not Unavailable. A stored-IR
+// row that is also Backup keeps its own place in the sort (its hidden number
+// leads a DESC sort) and carries no tag; dropping the outcome gate sorts it last.
+test('a stored-Unavailable Position-baseline Backup row keeps its own place and carries no tag (#2044)', async (t) => {
+  const { fake } = positionBaselineWorld(t, { backupIds: new Set([3]) });
+  projectionService.getWeeklyProjections.mock.mockImplementation(async (options) => projectionService.toWeeklyProjectionResult({
+    week: options.week,
+    backupIds: new Set([3]),
+    projections: new Map([
+      [1, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+      [2, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+      [3, { median: 15.37, factors: { availability: { available: false, reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } } }],
+      [4, { median: 15.37, factors: { availability: { available: true }, dataQuality: { reasons: ['position baseline'] } } }],
+      [5, { median: 5, factors: { availability: { available: true }, dataQuality: { reasons: [] } } }],
+    ]),
+  }));
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', sortField: 'projected_points', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.equal('verdictReason' in byId.get(3), false, 'IR wins over backup and no history');
+  assert.equal(result.players[result.players.length - 1].id, 4, 'only the available Position-baseline row sorts last');
+  assert.equal(result.players[0].id, 3, 'his own number leads a DESC sort');
 });
 
 test('other sorts do not take the Weekly projection read (#1778)', async (t) => {

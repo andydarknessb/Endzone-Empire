@@ -1226,15 +1226,17 @@ function factorEdgeText(factors) {
  * (the entries query's own ORDER BY), so the result is deterministic without
  * a tie-break rule of its own.
  */
-function findBenchAboveStarter(entry, entries, rosterSlots) {
+function findBenchAboveStarter(entry, entries, rosterSlots, wontStart) {
   if (entry.slot !== BENCH || entry.projected_points == null) return null;
-  // A Position-baseline projection (#1776) is the position's average, not this
-  // player's own evidence: no "Outprojects" comparison is made with one on
-  // either side; nor with a Backup quarterback (ADR 0057), who will not play.
-  if (entry.positionBaseline || entry.backup) return null;
+  // The Start verdict (spec #2042) refuses the comparison on either side: a
+  // Position-baseline projection (#1776) is the position's average, not this
+  // player's own evidence, a Backup quarterback (ADR 0057) will not play, and
+  // an Unavailable player adds nothing. `wontStart` holds the ids whose verdict
+  // is Unavailable or carries an untrusted number.
+  if (wontStart.has(entry.id)) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null || other.positionBaseline || other.backup) continue;
+    if (other.projected_points == null || wontStart.has(other.id)) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1260,13 +1262,13 @@ function findBenchAboveStarter(entry, entries, rosterSlots) {
  * `injury_status`; when the feed carries no detail the text is the
  * designation name alone (pre-launch ruling: no migration in this ticket).
  */
-function computeEdgeLine(entry, { entries, rosterSlots, factors, liveStatus, actualPoints, now }) {
+function computeEdgeLine(entry, { entries, rosterSlots, wontStart, factors, liveStatus, actualPoints, now }) {
   if (entry.injury_status) {
     const name = injuryDesignationName(entry.injury_status);
     const detail = entry.injury_detail;
     return { kind: 'injury', text: detail ? `${name}, ${detail}` : name };
   }
-  const bench = findBenchAboveStarter(entry, entries, rosterSlots);
+  const bench = findBenchAboveStarter(entry, entries, rosterSlots, wontStart);
   if (bench) return { kind: 'bench-above-starter', text: `Outprojects ${bench.name} at ${bench.slot}` };
   const factorText = factorEdgeText(factors);
   if (factorText) return { kind: 'factor', text: factorText };
@@ -1462,16 +1464,21 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // guard): a bench player outprojecting a departed starter's frozen
       // record is not a seat he could actually take.
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
-      // #1776: a Position-baseline projection (CONTEXT.md; `positionBaselineFor`,
-      // #1775) rides the wire as a boolean, false whenever an Unavailable reason
-      // applies (bye, No NFL team, Practice squad, Out, IR always win). Set for
+      // #1776: a Position-baseline projection (CONTEXT.md; the Start verdict's
+      // `no_history`, #1775) rides the wire as a boolean, false whenever an Unavailable reason
+      // applies (bye, No NFL team, Practice squad, Out, IR always win). The
+      // Edge line does not read the booleans: `wontStart` is the Start verdict
+      // itself (Unavailable, or a number that is not his evidence), built for
       // every row BEFORE any Edge line, since `findBenchAboveStarter` reads it
-      // off the other entries too.
+      // off the other entries too. The booleans stay for the client until #2045.
+      const wontStart = new Set();
       for (const row of annotated) {
-        row.positionBaseline = row.unavailable == null && weeklyResult.positionBaselineFor(row.id);
-        // ADR 0057: a Backup quarterback keeps his number; only the Edge line
-        // stops comparing him against a starter.
-        row.backup = row.unavailable == null && weeklyResult.backupFor(row.id);
+        const verdict = weeklyResult.startVerdictFor(row.id);
+        if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) wontStart.add(row.id);
+        row.positionBaseline = row.unavailable == null && verdict.reason === 'no_history';
+        // ADR 0057: a Backup quarterback keeps his number; the verdict ranks
+        // Backup over Position-baseline, so a QB who is both rides as `backup`.
+        row.backup = row.unavailable == null && verdict.reason === 'backup';
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
@@ -1482,6 +1489,7 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
         annotatedRow.edge = computeEdgeLine(annotatedRow, {
           entries: annotated,
           rosterSlots: settings.rosterSlots,
+          wontStart,
           factors,
           liveStatus: liveByTeam.get(normalizeNflTeam(row.nfl_team)) ?? null,
           actualPoints: row.actualPoints,

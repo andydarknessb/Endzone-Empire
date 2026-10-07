@@ -109,10 +109,11 @@ function noPracticeAllWeek(observations, kickoffAt) {
  * from. Inventing 0.6 would look like a measurement.
  *
  * Precedence: bye, then No NFL team, then Practice squad, then Out and IR, then
- * Position-baseline (#1775, `positionBaseline`: available but never
- * auto-recommended; passed only by readers that already hold a projection),
- * then Backup quarterback (ADR 0057, `backup`: the same shape, reason
- * `backup`), then Doubtful, no-practice and Questionable.
+ * Backup quarterback (ADR 0057, `backup`: available but never auto-recommended,
+ * reason `backup`; above Position-baseline since the 2026-10-07 amendment, #2044),
+ * then Position-baseline (#1775, `positionBaseline`: the same shape, reason
+ * `no_history`; passed only by readers that already hold a projection), then
+ * Doubtful, no-practice and Questionable.
  * `nflRosterStatus` is the fact every reader passes from its own player read
  * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  *
@@ -150,34 +151,36 @@ function unavailableFor({
   if (status === 'IR') {
     return { available: false, activeProbability: 0, reason: 'ir', status, locked, lockedSlot };
   }
+  if (backup) {
+    // A Backup quarterback (ADR 0057): behind an available teammate on the
+    // Depth chart, so he will not play. His number is his own evidence and
+    // stays; like Position-baseline he is never AUTO-recommended. Above
+    // no_history (below): a QB who is both reads `backup`, so the Start
+    // verdict keeps the fact that decides his zero in a valued lineup (ADR 0057,
+    // amended 2026-10-07; #2044). Above Doubtful, no-practice and Questionable.
+    return {
+      available: true,
+      autoRecommend: false,
+      activeProbability: status === 'D' || status === 'Q' ? null : 1,
+      reason: 'backup',
+      status,
+      locked,
+      lockedSlot,
+    };
+  }
   if (positionBaseline) {
     // A Position-baseline projection (#1775): the number is the position's
     // average, not this player's own evidence. Startable if a manager insists,
     // never AUTO-recommended (Start/sit advice never moves him onto the
     // lineup). Reads only AFTER a Weekly projection exists, so the engine's
     // pre-projection call never passes it and no stored field changes. Bye,
-    // no team, Out and IR (above) still win; this wins over Doubtful,
+    // no team, Out, IR and Backup (above) still win; this wins over Doubtful,
     // Questionable and no designation.
     return {
       available: true,
       autoRecommend: false,
       activeProbability: status === 'D' || status === 'Q' ? null : 1,
       reason: 'no_history',
-      status,
-      locked,
-      lockedSlot,
-    };
-  }
-  if (backup) {
-    // A Backup quarterback (ADR 0057): behind an available teammate on the
-    // Depth chart, so he will not play. His number is his own evidence and
-    // stays; like Position-baseline he is never AUTO-recommended. Below
-    // no_history (above), above Doubtful, no-practice and Questionable.
-    return {
-      available: true,
-      autoRecommend: false,
-      activeProbability: status === 'D' || status === 'Q' ? null : 1,
-      reason: 'backup',
       status,
       locked,
       lockedSlot,
