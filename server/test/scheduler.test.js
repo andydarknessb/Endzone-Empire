@@ -2146,6 +2146,15 @@ test('runJobs logs a throwing job and the next job still runs', async (t) => {
   assert.match(logged[0], /kaput/);
 });
 
+test('runJobs returns each contained throw as { name, message }, and [] when nothing failed (#2058)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  assert.deepEqual(await scheduler.runJobs([
+    { name: 'first', tier: 'deadline', run: async () => {} },
+    { name: 'boom', tier: 'deadline', run: async () => { throw new Error('kaput'); } },
+  ]), [{ name: 'boom', message: 'kaput' }]);
+  assert.deepEqual(await scheduler.runJobs([{ name: 'ok', tier: 'deadline', run: async () => {} }]), []);
+});
+
 test('syncRunJobs lists the syncRun names the jobs declare, once each, in list order', () => {
   const jobs = [
     { name: 'a', tier: 'deadline', run: async () => {}, syncRun: ['x', 'y'] },
