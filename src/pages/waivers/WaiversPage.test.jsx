@@ -1120,7 +1120,7 @@ test('the live region announces the loaded headlines', async () => {
 test('a Position-baseline row reads "no history" in the Proj Wk column, no number (#1778)', async () => {
   setup({
     players: [
-      cardsPlayer({ id: 7, name: 'Carson Beck', verdictReason: 'no_history', projWeek: { week: 4, points: 15.37 } }),
+      cardsPlayer({ id: 7, name: 'Carson Beck', startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projWeek: { week: 4, points: 15.37 } }),
       cardsPlayer({ id: 8, name: 'Real Starter', projWeek: { week: 4, points: 17.2 } }),
     ],
   });

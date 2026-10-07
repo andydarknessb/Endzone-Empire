@@ -19,7 +19,7 @@ describe('SwapPreview', () => {
   it('prints "no history" and no gain line for a Position-baseline row, keeping the starter number', () => {
     render(
       <SwapPreview
-        player={{ name: 'Carson Beck', projWeek: { points: 15.37 }, verdictReason: 'no_history', upgrade }}
+        player={{ name: 'Carson Beck', projWeek: { points: 15.37 }, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, upgrade }}
       />,
     );
     expect(screen.getByText('Carson Beck no history')).toBeInTheDocument();

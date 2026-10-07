@@ -280,7 +280,7 @@ test('hideOwnership renders one cell fewer than the default row', () => {
 
 // #1778 (spec #1774): the Proj Wk cell reads the server's verdict, never a number.
 test('a Position-baseline row reads "no history" in Proj Wk and shows no number', () => {
-  renderRow({ player: player({ verdictReason: 'no_history', projWeek: { week: 3, points: 15.37 } }) });
+  renderRow({ player: player({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projWeek: { week: 3, points: 15.37 } }) });
 
   const row = screen.getByTestId('player-row');
   expect(within(row).getByText('no history')).toBeInTheDocument();
@@ -288,7 +288,7 @@ test('a Position-baseline row reads "no history" in Proj Wk and shows no number'
 });
 
 test('the card variant reads "no history" too', () => {
-  renderRow({ player: player({ verdictReason: 'no_history', projWeek: { week: 3, points: 15.37 } }), variant: 'card' });
+  renderRow({ player: player({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, projWeek: { week: 3, points: 15.37 } }), variant: 'card' });
 
   const card = screen.getByTestId('player-row-card');
   expect(within(card).getByText('no history')).toBeInTheDocument();
@@ -303,7 +303,7 @@ test('an evidenced row keeps its Proj Wk number', () => {
 });
 
 test('an Unavailable projection week keeps its reason, not "no history"', () => {
-  renderRow({ player: player({ verdictReason: 'no_history', weeks: [], projWeek: { week: 3, reason: 'bye' } }) });
+  renderRow({ player: player({ startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, weeks: [], projWeek: { week: 3, reason: 'bye' } }) });
 
   expect(screen.getByText('on bye')).toBeInTheDocument();
   expect(screen.queryByText('no history')).not.toBeInTheDocument();

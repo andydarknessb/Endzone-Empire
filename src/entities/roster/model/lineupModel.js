@@ -65,7 +65,7 @@
  *     league's own `roster_slots`.
  */
 
-import { parseRosterSlots } from '../../../shared/lib';
+import { parseRosterSlots, isStartVerdictUnavailable } from '../../../shared/lib';
 import { slotsFor } from './rosterTemplateModel';
 
 const BENCH = 'BENCH';
@@ -74,8 +74,8 @@ const IR = 'IR';
 // injury_status codes that are "questionable-class" rather than Unavailable
 // (#1330 ruling): the feed's `normalizeInjuryStatus`
 // (server/services/scoring.service.js) writes exactly four non-null codes -
-// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (the wire's
-// `unavailable` code), so the remaining two, Q and D, are the whole set. This is the one
+// 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (the Start verdict's
+// `unavailable` outcome), so the remaining two, Q and D, are the whole set. This is the one
 // spelling of "questionable"; a widget reads it through `isQuestionable`
 // below rather than inventing its own designation list.
 const QUESTIONABLE_DESIGNATIONS = new Set(['Q', 'D']);
@@ -248,14 +248,16 @@ export function isQuestionable(entry) {
 }
 
 /**
- * A lineup entry's availability from the wire's own Unavailable code
- * (CONTEXT.md's Unavailable; #1668 made `unavailable` the verdict's reason
- * code: 'bye' | 'out' | 'ir' | 'no_team', null when the player can play).
- * `reason` is the code alone, no label; a caller renders it through
+ * A lineup entry's availability from the wire's own Start verdict (CONTEXT.md's
+ * Unavailable; spec #2042): an `unavailable` outcome's reason is the code
+ * ('bye' | 'out' | 'ir' | 'no_team' | 'practice_squad'), anything else can
+ * play. `reason` is the code alone, no label; a caller renders it through
  * `unavailableLabel`. The client holds no copy of the verdict (#1675).
  */
-function availabilityFor(code) {
-  return code ? { available: false, reason: code } : { available: true, reason: null };
+function availabilityFor(verdict) {
+  return isStartVerdictUnavailable({ startVerdict: verdict })
+    ? { available: false, reason: verdict.reason }
+    : { available: true, reason: null };
 }
 
 /**
@@ -271,7 +273,7 @@ function availabilityFor(code) {
  * calling this.
  *
  * The shape: `{ playerId, name, position, nflTeam, slot, slotIndex,
- * eligibleSlots, locked, availability: { available, reason }, unavailable,
+ * eligibleSlots, locked, availability: { available, reason }, startVerdict,
  * projectedPoints, projection, floor, ceiling, points, opponent, kickoff,
  * gameKey, edge: { kind, text }, irAttested, validStash, spent }`. `points`
  * (#1237) is the entry's actual/live fantasy points, null before kickoff or
@@ -284,7 +286,7 @@ function availabilityFor(code) {
  * in the league's order rather than sorting them itself.
  *
  * `projection` (the Weekly projection's mean), `floor` (its Interval's p10)
- * and `ceiling` (its p90), `kickoff`, `gameKey`, `unavailable` and `edge` all
+ * and `ceiling` (its p90), `kickoff`, `gameKey`, `startVerdict` and `edge` all
  * arrived with #1235 (ADR 0037: the lineup entry carries its decision
  * context) - each a straight pass-through of the wire field
  * `server/services/lineup.service.js`'s `getLineup` now returns, so ticket 5
@@ -392,19 +394,13 @@ export function lineupEntries(rosterWire, league) {
       ...entry,
       eligibleSlots: slotsFor(rosterSlots, entry),
       locked: locked(r),
-      availability: availabilityFor(r.unavailable ?? null),
-      // The server's own Unavailable reason (#1235), passed through
-      // unchanged; `availability` above is mapped from this same code.
-      unavailable: r.unavailable ?? null,
-      // A Position-baseline projection (CONTEXT.md; #1776): the server's own
-      // boolean, already false when an Unavailable reason wins, passed through
-      // unchanged. It is NOT an Unavailable reason, so `availability` above is
-      // untouched by it.
-      positionBaseline: r.positionBaseline === true,
-      // A Backup quarterback (ADR 0057): the server's own boolean, passed
-      // through. Like Position-baseline it is not an Unavailable reason, and
-      // unlike it his number is evidence and stays printed.
-      backup: r.backup === true,
+      // The Start verdict (CONTEXT.md; spec #2042), passed through unchanged:
+      // the one field that says Unavailable, Position-baseline
+      // (`no_history`) or Backup quarterback (`backup`, whose number is
+      // evidence and stays printed). `availability` is mapped from it, and
+      // only an `unavailable` outcome is an Unavailable reason.
+      startVerdict: r.startVerdict ?? null,
+      availability: availabilityFor(r.startVerdict),
       // The Edge line (CONTEXT.md, Edge line; ADR 0037; #1235): one typed
       // `{ kind, text }`, computed on the server (`lineup.service.js`'s
       // `computeEdgeLine`) and passed through verbatim - this entity draws no

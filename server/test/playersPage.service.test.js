@@ -445,7 +445,7 @@ test('projection sort ASC: Position-baseline rows still come last (#1778)', asyn
   assert.deepEqual(result.players.map((p) => p.id), [5, 1, 2, 3, 4]);
 });
 
-test('payload carries verdictReason no_history on Position-baseline rows only (#1778)', async (t) => {
+test('payload carries a startVerdict on every row, no_history on Position-baseline rows only (#1778, spec #2042)', async (t) => {
   const { fake } = positionBaselineWorld(t);
 
   const result = await readPlayersPage(
@@ -454,12 +454,13 @@ test('payload carries verdictReason no_history on Position-baseline rows only (#
   );
 
   const byId = new Map(result.players.map((p) => [p.id, p]));
-  assert.equal(byId.get(3).verdictReason, 'no_history');
-  assert.equal(byId.get(4).verdictReason, 'no_history');
-  for (const id of [1, 2, 5]) assert.equal('verdictReason' in byId.get(id), false, `player ${id} is evidenced`);
+  assert.deepEqual(byId.get(3).startVerdict, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  assert.deepEqual(byId.get(4).startVerdict, { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  for (const id of [1, 2, 5]) assert.notEqual(byId.get(id).startVerdict.reason, 'no_history', `player ${id} is evidenced`);
+  for (const player of result.players) assert.equal('verdictReason' in player, false);
 });
 
-test('a Backup quarterback carries verdictReason backup and keeps his place in a projection sort (ADR 0057)', async (t) => {
+test('a Backup quarterback carries the backup Start verdict and keeps his place in a projection sort (ADR 0057)', async (t) => {
   const { fake } = positionBaselineWorld(t, { backupIds: new Set([2, 3]) });
 
   const result = await readPlayersPage(
@@ -469,12 +470,12 @@ test('a Backup quarterback carries verdictReason backup and keeps his place in a
 
   const byId = new Map(result.players.map((p) => [p.id, p]));
   assert.deepEqual(result.players.map((p) => p.id), [2, 1, 5, 3, 4], 'the sort is the same as without the verdict');
-  assert.equal(byId.get(2).verdictReason, 'backup');
-  assert.equal(byId.get(3).verdictReason, 'backup', 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
-  assert.equal('verdictReason' in byId.get(1), false);
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
+  assert.deepEqual(byId.get(3).startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false }, 'backup wins over Position-baseline (ADR 0057, amended 2026-10-07)');
+  assert.notEqual(byId.get(1).startVerdict.reason, 'backup');
 });
 
-test('an Unavailable Position-baseline row keeps its own place and carries no no_history (#1778)', async (t) => {
+test('an Unavailable Position-baseline row keeps its own place and reads Unavailable, not no_history (#1778)', async (t) => {
   const { fake } = positionBaselineWorld(t);
   projectionService.getWeeklyProjections.mock.mockImplementation(async (options) => projectionService.toWeeklyProjectionResult({
     week: options.week,
@@ -493,8 +494,8 @@ test('an Unavailable Position-baseline row keeps its own place and carries no no
   );
 
   const byId = new Map(result.players.map((p) => [p.id, p]));
-  assert.equal('verdictReason' in byId.get(3), false, 'Out wins over no history');
-  assert.equal(byId.get(4).verdictReason, 'no_history');
+  assert.deepEqual(byId.get(3).startVerdict, { outcome: 'unavailable', reason: 'out', numberTrusted: true }, 'Out wins over no history');
+  assert.equal(byId.get(4).startVerdict.reason, 'no_history');
   assert.equal(result.players[result.players.length - 1].id, 4);
 });
 

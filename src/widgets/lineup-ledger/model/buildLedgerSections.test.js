@@ -117,9 +117,9 @@ test('Unavailable bench players sort after every available one, regardless of pr
 // projection with evidence, whatever its hidden number.
 test('bench sorts evidenced players first, then Position-baseline players, whatever their numbers (#1776)', () => {
   const entries = [
-    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } }),
     entry({ playerId: 2, slot: 'BENCH', projectedPoints: 4, projection: 4 }),
-    entry({ playerId: 3, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 3, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } }),
     entry({ playerId: 4, slot: 'BENCH', projectedPoints: 9, projection: 9 }),
   ];
   const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 4, irSlots: 0 });
@@ -128,7 +128,7 @@ test('bench sorts evidenced players first, then Position-baseline players, whate
 
 test('an evidenced player with an unknown projectedPoints still sorts before a Position-baseline player (#1776)', () => {
   const entries = [
-    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 1, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } }),
     entry({ playerId: 2, slot: 'BENCH', projectedPoints: null, projection: null }),
   ];
   const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 2, irSlots: 0 });
@@ -138,7 +138,7 @@ test('an evidenced player with an unknown projectedPoints still sorts before a P
 test('Unavailable bench players still sort last, after the Position-baseline ones (#1776)', () => {
   const entries = [
     entry({ playerId: 1, slot: 'BENCH', projectedPoints: 20, projection: 20, availability: { available: false, reason: 'bye' } }),
-    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, positionBaseline: true }),
+    entry({ playerId: 2, slot: 'BENCH', projectedPoints: 15.37, projection: 15.37, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } }),
     entry({ playerId: 3, slot: 'BENCH', projectedPoints: 3, projection: 3 }),
   ];
   const { bench } = buildLedgerSections({ entries, rosterSlots: [], benchSlots: 3, irSlots: 0 });

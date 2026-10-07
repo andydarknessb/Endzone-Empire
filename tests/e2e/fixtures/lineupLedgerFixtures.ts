@@ -62,7 +62,9 @@ const wireEntry = (seed: Seed) => ({
   projected_points: seed.projected,
   actualPoints: seed.points ?? null,
   injury_status: seed.injury ?? null,
-  unavailable: seed.unavailable ?? null,
+  startVerdict: seed.unavailable
+    ? { outcome: 'unavailable', reason: seed.unavailable, numberTrusted: true }
+    : { outcome: 'recommendable', reason: null, numberTrusted: true },
   opponent: seed.unavailable ? null : 'BUF',
   kickoff: seed.unavailable ? null : KICKOFF,
   game_key: seed.unavailable ? null : `g-${seed.id}`,

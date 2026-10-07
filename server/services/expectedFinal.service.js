@@ -364,7 +364,7 @@ function statusForMatchup({ settled, home, away, computed = true, unreliable = f
   // Counting him read every future week in which either manager had started a
   // player on a bye as `live`, weeks before a single game had kicked off.
   const states = [...startersOf(home), ...startersOf(away)]
-    .filter((s) => s.availability?.reason !== 'bye' && s.availability?.reason !== 'no_team')
+    .filter((s) => !['bye', 'no_team'].includes(s.availability && s.availability.reason))
     .map((s) => s.gameState);
   if (states.some((s) => s === 'in_progress')) return 'live';
   if (states.length > 0 && states.every((s) => s === 'final')) return 'played';

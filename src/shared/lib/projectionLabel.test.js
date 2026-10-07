@@ -1,19 +1,21 @@
 import { hasNoHistory, projectionLabel, NO_HISTORY_LABEL } from './projectionLabel';
 
+const baseline = { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
+
 describe('projectionLabel (#1776)', () => {
   it('reads "no history" for a Position-baseline row, never its number', () => {
-    const entry = { positionBaseline: true, projectedPoints: 15.37, availability: { available: true, reason: null } };
+    const entry = { startVerdict: baseline, projectedPoints: 15.37, availability: { available: true, reason: null } };
     expect(projectionLabel(entry)).toBe('no history');
     expect(NO_HISTORY_LABEL).toBe('no history');
   });
 
   it('reads "no history" for a Questionable or Doubtful Position-baseline row (still available)', () => {
-    expect(projectionLabel({ positionBaseline: true, projectedPoints: 15.37, injuryStatus: 'Q', availability: { available: true, reason: null } })).toBe('no history');
-    expect(projectionLabel({ positionBaseline: true, projectedPoints: 15.37, injuryStatus: 'D', availability: { available: true, reason: null } })).toBe('no history');
+    expect(projectionLabel({ startVerdict: baseline, projectedPoints: 15.37, injuryStatus: 'Q', availability: { available: true, reason: null } })).toBe('no history');
+    expect(projectionLabel({ startVerdict: baseline, projectedPoints: 15.37, injuryStatus: 'D', availability: { available: true, reason: null } })).toBe('no history');
   });
 
   it('reads the formatted Point estimate for an evidenced row', () => {
-    expect(projectionLabel({ positionBaseline: false, projectedPoints: 16.7 })).toBe('16.7');
+    expect(projectionLabel({ startVerdict: { outcome: 'recommendable', reason: null, numberTrusted: true }, projectedPoints: 16.7 })).toBe('16.7');
     expect(projectionLabel({ projectedPoints: 8 })).toBe('8.0');
     expect(projectionLabel({ projectedPoints: 0 })).toBe('0.0');
   });
@@ -24,7 +26,7 @@ describe('projectionLabel (#1776)', () => {
   });
 
   it('an Unavailable player is never "no history" (the harder fact wins)', () => {
-    const entry = { positionBaseline: true, projectedPoints: 15.37, availability: { available: false, reason: 'bye' } };
+    const entry = { startVerdict: baseline, projectedPoints: 15.37, availability: { available: false, reason: 'bye' } };
     expect(hasNoHistory(entry)).toBe(false);
     expect(projectionLabel(entry)).toBe('15.4');
   });
@@ -38,18 +40,18 @@ describe('projectionLabel (#1776)', () => {
 });
 
 describe('hasNoHistory', () => {
-  it('is true only for a boolean-true positionBaseline on an available row', () => {
-    expect(hasNoHistory({ positionBaseline: true })).toBe(true);
-    expect(hasNoHistory({ positionBaseline: true, availability: { available: true, reason: null } })).toBe(true);
-    expect(hasNoHistory({ positionBaseline: false })).toBe(false);
-    expect(hasNoHistory({ positionBaseline: 'true' })).toBe(false);
+  it('is true only for a no_history Start verdict on an available row', () => {
+    expect(hasNoHistory({ startVerdict: baseline })).toBe(true);
+    expect(hasNoHistory({ startVerdict: baseline, availability: { available: true, reason: null } })).toBe(true);
+    expect(hasNoHistory({ startVerdict: { outcome: 'recommendable', reason: null, numberTrusted: true } })).toBe(false);
+    expect(hasNoHistory({ startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false } })).toBe(false);
+    expect(hasNoHistory({ startVerdict: { outcome: 'unavailable', reason: 'bye', numberTrusted: true }, projectedPoints: 12 })).toBe(false);
     expect(hasNoHistory({})).toBe(false);
   });
 
-  it('reads the Players page wire (#1778): verdictReason no_history is a no-history row', () => {
-    expect(hasNoHistory({ verdictReason: 'no_history', projectedPoints: 15.37 })).toBe(true);
-    expect(projectionLabel({ verdictReason: 'no_history', projectedPoints: 15.37 })).toBe('no history');
-    expect(hasNoHistory({ verdictReason: 'bye' })).toBe(false);
-    expect(hasNoHistory({ verdictReason: null, projectedPoints: 12 })).toBe(false);
+  it('reads the Players page wire (#1778) the same way: its row carries startVerdict', () => {
+    expect(hasNoHistory({ startVerdict: baseline, projectedPoints: 15.37 })).toBe(true);
+    expect(projectionLabel({ startVerdict: baseline, projectedPoints: 15.37 })).toBe('no history');
+    expect(hasNoHistory({ startVerdict: null, projectedPoints: 12 })).toBe(false);
   });
 });

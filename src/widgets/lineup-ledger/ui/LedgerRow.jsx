@@ -13,6 +13,7 @@ import {
   NFL_TEAM_COLORS,
   FALLBACK_KIT,
   BACKUP_LABEL,
+  startVerdictReason,
 } from '../../../shared/lib';
 import { PlayerNameLink } from '../../../entities/player';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
@@ -416,7 +417,7 @@ export default function LedgerRow({
                   }}
                 />
                 <InjuryTag status={entry.injuryStatus} />
-                {entry.backup === true && (
+                {startVerdictReason(entry) === 'backup' && (
                   <Badge variant="neutral" data-testid="ledger-backup">{BACKUP_LABEL}</Badge>
                 )}
                 {entry.locked && (

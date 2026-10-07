@@ -44,6 +44,7 @@ export { unavailableLabel } from './unavailableLabel';
 // The starter game-state marker map (#2010), promoted once the Standard
 // Starters table and the Scoreboard Lineups card both drew it.
 export { starterStateView } from './starterState';
+export { startVerdictReason, isStartVerdictUnavailable } from './startVerdict';
 export { hasNoHistory, projectionLabel, NO_HISTORY_LABEL, NO_PRACTICE_LABEL, BACKUP_LABEL } from './projectionLabel';
 export { VOLATILITY_LABELS } from './volatilityLabels';
 // Touch-target sizing, Team identity, league type, NFL team colors, league

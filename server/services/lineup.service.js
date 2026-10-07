@@ -10,7 +10,7 @@ const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
-const { unavailableFor } = require('./unavailable');
+const { unavailableFor, startVerdictOf } = require('./unavailable');
 const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
@@ -1127,11 +1127,9 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  * `unavailable` (CONTEXT.md, Unavailable; #1235) is derived here, once, from
  * the same `onBye` this function already computes plus the row's own
  * `injury_status` and `nfl_roster_status` (#1767):
- * 'bye' | 'no_team' | 'practice_squad' | 'out' | 'ir' | null. It is a server-side mirror of
- * the client entity's own `availabilityFor` (src/entities/roster/model/
- * lineupModel.js) - both read the identical two facts, so they can never
- * disagree, but the wire carries the answer directly rather than asking every
- * consumer to re-derive it.
+ * 'bye' | 'no_team' | 'practice_squad' | 'out' | 'ir' | null. It stays on the
+ * row only for the Edge line's server-side reads; `getLineup` strips it before
+ * returning, and the wire states the answer as `startVerdict` (spec #2042).
  */
 function unavailableReason(row, onBye) {
   const verdict = unavailableFor({
@@ -1464,21 +1462,21 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // guard): a bench player outprojecting a departed starter's frozen
       // record is not a seat he could actually take.
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
-      // #1776: a Position-baseline projection (CONTEXT.md; the Start verdict's
-      // `no_history`, #1775) rides the wire as a boolean, false whenever an Unavailable reason
-      // applies (bye, No NFL team, Practice squad, Out, IR always win). The
-      // Edge line does not read the booleans: `wontStart` is the Start verdict
-      // itself (Unavailable, or a number that is not his evidence), built for
-      // every row BEFORE any Edge line, since `findBenchAboveStarter` reads it
-      // off the other entries too. The booleans stay for the client until #2045.
+      // The Start verdict (CONTEXT.md; spec #2042) is the one field each row
+      // carries: Position-baseline (`no_history`, #1775) and Backup quarterback
+      // (`backup`, ADR 0057) are its reasons. The row's own Unavailable facts
+      // (bye, No NFL team, Practice squad, Out, IR) are live and always win, so
+      // they state the verdict as they always did on this wire. `wontStart` is
+      // the verdict itself (Unavailable, or a number that is not his evidence),
+      // built for every row BEFORE any Edge line, since `findBenchAboveStarter`
+      // reads it off the other entries too.
       const wontStart = new Set();
       for (const row of annotated) {
-        const verdict = weeklyResult.startVerdictFor(row.id);
+        const verdict = row.unavailable == null
+          ? weeklyResult.startVerdictFor(row.id)
+          : startVerdictOf({ available: false, reason: row.unavailable });
         if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) wontStart.add(row.id);
-        row.positionBaseline = row.unavailable == null && verdict.reason === 'no_history';
-        // ADR 0057: a Backup quarterback keeps his number; the verdict ranks
-        // Backup over Position-baseline, so a QB who is both rides as `backup`.
-        row.backup = row.unavailable == null && verdict.reason === 'backup';
+        row.startVerdict = verdict;
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
@@ -1507,6 +1505,9 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
         // directly rather than re-deriving it, the same way it already reads
         // `projection`/`floor`/`ceiling` as the server's own numbers.
       }
+      // `unavailable` fed the Edge line above (`findBenchAboveStarter` reads it
+      // off every entry); the wire states it as `startVerdict` alone (#2045).
+      for (const row of annotated) delete row.unavailable;
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week
       // and its reads happen in one transaction; the assembly below is pure.

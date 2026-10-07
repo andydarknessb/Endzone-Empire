@@ -18,7 +18,7 @@ const {
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { verdictBand } = require('./intervalReading');
-const { unavailableFor } = require('./unavailable');
+const { unavailableFor, startVerdictOf } = require('./unavailable');
 const practiceParticipation = require('./practiceParticipation.service');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
@@ -52,6 +52,15 @@ const IR = 'IR';
 
 function round2(x) {
   return Math.round(Number(x) * 100) / 100;
+}
+
+// The advice wire's per-player verdict fields (spec #2042): the availability
+// facts (probability, status, lock) without `reason`, and the one
+// `startVerdict` that carries the reason. Both null when the player has none.
+function wireVerdict(availability) {
+  if (!availability) return { availability: null, startVerdict: null };
+  const { reason, ...facts } = availability;
+  return { availability: facts, startVerdict: startVerdictOf(availability) };
 }
 
 function finiteNumber(value) {
@@ -307,7 +316,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
         distribution: swap.currentProjection.projection || null,
         confidence: swap.currentProjection.confidence || null,
         factors: swap.currentProjection.factors || null,
-        availability: availabilityById.get(swap.out.playerId) || null,
+        ...wireVerdict(availabilityById.get(swap.out.playerId)),
       },
       suggested: {
         playerId: swap.in.playerId,
@@ -317,7 +326,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
         distribution: swap.suggestedProjection.projection || null,
         confidence: swap.suggestedProjection.confidence || null,
         factors: swap.suggestedProjection.factors || null,
-        availability: availabilityById.get(swap.in.playerId) || null,
+        ...wireVerdict(availabilityById.get(swap.in.playerId)),
       },
       gain: round2(suggestedPoints - currentPoints),
       probabilityBetter: probability,
@@ -586,11 +595,11 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       confidence: (detail && detail.confidence) || null,
       activeProbability: (detail && detail.activeProbability) ?? null,
       factors: run.factorsFor(entry.playerId),
-      // The verdict the plan gave him (unavailableFor's object, the same one
-      // a suggestion side carries): the client reads `reason` off it, for
-      // "No practice this week" beside a Questionable tag (ADR 0056) among
+      // The verdict the plan gave him, as a suggestion side carries it: the
+      // availability facts plus the one `startVerdict`, which the client reads
+      // for "No practice this week" beside a Questionable tag (ADR 0056) among
       // others.
-      availability: plan.availabilityById.get(entry.playerId) ?? null,
+      ...wireVerdict(plan.availabilityById.get(entry.playerId)),
       ...defenseByPlayer.get(entry.playerId),
     };
   });

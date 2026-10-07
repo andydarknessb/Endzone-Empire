@@ -72,7 +72,7 @@ read beside the reason, so it only decided which note showed. Under the Start
 verdict (spec #2042) there is one reason per player, and it decides the zero in
 a valued lineup (rule 3): a rostered QB who is both Position-baseline and
 Backup reads `backup`, so he is worth 0 in Start/sit advice's optimal lineup
-and in the Upgrade's roster baseline, and the Lineup wire carries
-`backup: true, positionBaseline: false` for him. His number stays untrusted
+and in the Upgrade's roster baseline, and every wire's `startVerdict` carries
+reason `backup` for him. His number stays untrusted
 either way (`numberTrusted: false`). Ruling, approved by Cory:
 https://github.com/andydarknessb/Endzone-Empire/issues/2044#issuecomment-6039675475

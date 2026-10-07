@@ -485,10 +485,10 @@ test('"No practice this week" shows beside the Questionable tag when the card pa
 test.each([
   ['a card with no start verdict', {}],
   ['a start verdict with another reason', startVerdict('questionable')],
-  ['an entry whose own stale verdictReason says no_practice', {}],
+  ['an entry whose own stale startVerdict says no_practice', {}],
 ])('no practice note for %s', async (_name, card) => {
   mockCardRoute(card);
-  renderCard({ entry: entry({ injuryStatus: 'Q', verdictReason: 'no_practice' }) });
+  renderCard({ entry: entry({ injuryStatus: 'Q', startVerdict: { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true } }) });
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.queryByTestId('decision-card-no-practice')).not.toBeInTheDocument();
 });
@@ -502,7 +502,7 @@ test('"Backup" shows when the card payload start verdict reason is backup, whate
 
 test('no Backup tag for a start verdict with another reason or none (ADR 0057)', async () => {
   mockCardRoute(startVerdict('no_history', { numberTrusted: false }));
-  renderCard({ entry: entry({ verdictReason: 'backup' }) });
+  renderCard({ entry: entry({ startVerdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false } }) });
   await screen.findByRole('heading', { name: 'Josh Allen' });
   expect(screen.queryByTestId('decision-card-backup')).not.toBeInTheDocument();
 });
@@ -600,7 +600,7 @@ test('the Proj text, RangeBar marker and Bench options read projectedPoints, nev
 describe('a Position-baseline projection (#1777)', () => {
   const baselineStarter = (over = {}) =>
     entry({ playerId: 1, name: 'Rookie Back', slot: 'RB', position: 'RB', projectedPoints: 9.4, projection: 9.4,
-      floor: 4, ceiling: 15, eligibleSlots: ['BENCH', 'RB'], positionBaseline: true, ...over });
+      floor: 4, ceiling: 15, eligibleSlots: ['BENCH', 'RB'], startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false }, ...over });
 
   test('Proj text reads "no history", no number and no RangeBar marker', async () => {
     const rookie = baselineStarter();
@@ -629,7 +629,7 @@ describe('a Position-baseline projection (#1777)', () => {
 
   test('Bench options show "no history" for a baseline candidate and list him after evidenced options', async () => {
     const starter = entry();
-    const baseline = entry({ playerId: 2, name: 'Baseline Bench', slot: 'BENCH', projectedPoints: 30, projection: 30, positionBaseline: true });
+    const baseline = entry({ playerId: 2, name: 'Baseline Bench', slot: 'BENCH', projectedPoints: 30, projection: 30, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false } });
     const evidenced = entry({ playerId: 3, name: 'Evidenced Bench', slot: 'BENCH', projectedPoints: 6, projection: 6 });
     renderCard({ entry: starter, entries: [starter, baseline, evidenced] });
 

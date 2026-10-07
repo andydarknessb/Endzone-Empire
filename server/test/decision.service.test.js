@@ -320,7 +320,7 @@ test('buildSuggestions: a no-practice Questionable bench player is not suggested
   assert.equal(held.optimalTotal, 8);
   const promoted = buildSuggestions(lineup([]), projections, new Map(), RB1);
   assert.equal(promoted.suggestions.length, 1, 'no observations is the status quo');
-  assert.equal(promoted.suggestions[0].suggested.availability.reason, 'questionable');
+  assert.equal(promoted.suggestions[0].suggested.startVerdict.reason, 'questionable');
   const noKickoff = buildSuggestions(lineup(DNP_WEEK, null), projections, new Map(), RB1);
   assert.equal(noKickoff.suggestions.length, 1, 'no kickoff on file: the coverage deadline cannot be met, so the status quo');
 });

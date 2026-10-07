@@ -479,15 +479,15 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(entries.find((e) => e.playerId === 2).locked).toBe(false);
   });
 
-  test('availability maps the unavailable code from the wire alone, no label, and re-derives nothing (#1675)', () => {
+  test('availability maps an unavailable Start verdict from the wire alone, no label, and re-derives nothing (#1675)', () => {
     const entries = lineupEntries(
       [
-        row({ id: 1, slot: 'QB', onBye: true, unavailable: 'bye' }),
-        row({ id: 2, name: 'Out', slot: 'TE', injury_status: 'O', onBye: false, unavailable: 'out' }),
-        row({ id: 3, name: 'IR-eligible', slot: 'FLEX', position: 'RB', injury_status: 'IR', onBye: false, unavailable: 'ir' }),
-        row({ id: 4, name: 'Healthy', slot: 'FLEX', position: 'WR', injury_status: null, onBye: false, unavailable: null }),
-        row({ id: 5, name: 'Released', slot: 'FLEX', position: 'WR', unavailable: 'no_team' }),
-        // No wire code: the client does not rebuild a verdict from onBye or injury_status.
+        row({ id: 1, slot: 'QB', onBye: true, startVerdict: { outcome: 'unavailable', reason: 'bye', numberTrusted: true } }),
+        row({ id: 2, name: 'Out', slot: 'TE', injury_status: 'O', onBye: false, startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true } }),
+        row({ id: 3, name: 'IR-eligible', slot: 'FLEX', position: 'RB', injury_status: 'IR', onBye: false, startVerdict: { outcome: 'unavailable', reason: 'ir', numberTrusted: true } }),
+        row({ id: 4, name: 'Healthy', slot: 'FLEX', position: 'WR', injury_status: null, onBye: false, startVerdict: { outcome: 'recommendable', reason: null, numberTrusted: true } }),
+        row({ id: 5, name: 'Released', slot: 'FLEX', position: 'WR', startVerdict: { outcome: 'unavailable', reason: 'no_team', numberTrusted: true } }),
+        // No verdict on the wire: the client does not rebuild one from onBye or injury_status.
         row({ id: 6, name: 'NoCode', slot: 'FLEX', position: 'WR', injury_status: 'O', onBye: true }),
       ],
       league
@@ -499,39 +499,26 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(byId(4).availability).toEqual({ available: true, reason: null });
     expect(byId(5).availability).toEqual({ available: false, reason: 'no_team' });
     expect(byId(6).availability).toEqual({ available: true, reason: null });
+    expect(byId(6).startVerdict).toBeNull();
   });
 
-  test('positionBaseline is the wire boolean passed through, false when absent, and never makes him Unavailable (#1776)', () => {
+  test('startVerdict is the wire object passed through, and a not_recommended verdict never makes him Unavailable (#1776, ADR 0057)', () => {
+    const baseline = { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
+    const backup = { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
     const entries = lineupEntries(
       [
-        row({ id: 1, slot: 'QB', positionBaseline: true, unavailable: null }),
-        row({ id: 2, name: 'Evidenced', slot: 'TE', positionBaseline: false, unavailable: null }),
+        row({ id: 1, slot: 'QB', startVerdict: baseline }),
+        row({ id: 2, name: 'Keenum', slot: 'TE', startVerdict: backup }),
         row({ id: 3, name: 'Absent', slot: 'FLEX', position: 'WR' }),
       ],
       league
     );
     const byId = (id) => entries.find((e) => e.playerId === id);
-    expect(byId(1).positionBaseline).toBe(true);
+    expect(byId(1).startVerdict).toEqual(baseline);
     expect(byId(1).availability).toEqual({ available: true, reason: null });
-    expect(byId(2).positionBaseline).toBe(false);
-    expect(byId(3).positionBaseline).toBe(false);
-  });
-
-  test('backup is the wire boolean passed through, false when absent, and never makes him Unavailable (ADR 0057)', () => {
-    const entries = lineupEntries(
-      [
-        row({ id: 1, slot: 'QB', backup: true, unavailable: null }),
-        row({ id: 2, name: 'Starter', slot: 'TE', backup: false, unavailable: null }),
-        row({ id: 3, name: 'Absent', slot: 'FLEX', position: 'WR' }),
-      ],
-      league
-    );
-    const byId = (id) => entries.find((e) => e.playerId === id);
-    expect(byId(1).backup).toBe(true);
-    expect(byId(1).positionBaseline).toBe(false);
-    expect(byId(1).availability).toEqual({ available: true, reason: null });
-    expect(byId(2).backup).toBe(false);
-    expect(byId(3).backup).toBe(false);
+    expect(byId(2).startVerdict).toEqual(backup);
+    expect(byId(2).availability).toEqual({ available: true, reason: null });
+    expect(byId(3).startVerdict).toBeNull();
   });
 
   // #1502: eligibleSlots is no longer this module's own fact - it is built by
@@ -668,18 +655,6 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
 
     const withoutBye = lineupEntries([row({ id: 1, slot: 'QB', bye_week: null })], league);
     expect(withoutBye[0].byeWeek).toBeNull();
-  });
-
-  test('unavailable is the server\'s own reason, read alongside the locally-derived availability', () => {
-    const entries = lineupEntries([row({ id: 1, slot: 'QB', onBye: true, unavailable: 'bye' })], league);
-    expect(entries[0].unavailable).toBe('bye');
-    expect(entries[0].availability).toEqual({ available: false, reason: 'bye' });
-  });
-
-  test('a wire row without an unavailable key at all produces unavailable: null', () => {
-    const { unavailable, ...rowWithoutUnavailable } = row({ id: 1, slot: 'QB' });
-    const entries = lineupEntries([rowWithoutUnavailable], league);
-    expect(entries[0].unavailable).toBeNull();
   });
 
   test('edge carries the server-computed { kind, text } through verbatim', () => {
