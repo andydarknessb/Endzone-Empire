@@ -70,6 +70,12 @@ for (const [mode, labels] of [
   }
 }
 
+test('advance: seasonComplete reaches the trophy step (and so the Called shot judging) when the caller says so', async (t) => {
+  const order = stubAll(t);
+  await settleFollowUp({ ...ARGS, mode: 'advance', seasonComplete: true });
+  assert.deepEqual(order.find((o) => o.label === 'awardWeeklyTrophies').arg, { ...ARGS, seasonComplete: true });
+});
+
 test('an unknown mode is refused before any step runs', async (t) => {
   const order = stubAll(t);
   await assert.rejects(settleFollowUp({ ...ARGS, mode: 'sideways' }), /mode/);

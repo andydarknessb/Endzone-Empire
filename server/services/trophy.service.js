@@ -74,7 +74,7 @@ async function notifyOwner(client, { leagueId, teamId, label }) {
  * league's season is complete — the season-level set (champion, longest win
  * streak, biggest comeback, best draft grade).
  */
-async function awardWeeklyTrophies({ leagueId, season, week }) {
+async function awardWeeklyTrophies({ leagueId, season, week, seasonComplete }) {
   const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) return [];
@@ -258,7 +258,10 @@ async function awardWeeklyTrophies({ leagueId, season, week }) {
   // Called shots (#1860, ADR 0054): judged here, once, before the Recap that
   // narrates them. Same post-commit footing as the lineup trophies.
   awarded.push(...(await judgeCalledShots({
-    leagueId, season, week, seasonComplete: deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE,
+    leagueId, season, week,
+    // The Advance week caller decides (advanceWeek.service.js); a caller that
+    // does not say reads the league row, as this pass always did.
+    seasonComplete: seasonComplete ?? deriveLeaguePhase(league) === LEAGUE_PHASE.COMPLETE,
   })));
 
   await notifyAwardedOwners({ leagueId, awarded });
