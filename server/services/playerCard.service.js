@@ -196,7 +196,7 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
   // this week's lineup, so he counts as 0 in `decisionService.upgradeFor`'s
   // optimal lineups - otherwise his full estimate
   // masks a real Upgrade and the Decision card never offers it (#1793). Same
-  // `classify()` source as the candidate-side refusal below (#1784). The
+  // `startVerdictFor` read as the candidate-side refusal below (#1784). The
   // reason rides along as `unavailable` (Ruling on #1793, option B) so
   // `upgradeFor` can carry it onto `overPlayer`, and the claim sheet can tell
   // "zero because Unavailable" from "zero because he genuinely projects 0"

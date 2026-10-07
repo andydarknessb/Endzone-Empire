@@ -643,7 +643,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // Start verdict's outcome, taken once for the whole matching pool; a player
   // whose Unavailable verdict applies (bye, Out, IR, ...) never sorts last and
   // sorts as before. The baseline rows keep a stable id order.
-  const noHistoryIds = new Set();
+  const sortLastIds = new Set();
   const verdictById = new Map();
   if (projectionSort) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
@@ -654,15 +654,15 @@ async function readPlayersPage(query, { db = pool } = {}) {
         league,
         playerIds: settled.map((p) => p.id),
       });
-      collectVerdicts(weekly, settled, noHistoryIds, verdictById);
+      collectVerdicts(weekly, settled, sortLastIds, verdictById);
     }
     const evidencedFirst = nullsLastComparator(
       (p) => Number(p.projected_points),
       dir === 'DESC' ? -1 : 1,
     );
     settled.sort((a, b) => {
-      const aBaseline = noHistoryIds.has(a.id);
-      const bBaseline = noHistoryIds.has(b.id);
+      const aBaseline = sortLastIds.has(a.id);
+      const bBaseline = sortLastIds.has(b.id);
       if (aBaseline !== bBaseline) return aBaseline ? 1 : -1;
       return aBaseline ? a.id - b.id : evidencedFirst(a, b);
     });
@@ -761,7 +761,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
     if (!projectionSort) {
       const currentRun = runsByWeek.get(league.current_week);
       if (currentRun) {
-        collectVerdicts(currentRun, pagePlayers, noHistoryIds, verdictById);
+        collectVerdicts(currentRun, pagePlayers, sortLastIds, verdictById);
       }
     }
 

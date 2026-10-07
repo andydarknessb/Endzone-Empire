@@ -1722,7 +1722,7 @@ function backupQuarterbackIds(rows, now = new Date()) {
  * The QB depth charts of every team a requested player is charted on (the last
  * 3 days, a coarse bound: `backupQuarterbackIds` applies the 48 hour rule), in
  * one query, reduced to the Set the Weekly projection result answers
- * `backupFor` from. Read path only (ADR 0057): nothing is stored.
+ * `startVerdictFor`'s Backup fact from. Read path only (ADR 0057): nothing is stored.
  */
 async function loadBackupQuarterbackIds({ client, playerIds, now }) {
   // A failed read degrades to "nobody is a Backup", as the NFL roster status
@@ -1781,8 +1781,8 @@ async function loadPracticeFacts({ client, season, week, playerIds }) {
 /**
  * The Weekly projection result (#1702, unparked #1495): wraps a
  * `getWeeklyProjections` / `getWeeklyProjectionsForWeeks` run with the
- * accessors (six at #1702, plus `positionBaselineFor` and `availabilityFor`
- * from #1775) the Decision card module and the decision service each used to
+ * accessors (six at #1702, plus `positionBaselineFor` from #1775 and
+ * `startVerdictFor` from #2042) the Decision card module and the decision service each used to
  * hand-roll for themselves - three private helpers in
  * `playerCard.service.js` and one in `decision.service.js`, all retired by
  * the migrate ticket (#1703) in favor of these - so a caller reads the SAME
@@ -1885,51 +1885,18 @@ function toWeeklyProjectionResult(run) {
     },
 
     /**
-     * True when the player is a Backup quarterback (ADR 0057): behind an
-     * available teammate on his team's fresh QB Depth chart. Read-path only,
-     * like `positionBaselineFor`; his number is his own evidence and stays.
-     */
-    backupFor(playerId) {
-      return isBackup(playerId);
-    },
-
-    /**
-     * The post-projection verdict the read attaches to a Position-baseline row
-     * (#1775), else `null` (the read has no verdict of its own for any other
-     * row; the engine's stored `factors.availability` stays the row's
-     * availability). A stored Unavailable verdict (bye, No NFL team, Practice
-     * squad, Out, IR: the engine took it from `unavailableFor` before
-     * projecting) always wins and is returned as stored, so the precedence
-     * reads bye, No NFL team, Practice squad, Out, IR, then a Backup
-     * quarterback (ADR 0057, amended 2026-10-07: reason `backup`), then
-     * Position-baseline.
-     * Otherwise the one verdict function, `unavailableFor`, is taken with
-     * both facts over the row's stored designation: available, not
-     * auto-recommended, reason `backup` or `no_history`. Derived on read, never stored:
-     * the engine, the stored rows and every holdout capture are unchanged.
-     */
-    availabilityFor(playerId) {
-      const baseline = isPositionBaseline(playerId);
-      if (!baseline && !isBackup(playerId)) return null;
-      const entry = entryFor(playerId);
-      const stored = ((entry && entry.factors) || {}).availability || {};
-      if (stored.available === false) return { ...stored };
-      return unavailableFor({
-        injuryStatus: stored.status || null,
-        positionBaseline: baseline,
-        backup: isBackup(playerId),
-      });
-    },
-
-    /**
      * The Start verdict (CONTEXT.md; spec #2042): `{ outcome, reason,
      * numberTrusted }`, the one verdict per player for this run's week, with
      * every fact the read holds: the stored designation, Position-baseline, the
-     * Backup chart and this week's Practice participation (`run.practiceById`,
-     * `{ observations, kickoffAt }` per player; only the single-week reader
-     * loads it, so a multi-week run never reads `no_practice`). A stored
-     * Unavailable verdict (bye, No NFL team, Practice squad, Out, IR) is taken
-     * as stored; every other precedence step is `unavailableFor`'s.
+     * Backup chart (ADR 0057: a Backup quarterback is behind an available
+     * teammate on his team's fresh QB Depth chart; his number is his own
+     * evidence and stays) and this week's Practice participation
+     * (`run.practiceById`, `{ observations, kickoffAt }` per player; only the
+     * single-week reader loads it, so a multi-week run never reads
+     * `no_practice`). A stored Unavailable verdict (bye, No NFL team, Practice
+     * squad, Out, IR) is taken as stored; every other precedence step is
+     * `unavailableFor`'s. Derived on read, never stored: the engine, the stored
+     * rows and every holdout capture are unchanged.
      */
     startVerdictFor(playerId) {
       const entry = entryFor(playerId);
