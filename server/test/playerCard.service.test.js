@@ -1108,3 +1108,40 @@ test('upgradesFor (ADR 0057): a rostered Backup quarterback does not mask a free
   const control = await upgradesFor({ league: qbSlots, team: TEAM, season: 2026, week: 5, playerIds: [FA_ID] });
   assert.equal(control.get(FA_ID).points, -2.25);
 });
+
+// Start verdict (spec #2042): the card payload carries the Weekly projection
+// read's verdict, so every surface that opens the card shows its notes.
+function cardWithRun(t, { designation = null, practice, backup = false }) {
+  createFakePool(buildHandlers({ player: { ...PLAYER, injury_status: designation } })).install(t);
+  mockServices(t);
+  const factors = { availability: { available: true, status: designation, reason: designation === 'Q' ? 'questionable' : null } };
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => projectionService.toWeeklyProjectionResult({
+    projections: new Map(playerIds.map((id) => [id, { mean: 12, median: 12, factors }])),
+    backupIds: backup ? new Set([PLAYER.id]) : undefined,
+    practiceById: practice ? new Map([[PLAYER.id, practice]]) : undefined,
+  }));
+  return getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
+}
+
+const SUNDAY_1PM = '2026-10-11T17:00:00Z';
+const didNotPractice = (observedAt) => ({
+  practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring', reportPrimaryInjury: 'Hamstring', observedAt,
+});
+
+test('getPlayerCard (start verdict): a Questionable player with no practice all week reads not_recommended, no_practice, number trusted', async (t) => {
+  const card = await cardWithRun(t, {
+    designation: 'Q',
+    practice: { observations: [didNotPractice('2026-10-07T22:00:00Z'), didNotPractice('2026-10-08T22:00:00Z')], kickoffAt: SUNDAY_1PM },
+  });
+  assert.deepEqual(card.startVerdict, { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true });
+});
+
+test('getPlayerCard (start verdict): a Backup quarterback reads numberTrusted false', async (t) => {
+  const backup = await cardWithRun(t, { backup: true });
+  assert.deepEqual(backup.startVerdict, { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
+});
+
+test('getPlayerCard (start verdict): a Questionable player with no observations stays recommendable', async (t) => {
+  const card = await cardWithRun(t, { designation: 'Q' });
+  assert.deepEqual(card.startVerdict, { outcome: 'recommendable', reason: 'questionable', numberTrusted: true });
+});
