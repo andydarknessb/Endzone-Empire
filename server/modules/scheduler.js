@@ -80,11 +80,15 @@ let lastIntegrityScanDay = null;
  * job is contained by `runJobs`, so a throw never reaches this function; the
  * catch is a last guard around the runner itself.
  */
-async function tickUnlocked() {
+async function tickUnlocked(jobs = TICK_JOBS) {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
-    const failures = await runJobs(TICK_JOBS);
+    // Only the scheduler's own duties (no `syncRun`) reach lastTickError, and so
+    // the worker heartbeat and its Critical page (#2058). A feed job's failure
+    // stays on the console and in its Sync run row.
+    const feedNames = new Set(jobs.filter((job) => job.syncRun).map((job) => job.name));
+    const failures = (await runJobs(jobs)).filter((f) => !feedNames.has(f.name));
     const last = failures[failures.length - 1];
     lastTickError = last ? `${last.name}: ${last.message}` : null;
   } catch (err) {
@@ -1566,6 +1570,7 @@ module.exports = {
   startScheduler,
   stopScheduler,
   tick,
+  tickUnlocked,
   draftTick,
   alertCloseMatchups,
   getSchedulerStatus,
