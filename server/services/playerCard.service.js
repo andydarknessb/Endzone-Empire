@@ -917,6 +917,10 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       practice,
     },
     availability,
+    // Start verdict (spec #2042): the Weekly projection read's one verdict, so
+    // the card's "No practice this week" and Backup notes show on every surface
+    // that opens it, not only the Lineup page.
+    startVerdict: projections.startVerdictFor(player.id),
     // #1667: the Decision card's game context rides the one read, for any
     // player (rostered or not). `line`/`weather` are null on a bye.
     line,

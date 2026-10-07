@@ -575,8 +575,8 @@ export default function PlayerDecisionCard(props) {
                       position. */}
                   {displayEntry.slot && <PosChip position={displayEntry.slot} />}
                   <InjuryTag status={displayEntry.injuryStatus} />
-                  <NoPracticeNote entry={displayEntry} testId="decision-card-no-practice" />
-                  <BackupNote entry={displayEntry} testId="decision-card-backup" />
+                  <NoPracticeNote verdict={card?.startVerdict} testId="decision-card-no-practice" />
+                  <BackupNote verdict={card?.startVerdict} testId="decision-card-backup" />
                   <Typography sx={{ fontSize: 12, color: 'var(--dash-faint)' }}>{displayEntry.nflTeam}</Typography>
                   {isLocked && (
                     <Typography
@@ -981,8 +981,8 @@ export default function PlayerDecisionCard(props) {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pt: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
                     <Typography component="h3" sx={{ fontWeight: 700 }}>{compareEntry.name}</Typography>
-                    <NoPracticeNote entry={compareEntry} testId="decision-card-compare-no-practice" />
-                    <BackupNote entry={compareEntry} testId="decision-card-compare-backup" />
+                    <NoPracticeNote verdict={compareCard?.startVerdict} testId="decision-card-compare-no-practice" />
+                    <BackupNote verdict={compareCard?.startVerdict} testId="decision-card-compare-backup" />
                   </Box>
                   <IconButton size="small" aria-label="Clear compare" onClick={clearCompare} sx={MIN_TOUCH_TARGET_SX}>
                     <CloseIcon fontSize="small" />
@@ -1146,24 +1146,21 @@ function Section({ title, testId, level = 'h3', children }) {
 
 /**
  * ADR 0056: "No practice this week" beside a Questionable tag, on the opened
- * entry and on a compared one alike. Two facts are read, both off the entry:
- * the lineup's own designation (`injuryStatus`, which the wire refreshes) and
- * the Start/sit advice's verdict reason (`verdictReason`, which the Lineup
- * page decorates every entry with; no other opener has it). A player whose
- * designation has moved on since the advice was read shows nothing.
+ * player and on a compared one alike. Read off the card payload's own Start
+ * verdict (`card.startVerdict`, spec #2042), so every surface that opens the
+ * card shows it; the verdict reads `no_practice` only for a Questionable player.
  */
-function NoPracticeNote({ entry, testId }) {
-  if (!entry || entry.injuryStatus !== 'Q' || entry.verdictReason !== 'no_practice') return null;
+function NoPracticeNote({ verdict, testId }) {
+  if (verdict?.reason !== 'no_practice') return null;
   return <Badge variant="neutral" data-testid={testId}>{NO_PRACTICE_LABEL}</Badge>;
 }
 
 /**
  * ADR 0057: "Backup" on a quarterback behind an available teammate, read off
- * the server's verdict reason (`verdictReason`, carried by the Lineup advice
- * and the Players wire). His number stays printed; this only tags it.
+ * the card payload's Start verdict. His number stays printed; this only tags it.
  */
-function BackupNote({ entry, testId }) {
-  if (!entry || entry.verdictReason !== 'backup') return null;
+function BackupNote({ verdict, testId }) {
+  if (verdict?.reason !== 'backup') return null;
   return <Badge variant="neutral" data-testid={testId}>{BACKUP_LABEL}</Badge>;
 }
 

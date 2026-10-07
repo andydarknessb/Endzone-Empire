@@ -117,7 +117,8 @@ function noPracticeAllWeek(observations, kickoffAt) {
  * (`nflRosterStatus.js`'s column); `now` is injectable for tests.
  *
  * `practice` (`{ observations, kickoffAt }`, ADR 0056) is passed ONLY by
- * Start/sit advice: a Questionable player with no practice all week
+ * Start/sit advice and the Weekly projection read's `startVerdictFor` (the
+ * Decision card's verdict, spec #2042): a Questionable player with no practice all week
  * (`noPracticeAllWeek`, with `kickoffAt` his game for the coverage deadline)
  * reads `no_practice`, never auto-recommended, after Position-baseline and
  * Doubtful and before plain Questionable. Every other reader omits it, so its
@@ -221,4 +222,30 @@ function unavailableFor({
   return { available: true, autoRecommend: true, activeProbability: 1, reason: null, status, locked, lockedSlot };
 }
 
-module.exports = { unavailableFor, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };
+// A Position-baseline or Backup quarterback's number is not trusted: it is the
+// position's average or a teammate's job, so he has no Upgrade (spec #2042).
+// Doubtful and no-practice Questionable keep a trusted number: the verdict
+// moves, the number stands.
+const UNTRUSTED_NUMBER_REASONS = new Set(['no_history', 'backup']);
+
+/**
+ * Pure: the Start verdict (CONTEXT.md; spec #2042) read off an `unavailableFor`
+ * verdict. `outcome` is 'unavailable' (will not play), 'not_recommended'
+ * (available, never auto-recommended; `reason` says why) or 'recommendable';
+ * `numberTrusted` says whether his projected number is his own evidence. The
+ * Weekly projection read passes a stored Unavailable verdict through as it is,
+ * so precedence lives in `unavailableFor` alone.
+ */
+function startVerdictOf(availability) {
+  let outcome = 'not_recommended';
+  if (availability.available === false) outcome = 'unavailable';
+  else if (availability.autoRecommend) outcome = 'recommendable';
+  return { outcome, reason: availability.reason, numberTrusted: !UNTRUSTED_NUMBER_REASONS.has(availability.reason) };
+}
+
+/** Pure: the Start verdict for `facts`, the options `unavailableFor` takes. */
+function startVerdictFor(facts = {}) {
+  return startVerdictOf(unavailableFor(facts));
+}
+
+module.exports = { unavailableFor, startVerdictFor, startVerdictOf, practiceCoverageDeadline, NFL_ROSTER_STATUS_FRESH_MS };

@@ -72,6 +72,10 @@ function mockPool(t, {
   // returning `rosterStatusRows`, so a test can drive completeRun's degrade
   // path without faking a whole failing table.
   rosterStatusError = null,
+  // Start verdict (spec #2042): `player_practice_observations` rows and the
+  // players' kickoff rows for the single-week reader's Practice participation read.
+  practiceRows = [],
+  kickoffRows = [],
   onQuery = null,
 } = {}) {
   const calls = [];
@@ -103,6 +107,8 @@ function mockPool(t, {
       return { rows: rosterStatusRows };
     }
     if (text.includes('FROM "player_depth_chart"')) return { rows: depthChartRows };
+    if (text.includes('FROM "player_practice_observations"')) return { rows: practiceRows };
+    if (text.includes('MIN("g"."kickoff_at")')) return { rows: kickoffRows };
     if (text.includes('FROM "player_season_stats"')) return { rows: seasonStats };
     if (text.includes('"player_stats" "pps"')) return { rows: priorSeasonScan };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: leagueScan };
@@ -3687,4 +3693,77 @@ test('a failed QB depth chart read on a transaction client rolls back to its sav
   assert.ok(client.statements.includes('SAVEPOINT backup_chart'));
   assert.ok(client.statements.includes('ROLLBACK TO SAVEPOINT backup_chart'));
   assert.equal(result.projections.has(1), true, 'the run completed on the same client');
+});
+
+// Start verdict (spec #2042): the single-week reader loads this week's Practice
+// participation, so the result holds every fact the verdict reads.
+const SUNDAY_KICKOFF = new Date('2026-10-11T17:00:00Z');
+const practiceRow = (player_id, observed_at) => ({
+  player_id, practice_status: 'Did Not Participate In Practice', practice_primary_injury: 'Hamstring',
+  report_primary_injury: 'Hamstring', observed_at: new Date(observed_at),
+});
+const questionableRow = (id) => ({
+  ...cachedRowFor(id), active_probability: null,
+  factors: { availability: { available: true, status: 'Q', reason: 'questionable', autoRecommend: true } },
+});
+
+test('getWeeklyProjections: a Questionable player with no practice all week reads startVerdictFor no_practice, on a cache hit', async (t) => {
+  const calls = mockPool(t, {
+    players: [], runRow: runRowAt(), cachedRows: [questionableRow(1), questionableRow(2)],
+    practiceRows: [practiceRow(1, '2026-10-07T22:00:00Z'), practiceRow(1, '2026-10-08T22:00:00Z')],
+    kickoffRows: [{ player_id: 1, kickoff_at: SUNDAY_KICKOFF }, { player_id: 2, kickoff_at: SUNDAY_KICKOFF }],
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1, 2], now: CHART_NOW });
+  assert.deepEqual(result.startVerdictFor(1), { outcome: 'not_recommended', reason: 'no_practice', numberTrusted: true });
+  assert.deepEqual(result.startVerdictFor(2), { outcome: 'recommendable', reason: 'questionable', numberTrusted: true }, 'no observation at all');
+  assert.equal(readsOf(calls, 'FROM "player_practice_observations"'), 1, 'one batched read');
+  assert.equal(readsOf(calls, 'MIN("g"."kickoff_at")'), 1, 'one kickoff read');
+});
+
+test('getWeeklyProjections: with no observations the verdict reads no kickoff, and a cold run attaches the same facts', async (t) => {
+  const calls = mockPool(t, {
+    players: [player(1, 'RB', { injury_status: 'Q' })],
+    weeklyStats: [weeklyRow(1, 1, { rushingYards: 70 })],
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
+  assert.equal(result.startVerdictFor(1).reason, 'questionable');
+  assert.equal(readsOf(calls, 'MIN("g"."kickoff_at")'), 0);
+
+  mockPool(t, {
+    players: [player(1, 'RB', { injury_status: 'Q' })],
+    weeklyStats: [weeklyRow(1, 1, { rushingYards: 70 })],
+    practiceRows: [practiceRow(1, '2026-10-07T22:00:00Z')],
+    kickoffRows: [{ player_id: 1, kickoff_at: SUNDAY_KICKOFF }],
+  });
+  const cold = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
+  assert.equal(cold.startVerdictFor(1).reason, 'no_practice');
+});
+
+test('getWeeklyProjections: a failed Practice participation read degrades to plain Questionable, logging it', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  mockPool(t, {
+    players: [], runRow: runRowAt(), cachedRows: [questionableRow(1)],
+    onQuery: (text) => {
+      if (text.includes('FROM "player_practice_observations"')) throw new Error('practice table unavailable');
+    },
+  });
+  const result = await run({ season: SEASON, week: 5, league: league(), playerIds: [1], now: CHART_NOW });
+  assert.equal(result.startVerdictFor(1).reason, 'questionable');
+  assert.ok(logged.mock.calls.some((c) => require('node:util').format(...c.arguments).includes('Practice participation read failed')));
+});
+
+test('toWeeklyProjectionResult: startVerdictFor takes a stored Unavailable verdict as stored, then Position-baseline over Backup', () => {
+  const stored = (availability, reasons = []) => ({ mean: 12, median: 12, factors: { availability, dataQuality: { reasons } } });
+  const result = projection.toWeeklyProjectionResult({
+    projections: new Map([
+      [1, stored({ available: false, status: 'O', reason: 'out' })],
+      [2, stored({ available: true, status: null, reason: null }, ['position baseline'])],
+      [3, stored({ available: true, status: 'D', reason: 'doubtful' })],
+    ]),
+    backupIds: new Set([1, 2, 3]),
+  });
+  assert.deepEqual(result.startVerdictFor(1), { outcome: 'unavailable', reason: 'out', numberTrusted: true });
+  assert.deepEqual(result.startVerdictFor(2), { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false });
+  assert.deepEqual(result.startVerdictFor(3), { outcome: 'not_recommended', reason: 'backup', numberTrusted: false });
+  assert.deepEqual(result.startVerdictFor(999), { outcome: 'recommendable', reason: null, numberTrusted: true }, 'no entry: basic facts only');
 });

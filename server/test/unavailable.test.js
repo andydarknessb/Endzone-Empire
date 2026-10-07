@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { unavailableFor } = require('../services/unavailable');
+const { unavailableFor, startVerdictFor } = require('../services/unavailable');
 
 // One row per fact the Unavailable verdict reads. Deleting the no_team branch
 // turns the no_team row red.
@@ -249,4 +249,35 @@ test('unavailableFor: backup outranks the no_practice verdict, and false or abse
   assert.equal(noPractice([dnp()], { backup: true }).status, 'Q');
   assert.equal(unavailableFor({ backup: false }).reason, null);
   assert.equal(unavailableFor({ injuryStatus: 'D', backup: false }).reason, 'doubtful');
+});
+
+// Start verdict (spec #2042): the one verdict per player per week. Each row is
+// the facts and the `{ outcome, reason, numberTrusted }` they must read. The
+// both-facts rows pin the precedence: swapping Position-baseline and Backup, or
+// moving either above Out, turns a row red.
+const squad = { status: 'practice_squad', capturedAt: NOW.toISOString() };
+const verdict = (outcome, reason, numberTrusted = true) => ({ outcome, reason, numberTrusted });
+const START_VERDICT_ROWS = [
+  ['bye', { onBye: true, injuryStatus: 'Q' }, verdict('unavailable', 'bye')],
+  ['No NFL team', { noTeam: true }, verdict('unavailable', 'no_team')],
+  ['Practice squad', { nflRosterStatus: squad, now: NOW }, verdict('unavailable', 'practice_squad')],
+  ['Out', { injuryStatus: 'O', positionBaseline: true, backup: true }, verdict('unavailable', 'out')],
+  ['IR', { injuryStatus: 'IR', backup: true }, verdict('unavailable', 'ir')],
+  ['Position-baseline', { injuryStatus: 'Q', positionBaseline: true }, verdict('not_recommended', 'no_history', false)],
+  ['Position-baseline over Backup', { positionBaseline: true, backup: true }, verdict('not_recommended', 'no_history', false)],
+  ['Backup', { injuryStatus: 'D', backup: true }, verdict('not_recommended', 'backup', false)],
+  ['Doubtful', { injuryStatus: 'D' }, verdict('not_recommended', 'doubtful')],
+  ['no-practice Questionable', { injuryStatus: 'Q', practice: { observations: [dnp()], kickoffAt: SUNDAY_1PM } }, verdict('not_recommended', 'no_practice')],
+  ['plain Questionable', { injuryStatus: 'Q', practice: { observations: [], kickoffAt: SUNDAY_1PM } }, verdict('recommendable', 'questionable')],
+  ['healthy', {}, verdict('recommendable', null)],
+];
+
+for (const [name, facts, expected] of START_VERDICT_ROWS) {
+  test(`startVerdictFor: ${name}`, () => {
+    assert.deepEqual(startVerdictFor(facts), expected);
+  });
+}
+
+test('startVerdictFor: called with nothing is a healthy, recommendable player', () => {
+  assert.deepEqual(startVerdictFor(), verdict('recommendable', null));
 });
