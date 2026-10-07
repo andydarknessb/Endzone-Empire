@@ -1316,7 +1316,11 @@ _Avoid_: final scoring, finalize (the step that follows it)
 
 **Advance week**:
 The commissioner action that closes out the current week: finalizes scores,
-settles standings, awards trophies and opens the next week.
+settles standings, awards trophies and opens the next week. One function,
+`advanceWeek`, owns the order: the week is scored, then finalized and
+advanced, then the Settle follow-up is started and not awaited (a failure
+there is logged with league and week, and the next Advance week re-judges any
+pending Called shot).
 
 **Settle follow-up**:
 The work that follows a Settle pass, in one fixed order: power rankings
