@@ -55,9 +55,10 @@ let lastSyncAt = null;
 // cache from week+1 onward, and repeating THAT on every release of a
 // correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
-// Each gated job sets its own retry interval: how long the cadence gate waits
-// after a failed run (fetch_failed, bad_response, write_failed) before the job
-// is due again. A refused run is not retried: it settles its UTC day.
+// A failed run (fetch_failed, bad_response, write_failed) is retried on the next
+// tick unless the job passes `retryMs` to cadence.due; only adp and
+// stat-corrections do, below. A refused run is not retried: it settles the job's
+// cadence period (a UTC day for `utc-day` jobs, the interval for `{ ms }` jobs).
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
@@ -370,6 +371,9 @@ async function runPreHoldoutEspnRosterStatusSync({ now = new Date() } = {}) {
   // timeouts ahead of the capture on every five-minute tick for the whole
   // window (#1766 risk review). The daily and Saturday runs keep their own
   // retry-next-tick behaviour at the end of the tick, where they delay nothing.
+  // This backs off on any non-ok latest run, a refusal included, because
+  // runRosterStatusSync has no refusal path (ADR 0036, #2060); read
+  // `latest.outcome` here the day one is added.
   if (latest && latest.ok === false && latest.finishedAt &&
       now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
   return require('./espnFactsSync').runRosterStatusSync({ now });
@@ -1367,7 +1371,7 @@ async function runLiveSync() {
  * the live sync is tick-counted.
  */
 const TICK_JOBS = [
-  { name: 'stat-corrections', tier: 'deadline', syncRun: ['nflverse-correction'], run: () => runDailyStatCorrections() },
+  { name: 'stat-corrections', tier: 'deadline', syncRun: ['stat-corrections', 'nflverse-correction'], run: () => runDailyStatCorrections() },
   { name: 'nflverse-finalization', tier: 'deadline', syncRun: ['nflverse-week', 'nflverse-snaps'], run: () => runNflverseFinalization() },
   { name: 'nflverse-game-context-fill', tier: 'deadline', syncRun: ['schedule-nflverse'], run: () => runNflverseGameContextFill() },
   { name: 'nflverse-current-week', tier: 'deadline', syncRun: ['nflverse-current-week'], run: () => runNflverseCurrentWeek() },
