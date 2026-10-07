@@ -8,7 +8,7 @@ const draftSweepLiveness = require('./draftSweepLiveness');
 const { processScheduledDrafts } = require('../services/draftSchedule.service');
 const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
-const { lastRun, runSyncJob, recordDataSyncRun } = require('./syncRun');
+const { lastRun, runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
 
 /**
@@ -55,8 +55,11 @@ let lastSyncAt = null;
 // cache from week+1 onward, and repeating THAT on every release of a
 // correction day is what put a cold cache under every list page.
 let lastCorrectionDay = null;
-// After a not-ok stat-corrections run the pass waits this long before retrying.
+// Each gated job sets its own retry interval: how long the cadence gate waits
+// after a failed run (fetch_failed, bad_response, write_failed) before the job
+// is due again. A refused run is not retried: it settles its UTC day.
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
+const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
 // The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
@@ -72,214 +75,16 @@ let lastProjectionFillDay = null;
 // does not stamp, so the next tick retries.
 let lastIntegrityScanDay = null;
 
+/**
+ * One tick: take the declared job list (`TICK_JOBS`, below) and run it. Every
+ * job is contained by `runJobs`, so a throw never reaches this function; the
+ * catch is a last guard around the runner itself.
+ */
 async function tickUnlocked() {
   if (running) return; // don't overlap slow runs
   running = true;
   try {
-    // Jobs OUTSIDE the cadence gate (the Sync runs below that write a run row
-    // ask `cadence.due`, which reads that row):
-    //  - the stat-correction pass (#839): it records its own row by hand
-    //    (`recordDataSyncRun`) outside `runSyncJob`'s transaction, so it keeps
-    //    a same-process day stamp and its own `lastRun` reader beside the gate;
-    //  - the nflverse HEAD poll: a check that finds nothing new writes no run
-    //    row, so there is nothing for the gate to read; an in-memory 15-minute
-    //    stamp is the whole throttle;
-    //  - retention: a housekeeping delete, not a Sync run, so it writes no
-    //    run row; a same-process day stamp is its throttle;
-    //  - the tick-counted live sync: paced by `ticksSinceSync` while a game
-    //    window is open (a tick count, not a wall-clock cadence);
-    //  - the in-window injury cadence: inside a game window `injurySyncDue`
-    //    decides on a 15-minute window; only the outside-window daily pass
-    //    goes through the gate.
-    // Data-freshness and deadline duties FIRST, each in its own containment:
-    // corrections and finalization so the holdout captures corrected inputs,
-    // then the holdout capture itself — a duty with a hard real-world
-    // deadline must not sit behind waivers, trades, or live scoring, any of
-    // which can throw and abort the rest of a tick. The nightly projection
-    // fill is neither a freshness nor a deadline duty (#1305 f2) — it runs
-    // last, beside runRetention, and only inside its own off-peak window.
-    try {
-      await runDailyStatCorrections();
-    } catch (err) {
-      // The throw already did its real job: it fired before the correction day
-      // was stamped, so the pass retries (an hour after a not-ok run). Containing it
-      // here keeps one bad correction day from also skipping every other duty.
-      console.error('daily stat corrections failed (will retry):', err.message);
-    }
-    try {
-      await runNflverseFinalization();
-    } catch (err) {
-      console.error('nflverse finalization failed (will retry next tick):', err.message);
-    }
-    try {
-      await runNflverseGameContextFill();
-    } catch (err) {
-      console.error('nflverse game-context fill failed (will retry next tick):', err.message);
-    }
-    try {
-      await runNflverseCurrentWeek();
-    } catch (err) {
-      console.error('nflverse current-week pass failed (will retry in 15 minutes):', err.message);
-    }
-    try {
-      await runDailyInjurySync();
-    } catch (err) {
-      console.error('daily injury sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runDailyAdpSync();
-    } catch (err) {
-      console.error('daily adp sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runHourlyOddsSync();
-    } catch (err) {
-      console.error('hourly odds sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runHourlyGameContextSync();
-    } catch (err) {
-      console.error('hourly game context sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runHoldoutSnapshots();
-    } catch (err) {
-      console.error('holdout snapshot pass failed (will retry next tick):', err.message);
-    }
-    // Kickoff hold (#1375, ADR 0043): before claim processing, so a claim
-    // submitted this tick already sees a player his kicked-off team put on
-    // waivers this same tick.
-    try {
-      await holdKickedOffPlayers();
-    } catch (err) {
-      console.error('kickoff waiver hold failed (will retry next tick):', err.message);
-    }
-    const waivers = await processAllDueWaivers();
-    if (waivers.length > 0) {
-      console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
-      // Owners get an email summary of their just-resolved claims
-      const digest = require('../services/digest.service');
-      for (const processed of waivers) {
-        const leagueId = processed.leagueId != null ? processed.leagueId : processed;
-        try {
-          await digest.sendWaiverResultsDigest({ leagueId });
-        } catch (err) {
-          console.error('waiver digest failed for league %s:', leagueId, err.message);
-        }
-      }
-    }
-    try {
-      const digest = require('../services/digest.service');
-      await digest.sendLineupReminders(); // self-limits to the pre-kickoff window
-    } catch (err) {
-      console.error('lineup reminders failed:', err.message);
-    }
-    // Pick'em-only leagues follow the NFL calendar: point them at the right
-    // week BEFORE the reminders read current_week, and complete any whose
-    // week-18 slate has finalized right after.
-    try {
-      await runPickemWeekSync();
-    } catch (err) {
-      console.error("pick'em week sync failed:", err.message);
-    }
-    try {
-      const digest = require('../services/digest.service');
-      await digest.sendPickemReminders(); // same pre-kickoff window, Pick'em leagues only
-    } catch (err) {
-      console.error("pick'em reminders failed:", err.message);
-    }
-    try {
-      await runPickemSeasonCompletion();
-    } catch (err) {
-      console.error("pick'em season completion failed:", err.message);
-    }
-    const trades = await processDueTrades();
-    if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
-    try {
-      const draftActions = await processScheduledDrafts();
-      if (draftActions.length > 0) {
-        console.log(`scheduler: ran ${draftActions.length} scheduled-draft action(s)`);
-      }
-    } catch (err) {
-      console.error('scheduled drafts failed:', err.message);
-    }
-    ticksSinceSync += 1;
-    if (ticksSinceSync >= (await syncEveryTicks())) {
-      const synced = await syncAndScoreLiveWeeks();
-      if (synced) ticksSinceSync = 0;
-    }
-    // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
-    // minute before it. After every time-sensitive duty above, since it asks for
-    // advice per team and its run time must never delay claims, reminders,
-    // trades or scheduled drafts; contained, and it logs per league itself.
-    try {
-      await captureOverrides({ loadAdvice: startSitAdvice });
-    } catch (err) {
-      console.error('override capture failed (will retry next tick):', err.message);
-    }
-    // nflverse practice-participation poll (#1922): after every deadline duty
-    // (holdout capture, kickoff hold, waivers, reminders, trades, live
-    // scoring, Override capture), since a poll that finds a new file is up to
-    // a minute and a half of serial downloads that must never delay them.
-    // Nothing above reads what it writes within the same tick.
-    try {
-      await runNflversePractice();
-    } catch (err) {
-      console.error('nflverse practice-participation poll failed (will retry in 15 minutes):', err.message);
-    }
-    // Contained: a throw leaves the retention day unstamped, so it retries
-    // every tick, and uncontained that skipped every duty below each time.
-    try {
-      await runRetention();
-    } catch (err) {
-      console.error('retention cleanup failed (will retry next tick):', err.message);
-    }
-    // Weather snapshots (#1883): after live scoring and every deadline duty,
-    // ahead of the multi-minute nightly fill; it never throws.
-    await runWeatherSnapshotSync();
-    // Last, beside the other once-a-day housekeeping pass, and never ahead of
-    // a time-sensitive duty above: this can run long (every in-season
-    // league's whole roster), so it only starts inside its own off-peak
-    // window, never at the first tick after midnight (#1305 f2).
-    try {
-      await runNightlyProjectionFill();
-    } catch (err) {
-      console.error('nightly projection fill failed (will retry next tick):', err.message);
-    }
-    try {
-      await runNightlyStatsIntegrityScan();
-    } catch (err) {
-      console.error('nightly stats integrity scan failed (will retry next tick):', err.message);
-    }
-    // ESPN depth-chart/Ownership syncs (#1308, risk review): LAST, after every
-    // time-sensitive duty above (holdout capture, kickoff hold, waivers,
-    // reminders, pick'em, trades, live scoring) - up to 32 sequential ESPN
-    // calls each with its own ESPN_TIMEOUT_MS, so a slow or hanging host must
-    // never delay any of those. Both jobs are free and keyless, so unlike the
-    // nightly projection fill above they need no off-peak hour of their own.
-    // Roster status (#1766) BEFORE the depth chart: the daily run, then the
-    // Saturday run after the 4pm ET elevation deadline. The pre-holdout-capture
-    // run lives in runHoldoutSnapshots, ahead of the capture itself.
-    try {
-      await runDailyEspnRosterStatusSync();
-    } catch (err) {
-      console.error('daily ESPN roster-status sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runSaturdayEspnRosterStatusSync();
-    } catch (err) {
-      console.error('Saturday ESPN roster-status sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runDailyEspnDepthChartSync();
-    } catch (err) {
-      console.error('daily ESPN depth-chart sync failed (will retry next tick):', err.message);
-    }
-    try {
-      await runDailyEspnOwnershipSync();
-    } catch (err) {
-      console.error('daily ESPN ownership sync failed (will retry next tick):', err.message);
-    }
+    await runJobs(TICK_JOBS);
     lastTickError = null;
   } catch (err) {
     console.error('scheduler tick failed:', err.message);
@@ -288,6 +93,27 @@ async function tickUnlocked() {
     lastTickAt = new Date().toISOString();
     running = false;
   }
+}
+
+/**
+ * The one runner: each job in list order, each in its own containment. A throw
+ * is logged to the console and the next job runs, so one failing duty (or one
+ * that retries every tick because its stamp never lands) cannot skip the duties
+ * after it. Non-feed failures go to the console only.
+ */
+async function runJobs(jobs) {
+  for (const job of jobs) {
+    try {
+      await job.run();
+    } catch (err) {
+      console.error('scheduler: job %s failed:', job.name, err.message);
+    }
+  }
+}
+
+/** The Sync run names a job list declares through `syncRun`, once each, in list order. */
+function syncRunJobs(jobs) {
+  return [...new Set(jobs.flatMap((job) => job.syncRun || []))];
 }
 
 async function runRetention() {
@@ -397,43 +223,23 @@ async function runDailyInjurySync({ now = new Date() } = {}) {
 }
 
 /**
- * A `lastRun`-shaped reader for the ADP gate (pre-PR-ready risk review,
- * #1509): the cadence gate's `'utc-day'` cadence only ever reads `latestOk`
- * (cadence.js), but a thin-market/thin-match refusal (adp.service.js's wipe
- * guard) RESOLVES rather than throws and records `ok: false` - so on its own
- * the gate would never close for the day on a refusal, and every five-minute
- * tick would re-hit FFC for the rest of the UTC day while the market stays
- * thin (the pre-#1509 in-memory stamp closed on any non-throwing outcome,
- * refusal included, for exactly this reason - see the deleted
- * `lastAdpSyncDay` comment history). `latest` is always the same run as
- * `latestOk` or a STRICTLY NEWER one (`lastRun`'s own two-subquery
- * definition), so when the newest attempt is itself a same-UTC-day refusal,
- * substituting it for `latestOk` closes the gate the same way a real success
- * would; a genuinely thrown run (`fetch_failed`/`write_failed`) is excluded
- * by the `reason === 'refused'` check and still leaves `latestOk` (and so the
- * gate) untouched, so it keeps retrying every tick, same as before #1509.
- */
-async function adpLastRun(job) {
-  const { latest, latestOk } = await lastRun(job);
-  const latestIsRefusal = Boolean(latest) && !latest.ok && latest.detail && latest.detail.reason === 'refused';
-  return { latest, latestOk: latestIsRefusal ? latest : latestOk };
-}
-
-/**
  * Daily ADP market refresh (#747). Runs at most once per UTC calendar day,
  * all year - FFC is free and keyless, so unlike the injury sync there is no
  * credential gate. The due/not-due decision is the cadence gate's own concern
  * (server/modules/cadence.js, spec #1492 step two, #1509), reading the job's
- * own `data_sync_runs` rows (job: 'adp') through `adpLastRun` above rather
- * than the gate's plain default reader - `adp.syncAdp` already records one
+ * own `data_sync_runs` rows (job: 'adp') - `adp.syncAdp` already records one
  * row through `runSyncJob`, so this adds no second, scheduler-level row,
- * mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. No in-memory
+ * mirroring `runHourlyOddsSync`'s `job: 'odds'` gate above. The gate reads
+ * the latest run's typed outcome: a thin-market/thin-match `refused` run
+ * settles the UTC day (otherwise every five-minute tick would re-hit FFC for
+ * the rest of the day while the market stays thin), a failed one retries
+ * after `ADP_RETRY_MS`. No in-memory
  * once-a-day stamp remains: the gate's own read survives a worker restart,
  * where the old in-memory stamp reset on every one. The wipe guard still
  * lives inside `adp.syncAdp` and is unaffected by this gate.
  */
 async function runDailyAdpSync({ now = new Date() } = {}) {
-  const gate = await cadence.due({ job: 'adp', every: 'utc-day', now }, { lastRun: adpLastRun });
+  const gate = await cadence.due({ job: 'adp', every: 'utc-day', retryMs: ADP_RETRY_MS, now });
   if (!gate.due) return null;
   const adp = require('../services/adp.service');
   return adp.syncAdp({ now });
@@ -474,8 +280,8 @@ const ET_PARTS = new Intl.DateTimeFormat('en-US', {
 });
 
 /**
- * The NFL roster-status Sync run (#1766, ADR 0041 amendment), three triggers on
- * one job, all ordered before what reads or follows them. The daily run is the
+ * The NFL roster-status Sync run (#1766, ADR 0041 amendment), four triggers on
+ * one job (daily, Saturday, pre-capture, and the game-day run of #1995), all ordered before what reads or follows them. The daily run is the
  * plain cadence gate, exactly like the depth-chart run it precedes.
  */
 async function runDailyEspnRosterStatusSync({ now = new Date() } = {}) {
@@ -559,6 +365,32 @@ async function runPreHoldoutEspnRosterStatusSync({ now = new Date() } = {}) {
   return require('./espnFactsSync').runRosterStatusSync({ now });
 }
 
+const GAME_DAY_RUN_INTERVAL_MS = 60 * 60 * 1000;
+const GAME_DAY_KICKOFF_BEHIND_MS = 4 * 60 * 60 * 1000;
+const GAME_DAY_KICKOFF_AHEAD_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * The game-day run (#1995): due when any `nfl_games` kickoff falls between 4
+ * hours ago and 6 hours ahead and no successful run finished in the last hour,
+ * so an elevation ESPN flips overnight or on game day is read within the hour
+ * up to kickoff and corrected during the game. After a failed attempt it holds
+ * off PRE_HOLDOUT_RETRY_MS like the pre-capture run, so a dead ESPN host cannot
+ * put its timeouts into every game-day tick. A player ESPN has not flipped by
+ * kickoff still reads Practice squad until the next run (ADR 0041, accepted).
+ */
+async function runGameDayEspnRosterStatusSync({ now = new Date() } = {}) {
+  const kickoff = await pool.query(
+    `SELECT 1 FROM "nfl_games" WHERE "kickoff_at" BETWEEN $1 AND $2 LIMIT 1`,
+    [new Date(now.getTime() - GAME_DAY_KICKOFF_BEHIND_MS), new Date(now.getTime() + GAME_DAY_KICKOFF_AHEAD_MS)]
+  );
+  if (!kickoff.rows[0]) return null;
+  const { latest, latestOk } = await require('./syncRun').lastRun(ROSTER_STATUS_JOB);
+  if (latestOk && now.getTime() - latestOk.finishedAt.getTime() < GAME_DAY_RUN_INTERVAL_MS) return null;
+  if (latest && latest.ok === false && latest.finishedAt &&
+      now.getTime() - latest.finishedAt.getTime() < PRE_HOLDOUT_RETRY_MS) return null;
+  return require('./espnFactsSync').runRosterStatusSync({ now });
+}
+
 const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
 
 /**
@@ -590,7 +422,7 @@ const ODDS_SYNC_INTERVAL_MS = 60 * 60 * 1000; // hourly (#1234, ADR 0036/0037)
  * runs and no `odds` row is written at all, so the gate answers due again on
  * every following tick too; the only recurring cost is this function's own
  * leagues read, same as a read failure here (caught and logged by
- * `tickUnlocked`) retrying next tick same as everywhere else in this module.
+ * `runJobs`) retrying next tick same as everywhere else in this module.
  */
 async function runHourlyOddsSync({ now = new Date() } = {}) {
   const gate = await cadence.due({ job: 'odds', every: { ms: ODDS_SYNC_INTERVAL_MS }, now });
@@ -678,7 +510,7 @@ const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * own `season`/`week` because the snapshot cache is keyed that way). An
  * `nfl_games` row exists per team, so the read is DISTINCT per `game_key`.
  *
- * Tick safety: it runs after live scoring in `tickUnlocked`, and it waits out
+ * Tick safety: it runs after live scoring in `TICK_JOBS`, and it waits out
  * an open game window (`inGameWindow`, as the owed nightly refill does)
  * because the worst case is two sequential 3.5 s NWS requests per outdoor game
  * and a slow run holds the tick (and its 5-minute live-scoring cadence) for
@@ -693,15 +525,12 @@ const WEATHER_SNAPSHOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * hours. A partial result stays an ok run, and an unset `NWS_USER_AGENT` stays
  * an ok run whose row carries the `reason`.
  *
- * `apply` deliberately does not pass its transactional `client` into
- * `getForecastsForGames` (same reason as `runNightlyProjectionFill`): the
- * weather lookup and its snapshot write log-and-continue on a failed query,
- * which only holds in autocommit. It does NOT keep the NWS HTTP fetches off a
- * transaction: `runSyncJob` runs `apply` inside its per-unit transaction, so
- * the client is simply unused while that transaction stays open across the
- * week's sequential NWS requests. That departs from ADR 0036 ("a feed call
- * never runs inside a transaction"); running a unit with no transaction is a
- * change to `runSyncJob` and the ADR, not made here.
+ * The job runs with `transaction: false` (#1913): `apply` gets no client and
+ * the unit runs with no transaction and no lock, so the week's sequential NWS
+ * requests never sit inside one (ADR 0036, "a feed call never runs inside a
+ * transaction"). That is also what the weather lookup and its snapshot write
+ * need: they log-and-continue on a failed query, which only holds in
+ * autocommit.
  */
 async function runWeatherSnapshotSync({ now = new Date() } = {}) {
   try {
@@ -714,6 +543,7 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
     const horizonEnd = new Date(now.getTime() + MAX_HORIZON_HOURS * 3600000);
     return await runSyncJob({
       job: 'weather-snapshots',
+      transaction: false,
       fetch: async () => {
         const result = await pool.query(
           `SELECT DISTINCT ON ("game_key") "game_key", "season", "week", "kickoff_at", "roof", "venue"
@@ -764,6 +594,7 @@ async function runWeatherSnapshotSync({ now = new Date() } = {}) {
           // An unset NWS_USER_AGENT is an unconfigured optional integration,
           // an ok run: the row says why nothing was fetched.
           ...(coverage.reason ? { reason: coverage.reason } : {}),
+          ...(coverage.reason === NWS_UNCONFIGURED_REASON ? { unconfigured: true } : {}),
         };
       },
     });
@@ -847,29 +678,6 @@ async function syncAndScoreLiveWeeks() {
 }
 
 /**
- * A `lastRun`-shaped reader for the cadence gate (server/modules/cadence.js)
- * that treats a read failure as "never run" (`{ latest: null, latestOk:
- * null }`), the same safe direction `lastInjurySyncAt` takes above (and
- * `lastEspnFactsSyncAt` used to, before #1509 moved both ESPN facts jobs onto
- * the gate and removed it): the corrections pass is idempotent, so running it
- * on a flaky
- * read is the safe side, unlike silently skipping a correction day.
- * Otherwise passed straight through - the "day stamped at start" rule (QA
- * finding on #1449, a pass that starts 23:58 UTC Tuesday and finishes 00:01
- * Wednesday still belongs to Tuesday) is now the cadence gate's own
- * `'utc-day'` contract (spec #1493, "UTC day everywhere"; see cadence.js's
- * `lastSuccessDayKey`), so no job-specific translation lives here anymore.
- */
-async function statCorrectionsLastRun(job) {
-  try {
-    return await lastRun(job);
-  } catch (err) {
-    console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
-    return { latest: null, latestOk: null };
-  }
-}
-
-/**
  * Nightly player_stats integrity scan: records any row whose stored points
  * disagree with its stats (playerStatsIntegrity.service). A Sync run per ADR
  * 0036 with one unit and no lock (nothing else writes the anomalies table),
@@ -897,7 +705,7 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
     lastIntegrityScanDay = today;
     return null;
   }
-  const result = await runSyncJob({
+  const { results: [result] } = await runSyncJob({
     job: integrity.JOB,
     fetch: async () => ({ units: [{}], detail: { day: today } }),
     apply: (client) => integrity.scanPlayerStats({ db: client }),
@@ -921,83 +729,74 @@ async function runNightlyStatsIntegrityScan({ now = new Date() } = {}) {
  * job on the cadence gate; every other job in this file keeps its own
  * hand-rolled once-a-day check for now.
  *
- * Recorded with `recordDataSyncRun` directly rather than through
- * `runSyncJob`: that wrapper runs its unit inside one `withTransaction`, and
- * a BEGIN'd client sitting idle for the minutes this pass takes - while
- * `correctLeagueWeek` opens its own transaction per league on other clients,
- * beside the tick's session-level advisory lock - is the idle-in-transaction
- * shape #839 already bit this repo with under the pooler. The row carries the
- * UTC `day` the pass ran for (see `statCorrectionsLastRun` above). A thrown
- * pass (including the aggregate cache-maintenance error resyncPriorWeeks
- * raises after finishing) records ok=false, does not move the gate, and
- * bubbles to tickUnlocked's catch. A pass that finishes with failed week
- * syncs records ok=false with them in its detail and stamps nothing. Either
- * way the day stays due and the pass retries once the not-ok row is an hour
- * old, instead of silently skipping the rest of a correction day.
+ * A Sync run (ADR 0036) with one unit, `transaction: false`: a BEGIN'd client
+ * sitting idle for the minutes this pass takes - while `correctLeagueWeek`
+ * opens its own transaction per league on other clients, beside the tick's
+ * session-level advisory lock - is the idle-in-transaction shape #839 already
+ * bit this repo with under the pooler. The row carries the UTC `day` the pass
+ * ran for. A thrown pass (including the aggregate cache-maintenance error
+ * resyncPriorWeeks raises after finishing) records a failed row, does not move
+ * the gate, and bubbles to runJobs's catch. A pass that finishes with failed
+ * week syncs records a failed row with them in its detail and stamps nothing,
+ * without throwing. Either way the day stays due and the gate (which reads the
+ * latest run's typed outcome) holds the pass back until the failed row is
+ * STAT_CORRECTIONS_RETRY_MS old, instead of silently skipping the rest of a
+ * correction day. A gate read that fails reads as "never run": the pass is
+ * idempotent, so running it is the safe side of skipping a correction day.
  */
 async function runDailyStatCorrections({ now = new Date() } = {}) {
   const correction = require('../services/correction.service');
   if (!correction.isCorrectionDay(now)) return null;
   const today = cadence.utcDateKey(now);
   if (lastCorrectionDay === today) return null;
-  let latestRun = null;
-  const gate = await cadence.due(
-    { job: 'stat-corrections', every: 'utc-day', now },
-    {
-      lastRun: async (job) => {
-        const runs = await statCorrectionsLastRun(job);
-        latestRun = runs.latest;
-        return runs;
-      },
-    }
-  );
-  if (!gate.due) {
-    lastCorrectionDay = today;
-    return null;
-  }
-  // A not-ok latest run (a failed week or a thrown pass) leaves the day due
-  // but is retried no sooner than STAT_CORRECTIONS_RETRY_MS later, so a
-  // nflverse file broken all day costs one season-CSV fetch an hour, not one
-  // per tick. Not stamped in memory: the window reopens on its own.
-  if (
-    latestRun &&
-    latestRun.ok === false &&
-    latestRun.finishedAt &&
-    now.getTime() - latestRun.finishedAt.getTime() < STAT_CORRECTIONS_RETRY_MS
-  ) {
-    return null;
-  }
-  const startedAt = new Date();
-  let result;
+  let gate;
   try {
-    result = await correction.resyncPriorWeeks();
+    gate = await cadence.due({ job: 'stat-corrections', every: 'utc-day', retryMs: STAT_CORRECTIONS_RETRY_MS, now });
   } catch (err) {
-    await recordDataSyncRun({
-      job: 'stat-corrections',
-      startedAt,
-      ok: false,
-      detail: {
-        day: today,
-        reason: 'write_failed',
-        message: err && err.message ? err.message : String(err),
-        invalidated: (err && err.invalidated) || [],
-        ...(err && err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
-      },
-    });
-    throw err;
+    console.warn('runDailyStatCorrections: data_sync_runs read failed, treating as never run:', err.message);
+    gate = { due: true };
   }
-  const failedWeeks = result.failed || [];
-  await recordDataSyncRun({
-    job: 'stat-corrections',
-    startedAt,
-    ok: failedWeeks.length === 0,
-    detail: {
-      day: today,
-      corrected: (result.corrected || []).length,
-      invalidated: result.invalidated || [],
-      ...(failedWeeks.length > 0 ? { reason: 'write_failed', failedWeeks } : {}),
-    },
-  });
+  if (!gate.due) {
+    // A retry wait is not a settled day: unstamped, the window reopens on its own.
+    if (!gate.backoff) lastCorrectionDay = today;
+    return null;
+  }
+  let result;
+  let failedWeeks = [];
+  try {
+    ({ results: [result] } = await runSyncJob({
+      job: 'stat-corrections',
+      transaction: false,
+      fetch: async () => ({ units: [{}], detail: { day: today } }),
+      apply: async () => {
+        let run;
+        try {
+          run = await correction.resyncPriorWeeks();
+        } catch (err) {
+          if (err && typeof err === 'object') {
+            err.syncDetail = {
+              invalidated: err.invalidated || [],
+              ...(err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
+            };
+          }
+          throw err;
+        }
+        const summary = { corrected: (run.corrected || []).length, invalidated: run.invalidated || [] };
+        const failed = run.failed || [];
+        if (failed.length > 0) {
+          const error = new Error(`stat corrections failed for ${failed.length} week(s)`);
+          error.syncDetail = { ...summary, failedWeeks: failed };
+          error.partial = { ...summary, failedWeeks: failed };
+          throw error;
+        }
+        return summary;
+      },
+    }));
+  } catch (err) {
+    if (!err || !err.partial) throw err;
+    result = err.partial;
+    failedWeeks = err.partial.failedWeeks;
+  }
   if (failedWeeks.length === 0) {
     lastCorrectionDay = today;
   } else {
@@ -1007,10 +806,10 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
         .join(', ')}; retrying after ${STAT_CORRECTIONS_RETRY_MS / 60000} minutes`
     );
   }
-  if (result.corrected && result.corrected.length > 0) {
-    console.log(`scheduler: stat corrections changed scores in ${result.corrected.length} league(s)`);
+  if (result.corrected > 0) {
+    console.log(`scheduler: stat corrections changed scores in ${result.corrected} league(s)`);
   }
-  if (result.invalidated && result.invalidated.length > 0) {
+  if (result.invalidated.length > 0) {
     console.log(
       `scheduler: stat corrections invalidated weekly projection runs (${result.invalidated
         .map((w) => `${w.season} from week ${w.fromWeek}: ${w.deletedRuns} run(s)`)
@@ -1108,13 +907,10 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * against the pool instead, autocommitting per statement exactly as it does
  * on the live request path and as it did before this file routed through
  * `runSyncJob`; each week's cache row is already an idempotent upsert, so
- * nothing here needs the unit's transaction anyway. That does NOT keep the
- * weather provider's HTTP fetches off a transaction: `runSyncJob` runs
- * `apply` inside its per-unit transaction, so the client is unused while the
- * transaction stays open across those fetches, which departs from ADR 0036's
- * "a feed call never runs inside a transaction" (as does
- * `runWeatherSnapshotSync`; running a unit with no transaction is its own
- * change to `runSyncJob` and the ADR).
+ * nothing here needs the unit's transaction anyway. The job runs with
+ * `transaction: false` (#1913), so the unit runs with no transaction and no
+ * lock and the weather provider's HTTP fetches never sit inside one (ADR
+ * 0036, "a feed call never runs inside a transaction").
  *
  * Runs at most once per UTC calendar day inside
  * `NIGHTLY_PROJECTION_FILL_UTC_HOUR` (unconditionally there, same as before:
@@ -1154,6 +950,7 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   try {
     outcome = await runSyncJob({
       job: 'nightly-projection-run',
+      transaction: false,
       fetch: async () => {
         // The WHOLE row, not an enumerated column list: getWeeklyProjections
         // hashes `rulesForLeague(league)` to pick the run it fills, and a
@@ -1174,9 +971,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
         for (const league of leaguesResult.rows) units.push({ league, playerIds });
         return units;
       },
-      // The unit's transactional client is intentionally unused here (#1305
-      // f5, see docblock above): getWeeklyProjections must run against the
-      // pool, in autocommit, not inside this transaction.
+      // `transaction: false` hands no client (#1305 f5, see docblock above):
+      // getWeeklyProjections must run against the pool, in autocommit.
       apply: async (_client, { league, playerIds }) => {
         const projection = require('../services/projection.service');
         const { lastPlayoffWeek } = require('../services/season.service');
@@ -1212,8 +1008,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   // 48h practice-squad expiry and a No NFL team clear, and this job runs
   // regardless of either. A full sweep (no id list: the fill just touched
   // every live league's players, not a "who changed" set) on the pool, after
-  // `runSyncJob` has already committed every unit's own transaction above -
-  // same reasoning as the roster-status sync's sweep, no ambient transaction
+  // `runSyncJob` has already finished every unit above (none ran in a
+  // transaction, #1913) - same reasoning as the roster-status sync's sweep, no ambient transaction
   // to protect with a SAVEPOINT. Logged and swallowed, never thrown: a
   // reconcile failure must not turn a real fill into a failed run the
   // cadence gate retries.
@@ -1224,10 +1020,8 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   } catch (err) {
     console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
   }
-  // `runSyncJob` resolves to the single unit's own return value when exactly
-  // one unit ran, or `{ results: [...] }` for zero or more than one (never
-  // a refusal: `fetch` above has no refusal path).
-  const perLeague = outcome && Array.isArray(outcome.results) ? outcome.results : (outcome ? [outcome] : []);
+  // One result per league's unit (`fetch` above has no refusal path).
+  const perLeague = outcome.results;
   const weeksGenerated = perLeague.reduce((sum, r) => sum + (r.weeksGenerated || 0), 0);
   const weeksSkipped = perLeague.reduce((sum, r) => sum + (r.weeksSkipped || 0), 0);
   if (weeksGenerated > 0 || weeksSkipped > 0) {
@@ -1302,7 +1096,7 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
  * (one games.csv fetch per 5-minute tick until it succeeds, the same retry
  * `runNflverseFinalization` has). The sync is COALESCE-only on the context
  * columns and INSERT-safe on kickoffs, so running it any day is harmless.
- * A throw propagates to `tickUnlocked`, which logs it and carries on.
+ * A throw propagates to `runJobs`, which logs it and carries on.
  * Current season only: 2024 and 2025 are not backfilled automatically.
  */
 async function runNflverseGameContextFill({ now = new Date() } = {}) {
@@ -1371,7 +1165,7 @@ let lastNflversePracticeCheckAt = null; // epoch ms
  * shape as `runNflverseCurrentWeek` above: an in-memory stamp, taken BEFORE
  * the call so a failing nflverse is retried every 15 minutes, not every tick.
  * The service logs a failed poll itself and loses only that poll. Ordered in
- * `tickUnlocked` after every deadline duty.
+ * `TICK_JOBS` after every deadline duty.
  */
 async function runNflversePractice({ now = new Date() } = {}) {
   const elapsed = lastNflversePracticeCheckAt === null ? null : now.getTime() - lastNflversePracticeCheckAt;
@@ -1519,23 +1313,135 @@ function stopScheduler() {
 }
 
 /**
- * Every feed-sync job the Sync run module records (ADR 0036), in the order
- * `syncRuns` below reports them. Declared once so `getSchedulerStatus` and any
- * future reader share one spelling (#1205). `live-box` is deliberately
- * excluded: its data_sync_runs row is a source-switch signal, not a Sync run
- * (#1197 R5, ADR 0035).
+ * Waiver clearing, then the owners' email summary of their just-resolved claims.
  */
-const SYNC_RUN_JOBS = [
-  'injuries', 'adp', 'week-stats', 'schedule', 'schedule-nflverse',
-  'players', 'season-stats', 'team-defenses', 'nflverse-week', 'nflverse-current-week', 'nflverse-practice', 'nflverse-snaps', 'nflverse-correction', 'odds', 'game-context',
-  'espn-depth-chart', 'espn-ownership', 'espn-roster-status',
+async function runWaiverClearing() {
+  const waivers = await processAllDueWaivers();
+  if (waivers.length === 0) return;
+  console.log(`scheduler: processed waivers for ${waivers.length} league(s)`);
+  const digest = require('../services/digest.service');
+  for (const processed of waivers) {
+    const leagueId = processed.leagueId != null ? processed.leagueId : processed;
+    try {
+      await digest.sendWaiverResultsDigest({ leagueId });
+    } catch (err) {
+      console.error('waiver digest failed for league %s:', leagueId, err.message);
+    }
+  }
+}
+
+/** The tick-counted live sync: paced by `ticksSinceSync` while a game window is open. */
+async function runLiveSync() {
+  ticksSinceSync += 1;
+  if (ticksSinceSync >= (await syncEveryTicks())) {
+    const synced = await syncAndScoreLiveWeeks();
+    if (synced) ticksSinceSync = 0;
+  }
+}
+
+/**
+ * The tick, as data: `{ name, tier, run, syncRun? }` in the order the duties
+ * run. `tier` says why a job sits where it does: `deadline` duties have a hard
+ * real-world deadline or feed one (corrections and finalization so the holdout
+ * captures corrected inputs, then the capture, then kickoff hold, waivers,
+ * reminders, trades, drafts, live scoring, Override capture); `housekeeping`
+ * runs after every deadline duty and may run long; `trailing` is the slow
+ * outside-host syncs that must never delay anything above them. Tiers never go
+ * backwards down the list. `syncRun` names the Sync run rows (ADR 0036) a job
+ * writes, and `SYNC_RUN_JOBS` is derived from them.
+ *
+ * Throttles differ by job and live in the jobs, not here: most Sync runs ask
+ * `cadence.due`; the stat-correction pass keeps a day stamp beside it (a
+ * same-process short-circuit ahead of the gate's read); the nflverse HEAD polls throttle in memory (a check
+ * that finds nothing writes no run row); retention has a day stamp (no run row);
+ * the live sync is tick-counted.
+ */
+const TICK_JOBS = [
+  { name: 'stat-corrections', tier: 'deadline', syncRun: ['nflverse-correction'], run: () => runDailyStatCorrections() },
+  { name: 'nflverse-finalization', tier: 'deadline', syncRun: ['nflverse-week', 'nflverse-snaps'], run: () => runNflverseFinalization() },
+  { name: 'nflverse-game-context-fill', tier: 'deadline', syncRun: ['schedule-nflverse'], run: () => runNflverseGameContextFill() },
+  { name: 'nflverse-current-week', tier: 'deadline', syncRun: ['nflverse-current-week'], run: () => runNflverseCurrentWeek() },
+  { name: 'injuries', tier: 'deadline', syncRun: ['injuries'], run: () => runDailyInjurySync() },
+  { name: 'adp', tier: 'deadline', syncRun: ['adp'], run: () => runDailyAdpSync() },
+  { name: 'odds', tier: 'deadline', syncRun: ['odds'], run: () => runHourlyOddsSync() },
+  { name: 'game-context', tier: 'deadline', syncRun: ['game-context'], run: () => runHourlyGameContextSync() },
+  { name: 'holdout-snapshots', tier: 'deadline', run: () => runHoldoutSnapshots() },
+  // Kickoff hold (#1375, ADR 0043): before claim processing, so a claim submitted
+  // this tick already sees a player his kicked-off team put on waivers this tick.
+  { name: 'kickoff-waiver-hold', tier: 'deadline', run: () => holdKickedOffPlayers() },
+  { name: 'waivers', tier: 'deadline', run: () => runWaiverClearing() },
+  // Self-limits to the pre-kickoff window.
+  { name: 'lineup-reminders', tier: 'deadline', run: () => require('../services/digest.service').sendLineupReminders() },
+  // Pick'em-only leagues follow the NFL calendar: point them at the right week
+  // BEFORE the reminders read current_week, and complete any whose week-18 slate
+  // has finalized right after.
+  { name: 'pickem-week-sync', tier: 'deadline', run: () => runPickemWeekSync() },
+  { name: 'pickem-reminders', tier: 'deadline', run: () => require('../services/digest.service').sendPickemReminders() },
+  { name: 'pickem-season-completion', tier: 'deadline', run: () => runPickemSeasonCompletion() },
+  {
+    name: 'trades',
+    tier: 'deadline',
+    run: async () => {
+      const trades = await processDueTrades();
+      if (trades.length > 0) console.log(`scheduler: settled ${trades.length} trade(s)`);
+    },
+  },
+  {
+    name: 'scheduled-drafts',
+    tier: 'deadline',
+    run: async () => {
+      const draftActions = await processScheduledDrafts();
+      if (draftActions.length > 0) console.log(`scheduler: ran ${draftActions.length} scheduled-draft action(s)`);
+    },
+  },
+  { name: 'live-sync', tier: 'deadline', syncRun: ['week-stats'], run: () => runLiveSync() },
+  // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
+  // minute before it. After every time-sensitive duty above, since it asks for
+  // advice per team and its run time must never delay them; it logs per league.
+  { name: 'override-capture', tier: 'deadline', run: () => captureOverrides({ loadAdvice: startSitAdvice }) },
+  // nflverse practice-participation poll (#1922): a poll that finds a new file is
+  // up to a minute and a half of serial downloads that must never delay a
+  // deadline duty. Nothing above reads what it writes within the same tick.
+  { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
+  // A throw leaves the retention day unstamped, so it retries every tick.
+  { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
+  // Weather snapshots (#1883): after live scoring and every deadline duty, ahead
+  // of the multi-minute nightly fill; it never throws.
+  { name: 'weather-snapshots', tier: 'housekeeping', syncRun: ['weather-snapshots'], run: () => runWeatherSnapshotSync() },
+  // Beside the other once-a-day housekeeping pass, never ahead of a time-sensitive
+  // duty: this can run long (every in-season league's whole roster), so it only
+  // starts inside its own off-peak window (#1305 f2).
+  { name: 'nightly-projection-fill', tier: 'housekeeping', run: () => runNightlyProjectionFill() },
+  { name: 'nightly-stats-integrity', tier: 'housekeeping', run: () => runNightlyStatsIntegrityScan() },
+  // ESPN syncs (#1308, risk review): up to 32 sequential ESPN calls each with its
+  // own ESPN_TIMEOUT_MS, so a slow or hanging host must never delay anything
+  // above. Free and keyless, so no off-peak hour of their own. Roster status
+  // (#1766) BEFORE the depth chart: the daily run, then the Saturday run after
+  // the 4pm ET elevation deadline, then the game-day run (#1995). The
+  // pre-holdout-capture run lives in runHoldoutSnapshots, ahead of the capture.
+  { name: 'espn-roster-status-daily', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], run: () => runDailyEspnRosterStatusSync() },
+  { name: 'espn-roster-status-saturday', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], run: () => runSaturdayEspnRosterStatusSync() },
+  { name: 'espn-roster-status-game-day', tier: 'trailing', syncRun: [ROSTER_STATUS_JOB], run: () => runGameDayEspnRosterStatusSync() },
+  { name: 'espn-depth-chart', tier: 'trailing', syncRun: ['espn-depth-chart'], run: () => runDailyEspnDepthChartSync() },
+  { name: 'espn-ownership', tier: 'trailing', syncRun: ['espn-ownership'], run: () => runDailyEspnOwnershipSync() },
 ];
 
-// The only outcomes runSyncJob ever tags a non-ok row with (server/modules/
-// syncRun.js). Anything else - a legacy row written before that module
-// existed, such as an old ADP row's `reason: 'thin_market'` - reports
-// outcome: null rather than inventing a value (#1205).
-const SYNC_RUN_OUTCOMES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
+// Sync runs only a commissioner trigger writes (feedSyncRuns.service.js); no tick
+// job does, so the list cannot declare them.
+const MANUAL_SYNC_RUN_JOBS = ['schedule', 'players', 'season-stats', 'team-defenses'];
+
+/**
+ * Every feed-sync job the Sync run module records (ADR 0036), in the order
+ * `syncRuns` below reports them: the tick list's `syncRun` names, then the
+ * commissioner-only ones (#1205). `live-box` is deliberately excluded: its
+ * data_sync_runs row is a source-switch signal, not a Sync run (#1197 R5,
+ * ADR 0035).
+ */
+const SYNC_RUN_JOBS = [...syncRunJobs(TICK_JOBS), ...MANUAL_SYNC_RUN_JOBS];
+
+// An ok run that wrote nothing because NWS_USER_AGENT is unset (#1930): it stays
+// ok (a failed row would not move the cadence gate), but the report names it.
+const NWS_UNCONFIGURED_REASON = 'NWS_USER_AGENT not configured';
 
 /**
  * `{ finishedAt, ok, outcome, failedWeeks }` for one `lastRun(job).latest`
@@ -1550,12 +1456,11 @@ function toLatestStatus(latest) {
   if (!latest) return null;
   const detail = latest.detail;
   const isDetailObject = detail !== null && typeof detail === 'object';
-  const reason = isDetailObject && detail.reason;
   const failedWeeks = isDetailObject && Array.isArray(detail.failedWeeks) ? detail.failedWeeks.length : null;
   return {
     finishedAt: latest.finishedAt,
     ok: latest.ok,
-    outcome: latest.ok ? 'ok' : (SYNC_RUN_OUTCOMES.has(reason) ? reason : null),
+    outcome: latest.outcome ?? null,
     failedWeeks,
   };
 }
@@ -1659,17 +1564,21 @@ module.exports = {
   alertCloseMatchups,
   getSchedulerStatus,
   SYNC_RUN_JOBS,
+  MANUAL_SYNC_RUN_JOBS,
+  TICK_JOBS,
+  runJobs,
+  syncRunJobs,
   syncAndScoreLiveWeeks,
   syncEveryTicks,
   runDailyInjurySync,
   injurySyncDue,
   injuryGameWindowMs,
   runDailyAdpSync,
-  adpLastRun,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,
   runDailyEspnRosterStatusSync,
   runSaturdayEspnRosterStatusSync,
+  runGameDayEspnRosterStatusSync,
   runPreHoldoutEspnRosterStatusSync,
   saturdayElevationDeadline,
   holdoutWindowOpenedAt,

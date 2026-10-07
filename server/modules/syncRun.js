@@ -5,7 +5,7 @@ const { withTransaction } = require('./withTransaction');
 
 /**
  * A feed sync is a Sync run (CONTEXT.md, ADR 0036). `runSyncJob({ job, lock,
- * fetch, apply })` is the one place the shape shared by every feed sync
+ * transaction, fetch, apply })` is the one place the shape shared by every feed sync
  * (injuries, ADP, schedule, players, week stats) is written: fetch outside any
  * transaction or lock, apply each unit inside its own `withTransaction` (ADR
  * 0033) under the job's lock, and record exactly one `data_sync_runs` row for
@@ -20,8 +20,7 @@ const { withTransaction } = require('./withTransaction');
  *   recorded row on both an ok run (spread first, so the module's own
  *   `results`/single-unit shape wins on any key collision) and a write_failed
  *   run (spread first, so `reason`/`failed` win) - never into the resolved
- *   value, which stays exactly `results.length === 1 ? results[0] : {
- *   results }` either way, wrapper or not; or `{ refused: true, reason,
+ *   value, wrapper or not; or `{ refused: true, reason,
  *   detail }` when the feed answered but the job declines to write (a thin
  *   ADP market, say); that `detail` is optional and, when given, is merged
  *   into the recorded row's detail and onto the resolved refusal alongside
@@ -34,7 +33,12 @@ const { withTransaction } = require('./withTransaction');
  *   tagged reason and the error's message.
  * - `apply(client, unit)` runs once per unit, each unit in its own transaction
  *   (`withTransaction(pool, ..., { label: job })`) after
- *   `SELECT pg_advisory_xact_lock($1)` with `lock`, when the job takes one. A
+ *   `SELECT pg_advisory_xact_lock($1)` with `lock`, when the job takes one.
+ *   `transaction: false` (#1913; default `true`) runs each unit as
+ *   `apply(null, unit)` with no transaction and no lock, for a unit that makes
+ *   feed calls or only autocommit writes (ADR 0036: a feed call never runs
+ *   inside a transaction). It throws before `fetch` when combined with a
+ *   non-null `lock`, and records no row; everything else below is unchanged. A
  *   unit that throws is tagged `write_failed` (unless already tagged) and
  *   recorded in `detail.failed[]`; the units already applied in earlier
  *   iterations stay applied, since each ran and committed in its own
@@ -43,20 +47,32 @@ const { withTransaction } = require('./withTransaction');
  *   (best-effort: a failure to record never masks the run's real outcome).
  *   `ok` is true only when every unit applied; the outcome and any failed
  *   units live in `detail`, since the table carries no `reason` column.
- * - On success `runSyncJob` resolves to the single unit's `apply` result when
- *   there was exactly one unit (`apply`'s return value unwrapped), or
- *   `{ results: [...] }` for zero or more than one. On a unit failure it
+ * - A run that returns resolves ONE typed outcome, `{ status, results }`:
+ *   `results` is always an array, one `apply` result per unit (length 1 for a
+ *   single-unit run). `status` is `ok`; `unconfigured` when every unit's
+ *   result says `unconfigured: true` (an optional integration that is not set
+ *   up: still an ok row, recorded with `unconfigured: true`); or `refused`. The
+ *   other statuses, `fetch_failed`, `bad_response` and `write_failed`, throw,
+ *   carrying the status as `error.syncFailureReason`; `lastRun` reads the same
+ *   status back off the row as `outcome`. On a unit failure it
  *   rethrows the ORIGINAL error from the first unit that failed (with any
- *   `error.rollbackError` `withTransaction` attached), after recording; on a
- *   fetch failure it rethrows the (possibly pre-tagged) fetch error the same
- *   way. A refusal never throws; it resolves to `{ refused: true, reason }`
- *   plus `detail` when `fetch` supplied one.
+ *   `error.rollbackError` `withTransaction` attached), after recording, and
+ *   merges that error's `syncDetail` (if any) into the row's detail, under
+ *   `reason`/`failed`; on a fetch failure it rethrows the (possibly
+ *   pre-tagged) fetch error the same way. A refusal never throws; it resolves
+ *   to `{ status: 'refused', reason, results: [] }` plus `detail` when `fetch`
+ *   supplied one.
  *   Tagging a thrown value with `.syncFailureReason` is best-effort: a frozen
  *   object or a non-object throw (a string, say) cannot carry the tag, and
  *   `tagReason` below reads that failure rather than letting it replace the
  *   real error or skip the one `data_sync_runs` row this run still owes.
  */
-async function runSyncJob({ job, lock, fetch, apply }) {
+async function runSyncJob({ job, lock, transaction = true, fetch, apply }) {
+  // An xact lock lives and dies with a transaction, so asking for one without
+  // the other is a caller bug: refuse before any fetch or row (#1913).
+  if (transaction === false && lock != null) {
+    throw new Error('runSyncJob: transaction: false cannot take a lock (an advisory xact lock needs a transaction)');
+  }
   const startedAt = new Date();
   let fetched;
   try {
@@ -84,7 +100,7 @@ async function runSyncJob({ job, lock, fetch, apply }) {
       refusalReason: fetched.reason || null,
     };
     await recordDataSyncRun({ job, startedAt, ok: false, detail: recordedDetail });
-    const resolved = { refused: true, reason: fetched.reason || null };
+    const resolved = { status: 'refused', reason: fetched.reason || null, results: [] };
     if (fetched.detail) resolved.detail = fetched.detail;
     return resolved;
   }
@@ -108,16 +124,18 @@ async function runSyncJob({ job, lock, fetch, apply }) {
   for (let i = 0; i < list.length; i++) {
     const unit = list[i];
     try {
-      // Sequential by design: each unit is its own transaction and must
-      // commit or roll back before the next one starts (ADR 0036).
-      const result = await withTransaction(
-        pool,
-        async (client) => {
-          if (lock != null) await client.query('SELECT pg_advisory_xact_lock($1)', [lock]);
-          return apply(client, unit);
-        },
-        { label: job }
-      );
+      // Sequential by design: each unit (its own transaction unless
+      // `transaction: false`) must finish before the next one starts (ADR 0036).
+      const result = transaction === false
+        ? await apply(null, unit)
+        : await withTransaction(
+          pool,
+          async (client) => {
+            if (lock != null) await client.query('SELECT pg_advisory_xact_lock($1)', [lock]);
+            return apply(client, unit);
+          },
+          { label: job }
+        );
       results.push(result);
     } catch (error) {
       const reason = tagReason(error, 'write_failed');
@@ -134,19 +152,22 @@ async function runSyncJob({ job, lock, fetch, apply }) {
       job,
       startedAt,
       ok: false,
-      detail: { ...(fetchDetail || {}), reason: 'write_failed', failed },
+      detail: { ...(fetchDetail || {}), ...((firstFailure && firstFailure.syncDetail) || {}), reason: 'write_failed', failed },
     });
     throw firstFailure;
   }
 
-  const onSuccess = results.length === 1 ? results[0] : { results };
-  // Same spread order on the ok path: fetchDetail first, onSuccess's own
-  // results/single-unit shape wins on any key collision. The RESOLVED value
-  // callers see is always onSuccess alone - fetchDetail only ever reaches the
-  // recorded data_sync_runs row, never a caller's return value.
-  const recordedDetail = fetchDetail ? { ...fetchDetail, ...onSuccess } : onSuccess;
+  const status = results.length > 0 && results.every((r) => r && r.unconfigured === true) ? 'unconfigured' : 'ok';
+  // The recorded row keeps its own shape (the one unit's result spread, or
+  // { results }), which every reader of data_sync_runs decodes. Same spread
+  // order on the ok path: fetchDetail first, the unit shape wins on any key
+  // collision. The RESOLVED value callers see is always { status, results } -
+  // fetchDetail only ever reaches the recorded row, never a caller's return.
+  const unitShape = results.length === 1 ? results[0] : { results };
+  const recorded = fetchDetail ? { ...fetchDetail, ...unitShape } : unitShape;
+  const recordedDetail = status === 'unconfigured' ? { ...recorded, unconfigured: true } : recorded;
   await recordDataSyncRun({ job, startedAt, ok: true, detail: recordedDetail });
-  return onSuccess;
+  return { status, results };
 }
 
 /**
@@ -201,12 +222,24 @@ async function lastRun(job) {
   return { latest: toRun(row.latest), latestOk: toRun(row.latestOk) };
 }
 
+// The statuses a non-ok run's row carries as `detail.reason`. Any other reason
+// - a legacy row, such as an old ADP row's `thin_market` - has no outcome.
+const FAILURE_STATUSES = new Set(['refused', 'fetch_failed', 'bad_response', 'write_failed']);
+
+/** A run row's typed status (the one `runSyncJob` resolved or threw), or null. */
+function outcomeOf(ok, detail) {
+  const d = detail !== null && typeof detail === 'object' ? detail : {};
+  if (ok) return d.unconfigured === true ? 'unconfigured' : 'ok';
+  return FAILURE_STATUSES.has(d.reason) ? d.reason : null;
+}
+
 function toRun(json) {
   if (!json) return null;
   return {
     id: json.id,
     finishedAt: json.finished_at ? new Date(json.finished_at) : null,
     ok: json.ok,
+    outcome: outcomeOf(json.ok, json.detail),
     detail: json.detail,
   };
 }

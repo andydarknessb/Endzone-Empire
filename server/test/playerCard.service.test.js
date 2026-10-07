@@ -873,7 +873,7 @@ test('getPlayerCard: a free agent gets line, weather, usage and opponents (#1667
       rows: [{ total: '47.00', spread: '-3.00', observed_at: '2026-10-01T12:00:00.000Z' }],
     })],
     [/^SELECT "temperature_f".*FROM "game_weather_snapshots"/, () => ({
-      rows: [{ temperature_f: '45.5', wind_speed_mph: '10', wind_gust_mph: '18', precipitation_probability: 20, short_forecast: 'Cloudy' }],
+      rows: [{ temperature_f: '45.5', wind_speed_mph: '10', wind_gust_mph: '18', precipitation_probability: 20, short_forecast: 'Cloudy', fetched_at: new Date() }],
     })],
     [/FROM "player_stats" "ps"/, () => ({
       rows: [{ player_id: 21, week: 1, position: 'WR', defense: 'DAL', stats: { receivingYards: 150 } }],

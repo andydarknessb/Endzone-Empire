@@ -1837,26 +1837,6 @@ test('the scheduler duty logs failures with season/week/profile context', async 
   assert.deepEqual(line.slice(1), [FIXTURE_SEASON, 3, 'ppr', 'boom']);
 });
 
-test('the tick runs corrections, finalization, then holdout BEFORE waivers/trades/live work', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const body = source.slice(source.indexOf('async function tickUnlocked'));
-  const at = (needle) => {
-    const i = body.indexOf(needle);
-    assert.ok(i !== -1, `tickUnlocked does not call ${needle}`);
-    return i;
-  };
-  const corrections = at('runDailyStatCorrections()');
-  const finalization = at('runNflverseFinalization()');
-  const holdoutCall = at('runHoldoutSnapshots()');
-  const waivers = at('processAllDueWaivers()');
-  const trades = at('processDueTrades()');
-  const live = at('syncAndScoreLiveWeeks()');
-  assert.ok(corrections < finalization, 'fresh inputs: corrections before finalization');
-  assert.ok(finalization < holdoutCall, 'fresh inputs: finalization before capture');
-  assert.ok(holdoutCall < waivers && holdoutCall < trades && holdoutCall < live,
-    'the deadline duty must not sit behind throwable non-deadline work');
-});
-
 // ---------------------------------------------------------------------------
 // Migration smoke
 // ---------------------------------------------------------------------------

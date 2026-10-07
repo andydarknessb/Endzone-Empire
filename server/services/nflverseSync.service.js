@@ -369,7 +369,7 @@ function buildStatUpdates({ defRows, crosswalk, knownPlayersByExternalId }) {
  * same object as the data_sync_runs detail, so teamMismatches shows there.
  */
 async function syncNflverseSnaps({ season, week, pfrCrosswalk: given }) {
-  return runSyncJob({
+  const { results: [snaps] } = await runSyncJob({
     job: 'nflverse-snaps',
     lock: null,
     fetch: async () => {
@@ -381,6 +381,7 @@ async function syncNflverseSnaps({ season, week, pfrCrosswalk: given }) {
     },
     apply: (client, unit) => applyNflverseSnapsUnit(client, unit),
   });
+  return snaps;
 }
 
 async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk }) {
@@ -439,7 +440,7 @@ async function applyNflverseSnapsUnit(db, { season, week, snapRows, pfrCrosswalk
  * unchanged: `{ season, week, playersUpdated, leaguesRescored }`.
  */
 async function syncNflverseWeek({ season, week, crosswalk }) {
-  const result = await runSyncJob({
+  const { results: [result] } = await runSyncJob({
     job: 'nflverse-week',
     lock: null,
     fetch: () => fetchNflverseWeekUnit({ season, week, crosswalk }),
@@ -743,12 +744,13 @@ function venueWithoutRoof(scheduleRows, { now = new Date() } = {}) {
  * interleaving its upserts of the same season's games (#1203).
  */
 async function syncScheduleFromNflverse({ season, now = new Date() }) {
-  return runSyncJob({
+  const { results: [schedule] } = await runSyncJob({
     job: 'schedule-nflverse',
     lock: NFL_GAMES_BULK_WRITE_LOCK,
     fetch: () => fetchScheduleFromNflverseUnits({ season, now }),
     apply: (client, unit) => applyScheduleFromNflverseUnit(client, unit),
   });
+  return schedule;
 }
 
 /**
@@ -1111,7 +1113,7 @@ async function syncNflverseCorrection({
   crosswalk,
 }) {
   let gamesInFile = 0;
-  const result = await runSyncJob({
+  const { results } = await runSyncJob({
     job: 'nflverse-correction',
     lock: null,
     fetch: async () => {
@@ -1141,7 +1143,6 @@ async function syncNflverseCorrection({
     },
     apply: (client, unit) => applyNflverseFullWeek(client, unit),
   });
-  const results = result && Array.isArray(result.results) ? result.results : [result];
   return {
     season,
     week,
@@ -1329,12 +1330,13 @@ async function patchCurrentWeeks() {
         );
         if (seen.rows[0]) continue;
       }
-      patched.push(await runSyncJob({
+      const { results: [patch] } = await runSyncJob({
         job: 'nflverse-current-week',
         lock: null,
         fetch: async () => ({ units: await fetchNflverseWeekUnit({ season, week }), detail: { version } }),
         apply: (client, unit) => applyNflverseWeekUnit(client, unit),
-      }));
+      });
+      patched.push(patch);
     } catch (err) {
       console.error('nflverse current-week patch failed for %s week %s:', season, week, err.message);
     }

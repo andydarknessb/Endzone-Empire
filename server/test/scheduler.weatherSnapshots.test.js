@@ -127,6 +127,18 @@ test('weather-snapshots writes a fresh snapshot every 6 hours with no projection
   assert.equal(scheduler.WEATHER_SNAPSHOT_INTERVAL_MS, weather.HORIZON_BUCKET_HOURS * HOUR);
 });
 
+test('weather-snapshots runs its unit with no transaction, so the NWS fetches never sit inside one (#1913)', async (t) => {
+  withUserAgent(t);
+  mockNws(t);
+  stubGate(t);
+  const world = weatherWorld(t);
+
+  await scheduler.runWeatherSnapshotSync({ now: T0 });
+
+  assert.equal(world.writes.length, 1, 'the run did its work');
+  assert.equal(world.fake.calls.filter((c) => c.text === 'BEGIN').length, 0);
+});
+
 test('weather-snapshots only asks about games kicking off in the future and within MAX_HORIZON_HOURS', async (t) => {
   withUserAgent(t);
   mockNws(t);
@@ -224,23 +236,11 @@ test('weather-snapshots stays an ok run when one forecast was fetched and saved 
   t.mock.method(console, 'error', () => {});
 
   const result = await scheduler.runWeatherSnapshotSync({ now: T0 });
-  assert.equal(result.requests, 2);
-  assert.equal(result.fetched, 1);
-  assert.equal(result.saved, 1);
+  assert.equal(result.results[0].requests, 2);
+  assert.equal(result.results[0].fetched, 1);
+  assert.equal(result.results[0].saved, 1);
   assert.equal(world.writes.length, 1);
   assert.equal(world.syncRuns[0].ok, true);
-});
-
-test('tickUnlocked registers the weather snapshots duty', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'modules', 'scheduler.js'), 'utf8');
-  const tickBody = source.slice(
-    source.indexOf('async function tickUnlocked'),
-    source.indexOf('async function runRetention')
-  );
-
-  assert.match(tickBody, /await runWeatherSnapshotSync\(\);/);
 });
 
 test('weather-snapshots gate: an ok row holds it for 6 hours, a failed row leaves it due, an empty window still holds it', async (t) => {

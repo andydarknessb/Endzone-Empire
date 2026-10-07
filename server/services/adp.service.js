@@ -182,7 +182,7 @@ function buildAdpUpdates(players, entries) {
  * fetch-catch records only `{ reason, message }`, with no `detail.day` to
  * merge (`syncRun.js`'s own docblock: "a throw happens before any
  * `{ units, detail }` wrapper is returned"). The cadence gate
- * (server/modules/scheduler.js's `runDailyAdpSync`, `adpLastRun`,
+ * (server/modules/scheduler.js's `runDailyAdpSync`,
  * server/modules/cadence.js) only ever reads `detail.day` off a successful or
  * refused row for exactly this reason - a `fetch_failed` row has none, so it
  * can never be mistaken for a same-day refusal. Defaults to `new Date()` so
@@ -192,19 +192,19 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year, now = new Date()
   const fmt = VALID_FORMATS.has(format) ? format : 'half-ppr';
   const day = cadence.utcDateKey(now);
 
-  const result = await runSyncJob({
+  const outcome = await runSyncJob({
     job: 'adp',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchAdpUnit(fmt, teams, year, day),
     apply: (client, unit) => applyAdpUnit(client, unit),
   });
 
-  if (result && result.refused) {
-    const detail = result.detail || {};
+  if (outcome.status === 'refused') {
+    const detail = outcome.detail || {};
     return {
       ok: false,
       skipped: true,
-      reason: result.reason,
+      reason: outcome.reason,
       format: fmt,
       teams,
       adpPlayers: detail.adpPlayers || 0,
@@ -216,6 +216,7 @@ async function syncAdp({ format = 'half-ppr', teams = 12, year, now = new Date()
     };
   }
 
+  const [result] = outcome.results;
   return {
     ok: true,
     format: fmt,

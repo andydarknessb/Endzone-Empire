@@ -145,10 +145,8 @@ test('runDailyStatCorrections never runs outside the UTC Tue/Wed window, restart
 test('runDailyStatCorrections delegates the due/not-due decision to the cadence gate', async (t) => {
   const cadence = require('../modules/cadence');
   let dueArgs = null;
-  let dueOpts = null;
-  t.mock.method(cadence, 'due', async (args, opts) => {
+  t.mock.method(cadence, 'due', async (args) => {
     dueArgs = args;
-    dueOpts = opts;
     return { due: true, reason: 'stubbed due' };
   });
   let resyncCalls = 0;
@@ -158,10 +156,9 @@ test('runDailyStatCorrections delegates the due/not-due decision to the cadence 
   const now = new Date('2030-06-04T12:00:00Z'); // a Tuesday, inside the correction window
   const result = await scheduler.runDailyStatCorrections({ now });
 
-  assert.deepEqual(dueArgs, { job: 'stat-corrections', every: 'utc-day', now });
-  assert.equal(typeof dueOpts.lastRun, 'function', 'a job-specific lastRun reader is injected, per cadence.js\'s own contract');
+  assert.deepEqual(dueArgs, { job: 'stat-corrections', every: 'utc-day', retryMs: 60 * 60 * 1000, now }, 'the job sets its own retry interval');
   assert.equal(resyncCalls, 1, 'due: true delegates straight to resyncPriorWeeks');
-  assert.deepEqual(result, { corrected: [], invalidated: [] });
+  assert.deepEqual(result, { corrected: 0, invalidated: [] });
 });
 
 test('runDailyStatCorrections never runs the pass when the cadence gate says it is not due', async (t) => {
@@ -344,6 +341,23 @@ test('an owed refill runs on the very next tick when a corrections pass succeeds
   const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-15T17:10:00Z') });
   assert.ok(result && result.weeksGenerated > 0, `the same-day wipe was refilled: ${JSON.stringify(result)}`);
   assert.deepEqual(generated.map((g) => g.week), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+});
+
+test('runNightlyProjectionFill runs its unit with no transaction (#1913)', async (t) => {
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => ({
+    projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])),
+  }));
+  const fake = createFakePool([
+    dataSyncRunsHandler({}),
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-17T09:10:00Z') });
+
+  assert.ok(result && result.weeksGenerated > 0, 'the fill ran');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0);
 });
 
 test('a successful same-day owed refill is not repeated on the following tick', async (t) => {
