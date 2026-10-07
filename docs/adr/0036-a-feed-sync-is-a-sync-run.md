@@ -69,3 +69,23 @@ no transaction and no lock, and `apply` gets `null` for its client. That is
 what keeps "A feed call never runs inside a transaction" true for the weather
 snapshots and the nightly projection fill. A lock needs a transaction, so
 `transaction: false` with a `lock` is refused.
+
+## Amendment (#2050): one typed outcome
+
+`runSyncJob` resolves one typed shape, `{ status, results }`: `results` is
+always an array (one `apply` result per unit, length 1 for a single-unit run),
+and `status` is `ok`, `refused` or `unconfigured` (every unit reported
+`unconfigured: true`: an optional integration that is not set up, still an `ok`
+row). A refusal resolves `{ status: 'refused', reason, results: [] }`. The other
+three statuses, `fetch_failed`, `bad_response` and `write_failed`, throw, with
+the status on `error.syncFailureReason`. That makes six outcomes where the
+decision above listed five. `lastRun` decodes the same status off each row as
+`outcome`, and the readers use it instead of re-interpreting the row: the
+cadence gate (a `refused` run settles its UTC day; a failed run holds the job
+back for the `retryMs` the job sets for itself) and the scheduler status. A
+caller that hands one unit on to its own callers takes it at its own boundary
+(`const { results: [unit] } = await runSyncJob(...)`); `runSyncJob` never
+resolves two shapes. The Tue/Wed stat-correction pass is a Sync run like the
+rest (`transaction: false`), no longer a hand-written row. An apply error may
+carry `syncDetail`, merged into the failed row's detail (the pass's failed
+weeks).

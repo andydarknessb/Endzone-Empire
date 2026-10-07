@@ -246,7 +246,7 @@ async function syncCurrentWeeks({ now = new Date() } = {}) {
       [sourceLastUpdated, String(season), String(week)]
     );
     if (seen.rows[0]) return { synced };
-    synced.push(await runSyncJob({
+    const { results: [polled] } = await runSyncJob({
       job: JOB,
       lock: null,
       fetch: async () => {
@@ -263,7 +263,8 @@ async function syncCurrentWeeks({ now = new Date() } = {}) {
         };
       },
       apply: (client, unit) => applyUnit(client, unit),
-    }));
+    });
+    synced.push(polled);
   } catch (err) {
     console.error('practice participation poll failed for %s week %s:', season, week, err.message);
   }

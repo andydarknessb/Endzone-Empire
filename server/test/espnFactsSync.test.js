@@ -39,8 +39,8 @@ test('runDepthChartSync: writes one team\'s rows inside one transaction, records
 
   const result = await runDepthChartSync({ now: new Date('2026-09-15T12:00:00Z') });
 
-  assert.equal(result.teamCode, 'NE');
-  assert.ok(result.written >= 2);
+  assert.equal(result.results[0].teamCode, 'NE');
+  assert.ok(result.results[0].written >= 2);
   assert.equal(fake.matching(/^BEGIN$/).length, 1, 'exactly one team produced a unit, so exactly one transaction opens');
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs.length, 1);
@@ -56,7 +56,7 @@ test('runDepthChartSync: an athlete ESPN reports that we do not roster is skippe
   ]).install(t);
 
   const result = await runDepthChartSync({ now: new Date('2026-09-15T12:00:00Z') });
-  assert.deepEqual(result, { teamCode: 'NE', written: 0 });
+  assert.deepEqual(result, { status: 'ok', results: [{ teamCode: 'NE', written: 0 }] });
   assert.equal(fake.matching(insert('player_depth_chart')).length, 0, 'no known players -> no INSERT at all');
   fake.assertClean();
 });
@@ -79,7 +79,7 @@ test('runDepthChartSync: a second run on the same captured_date records success 
   ]).install(t);
 
   const result = await runDepthChartSync({ now: new Date('2026-09-15T12:00:00Z') });
-  assert.equal(result.written, 0);
+  assert.equal(result.results[0].written, 0);
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs[0].params[2], true, 'still recorded ok=true, not a failure');
   fake.assertClean();
@@ -92,7 +92,7 @@ test('runDepthChartSync: no team returns any rows (all empty, none failed) -> no
   ]).install(t);
 
   const result = await runDepthChartSync({});
-  assert.deepEqual(result, { results: [] });
+  assert.deepEqual(result, { status: 'ok', results: [] });
   assert.equal(fake.matching(/^BEGIN$/).length, 0);
   fake.assertClean();
 });
@@ -154,8 +154,8 @@ test('runDepthChartSync: an occasional single failed team (not consecutive enoug
   ]).install(t);
 
   const result = await runDepthChartSync({ now: new Date('2026-09-15T12:00:00Z') });
-  assert.equal(result.teamCode, 'NE');
-  assert.ok(result.written >= 1);
+  assert.equal(result.results[0].teamCode, 'NE');
+  assert.ok(result.results[0].written >= 1);
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs[0].params[2], true);
 });
@@ -320,7 +320,7 @@ test('runRosterStatusSync: the recorded NYG roster stores Mafah as practice_squa
 
   const result = await runRosterStatusSync({ now: new Date('2026-09-29T12:00:00Z'), transport: rosterTransport() });
 
-  assert.equal(result.teamCode, 'NYG');
+  assert.equal(result.results[0].teamCode, 'NYG');
   const [playerIds, teamCodes, statuses, dates] = written;
   const statusOf = (athleteId) => statuses[playerIds.indexOf(athleteId + 1000)];
   assert.equal(statusOf(4431562), 'practice_squad');
@@ -343,7 +343,7 @@ test('runRosterStatusSync: an athlete ESPN reports that we do not roster is skip
   ]).install(t);
 
   const result = await runRosterStatusSync({ transport: rosterTransport() });
-  assert.deepEqual(result, { teamCode: 'NYG', written: 0 });
+  assert.deepEqual(result, { status: 'ok', results: [{ teamCode: 'NYG', written: 0 }] });
   assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0);
 });
 
@@ -353,7 +353,7 @@ test('runRosterStatusSync: one team failing writes no rows for that team and doe
 
   const result = await runRosterStatusSync({ transport: rosterTransport({ nyg: () => { throw forbidden(); } }) });
 
-  assert.deepEqual(result, { results: [] });
+  assert.deepEqual(result, { status: 'ok', results: [] });
   assert.equal(fake.matching(insert('player_nfl_roster_status')).length, 0, 'the failed team wrote nothing');
   assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'the run still records ok');
 });
@@ -431,6 +431,6 @@ test('runRosterStatusSync: a reconcile failure is logged and never fails the run
 
   const result = await runRosterStatusSync({ transport: rosterTransport() });
 
-  assert.equal(result.teamCode, 'NYG', 'the run itself still succeeds');
+  assert.equal(result.results[0].teamCode, 'NYG', 'the run itself still succeeds');
   assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'still recorded ok');
 });

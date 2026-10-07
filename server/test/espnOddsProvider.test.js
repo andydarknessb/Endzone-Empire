@@ -118,7 +118,7 @@ test('syncOdds: fetches the slate once outside any transaction, writes one row p
 
   const result = await syncOdds({ season: 2026, week: 2, transport });
 
-  assert.deepEqual(result, { gamesWritten: 1 });
+  assert.deepEqual(result, { status: 'ok', results: [{ gamesWritten: 1 }] });
   assert.equal(fake.matching(/^BEGIN$/).length, 1, 'the whole slate writes in one transaction');
   assert.equal(fake.matching(insert('game_odds_snapshots')).length, 1);
   const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
@@ -150,7 +150,7 @@ test('syncOdds: a week with no priced games opens no transaction and still recor
   ]).install(t);
 
   const result = await syncOdds({ season: 2025, week: 1, transport });
-  assert.deepEqual(result, { results: [] });
+  assert.deepEqual(result, { status: 'ok', results: [] });
   assert.equal(fake.matching(/^BEGIN$/).length, 0);
   const runs = dataSyncRuns(fake.calls);
   assert.equal(runs[0].params[2], true);
