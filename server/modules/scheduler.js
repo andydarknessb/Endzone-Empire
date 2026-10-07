@@ -227,7 +227,13 @@ async function tickUnlocked() {
     } catch (err) {
       console.error('nflverse practice-participation poll failed (will retry in 15 minutes):', err.message);
     }
-    await runRetention();
+    // Contained: a throw leaves the retention day unstamped, so it retries
+    // every tick, and uncontained that skipped every duty below each time.
+    try {
+      await runRetention();
+    } catch (err) {
+      console.error('retention cleanup failed (will retry next tick):', err.message);
+    }
     // Weather snapshots (#1883): after live scoring and every deadline duty,
     // ahead of the multi-minute nightly fill; it never throws.
     await runWeatherSnapshotSync();
