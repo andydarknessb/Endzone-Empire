@@ -1222,8 +1222,10 @@ function factorEdgeText(factors) {
  * such starter found wins; `entries` is already ordered by position and name
  * (the entries query's own ORDER BY), so the result is deterministic without
  * a tie-break rule of its own. The comparison refuses either side whose
- * `unavailable` is set (CONTEXT.md, Unavailable: a projection counts as zero
- * wherever compared); the Start/sit advice owns that swap.
+ * `unavailable` is set (#2066; CONTEXT.md, Unavailable: every surface shows
+ * the reason instead of a number, so no "Outprojects" is said of or against a
+ * player who cannot play); a starter on a bye or Out is already a Lineup
+ * problem, and the Start/sit advice owns that swap.
  */
 function findBenchAboveStarter(entry, entries, rosterSlots) {
   if (entry.slot !== BENCH || entry.projected_points == null) return null;
