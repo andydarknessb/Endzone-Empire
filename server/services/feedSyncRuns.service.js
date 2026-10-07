@@ -135,12 +135,13 @@ function normalizePlayerEntry(entry) {
  * refused `playerID` and the existing `external_id` it matched).
  */
 async function syncPlayers({ season, api = tank01Get }) {
-  return runSyncJob({
+  const { results: [players] } = await runSyncJob({
     job: 'players',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchSyncPlayersUnit({ season, api }),
     apply: (client, unit) => applySyncPlayersUnit(client, unit),
   });
+  return players;
 }
 
 /**
@@ -375,7 +376,7 @@ async function applySyncPlayersUnit(client, { season, entries }) {
  * VALUE (and so the JSON both routes forward), not the run detail.
  */
 async function syncSchedule({ season, api = tank01Get } = {}) {
-  const { season: resultSeason, gamesUpserted } = await runSyncJob({
+  const { results: [{ season: resultSeason, gamesUpserted }] } = await runSyncJob({
     job: 'schedule',
     lock: NFL_GAMES_BULK_WRITE_LOCK,
     fetch: () => fetchScheduleUnits({ season, api }),
@@ -540,7 +541,7 @@ async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
   // part of the shape the module owns.
   const day = cadence.utcDateKey(now);
   let irFlagsForPush = [];
-  const result = await runSyncJob({
+  const { results: [result] } = await runSyncJob({
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchInjuryUnits(api, day),
@@ -1060,14 +1061,13 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
   // so this is never read while still being written.
   const failedFetches = [];
 
-  const runResult = await runSyncJob({
+  const { results: applied } = await runSyncJob({
     job: 'week-stats',
     lock: null,
     fetch: () => fetchWeekStatsUnits({ targets, pauseMs, api, failedFetches }),
     apply: (client, unit) => applyWeekStatsUnit(client, unit, { season, week, maps }),
   });
 
-  const applied = runResult && runResult.results ? runResult.results : [runResult];
   // Notify the Live box source switch (ADR 0035) once each Final box's
   // transaction has actually COMMITted - never from inside applyWeekStatsUnit
   // itself (qa-reviewer #1202 risk review): a rolled-back unit must not leave
@@ -1214,12 +1214,13 @@ function missingTeamDefenses(existingNflTeams) {
  * Resolved value is unchanged: `{ teamsInserted, totalDefTeams }`.
  */
 async function syncTeamDefenses() {
-  return runSyncJob({
+  const { results: [teamDefenses] } = await runSyncJob({
     job: 'team-defenses',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: fetchTeamDefensesUnit,
     apply: (client, unit) => applyTeamDefensesUnit(client, unit),
   });
+  return teamDefenses;
 }
 
 /**
@@ -1280,12 +1281,13 @@ async function applyTeamDefensesUnit(client, { missing, existingCount }) {
  * seasonsUpserted }`.
  */
 async function syncPlayerSeasonStats({ currentSeason, positions } = {}) {
-  return runSyncJob({
+  const { results: [seasonStats] } = await runSyncJob({
     job: 'season-stats',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchSyncPlayerSeasonStatsUnit({ currentSeason, positions }),
     apply: (client, unit) => applySyncPlayerSeasonStatsUnit(client, unit),
   });
+  return seasonStats;
 }
 
 /** fetch() for the season-stats job: the cutoff lookup and the weekly-rollup read, before any transaction or lock. */

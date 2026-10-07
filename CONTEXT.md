@@ -436,8 +436,11 @@ on its own interval (the weather snapshots refresh, every 6 hours), recorded
 whether it succeeded, was refused, or failed, and with the reason when it did
 not succeed. A weather snapshots run that succeeds without fetching anything
 because `NWS_USER_AGENT` is unset is `ok` in the table, but the scheduler
-status reports its outcome as `unconfigured`, never `ok` (#1930). The
-scheduler status and the health probe read the
+status reports its outcome as `unconfigured`, never `ok` (#1930). A Sync
+run's outcome is one typed status: `ok`, `refused`, `fetch_failed`,
+`bad_response`, `write_failed` or `unconfigured`; the cadence gate reads it, so
+a refused run closes its job's day and a failed one is retried after that job's
+own interval (ADR 0036). The scheduler status and the health probe read the
 latest Sync run for a job; "last successful sync" means the latest one that
 succeeded, not the latest one that ran (ADR 0036). The stat-correction pass
 wipes every Weekly projection run from the corrected week+1 onward, so a

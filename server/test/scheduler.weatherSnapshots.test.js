@@ -236,9 +236,9 @@ test('weather-snapshots stays an ok run when one forecast was fetched and saved 
   t.mock.method(console, 'error', () => {});
 
   const result = await scheduler.runWeatherSnapshotSync({ now: T0 });
-  assert.equal(result.requests, 2);
-  assert.equal(result.fetched, 1);
-  assert.equal(result.saved, 1);
+  assert.equal(result.results[0].requests, 2);
+  assert.equal(result.results[0].fetched, 1);
+  assert.equal(result.results[0].saved, 1);
   assert.equal(world.writes.length, 1);
   assert.equal(world.syncRuns[0].ok, true);
 });

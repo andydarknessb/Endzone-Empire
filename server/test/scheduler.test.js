@@ -315,12 +315,10 @@ test('runDailyAdpSync delegates the due/not-due decision to the cadence gate', a
   const now = new Date('2026-08-20T12:00:00-05:00');
   assert.deepEqual(await scheduler.runDailyAdpSync({ now }), { ok: true, playersUpdated: 180 });
   assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncAdp with the same now');
-  assert.deepEqual(dueArgs, { job: 'adp', every: 'utc-day', now });
-  // Pinned at stub level (formal review, optional item 4): the gate is
-  // handed adpLastRun, not its own plain default reader - a same-day
-  // refusal must close the gate the same way a success does (#1509 risk
-  // review, see the adpLastRun tests below).
-  assert.equal(dueOpts && dueOpts.lastRun, scheduler.adpLastRun);
+  // The job sets its own retry interval; the gate itself reads the typed
+  // outcome (a same-day refusal closes the day, see the real-gate tests below).
+  assert.deepEqual(dueArgs, { job: 'adp', every: 'utc-day', retryMs: 15 * 60 * 1000, now });
+  assert.equal(dueOpts, undefined, 'no job-specific reader: the gate reads the outcome itself');
 });
 
 test('runDailyAdpSync never calls syncAdp when the cadence gate says it is not due', async (t) => {
@@ -354,9 +352,9 @@ test('runDailyAdpSync propagates a thrown syncAdp so the next tick retries (a th
 // throws and records ok=false, so on the gate's plain default reader it would
 // never close for the day, and every five-minute tick would re-hit FFC for
 // the rest of the UTC day while the market stays thin - the exact hazard the
-// pre-#1509 in-memory `lastAdpSyncDay` stamp existed to prevent. `adpLastRun`
-// (scheduler.js) fixes this by substituting a same-day refusal for `latestOk`
-// when it is the newest run.
+// pre-#1509 in-memory `lastAdpSyncDay` stamp existed to prevent. The gate
+// (cadence.js) fixes this by reading the latest run's typed outcome: a
+// same-day `refused` run settles the day.
 //
 // Built on `dataSyncRunsPool` below (formal review, fix 3) rather than a
 // second hand-rolled data_sync_runs fake: `adp` is a GETTER, so
@@ -403,7 +401,7 @@ test('runDailyAdpSync: a same-UTC-day refusal (thin market) also closes the gate
   assert.equal(calls, 2);
 });
 
-test('runDailyAdpSync: a thrown syncAdp (fetch_failed/write_failed) never closes the gate, so the very next tick retries', async (t) => {
+test('runDailyAdpSync: a thrown syncAdp (fetch_failed/write_failed) never closes the gate; it retries once ADP_RETRY_MS has passed', async (t) => {
   const adp = require('../services/adp.service');
   const runs = adpRunsWorld(t);
   let calls = 0;
@@ -420,8 +418,10 @@ test('runDailyAdpSync: a thrown syncAdp (fetch_failed/write_failed) never closes
   const now = new Date('2026-08-20T12:00:00-05:00');
   await assert.rejects(scheduler.runDailyAdpSync({ now }), /FFC unavailable/);
   assert.equal(calls, 1);
-  await assert.rejects(scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:05:00-05:00') }), /FFC unavailable/);
-  assert.equal(calls, 2, 'a thrown run never closes the gate, so the very next tick retries');
+  assert.equal(await scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:05:00-05:00') }), null);
+  assert.equal(calls, 1, 'inside ADP_RETRY_MS the failed run holds the job back');
+  await assert.rejects(scheduler.runDailyAdpSync({ now: new Date('2026-08-20T12:16:00-05:00') }), /FFC unavailable/);
+  assert.equal(calls, 2, 'a thrown run never closes the gate, so the job retries after its interval');
 });
 
 // ---- daily ESPN depth-chart & Ownership syncs (#1308, #1509) ----------------
@@ -1096,8 +1096,8 @@ test('getSchedulerStatus.syncRuns reports weather-snapshots, `unconfigured` for 
   const ok = (detail) => ({ id: 11, finished_at: '2026-09-10T12:00:00.000Z', ok: true, detail });
   dataSyncRunsPool({
     'weather-snapshots': {
-      latest: ok({ reason: 'NWS_USER_AGENT not configured', requests: 0 }),
-      latestOk: ok({ reason: 'NWS_USER_AGENT not configured', requests: 0 }),
+      latest: ok({ reason: 'NWS_USER_AGENT not configured', unconfigured: true, requests: 0 }),
+      latestOk: ok({ reason: 'NWS_USER_AGENT not configured', unconfigured: true, requests: 0 }),
     },
     adp: { latest: ok({ reason: 'something else' }), latestOk: null },
   }).install(t);
@@ -1893,7 +1893,7 @@ test('a stat-corrections pass with a failed week records ok false with the faile
 
   const result = await scheduler.runDailyStatCorrections({ now: new Date('2026-09-22T12:00:00Z') });
 
-  assert.equal(result.failed.length, 1);
+  assert.equal(result.failedWeeks.length, 1);
   assert.equal(world.inserts.length, 1);
   assert.equal(world.inserts[0].job, 'stat-corrections');
   assert.equal(world.inserts[0].ok, false);

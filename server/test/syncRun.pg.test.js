@@ -211,6 +211,8 @@ if (!ENABLED) {
     const { latest, latestOk } = await lastRun(job);
     assert.equal(latest.ok, false, 'the most recent run failed');
     assert.equal(latestOk.ok, true, 'the most recent SUCCESSFUL run is the earlier one');
+    assert.equal(latest.outcome, 'fetch_failed', 'the typed outcome survives the jsonb round trip');
+    assert.equal(latestOk.outcome, 'ok');
     assert.ok(latestOk.finishedAt <= latest.finishedAt);
   });
 }

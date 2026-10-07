@@ -305,11 +305,12 @@ function applyOwnershipUnit(capturedDate) {
 async function runOwnershipSync({ now = new Date(), transport } = {}) {
   const capturedDate = today(now);
   const day = cadence.utcDateKey(now);
-  return runSyncJob({
+  const { results: [ownership] } = await runSyncJob({
     job: 'espn-ownership',
     fetch: async () => ({ units: await fetchOwnership({ transport }), detail: { day } }),
     apply: applyOwnershipUnit(capturedDate),
   });
+  return ownership;
 }
 
 module.exports = {
