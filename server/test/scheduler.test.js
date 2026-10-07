@@ -2227,8 +2227,8 @@ test('SYNC_RUN_JOBS is derived from the tick list, plus the commissioner-only Sy
   assert.deepEqual([...scheduler.SYNC_RUN_JOBS].sort(), [
     'adp', 'espn-depth-chart', 'espn-ownership', 'espn-roster-status', 'game-context', 'injuries',
     'nflverse-correction', 'nflverse-current-week', 'nflverse-practice', 'nflverse-snaps', 'nflverse-week',
-    'odds', 'players', 'schedule', 'schedule-nflverse', 'season-stats', 'team-defenses', 'weather-snapshots',
-    'week-stats',
+    'odds', 'players', 'schedule', 'schedule-nflverse', 'season-stats', 'stat-corrections', 'team-defenses',
+    'weather-snapshots', 'week-stats',
   ]);
 });
 
