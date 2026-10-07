@@ -76,6 +76,10 @@ self.addEventListener('activate', (event) => {
             .map((key) => caches.delete(key))
         )
       )
+      .then(() =>
+        // Older browsers have no navigationPreload; they activate without it.
+        self.registration.navigationPreload ? self.registration.navigationPreload.enable() : undefined
+      )
       .then(() => self.clients.claim())
   );
 });
@@ -113,7 +117,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirstNavigation(request));
+    event.respondWith(networkFirstNavigation(request, event.preloadResponse));
     return;
   }
 
@@ -141,10 +145,15 @@ async function networkFirstApi(request) {
   }
 }
 
-async function networkFirstNavigation(request) {
+// Navigation preload (#2072): the worker's cold start was measured at 1.1 to
+// 1.6 s ahead of every page request, and a stalled start left the document
+// pending. Preload takes it off the critical path: the browser sends the page
+// request in parallel with starting the worker, and the worker answers from
+// that response (undefined on older browsers, then it fetches as before).
+async function networkFirstNavigation(request, preloadResponse) {
   const cache = await caches.open(CACHE_NAME);
   try {
-    const response = await fetch(request);
+    const response = (await preloadResponse) || (await fetch(request));
     if (response && response.ok) {
       cache.put(request, response.clone());
     }
