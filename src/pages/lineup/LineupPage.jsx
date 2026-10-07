@@ -3,7 +3,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, GlobalStyles, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates, useWeekMatchups, viewerMatchupOf } from '../../entities/matchup';
+import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, matchupBoard } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, ledgerTabCounts, gameStatusKind } from '../../widgets/lineup-ledger';
@@ -233,15 +233,18 @@ export default function LineupPage() {
   // widget read the same list, deduped when the weeks coincide), the viewer's
   // row picked by Team id (#112). Best ball shows no card, so it reads nothing.
   // A list that has not loaded, has no row for the viewer, or carries no
-  // Expected final (only a settled, final Matchup has none; an in-progress
-  // starter's is actual plus the rest of its projection) leaves `null` here,
-  // which is no line.
+  // Expected final (the board states none once the week is settled, played or
+  // final; an in-progress starter's is actual plus the rest of its projection)
+  // leaves `null` here, which is no line.
   const { matchups } = useWeekMatchups(selectedLeagueId, lineup?.week ?? null, { enabled: !bestBall });
   const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
+  // The board nulls a settled week's Expected final (#2048), so a played week
+  // draws no line even though the server still prices one.
+  const board = matchupBoard(viewerMatchup);
   const expectedFinals = viewerMatchup
     ? viewerMatchup.home.teamId === viewerTeamId
-      ? { mine: viewerMatchup.home.expectedFinal, theirs: viewerMatchup.away.expectedFinal }
-      : { mine: viewerMatchup.away.expectedFinal, theirs: viewerMatchup.home.expectedFinal }
+      ? { mine: board.home.expectedFinal, theirs: board.away.expectedFinal }
+      : { mine: board.away.expectedFinal, theirs: board.home.expectedFinal }
     : null;
 
   // The Bench what-if swap (#910), read once and resolved against whichever

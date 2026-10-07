@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { formatInstant, unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
 
 /**
@@ -65,7 +65,7 @@ export function ledPercents(homeProb) {
 
 /** The entity's one status label (ADR 0030), uppercased for the LED face; blank when unknown. */
 export function ledStatus(status) {
-  return (matchupStatusView(status).chipLabel || '').toUpperCase();
+  return (matchupBoard({ status }).chip?.label || '').toUpperCase();
 }
 
 /**
@@ -78,7 +78,7 @@ export function ledStatus(status) {
  * behind.
  */
 export function matchupHasStarted(status) {
-  return matchupStatusView(status).hasStarted === true;
+  return matchupBoard({ status }).hasStarted === true;
 }
 
 // The reason an Unavailable player (CONTEXT.md, Roster and lineup) shows in

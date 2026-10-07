@@ -3,6 +3,7 @@ import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
+import { matchupBoard } from '../../../entities/matchup';
 import { starterStateView } from '../../../shared/lib';
 import { ledFigure, ledScore, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
@@ -195,7 +196,7 @@ const DISPLAY_NUM = {
 
 export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullComparison, mobile }) {
   const list = rows || [];
-  const settled = matchup?.status === 'played' || matchup?.status === 'final';
+  const { settled } = matchupBoard(matchup);
   return (
     <Card
       data-testid="lineups-card"

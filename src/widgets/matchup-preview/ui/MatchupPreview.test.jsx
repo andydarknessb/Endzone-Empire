@@ -172,7 +172,7 @@ test('an unknown status keeps firing the detail fallback', async () => {
 
 // Red-tell: dropping the `hasStarted === false` gate on `kickoffLabel`
 // (useMatchupPreview.js) turns this case red and no other - an unknown
-// status asserts neither "not started" nor "started" (matchupStatusView's
+// status asserts neither "not started" nor "started" (the board's
 // `hasStarted === null` contract), so it must fall back to the caption even
 // when the row happens to carry a kickoff, and must not wear the started
 // row's status chip either.

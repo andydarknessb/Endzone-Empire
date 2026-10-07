@@ -16,6 +16,7 @@ import { formatInstant } from '../../shared/lib/instantFormat';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 import { matchupWinProbability } from '../../shared/lib/winProbability';
+import { matchupBoard } from '../../entities/matchup';
 import { teamStandingFromRow } from '../../entities/standings';
 import {
   DISPLAY_FONT, HAIRLINE, chipSx as toneChipSx, dimSx, ghostButtonSx, panelSx, primaryButtonSx,
@@ -331,6 +332,8 @@ function FantasyBody({ league, status }) {
   }
   const record = recordText(status.record);
   const showOdds = ['scheduled', 'live', 'played'].includes(matchup.status);
+  // A settled week states no Expected final (#2048); the board nulls it.
+  const board = matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
   const opponentName = matchup.opponent?.name || 'Opponent';
   return (
     <>
@@ -345,7 +348,7 @@ function FantasyBody({ league, status }) {
           eyebrow={record ? `You · ${record}` : 'You'}
           name={league.my_team_name || 'Your team'}
           score={matchup.my?.score}
-          expectedFinal={matchup.my?.expectedFinal}
+          expectedFinal={board.home.expectedFinal}
           playersRemaining={matchup.my?.playersRemaining}
         />
         <Typography
@@ -361,7 +364,7 @@ function FantasyBody({ league, status }) {
           align="right"
           name={opponentName}
           score={matchup.opp?.score}
-          expectedFinal={matchup.opp?.expectedFinal}
+          expectedFinal={board.away.expectedFinal}
           playersRemaining={matchup.opp?.playersRemaining}
         />
       </Box>

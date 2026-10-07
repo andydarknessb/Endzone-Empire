@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { matchupWinProbability, finite, formatPoints } from '../../../shared/lib';
 
 /**
@@ -39,7 +39,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   const m = matchup || {};
   const home = m.home || {};
   const away = m.away || {};
-  const { hasStarted } = matchupStatusView(m.status ?? null);
+  const { hasStarted } = matchupBoard(m, viewerTeamId);
   const started = hasStarted === true;
   // Matches matchup-grid's matchupCardView: the projected total shows unless
   // the server's status fact says the Matchup has started. An unknown status

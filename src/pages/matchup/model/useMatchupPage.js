@@ -4,7 +4,7 @@ import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { formatPoints, matchupWinProbability, parseRosterSlots } from '../../../shared/lib';
-import { useMatchup, matchupStatusView, deltasFor } from '../../../entities/matchup';
+import { useMatchup, matchupBoard, deltasFor } from '../../../entities/matchup';
 import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
@@ -96,10 +96,6 @@ export function slotOrderFor(league) {
     .filter(Boolean);
 }
 
-// The status chip's Badge variant per server status, the canvas's statusChip()
-// (the hero's, the matchup cards' and the scoreboard strip's map).
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
 /**
  * One team's called shot line for the bench card (#1857), or null: "Called
  * shot: {starter} over {benched} · 11.4 to 6.2" and, once judged, "Hit" or
@@ -126,17 +122,6 @@ export function calledShotView(shot, { starters, bench, deltas }) {
     text: `Called shot: ${shot.starter.name} over ${shot.benched.name} · ${formatPoints(pointsOf(shot.starter))} to ${formatPoints(pointsOf(shot.benched))}`,
     outcome: judged ? (shot.outcome === 'hit' ? 'Hit' : 'Miss') : null,
   };
-}
-
-/**
- * The header's status chip: the entity predicate's label (ADR 0030), the
- * canvas's variant per status and the dot on LIVE alone; null when the server
- * could not compute a status (no chip, never a guessed one).
- */
-export function statusChipFor(status) {
-  const label = matchupStatusView(status).chipLabel;
-  if (label == null) return null;
-  return { label, variant: CHIP_VARIANTS[status] || 'neutral', dot: status === 'live' };
 }
 
 export function useMatchupPage(leagueId, matchupId) {
@@ -302,7 +287,7 @@ export function useMatchupPage(leagueId, matchupId) {
   // Keyed by the user alone (never the Team id): one key, known at first paint.
   const [view, setView] = useMatchupView(userId);
 
-  const status = matchupStatusView(matchup?.status);
+  const board = matchupBoard(matchup, viewerTeamId);
   const isLive = matchup?.status === 'live';
 
   const homeProb = useMemo(() => {
@@ -335,8 +320,7 @@ export function useMatchupPage(leagueId, matchupId) {
     error,
     refetch,
     records,
-    status,
-    statusChip: statusChipFor(matchup?.status),
+    statusChip: board.chip,
     isLive,
     isFinal,
     isPlayoff: !!detail?.matchup?.is_playoff,

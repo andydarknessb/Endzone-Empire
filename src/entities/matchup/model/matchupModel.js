@@ -174,50 +174,6 @@ export function applyIdentityPatch(model, update) {
   };
 }
 
-const CHIP_LABELS = {
-  scheduled: 'Scheduled',
-  live: 'LIVE',
-  played: 'Awaiting final',
-  final: 'Final',
-};
-
-// The four server values, and the three of them that mean the Matchup has
-// started. `hasStarted` keys off these sets, so a value outside them (null, or
-// an unrecognised string from a skewed server) reads as unknown, never as a
-// false "has started" that would render the win-probability bar (F5).
-const STARTED_STATUSES = new Set(['live', 'played', 'final']);
-const KNOWN_STATUSES = new Set(['scheduled', 'live', 'played', 'final']);
-
-/**
- * The one status predicate (ADR 0030). Given a Matchup's `status`, it returns
- * the whole presentation of that status - the chip's label, colour and variant -
- * and whether the Matchup has started:
- *
- *   - the four server values map to their chip label; every other reader that
- *     used to ask "is this live" asks `hasStarted` instead.
- *   - `color` and `variant` are the chip's MUI props, owned here so a fifth
- *     status is defined in one place rather than in a ternary duplicated across
- *     every scoreboard (G7): `final` is a filled success chip, `live` a filled
- *     error chip, and every other value an outlined default one. A caller spreads
- *     them onto its Chip; on an unknown status `chipLabel` is null and the chip is
- *     not rendered at all, so the colour/variant are inert there.
- *   - `hasStarted` is true for the three started values (`live`, `played`,
- *     `final`) and false for `scheduled`.
- *   - an unknown status - `null`, absent, or an unrecognised string - is not
- *     guessed: it renders NO chip (`chipLabel: null`) rather than a false
- *     "Scheduled", and `hasStarted` is `null`, never `false` - "the server could
- *     not say" is not "not started". A caller drives its not-started branch off
- *     `hasStarted === false`, so an unknown status asserts neither state.
- */
-export function matchupStatusView(status) {
-  return {
-    chipLabel: CHIP_LABELS[status] ?? null,
-    color: status === 'final' ? 'success' : status === 'live' ? 'error' : 'default',
-    variant: status === 'live' || status === 'final' ? 'filled' : 'outlined',
-    hasStarted: KNOWN_STATUSES.has(status) ? STARTED_STATUSES.has(status) : null,
-  };
-}
-
 // A missing score is NaN, not Number(null) = 0.
 function scoreOf(value) {
   return value == null || value === '' ? NaN : Number(value);

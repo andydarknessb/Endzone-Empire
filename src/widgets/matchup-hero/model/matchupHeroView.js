@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { matchupWinProbability, finite, formatKickoff } from '../../../shared/lib';
 // ordinal itself is shared/lib's contract now (#1272 Addendum); MatchupHero
 // imports it directly rather than through this view model.
@@ -34,12 +34,6 @@ import { matchupWinProbability, finite, formatKickoff } from '../../../shared/li
  * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer.
  */
 
-// The status chip's Badge variant per server status, the canvas's statusChip():
-// `.chip.live` is the danger red with the dot, `.chip.final` the success
-// green, `.chip.warn` for Awaiting final, the plain chip for Scheduled. The
-// label is the entity predicate's; an unknown status has no chip at all.
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
 /** A difference rounded to a tenth, so "by 0.0" never reads as a lead. */
 function tenth(value) {
   return Math.round(value * 10) / 10;
@@ -73,7 +67,9 @@ export function heroSentence({ me, them, status }) {
     if (lead < 0) return `Lost by ${by}`;
     return 'Tied';
   }
-  if (status === 'played') {
+  // The only other started status that is not live is played: the score of
+  // record is not written yet. The view calls this for a started Matchup only.
+  if (status !== 'live') {
     if (lead > 0) return `Ahead by ${by}, awaiting the final`;
     if (lead < 0) return `Behind by ${by}, awaiting the final`;
     return 'Tied, awaiting the final';
@@ -119,12 +115,13 @@ export function matchupHeroView(matchup, viewerTeamId) {
         ? 'away'
         : null;
 
-  const status = matchupStatusView(m.status);
-  const { hasStarted } = status;
+  const { chip, hasStarted } = matchupBoard(m, viewerTeamId);
 
   let winProbability = null;
   let sentence = null;
   if (hasStarted === true) {
+    // The hero keeps its bar once settled (the result sentence sits under it),
+    // so it prices the status-gated share itself rather than the live-only one.
     const { home: homeShare } = matchupWinProbability({
       homeScore: finite(home.score) ?? 0,
       awayScore: finite(away.score) ?? 0,
@@ -147,9 +144,9 @@ export function matchupHeroView(matchup, viewerTeamId) {
   return {
     viewerSide,
     hasStarted,
-    chipLabel: status.chipLabel,
-    chipVariant: CHIP_VARIANTS[m.status] ?? 'neutral',
-    chipDot: m.status === 'live',
+    chipLabel: chip?.label ?? null,
+    chipVariant: chip?.variant ?? 'neutral',
+    chipDot: chip?.dot ?? false,
     winProbability,
     sentence,
     kickoff,
