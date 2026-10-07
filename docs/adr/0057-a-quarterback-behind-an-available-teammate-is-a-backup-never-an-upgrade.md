@@ -23,9 +23,9 @@ We decide:
    guessed appearances. A missing or stale chart, or a player absent from it,
    reads not-Backup.
 2. The verdict is the Weekly projection read's, beside Position-baseline:
-   the read loads the chart once per call and `startVerdictFor(id)` answers it
-   through `unavailableFor({ backup: true })`: available, never
-   auto-recommended, reason `backup`. Precedence: bye, No NFL team,
+   the read loads the chart once per call, `backupFor(id)` answers it and
+   `availabilityFor(id)` returns `unavailableFor({ backup: true })`: available,
+   never auto-recommended, reason `backup`. Precedence: bye, No NFL team,
    Practice squad, Out, IR, Position-baseline (`no_history`), then Backup,
    then Doubtful, no-practice and Questionable.
 3. Every reader that branches on Position-baseline takes the same branch for
@@ -84,3 +84,11 @@ wire no longer carries `backup` or `positionBaseline`. Every wire states the
 Start verdict as `startVerdict: { outcome, reason, numberTrusted }`, so the
 QB who is both Position-baseline and Backup carries reason `backup` there,
 with `numberTrusted: false`.
+
+## Amendment (#2068)
+
+Rule 2's accessor names are superseded: the Weekly projection result no longer
+has the Backup and availability accessors that rule names. The one verdict
+read is `startVerdictFor(id)`, which takes the chart verdict and answers
+through `unavailableFor({ backup: true })`: available, never auto-recommended,
+reason `backup`. The precedence is the one in the 2026-10-07 amendment.
