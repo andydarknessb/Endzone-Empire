@@ -207,9 +207,9 @@ async function loadUpgradeContext({ league, team, season, week, playerIds }) {
     const verdict = projections.startVerdictFor(r.player_id);
     // Backup outranks Position-baseline in the verdict (ADR 0057, amended
     // 2026-10-07), so a rostered QB who is both is still zeroed.
-    const zeroReason = verdict.outcome === 'unavailable' || verdict.reason === 'backup'
-      ? verdict.reason
-      : null;
+    const zeroReason = verdict.outcome === 'unavailable'
+      ? (verdict.reason || 'out') // a stored verdict without a reason still zeroes him, as `classify` did
+      : (verdict.reason === 'backup' ? 'backup' : null);
     return {
       playerId: r.player_id,
       slot: r.slot,

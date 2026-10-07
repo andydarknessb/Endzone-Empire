@@ -1296,8 +1296,8 @@ function installComputed(t, candidates, { baseline = [], backup = [], unavailabl
     pointsFor: () => null,
     startVerdictFor: (id) => {
       if (unavailable.includes(id)) return { outcome: 'unavailable', reason: 'bye', numberTrusted: true };
-      if (baseline.includes(id)) return { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
       if (backup.includes(id)) return { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
+      if (baseline.includes(id)) return { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
       return { outcome: 'recommendable', reason: null, numberTrusted: true };
     },
     playerIds,
