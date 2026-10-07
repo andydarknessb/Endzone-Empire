@@ -17,9 +17,8 @@
  * `shared/lib/useEndpoint` reads) and, since #1872, the shared cached read
  * (`src/hooks/useResource`, ADR 0004) behind `useWeekMatchups`, and, since #1881, the
  * cache store's `invalidate` (`src/lib/resourceCache`) behind `clearWeekMatchupsCache`,
- * which the Lineup page calls from the `onLanded` callback it hands the swap,
- * apply-advice and drop features (a feature never imports this entity, and
- * `swap-players` is in the Draft room's import closure) - plus, since #885, the anon Supabase client
+ * which the lineup-write and drop-player features call when a save or roster
+ * change lands (ADR 0031: a feature reads an entity through its index) - plus, since #885, the anon Supabase client
  * (`src/api/supabaseClient`) for the shared live game state subscription used
  * by Matchup Detail and Game Center. Everything else in this folder is
  * internal.

@@ -36,7 +36,7 @@
  * rule and does not follow it", so it is the ADR's own counter-example, not
  * a fourth instance of the pattern this note cites). This is a fourth
  * instance of that pattern, not an exception to one:
- *   - `src/features/swap-players` (`isEligibleMove`, `model/
+ *   - `src/features/lineup-write` (`isEligibleMove`, `model/
  *     slotActions.js` and `ui/PlayerDecisionCard.jsx`): the pure legality
  *     rule `useSwapPlayers`' own `onRowClick`/`isEligibleTarget` enforce.
  *     Round 1 gave this card its own hand-enumerated locked/spent/best-ball

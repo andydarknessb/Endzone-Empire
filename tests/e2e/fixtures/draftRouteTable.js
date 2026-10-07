@@ -363,7 +363,7 @@ const unstubbed = [
   // Draft room's closure for the first time, replacing DraftQuickView. The
   // groups below are pulled in by its barrel imports (entities/player,
   // features/add-player,
-  // features/claim-player, features/swap-players) even though the Draft
+  // features/claim-player, features/lineup-write) even though the Draft
   // room's own `draft` context never renders the pieces that call them -
   // AddPlayerAction/ClaimPlayerAction only mount for context="free_agent"/
   // "waivers", and the bench-management save only fires when a caller passes
@@ -427,11 +427,30 @@ const unstubbed = [
   {
     file: 'hooks/useResilientLineupMutation.js',
     reason:
-      'Pulled in transitively through features/swap-players (the Decision ' +
+      'Pulled in transitively through features/lineup-write (the Decision ' +
       'card\'s bench-options legality rule, isEligibleMove); DraftBoard ' +
       'passes no `onSwap`/`entries`, so the card\'s `lineupManaged` gate is ' +
       'always false there and this mutation never fires.',
     paths: [{ method: 'PUT', pattern: '/api/team/lineup' }],
+  },
+  {
+    // Spec #2042: features/lineup-write imports clearWeekMatchupsCache from the
+    // Matchup entity's barrel, which widens the Decision card's closure to the
+    // whole entity.
+    file: 'entities/matchup/model/useLeagueMatchups.js',
+    reason:
+      'Pulled in transitively through features/lineup-write (it imports ' +
+      'clearWeekMatchupsCache from the entities/matchup barrel); the Draft ' +
+      'room mounts no Matchups reader, so this GET never fires there.',
+    paths: [{ method: 'GET', pattern: '/api/league/:id/matchups' }],
+  },
+  {
+    file: 'entities/matchup/model/useMatchup.js',
+    reason:
+      'Same reachability as useLeagueMatchups.js above: the entities/matchup ' +
+      'barrel, pulled in by features/lineup-write; never mounted by the Draft ' +
+      'room.',
+    paths: [{ method: 'GET', pattern: '/api/league/:id/matchups/:id' }],
   },
 ];
 

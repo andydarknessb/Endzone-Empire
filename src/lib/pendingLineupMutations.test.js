@@ -2,6 +2,7 @@ import apiClient from '../api/apiClient';
 import {
   enqueuePendingLineupMutation,
   enqueueScoreCorrection,
+  LINEUP_MUTATION_REPLAYED_EVENT,
   PENDING_LINEUP_MUTATIONS_KEY,
   readPendingLineupMutations,
   replayPendingLineupMutations,
@@ -59,6 +60,19 @@ test('builds an allow-listed correction endpoint without accepting arbitrary URL
   expect(() =>
     enqueuePendingLineupMutation({ endpoint: 'https://example.test', method: 'POST', payload: {} })
   ).toThrow('invalid pending lineup mutation');
+});
+
+test('a replayed save announces its intent, status and response body (spec #2042)', async () => {
+  const intent = enqueuePendingLineupMutation(mutation(11, 'WR'));
+  apiClient.request.mockResolvedValue({ status: 200, data: { undoable: false, irreversible: ['called_shot'] } });
+  const heard = [];
+  const listen = (event) => heard.push(event.detail);
+  window.addEventListener(LINEUP_MUTATION_REPLAYED_EVENT, listen);
+
+  await replayPendingLineupMutations();
+  window.removeEventListener(LINEUP_MUTATION_REPLAYED_EVENT, listen);
+
+  expect(heard).toEqual([{ intent, status: 200, data: { undoable: false, irreversible: ['called_shot'] } }]);
 });
 
 test('replays sequentially and removes only 200/201 responses', async () => {

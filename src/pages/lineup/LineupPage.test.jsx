@@ -593,9 +593,9 @@ test('a swap: selecting the eligible bench player then the empty WR slot saves a
   );
 });
 
-// #1881: the page hands the swap, apply-advice and drop features an `onLanded`
-// that clears the week's cached Matchups list, so a save that lands re-reads it
-// (the list carries the Expected final the lean line and the strip show).
+// #1881: a save that lands (the lineup-write feature) clears the week's cached
+// Matchups list, so the page re-reads it (the list carries the Expected final
+// the lean line and the strip show).
 test("a swap whose PUT resolves re-reads the week's matchups list (#1881)", async () => {
   const user = userEvent.setup();
   apiClient.put.mockResolvedValue({ data: {} });

@@ -132,7 +132,7 @@ async function runReplay() {
 
     removeIntent(intent.id);
     replayed += 1;
-    queueEvent(LINEUP_MUTATION_REPLAYED_EVENT, { intent, status: response.status });
+    queueEvent(LINEUP_MUTATION_REPLAYED_EVENT, { intent, status: response.status, data: response.data });
   }
   return { replayed, remaining: readPendingLineupMutations().length };
 }

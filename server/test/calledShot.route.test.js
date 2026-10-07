@@ -358,7 +358,8 @@ test('a saved lineup that contradicts the open shot voids it in the save\'s own 
   const response = await saveSwap();
   assert.equal(response.status, 200);
   assert.equal(world.calledRow.outcome, 'void');
-  assert.equal(response.body.calledShotVoided, true);
+  assert.equal('calledShotVoided' in response.body, false, 'the client reads irreversible alone (spec #2042)');
+  assert.equal('attestationCleared' in response.body, false);
   assert.equal(response.body.undoable, false);
   assert.deepEqual(response.body.irreversible, ['called_shot']);
   const texts = fake.calls.map((call) => call.text);
@@ -409,12 +410,13 @@ test('a lineup save does not void a shot once one of its players has locked (#18
   const response = await saveSwap();
   assert.equal(response.status, 200);
   assert.equal(world.calledRow.outcome, 'pending');
-  assert.equal(response.body.calledShotVoided, false);
+  assert.deepEqual(response.body.irreversible, []);
 });
 
-test('a lineup save with no open shot answers calledShotVoided false (#1969)', async (t) => {
+test('a lineup save with no open shot answers an empty irreversible list (#1969)', async (t) => {
   mountSaveWorld(t);
   const response = await saveSwap();
   assert.equal(response.status, 200);
-  assert.equal(response.body.calledShotVoided, false);
+  assert.deepEqual(response.body.irreversible, []);
+  assert.equal(response.body.undoable, true);
 });

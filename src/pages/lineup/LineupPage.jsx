@@ -3,7 +3,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Box, Button, FormControl, GlobalStyles, InputLabel, MenuItem, Select, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Badge, Card, Skeleton, TeamAvatar } from '../../shared/ui';
 import { useLeague } from '../../hooks/useLeague';
-import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, clearWeekMatchupsCache } from '../../entities/matchup';
+import { useLiveGameStates, useWeekMatchups, viewerMatchupOf } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
 import LineupLedger, { buildLedgerSections, ledgerTabCounts, gameStatusKind } from '../../widgets/lineup-ledger';
@@ -11,9 +11,8 @@ import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
-import { useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/swap-players';
+import { useLineupWrite, useSwapPlayers, useApplyAdvice, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
-import { useApplyAdvice } from '../../features/apply-advice';
 import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
 import { useLineupData } from './model/useLineupData';
@@ -202,22 +201,19 @@ export default function LineupPage() {
     });
   };
 
-  // A lineup or roster write that lands (#1881) changes the viewer's Expected
-  // final, which the week's cached Matchups list carries for 30 s. The features
-  // may not import the Matchup entity (ADR 0029/0031, and swap-players is in the
-  // Draft room's import closure), so the page hands them this callback.
-  const onLanded = () => clearWeekMatchupsCache(selectedLeagueId);
+  // The one Lineup write (spec #2042): swap and apply advice only build move
+  // plans on its `submit`. It clears the week's cached Matchups list itself
+  // when a save lands (#1881), as drop-player does for a roster change.
+  const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw });
   const swap = useSwapPlayers({
-    leagueId: selectedLeagueId,
+    submit,
     raw,
-    setRaw,
     entries: lineup?.entries || [],
     bestBall,
     leagueUnsettled,
     hasEligibleTarget,
-    onLanded,
   });
-  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch, onLanded });
+  const drop = useDropPlayer({ leagueId: selectedLeagueId, refresh: refetch });
 
   // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
   // start-sit-panel widget, the team-summary-strip widget's advice tile and
@@ -226,7 +222,7 @@ export default function LineupPage() {
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   const decisionCardEntry = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
-  const applyAdvice = useApplyAdvice({ leagueId: selectedLeagueId, raw, setRaw, onLanded });
+  const applyAdvice = useApplyAdvice({ submit });
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
   const calledShot = useCalledShot({ leagueId: selectedLeagueId, week: lineup?.week, onChanged: advice.reload });
