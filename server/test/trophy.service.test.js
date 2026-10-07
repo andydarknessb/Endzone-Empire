@@ -537,12 +537,12 @@ const shotRoster = ({ starter = {}, benched = {}, omit = [] } = {}) => ({
 const shotUpdates = (fake) => fake.matching(/^UPDATE "lineup_overrides"/);
 const judged = (fake) => shotUpdates(fake).map((c) => ({ id: c.params[0], outcome: c.params[1], starter: c.params[2], benched: c.params[3] }));
 
-async function judge(t, { row = shotRow(), roster = shotRoster(), ...world } = {}) {
+async function judge(t, { row = shotRow(), roster = shotRoster(), seasonComplete, ...world } = {}) {
   const fake = awardWorld({
     leagueId: L, homeScore: 98, awayScore: 110, overrides: [row], hindsight: { [row.team_id]: roster }, ...world,
   });
   fake.install(t);
-  const awarded = await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W });
+  const awarded = await trophySvc.awardWeeklyTrophies({ leagueId: L, season: S, week: W, seasonComplete });
   return { fake, awarded };
 }
 
@@ -699,8 +699,18 @@ test('#1860 (D): the next Advance judges the deferred row by its points once the
   assert.equal(trophyInserts(fake, 'called_shot').length, 0);
 });
 
+// #2051: advanceWeek is the one decider of seasonComplete. The league row never
+// is, in either direction, for the Called shot judging.
+test('#2051: the caller\'s seasonComplete decides deferral, whatever the league row says', async (t) => {
+  const noAppearance = shotRoster({ starter: { appeared: false } });
+  const told = await judge(t, { roster: noAppearance, seasonComplete: true, seasonStatus: 'in_season' });
+  assert.deepEqual(judged(told.fake).map((j) => j.outcome), ['void'], 'told complete: nothing deferred');
+  const silent = await judge(t, { roster: noAppearance, seasonStatus: 'complete' });
+  assert.equal(judged(silent.fake).length, 0, 'not told: deferred, even on a complete league row');
+});
+
 test('#1860 (D): the Advance that completes the season defers nothing: the no-Appearance row is void at once', async (t) => {
-  const { fake } = await judge(t, { roster: shotRoster({ starter: { appeared: false } }), seasonStatus: 'complete' });
+  const { fake } = await judge(t, { roster: shotRoster({ starter: { appeared: false } }), seasonStatus: 'complete', seasonComplete: true });
   assert.equal(judged(fake).length, 1);
   assert.equal(judged(fake)[0].outcome, 'void');
 });
