@@ -1041,7 +1041,7 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   } catch (err) {
     console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
   }
-  // ADR 0059: Projection explanations for the current week, template first.
+  // ADR 0060: Projection explanations for the current week, template first.
   // Logged and swallowed like the sweep above: prose never fails the fill.
   try {
     // The NFL calendar's week in play, not a league's current_week (a league

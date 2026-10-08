@@ -1,5 +1,5 @@
 /**
- * `projection_explanations` (ADR 0059, CONTEXT.md "Projection explanation"):
+ * `projection_explanations` (ADR 0060, CONTEXT.md "Projection explanation"):
  * one Narrative per player per week under the pool-wide DEFAULT scoring rules,
  * written once by the nightly projection fill and read by the Decision card.
  * `narrative_source` is 'template' until Claude's rewrite replaces the text
