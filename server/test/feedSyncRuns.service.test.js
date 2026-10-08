@@ -517,38 +517,83 @@ test('syncTeamDefenses: a later insert that throws rolls back the run (no per-te
 // #1203: syncSchedule (Sync run module, ADR 0036, job 'schedule') fetches all
 // 18 weeks before writing anything, then upserts the single unit in one
 // transaction under NFL_GAMES_BULK_WRITE_LOCK (23005) - the same lock
-// syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
+// syncScheduleFromNflverse takes, so an ESPN run and an nflverse run started
 // together serialize instead of interleaving their upserts.
+//
+// #2116: the week's games come from ESPN's free scoreboard (ADR 0060), not
+// Tank01. `transport` is the axios-like ESPN client; scoreboard-week.json is a
+// real week-5 payload trimmed to four events (fixtures/espn/README.md).
 
-test('syncSchedule fetches all 18 weeks before writing, then upserts both team perspectives in one transaction under NFL_GAMES_BULK_WRITE_LOCK', async (t) => {
-  const apiCalls = [];
-  const api = async (path, opts) => {
-    assert.equal(path, '/getNFLGamesForWeek');
-    apiCalls.push(opts.params.week);
-    return {
-      data: {
-        body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: String(1700000000 + opts.params.week) }],
-      },
-    };
+const SCOREBOARD_WEEK = require('./fixtures/espn/scoreboard-week.json');
+const { ESPN_SCOREBOARD_URL, espnAbbrToOurs } = require('../modules/espnScoreboard');
+const { buildGameKey } = require('../services/tank01Feed');
+
+// What each fixture event must write: home/away as our Team spellings, the
+// competition's own kickoff instant.
+const FIXTURE_GAMES = SCOREBOARD_WEEK.events.map((event) => {
+  const competition = event.competitions[0];
+  const side = (homeAway) =>
+    espnAbbrToOurs(competition.competitors.find((c) => c.homeAway === homeAway).team.abbreviation);
+  return { home: side('home'), away: side('away'), kickoffAt: new Date(competition.date) };
+});
+
+// Tank01's quota-metered client must never be touched by the schedule run.
+const tank01Api = async () => { throw new Error('syncSchedule must not call Tank01'); };
+
+function scoreboardTransport(respond = () => ({ data: SCOREBOARD_WEEK })) {
+  const calls = [];
+  return {
+    calls,
+    async get(url, opts) {
+      calls.push({ url, ...opts.params });
+      return respond(opts.params.week);
+    },
   };
+}
+
+test('syncSchedule fetches all 18 weeks from the ESPN scoreboard before writing, then upserts both team perspectives in one transaction under NFL_GAMES_BULK_WRITE_LOCK', async (t) => {
+  const transport = scoreboardTransport();
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncSchedule({ season: 2026, api });
+  const result = await syncSchedule({ season: 2026, transport, api: tank01Api });
 
-  assert.deepEqual(apiCalls, Array.from({ length: 18 }, (_, i) => i + 1), 'exactly one call per regular-season week');
+  assert.deepEqual(
+    transport.calls.map((c) => [c.url, c.week, c.seasontype, c.dates]),
+    Array.from({ length: 18 }, (_, i) => [ESPN_SCOREBOARD_URL, i + 1, 2, 2026]),
+    'exactly one scoreboard call per regular-season week'
+  );
   const writes = fake.matching(insert('nfl_games'));
-  assert.equal(writes.length, 36, 'one game per week, two rows per game (home + away perspective)');
+  const expected = 18 * FIXTURE_GAMES.length * 2;
+  assert.equal(writes.length, expected, 'every event, two rows per game (home + away perspective), every week');
   // The RESOLVED value (and so what both routes forward as JSON) stays
   // exactly { season, gamesUpserted } - the pre-launch lead note's "the
   // routes see exactly what they see today". failedWeeks lives only in the
   // recorded data_sync_runs row, asserted below.
-  assert.deepEqual(result, { season: 2026, gamesUpserted: 36 });
+  assert.deepEqual(result, { season: 2026, gamesUpserted: expected });
   const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
-  assert.deepEqual(recordedDetail, { season: 2026, gamesUpserted: 36, failedWeeks: [] });
+  assert.deepEqual(recordedDetail, { season: 2026, gamesUpserted: expected, failedWeeks: [] });
+
+  // Every fixture game lands as a home row and an away row carrying the
+  // scoreboard's kickoff instant and the nfl_games.game_key spelling. Params
+  // are ($1 season, $2 week, $3 team, $4 opponent, $5 kickoff_at, $6 game_key,
+  // $7 home_away).
+  const weekOne = writes.filter((w) => w.params[1] === 1).map((w) => w.params);
+  for (const { home, away, kickoffAt } of FIXTURE_GAMES) {
+    const gameKey = buildGameKey({ season: 2026, week: 1, away, home });
+    assert.ok(
+      weekOne.some((p) => p[2] === home && p[3] === away && p[6] === 'home' && p[5] === gameKey && +p[4] === +kickoffAt),
+      `${home} home row for ${away} at ${home}`
+    );
+    assert.ok(
+      weekOne.some((p) => p[2] === away && p[3] === home && p[6] === 'away' && p[5] === gameKey && +p[4] === +kickoffAt),
+      `${away} away row for ${away} at ${home}`
+    );
+  }
+  assert.ok(weekOne.some((p) => p[2] === 'WSH'), 'Washington is written as WSH, the nfl_games spelling (ADR 0011)');
 
   // Red-tell: remove the lock and this ordering assertion (or the pg
   // serialization test) goes red.
@@ -566,41 +611,38 @@ test('syncSchedule fetches all 18 weeks before writing, then upserts both team p
 });
 
 test('syncSchedule tolerates a throwing week and a non-array week: still calls every week and carries both in failedWeeks', async (t) => {
-  const apiCalls = [];
-  const api = async (path, opts) => {
-    const { week } = opts.params;
-    apiCalls.push(week);
-    if (week === 3) throw new Error('tank01 quota exceeded');
-    if (week === 7) return { data: { body: { not: 'an array' } } };
-    return { data: { body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: '1700000000' }] } };
-  };
+  const transport = scoreboardTransport((week) => {
+    if (week === 3) throw new Error('espn unreachable');
+    if (week === 7) return { data: { events: { not: 'an array' } } };
+    return { data: SCOREBOARD_WEEK };
+  });
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncSchedule({ season: 2026, api });
+  const result = await syncSchedule({ season: 2026, transport });
 
-  assert.equal(apiCalls.length, 18, 'every week is still called - Tank01 quota is metered per call regardless of earlier failures');
+  assert.equal(transport.calls.length, 18, 'every week is still called regardless of earlier failures');
   // Resolved value: exactly { season, gamesUpserted }, no failedWeeks.
-  assert.deepEqual(result, { season: 2026, gamesUpserted: 32 }, '16 successful weeks x 2 rows; the other weeks wrote nothing');
+  assert.deepEqual(result, { season: 2026, gamesUpserted: 16 * FIXTURE_GAMES.length * 2 }, '16 successful weeks; the other weeks wrote nothing');
 
   const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
   assert.deepEqual(recordedDetail.failedWeeks.map((f) => f.week), [3, 7]);
-  assert.equal(recordedDetail.failedWeeks[0].message, 'tank01 quota exceeded');
-  assert.match(recordedDetail.failedWeeks[1].message, /unexpected getNFLGamesForWeek response shape/);
-  assert.equal(recordedDetail.gamesUpserted, 32);
+  assert.equal(recordedDetail.failedWeeks[0].message, 'espn unreachable');
+  assert.match(recordedDetail.failedWeeks[1].message, /unexpected scoreboard response shape/);
+  assert.equal(recordedDetail.gamesUpserted, 16 * FIXTURE_GAMES.length * 2);
   fake.assertClean();
 });
 
 test('syncSchedule: when every week fails to fetch, the run is fetch_failed and nothing is written', async (t) => {
-  const api = async () => { throw new Error('tank01 down'); };
+  const transport = scoreboardTransport(() => { throw new Error('espn down'); });
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  await assert.rejects(syncSchedule({ season: 2026, api }), /every week failed to fetch/);
+  await assert.rejects(syncSchedule({ season: 2026, transport }), /every week failed to fetch/);
 
   assert.equal(fake.calls.some((c) => c.text === 'BEGIN'), false, 'fetch failed before any unit reached the transaction');
   const runInsert = fake.matching(insert('data_sync_runs'))[0];
