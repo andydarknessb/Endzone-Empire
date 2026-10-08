@@ -108,15 +108,19 @@ function UserPage() {
   const [loadingNews, setLoadingNews] = useState(true);
   const [newsError, setNewsError] = useState(false);
 
-  // Shared with the Nav bell (ADR 0004, ADR 0059's #2097 amendment): one
-  // request serves both, and the bell's poll reloads this card too.
+  // Shared with the Nav bell (ADR 0004, ADR 0059's #2097 amendment): mounted
+  // together (a hard load) one request serves both, and the bell's poll reloads
+  // this card too. Like the leagues list above, skeletons and the error stand
+  // in only for a list we don't have; a poll that is loading or has failed
+  // keeps the good list on screen.
   const {
     data: notifications,
     loading: loadingActivity,
     error: activityFailure,
   } = useResource(['notifications'], '/api/notifications');
   const activityItems = (notifications?.notifications || []).slice(0, 5);
-  const activityError = Boolean(activityFailure);
+  const awaitingActivity = loadingActivity && !notifications;
+  const activityError = Boolean(activityFailure) && !notifications;
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
@@ -412,7 +416,7 @@ function UserPage() {
                     <Typography variant="h6" component="h2" sx={feedTitleSx}>
                       Global Activity
                     </Typography>
-                    {loadingActivity ? (
+                    {awaitingActivity ? (
                       <Stack spacing={1}>
                         {[0, 1, 2].map((i) => (
                           <Skeleton key={i} variant="text" width={`${85 - i * 10}%`} sx={skeletonSx} />
