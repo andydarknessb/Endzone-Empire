@@ -8,8 +8,16 @@ export function* fetchUser() {
     // A hard load starts with no access token in memory. Restore the session
     // from the refresh cookie first: a bare GET would take a 401 and be sent
     // again after the interceptor's refresh, two /api/user requests per load.
-    // A refusal lands in the 401 branch below with no /api/user request at all.
-    if (!getToken()) yield refreshTokens();
+    // A refusal (401) lands in the 401 branch below with no /api/user request
+    // at all; any other failure (endpoint down, network) falls through to the
+    // GET, which is what a load did before this refresh existed.
+    if (!getToken()) {
+      try {
+        yield refreshTokens();
+      } catch (refreshError) {
+        if (refreshError.response?.status === 401) throw refreshError;
+      }
+    }
     const response = yield apiClient.get('/api/user');
     yield put({ type: 'SET_USER', payload: response.data });
   } catch (error) {

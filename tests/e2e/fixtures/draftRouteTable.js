@@ -101,6 +101,14 @@ const routeTable = [
   // --- Shell chrome the Draft page renders around the room. Answered here so
   // the page boots; deliberately OUTSIDE the Draft room's own call closure
   // (ADR 0014), so the guard does not enumerate them. ---
+  // A hard load restores the session from the refresh cookie before it asks
+  // for the user (#2097), so the boot makes this call; the harness user is
+  // always signed in.
+  {
+    method: 'POST',
+    pattern: '/api/auth/refresh',
+    respond: () => ({ status: 200, body: { token: 'harness-access-token' } }),
+  },
   {
     method: 'GET',
     pattern: '/api/user',

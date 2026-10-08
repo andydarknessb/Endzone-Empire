@@ -77,6 +77,19 @@ describe('fetchUser (worker)', () => {
       expect(dispatched).toEqual([{ type: 'SET_USER', payload: { id: 4, username: 'carol' } }]);
     });
 
+    // Not a refusal: the refresh endpoint is down or unreachable, and the
+    // cookie may still authenticate the GET (the e2e harnesses answer
+    // /api/user alone). Stopping here would log such a user out for good.
+    test('a refresh that fails without a refusal still makes the /api/user request', async () => {
+      authMock.onPost('/api/auth/refresh').reply(500);
+      mock.onGet('/api/user').reply(200, { id: 4, username: 'carol' });
+
+      const dispatched = await run();
+
+      expect(mock.history.get.filter((r) => r.url === '/api/user')).toHaveLength(1);
+      expect(dispatched).toEqual([{ type: 'SET_USER', payload: { id: 4, username: 'carol' } }]);
+    });
+
     test('a refresh the server refuses unsets the user and never asks for /api/user', async () => {
       authMock.onPost('/api/auth/refresh').reply(401);
 

@@ -61,21 +61,17 @@ const presenterTest = test.extend<{}>({
   },
 });
 
-// The anonymous shell boot, declared on the shared contract: apiClient dispatches
-// GET /api/user (401, no session), and its 401 interceptor then attempts
-// POST /api/auth/refresh (also 401, retried once). Both are the correct
-// logged-out response, so each is declared by its status and endpoint - never a
-// blanket "Failed to load resource" - and each MUST fire or teardown fails.
+// The anonymous shell boot, declared on the shared contract: with no access
+// token in memory the boot restores the session first, POST /api/auth/refresh
+// (401, retried once), and a refusal means no GET /api/user is ever made
+// (#2097). That 401 is the correct logged-out response, so it is declared by its
+// status and endpoint - never a blanket "Failed to load resource" - and it MUST
+// fire or teardown fails.
 function declarePresenterBootErrors(expectConsoleError: ExpectConsoleError) {
   expectConsoleError.resourceError({
     status: 401,
-    url: /\/api\/user(\?|$)/,
-    because: 'anonymous presenter boot: no session, GET /api/user answers 401 (#447)',
-  });
-  expectConsoleError.resourceError({
-    status: 401,
     url: /\/api\/auth\/refresh(\?|$)/,
-    because: 'anonymous presenter boot: the 401 interceptor attempts a refresh, also 401 (#447)',
+    because: 'anonymous presenter boot: no session, the refresh before /api/user answers 401 (#447, #2097)',
   });
 }
 
@@ -150,11 +146,12 @@ async function installPresenterRoutes(
     const path = url.pathname;
     const method = request.method();
 
-    // A logged-out visitor with a share link: the app boot dispatches FETCH_USER
-    // (GET /api/user), and apiClient's 401 interceptor then attempts a token
-    // refresh (POST /api/auth/refresh, retried once). Both 401, exactly as they
-    // do for an anonymous visitor - no session is ever established.
-    if (method === 'GET' && path === '/api/user') return reply(route, 401, { error: 'unauthorized' });
+    // A logged-out visitor with a share link: the app boot dispatches FETCH_USER,
+    // which restores the session first (POST /api/auth/refresh, retried once).
+    // It answers 401, exactly as it does for an anonymous visitor, so no session
+    // is established and GET /api/user is never requested. It is deliberately not
+    // mocked: a bare /api/user would fall through to the unexpected-request
+    // record below and fail the teardown.
     if (method === 'POST' && path === '/api/auth/refresh') return reply(route, 401, { error: 'unauthorized' });
 
     // The two presenter endpoints. Activity is matched before the board so the
