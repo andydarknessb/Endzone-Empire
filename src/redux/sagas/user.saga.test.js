@@ -78,8 +78,6 @@ describe('fetchUser (worker)', () => {
 });
 
 test('a 401 on FETCH_USER (expired or invalid token) also drops the session caches', () => {
-  const deleted = [];
-  global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
   primeLeagueForTest(1, { id: 1, name: 'Previous session row' });
 
   const gen = fetchUser();
@@ -87,12 +85,10 @@ test('a 401 on FETCH_USER (expired or invalid token) also drops the session cach
   const step = gen.throw({ response: { status: 401 } });
 
   expect(step.value).toEqual(put({ type: 'UNSET_USER' }));
-  expect(deleted).toEqual(['api-cache-v1']);
   const { result, unmount } = renderHook(() => useLeague(1));
   expect(result.current.league).toBeNull();
   // '/api/league/1' is unmocked here, so this hook's own request rejects
   // (axios-mock-adapter 404s unmatched routes). Unmount before that
   // rejection lands, or its setError/setLoading outlives the test.
   unmount();
-  delete global.caches;
 });

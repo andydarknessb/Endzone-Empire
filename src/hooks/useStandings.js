@@ -42,7 +42,7 @@ export function clearStandingsCache(leagueId) {
 
 /**
  * Shared GET /api/scoring/league/:id/standings, keyed by current week (ADR
- * 0004). `/api/scoring/league/:id/standings` is on the service-worker allowlist
+ * 0004). `/api/scoring/league/:id/standings` is on the ADR 0059 read list
  * and, since #641, is read by more than one mount per dashboard navigation, so
  * it is admitted to the shared cache: both readers dedupe onto one request, and
  * the table for a league or week the hook has moved away from never lands as the

@@ -102,9 +102,9 @@ import {
  *     `teamName` (the canonical identity field, teamIdentity.js), never the raw
  *     `name` column that the matchup routes also leak.
  *
- * Both reads are on the service-worker API allowlist
- * (public/service-worker.js: /api/league/N/matchups(/M)?). ADR 0004 caches a GET
- * through useResource when it is on the allowlist AND read by more than one
+ * Both reads are on the ADR 0059 read list
+ * (/api/league/N/matchups(/M)?). ADR 0004 caches a GET
+ * through useResource when it is on that list AND read by more than one
  * mount per typical navigation. The week's matchups list meets that (the Lineup
  * page and the team-summary-strip read it too, #1872), so it is
  * `entities/matchup`'s shared `useWeekMatchups` and the viewer's row is its

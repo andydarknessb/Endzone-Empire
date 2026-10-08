@@ -23,7 +23,7 @@ export function clearWeekMatchupsCache(leagueId) {
 /**
  * One league week's Matchups as read models (#1872, ADR 0004 / ADR 0029): the
  * shared, cached read of the league's matchups list for one week, which is on the
- * service-worker API allowlist and is read by more than one mount on the
+ * ADR 0059 read list and is read by more than one mount on the
  * Lineup page (the page itself, the team-summary-strip and the matchup-preview),
  * so it goes through `useResource` and the store dedupes them into one request.
  * `useResource` is plumbing with no domain meaning, reached below the island the
