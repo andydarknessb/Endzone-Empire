@@ -302,6 +302,13 @@ describe('fact chips (#1853)', () => {
     for (const chip of chips) expect(within(chip).getByText('context only')).toBeInTheDocument();
   });
 
+  test("a context-only fact chip reads with a space before 'context only' (accessible text)", () => {
+    renderPanel(withGame({}, { line: { favoredBy: 7 } }));
+    const chip = screen.getByTestId('suggestion-fact-chip');
+    expect(chip).toHaveTextContent('Favored by 7 context only');
+    expect(chip.textContent).toMatch(/7 context only/);
+  });
+
   test('the label drops for a Factor that is applied, chip by chip', () => {
     renderPanel(withGame({}, {
       line: { spread: -7.5, total: 49.5, favoredBy: 7.5 },
