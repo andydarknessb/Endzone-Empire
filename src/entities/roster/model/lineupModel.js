@@ -72,8 +72,8 @@ const BENCH = 'BENCH';
 const IR = 'IR';
 
 // injury_status codes that are "questionable-class" rather than Unavailable
-// (#1330 ruling): the feed's `normalizeInjuryStatus`
-// (server/services/scoring.service.js) writes exactly four non-null codes -
+// (#1330 ruling): the injury sync
+// (server/services/feedSyncRuns.service.js, ESPN_INJURY_STATUS) writes exactly four non-null codes -
 // 'IR', 'Q', 'D', 'O' - and O/IR are already Unavailable (the wire's
 // `unavailable` code), so the remaining two, Q and D, are the whole set. This is the one
 // spelling of "questionable"; a widget reads it through `isQuestionable`

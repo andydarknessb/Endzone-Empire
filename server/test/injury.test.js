@@ -3,28 +3,17 @@ const assert = require('node:assert/strict');
 const { createFakePool, insert, select, update } = require('./helpers/fakePool');
 const prefs = require('../services/prefs.service');
 const push = require('../services/push.service');
-const { normalizeInjuryStatus, syncInjuries, NFL_PLAYER_LIST_FLOOR } = require('../services/feedSyncRuns.service');
+const { syncInjuries } = require('../services/feedSyncRuns.service');
+const espnAthleteClient = require('../modules/espnAthleteClient');
+const injuriesFixture = require('./fixtures/espn/injuries.json');
 const { DEFAULT_ROSTER_SLOTS, setLineup } = require('../services/lineup.service');
 
-test('normalizeInjuryStatus maps designations to badge codes', () => {
-  assert.equal(normalizeInjuryStatus('Questionable'), 'Q');
-  assert.equal(normalizeInjuryStatus('questionable - ankle'), 'Q');
-  assert.equal(normalizeInjuryStatus('Doubtful'), 'D');
-  assert.equal(normalizeInjuryStatus('Out'), 'O');
-  assert.equal(normalizeInjuryStatus('Injured Reserve'), 'IR');
-  assert.equal(normalizeInjuryStatus('IR'), 'IR');
-});
+// The document floor (#2115) is exercised by its own tests below; every other
+// case here feeds a handful of entries, so it is off for this file.
+process.env.INJURY_DOC_FLOOR = '0';
 
-test('normalizeInjuryStatus: healthy/unknown values return null', () => {
-  assert.equal(normalizeInjuryStatus(null), null);
-  assert.equal(normalizeInjuryStatus(''), null);
-  assert.equal(normalizeInjuryStatus('Probable'), null);
-  assert.equal(normalizeInjuryStatus('Active'), null);
-});
-
-test('normalizeInjuryStatus: IR wins over Out when both words appear', () => {
-  assert.equal(normalizeInjuryStatus('Out - Injured Reserve'), 'IR');
-});
+// One row of the ESPN injuries document as espnAthleteClient.injuries() returns it (#2115).
+const listed = (athleteId, status, detail = null) => ({ athleteId, status, detail });
 
 test('syncInjuries commits designation updates and IR flags before delivering gated push', async (t) => {
   const notifications = [];
@@ -34,8 +23,8 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        { id: 21, external_id: 'tank-21', injury_status: 'O', nfl_team: 'BUF' },
-        { id: 22, external_id: 'tank-22', injury_status: 'Q', nfl_team: 'MIA' },
+        { id: 21, external_id: 'espn-21', injury_status: 'O' },
+        { id: 22, external_id: 'espn-22', injury_status: 'Q' },
       ],
     }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
@@ -66,20 +55,13 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
   });
 
   const result = await syncInjuries({
-    api: async (path) => {
-      assert.equal(path, '/getNFLPlayerList');
-      return {
-        data: {
-          body: [
-            { playerID: 'tank-21', team: 'BUF', injury: { designation: 'Questionable', description: 'Ankle' } },
-            { playerID: 'tank-22', team: 'MIA', injury: { designation: 'Active' } },
+    fetchInjuries: async () => [
+            listed('espn-21', 'Questionable', 'Ankle'),
+            listed('espn-22', 'Active'),
           ],
-        },
-      };
-    },
   });
 
-  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1 });
   assert.match(fake.matching(select('players'))[0].text, /FOR UPDATE$/);
   // #929: one bulk UPDATE replaces the per-player loop. Rewritten from the old
   // assertion `fake.matching(update('players')).length === 2`, which pinned two
@@ -87,7 +69,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
   // players carry their new designation and detail into the write - as one
   // statement whose three parallel parameter arrays (ids int[], statuses
   // text[], details text[], built in JS over every feed match in scan order)
-  // carry exactly those two ids and their new values. tank-22 is Active, so its
+  // carry exactly those two ids and their new values. espn-22 is Active, so its
   // status and detail are null; nulls reach SQL as NULL.
   const injuryWrites = fake.matching(update('players'));
   assert.equal(injuryWrites.length, 1, 'exactly one bulk UPDATE, not a per-row loop');
@@ -95,8 +77,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
     [21, 22],
     ['Q', null],
     ['Ankle', null],
-    ['BUF', 'MIA'],
-  ], 'ids, statuses, details, teams as four parallel arrays in scan order');
+  ], 'ids, statuses, details as three parallel arrays in scan order');
   // #904: syncInjuries serializes with syncAdp on the same transaction-scoped
   // advisory lock (id 23004, players-bulk-write). The lock is the FIRST statement
   // inside the transaction - after BEGIN, before the FOR UPDATE scan takes any
@@ -181,7 +162,7 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
     [select('players'), async () => {
       signalSyncAttempted();
       if (lineupReadHasLock) await lineupMoved;
-      return { rows: [{ id: 1, external_id: 'tank-1', injury_status: playerDesignation }] };
+      return { rows: [{ id: 1, external_id: 'espn-1', injury_status: playerDesignation }] };
     }, 'client'],
     [update('players'), (text, params) => {
       // #929: under the bulk form params[0] is the id array and params[1] is
@@ -220,9 +201,7 @@ test('an injury refresh cannot pass an IR placement before scanning the committe
   });
   await designationRead;
   const injuryRefresh = syncInjuries({
-    api: async () => ({
-      data: { body: [{ playerID: 'tank-1', injury: { designation: 'Questionable' } }] },
-    }),
+    fetchInjuries: async () => [listed('espn-1', 'Questionable')],
   });
 
   const [lineupResult, injuryResult] = await Promise.all([lineupSave, injuryRefresh]);
@@ -252,8 +231,8 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
   // here against the same stored rows, gated on it actually being present in the
   // SQL. stored[61] equals its feed values (a no-op); stored[62] differs.
   const stored = new Map([
-    [61, { injury_status: 'Q', injury_detail: 'Ankle', nfl_team: 'KC' }],
-    [62, { injury_status: 'D', injury_detail: 'Knee', nfl_team: 'LV' }],
+    [61, { injury_status: 'Q', injury_detail: 'Ankle' }],
+    [62, { injury_status: 'D', injury_detail: 'Knee' }],
   ]);
   const written = [];
   const fake = createFakePool([
@@ -261,18 +240,17 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        { id: 61, external_id: 'tank-61', injury_status: 'Q', nfl_team: 'KC' },
-        { id: 62, external_id: 'tank-62', injury_status: 'D', nfl_team: 'LV' },
+        { id: 61, external_id: 'espn-61', injury_status: 'Q' },
+        { id: 62, external_id: 'espn-62', injury_status: 'D' },
       ],
     }), 'client'],
     [update('players'), (text, params) => {
       const hasNoOpPredicate = /IS DISTINCT FROM/.test(text);
-      const [ids, statuses, details, teams] = params;
+      const [ids, statuses, details] = params;
       for (let i = 0; i < ids.length; i++) {
         const row = stored.get(ids[i]);
         const distinct = row.injury_status !== statuses[i]
-          || row.injury_detail !== details[i]
-          || row.nfl_team !== teams[i];
+          || row.injury_detail !== details[i];
         if (!hasNoOpPredicate || distinct) written.push(ids[i]);
       }
       return { rows: [] };
@@ -281,14 +259,10 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
   t.mock.method(prefs, 'usersWanting', async () => []);
 
   const result = await syncInjuries({
-    api: async () => ({
-      data: {
-        body: [
-          { playerID: 'tank-61', team: 'KC', injury: { designation: 'Questionable', description: 'Ankle' } },
-          { playerID: 'tank-62', team: 'LV', injury: { designation: 'Out', description: 'Hamstring' } },
+    fetchInjuries: async () => [
+          listed('espn-61', 'Questionable', 'Ankle'),
+          listed('espn-62', 'Out', 'Hamstring'),
         ],
-      },
-    }),
   });
 
   // Both matches ride in the parameter arrays (the filter is SQL-side, and the
@@ -299,13 +273,14 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
     [61, 62],
     ['Q', 'O'],
     ['Ankle', 'Hamstring'],
-    ['KC', 'LV'],
   ]);
-  // The predicate compares ALL THREE columns against the target row p.
+  // The predicate compares BOTH columns against the target row p, and the
+  // statement never names nfl_team (ADR 0060: the Tank01 player sync owns it).
   assert.match(
     injuryWrites[0].text,
-    /"injury_status" IS DISTINCT FROM v\."status"[\s\S]*OR[\s\S]*"injury_detail" IS DISTINCT FROM v\."detail"[\s\S]*OR[\s\S]*"nfl_team" IS DISTINCT FROM v\."team"/,
+    /"injury_status" IS DISTINCT FROM v\."status"[\s\S]*OR[\s\S]*"injury_detail" IS DISTINCT FROM v\."detail"/,
   );
+  assert.doesNotMatch(injuryWrites[0].text, /nfl_team/);
   // The changed row is written; the no-op is not. Red-tell: removing the
   // IS DISTINCT FROM clause writes both -> written becomes [61, 62] -> red.
   assert.deepEqual(written, [62]);
@@ -324,7 +299,7 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
     [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 71, external_id: 'tank-71', injury_status: 'O' }],
+      rows: [{ id: 71, external_id: 'espn-71', injury_status: 'O' }],
     }), 'client'],
     [update('players'), (text, params) => {
       writtenStatus = params[1][0];
@@ -349,9 +324,7 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
   t.mock.method(push, 'sendPushToUsers', async () => ({ sent: 0 }));
 
   const result = await syncInjuries({
-    api: async () => ({
-      data: { body: [{ playerID: 'tank-71', injury: { designation: 'Questionable' } }] },
-    }),
+    fetchInjuries: async () => [listed('espn-71', 'Questionable')],
   });
 
   assert.equal(result.irFlags, 1);
@@ -372,15 +345,13 @@ test('#929: the bulk designation write is issued before the IR stash is read', a
 // (no side tag), which is the observable that proves it is written outside the
 // transaction, not on the checked-out client.
 const dataSyncRuns = (calls) => calls.filter((c) => insert('data_sync_runs').test(c.text));
-const healthyToQuestionableApi = async () => ({
-  data: { body: [{ playerID: 'tank-91', team: 'SEA', injury: { designation: 'Questionable', description: 'Ankle' } }] },
-});
+const healthyToQuestionableFeed = async () => [listed('espn-91', 'Questionable', 'Ankle')];
 
 test('#961 success: one ok=true data_sync_runs row with job "injuries" and the run counts', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 91, external_id: 'tank-91', injury_status: null, nfl_team: 'SEA' }],
+      rows: [{ id: 91, external_id: 'espn-91', injury_status: null }],
     }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
@@ -388,23 +359,21 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
 
   // 23:30 US Central on the 20th is already 04:30 UTC the 21st - the input
   // that turns a local-calendar-day comparison red (fleet#1509 red-tell).
-  const result = await syncInjuries({ api: healthyToQuestionableApi, now: new Date('2026-08-20T23:30:00-05:00') });
+  const result = await syncInjuries({ fetchInjuries: healthyToQuestionableFeed, now: new Date('2026-08-20T23:30:00-05:00') });
 
-  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 });
   const records = dataSyncRuns(fake.calls);
   // Red-tell for criterion 2: deleting the ok=true record call empties this.
   assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
   assert.equal(records[0].via, 'pool', 'the record is written on the pool, outside the transaction');
   assert.equal(records[0].params[0], 'injuries', 'the job is the literal "injuries"');
   assert.equal(records[0].params[2], true, 'ok is true');
-  // #1385: floorGuardTripped rides in from fetch's run-level detail (#1202) -
-  // this one-entry feed is far below NFL_PLAYER_LIST_FLOOR, so it reads true.
-  // #1509: `day` rides the same run-level detail, the UTC day, not the local
+  // #1509: `day` rides fetch's run-level detail, the UTC day, not the local
   // en-CA day (2026-08-20).
   assert.deepEqual(
     JSON.parse(records[0].params[3]),
-    { day: '2026-08-21', floorGuardTripped: true, playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 },
-    'detail carries the UTC day, the run counts and the floor guard state',
+    { day: '2026-08-21', playersUpdated: 1, irFlags: 0 },
+    'detail carries the UTC day and the run counts',
   );
   // Recorded after the run committed, never mid-transaction.
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
@@ -423,7 +392,7 @@ test('#961 failure: one ok=false row carries the error message, and the run stil
 
   // Red-tell for the rethrow half of criterion 3: swallowing the rethrow makes
   // this reject-assertion red (syncInjuries would resolve instead).
-  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  const promise = syncInjuries({ fetchInjuries: healthyToQuestionableFeed });
   await assert.rejects(promise, /scan blew up/);
   const error = await promise.catch((e) => e);
   // Red-tell: dropping runSyncJob's tagReason fallback for a per-unit throw
@@ -466,7 +435,7 @@ test('#961 survives rollback: the failure row is written on the pool, after ROLL
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  await assert.rejects(syncInjuries({ api: healthyToQuestionableApi }), /scan blew up/);
+  await assert.rejects(syncInjuries({ fetchInjuries: healthyToQuestionableFeed }), /scan blew up/);
 
   const rollbackIdx = fake.calls.findIndex((c) => c.text === 'ROLLBACK');
   const recordIdx = fake.calls.findIndex((c) => insert('data_sync_runs').test(c.text));
@@ -476,8 +445,8 @@ test('#961 survives rollback: the failure row is written on the pool, after ROLL
   fake.assertClean();
 });
 
-test('#961 upstream failure: an api() throw records ok=false with reason "fetch_failed"', async (t) => {
-  // The upstream Tank01 call throws before the transaction opens. It carries no
+test('#961 upstream failure: a fetch throw records ok=false with reason "fetch_failed"', async (t) => {
+  // The upstream ESPN call throws before the transaction opens. It carries no
   // statusCode, so only a tag distinguishes it from a database failure - which
   // is the whole point of splitting the reason (finding 1): "upstream or us" is
   // the highest-value question the row answers, and this sync is quota-metered.
@@ -491,8 +460,8 @@ test('#961 upstream failure: an api() throw records ok=false with reason "fetch_
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  const promise = syncInjuries({ api: async () => { throw new Error('Tank01 timed out'); } });
-  await assert.rejects(promise, /Tank01 timed out/);
+  const promise = syncInjuries({ fetchInjuries: async () => { throw new Error('ESPN timed out'); } });
+  await assert.rejects(promise, /ESPN timed out/);
   const error = await promise.catch((e) => e);
   assert.equal(error.syncFailureReason, 'fetch_failed', 'the rejected error carries the same tag the record uses');
 
@@ -502,35 +471,35 @@ test('#961 upstream failure: an api() throw records ok=false with reason "fetch_
   assert.equal(records[0].params[0], 'injuries');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'Tank01 timed out', 'the upstream error message is in detail');
+  assert.equal(detail.message, 'ESPN timed out', 'the upstream error message is in detail');
   assert.equal(detail.reason, 'fetch_failed', 'an upstream throw is fetch_failed, not merged with our failures');
   // No transaction was opened: the failure is upstream of pool.connect().
   assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction on an upstream failure');
   fake.assertClean();
 });
 
-test('#961 bad response: a non-array getNFLPlayerList body records ok=false with reason "bad_response"', async (t) => {
-  // Tank01 answered, but the body is not an array, so the 502 shape guard throws
-  // before the transaction. Red-tell: dropping the bad_response tag (or the
-  // guard) changes this reason. Control: 'bad_response' here vs 'fetch_failed'
-  // and 'write_failed' in the sibling tests.
+test('#2115 unusable document: a null answer (failed GET or no team groups) records ok=false with reason "fetch_failed" and opens no transaction', async (t) => {
+  // espnAthleteClient.injuries() answers null for a failed GET and for a
+  // document with no team groups; either way an empty league must never read
+  // as everyone healthy. Control: 'fetch_failed' here, 'write_failed' in the
+  // in-transaction tests.
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  await assert.rejects(
-    syncInjuries({ api: async () => ({ data: { body: { notAnArray: true } } }) }),
-    /unexpected getNFLPlayerList response shape/,
-  );
+  const promise = syncInjuries({ fetchInjuries: async () => null });
+  await assert.rejects(promise, /ESPN injuries document unavailable/);
+  const error = await promise.catch((e) => e);
+  assert.equal(error.syncFailureReason, 'fetch_failed', 'the rejected error carries the same tag the record uses');
 
   const records = dataSyncRuns(fake.calls);
-  assert.equal(records.length, 1, 'exactly one data_sync_runs row on a bad response');
+  assert.equal(records.length, 1, 'exactly one data_sync_runs row on an unusable document');
   assert.equal(records[0].via, 'pool');
   assert.equal(records[0].params[2], false, 'ok is false');
   const detail = JSON.parse(records[0].params[3]);
-  assert.equal(detail.message, 'unexpected getNFLPlayerList response shape', 'the shape-guard message is in detail');
-  assert.equal(detail.reason, 'bad_response', 'a malformed feed is bad_response (upstream contract drift)');
-  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction on a bad response');
+  assert.equal(detail.message, 'ESPN injuries document unavailable');
+  assert.equal(detail.reason, 'fetch_failed');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction, so nobody is cleared to healthy');
   fake.assertClean();
 });
 
@@ -560,7 +529,7 @@ test('#1041 connect failure: pool.connect() rejecting records ok=false with reas
   // rejected. A TypeError about `release` reaching the caller (the hazard the
   // ticket exists to avoid) would also make this reject, so only the message
   // proves the original connection error survived intact.
-  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  const promise = syncInjuries({ fetchInjuries: healthyToQuestionableFeed });
   await assert.rejects(promise, /connection refused by pooler/);
   const error = await promise.catch((e) => e);
   // Red-tell: dropping runSyncJob's tagReason fallback for a per-unit throw
@@ -600,7 +569,7 @@ test('#1048 rollback rejects: the original error survives and still tags write_f
   // Red-tell: reverting the inner try/catch around ROLLBACK (leaving the bare
   // `await client.query('ROLLBACK')`) makes this reject with "rollback
   // rejected" instead, since the unhandled ROLLBACK rejection replaces boom.
-  const promise = syncInjuries({ api: healthyToQuestionableApi });
+  const promise = syncInjuries({ fetchInjuries: healthyToQuestionableFeed });
   await assert.rejects(promise, /scan blew up/);
   const error = await promise.catch((e) => e);
   assert.equal(error.rollbackError.message, 'rollback rejected',
@@ -632,17 +601,17 @@ test('#961 best-effort: a record write that throws changes neither outcome nor r
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 91, external_id: 'tank-91', injury_status: null, nfl_team: 'SEA' }],
+      rows: [{ id: 91, external_id: 'espn-91', injury_status: null }],
     }), 'client'],
     [update('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => { throw new Error('relation "data_sync_runs" does not exist'); }],
   ]).install(t);
 
-  const result = await syncInjuries({ api: healthyToQuestionableApi });
+  const result = await syncInjuries({ fetchInjuries: healthyToQuestionableFeed });
 
   assert.deepEqual(
     result,
-    { playersUpdated: 1, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 },
+    { playersUpdated: 1, irFlags: 0 },
     'the run returns its real result',
   );
   assert.equal(dataSyncRuns(fake.calls).length, 1, 'the record write was attempted once');
@@ -650,7 +619,7 @@ test('#961 best-effort: a record write that throws changes neither outcome nor r
 });
 
 test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 no-op -> 3)', async (t) => {
-  // Three feed matches; tank-81 equals its stored row (a no-op the statement
+  // Three feed matches; espn-81 equals its stored row (a no-op the statement
   // drops), the other two differ. playersUpdated is the length of the
   // transitions array (feed matches), so it is 3, not the 2 rows the statement
   // writes. Red-tell: deriving playersUpdated from the write count returns 2.
@@ -665,9 +634,9 @@ test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 n
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        { id: 81, external_id: 'tank-81', injury_status: 'Q' },
-        { id: 82, external_id: 'tank-82', injury_status: 'Q' },
-        { id: 83, external_id: 'tank-83', injury_status: null },
+        { id: 81, external_id: 'espn-81', injury_status: 'Q' },
+        { id: 82, external_id: 'espn-82', injury_status: 'Q' },
+        { id: 83, external_id: 'espn-83', injury_status: null },
       ],
     }), 'client'],
     [update('players'), (text, params) => {
@@ -681,574 +650,16 @@ test('#929: playersUpdated counts feed matches, not written rows (3 matches, 1 n
   ]).install(t);
 
   const result = await syncInjuries({
-    api: async () => ({
-      data: {
-        body: [
-          { playerID: 'tank-81', injury: { designation: 'Questionable', description: 'Ankle' } },
-          { playerID: 'tank-82', injury: { designation: 'Doubtful', description: 'Knee' } },
-          { playerID: 'tank-83', injury: { designation: 'Out', description: 'Groin' } },
+    fetchInjuries: async () => [
+          listed('espn-81', 'Questionable', 'Ankle'),
+          listed('espn-82', 'Doubtful', 'Knee'),
+          listed('espn-83', 'Out', 'Groin'),
         ],
-      },
-    }),
   });
 
   assert.deepEqual(written, [82, 83], 'the statement writes only the two changed rows');
   assert.equal(result.playersUpdated, 3, 'but playersUpdated counts all three feed matches');
   assert.equal(result.irFlags, 0);
-  fake.assertClean();
-});
-
-// ---- the same pass keeps players.nfl_team current ------------------------
-// getNFLPlayerList carries a current team as well as a designation, and this
-// job is the only unattended reader of that feed (syncPlayers is manual). The
-// bug: a player traded/signed/elevated mid-season kept the team label frozen at
-// the last hand-run sync, so his stat line landed under a team whose game had
-// not been played and every schedule join for him — lineup locks, bye
-// detection, opponent projection features — read the wrong game.
-
-test('team refresh: a player the feed has moved gets his nfl_team corrected in the same write', async (t) => {
-  // The real shape: stored ARI, actually playing for NE. Red-tell: dropping
-  // nfl_team from the SET leaves the write carrying only status/detail and the
-  // teams array never reaches SQL.
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 1041, external_id: 'tank-1041', injury_status: null, nfl_team: 'ARI' }],
-    }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({ data: { body: [{ playerID: 'tank-1041', team: 'NE', injury: {} }] } }),
-  });
-
-  const writes = fake.matching(update('players'));
-  assert.equal(writes.length, 1);
-  assert.match(writes[0].text, /"nfl_team" = v\."team"/, 'the write sets nfl_team');
-  assert.deepEqual(writes[0].params[3], ['NE'], 'the teams array carries the feed team, not the stored one');
-  assert.equal(result.teamChanges, 1, 'the correction is counted for the run record');
-  // The scan must read nfl_team, or the change can never be detected.
-  assert.match(fake.matching(select('players'))[0].text, /"nfl_team"/);
-  fake.assertClean();
-});
-
-test('team refresh: a feed entry with no team keeps the stored label instead of wiping it, below the floor', async (t) => {
-  // #1385: this one-entry feed is far below NFL_PLAYER_LIST_FLOOR, so the
-  // floor guard trips and the blank keeps the stored label exactly as before
-  // - the same protection this pass has always given a transient blank, now
-  // reached via the guard rather than an unconditional "always keep it". The
-  // guard-passed case (a real departure clears the label) is covered below.
-  // Red-tell: pushing feed.team straight into the array sends [null] and the
-  // daily job clears teams league-wide on a bad feed.
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 55, external_id: 'tank-55', injury_status: null, nfl_team: 'GB' }],
-    }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({ data: { body: [{ playerID: 'tank-55', injury: {} }] } }),
-  });
-
-  assert.deepEqual(fake.matching(update('players'))[0].params[3], ['GB'], 'the stored label survives');
-  assert.equal(result.teamChanges, 0, 'keeping a label is not a change');
-  assert.equal(result.teamsCleared, 0, 'below the floor, nothing is cleared either');
-  fake.assertClean();
-});
-
-// ---- #1385: departure clears nfl_team, gated on the floor -----------------
-// A player who leaves the NFL - dropped from Tank01's list entirely, or
-// listed with no team - keeps his last label forever under the old behavior:
-// he looks startable, has no game in nfl_games to lock against, and scores 0
-// with no injury flag. Both writers said so on purpose (syncPlayers never
-// runs unattended; the daily pass kept the label rather than risk one
-// transient blank stripping 3,000 of them). The floor keeps that same
-// protection for a short or truncated feed while letting a real, full feed's
-// silence about a player read as what it is.
-const PADDED_ENTRY_COUNT = NFL_PLAYER_LIST_FLOOR;
-
-/** `count` filler entries the departure/floor tests pad a feed with, each on
- * its own team and matching no stored player, so they inflate the feed's
- * size without disturbing any assertion below. */
-function paddingEntries(count) {
-  const entries = [];
-  for (let i = 0; i < count; i++) {
-    entries.push({ playerID: `pad-${i}`, team: 'SF', injury: {} });
-  }
-  return entries;
-}
-
-test('#1385: at or above the floor, a departed player and a blank-team player both clear, a same-team control does not', async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [
-        // Absent from the feed entirely below - departed.
-        { id: 201, external_id: 'tank-201', injury_status: null, nfl_team: 'HOU' },
-        // Present in the feed with team: '' below - also departed.
-        { id: 202, external_id: 'tank-202', injury_status: null, nfl_team: 'MIA' },
-        // Present in the feed on his stored team - a control, untouched.
-        { id: 203, external_id: 'tank-203', injury_status: null, nfl_team: 'KC' },
-      ],
-    }), 'client'],
-    // No live league at all, so openKickoffTeams answers the empty set from
-    // this one query alone - nothing here is deferred (ruling (4')).
-    [select('leagues'), () => ({ rows: [] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({
-      data: {
-        body: [
-          // tank-201 omitted on purpose - he has left the list.
-          { playerID: 'tank-202', team: '', injury: {} },
-          { playerID: 'tank-203', team: 'KC', injury: {} },
-          ...paddingEntries(PADDED_ENTRY_COUNT),
-        ],
-      },
-    }),
-  });
-
-  const mainWrite = fake.matching(update('players')).find((c) => /"injury_status" = v/.test(c.text));
-  const [mainIds, , , mainTeams] = mainWrite.params;
-  assert.deepEqual(
-    Object.fromEntries(mainIds.map((id, i) => [id, mainTeams[i]])),
-    { 202: null, 203: 'KC' },
-    'the blank-team match clears in the same statement as the control, which keeps his team',
-  );
-  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
-  assert.deepEqual(departureWrite.params, [[201]], 'the absent player clears in his own statement');
-  assert.equal(result.teamsCleared, 2, 'both the absent player and the blank-team player count as cleared');
-  assert.equal(result.teamChanges, 0, 'neither clear is a move between two real teams');
-  assert.equal(result.teamsDeferred, 0, 'no live league exists to defer anything against');
-  fake.assertClean();
-});
-
-test('a feed entry flagged isFreeAgent "True" reads as No NFL team: his stored label clears at or above the floor, a "False" control keeps his', async (t) => {
-  // Tank01's getNFLPlayerList carries a player who has left the NFL under his
-  // LAST team with the flag set (2026-09-15: 1,527 of 3,872 entries, every one
-  // with a team label; Joe Mixon "team":"HOU" six months after Houston released
-  // him). Reading only `team` kept all of them rostered, projected and
-  // ranked as waiver Upgrades.
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [
-        { id: 204, external_id: 'tank-204', injury_status: null, nfl_team: 'HOU' },
-        { id: 205, external_id: 'tank-205', injury_status: null, nfl_team: 'KC' },
-      ],
-    }), 'client'],
-    [select('leagues'), () => ({ rows: [] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({
-      data: {
-        body: [
-          { playerID: 'tank-204', team: 'HOU', isFreeAgent: 'True', injury: { designation: '' } },
-          { playerID: 'tank-205', team: 'KC', isFreeAgent: 'False', injury: { designation: '' } },
-          ...paddingEntries(PADDED_ENTRY_COUNT),
-        ],
-      },
-    }),
-  });
-
-  const mainWrite = fake.matching(update('players')).find((c) => /"injury_status" = v/.test(c.text));
-  const [mainIds, , , mainTeams] = mainWrite.params;
-  assert.deepEqual(
-    Object.fromEntries(mainIds.map((id, i) => [id, mainTeams[i]])),
-    { 204: null, 205: 'KC' },
-    'the flagged player clears in the same statement as the control, which keeps his team',
-  );
-  assert.equal(result.teamsCleared, 1, 'the flagged player counts as cleared');
-  assert.equal(result.teamChanges, 0, 'a clear is not a move between two real teams');
-  fake.assertClean();
-});
-
-test('#1385: below the floor, neither a departed player nor a blank-team player clears', async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [
-        { id: 301, external_id: 'tank-301', injury_status: null, nfl_team: 'HOU' },
-        { id: 302, external_id: 'tank-302', injury_status: null, nfl_team: 'MIA' },
-        { id: 303, external_id: 'tank-303', injury_status: null, nfl_team: 'KC' },
-      ],
-    }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({
-      data: {
-        // tank-301 omitted, tank-302 blank - same shape as the guard-passed
-        // test above, but this feed never reaches NFL_PLAYER_LIST_FLOOR.
-        body: [
-          { playerID: 'tank-302', team: '', injury: {} },
-          { playerID: 'tank-303', team: 'KC', injury: {} },
-        ],
-      },
-    }),
-  });
-
-  assert.equal(
-    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
-    undefined,
-    'no departure-clear statement is issued at all below the floor',
-  );
-  const mainWrite = fake.matching(update('players'))[0];
-  const [mainIds, , , mainTeams] = mainWrite.params;
-  assert.deepEqual(
-    Object.fromEntries(mainIds.map((id, i) => [id, mainTeams[i]])),
-    { 302: 'MIA', 303: 'KC' },
-    'the blank-team match keeps his stored label; the control is untouched either way',
-  );
-  assert.equal(result.teamsCleared, 0, 'nothing cleared below the floor');
-  assert.equal(result.teamsDeferred, 0, 'below the floor there are no clear candidates to defer either');
-  fake.assertClean();
-});
-
-// ---- #1385 ruling (4'): a departure defers while its team is mid-lock -----
-// Clearing nfl_team for a still-rostered player unlocks him retroactively in
-// lineup.service.js's live nfl_team join (risk-001 f1, #627) if his own
-// team's current-week game has already kicked off in a live league. The pass
-// defers the clear instead - his label stays exactly as stored - and counts
-// it in teamsDeferred, distinct from teamsCleared. Ruling's own red-tell.
-
-test("#1385 ruling (4'): a departed player whose team already kicked off in a live league's current week is deferred, not cleared", async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 401, external_id: 'tank-401', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
-    // #1391: an empty schedule read for the bound is the "unseen" case in
-    // deriveNflWeek - it answers N = 1, so W >= N - 1 holds for ANY W >= 0 and
-    // this test's calendar bound is a no-op, unrelated to what it covers.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] }), 'client'],
-    // HOU's week-3 game kicked off an hour ago - the real query's
-    // kickoff_at <= NOW() would include it.
-    // risk-001-f2 (fakePool handler-order nit): a specific regex on the real
-    // kicked-off-teams query's own leading text (fn_normalize_nfl_team), not
-    // the generic select('nfl_games') this file used before #1391 added a
-    // SECOND "nfl_games" query for the calendar bound - the generic matcher
-    // would answer either query, so which one "wins" was really handler
-    // ORDER, silently load-bearing and undocumented as such. This regex and
-    // the calendar-bound regex above/below never match the same query text,
-    // so which is listed first no longer matters.
-    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'HOU' }] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    // tank-401 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  assert.equal(
-    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
-    undefined,
-    'no clear statement is issued while his team is mid-lock',
-  );
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
-  );
-  fake.assertClean();
-});
-
-test("#1385 ruling (4'): the same shape clears once his team's current-week game has not kicked off yet", async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 402, external_id: 'tank-402', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
-    // #1391: an empty schedule read for the bound answers N = 1, a no-op
-    // against W >= N - 1 - unrelated to what this test covers.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] }), 'client'],
-    // HOU's week-3 game kicks off an hour from now - the real query's
-    // kickoff_at <= NOW() would exclude it.
-    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
-  assert.deepEqual(departureWrite.params, [[402]], 'he clears once nothing defers him');
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
-  );
-  fake.assertClean();
-});
-
-test("#1385 ruling (4'): the deferral folds Team code aliases (a stored WSH against nfl_games' folded WAS)", async (t) => {
-  // WAS is already its own canonical form (normalizeNflTeam('WAS') === 'WAS'
-  // is the identity), so storing WAS on both sides would pass even with the
-  // JS-side fold deleted. WSH is the alias that actually needs folding: the
-  // player is stored raw WSH, and the nfl_games side answers the ALREADY
-  // folded code a raw WAS row would produce (the real SQL applies
-  // fn_normalize_nfl_team before this code ever sees the row) - so only the
-  // fold on the player's own stored team, at the deferral check itself,
-  // makes the two sides match. Deleting that fold sends the raw 'WSH' key
-  // against a Set holding only 'WAS' and flips the result to teamsCleared: 1.
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 403, external_id: 'tank-403', injury_status: null, nfl_team: 'WSH' }],
-    }), 'client'],
-    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 3 }] }), 'client'],
-    // #1391: an empty schedule read for the bound answers N = 1, a no-op
-    // against W >= N - 1 - unrelated to what this test covers.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: [] }), 'client'],
-    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'WAS' }] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  assert.equal(
-    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
-    undefined,
-    'the alias still matches, so the deferral holds',
-  );
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
-  );
-  fake.assertClean();
-});
-
-// ---- #1391 ruling: the (4') deferral is bounded to the NFL calendar -------
-// #1385 left "open week" unbounded: a live league's own current_week, with no
-// check against the NFL schedule at all. One league whose commissioner never
-// advances past week 1 would then pin HOU's departure forever, for every
-// league, until that one league's season completed. #1391's ruling bounds it:
-// N = deriveNflWeek(getSeasonWeekBounds({season}), now) (pickemSeason.service,
-// the same pure function the pick'em lifecycle already uses), and an open
-// week (S, W) counts toward the deferral only while W >= N - 1 - the week in
-// play and the week just finished, one NFL week of grace. Below that, the
-// league holds nobody's label and its clear candidates on that team clear
-// normally.
-//
-// Both tests below share one league (season 2026, current_week 1) and one
-// departed player (HOU, already kicked off per the raw nfl_games read) - only
-// the schedule-bounds read changes, moving week 2's last kickoff from the
-// past to the future so N drops from 3 to 2. That is the whole difference
-// between "two weeks behind, cleared" and "one week behind, still deferred".
-
-test("#1391 ruling: a league two or more NFL weeks behind the calendar holds no team's label - the departure clears despite an old kickoff", async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 501, external_id: 'tank-501', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    // The league's own open week is (2026, 1) - far behind the calendar below.
-    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 1 }] }), 'client'],
-    // deriveNflWeek's schedule read: week 2's last kickoff is 8h in the past
-    // (closed, past the 6h grace) and week 3's kicks off a day from now (open) -
-    // the smallest still-open week is 3, so N = 3. The league's open week
-    // (W = 1) sits below N - 1 = 2: two calendar weeks behind.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
-      rows: [
-        { week: 2, kickoff_at: new Date(Date.now() - 8 * 60 * 60 * 1000) },
-        { week: 3, kickoff_at: new Date(Date.now() + 24 * 60 * 60 * 1000) },
-      ],
-    }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    // tank-501 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  // Bounded out of the deferral set: openKickoffTeams never even reads
-  // nfl_games for a kicked-off game, since (2026, 1) failed the bound before
-  // that query would run - no handler for that query is registered above, so
-  // an unbounded implementation would fail here with "unexpected query".
-  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
-  assert.deepEqual(departureWrite.params, [[501]], 'he clears - his league is too far behind the calendar to hold him');
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
-  );
-  fake.assertClean();
-});
-
-test('#1391 ruling: one NFL week behind the calendar is still inside the grace - the departure stays deferred', async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 502, external_id: 'tank-502', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    // Same league, same open week (2026, 1) as the sibling test above.
-    [select('leagues'), () => ({ rows: [{ current_season: 2026, current_week: 1 }] }), 'client'],
-    // Only week 2's last kickoff moved: now a day AHEAD of now instead of 8h
-    // behind, so week 2 is the smallest still-open week - N = 2. The league's
-    // open week (W = 1) sits at N - 1 = 1 exactly: one calendar week behind,
-    // still inside the grace.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
-      rows: [{ week: 2, kickoff_at: new Date(Date.now() + 24 * 60 * 60 * 1000) }],
-    }), 'client'],
-    // HOU's week-1 game (the league's own open week) already kicked off.
-    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'HOU' }] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  assert.equal(
-    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
-    undefined,
-    "no clear statement is issued - the bound still holds his league's open week",
-  );
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
-  );
-  fake.assertClean();
-});
-
-// qa-reviewer (#1391 risk review, formal-001-f1): deriveNflWeek saturates at
-// REG_SEASON_WEEKS (18) once a season's own calendar has fully closed - its
-// own doc comment says it answers 18 both for "week 18 is being played" and
-// "everything is over". `W >= N - 1` alone would then hold forever for a
-// league parked at week 17 or 18 of a season that finished seasons ago:
-// exactly the unbounded pin #1391 exists to remove, surviving at the tail of
-// the season.
-//
-// #1391's season-tail amendment
-// (https://github.com/andydarknessb/Endzone-Empire/issues/1391#issuecomment-5680673660):
-// a closed season's own LAST week (L) keeps its one week of grace - the same
-// grace every other week gets from the week that follows it - measured
-// instead from its own last kickoff (T), since it has no following week:
-// `W >= L` AND `now < T + 7 days + WEEK_ROLLOVER_GRACE_HOURS` (174 hours).
-// Once that instant passes, or for any week short of L, the season holds
-// nobody's label. Three red-tell cases, as the ruling states them.
-
-test('#1391 season-tail amendment: a league still on the closed season\'s LAST week, inside its own 174h tail grace, still defers', async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 504, external_id: 'tank-504', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    // The league never advanced past its championship - it sits at (2025, 18),
-    // the season's own last week.
-    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 18 }] }), 'client'],
-    // Week 18's last kickoff is 2 days past - well inside the 174h tail grace
-    // (2 days = 48h < 174h) - so the season reads closed AND the tail is open.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
-      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) }],
-    }), 'client'],
-    // HOU's own week-18 game (the league's open week) already kicked off.
-    [/^SELECT DISTINCT fn_normalize_nfl_team/, () => ({ rows: [{ team: 'HOU' }] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  assert.equal(
-    fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text)),
-    undefined,
-    'no clear statement is issued - the closed season\'s own last week still holds its tail grace',
-  );
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 0, teamsDeferred: 1 },
-  );
-  fake.assertClean();
-});
-
-test('#1391 season-tail amendment: once the tail grace has passed (8 days), the same league clears', async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 505, external_id: 'tank-505', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 18 }] }), 'client'],
-    // Week 18's last kickoff is 8 days past - outside the 174h (7.25-day) tail
-    // grace - so even the season's own last week no longer holds anybody.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
-      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) }],
-    }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    // tank-505 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  // No handler above answers a kicked-off-teams read: the tail grace expired,
-  // so (2025, 18) never reaches that query.
-  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
-  assert.deepEqual(departureWrite.params, [[505]], 'he clears - the season\'s own tail grace has passed');
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
-  );
-  fake.assertClean();
-});
-
-test("#1391 season-tail amendment: a league on week 17 once week 18 has closed is two weeks behind and clears, even inside week 18's own tail grace", async (t) => {
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ id: 506, external_id: 'tank-506', injury_status: null, nfl_team: 'HOU' }],
-    }), 'client'],
-    // A commissioner never clicked advance on the championship - the league
-    // sits at (2025, 17), one week short of the season's own last week (18).
-    [select('leagues'), () => ({ rows: [{ current_season: 2025, current_week: 17 }] }), 'client'],
-    // Week 18's last kickoff is 2 days past - inside ITS OWN tail grace - but
-    // this league's open week (17) is still short of L (18), so the tail
-    // grace never applies to it regardless.
-    [/^SELECT DISTINCT "week", "kickoff_at" FROM "nfl_games"/, () => ({
-      rows: [{ week: 18, kickoff_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) }],
-    }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncInjuries({
-    // tank-506 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
-  });
-
-  // No handler above answers a kicked-off-teams read: W=17 < L=18 excludes
-  // this row before the tail-grace check even matters.
-  const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
-  assert.deepEqual(departureWrite.params, [[506]], 'he clears - his league is a week short of the season\'s own last week');
-  assert.deepEqual(
-    result,
-    { playersUpdated: 0, irFlags: 0, teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 },
-  );
   fake.assertClean();
 });
 
@@ -1276,7 +687,7 @@ test('#1789: syncInjuries reconciles availability with exactly the changed + dep
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 601, external_id: 'tank-601', injury_status: null, nfl_team: 'BUF' }],
+      rows: [{ id: 601, external_id: 'espn-601', injury_status: null }],
     }), 'client'],
     [MAIN_INJURY_UPDATE, () => ({ rows: [{ id: 601 }] }), 'client'], // RETURNING: the row actually changed
     [SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
@@ -1286,7 +697,7 @@ test('#1789: syncInjuries reconciles availability with exactly the changed + dep
 
   const now = new Date('2026-09-29T12:00:00Z');
   await syncInjuries({
-    api: async () => ({ data: { body: [{ playerID: 'tank-601', injury: { designation: 'Questionable' } }] } }),
+    fetchInjuries: async () => [listed('espn-601', 'Questionable')],
     now,
   });
 
@@ -1313,7 +724,7 @@ test('#1789: a run with no designation change and no departure never reconciles 
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 602, external_id: 'tank-602', injury_status: 'Q', nfl_team: 'BUF' }],
+      rows: [{ id: 602, external_id: 'espn-602', injury_status: 'Q' }],
     }), 'client'],
     // A no-op match: the RETURNING clause reports nothing changed.
     [MAIN_INJURY_UPDATE, () => ({ rows: [] }), 'client'],
@@ -1321,7 +732,7 @@ test('#1789: a run with no designation change and no departure never reconciles 
   ]).install(t);
 
   await syncInjuries({
-    api: async () => ({ data: { body: [{ playerID: 'tank-602', injury: { designation: 'Questionable' } }] } }),
+    fetchInjuries: async () => [listed('espn-602', 'Questionable')],
   });
 
   assert.equal(reconcileCalls, 0, 'nothing changed, so no reconcile is attempted');
@@ -1336,7 +747,7 @@ test('#1789: a reconcile failure is isolated by ROLLBACK TO SAVEPOINT and never 
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 603, external_id: 'tank-603', injury_status: null, nfl_team: 'BUF' }],
+      rows: [{ id: 603, external_id: 'espn-603', injury_status: null }],
     }), 'client'],
     [MAIN_INJURY_UPDATE, () => ({ rows: [{ id: 603 }] }), 'client'],
     [SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
@@ -1345,7 +756,7 @@ test('#1789: a reconcile failure is isolated by ROLLBACK TO SAVEPOINT and never 
   ]).install(t);
 
   const result = await syncInjuries({
-    api: async () => ({ data: { body: [{ playerID: 'tank-603', injury: { designation: 'Questionable' } }] } }),
+    fetchInjuries: async () => [listed('espn-603', 'Questionable')],
   });
 
   // The sync itself succeeds despite the reconcile throwing.
@@ -1354,6 +765,126 @@ test('#1789: a reconcile failure is isolated by ROLLBACK TO SAVEPOINT and never 
   assert.equal(fake.calls.some((c) => RELEASE_SAVEPOINT_STMT.test(c.text)), false, 'a failed reconcile is never released');
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
   assert.ok(commitIdx >= 0, 'the designation write still commits - the reconcile failure never poisons this transaction');
+  fake.assertClean();
+});
+
+// ---- #2115: the ESPN injuries document is the writer ----------------------
+
+/** The common world for the #2115 cases: a locked scan of `players`, a bulk write, an optional IR stash. */
+function espnWorld(t, { players, stash = [], notifications = [] }) {
+  return createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({ rows: players }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [/FROM "lineup_entries"/, () => ({ rows: stash }), 'client'],
+    [insert('notifications'), (text, params) => {
+      notifications.push({ type: params[2], message: params[3] });
+      return { rows: [] };
+    }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    [TEAM_PLAYERS_ROSTER, () => ({ rows: [] })], // nobody rosters the changed players
+  ]).install(t);
+}
+
+test('#2115: Questionable, Doubtful, Out, Injured Reserve, Active and an unlisted player write Q, D, O, IR, null, null', async (t) => {
+  // The five-entry fixture is a trimmed real ESPN document; the Doubtful entry
+  // has no shortComment (detail falls back to the type), the Out entry has no
+  // player-card link (its id comes from the headshot filename).
+  const fake = espnWorld(t, {
+    players: [
+      { id: 1, external_id: '4870808', injury_status: null },
+      { id: 2, external_id: '4873232', injury_status: null },
+      { id: 3, external_id: '5084939', injury_status: null },
+      { id: 4, external_id: '4428991', injury_status: null },
+      { id: 5, external_id: '3127287', injury_status: null },
+      { id: 6, external_id: '999', injury_status: null },
+    ],
+  });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+
+  const result = await syncInjuries({ fetchInjuries: async () => espnAthleteClient.normalizeInjuries(injuriesFixture) });
+
+  const [write] = fake.matching(update('players'));
+  assert.deepEqual(write.params[0], [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(write.params[1], ['Q', 'D', 'O', 'IR', null, null], 'Active and the unlisted player are healthy');
+  const details = write.params[2];
+  assert.match(details[0], /^Love \(ankle\)/, 'detail is the shortComment');
+  assert.equal(details[1], 'doubtful Knee - MCL', 'no shortComment: the type description plus the injury type');
+  assert.match(details[2], /^Cardinals head coach/);
+  assert.match(details[3], /placed Johnson \(biceps\) on injured reserve/);
+  assert.equal(details[4], null, 'an Active entry carries a news note, not an injury: no detail');
+  assert.equal(details[5], null);
+  assert.deepEqual(result, { playersUpdated: 5, irFlags: 0 }, 'playersUpdated counts the five players the document lists');
+  fake.assertClean();
+});
+
+test('#2115: an unknown ESPN status writes null and is logged once per run', async (t) => {
+  const fake = espnWorld(t, {
+    players: [
+      { id: 1, external_id: '11', injury_status: 'Q' },
+      { id: 2, external_id: '12', injury_status: null },
+      { id: 3, external_id: '13', injury_status: null },
+    ],
+  });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+  const warn = t.mock.method(console, 'warn', () => {});
+
+  await syncInjuries({
+    fetchInjuries: async () => [
+      listed('11', 'Suspended', 'Violated policy'),
+      listed('12', 'Suspended', 'Violated policy'),
+      listed('13', 'Questionable', 'Ankle'),
+    ],
+  });
+
+  const [write] = fake.matching(update('players'));
+  assert.deepEqual(write.params[1], [null, null, 'Q'], 'the unknown string is healthy, never guessed');
+  assert.deepEqual(write.params[2], [null, null, 'Ankle'], 'and carries no detail');
+  assert.equal(warn.mock.callCount(), 1, 'two players with the same unknown string log once');
+  assert.match(warn.mock.calls[0].arguments[0], /unknown ESPN status treated as healthy/);
+  assert.equal(warn.mock.calls[0].arguments[1], 'Suspended');
+  fake.assertClean();
+});
+
+test('#2115: the run makes exactly one ESPN GET and no Tank01 call', async (t) => {
+  const axios = require('axios');
+  const tank01Client = require('../modules/tank01Client');
+  const tank01 = t.mock.method(tank01Client, 'tank01Get', async () => { throw new Error('Tank01 must not be called'); });
+  const get = t.mock.method(axios, 'get', async () => ({ data: injuriesFixture }));
+  const fake = espnWorld(t, { players: [{ id: 1, external_id: '4870808', injury_status: null }] });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+
+  await syncInjuries();
+
+  assert.equal(get.mock.callCount(), 1, 'one document, all 32 teams');
+  const [url, config] = get.mock.calls[0].arguments;
+  assert.match(url, /^https:\/\/site\.web\.api\.espn\.com\/apis\/site\/v2\/sports\/football\/nfl\/injuries$/);
+  assert.match(config.headers['User-Agent'], /Mozilla/, 'the browser user agent every ESPN client sends');
+  assert.equal(tank01.mock.callCount(), 0);
+  fake.assertClean();
+});
+
+test('#2115: a player ESPN drops from the document (IR to unlisted) is cleared and flags his IR stash', async (t) => {
+  const notifications = [];
+  const fake = espnWorld(t, {
+    players: [{ id: 31, external_id: '3131', injury_status: 'IR' }],
+    stash: [{
+      player_id: 31, player_name: 'Test Runner', injury_status: null, team_id: 41, owner_id: 51, league_id: 61,
+    }],
+    notifications,
+  });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+
+  const result = await syncInjuries({ fetchInjuries: async () => [listed('9999', 'Out', 'Hamstring')] });
+
+  const [write] = fake.matching(update('players'));
+  assert.deepEqual(write.params, [[31], [null], [null]], 'unlisted means healthy: both columns cleared');
+  assert.equal(result.irFlags, 1);
+  assert.equal(result.playersUpdated, 0, 'he was not in the document');
+  assert.deepEqual(notifications, [{
+    type: 'ir_flag',
+    message: 'Test Runner is no longer IR-eligible (healthy). Move him out of IR before saving your lineup.',
+  }]);
   fake.assertClean();
 });
 
@@ -1367,7 +898,7 @@ async function injuryAlertRun(t, { before = null, designation, description, rost
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
-      rows: [{ id: 700, external_id: 'tank-700', injury_status: before, nfl_team: 'BUF' }],
+      rows: [{ id: 700, external_id: 'espn-700', injury_status: before }],
     }), 'client'],
     [MAIN_INJURY_UPDATE, () => ({ rows: [{ id: 700 }] }), 'client'],
     [SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
@@ -1381,7 +912,7 @@ async function injuryAlertRun(t, { before = null, designation, description, rost
   ]).install(t);
   t.mock.method(push, 'sendPushOnce', async (args) => { sends.push(args); return { sent: args.userIds.length, skipped: 0 }; });
   await syncInjuries({
-    api: async () => ({ data: { body: [{ playerID: 'tank-700', team: 'BUF', injury: { designation, description } }] } }),
+    fetchInjuries: async () => [listed('espn-700', designation, description)],
     now: new Date('2026-10-08T12:00:00Z'),
   });
   return { sends, fake };
@@ -1430,4 +961,82 @@ test('#2106: clearing a designation pushes "healthy"; an unchanged designation p
   const unchanged = await injuryAlertRun(t, { before: 'Q', designation: 'Questionable', description: 'New detail', rostered: [[11, 1]] });
   assert.deepEqual(unchanged.sends, []);
   assert.equal(unchanged.fake.matching(TEAM_PLAYERS_ROSTER).length, 0, 'no change: no roster read either');
+});
+
+test('#2115: a player moving Questionable to Out through the ESPN document pushes the Out alert', async (t) => {
+  const { sends } = await injuryAlertRun(t, { before: 'Q', designation: 'Out', description: 'Knee', rostered: [[11, 1]] });
+
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].fingerprint, 'Out:2026-10-08');
+  assert.deepEqual(sends[0].payload, { title: 'Test Runner is now Out', body: 'Knee', url: '/#/league/1/lineup' });
+});
+
+// ---- #2115: the document floor and the detail cap ---------------------------
+
+/** An ESPN injuries document: `groups` team groups, `perGroup` Out entries in each, athlete ids from 1000. */
+function espnDocument(groups, perGroup, status = 'Out') {
+  let next = 1000;
+  return {
+    injuries: Array.from({ length: groups }, () => ({
+      injuries: Array.from({ length: perGroup }, () => {
+        const id = next++;
+        return { status, shortComment: `note ${id}`, athlete: { links: [{ href: `https://www.espn.com/nfl/player/_/id/${id}/x` }] } };
+      }),
+    })),
+  };
+}
+
+test('#2115 floor: a 200 document with 32 empty team groups is fetch_failed and writes nothing', async (t) => {
+  delete process.env.INJURY_DOC_FLOOR;
+  t.after(() => { process.env.INJURY_DOC_FLOOR = '0'; });
+  const axios = require('axios');
+  t.mock.method(axios, 'get', async () => ({ data: espnDocument(32, 0) }));
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const promise = syncInjuries();
+  await assert.rejects(promise, /too small: 0 entries listed, floor 50/);
+  assert.equal((await promise.catch((e) => e)).syncFailureReason, 'fetch_failed');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction: nothing cleared, no alert');
+  assert.equal(fake.matching(update('players')).length, 0);
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].params[2], false);
+  fake.assertClean();
+});
+
+test('#2115 floor: 49 listed entries are refused, 50 Active-only entries are an ok run, and the real document is ok at the default', async (t) => {
+  delete process.env.INJURY_DOC_FLOOR;
+  t.after(() => { process.env.INJURY_DOC_FLOOR = '0'; });
+  const axios = require('axios');
+  const get = t.mock.method(axios, 'get', async () => ({ data: espnDocument(7, 7) })); // 49 Out entries
+  createFakePool([[insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })]]).install(t);
+  await assert.rejects(syncInjuries(), /too small: 49 entries listed, floor 50/);
+
+  // The guard is against an empty or truncated document, not a quiet week: 50
+  // Active entries are a well-formed document and the run proceeds.
+  get.mock.mockImplementation(async () => ({ data: espnDocument(5, 10, 'Active') }));
+  const quiet = espnWorld(t, { players: [{ id: 1, external_id: '1000', injury_status: 'Q' }] });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+  const result = await syncInjuries();
+  assert.equal(result.playersUpdated, 1);
+  assert.deepEqual(quiet.matching(update('players'))[0].params[1], [null], 'Active is healthy');
+
+  // The real (trimmed) document has only five entries, so it needs the floor
+  // lowered here; the full 800-entry document clears 50 many times over.
+  process.env.INJURY_DOC_FLOOR = '5';
+  get.mock.mockImplementation(async () => ({ data: injuriesFixture }));
+  espnWorld(t, { players: [{ id: 2, external_id: '4870808', injury_status: null }] });
+  assert.equal((await syncInjuries()).playersUpdated, 1);
+});
+
+test('#2115: a detail longer than 255 characters is cut to 255', async (t) => {
+  const fake = espnWorld(t, { players: [{ id: 1, external_id: '21', injury_status: null }] });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+
+  await syncInjuries({ fetchInjuries: async () => [listed('21', 'Out', 'x'.repeat(300))] });
+
+  const detail = fake.matching(update('players'))[0].params[2][0];
+  assert.equal(detail.length, 255);
 });
