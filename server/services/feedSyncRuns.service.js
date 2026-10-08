@@ -540,12 +540,14 @@ async function applyScheduleUnit(client, { season, games, failedWeeks }) {
 // #2115: the document floor. A 200 answer that lists almost nobody (32 empty team
 // groups, a truncated body) would otherwise read as the whole league healthy:
 // every designation cleared and a "now healthy" alert for each. The real
-// document lists 278 non-Active of 800 athletes in season; the run is refused as
-// fetch_failed below this many non-Active entries. INJURY_DOC_FLOOR tunes it.
+// document lists 800 athletes in season (278 of them non-Active); the run is
+// refused as fetch_failed when the document lists fewer than this many entries
+// of any status, Active included: the guard is against an empty or truncated
+// document, not a quiet week. INJURY_DOC_FLOOR tunes it.
 function injuryDocFloor() {
   const raw = process.env.INJURY_DOC_FLOOR;
   const parsed = raw === undefined || raw === '' ? NaN : Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 100;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 50;
 }
 
 // #2115, ADR 0060: ESPN's injuries document uses exactly five designation
@@ -675,9 +677,8 @@ async function fetchInjuryUnits(fetchInjuries, day) {
     err.syncFailureReason = 'fetch_failed';
     throw err;
   }
-  const listedInjuries = rows.filter((row) => row.status !== 'Active').length;
-  if (listedInjuries < injuryDocFloor()) {
-    const err = new Error(`ESPN injuries document too small: ${listedInjuries} listed, floor ${injuryDocFloor()}`);
+  if (rows.length < injuryDocFloor()) {
+    const err = new Error(`ESPN injuries document too small: ${rows.length} entries listed, floor ${injuryDocFloor()}`);
     err.syncFailureReason = 'fetch_failed';
     throw err;
   }

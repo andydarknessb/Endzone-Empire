@@ -198,6 +198,8 @@ services:
       # out of game windows; it spends no Tank01 budget.
       - key: INJURY_SYNC_MS
         value: "900000"
+      # INJURY_DOC_FLOOR (unset, default 50): the injuries run is refused as failed when
+      # ESPN's document lists fewer entries than this, so a truncated body clears nobody.
       # The Final box (ADR 0035) is read this long after ESPN reports a game
       # final, so Tank01's box has settled and one essential-priority call is
       # enough. 900000 = 15 min.

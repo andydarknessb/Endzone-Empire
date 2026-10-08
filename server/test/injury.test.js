@@ -1005,7 +1005,7 @@ test('#2115 floor: a 200 document with 32 empty team groups is fetch_failed and 
   ]).install(t);
 
   const promise = syncInjuries();
-  await assert.rejects(promise, /too small: 0 listed, floor 100/);
+  await assert.rejects(promise, /too small: 0 entries listed, floor 50/);
   assert.equal((await promise.catch((e) => e)).syncFailureReason, 'fetch_failed');
   assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction: nothing cleared, no alert');
   assert.equal(fake.matching(update('players')).length, 0);
@@ -1015,23 +1015,29 @@ test('#2115 floor: a 200 document with 32 empty team groups is fetch_failed and 
   fake.assertClean();
 });
 
-test('#2115 floor: a document with 150 non-Active entries is an ok run; Active entries do not count toward the floor', async (t) => {
+test('#2115 floor: 49 listed entries are refused, 50 Active-only entries are an ok run, and the real document is ok at the default', async (t) => {
   delete process.env.INJURY_DOC_FLOOR;
   t.after(() => { process.env.INJURY_DOC_FLOOR = '0'; });
   const axios = require('axios');
-  const ok = espnDocument(3, 50); // 150 Out entries
-  t.mock.method(axios, 'get', async () => ({ data: ok }));
-  const fake = espnWorld(t, { players: [{ id: 1, external_id: '1000', injury_status: null }] });
-  t.mock.method(prefs, 'usersWanting', async () => []);
+  const get = t.mock.method(axios, 'get', async () => ({ data: espnDocument(7, 7) })); // 49 Out entries
+  createFakePool([[insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })]]).install(t);
+  await assert.rejects(syncInjuries(), /too small: 49 entries listed, floor 50/);
 
+  // The guard is against an empty or truncated document, not a quiet week: 50
+  // Active entries are a well-formed document and the run proceeds.
+  get.mock.mockImplementation(async () => ({ data: espnDocument(5, 10, 'Active') }));
+  const quiet = espnWorld(t, { players: [{ id: 1, external_id: '1000', injury_status: 'Q' }] });
+  t.mock.method(prefs, 'usersWanting', async () => []);
   const result = await syncInjuries();
   assert.equal(result.playersUpdated, 1);
-  assert.deepEqual(fake.matching(update('players'))[0].params[1], ['O']);
+  assert.deepEqual(quiet.matching(update('players'))[0].params[1], [null], 'Active is healthy');
 
-  // 150 Active entries are not injuries: the same size of document is refused.
-  t.mock.method(axios, 'get', async () => ({ data: espnDocument(3, 50, 'Active') }));
-  createFakePool([[insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })]]).install(t);
-  await assert.rejects(syncInjuries(), /too small: 0 listed/);
+  // The real (trimmed) document has only five entries, so it needs the floor
+  // lowered here; the full 800-entry document clears 50 many times over.
+  process.env.INJURY_DOC_FLOOR = '5';
+  get.mock.mockImplementation(async () => ({ data: injuriesFixture }));
+  espnWorld(t, { players: [{ id: 2, external_id: '4870808', injury_status: null }] });
+  assert.equal((await syncInjuries()).playersUpdated, 1);
 });
 
 test('#2115: a detail longer than 255 characters is cut to 255', async (t) => {
