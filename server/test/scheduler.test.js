@@ -131,10 +131,8 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
  * #1188: inside a game window, the every-windowMs decision reads the last
  * successful `injuries` run in data_sync_runs, not a module variable, so a
  * worker restart (a fresh module instance) cannot re-run it more often than
- * the window allows. Outside a window the once-a-day decision is the cadence
- * gate's own concern instead (#1509, below), so this world only ever needs to
- * answer the WINDOW-mode read - the outside-window tests stub cadence.due
- * directly and never reach this fake pool at all.
+ * the window allows. Outside a window (#2106) the same read decides against
+ * the 4 h INJURY_OFF_WINDOW_MS.
  */
 function injuryWorld(t, { inWindow = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');
@@ -150,11 +148,8 @@ function injuryWorld(t, { inWindow = true } = {}) {
   });
   const world = { runs: [], calls: 0, fail: false, inWindow, clock: null };
   const fake = createFakePool([
-    // Serves lastInjurySyncAt's WINDOW-mode read only now (#1509 formal
-    // review f3): lastRun('injuries') (#1205), shaped the way syncRun.js's
-    // lastRun query does, `{ latest, latestOk }`. The once-a-day OUTSIDE-
-    // window decision no longer reaches this fake at all - it is the cadence
-    // gate's own concern, stubbed directly in the tests below.
+    // lastInjurySyncAt's read: lastRun('injuries') (#1205), shaped the way
+    // syncRun.js's lastRun query does, `{ latest, latestOk }`.
     [/FROM "data_sync_runs"/, () => {
       const sorted = [...world.runs].sort((a, b) => b.finished_at - a.finished_at);
       const latest = sorted[0];
@@ -207,7 +202,7 @@ test('runDailyInjurySync never consults the cadence gate while inside a game win
   assert.equal(dueCalls, 0);
 });
 
-test('injurySyncDue is the in-window cadence rule; INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
+test('injurySyncDue is the cadence rule against the window it is given; INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
   const now = new Date('2026-09-13T15:00:00-05:00');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
   assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true, 'never run: due regardless of window');
@@ -225,71 +220,50 @@ test('injurySyncDue is the in-window cadence rule; INJURY_GAME_WINDOW_MS doubles
   }
 });
 
-// ---- outside a window: daily injury sync (#1188, #1509) --------------------
-// The once-a-day decision is the cadence gate's own concern (server/modules/
-// cadence.js, spec #1492 step two, #1509, spec #1493 "UTC day everywhere").
-// Same shape as the ADP/ESPN/odds sections above: these stub cadence.due
-// directly and assert this function's OWN behavior around that decision and
-// delegation to feedSyncRuns.service.syncInjuries.
+// ---- outside a window: every INJURY_OFF_WINDOW_MS (#2106) ------------------
+// Replaces the once-per-UTC-day cadence gate (#1188, #1509): outside a window
+// the same last-successful-run read decides, against a 4 h window.
 
-function withInjuryCreds(t) {
-  const previousKey = process.env.RAPID_API_KEY;
-  const previousHost = process.env.RAPID_API_HOST;
-  process.env.RAPID_API_KEY = 'test-key';
-  process.env.RAPID_API_HOST = 'test-host';
-  t.after(() => {
-    if (previousKey === undefined) delete process.env.RAPID_API_KEY;
-    else process.env.RAPID_API_KEY = previousKey;
-    if (previousHost === undefined) delete process.env.RAPID_API_HOST;
-    else process.env.RAPID_API_HOST = previousHost;
-  });
-}
-
-test('runDailyInjurySync delegates the outside-a-window due/not-due decision to the cadence gate', async (t) => {
-  withInjuryCreds(t);
-  const scoring = require('../services/feedSyncRuns.service');
-  const cadence = require('../modules/cadence');
-  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t); // outside any window
-  let dueArgs = null;
-  t.mock.method(cadence, 'due', async (args) => { dueArgs = args; return { due: true, reason: 'stubbed due' }; });
-  const calls = [];
-  t.mock.method(scoring, 'syncInjuries', async (opts) => {
-    calls.push(opts);
-    return { playersUpdated: 10, irFlags: 1 };
-  });
-
-  const now = new Date('2026-08-20T12:00:00-05:00');
-  assert.deepEqual(await scheduler.runDailyInjurySync({ now }), { playersUpdated: 10, irFlags: 1 });
-  assert.deepEqual(calls, [{ now }], 'due: true delegates straight to syncInjuries with the same now');
-  assert.deepEqual(dueArgs, { job: 'injuries', every: 'utc-day', now });
+test('runDailyInjurySync outside a window is due 4 h after the last ok run, not at 3 h (#2106)', async (t) => {
+  const world = injuryWorld(t, { inWindow: false });
+  const T = new Date('2026-08-20T12:00:00-05:00');
+  assert.ok(await world.run(T), 'never run: due');
+  assert.equal(await world.run(new Date(T.getTime() + 3 * 60 * 60 * 1000)), null, 'three hours on: not yet');
+  assert.ok(await world.run(new Date(T.getTime() + 4 * 60 * 60 * 1000)), 'four hours on: runs');
+  assert.equal(world.calls, 2);
 });
 
-test('runDailyInjurySync never calls syncInjuries outside a window when the cadence gate says it is not due', async (t) => {
-  withInjuryCreds(t);
-  const scoring = require('../services/feedSyncRuns.service');
+test('runDailyInjurySync outside a window never consults the cadence gate', async (t) => {
+  const world = injuryWorld(t, { inWindow: false });
   const cadence = require('../modules/cadence');
-  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
-  t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
-  let calls = 0;
-  t.mock.method(scoring, 'syncInjuries', async () => { calls += 1; return { playersUpdated: 10, irFlags: 1 }; });
-
-  const result = await scheduler.runDailyInjurySync({ now: new Date('2026-08-20T12:00:00-05:00') });
-  assert.equal(result, null);
-  assert.equal(calls, 0);
+  let dueCalls = 0;
+  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
+  await world.run(new Date('2026-08-20T12:00:00-05:00'));
+  assert.equal(dueCalls, 0);
 });
 
-test('runDailyInjurySync propagates a thrown syncInjuries outside a window so the next tick retries (a throw never moves the gate)', async (t) => {
-  withInjuryCreds(t);
-  const scoring = require('../services/feedSyncRuns.service');
-  const cadence = require('../modules/cadence');
-  createFakePool([[/FROM "live_game_states"/, () => ({ rows: [] })]]).install(t);
-  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
-  t.mock.method(scoring, 'syncInjuries', async () => { throw new Error('Tank01 unavailable'); });
+test('runDailyInjurySync propagates a thrown syncInjuries outside a window; the failed run does not move the gate', async (t) => {
+  const world = injuryWorld(t, { inWindow: false });
+  const T = new Date('2026-08-20T12:00:00-05:00');
+  assert.ok(await world.run(T));
+  world.fail = true;
+  const retryAt = new Date(T.getTime() + 4 * 60 * 60 * 1000);
+  await assert.rejects(world.run(retryAt), /Tank01 unavailable/);
+  world.fail = false;
+  assert.ok(await world.run(new Date(retryAt.getTime() + 5 * 60 * 1000)), 'next tick retries off the last OK run');
+});
 
-  await assert.rejects(
-    scheduler.runDailyInjurySync({ now: new Date('2026-08-20T12:00:00-05:00') }),
-    /Tank01 unavailable/
-  );
+test('injuryOffWindowMs defaults to 4 h, honors INJURY_OFF_WINDOW_MS, and doubles while quota is degraded (#2106)', () => {
+  const prev = process.env.INJURY_OFF_WINDOW_MS;
+  delete process.env.INJURY_OFF_WINDOW_MS;
+  try {
+    assert.equal(scheduler.injuryOffWindowMs('ok'), 4 * 60 * 60 * 1000);
+    assert.equal(scheduler.injuryOffWindowMs('degraded'), 8 * 60 * 60 * 1000);
+    process.env.INJURY_OFF_WINDOW_MS = '60000';
+    assert.equal(scheduler.injuryOffWindowMs('ok'), 60000);
+  } finally {
+    if (prev === undefined) delete process.env.INJURY_OFF_WINDOW_MS; else process.env.INJURY_OFF_WINDOW_MS = prev;
+  }
 });
 
 // ---- daily ADP sync (#747, #1509) -------------------------------------------

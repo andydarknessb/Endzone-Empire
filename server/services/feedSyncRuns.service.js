@@ -514,9 +514,8 @@ const NFL_PLAYER_LIST_FLOOR = 3000;
  * `detail.day` on the recorded row alongside `floorGuardTripped` (both are
  * run-level, not any one unit's own apply result). Defaults to `new Date()`
  * so the router caller (scoring.router.js) and admin.router.js are unchanged;
- * the scheduler (`runDailyInjurySync`) passes its own `now` outside a game
- * window, where the cadence gate (server/modules/cadence.js) reads this same
- * `detail.day` back.
+ * the scheduler (`runDailyInjurySync`) passes its own `now`. `day` is also the
+ * fingerprint's day for the #2106 injury alerts.
  *
  * #1385: this is also the only writer that ever clears nfl_team for a player
  * who has left the NFL - present in our table but absent from the feed, or
@@ -541,11 +540,15 @@ async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
   // part of the shape the module owns.
   const day = cadence.utcDateKey(now);
   let irFlagsForPush = [];
+  let injuryChanges = [];
   const { results: [result] } = await runSyncJob({
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
     fetch: () => fetchInjuryUnits(api, day),
-    apply: (client, unit) => applyInjuryUnit(client, unit, (flags) => { irFlagsForPush = flags; }, now),
+    apply: (client, unit) => applyInjuryUnit(client, unit, (flags, changes) => {
+      irFlagsForPush = flags;
+      injuryChanges = changes;
+    }, now),
   });
   try {
     const { sendIrFlagPushes } = require('./irPolicy.service');
@@ -553,7 +556,50 @@ async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
   } catch (error) {
     console.error('IR flag push failed:', error.message);
   }
+  try {
+    await sendInjuryAlerts(injuryChanges, day);
+  } catch (error) {
+    console.error('injury alert push failed:', error.message);
+  }
   return result;
+}
+
+const INJURY_ALERT_LABELS = { Q: 'Questionable', D: 'Doubtful', O: 'Out', IR: 'IR' };
+
+/**
+ * #2106: after the unit commits, one `injuryAlerts` push per manager per player
+ * whose designation changed, across every league that rosters him. sendPushOnce
+ * holds the ledger; a manager rostering him twice is one target; the url is the first league's lineup page.
+ */
+async function sendInjuryAlerts(changes, day) {
+  if (changes.length === 0) return;
+  const push = require('./push.service');
+  const { rows } = await pool.query(
+    `SELECT tp."player_id", tp."league_id", t."owner_id", p."name", p."injury_detail"
+       FROM "team_players" tp
+       JOIN "teams" t ON t."id" = tp."team_id"
+       JOIN "players" p ON p."id" = tp."player_id"
+      WHERE tp."player_id" = ANY($1::int[])
+      ORDER BY tp."league_id", tp."id"`,
+    [changes.map((c) => c.playerId)]
+  );
+  for (const { playerId, currentDesignation } of changes) {
+    const rostered = rows.filter((row) => row.player_id === playerId);
+    if (rostered.length === 0) continue;
+    const label = INJURY_ALERT_LABELS[currentDesignation] || 'healthy';
+    await push.sendPushOnce({
+      userIds: [...new Set(rostered.map((row) => row.owner_id))],
+      prefKey: 'injuryAlerts',
+      kind: 'injury',
+      subject: String(playerId),
+      fingerprint: `${label}:${day}`,
+      payload: {
+        title: `${rostered[0].name} is now ${label}`,
+        body: rostered[0].injury_detail || '',
+        url: `/#/league/${rostered[0].league_id}/lineup`,
+      },
+    });
+  }
 }
 
 /**
@@ -830,7 +876,7 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   }
   const { flagRecoveredIrStashes } = require('./irPolicy.service');
   const irFlags = await flagRecoveredIrStashes(client, transitions);
-  onIrFlags(irFlags);
+  onIrFlags(irFlags, transitions.filter((tr) => (tr.previousDesignation ?? null) !== (tr.currentDesignation ?? null)));
   // playersUpdated counts feed matches (the length of transitions), not the
   // statement's rowCount: under the no-op predicate the two legitimately
   // differ, and the count an admin reads must not silently shrink to the
