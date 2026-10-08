@@ -1400,13 +1400,15 @@ async function injuryAlertRun(t, { before = null, designation, description, rost
 test('#2106: a player moving null to Out pushes once per manager across leagues, after COMMIT', async (t) => {
   const { sends, fake } = await injuryAlertRun(t, { designation: 'Out', description: 'Knee', rostered: [[11, 1], [12, 2]] });
 
-  assert.equal(sends.length, 1);
-  assert.deepEqual(sends[0].userIds, [11, 12], 'exactly the two rostering managers');
+  assert.equal(sends.length, 2, 'one call per distinct lineup url');
+  assert.deepEqual(sends.map((s) => s.userIds), [[11], [12]], 'exactly the two rostering managers');
+  assert.deepEqual(sends.map((s) => s.payload.url), ['/#/league/1/lineup', '/#/league/2/lineup'], 'each manager gets his own league');
   assert.equal(sends[0].kind, 'injury');
   assert.equal(sends[0].prefKey, 'injuryAlerts');
   assert.equal(sends[0].subject, '700');
   assert.equal(sends[0].fingerprint, 'Out:2026-10-08');
   assert.deepEqual(sends[0].payload, { title: 'Test Runner is now Out', body: 'Knee', url: '/#/league/1/lineup' });
+  assert.match(fake.matching(TEAM_PLAYERS_ROSTER)[0].text, /"season_status" != 'complete'/, 'finished leagues are skipped');
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
   const rosterIdx = fake.calls.findIndex((c) => TEAM_PLAYERS_ROSTER.test(c.text));
   assert.ok(commitIdx >= 0 && commitIdx < rosterIdx, 'the roster read and the push follow the commit');
@@ -1419,6 +1421,15 @@ test('#2106: one manager rostering the player in two leagues is one target, with
   assert.deepEqual(sends.map((s) => s.userIds), [[11]]);
   assert.equal(sends[0].payload.url, '/#/league/1/lineup');
   assert.equal(sends[0].payload.body, '', 'no injury_detail: empty body');
+});
+
+test('#2106: a manager in leagues 1 and 2 and another only in league 2 each get their own first league', async (t) => {
+  const { sends } = await injuryAlertRun(t, { designation: 'Out', rostered: [[11, 1], [12, 2], [11, 2]] });
+
+  assert.deepEqual(sends.map((s) => [s.userIds, s.payload.url]), [
+    [[11], '/#/league/1/lineup'],
+    [[12], '/#/league/2/lineup'],
+  ]);
 });
 
 test('#2106: clearing a designation pushes "healthy"; an unchanged designation pushes nothing', async (t) => {

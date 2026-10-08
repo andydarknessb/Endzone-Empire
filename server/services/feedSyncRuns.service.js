@@ -568,8 +568,10 @@ const INJURY_ALERT_LABELS = { Q: 'Questionable', D: 'Doubtful', O: 'Out', IR: 'I
 
 /**
  * #2106: after the unit commits, one `injuryAlerts` push per manager per player
- * whose designation changed, across every league that rosters him. sendPushOnce
- * holds the ledger; a manager rostering him twice is one target; the url is the first league's lineup page.
+ * whose designation changed, across every unfinished league that rosters him.
+ * Each manager's url is his own first league's lineup page, so managers are
+ * grouped by that url and sendPushOnce is called once per url; the ledger
+ * dedupes per user.
  */
 async function sendInjuryAlerts(changes, day) {
   if (changes.length === 0) return;
@@ -579,7 +581,8 @@ async function sendInjuryAlerts(changes, day) {
        FROM "team_players" tp
        JOIN "teams" t ON t."id" = tp."team_id"
        JOIN "players" p ON p."id" = tp."player_id"
-      WHERE tp."player_id" = ANY($1::int[])
+       JOIN "leagues" l ON l."id" = tp."league_id"
+      WHERE tp."player_id" = ANY($1::int[]) AND l."season_status" != 'complete'
       ORDER BY tp."league_id", tp."id"`,
     [changes.map((c) => c.playerId)]
   );
@@ -587,18 +590,26 @@ async function sendInjuryAlerts(changes, day) {
     const rostered = rows.filter((row) => row.player_id === playerId);
     if (rostered.length === 0) continue;
     const label = INJURY_ALERT_LABELS[currentDesignation] || 'healthy';
-    await push.sendPushOnce({
-      userIds: [...new Set(rostered.map((row) => row.owner_id))],
-      prefKey: 'injuryAlerts',
-      kind: 'injury',
-      subject: String(playerId),
-      fingerprint: `${label}:${day}`,
-      payload: {
-        title: `${rostered[0].name} is now ${label}`,
-        body: rostered[0].injury_detail || '',
-        url: `/#/league/${rostered[0].league_id}/lineup`,
-      },
-    });
+    const firstLeague = new Map(); // owner -> his lowest league_id (rows arrive ordered)
+    for (const row of rostered) if (!firstLeague.has(row.owner_id)) firstLeague.set(row.owner_id, row.league_id);
+    const ownersByLeague = new Map();
+    for (const [owner, leagueId] of firstLeague) {
+      ownersByLeague.set(leagueId, [...(ownersByLeague.get(leagueId) || []), owner]);
+    }
+    for (const [leagueId, userIds] of ownersByLeague) {
+      await push.sendPushOnce({
+        userIds,
+        prefKey: 'injuryAlerts',
+        kind: 'injury',
+        subject: String(playerId),
+        fingerprint: `${label}:${day}`,
+        payload: {
+          title: `${rostered[0].name} is now ${label}`,
+          body: rostered[0].injury_detail || '',
+          url: `/#/league/${leagueId}/lineup`,
+        },
+      });
+    }
   }
 }
 

@@ -132,7 +132,7 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
  * successful `injuries` run in data_sync_runs, not a module variable, so a
  * worker restart (a fresh module instance) cannot re-run it more often than
  * the window allows. Outside a window (#2106) the same read decides against
- * the 4 h INJURY_OFF_WINDOW_MS.
+ * the 6 h INJURY_OFF_WINDOW_MS.
  */
 function injuryWorld(t, { inWindow = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');
@@ -205,9 +205,9 @@ test('runDailyInjurySync never consults the cadence gate while inside a game win
 test('injurySyncDue is the cadence rule against the window it is given; INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
   const now = new Date('2026-09-13T15:00:00-05:00');
   const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, inWindow: false, windowMs: 900000 }), true, 'never run: due regardless of window');
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), inWindow: true, windowMs: 900000 }), true);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), inWindow: true, windowMs: 900000 }), false);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, windowMs: 900000 }), true, 'never run: due regardless of window');
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), windowMs: 900000 }), true);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), windowMs: 900000 }), false);
   const prev = process.env.INJURY_GAME_WINDOW_MS;
   delete process.env.INJURY_GAME_WINDOW_MS;
   try {
@@ -220,16 +220,16 @@ test('injurySyncDue is the cadence rule against the window it is given; INJURY_G
   }
 });
 
-// ---- outside a window: every INJURY_OFF_WINDOW_MS (#2106) ------------------
+// ---- outside a window: every INJURY_OFF_WINDOW_MS, 6 h (#2106) -------------
 // Replaces the once-per-UTC-day cadence gate (#1188, #1509): outside a window
-// the same last-successful-run read decides, against a 4 h window.
+// the same last-successful-run read decides, against a 6 h window.
 
-test('runDailyInjurySync outside a window is due 4 h after the last ok run, not at 3 h (#2106)', async (t) => {
+test('runDailyInjurySync outside a window is due 6 h after the last ok run, not at 5 h (#2106)', async (t) => {
   const world = injuryWorld(t, { inWindow: false });
   const T = new Date('2026-08-20T12:00:00-05:00');
   assert.ok(await world.run(T), 'never run: due');
-  assert.equal(await world.run(new Date(T.getTime() + 3 * 60 * 60 * 1000)), null, 'three hours on: not yet');
-  assert.ok(await world.run(new Date(T.getTime() + 4 * 60 * 60 * 1000)), 'four hours on: runs');
+  assert.equal(await world.run(new Date(T.getTime() + 5 * 60 * 60 * 1000)), null, 'five hours on: not yet');
+  assert.ok(await world.run(new Date(T.getTime() + 6 * 60 * 60 * 1000)), 'six hours on: runs');
   assert.equal(world.calls, 2);
 });
 
@@ -247,18 +247,29 @@ test('runDailyInjurySync propagates a thrown syncInjuries outside a window; the 
   const T = new Date('2026-08-20T12:00:00-05:00');
   assert.ok(await world.run(T));
   world.fail = true;
-  const retryAt = new Date(T.getTime() + 4 * 60 * 60 * 1000);
+  const retryAt = new Date(T.getTime() + 6 * 60 * 60 * 1000);
   await assert.rejects(world.run(retryAt), /Tank01 unavailable/);
   world.fail = false;
   assert.ok(await world.run(new Date(retryAt.getTime() + 5 * 60 * 1000)), 'next tick retries off the last OK run');
 });
 
-test('injuryOffWindowMs defaults to 4 h, honors INJURY_OFF_WINDOW_MS, and doubles while quota is degraded (#2106)', () => {
+test('runDailyInjurySync fails closed when the data_sync_runs read fails: no Tank01 call, the error surfaces', async (t) => {
+  const world = injuryWorld(t, { inWindow: false });
+  const pool = require('../modules/pool');
+  const original = pool.query;
+  t.mock.method(pool, 'query', (sql, params) => (/FROM "data_sync_runs"/.test(sql)
+    ? Promise.reject(new Error('db down'))
+    : original.call(pool, sql, params)));
+  await assert.rejects(world.run(new Date('2026-08-20T12:00:00-05:00')), /db down/);
+  assert.equal(world.calls, 0);
+});
+
+test('injuryOffWindowMs defaults to 6 h, honors INJURY_OFF_WINDOW_MS, and doubles while quota is degraded (#2106)', () => {
   const prev = process.env.INJURY_OFF_WINDOW_MS;
   delete process.env.INJURY_OFF_WINDOW_MS;
   try {
-    assert.equal(scheduler.injuryOffWindowMs('ok'), 4 * 60 * 60 * 1000);
-    assert.equal(scheduler.injuryOffWindowMs('degraded'), 8 * 60 * 60 * 1000);
+    assert.equal(scheduler.injuryOffWindowMs('ok'), 6 * 60 * 60 * 1000);
+    assert.equal(scheduler.injuryOffWindowMs('degraded'), 12 * 60 * 60 * 1000);
     process.env.INJURY_OFF_WINDOW_MS = '60000';
     assert.equal(scheduler.injuryOffWindowMs('ok'), 60000);
   } finally {
