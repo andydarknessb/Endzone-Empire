@@ -11,6 +11,7 @@ import { ThemeProvider, useTheme } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
+import useResource from '../../hooks/useResource';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
 import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
@@ -107,9 +108,15 @@ function UserPage() {
   const [loadingNews, setLoadingNews] = useState(true);
   const [newsError, setNewsError] = useState(false);
 
-  const [activityItems, setActivityItems] = useState([]);
-  const [loadingActivity, setLoadingActivity] = useState(true);
-  const [activityError, setActivityError] = useState(false);
+  // Shared with the Nav bell (ADR 0004, ADR 0059's #2097 amendment): one
+  // request serves both, and the bell's poll reloads this card too.
+  const {
+    data: notifications,
+    loading: loadingActivity,
+    error: activityFailure,
+  } = useResource(['notifications'], '/api/notifications');
+  const activityItems = (notifications?.notifications || []).slice(0, 5);
+  const activityError = Boolean(activityFailure);
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
@@ -144,23 +151,9 @@ function UserPage() {
     }
   };
 
-  const fetchActivity = async () => {
-    try {
-      setLoadingActivity(true);
-      const response = await apiClient.get('/api/notifications');
-      setActivityItems((response.data.notifications || []).slice(0, 5));
-      setActivityError(false);
-    } catch (err) {
-      setActivityError(true);
-    } finally {
-      setLoadingActivity(false);
-    }
-  };
-
   useEffect(() => {
     fetchMyLeagues();
     fetchNews();
-    fetchActivity();
   }, []);
 
   // Functions to handle create dialog

@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
+import NotificationBell from '../NotificationBell/NotificationBell';
+import { invalidate } from '../../lib/resourceCache';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 
 jest.mock('../../api/apiClient', () => ({
@@ -34,6 +36,12 @@ const heroButton = (name) => within(screen.getByTestId('dashboard-hero')).getByR
 // The app mounts UserPage inside SnackbarProvider; tests that assert what a
 // user is told (and how many times) render the same way.
 const renderPage = () => renderWithProviders(<SnackbarProvider><UserPage /></SnackbarProvider>, { state: baseState });
+
+// /api/notifications is a shared read (ADR 0004): without this a response, or an
+// in-flight request, left by an earlier test would answer this one.
+beforeEach(() => {
+  invalidate(undefined, { reload: false });
+});
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -172,6 +180,18 @@ const mockDashboard = ({ leagues = [], notifications = [] }) => {
     return Promise.resolve({ data: leagues }); // /api/league
   });
 };
+
+test('the Nav bell and the activity card share one /api/notifications read', async () => {
+  mockDashboard({
+    notifications: [{ id: 5, message: 'Shared read note', created_at: '2026-01-01T00:00:00.000Z' }],
+  });
+  // The app mounts the bell in Nav beside the routed page.
+  renderWithProviders(<><NotificationBell /><UserPage /></>, { state: baseState });
+
+  expect(await screen.findByText('Shared read note')).toBeInTheDocument();
+  const reads = apiClient.get.mock.calls.filter(([url]) => url === '/api/notifications');
+  expect(reads).toHaveLength(1);
+});
 
 test('surfaces the public-layer highlights section (lazy) for logged-in users', async () => {
   apiClient.get.mockImplementation((url) => {
