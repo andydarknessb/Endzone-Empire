@@ -4,10 +4,10 @@
  * swap-players (#1237) and apply-advice (#1238). The Lineup page imports from
  * HERE only.
  *
- * `isEligibleMove` (#1240, formal review round 2) is the pure legality rule
- * `onRowClick`/`isEligibleTarget` enforce, exported standalone so the
- * player-decision-card widget can ask the same question about a move
- * before offering it, rather than keeping its own copy of the rule.
+ * `isEligibleMove` (#1240) is the boolean face of `entities/roster`'s
+ * `moveLegality`, the one client legality rule `onRowClick`/`isEligibleTarget`
+ * enforce, exported so the player-decision-card widget asks the same question
+ * about a move before offering it, rather than keeping its own copy.
  *
  * Below-island edges (ADR 0031's 2026-09-11 #1269 amendment: "every
  * below-island edge is named with its reason in the slice's index docblock"):

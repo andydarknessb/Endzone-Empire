@@ -34,6 +34,14 @@
  * (#1500), the Draft Simulator's existing hand-mirrored copy, unaffected by
  * that move. #1501 below deletes that copy.
  *
+ * `moveLegality` (#2052, spec #2042, `model/moveLegality.js`) is the one client
+ * move rule: "may this entry move into this slot", answered `{ ok }` or
+ * `{ ok: false, reason }` from server facts on the entries alone
+ * (`eligibleSlots`, `locked`, `validStash`, `spent`). The Lineup row click,
+ * quick pick, has-a-target check and the Decision card's slot actions all ask
+ * it, so no feature keeps its own copy of the lock, Best Ball or stale-stash
+ * rules.
+ *
  * TWO NAMED EXCEPTIONS to "through the index" (ADR 0029's 2026-09-05
  * amendment names the entity's own index docblock as the audit surface for
  * an entity's below-island/index edges, the same way the Matchup entity's
@@ -80,6 +88,7 @@
  * "through the index" rule - no exception needed there).
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, locked, isQuestionable } from './model/lineupModel';
+export { moveLegality } from './model/moveLegality';
 export { useTeamLineup } from './model/useTeamLineup';
 export {
   parseRosterTemplate,

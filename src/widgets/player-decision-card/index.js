@@ -37,14 +37,14 @@
  * a fourth instance of the pattern this note cites). This is a fourth
  * instance of that pattern, not an exception to one:
  *   - `src/features/lineup-write` (`isEligibleMove`, `model/
- *     slotActions.js` and `ui/PlayerDecisionCard.jsx`): the pure legality
- *     rule `useSwapPlayers`' own `onRowClick`/`isEligibleTarget` enforce.
+ *     slotActions.js` and `ui/PlayerDecisionCard.jsx`): the boolean face of
+ *     `moveLegality` (`entities/roster`, #2052), the one client move rule
+ *     `useSwapPlayers`' own `onRowClick`/`isEligibleTarget` also ask.
  *     Round 1 gave this card its own hand-enumerated locked/spent/best-ball
  *     conditions, and by round 2 that copy had already drifted three
  *     refusals behind the row path's own rule. The review's own remedy was
  *     to route through the one rule rather than patch a fourth
- *     enumeration, which is only possible by reading it from where it
- *     lives. `isEligibleMove` is exported as a plain pure function (no
+ *     enumeration. `isEligibleMove` is exported as a plain pure function (no
  *     hook, no side effect, no `useSwapPlayers` state), so this widget
  *     reads it without pulling in the hook's own React/state surface.
  *

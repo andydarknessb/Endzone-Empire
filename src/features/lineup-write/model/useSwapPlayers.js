@@ -1,119 +1,32 @@
 import { useEffect, useState } from 'react';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
-import { locked, slotsFor, parseRosterTemplate } from '../../../entities/roster';
+import { moveLegality } from '../../../entities/roster';
 
 /**
- * Whether `entry` may occupy `slotKey` (#1500): delegates to the Roster
- * template entity's `slotsFor(template, entry)` whenever a real template is
- * available, so the swap feature carries no slot-eligibility rule of its
- * own. Membership in `slotsFor`'s result, NOT a bare `accepts(template,
- * slotKey, position)` call: `accepts` alone answers the pure, POSITION-only
- * question and accepts IR for any position unconditionally by design (its
- * own docblock) - a healthy entry's IR-eligibility is a fact about an injury
- * designation `accepts` never reads. Formal review f1: an earlier version of
- * this function called `accepts` directly, so a healthy player was offered
- * an empty IR slot, could swap with an IR occupant, and appeared in the IR
- * quick-pick list. `slotsFor` is the entity function that already layers the
- * IR-eligibility check on top (`IR_ELIGIBLE_DESIGNATIONS`), which is why it,
- * not `accepts`, belongs here. `template` is optional and falls back to the
- * entry's own precomputed `eligibleSlots` (built by `entities/roster`'s
- * `lineupModel.js` `lineupEntries`, itself off this SAME `slotsFor`, #1502)
- * when absent - the fallback keeps `isEligibleMove`'s existing callers working
- * unchanged (`widgets/player-decision-card`'s `slotActions.js` calls it
- * directly with no template of its own to thread through).
+ * The boolean face of `moveLegality` (`entities/roster`, the one client rule
+ * for "may `selectedEntry` move into `targetSlot`, held by `targetEntry`, or
+ * empty when null"), for callers that need only yes or no: the Ledger's
+ * highlighting, `hasEligibleTarget`, and `widgets/player-decision-card`'s slot
+ * actions. The rule decides from the server facts on the entries
+ * (`eligibleSlots`, `locked`, `validStash`, `spent`) and takes no template.
  */
-function slotFits(entry, slotKey, template) {
-  if (template && template.length > 0) return slotsFor(template, entry).includes(slotKey);
-  return Array.isArray(entry?.eligibleSlots) && entry.eligibleSlots.includes(slotKey);
+export function isEligibleMove({ selectedEntry, ...rest }) {
+  return moveLegality({ entry: selectedEntry, ...rest }).ok;
 }
 
-// Slots Best Ball still lets a manager manage manually (BENCH/IR roster
-// actions) even though starting-slot assignment is read-only, matching
-// LineupScreen.jsx's own BEST_BALL_MANAGED_SLOTS.
-const BEST_BALL_MANAGED_SLOTS = new Set(['BENCH', 'IR']);
+// What the refusal toast says per `moveLegality` reason. A reason with no copy
+// here (unsettled, best_ball, spent) is refused silently: the Ledger already
+// shows those rows as unavailable.
+const REFUSAL_COPY = {
+  locked: "Locked players can't be moved",
+  stash_only_to_bench: 'A locked player can only leave IR for the bench',
+  ineligible: "That player can't fill that slot",
+};
 
-/**
- * CONTEXT.md's Lineup lock exception: a manager may still move a
- * non-IR-eligible IR occupant to BENCH to resolve the stash - a rule about
- * WHERE a locked player may go, not about whether he is locked, restated
- * here byte-for-byte from LineupScreen.jsx's `canResolveLockedIrStash`.
- * Never applies in best ball, where BENCH participates in scoring.
- */
-function canResolveLockedIrStash(entry, targetSlot, bestBall) {
-  return !bestBall
-    && Boolean(entry)
-    && locked(entry)
-    && entry.slot === 'IR'
-    && !entry.validStash
-    && targetSlot === 'BENCH';
-}
-
-/**
- * The full "may `selectedEntry` move into `targetSlot`, currently held by
- * `targetEntry` (or empty when null)" rule - exported as one pure function
- * (#1240, formal review round 2, findings r1/r2/r3/r4/r5) so a caller other
- * than a Ledger row click can ask the exact question `onRowClick` answers,
- * rather than keeping its own copy that drifts out of sync with this one.
- * That is precisely what had gone wrong: `player-decision-card`'s own
- * enumerated conditions had already missed a spent starter's Bench button,
- * a spent Start target, and the whole rule while the league is unsettled -
- * three of `onRowClick`'s own early refusals, each added here first and
- * copied there second.
- *
- * It is the union of `onRowClick`'s own early refusals (`leagueUnsettled`;
- * a best-ball-unmanaged slot on EITHER end, not just the target; a spent
- * entry on either end) and this hook's own former `isEligibleTarget` body
- * (the locked-source exception, a locked target, and the reciprocal
- * `eligibleSlots` check). `isEligibleTarget` below is now a thin wrapper
- * that closes over this hook's own `selectedEntry`/`bestBall`/
- * `leagueUnsettled`.
- *
- * NOT byte-for-byte behaviour-preserving for the Ledger, and deliberately
- * so (formal review round 3 finding s1, correcting an earlier version of
- * this comment that claimed otherwise): the old `isEligibleTarget` body had
- * no `bestBall` term of its own at all, so in best ball it answered `true`
- * for a starting-slot target during a BENCH-row selection (best ball still
- * lets a manager select a BENCH/IR row - `onRowClick`'s own gate only
- * blocks selecting a STARTING row). `LineupLedger.jsx`'s `isEligibleTarget`
- * calls fed that `true` into `eligible`, which painted every starting row
- * as a highlighted, clickable target whose click `onRowClick` then silently
- * dropped (its OWN best-ball gate refuses the target slot there, same as it
- * always did - only the Ledger's own highlighting/disabling of that row
- * changes). This version answers `false` there instead, so those rows are
- * now fully disabled during a best-ball selection rather than painted as
- * live and then refusing on click - a real behaviour change, and a
- * correctness improvement over what shipped before this refactor, not a
- * side effect to revert. `leagueUnsettled` and a spent `selectedEntry` are
- * both new terms too, but neither is reachable through the Ledger today:
- * `onRowClick` already refuses a spent entry before it can become
- * `selectedEntry`, and `LineupPage.jsx` already disables the whole Ledger
- * (`disabled={leagueUnsettled}`) whenever the league is unsettled.
- *
- * `template` (#1500, optional): the league's parsed roster template
- * (`entities/roster`'s `parseRosterTemplate`), threaded through by
- * `useSwapPlayers` below so the reciprocal slot check delegates to the
- * Roster template entity's `slotsFor` (`slotFits` above) instead of trusting
- * a caller-supplied `eligibleSlots` array alone. Omitted, `slotFits` falls
- * back to that array unchanged - every gate above the slot check (Best Ball,
- * unsettled, lock, spent) stays exactly as it was, which is what keeps
- * `widgets/player-decision-card`'s `slotActions.js` (a direct caller with no
- * template of its own to thread through) working unchanged.
- */
-export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBall, leagueUnsettled, template }) {
-  if (leagueUnsettled) return false;
-  if (!selectedEntry) return false;
-  if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(selectedEntry.slot)) return false;
-  if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(targetSlot)) return false;
-  if (selectedEntry.spent) return false;
-  if (targetEntry?.spent) return false;
-  if (locked(selectedEntry) && !canResolveLockedIrStash(selectedEntry, targetSlot, bestBall)) return false;
-  if (!targetEntry) return slotFits(selectedEntry, targetSlot, template);
-  if (locked(targetEntry)) return false;
-  return (
-    slotFits(selectedEntry, targetEntry.slot, template) &&
-    slotFits(targetEntry, selectedEntry.slot, template)
-  );
-}
+// Refusals that shut an empty slot's quick pick entirely: the league is
+// unsettled, or Best Ball leaves the slot unmanaged. Any other refusal just
+// leaves the menu's own empty state to say nobody fits.
+const SLOT_CLOSED = new Set(['unsettled', 'best_ball']);
 
 /**
  * swap-players feature (#1237, ADR 0019: Lineup is the sole team management
@@ -122,11 +35,11 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * own `handleRowClick`/`performMove`/quick-pick handlers behind one hook so
  * the Lineup page and the lineup-ledger widget both stay thin.
  *
- * Takes the page's own lineup state (`raw`, the wire body, read for its
- * `rosterSlots`) rather than owning a fetch itself: a feature acts, it does
- * not read (ADR 0020's page-composes-widgets/features split). `entries` is the entities/roster-normalized array
- * (locked/eligibleSlots/validStash/spent) the page already built for the
- * ledger widget, read here for the swap rules only.
+ * Takes the page's own `entries` (the entities/roster-normalized array the
+ * page already built for the ledger widget) rather than owning a fetch: a
+ * feature acts, it does not read (ADR 0020's page-composes-widgets/features
+ * split). Every legality question goes through `moveLegality`; this hook owns
+ * no rule of its own, only what to do with the answer.
  *
  * The one announcement (AC6, ADR 0037: "no other live region exists on the
  * page") is the app-wide Snackbar (`useSnackbar`), reused for every
@@ -138,21 +51,13 @@ export function isEligibleMove({ selectedEntry, targetEntry, targetSlot, bestBal
  * question `entries` alone cannot answer (it carries occupied rows only, no
  * empty-slot capacity), so the page supplies it, built from the Ledger
  * widget's own row enumeration (`buildLedgerSections`) over `isEligibleMove`
- * below. Consulted only at the moment a fresh selection would begin.
- *
- * `template` (#1500): the league's roster template, parsed here from `raw`'s
- * own `rosterSlots` (the same wire field `entities/roster`'s `lineupModel`
- * and `useLineupData.js` already read to build `entries[].eligibleSlots` -
- * no second fetch) via `parseRosterTemplate`. Threaded into every slot check
- * this hook makes (`isEligibleTarget`, `quickPickEligible`) so they delegate
- * to the Roster template entity's `slotsFor` rather than re-deriving
- * eligibility from `entries[].eligibleSlots` a second time.
+ * above. Consulted only at the moment a fresh selection would begin.
  *
  * `submit` (spec #2042): `useLineupWrite`'s one write, which this hook feeds a
  * move plan. The optimistic patch, rollback, Undo, toast copy, replay and
  * Matchups cache invalidation all live there, not here.
  */
-export function useSwapPlayers({ submit, raw, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
+export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
   const notify = useSnackbar();
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [quickPick, setQuickPick] = useState(null); // { anchorEl, slotType }
@@ -171,7 +76,6 @@ export function useSwapPlayers({ submit, raw, entries, bestBall, leagueUnsettled
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [hasSelection]);
 
-  const template = parseRosterTemplate(raw?.rosterSlots);
   const list = Array.isArray(entries) ? entries : [];
   const byId = new Map(list.map((e) => [e.playerId, e]));
 
@@ -180,30 +84,42 @@ export function useSwapPlayers({ submit, raw, entries, bestBall, leagueUnsettled
   const performMove = (moves) => submit(moves);
 
   // Whether `targetEntry` (or an empty slot when null) is a legal landing
-  // spot for the currently selected player - a thin wrapper closing over
-  // this hook's own state/props around the exported `isEligibleMove` (#1240
-  // round 2), which used to be this function's entire body inline.
+  // spot for the currently selected player.
   const isEligibleTarget = (targetEntry, slotType) =>
-    isEligibleMove({ selectedEntry, targetEntry, targetSlot: slotType, bestBall, leagueUnsettled, template });
+    isEligibleMove({ selectedEntry, targetEntry, targetSlot: slotType, bestBall, leagueUnsettled });
 
   const closeQuickPick = () => setQuickPick(null);
 
+  // Quick pick asks the rule about moving `e` into the empty `slot`. A player
+  // already in that slot type is no candidate: the server skips that move.
+  const quickPickCandidates = (slot) => list.filter((e) => e.slot !== slot);
+  const fillLegality = (e, slot) =>
+    moveLegality({ entry: e, targetEntry: null, targetSlot: slot, bestBall, leagueUnsettled });
+
+  // A refusal says why when it has copy, and drops the selection that led to it.
+  const refuse = (reason) => {
+    const copy = REFUSAL_COPY[reason];
+    if (!copy) return;
+    notify(copy, { severity: 'warning' });
+    setSelectedEntry(null);
+  };
+
   const onRowClick = (entry, slotType, event) => {
-    if (leagueUnsettled) return;
-    if (bestBall && !BEST_BALL_MANAGED_SLOTS.has(slotType)) return;
-    if (entry?.spent) return;
-
-    if (entry && locked(entry) && !canResolveLockedIrStash(entry, 'BENCH', bestBall)) {
-      notify("Locked players can't be moved", { severity: 'warning' });
-      setSelectedEntry(null);
-      return;
-    }
-
     if (!selectedEntry) {
       if (!entry) {
+        // An empty slot always opens its quick pick (its empty state is the
+        // feedback when nobody fits), unless the rule refuses every candidate
+        // for a reason that makes the whole slot unmanageable right now.
+        const candidates = quickPickCandidates(slotType);
+        const slotClosed = candidates.length > 0 && candidates.every((e) => SLOT_CLOSED.has(fillLegality(e, slotType).reason));
+        if (slotClosed) return;
         setQuickPick({ anchorEl: event?.currentTarget, slotType });
         return;
       }
+      // Selecting a row asks the rule about the move a selected row can always
+      // make, to BENCH; only a refusal about the row itself ends the click.
+      const { reason } = moveLegality({ entry, targetEntry: null, targetSlot: 'BENCH', bestBall, leagueUnsettled });
+      if (reason && reason !== 'ineligible') return refuse(reason);
       // #1425 ruling: a row with no legal target anywhere in the lineup -
       // filled or empty, Starters, Bench or IR - never becomes a live
       // selection with nothing to highlight. Refused here, before
@@ -224,6 +140,9 @@ export function useSwapPlayers({ submit, raw, entries, bestBall, leagueUnsettled
       return;
     }
 
+    const { ok, reason } = moveLegality({ entry: selectedEntry, targetEntry: entry, targetSlot: slotType, bestBall, leagueUnsettled });
+    if (!ok) return refuse(reason);
+
     setSelectedEntry(null);
     if (!entry) {
       performMove([{ playerId: selectedEntry.playerId, slot: slotType }]);
@@ -236,12 +155,7 @@ export function useSwapPlayers({ submit, raw, entries, bestBall, leagueUnsettled
   };
 
   const quickPickEligible = quickPick
-    ? list.filter((e) => {
-        const bestBallSourceAllowed =
-          !bestBall || (BEST_BALL_MANAGED_SLOTS.has(e.slot) && e.slot !== quickPick.slotType);
-        const lockAllowsMove = !locked(e) || (!bestBall && canResolveLockedIrStash(e, quickPick.slotType, bestBall));
-        return bestBallSourceAllowed && lockAllowsMove && slotFits(e, quickPick.slotType, template);
-      })
+    ? quickPickCandidates(quickPick.slotType).filter((e) => fillLegality(e, quickPick.slotType).ok)
     : [];
 
   const handleQuickPickSelect = (chosenPlayerId) => {
