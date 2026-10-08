@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Container, Typography, Paper, Box, FormControlLabel, FormHelperText, Switch, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { urlBase64ToUint8Array } from '../../utils/push';
+import { urlBase64ToUint8Array, needsHomeScreenInstall } from '../../utils/push';
 
 const PREF_FIELDS = [
   { key: 'lineupReminder', label: 'Lineup reminders' },
@@ -37,6 +37,7 @@ function NotificationPrefs() {
   const [savingKey, setSavingKey] = useState(null);
 
   const pushSupported = isPushSupported();
+  const showInstallHint = needsHomeScreenInstall();
   const [pushPublicKey, setPushPublicKey] = useState(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
@@ -154,6 +155,14 @@ function NotificationPrefs() {
       <Typography variant="h4" sx={{ mb: 3 }}>
         Notification Settings
       </Typography>
+
+      {showInstallHint && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="body2" data-testid="push-install-hint">
+            Push alerts on iPhone and iPad need the app on your Home Screen. In Safari tap Share, then Add to Home Screen, then open Endzone Empire from there to turn alerts on.
+          </Typography>
+        </Paper>
+      )}
 
       {pushSupported && pushPublicKey && (
         <Paper sx={{ p: 2, mb: 2 }}>

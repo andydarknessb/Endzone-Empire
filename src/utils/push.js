@@ -14,4 +14,18 @@ export function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
+// iOS only delivers web push to an installed Home Screen app, so Safari tabs
+// have no PushManager or Notification. True when the user is on iPhone/iPad
+// (iPadOS reports as Macintosh with touch points), push is missing, and the
+// page is not already running standalone.
+export function needsHomeScreenInstall() {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isIos = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const pushMissing = !window.PushManager || !window.Notification;
+  const standalone = navigator.standalone === true
+    || (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches);
+  return isIos && pushMissing && !standalone;
+}
+
 export default urlBase64ToUint8Array;
