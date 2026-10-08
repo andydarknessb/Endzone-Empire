@@ -36,8 +36,9 @@ function NotificationPrefs() {
   const [error, setError] = useState(null);
   const [savingKey, setSavingKey] = useState(null);
 
-  const pushSupported = isPushSupported();
   const showInstallHint = needsHomeScreenInstall();
+  // The hint replaces the switch, so the two never render together.
+  const pushSupported = isPushSupported() && !showInstallHint;
   const [pushPublicKey, setPushPublicKey] = useState(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);

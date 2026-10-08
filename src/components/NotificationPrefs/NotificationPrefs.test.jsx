@@ -128,6 +128,18 @@ describe('push notifications section', () => {
       expect(screen.queryByLabelText('Push notifications on this device')).not.toBeInTheDocument();
     });
 
+    test('shows the hint and no switch when PushManager exists but Notification is missing', async () => {
+      setUserAgent(IPHONE_UA);
+      mockPushSupport();
+      delete window.Notification;
+      apiClient.get.mockImplementation(withPushKey('BEl6test'));
+
+      renderWithProviders(<NotificationPrefs />);
+
+      expect(await screen.findByText(HINT)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Push notifications on this device')).not.toBeInTheDocument();
+    });
+
     test('shows the subscribe switch and no hint when push APIs are present', async () => {
       setUserAgent(IPHONE_UA);
       mockPushSupport();
