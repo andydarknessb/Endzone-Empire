@@ -65,30 +65,36 @@ describe('buildWeekReadout (#2080)', () => {
   });
 
   test('overall is on the Appearance basis: stat row present, activeProbability 0 left out', () => {
-    // errors (projected - actual): +5 -6 +2 0 +2 -2 -2 +2 over the 8 scored rows
+    // errors (projected - actual), in row order: +5 -6 +2 0 +2 +2 -2 -2 over the 8 scored rows
     assert.equal(report.overall.n, 8);
     assert.equal(report.overall.mae, 2.625);
     assert.equal(report.overall.bias, 0.125);
+    // 28 pairs, minus k1/def1 (equal actuals) = 27 eligible; 24 ordered right
+    assert.equal(report.overall.pairwise, 0.889);
+    // only qb2 (24 > p90 23) falls outside its 80% interval: 7 of 8
+    assert.equal(report.overall.cov80, 0.875);
     assert.equal(report.cohort, 10);
     assert.equal(report.withStatRow, 9);
     assert.equal(report.unavailable, 1);
     assert.equal(report.noHistory, 1);
   });
 
-  test('per position: exact MAE, bias, 80% coverage and the naive MAE beside it', () => {
-    assert.deepEqual(Object.keys(report.perPosition).sort(), ['DEF', 'K', 'QB', 'RB', 'TE', 'WR']);
-    const qb = report.perPosition.QB;
-    assert.equal(qb.n, 2);
-    assert.equal(qb.mae, 5.5);
-    assert.equal(qb.bias, -0.5);
-    assert.equal(qb.cov80, 0.5);
-    assert.equal(qb.covN, 2);
-    // naive = mean of earlier weeks: 15 vs 15, 21 vs 24
-    assert.equal(qb.naive.n, 2);
-    assert.equal(qb.naive.mae, 1.5);
-    // the unavailable WR3 is not in WR's n; the no-history WR2 is
-    assert.equal(report.perPosition.WR.n, 2);
-    assert.equal(report.perPosition.WR.bias, 1);
+  test('per position: exact n, MAE, bias and 80% coverage, with the naive MAE beside it', () => {
+    const pick = ({ n, mae, bias, cov80 }) => ({ n, mae, bias, cov80 });
+    assert.deepEqual(Object.fromEntries(Object.entries(report.perPosition).map(([pos, m]) => [pos, pick(m)])), {
+      // qb2's actual 24 sits above its p90 23
+      QB: { n: 2, mae: 5.5, bias: -0.5, cov80: 0.5 },
+      // rb2 has no stat row, so only rb1 is scored
+      RB: { n: 1, mae: 2, bias: 2, cov80: 1 },
+      // the unavailable wr3 is not in WR's n; the no-history wr2 is
+      WR: { n: 2, mae: 1, bias: 1, cov80: 1 },
+      TE: { n: 1, mae: 2, bias: 2, cov80: 1 },
+      K: { n: 1, mae: 2, bias: -2, cov80: 1 },
+      DEF: { n: 1, mae: 2, bias: -2, cov80: 1 },
+    });
+    // naive = mean of earlier weeks: qb1 15 vs 15, qb2 21 vs 24
+    assert.equal(report.perPosition.QB.naive.n, 2);
+    assert.equal(report.perPosition.QB.naive.mae, 1.5);
     // a position with no earlier weeks has no naive figure rather than a zero
     assert.equal(report.perPosition.RB.naive.n, 0);
     assert.equal(report.perPosition.RB.naive.mae, null);

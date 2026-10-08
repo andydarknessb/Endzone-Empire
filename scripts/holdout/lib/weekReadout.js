@@ -61,6 +61,8 @@ function buildWeekReadout({ season, week, profile, modelVersion, snapshotId, row
 
   const all = metrics.weekPointMetrics(scored);
   const allNaive = metrics.weekPointMetrics(naivePairs(scored));
+  const allCoverage = metrics.weekCoverage(scored);
+  const allPairwise = metrics.cellPairwise(scored);
   const sealed = coverage.armWeekMetrics({
     rows,
     actuals: new Map([...actuals].map(([id, pts]) => [`${season}:${week}:${id}`, pts])),
@@ -76,8 +78,6 @@ function buildWeekReadout({ season, week, profile, modelVersion, snapshotId, row
   const projectedNoStat = starters.filter((r) => r.actual === null);
   const unavailableScored = rows.filter((r) => r.activeProbability === 0 && (r.actual || 0) > 0);
   const misses = [...scored].sort((a, b) => Math.abs(b.projected - b.actual) - Math.abs(a.projected - a.actual));
-  const factorKeys = {};
-  for (const r of rows) for (const k of Object.keys(r.factors || {})) factorKeys[k] = (factorKeys[k] || 0) + 1;
 
   return {
     profile,
@@ -89,6 +89,7 @@ function buildWeekReadout({ season, week, profile, modelVersion, snapshotId, row
     withStatRow: rows.filter((r) => r.actual !== null).length,
     overall: {
       n: all.n, mae: r3(all.mae), rmse: r3(all.rmse), spearman: r3(all.spearman), bias: r3(meanBias(scored)),
+      pairwise: r3(allPairwise.score), cov80: r3(allCoverage.coverage),
       naive: { n: allNaive.n, mae: r3(allNaive.mae), rmse: r3(allNaive.rmse), spearman: r3(allNaive.spearman) },
     },
     perPosition,
@@ -101,7 +102,6 @@ function buildWeekReadout({ season, week, profile, modelVersion, snapshotId, row
       },
       unavailableButScored: { count: unavailableScored.length, top: unavailableScored.sort((a, b) => b.actual - a.actual).slice(0, 10).map(brief) },
       biggestMisses: misses.slice(0, 12).map(brief),
-      factorKeys,
     },
   };
 }

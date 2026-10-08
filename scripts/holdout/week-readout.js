@@ -18,7 +18,10 @@
  *   node --env-file=.env scripts/holdout/week-readout.js --week 4 [--season 2026] [--out file.json] [--perf]
  *
  * `--perf` also times `generateProjections` on the half-PPR cohort, cold then
- * warm, counting queries and listing those over 250 ms.
+ * warm, counting queries and listing those over 250 ms. It installs the ESPN odds
+ * provider as server.js and worker.js do (its read is one SELECT, so the
+ * transaction stays read-only) and leaves weather off (the NWS read is network),
+ * so the figure is the production engine minus weather.
  */
 
 const fs = require('fs');
@@ -26,16 +29,23 @@ const pool = require('../../server/modules/pool');
 const { SCORING_PRESETS, calculateFantasyPoints } = require('../../server/services/scoringRules');
 const model = require('../../server/services/projectionModel');
 const projection = require('../../server/services/projection.service');
+const { setVegasOddsProvider } = require('../../server/services/vegasOdds.provider');
+const { espnOddsProvider } = require('../../server/services/espnOdds.provider');
 const { buildWeekReadout } = require('./lib/weekReadout');
 
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 
+function takeValue(argv, i, flag) {
+  if (i >= argv.length || argv[i].startsWith('--')) throw new Error(`week-readout: ${flag} needs a value`);
+  return argv[i];
+}
+
 function parseArgs(argv) {
   const args = { season: 2026, week: null, out: null, perf: false };
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === '--season') args.season = Number(argv[++i]);
-    else if (argv[i] === '--week') args.week = Number(argv[++i]);
-    else if (argv[i] === '--out') args.out = argv[++i];
+    if (argv[i] === '--season') args.season = Number(takeValue(argv, ++i, '--season'));
+    else if (argv[i] === '--week') args.week = Number(takeValue(argv, ++i, '--week'));
+    else if (argv[i] === '--out') args.out = takeValue(argv, ++i, '--out');
     else if (argv[i] === '--perf') args.perf = true;
     else throw new Error(`week-readout: unknown argument ${argv[i]}`);
   }
@@ -107,6 +117,8 @@ async function loadProfile(client, { season, week, profile, rules, statRows, pla
 // repeat call costs. Queries go through a wrapper so slow ones can be named.
 async function timeEngine(client, { season, week, snapshotId }) {
   const rules = SCORING_PRESETS.half_ppr;
+  // Production installs this at boot; without it the engine skips the odds read.
+  setVegasOddsProvider(espnOddsProvider);
   const ids = (await client.query(
     'SELECT "player_id" FROM "projection_snapshot_players" WHERE "snapshot_id" = $1 ORDER BY 1', [snapshotId]
   )).rows.map((r) => r.player_id);
@@ -165,7 +177,11 @@ async function main(argv) {
     }
 
     const half = report.profiles.half_ppr;
-    if (perf && half && half.snapshotId) report.perf = await timeEngine(client, { season, week, snapshotId: half.snapshotId });
+    if (perf) {
+      report.perf = half && half.snapshotId
+        ? await timeEngine(client, { season, week, snapshotId: half.snapshotId })
+        : { error: 'no on-time half_ppr snapshot' };
+    }
   } finally {
     await client.query('ROLLBACK').catch(() => {});
     client.release();
