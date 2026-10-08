@@ -844,6 +844,9 @@ async function runDailyStatCorrections({ now = new Date() } = {}) {
  * actionable (the DB cutoff will eventually fail the week closed).
  */
 async function runHoldoutSnapshots() {
+  // #2081: Render logs are the only place the engine's cost is observable, so the
+  // success line carries the wall time of the whole span, ESPN sync included.
+  const startedAt = process.hrtime.bigint();
   const holdout = require('../services/holdout.service');
   // Roster status refreshed once as a capture window opens (#1766), contained
   // so an ESPN failure never skips the capture: the breaker in the sweep bounds
@@ -856,9 +859,11 @@ async function runHoldoutSnapshots() {
   const { captured, failures } = await holdout.captureDueSnapshots();
   const written = captured.filter((c) => !c.skipped);
   if (written.length > 0) {
+    const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6);
     console.log(
       `scheduler: captured ${written.length} holdout snapshot(s): ` +
-      written.map((c) => `${c.season} w${c.week} ${c.profileName} (${c.inserted} rows)`).join(', ')
+      written.map((c) => `${c.season} w${c.week} ${c.profileName} (${c.inserted} rows)`).join(', ') +
+      ` in ${elapsedMs} ms`
     );
   }
   for (const f of failures) {
@@ -947,6 +952,8 @@ const NIGHTLY_PROJECTION_FILL_UTC_HOUR = 9;
  * `runNflverseFinalization`/`runDailyStatCorrections` below.
  */
 async function runNightlyProjectionFill({ now = new Date() } = {}) {
+  // #2081: Render logs are the only place the engine's cost is observable.
+  const startedAt = process.hrtime.bigint();
   const today = cadence.utcDateKey(now);
   const inWindow = now.getUTCHours() === NIGHTLY_PROJECTION_FILL_UTC_HOUR && lastProjectionFillDay !== today;
   if (!inWindow) {
@@ -1038,13 +1045,14 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   const perLeague = outcome.results;
   const weeksGenerated = perLeague.reduce((sum, r) => sum + (r.weeksGenerated || 0), 0);
   const weeksSkipped = perLeague.reduce((sum, r) => sum + (r.weeksSkipped || 0), 0);
+  const elapsedMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6);
   if (weeksGenerated > 0 || weeksSkipped > 0) {
     console.log(
       `scheduler: nightly projection fill generated ${weeksGenerated} week(s), ` +
-      `skipped ${weeksSkipped} already-cached week(s) across ${perLeague.length} league(s)`
+      `skipped ${weeksSkipped} already-cached week(s) across ${perLeague.length} league(s) in ${elapsedMs} ms`
     );
   }
-  return { weeksGenerated, weeksSkipped, leagues: perLeague.length };
+  return { weeksGenerated, weeksSkipped, leagues: perLeague.length, elapsedMs };
 }
 
 /**
