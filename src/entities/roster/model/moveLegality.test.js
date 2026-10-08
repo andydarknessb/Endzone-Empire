@@ -1,4 +1,4 @@
-import { moveLegality } from './moveLegality';
+import { isBestBallManagedSlot, moveLegality } from './moveLegality';
 
 const entry = (overrides = {}) => ({
   playerId: 1,
@@ -15,6 +15,17 @@ const staleStash = (overrides = {}) =>
   entry({ playerId: 3, slot: 'IR', locked: true, validStash: false, eligibleSlots: ['BENCH', 'RB'], ...overrides });
 
 const base = { targetEntry: null, bestBall: false, leagueUnsettled: false };
+
+describe('isBestBallManagedSlot', () => {
+  test.each([
+    ['BENCH', true],
+    ['IR', true],
+    ['QB', false],
+    ['FLEX', false],
+  ])('%s -> %s', (slot, expected) => {
+    expect(isBestBallManagedSlot(slot)).toBe(expected);
+  });
+});
 
 describe('moveLegality', () => {
   test.each([

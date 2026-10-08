@@ -348,6 +348,15 @@ describe('quick pick', () => {
     expect(result.current.quickPick).toBeNull();
   });
 
+  // #2086: the seat is closed by the slot, not by its candidates' own slots.
+  test.each(['BENCH', 'IR'])('best ball: an empty %s seat with only starters still opens its quick pick (empty state)', (seat) => {
+    const starter = entry({ playerId: 1, slot: 'QB', eligibleSlots: ['BENCH', 'IR', 'QB'] });
+    const { result } = setup({ entries: [starter], bestBall: true });
+    act(() => result.current.onRowClick(null, seat, { currentTarget: 'anchor-el' }));
+    expect(result.current.quickPick).toEqual({ anchorEl: 'anchor-el', slotType: seat });
+    expect(result.current.quickPickEligible).toEqual([]);
+  });
+
   test('best ball limits an empty BENCH/IR slot\'s quick pick sources to BENCH/IR management, never a starter', () => {
     const starter = entry({ playerId: 5, slot: 'RB', eligibleSlots: ['BENCH', 'IR'] });
     const irPlayer = entry({ playerId: 7, slot: 'IR', eligibleSlots: ['BENCH', 'IR'] });

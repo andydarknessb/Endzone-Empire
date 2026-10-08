@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSnackbar } from '../../../components/Snackbar/SnackbarProvider';
-import { moveLegality } from '../../../entities/roster';
+import { isBestBallManagedSlot, moveLegality } from '../../../entities/roster';
 
 /**
  * The boolean face of `moveLegality` (`entities/roster`, the one client rule
@@ -22,11 +22,6 @@ const REFUSAL_COPY = {
   stash_only_to_bench: 'A locked player can only leave IR for the bench',
   ineligible: "That player can't fill that slot",
 };
-
-// Refusals that shut an empty slot's quick pick entirely: the league is
-// unsettled, or Best Ball leaves the slot unmanaged. Any other refusal just
-// leaves the menu's own empty state to say nobody fits.
-const SLOT_CLOSED = new Set(['unsettled', 'best_ball']);
 
 /**
  * swap-players feature (#1237, ADR 0019: Lineup is the sole team management
@@ -108,11 +103,11 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
     if (!selectedEntry) {
       if (!entry) {
         // An empty slot always opens its quick pick (its empty state is the
-        // feedback when nobody fits), unless the rule refuses every candidate
-        // for a reason that makes the whole slot unmanageable right now.
-        const candidates = quickPickCandidates(slotType);
-        const slotClosed = candidates.length > 0 && candidates.every((e) => SLOT_CLOSED.has(fillLegality(e, slotType).reason));
-        if (slotClosed) return;
+        // feedback when nobody fits), unless the slot itself is shut: the league
+        // is unsettled, or Best Ball leaves the slot unmanaged. Asked of the
+        // slot, not its candidates: a starter is refused `best_ball` for its own
+        // slot, which says nothing about an empty BENCH/IR seat.
+        if (leagueUnsettled || (bestBall && !isBestBallManagedSlot(slotType))) return;
         setQuickPick({ anchorEl: event?.currentTarget, slotType });
         return;
       }
