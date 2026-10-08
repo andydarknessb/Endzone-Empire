@@ -254,7 +254,9 @@ async function sendLineupReminders() {
       // One reminder per team-week, held by the push_events ledger (so a
       // restart or a second instance does not re-remind). A skipped push means
       // this team-week was already reminded, so the notification and email
-      // below are skipped with it. A ledger error fails open: best-effort nudge.
+      // below are skipped with it. A ledger error fails closed: the tick is
+      // skipped and the next one retries, rather than re-sending the email on
+      // every tick of the 2-hour window.
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
       try {
         const push = require('./push.service');
@@ -273,6 +275,7 @@ async function sendLineupReminders() {
         if (skipped) continue;
       } catch (err) {
         console.error('lineup reminder push failed:', err.message);
+        continue;
       }
       remindersSent += 1;
       // Notify-only, best-effort: the swallow sits here at the call site around
@@ -307,9 +310,10 @@ async function sendLineupReminders() {
   return { remindersSent };
 }
 
-// Same in-process, one-shot-per-(league, user, week) bookkeeping as
-// remindedTeamWeeks above, kept separate so a lineup reminder and a Pick'em
-// reminder don't suppress each other.
+// One Pick'em reminder per (league, user, week), in process only: a restart may
+// re-remind, which beats persisting state for best-effort nudging. The lineup
+// reminder is held by the push_events ledger instead, so the two don't suppress
+// each other.
 const pickemRemindedUserWeeks = new Set();
 
 /**

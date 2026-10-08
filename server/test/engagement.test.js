@@ -6,6 +6,7 @@ const { gradeTeams } = require('../services/draftgrade.service');
 const { sendLineupReminders, sendPickemReminders } = require('../services/digest.service');
 const { mergePrefs, validatePrefs, DEFAULT_PREFS } = require('../services/prefs.service');
 const push = require('../services/push.service');
+const { logger } = require('../modules/logger');
 
 // --- trophy: longestWinStreak -----------------------------------------------
 
@@ -243,7 +244,7 @@ const hoursFromNow = (h) => new Date(Date.now() + h * HOUR).toISOString();
 // One live league, its teams, and a lineup that is already materialized. The
 // week's kickoffs answer `kickoffRows`; `kickoffReads` records each read.
 let nextTeamId = 6100;
-function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1 }) {
+function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1, ledgerDown = false }) {
   const kickoffReads = [];
   const ledger = new Set();
   const teams = Array.from({ length: teamCount }, (_, i) => ({
@@ -268,11 +269,14 @@ function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1 }) {
     [/^SELECT "teams"\."id"/, () => ({ rows: teams })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
     // The push_events unique index: a (user, kind, subject, fingerprint) goes in once.
-    [/^INSERT INTO "push_events"/, (text, [userIds, ...key]) => ({
-      rows: userIds
-        .filter((id) => !ledger.has([id, ...key].join('|')) && ledger.add([id, ...key].join('|')))
-        .map((user_id) => ({ user_id })),
-    })],
+    [/^INSERT INTO "push_events"/, (text, [userIds, ...key]) => {
+      if (ledgerDown) throw new Error('ledger down');
+      return {
+        rows: userIds
+          .filter((id) => !ledger.has([id, ...key].join('|')) && ledger.add([id, ...key].join('|')))
+          .map((user_id) => ({ user_id })),
+      };
+    }],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: entries.map((e, i) => ({ player_id: 900 + i, position: e.slot })),
     })],
@@ -402,6 +406,26 @@ test('sendLineupReminders reminds a team-week once across two calls, held by the
   assert.equal(ledgerWrite.params[1], 'lineup-reminder');
   assert.match(ledgerWrite.params[2], /^[0-9]+:2026:9$/);
   assert.equal(ledgerWrite.params[3], 'sent');
+  fake.assertClean();
+});
+
+test('sendLineupReminders skips the tick when the ledger errors: no notification, no email, no retry storm', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
+    kickoffRows: [kickoff('GB', hoursFromNow(1))],
+    ledgerDown: true,
+  });
+  t.mock.method(console, 'error', () => {});
+  const emails = [];
+  t.mock.method(logger, 'info', (fields, msg) => { emails.push(msg); });
+
+  for (let i = 0; i < 3; i += 1) {
+    assert.deepEqual(await sendLineupReminders(), { remindersSent: 0 });
+  }
+
+  assert.equal(fake.matching(insert('notifications')).length, 0);
+  assert.equal(emails.filter((msg) => /account email/.test(msg)).length, 0);
+  assert.deepEqual(pushes, []);
   fake.assertClean();
 });
 
