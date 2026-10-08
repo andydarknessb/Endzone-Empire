@@ -681,6 +681,7 @@ async function syncAndScoreLiveWeeks() {
       for (const leagueId of leagueIds) {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
+        await alertScoreUpdates({ leagueId, season, week, scored });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
     } catch (err) {
@@ -1280,6 +1281,101 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
   }
 }
 
+const leaderOf = (m) => {
+  const home = Number(m.homeScore);
+  const away = Number(m.awayScore);
+  return home > away ? 'home' : away > home ? 'away' : 'tied';
+};
+const oneDecimal = (n) => Number(n).toFixed(1);
+
+/**
+ * Push each owner their own matchup's score news (#2107), after the scoring
+ * pass has committed: a lead change (home | away | tied), and once the matchup
+ * reaches `played` (every starter's game over, the status scoreMatchups
+ * attaches per ADR 0030). The leader is remembered in the push_events ledger:
+ * the latest `score-lead` row for the matchup holds `<leader>:<n>`, and a push
+ * goes out only when the leader differs from it. The counter n keeps a return
+ * to an earlier leader (home, away, home) from hitting the ledger's unique key.
+ * The first scoring of a week records the leader without a push.
+ */
+async function alertScoreUpdates({ leagueId, season, week, scored }) {
+  const push = require('../services/push.service');
+  const { usersWanting } = require('../services/prefs.service');
+  const url = `/#/league/${leagueId}/game-center`;
+  for (const m of scored || []) {
+    if (m.status === 'final') continue; // the result is written; nothing is news
+    try {
+      const subject = String(m.matchupId);
+      const teams = await pool.query(
+        `SELECT "id", "name", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
+        [[m.homeTeamId, m.awayTeamId]]
+      );
+      const sides = [
+        { mine: teams.rows.find((r) => r.id === m.homeTeamId), theirs: teams.rows.find((r) => r.id === m.awayTeamId), mineScore: m.homeScore, theirScore: m.awayScore, side: 'home' },
+        { mine: teams.rows.find((r) => r.id === m.awayTeamId), theirs: teams.rows.find((r) => r.id === m.homeTeamId), mineScore: m.awayScore, theirScore: m.homeScore, side: 'away' },
+      ].filter((s) => s.mine && s.theirs && s.mine.owner_id != null);
+      const leader = leaderOf(m);
+      const body = (s) => `${s.mine.name} ${oneDecimal(s.mineScore)} - ${s.theirs.name} ${oneDecimal(s.theirScore)}`;
+
+      const prev = await pool.query(
+        `SELECT "fingerprint" FROM "push_events"
+         WHERE "kind" = 'score-lead' AND "subject" = $1
+         ORDER BY "created_at" DESC LIMIT 1`,
+        [subject]
+      );
+      if (!prev.rows[0]) {
+        const wanting = await usersWanting(sides.map((s) => s.mine.owner_id), 'scoreUpdates');
+        if (wanting.length > 0) {
+          await pool.query(
+            `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
+             SELECT unnest($1::int[]), $2, $3, $4 ON CONFLICT DO NOTHING`,
+            [wanting, 'score-lead', subject, `${leader}:0`]
+          );
+        }
+      } else {
+        const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
+        if (prevLeader !== leader) {
+          for (const s of sides) {
+            await push.sendPushOnce({
+              userIds: [s.mine.owner_id],
+              prefKey: 'scoreUpdates',
+              kind: 'score-lead',
+              subject,
+              fingerprint: `${leader}:${Number(n) + 1}`,
+              payload: {
+                title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
+                body: body(s),
+                url,
+              },
+            });
+          }
+        }
+      }
+
+      if (m.status === 'played') {
+        for (const s of sides) {
+          const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
+          const score = `${oneDecimal(s.mineScore)}-${oneDecimal(s.theirScore)}`;
+          await push.sendPushOnce({
+            userIds: [s.mine.owner_id],
+            prefKey: 'scoreUpdates',
+            kind: 'score-played',
+            subject,
+            fingerprint: 'played',
+            payload: {
+              title: `Final: ${result} ${score}`,
+              body: `Unofficial until the commissioner advances the week. ${body(s)}`,
+              url,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error('score update push failed:', err.message);
+    }
+  }
+}
+
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
 async function draftTickUnlocked() {
   if (draftRunning) return;
@@ -1585,6 +1681,7 @@ module.exports = {
   tickUnlocked,
   draftTick,
   alertCloseMatchups,
+  alertScoreUpdates,
   getSchedulerStatus,
   SYNC_RUN_JOBS,
   MANUAL_SYNC_RUN_JOBS,
