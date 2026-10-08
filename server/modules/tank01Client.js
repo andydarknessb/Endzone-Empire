@@ -16,7 +16,7 @@
  * either would see roughly half the truth.
  *
  * Priorities, cheapest to shed first:
- *   low        news (a stale headline is fine — see news.service)
+ *   low        nice-to-have reads (news moved to ESPN, see news.service)
  *   standard   live box scores, Tank01 clock fallback, player/injury/schedule syncs
  *   essential  a finalized game's box score, which serves BOTH final stat
  *              ingest and the recap — the one call we never want to lose

@@ -37,28 +37,70 @@ test('normalizeNewsItems tolerates a missing/empty payload', () => {
 const news = require('../services/news.service');
 const tank01Client = require('../modules/tank01Client');
 
-function stubTransport(items, { fail } = {}) {
+// ESPN's unauthenticated NFL news document (site.api.espn.com/apis/site/v2/
+// sports/football/nfl/news): articles carry headline, description, published
+// and links.web.href. The stub serves one and records the URL it was asked for.
+function stubTransport(articles, { fail } = {}) {
   let calls = 0;
+  const urls = [];
   return {
     get calls() {
       return calls;
     },
-    async get() {
+    urls,
+    async get(url) {
       calls += 1;
+      urls.push(url);
       if (fail) throw fail;
-      return { data: { statusCode: 200, body: items } };
+      return { data: { header: 'NFL News', articles } };
     },
   };
 }
 
+const ARTICLES = [
+  {
+    headline: 'Headline one',
+    description: 'Blurb one',
+    published: '2026-10-08T12:00:00Z',
+    links: { web: { href: 'https://example.com/one' } },
+  },
+  {
+    headline: 'Headline two',
+    published: '2026-10-08T11:00:00Z',
+    links: { web: { href: 'https://example.com/two' } },
+  },
+];
 const ITEMS = [
   { title: 'Headline one', link: 'https://example.com/one' },
   { title: 'Headline two', link: 'https://example.com/two' },
 ];
 
+test('headlines come from ESPN with zero Tank01 calls, in the existing {title, link} shape', async (t) => {
+  news.__resetNewsCache();
+  const tank01 = t.mock.method(tank01Client, 'tank01Get', async () => {
+    throw new Error('Tank01 must not be called');
+  });
+  const transport = stubTransport(ARTICLES);
+  assert.deepEqual(await news.getLatestNews({ transport }), ITEMS);
+  assert.equal(transport.urls[0], 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/news');
+  assert.equal(tank01.mock.callCount(), 0);
+});
+
+test('articles without a headline or link are dropped, and the list caps at MAX_ITEMS', async () => {
+  news.__resetNewsCache();
+  const many = Array.from({ length: MAX_ITEMS + 3 }, (_, i) => ({
+    headline: `H${i}`,
+    links: { web: { href: `https://example.com/${i}` } },
+  }));
+  const junk = [{ description: 'no headline' }, { headline: 'no link' }];
+  const out = await news.getLatestNews({ transport: stubTransport([...junk, ...many]) });
+  assert.equal(out.length, MAX_ITEMS);
+  assert.equal(out[0].title, 'H0');
+});
+
 test('two dashboard loads inside the TTL cost exactly one upstream call', async () => {
   news.__resetNewsCache();
-  const transport = stubTransport(ITEMS);
+  const transport = stubTransport(ARTICLES);
   const first = await news.getLatestNews({ transport });
   const second = await news.getLatestNews({ transport });
   assert.deepEqual(first, ITEMS);
@@ -71,7 +113,7 @@ test('an expired cache refetches', async () => {
   const prev = process.env.NEWS_CACHE_TTL_MS;
   process.env.NEWS_CACHE_TTL_MS = '1';
   try {
-    const transport = stubTransport(ITEMS);
+    const transport = stubTransport(ARTICLES);
     await news.getLatestNews({ transport });
     await new Promise((r) => setTimeout(r, 5));
     await news.getLatestNews({ transport });
@@ -87,7 +129,7 @@ test('an upstream failure serves the last good payload, not an error', async () 
   const prev = process.env.NEWS_CACHE_TTL_MS;
   process.env.NEWS_CACHE_TTL_MS = '1'; // force the second call past the TTL
   try {
-    await news.getLatestNews({ transport: stubTransport(ITEMS) });
+    await news.getLatestNews({ transport: stubTransport(ARTICLES) });
     await new Promise((r) => setTimeout(r, 5));
     const boom = stubTransport(null, { fail: new Error('upstream 502') });
     const served = await news.getLatestNews({ transport: boom });
@@ -99,18 +141,12 @@ test('an upstream failure serves the last good payload, not an error', async () 
   }
 });
 
-test('a quota block on low priority still serves stale headlines', async () => {
+test('an ESPN block (403) still serves stale headlines', async () => {
   news.__resetNewsCache();
   const prev = process.env.NEWS_CACHE_TTL_MS;
   process.env.NEWS_CACHE_TTL_MS = '1'; // prime, then let the fresh window lapse
-  await news.getLatestNews({ transport: stubTransport(ITEMS) });
-  // What the gate actually throws once 'low' is out of budget (the gating
-  // thresholds themselves are covered in tank01Client.test.js).
-  const blocked = stubTransport(null, {
-    fail: new tank01Client.QuotaExhaustedError('quota degraded', {
-      mode: 'degraded', used: 800, budget: 950, hardCeiling: 1000, priority: 'low',
-    }),
-  });
+  await news.getLatestNews({ transport: stubTransport(ARTICLES) });
+  const blocked = stubTransport(null, { fail: new Error('Request failed with status code 403') });
   try {
     await new Promise((r) => setTimeout(r, 5));
     assert.deepEqual(await news.getLatestNews({ transport: blocked }), ITEMS);
@@ -151,7 +187,7 @@ test('a game-day fetch is cached for the game-day TTL, so the second load inside
   const prevDay = process.env.NEWS_CACHE_TTL_GAME_DAY_MS;
   process.env.NEWS_CACHE_TTL_GAME_DAY_MS = '1'; // one millisecond: the window lapses at once
   try {
-    const transport = stubTransport(ITEMS);
+    const transport = stubTransport(ARTICLES);
     await news.getLatestNews({ transport, gameDay: true });
     await new Promise((r) => setTimeout(r, 5));
     await news.getLatestNews({ transport, gameDay: true });

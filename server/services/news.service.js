@@ -1,22 +1,21 @@
 /**
  * Fantasy NFL headlines for the dashboard widget.
  *
- * This was the quietest quota leak in the app: `GET /api/news` called Tank01's
- * `/getNFLNews` on EVERY request, and UserPage fetches it on every dashboard
- * mount — so a handful of users tabbing around could out-spend a whole Sunday
- * of live scoring against a ~1,000-request MONTHLY plan.
+ * `GET /api/news` used to call Tank01's `/getNFLNews` on EVERY request (the
+ * quietest quota leak in the app; UserPage fetches it on every dashboard
+ * mount). Headlines now come from ESPN's unauthenticated news document, which
+ * spends no Tank01 quota (ADR 0061: Tank01 is fallback and Final box only).
  *
- * Now one upstream fetch serves a 6-hour window, cached in Redis so the web
+ * One upstream fetch serves a 6-hour window, cached in Redis so the web
  * process's instances share it (in-memory fallback for dev, where there's no
- * Redis). Headlines are 'low' priority in modules/tank01Client, meaning they're
- * the first thing shed as the budget tightens — so the last good payload is
- * kept WITHOUT expiry and served stale on a quota block or an upstream error,
- * rather than turning a nice-to-have widget into a 5xx.
+ * Redis). The last good payload is kept WITHOUT expiry and served stale on an
+ * upstream error, rather than turning a nice-to-have widget into a 5xx.
  */
-const { tank01Body } = require('./tank01Feed');
-const { tank01Get } = require('../modules/tank01Client');
+const axios = require('axios');
 const { getRedisClient } = require('../modules/redis');
 
+const ESPN_NEWS_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/news';
+const ESPN_TIMEOUT_MS = Number(process.env.ESPN_TIMEOUT_MS) || 10000;
 const MAX_ITEMS = 6;
 const CACHE_KEY = 'news:latest';
 const STALE_KEY = 'news:last-good'; // no TTL — the stale-serve safety net
@@ -71,8 +70,8 @@ async function isGameDay({ now = new Date(), db } = {}) {
 // version of the same cache, and it still collapses repeated dashboard mounts.
 const memory = { fresh: null, freshUntil: 0, lastGood: null };
 
-// Trim Tank01's getNFLNews payload down to what the dashboard widget needs,
-// in case the upstream shape grows extra fields later.
+// Trim headlines down to what the dashboard widget needs, in case the
+// upstream shape grows extra fields later.
 function normalizeNewsItems(items) {
   return (items || []).slice(0, MAX_ITEMS).map((item) => ({ title: item.title, link: item.link }));
 }
@@ -128,13 +127,20 @@ async function write(items, { ttlMs = cacheTtlMs() } = {}) {
   }
 }
 
+// ESPN's NFL news document → [{ title, link }]. Articles missing either are
+// dropped (normalizeNewsItems then caps the list).
+function espnArticles(body) {
+  return (body?.articles || [])
+    .map((a) => ({ title: a.headline, link: a.links?.web?.href }))
+    .filter((a) => a.title && a.link);
+}
+
 /**
- * Fantasy-relevant NFL headlines from Tank01 (same RapidAPI subscription
- * already used for live scoring — no separate key). Cached for
- * NEWS_CACHE_TTL_MS; serves the last good payload if the upstream call fails or
- * is shed for quota.
+ * NFL headlines from ESPN's unauthenticated news document (same family as the
+ * scoreboard; no key, no Tank01 quota). Cached for NEWS_CACHE_TTL_MS; serves
+ * the last good payload if the upstream call fails.
  *
- * @param {{transport?: object, gameDay?: boolean}} [deps] injectable Tank01
+ * @param {{transport?: object, gameDay?: boolean}} [deps] injectable axios-like
  *   client for tests; `gameDay` overrides the nfl_games read (tests inject)
  */
 async function getLatestNews({ transport, gameDay } = {}) {
@@ -142,13 +148,8 @@ async function getLatestNews({ transport, gameDay } = {}) {
   if (cached) return cached;
 
   try {
-    // 'low' priority — headlines are shed first when quota gets tight.
-    const response = await tank01Get('/getNFLNews', {
-      params: { fantasyNews: true, maxItems: MAX_ITEMS },
-      priority: 'low',
-      transport,
-    });
-    const items = normalizeNewsItems(tank01Body(response.data));
+    const response = await (transport || axios).get(ESPN_NEWS_URL, { timeout: ESPN_TIMEOUT_MS });
+    const items = normalizeNewsItems(espnArticles(response.data));
     const onGameDay = gameDay === undefined ? await isGameDay() : Boolean(gameDay);
     await write(items, { ttlMs: cacheTtlMs({ gameDay: onGameDay }) });
     return items;
