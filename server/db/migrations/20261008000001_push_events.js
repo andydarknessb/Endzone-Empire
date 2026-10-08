@@ -15,6 +15,7 @@ exports.up = async function (knex) {
     t.timestamp('created_at').notNullable().defaultTo(knex.fn.now());
     t.unique(['user_id', 'kind', 'subject', 'fingerprint']);
     t.index(['user_id', 'kind', 'created_at']);
+    t.index(['kind', 'subject', 'created_at']); // latest row for a subject across users
   });
 };
 
