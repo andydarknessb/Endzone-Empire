@@ -398,8 +398,23 @@ Tank01's player list — or who the list carries with no team or flags as off
 every roster (its `isFreeAgent` field; the list keeps such a player under
 his last team, so the flag is the only sign he has gone). A fact about the
 NFL world, written only by the daily player sync (never the injury sync, and
-never anything a manager does), which writes the list's null team through to
-`nfl_team`. Once cleared,
+never anything a manager does), which clears `nfl_team` to null for
+such a player once its own feed is large enough to trust; a feed too small to
+be a real player list trips a size floor and clears nothing, logged on that
+run's Sync run row. The clear is itself deferred, label kept exactly as
+stored, while the player's own team has a kicked-off game in an open week (a
+live league's own current season and week): the lineup lock question reads
+this same column live, so clearing mid-lock would unlock a slot whose game
+has already been played. An open week holds this way only while it is still
+within one NFL week of the calendar — the week in play and the week just
+finished, one week of grace for a commissioner who has not advanced yet
+(#1391); a league two or more weeks behind the calendar holds nobody's label.
+A season's own LAST week (its championship, whenever the bracket reaches it)
+has no following week to hold that same grace, so it keeps it measured from
+its own last kickoff instead: one more NFL week past that kickoff, and only
+then does the season hold nobody's label. Both cases clear their candidates
+normally instead of deferring. A deferred row is retried, and cleared or
+deferred again, on the pass's next run. Once cleared,
 purely a display fact: the lineup card shows `FA` in place of the team badge,
 and nothing about it locks a slot or refuses a start. The one number it does
 withhold is the Upgrade, which is undefined for such a player (he has no
