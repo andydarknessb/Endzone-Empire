@@ -22,8 +22,8 @@ written only by the ESPN injuries document, read on the same 15-minute
 cadence inside and outside game windows, with no quota doubling because
 there is no quota. The mapping is fixed: Questionable to Q, Doubtful to D,
 Out to O, Injured Reserve to IR; Active and any athlete not listed are
-healthy (null). The Tank01 player-list call (`syncPlayers`, hand-run from
-the admin dashboard, not on the scheduler) keeps the player row itself (name,
+healthy (null). The Tank01 player-list call keeps a daily job (`syncPlayers`,
+scheduled by #2115 and still hand-runnable) for the player row itself (name,
 position, NFL team) and never writes designation. Tank01's remaining production roles are the Live box and clock
 fallback after three ESPN failures and the Final box (ADR 0035, for fumble
 recoveries ESPN lacks); every other feed is on its way off it, one ticket
@@ -53,8 +53,3 @@ writer changed.
 - The Tank01 label normaliser for designation is retired; the ESPN strings
   are an exact match, and an unknown string is logged and treated as
   healthy rather than guessed.
-- The injuries job no longer writes `nfl_team`: team changes and the No NFL
-  team clear (#1385, with its size floor and kickoff deferral) leave it, and
-  nothing on the scheduler keeps `nfl_team` current until `syncPlayers` is
-  scheduled or hand-run. The size floor and deferral are retired with the
-  clear, not moved.

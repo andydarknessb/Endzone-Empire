@@ -98,7 +98,8 @@ function normalizePlayerEntry(entry) {
  * Discover and refresh the NFL player pool from Tank01's getNFLPlayerList —
  * a single call covering the whole league. Upserts by external_id (safe to
  * re-run; existing players get their name/position/team refreshed, new ones
- * are inserted). Not on the scheduler — trigger from the admin dashboard or
+ * are inserted). Runs daily on the scheduler (`player-sync`, #2115, gated on
+ * the Tank01 credentials) and stays hand-runnable from the admin dashboard or
  * POST /api/scoring/sync-players.
  *
  * This is the only writer of `nfl_team` (the injuries job moved to ESPN and no

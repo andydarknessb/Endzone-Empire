@@ -397,9 +397,9 @@ A player who has left the NFL — released, retired, or otherwise dropped from
 Tank01's player list — or who the list carries with no team or flags as off
 every roster (its `isFreeAgent` field; the list keeps such a player under
 his last team, so the flag is the only sign he has gone). A fact about the
-NFL world, written only by the hand-run player sync (never the injury sync,
-ADR 0061, and never anything a manager does), which writes the list's null team
-through to `nfl_team`. Once cleared,
+NFL world, written only by the daily player sync (never the injury sync, and
+never anything a manager does), which writes the list's null team through to
+`nfl_team`. Once cleared,
 purely a display fact: the lineup card shows `FA` in place of the team badge,
 and nothing about it locks a slot or refuses a start. The one number it does
 withhold is the Upgrade, which is undefined for such a player (he has no

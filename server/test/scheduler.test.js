@@ -259,6 +259,67 @@ test('injurySyncMs defaults to 15 minutes and honors INJURY_SYNC_MS (#2115)', ()
   }
 });
 
+// ---- daily Tank01 player sync (#2115, ADR 0061) ------------------------------
+
+function playerSyncWorld(t, { credentials = true } = {}) {
+  const scoring = require('../services/feedSyncRuns.service');
+  const saved = { key: process.env.RAPID_API_KEY, host: process.env.RAPID_API_HOST };
+  if (credentials) {
+    process.env.RAPID_API_KEY = 'test-key';
+    process.env.RAPID_API_HOST = 'test-host';
+  } else {
+    delete process.env.RAPID_API_KEY;
+    delete process.env.RAPID_API_HOST;
+  }
+  t.after(() => {
+    for (const [name, value] of [['RAPID_API_KEY', saved.key], ['RAPID_API_HOST', saved.host]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  });
+  const world = { runs: [], calls: [], clock: null };
+  createFakePool([
+    [/FROM "data_sync_runs"/, () => {
+      const latestOk = [...world.runs].sort((a, b) => b.finished_at - a.finished_at)[0];
+      const row = latestOk ? { id: world.runs.length, finished_at: latestOk.finished_at, ok: true, detail: null } : null;
+      return { rows: [{ latest: row, latestOk: row }] };
+    }],
+  ]).install(t);
+  t.mock.method(scoring, 'syncPlayers', async (args) => {
+    world.calls.push(args);
+    world.runs.push({ finished_at: world.clock });
+    return { season: args.season, playersUpserted: 3 };
+  });
+  world.run = (now) => {
+    world.clock = now;
+    return scheduler.runDailyPlayerSync({ now });
+  };
+  return world;
+}
+
+test('runDailyPlayerSync runs once per UTC day, not twice, and again the next UTC day', async (t) => {
+  const world = playerSyncWorld(t);
+  const T = new Date('2026-10-08T09:00:00Z');
+  assert.ok(await world.run(T), 'never run: due');
+  assert.equal(await world.run(new Date(T.getTime() + 5 * 60 * 1000)), null, 'the next tick, same UTC day: not due');
+  assert.equal(await world.run(new Date('2026-10-08T23:55:00Z')), null, 'late the same UTC day: not due');
+  assert.ok(await world.run(new Date('2026-10-09T00:05:00Z')), 'the next UTC day: due');
+  assert.equal(world.calls.length, 2);
+  assert.deepEqual(world.calls[0], { season: 2026 });
+});
+
+test('runDailyPlayerSync does nothing without the Tank01 credentials', async (t) => {
+  const world = playerSyncWorld(t, { credentials: false });
+  assert.equal(await world.run(new Date('2026-10-08T09:00:00Z')), null);
+  assert.equal(world.calls.length, 0);
+});
+
+test('the player-sync tick job is housekeeping tier and names the players Sync run once', () => {
+  const job = scheduler.TICK_JOBS.find((j) => j.name === 'player-sync');
+  assert.equal(job.tier, 'housekeeping');
+  assert.deepEqual(job.syncRun, ['players']);
+  assert.equal(scheduler.SYNC_RUN_JOBS.filter((name) => name === 'players').length, 1);
+});
+
 // ---- daily ADP sync (#747, #1509) -------------------------------------------
 // The due/not-due decision is the cadence gate's own concern (server/modules/
 // cadence.js, cadence.test.js's table suite covers the 'utc-day' cadence and
@@ -2179,6 +2240,7 @@ test('the real tick list is the pre-#2049 tickUnlocked order, deadline then hous
     'override-capture',
     'nflverse-practice',
     'retention',
+    'player-sync',
     'weather-snapshots',
     'nightly-projection-fill',
     'nightly-stats-integrity',
