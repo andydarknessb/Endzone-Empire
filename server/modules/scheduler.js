@@ -10,6 +10,7 @@ const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 const { lastRun, runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
+const clock = require('./clock');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -675,6 +676,7 @@ async function syncAndScoreLiveWeeks() {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
         await alertScoreUpdates({ leagueId, season, week, scored });
+        await alertBigPlays({ leagueId, season, week, scored, plays });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
     } catch (err) {
@@ -1274,6 +1276,113 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
   }
 }
 
+const BIG_PLAY_CAP_MS = 5 * 60 * 1000;
+const BIG_PLAY_WORDS = {
+  passing: 'passing touchdown', rushing: 'rushing touchdown', receiving: 'receiving touchdown',
+  defensive: 'defensive touchdown', return: 'return touchdown', fieldGoal: 'field goal',
+  extraPoint: 'extra point', sack: 'sack', interception: 'interception return',
+  fumble: 'fumble recovery', puntReturn: 'punt return',
+};
+
+/**
+ * Big play alerts (#2108): after a live sync's league is scored, push both
+ * managers of a matchup when one of this sync's Scoring plays by a starter is
+ * worth BIG_PLAY_MIN_POINTS (default 6) under that league's rules. One push per
+ * owner per sync, and none while a `big-play` ledger row for that owner is under
+ * five minutes old (the capped plays are dropped, not queued). Runs after
+ * scoreMatchups has committed, never inside its transaction.
+ *
+ * A play's `pointsDelta` is priced at the default rules, so the league's price
+ * is the play's own stat moved by its count under `rulesForLeague`; a field
+ * goal has no single-key price (its worth is on the per-make distances), so it
+ * keeps `pointsDelta`.
+ */
+async function alertBigPlays({ leagueId, season, week, scored, plays }) {
+  const minPoints = Number(process.env.BIG_PLAY_MIN_POINTS) || 6;
+  if (!plays || plays.length === 0 || !scored || scored.length === 0) return;
+  try {
+    const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
+    const { PLAY_STAT_EVENTS } = require('../services/boxScoreApply.service');
+    const push = require('../services/push.service');
+    const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
+    const rules = rulesForLeague(league);
+    // A play carries its event `type` but not the stat key it was detected from.
+    const statKeyOf = (type) => Object.keys(PLAY_STAT_EVENTS).find((k) => PLAY_STAT_EVENTS[k].type === type);
+    const big = plays
+      .map((p) => {
+        const statKey = statKeyOf(p.type);
+        // ponytail: field goals are priced at default rules from pointsDelta; price by fieldGoalDistances under league rules if a league ever pays 6+ for a long kick.
+        const points = statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
+        return { ...p, statKey, points };
+      })
+      .filter((p) => p.points >= minPoints);
+    if (big.length === 0) return;
+
+    const teamIds = scored.flatMap((m) => [m.homeTeamId, m.awayTeamId]);
+    const [starters, owners, stats] = await Promise.all([
+      pool.query(
+        `SELECT "team_id", "player_id" FROM "lineup_entries"
+         WHERE "team_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3
+           AND "slot" NOT IN ('BENCH', 'IR') AND "player_id" = ANY($4::int[])`,
+        [teamIds, season, week, big.map((p) => p.playerId)]
+      ),
+      pool.query(`SELECT "id", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`, [teamIds]),
+      pool.query(
+        `SELECT "player_id", "stats" FROM "player_stats"
+         WHERE "player_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3`,
+        [big.map((p) => p.playerId), season, week]
+      ),
+    ]);
+    const ownerOf = new Map(owners.rows.map((r) => [r.id, r.owner_id]));
+    const statsOf = new Map(stats.rows.map((r) => [r.player_id, r.stats || {}]));
+    const cutoff = new Date(clock.now().getTime() - BIG_PLAY_CAP_MS);
+
+    for (const m of scored) {
+      // A stat correction on a finished game is not a live play.
+      if (m.status === 'played' || m.status === 'final') continue;
+      const playsFor = (teamId) => big.filter((p) =>
+        starters.rows.some((s) => s.team_id === teamId && s.player_id === p.playerId));
+      const sides = [
+        { teamId: m.homeTeamId, own: playsFor(m.homeTeamId) },
+        { teamId: m.awayTeamId, own: playsFor(m.awayTeamId) },
+      ];
+      const qualifying = [...sides[0].own, ...sides[1].own];
+      if (qualifying.length === 0) continue;
+      // The fingerprint's count is the player's running total of that stat, so a
+      // later touchdown by the same player is a new push, not a ledger repeat.
+      const fingerprint = qualifying
+        .map((p) => `${p.playerId}:${p.statKey}:${Number((statsOf.get(p.playerId) || {})[p.statKey]) || p.tdDelta}`)
+        .sort().join(',');
+      for (const side of sides) {
+        const userId = ownerOf.get(side.teamId);
+        if (userId == null) continue;
+        const capped = await pool.query(
+          `SELECT 1 FROM "push_events" WHERE "user_id" = $1 AND "kind" = 'big-play' AND "created_at" > $2 LIMIT 1`,
+          [userId, cutoff]
+        );
+        if (capped.rows.length > 0) continue;
+        const what = (p) => `${p.name} ${BIG_PLAY_WORDS[p.type] || p.type}`;
+        const lines = qualifying.map((p) =>
+          `${what(p)} (${Math.round(p.points * 10) / 10} pts, ${side.own.includes(p) ? 'yours' : "your opponent's"})`);
+        await push.sendPushOnce({
+          userIds: [userId],
+          prefKey: 'touchdownCelebrations',
+          kind: 'big-play',
+          subject: String(m.matchupId),
+          fingerprint,
+          payload: {
+            title: lines.length === 1 ? `Big play: ${what(qualifying[0])}` : `${lines.length} big plays`,
+            body: lines.join('\n'),
+            url: `/#/league/${leagueId}/game-center`,
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error('big play alert failed:', err.message);
+  }
+}
+
 const leaderOf = (m) => {
   const home = Number(m.homeScore);
   const away = Number(m.awayScore);
@@ -1696,6 +1805,7 @@ module.exports = {
   draftTick,
   alertCloseMatchups,
   alertScoreUpdates,
+  alertBigPlays,
   getSchedulerStatus,
   SYNC_RUN_JOBS,
   MANUAL_SYNC_RUN_JOBS,
