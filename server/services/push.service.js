@@ -112,7 +112,9 @@ async function sendPushToUsers(userIds, payload) {
  * `prefKey` off are dropped, then one ledger insert keeps only the users whose
  * row is new (ON CONFLICT DO NOTHING), and only those are sent. A changed
  * fingerprint is a new push. Returns { sent, skipped }: skipped counts the
- * users filtered by preference or already in the ledger.
+ * users filtered by preference or already in the ledger. Only a ledger error
+ * throws: once a row is in, the decision to alert is made and delivery is best
+ * effort, so a send failure is logged and counted as sent: 0, and the row stays.
  */
 async function sendPushOnce({ userIds, prefKey, kind, subject, fingerprint, payload }) {
   const ids = [...new Set(userIds)].filter((id) => id != null);
@@ -128,8 +130,15 @@ async function sendPushOnce({ userIds, prefKey, kind, subject, fingerprint, payl
     );
     fresh = inserted.rows.map((r) => r.user_id);
   }
-  // Through module.exports so a test can stand in for the web-push send.
-  const { sent } = fresh.length > 0 ? await module.exports.sendPushToUsers(fresh, payload) : { sent: 0 };
+  let sent = 0;
+  if (fresh.length > 0) {
+    try {
+      // Through module.exports so a test can stand in for the web-push send.
+      ({ sent } = await module.exports.sendPushToUsers(fresh, payload));
+    } catch (err) {
+      console.error('push send failed:', err.message);
+    }
+  }
   return { sent, skipped: ids.length - fresh.length };
 }
 

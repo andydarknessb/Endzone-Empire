@@ -67,3 +67,12 @@ test('sendPushOnce with nobody wanting it makes no ledger write and no send', as
   assert.equal(fake.matching(insert('push_events')).length, 0);
   assert.deepEqual(SENT_TO, []);
 });
+
+test('sendPushOnce logs a delivery failure instead of throwing, and keeps the ledger row', async (t) => {
+  world(t);
+  t.mock.method(console, 'error', () => {});
+  push.sendPushToUsers.mock.mockImplementation(async () => { throw new Error('subscriptions down'); });
+
+  assert.deepEqual(await once(), { sent: 0, skipped: 0 });
+  assert.deepEqual(await once(), { sent: 0, skipped: 1 }); // the row stayed
+});
