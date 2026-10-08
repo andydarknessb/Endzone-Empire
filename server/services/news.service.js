@@ -4,7 +4,7 @@
  * `GET /api/news` used to call Tank01's `/getNFLNews` on EVERY request (the
  * quietest quota leak in the app; UserPage fetches it on every dashboard
  * mount). Headlines now come from ESPN's unauthenticated news document, which
- * spends no Tank01 quota (ADR 0061: Tank01 is fallback and Final box only).
+ * spends no Tank01 quota (#2118: Tank01 is fallback and Final box only).
  *
  * One upstream fetch serves a 6-hour window, cached in Redis so the web
  * process's instances share it (in-memory fallback for dev, where there's no
@@ -150,6 +150,8 @@ async function getLatestNews({ transport, gameDay } = {}) {
   try {
     const response = await (transport || axios).get(ESPN_NEWS_URL, { timeout: ESPN_TIMEOUT_MS });
     const items = normalizeNewsItems(espnArticles(response.data));
+    // An undocumented feed: a shape change must not cache [] and wipe the stale safety net.
+    if (!items.length) throw new Error('ESPN news returned no usable articles');
     const onGameDay = gameDay === undefined ? await isGameDay() : Boolean(gameDay);
     await write(items, { ttlMs: cacheTtlMs({ gameDay: onGameDay }) });
     return items;

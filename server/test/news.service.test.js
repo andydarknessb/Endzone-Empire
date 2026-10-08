@@ -29,9 +29,8 @@ test('normalizeNewsItems tolerates a missing/empty payload', () => {
 
 // ---- caching + stale-serve --------------------------------------------------
 //
-// GET /api/news used to hit Tank01 on every request, and the dashboard mounts
-// the widget every visit — the quietest quota leak in the app. One fetch now
-// serves a 6h window, and a shed or failed fetch serves the last good payload
+// GET /api/news is hit by the dashboard widget on every visit. One ESPN fetch
+// serves a 6h window, and a failed or empty fetch serves the last good payload
 // instead of a 5xx.
 
 const news = require('../services/news.service');
@@ -151,6 +150,23 @@ test('an ESPN block (403) still serves stale headlines', async () => {
     await new Promise((r) => setTimeout(r, 5));
     assert.deepEqual(await news.getLatestNews({ transport: blocked }), ITEMS);
     assert.equal(blocked.calls, 1);
+  } finally {
+    if (prev === undefined) delete process.env.NEWS_CACHE_TTL_MS;
+    else process.env.NEWS_CACHE_TTL_MS = prev;
+  }
+});
+
+test('an empty or reshaped ESPN document serves the last good payload and does not overwrite it', async () => {
+  news.__resetNewsCache();
+  const prev = process.env.NEWS_CACHE_TTL_MS;
+  process.env.NEWS_CACHE_TTL_MS = '1';
+  try {
+    await news.getLatestNews({ transport: stubTransport(ARTICLES) });
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepEqual(await news.getLatestNews({ transport: stubTransport([]) }), ITEMS);
+    await new Promise((r) => setTimeout(r, 5));
+    const reshaped = { async get() { return { data: { items: [] } }; } };
+    assert.deepEqual(await news.getLatestNews({ transport: reshaped }), ITEMS);
   } finally {
     if (prev === undefined) delete process.env.NEWS_CACHE_TTL_MS;
     else process.env.NEWS_CACHE_TTL_MS = prev;
