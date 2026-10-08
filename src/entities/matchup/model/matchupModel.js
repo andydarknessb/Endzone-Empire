@@ -48,6 +48,8 @@ export function matchupFromListRow(row) {
     // score pass last touched the week (#892); ISO strings or null.
     firstKickoffAt: r.first_kickoff_at ?? null,
     syncedAt: r.synced_at ?? null,
+    // The stored preview Narrative (ADR 0059), or null.
+    narrative: r.narrative ?? null,
     home: {
       teamId: r.home_team_id ?? null,
       name: r.home_team_name ?? null,

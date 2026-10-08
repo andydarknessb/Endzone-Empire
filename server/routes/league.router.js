@@ -598,7 +598,25 @@ router.get('/:id/matchups', async (req, res) => {
       const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
       league = leagueResult.rows[0] || null;
     }
-    res.json(await attachExpectedFinals(result.rows, { league, now: clock.now() }));
+    const rows = await attachExpectedFinals(result.rows, { league, now: clock.now() });
+    // The stored preview Narrative (ADR 0059), null until one is written.
+    // Display data: a failed read costs the line, never the list.
+    const narratives = new Map();
+    try {
+      const stored = await pool.query(
+        `SELECT "season", "week", "data" FROM "league_analytics"
+         WHERE "league_id" = $1 AND "type" = 'matchup_narratives'
+           AND "season" = ANY($2) AND "week" = ANY($3)`,
+        [leagueId, [...new Set(rows.map((m) => m.season))], [...new Set(rows.map((m) => m.week))]]
+      );
+      for (const r of stored.rows) narratives.set(`${r.season}:${r.week}`, r.data?.matchups || {});
+    } catch (narrativeErr) {
+      console.error('matchup narratives unavailable', narrativeErr.message);
+    }
+    res.json(rows.map((m) => ({
+      ...m,
+      narrative: narratives.get(`${m.season}:${m.week}`)?.[m.id]?.preview?.narrative ?? null,
+    })));
   } catch (error) {
     console.error('Error fetching matchups', error);
     res.status(500).json({ error: 'failed to fetch matchups' });

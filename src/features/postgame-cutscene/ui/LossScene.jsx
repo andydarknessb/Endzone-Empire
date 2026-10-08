@@ -198,6 +198,7 @@ function LossScene({
           {beat === 'panel' && (
             <>
               {line && <div className="loss-record" data-testid="loss-record">{line}</div>}
+              {cutscene.narrative && <p className="postgame-narrative" data-testid="postgame-narrative">{cutscene.narrative}</p>}
               <a
                 className="loss-link"
                 data-testid="loss-link"

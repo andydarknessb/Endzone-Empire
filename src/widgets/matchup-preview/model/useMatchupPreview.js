@@ -362,7 +362,7 @@ export function useMatchupPreview(leagueId) {
   const busy =
     status === 'loading' || (status === 'ready' && detailCanAnswer && detail.status === 'loading');
 
-  return { week, status, busy, matchupId, viewer, opponent, game };
+  return { week, status, busy, matchupId, viewer, opponent, game, narrative: myMatchup?.narrative ?? null };
 }
 
 export default useMatchupPreview;

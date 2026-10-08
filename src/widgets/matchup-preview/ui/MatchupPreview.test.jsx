@@ -327,6 +327,21 @@ test('a started row renders the status chip and no kickoff text', async () => {
   expect(screen.queryByText('Projections update daily')).not.toBeInTheDocument();
 });
 
+test('the stored preview Narrative sits under the pairing; nothing without it', async () => {
+  const { unmount } = renderCard(
+    row({ status: 'scheduled', narrative: 'MyBallsHurts holds a slim projected edge.' })
+  );
+  expect(await screen.findByTestId('matchup-preview-narrative')).toHaveTextContent(
+    'MyBallsHurts holds a slim projected edge.'
+  );
+  unmount();
+  invalidate(undefined, { reload: false });
+
+  renderCard(row({ status: 'scheduled', narrative: null }));
+  await screen.findByTestId('matchup-side-viewer');
+  expect(screen.queryByTestId('matchup-preview-narrative')).not.toBeInTheDocument();
+});
+
 test('a level projection reads as even rather than "by 0.0"', async () => {
   renderCard(
     row({ status: 'scheduled', home_expected_final: '104.0', away_expected_final: '104.0' })

@@ -84,7 +84,7 @@ for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL']) BYE_ROWS.
 // are deterministic whenever it runs.
 const FIXED_NOW = '2026-09-13T16:00:00.000Z';
 
-async function listMatchups(t, { matchups, starters = STARTERS, projections = PROJECTIONS, live = LIVE }) {
+async function listMatchups(t, { matchups, starters = STARTERS, projections = PROJECTIONS, live = LIVE, narratives = [] }) {
   t.mock.method(clock, 'now', () => new Date(FIXED_NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
@@ -105,6 +105,7 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
   const fake = createFakePool([
     [/FROM "matchups" JOIN "teams" home/, () => ({ rows: matchups.map((m) => ({ ...m })) })],
     [select('leagues'), () => ({ rows: [{ ...LEAGUE }] })],
+    [/FROM "league_analytics"/, () => ({ rows: narratives })],
     [/FROM "lineup_entries"/, () => ({ rows: starters })],
     [/FROM "nfl_games" "ng"/, () => ({ rows: BYE_ROWS })],
     [/FROM "live_game_states"/, () => ({ rows: live })],
@@ -145,6 +146,13 @@ test('an open matchup carries both sides; a final one carries null; the projecti
   // Everything the row carried before still rides along.
   assert.equal(open.home_team_name, 'Gridiron Ghosts');
   assert.equal(done.home_score, '90');
+});
+
+test('each row carries its stored preview Narrative, null where none is written', async (t) => {
+  const narratives = [{ season: 2026, week: 2, data: { matchups: { 7: { preview: { narrative: 'A close one.' } } } } }];
+  const { body } = await listMatchups(t, { matchups: [OPEN, FINAL], narratives });
+  assert.equal(body.find((m) => m.id === 7).narrative, 'A close one.');
+  assert.equal(body.find((m) => m.id === 6).narrative, null);
 });
 
 test('a team with no starter rows stays null, not zero', async (t) => {

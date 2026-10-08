@@ -1014,6 +1014,13 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
           });
           if (allCached) weeksSkipped += 1; else weeksGenerated += 1;
         }
+        // Matchup previews (ADR 0059): the current week's projections are
+        // cached by now. Best-effort display text; never fails the fill.
+        try {
+          await require('../services/matchupNarrative.service').writePreviews({ league, now });
+        } catch (err) {
+          console.error('nightly projection fill: matchup previews failed for league %s:', league.id, err.message);
+        }
         return { leagueId: league.id, weeksGenerated, weeksSkipped };
       },
     });

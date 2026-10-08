@@ -161,6 +161,7 @@ function WinScene({ cutscene, sfx, onDone }) {
           {beat === 'dance' && (
             <>
               {line && <div className="win-record" data-testid="win-record">{line}</div>}
+              {cutscene.narrative && <p className="postgame-narrative" data-testid="postgame-narrative">{cutscene.narrative}</p>}
               <Marquee
                 text={`${(me.name || 'TEAM').toUpperCase()} DEFEATS ${(opponent.name || 'TEAM').toUpperCase()}`}
                 name={me.name || ''}

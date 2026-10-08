@@ -132,6 +132,34 @@ async function loadAwards(db, due) {
   return byKey;
 }
 
+/**
+ * Each due Matchup's stored postgame Narrative (ADR 0059), keyed by Matchup id.
+ * Display data: a failed read costs the line, never the cutscene.
+ */
+async function loadNarratives(db, due) {
+  const byMatchup = new Map();
+  try {
+    const { rows } = await db.query(
+      `SELECT "league_id", "season", "week", "data" FROM "league_analytics"
+       WHERE "type" = 'matchup_narratives' AND "league_id" = ANY($1)
+         AND "season" = ANY($2) AND "week" = ANY($3)`,
+      [
+        [...new Set(due.map(({ league }) => Number(league.id)))],
+        [...new Set(due.map(({ row }) => Number(row.season)))],
+        [...new Set(due.map(({ row }) => Number(row.week)))],
+      ]
+    );
+    const stored = new Map(rows.map((r) => [`${r.league_id}:${r.season}:${r.week}`, r.data?.matchups || {}]));
+    for (const { row, league } of due) {
+      const text = stored.get(`${league.id}:${row.season}:${row.week}`)?.[row.id]?.postgame?.narrative;
+      if (text) byMatchup.set(Number(row.id), text);
+    }
+  } catch (err) {
+    console.error('postgame cutscene: narrative lookup failed:', err.message);
+  }
+  return byMatchup;
+}
+
 /** The viewer's `postgameCutscenes` preference; opt-out, so unset is on. */
 async function cutscenesWanted({ userId, db }) {
   const result = await db.query(
@@ -199,6 +227,7 @@ async function listDue({ userId, now, db }) {
   });
 
   const awardsByKey = due.length > 0 ? await loadAwards(db, due) : new Map();
+  const narrativeByMatchup = due.length > 0 ? await loadNarratives(db, due) : new Map();
   const { computeStandings } = require('./season.service');
   const standingsByLeague = new Map();
   const items = due.map(({ row, league, home }) => {
@@ -235,6 +264,7 @@ async function listDue({ userId, now, db }) {
       record: mine ? { wins: mine.wins, losses: mine.losses, ties: mine.ties } : null,
       standing: mine ? { rank: mine.rank, of: standings.length } : null,
       awards: awardsByKey.get(awardKey(leagueId, row.season, row.week, myId)) || [],
+      narrative: narrativeByMatchup.get(Number(row.id)) ?? null,
     };
   });
 

@@ -53,7 +53,7 @@ import useMatchupPreview from '../model/useMatchupPreview';
  * read degrades just that number to a placeholder without erroring the card.
  */
 export default function MatchupPreview({ leagueId }) {
-  const { week, status, busy, matchupId, viewer, opponent, game } = useMatchupPreview(leagueId);
+  const { week, status, busy, matchupId, viewer, opponent, game, narrative } = useMatchupPreview(leagueId);
   const title = week != null ? `Week ${week} Matchup` : 'Matchup';
   const started = game.hasStarted === true;
 
@@ -139,6 +139,16 @@ export default function MatchupPreview({ leagueId }) {
                 sx={{ m: 0, fontSize: '12px', textAlign: 'center', color: 'var(--dash-faint)' }}
               >
                 {game.projectedMargin}
+              </Typography>
+            )}
+
+            {narrative && (
+              <Typography
+                variant="body2"
+                data-testid="matchup-preview-narrative"
+                sx={{ m: 0, color: 'var(--dash-dim)' }}
+              >
+                {narrative}
               </Typography>
             )}
           </Box>

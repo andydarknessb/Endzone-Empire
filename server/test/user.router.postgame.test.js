@@ -63,7 +63,7 @@ test('GET /api/user/postgame-cutscenes answers { cutscenes } with the viewer\'s 
   assert.equal(res.body.cutscenes.length, 1);
   const [item] = res.body.cutscenes;
   assert.deepEqual(Object.keys(item), [
-    'matchupId', 'leagueId', 'leagueName', 'season', 'week', 'playoff', 'outcome', 'me', 'opponent', 'record', 'standing', 'awards',
+    'matchupId', 'leagueId', 'leagueName', 'season', 'week', 'playoff', 'outcome', 'me', 'opponent', 'record', 'standing', 'awards', 'narrative',
   ]);
   assert.equal(item.matchupId, 904);
   assert.equal(item.outcome, 'win');
