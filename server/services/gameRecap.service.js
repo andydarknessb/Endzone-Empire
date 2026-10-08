@@ -8,7 +8,7 @@
  *
  * Narrative guarantee (guardrail #5): `templateNarrative` is a pure function of
  * the structured facts and is the DEFAULT, GUARANTEED path. An optional LLM
- * call (ANTHROPIC_API_KEY + the optional @anthropic-ai/sdk, same pattern as
+ * call (ANTHROPIC_API_KEY, via services/claude.js, same as
  * recap.service.llmNarrative) may ENHANCE the text, but any failure/absence
  * falls back silently to the template. The persisted `data` always contains
  * the full structured facts, so every recap page renders completely from the
@@ -25,6 +25,7 @@ const {
 const { tank01Body } = require('./tank01Feed');
 const { tank01Get, retryAfterMs } = require('../modules/tank01Client');
 const { statLine } = require('./publicRead.service');
+const claude = require('./claude');
 
 // ---- pure normalizers -------------------------------------------------------
 
@@ -159,37 +160,19 @@ function templateNarrative(facts) {
 // ---- optional LLM enhancement (never required) ------------------------------
 
 /**
- * Narrative via Claude. Requires ANTHROPIC_API_KEY and the optional
- * @anthropic-ai/sdk dependency; returns null on any failure so the caller
- * falls back to the guaranteed template. Mirrors recap.service.llmNarrative.
+ * Narrative via Claude (services/claude.js: ANTHROPIC_API_KEY, monthly budget);
+ * returns null on any failure so the caller falls back to the guaranteed
+ * template. Mirrors recap.service.llmNarrative.
  */
-async function llmNarrative(facts, { client: suppliedClient } = {}) {
-  if (!suppliedClient && !process.env.ANTHROPIC_API_KEY) return null;
-  try {
-    // Optional dependency — only required when the key is actually configured.
-    // eslint-disable-next-line global-require
-    const client = suppliedClient || new (require('@anthropic-ai/sdk'))();
-    const response = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1024,
-      system:
-        'You write short, punchy NFL game recaps for a fantasy football audience. ' +
-        'Two short paragraphs max. Lead with the result, then the fantasy angle. Use ONLY ' +
-        'the facts provided. Never invent players, scores, or events. Plain text, no headings, no em dashes.',
-      messages: [
-        { role: 'user', content: `Write a recap of this NFL game from these facts:\n${JSON.stringify(facts, null, 2)}` },
-      ],
-    });
-    const text = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text)
-      .join('')
-      .trim();
-    return text || null;
-  } catch (err) {
-    console.error('LLM game recap failed, falling back to template:', err.message);
-    return null;
-  }
+async function llmNarrative(facts, { client } = {}) {
+  return claude.narrative({
+    feature: 'game_recap',
+    system:
+      'You write short, punchy NFL game recaps for a fantasy football audience. ' +
+      'Two short paragraphs max. Lead with the result, then the fantasy angle. Use ONLY ' +
+      'the facts provided. Never invent players, scores, or events. Plain text, no headings, no em dashes.',
+    user: `Write a recap of this NFL game from these facts:\n${JSON.stringify(facts, null, 2)}`,
+  }, { client });
 }
 
 // ---- top performers ---------------------------------------------------------
@@ -346,23 +329,19 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     topPerformers,
   };
 
-  const template = templateNarrative(facts);
-  const enhanced = await llmNarrative(facts, { client });
-  const narrative = enhanced || template;
-  const narrativeSource = enhanced ? 'llm' : 'template';
+  // Template first (ADR 0059): the stored row never waits on Claude.
   const generatedAt = new Date().toISOString();
-
   const data = {
     lineScore,
     scoringPlays,
     topPerformers,
-    narrative,
-    narrativeSource,
+    narrative: templateNarrative(facts),
+    narrativeSource: 'template',
     generatedAt,
   };
 
   const finalAt = state.last_updated || new Date();
-  await pool.query(UPSERT_SQL, [
+  const store = () => pool.query(UPSERT_SQL, [
     tank01GameId,
     state.season,
     state.week,
@@ -376,6 +355,14 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     GENERATOR_VERSION,
     generatedAt,
   ]);
+  await store();
+
+  const enhanced = await llmNarrative(facts, { client });
+  if (enhanced) {
+    data.narrative = enhanced;
+    data.narrativeSource = 'llm';
+    await store();
+  }
 
   return data;
 }

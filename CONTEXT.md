@@ -1435,10 +1435,29 @@ a candidate. A stat correction never awards, revokes or changes either.
 _Avoid_: achievement, award (fine in copy, not as the term), XP, badge (the
 UI chip that shows a tag, not a trophy)
 
+**Narrative**:
+Generated prose over facts the server already holds. A template always
+produces one and it is always stored; Claude may rewrite it, and the surface
+reads the same whether or not that rewrite ever ran. A Narrative carries no
+number of its own and is never a Projection: it names what the facts say and
+never computes. Nothing a manager types is ever part of its input. Recap,
+Matchup narrative and Projection explanation are its kinds.
+_Avoid_: AI summary, generated text, LLM output, commentary
+
 **Recap**:
-A generated narrative summary of one league week.
+A Narrative about one league week.
 _Avoid_: weekly recap animation, postgame cutscene (one Team's result, not the
 league's week)
+
+**Matchup narrative**:
+A Narrative about one Matchup, in two moments: a preview written once the
+week's Weekly projections exist and before the first Kickoff, and a postgame
+written once the Matchup is final. Both Teams read the same text, which
+carries Team identity and nothing else about either manager. The Postgame
+cutscene and the League Dashboard matchup card show it; the Recap does not
+repeat it.
+_Avoid_: matchup recap (the postgame moment is one half of this), trash talk,
+preview article
 
 **Postgame cutscene**:
 A full-screen Tecmo cutscene that reveals one Team's final Matchup result, win,
@@ -1641,6 +1660,14 @@ instead of reporting an insufficient sample until week 4. The Start/sit card
 labels the NFL opponent line "context only" when the Factor did not apply
 (ADR 0047).
 _Avoid_: last year's defense, carry-over
+
+**Projection explanation**:
+A Narrative about one player's Weekly projection for one week, naming the
+Factors that moved it and never a value, a rank or a verdict. It is written
+once per player per week under the pool-wide default scoring rules, so it
+reads true in every league, and the Decision card shows it beside the number
+it explains. It is not Start/sit advice and never recommends a lineup.
+_Avoid_: AI insight, projection note, analysis, why-card
 
 **Start/sit advice**:
 The engine's recommendation about which rostered players to start, including an

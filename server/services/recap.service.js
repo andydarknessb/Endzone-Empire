@@ -6,6 +6,7 @@ const { logTransaction, notifyLeague } = require('./activity.service');
 // stored default-rules `fantasy_points` column (#739, ADR 0024).
 const { calculateFantasyPoints, rulesForLeague } = require('./scoringRules');
 const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
+const claude = require('./claude');
 
 /**
  * Weekly league recaps: after a week is finalized, gather its storylines
@@ -13,11 +14,9 @@ const { CALLED_SHOT_BOLD_PROBABILITY } = require('./trophy.service');
  * steal, playoff odds) and write a narrative into league_analytics
  * (type 'weekly_recap').
  *
- * The narrative comes from Claude when ANTHROPIC_API_KEY is set AND the
- * optional @anthropic-ai/sdk package is installed (same optional-dependency
- * pattern as nodemailer in account.service); otherwise a clean templated
- * version renders from the same data, so the feature never depends on the
- * LLM being available.
+ * The narrative comes from Claude when ANTHROPIC_API_KEY is set and the monthly
+ * budget is not spent (ADR 0059); otherwise a clean templated version renders
+ * from the same data, so the feature never depends on the LLM being available.
  */
 
 function round2(x) {
@@ -193,37 +192,40 @@ function templateNarrative(facts) {
 }
 
 /**
- * Narrative via Claude. Requires ANTHROPIC_API_KEY and the optional
- * @anthropic-ai/sdk dependency; returns null on any failure so the caller
- * falls back to the template.
+ * Narrative via Claude (services/claude.js: ANTHROPIC_API_KEY, monthly budget);
+ * returns null on any failure so the caller falls back to the template.
  */
-async function llmNarrative(facts, { client: suppliedClient } = {}) {
-  if (!suppliedClient && !process.env.ANTHROPIC_API_KEY) return null;
-  try {
-    // Optional dependency — only required when the key is actually configured
-    // eslint-disable-next-line global-require
-    const client = suppliedClient || new (require('@anthropic-ai/sdk'))();
-    const response = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1024,
-      system:
-        'You write short, punchy fantasy football weekly recaps for a league of friends. ' +
-        'Two paragraphs max. Fun trash-talk energy, never mean-spirited. Use ONLY the facts ' +
-        'provided. Never invent players, scores, or events. Plain text, no headings, no em dashes.',
-      messages: [
-        { role: 'user', content: `Write the week ${facts.week} recap from these facts:\n${JSON.stringify(facts, null, 2)}` },
-      ],
-    });
-    const text = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text)
-      .join('')
-      .trim();
-    return text || null;
-  } catch (err) {
-    console.error('LLM recap failed, falling back to template:', err.message);
-    return null;
-  }
+async function llmNarrative(facts, { client, placeholders } = {}) {
+  return claude.narrative({
+    feature: 'recap',
+    system:
+      'You write short, punchy fantasy football weekly recaps for a league of friends. ' +
+      'Two paragraphs max. Fun trash-talk energy, never mean-spirited. Use ONLY the facts ' +
+      'provided. Never invent players, scores, or events. Plain text, no headings, no em dashes. ' +
+      'Team names appear as [[team:N]] tokens; copy each token exactly where the team is named.',
+    user: `Write the week ${facts.week} recap from these facts:\n${JSON.stringify(facts, null, 2)}`,
+    placeholders,
+  }, { client });
+}
+
+/**
+ * Pure: a deep copy of `facts` with every team name replaced by its
+ * `[[team:<id>]]` token (a manager typed those names; ADR 0059 section 5),
+ * and the token -> name map to put them back. `idByName` is name -> teams.id.
+ */
+function tokenizeTeamNames(facts, idByName) {
+  const placeholders = {};
+  const walk = (v) => {
+    if (typeof v === 'string' && idByName.has(v)) {
+      const token = `[[team:${idByName.get(v)}]]`;
+      placeholders[token] = v;
+      return token;
+    }
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return { facts: walk(facts), placeholders };
 }
 
 /**
@@ -319,6 +321,7 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
 
   // Updated playoff odds from the latest Monte Carlo run
   let playoffOdds = null;
+  let oddsRankings = [];
   try {
     const oddsResult = await pool.query(
       `SELECT "data" FROM "league_analytics"
@@ -328,6 +331,7 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
     );
     const rankings = oddsResult.rows[0] && oddsResult.rows[0].data.rankings;
     if (Array.isArray(rankings)) {
+      oddsRankings = rankings;
       playoffOdds = rankings
         .slice(0, 3)
         .map(({ name, playoffOdds: po, titleOdds }) => ({ name, playoffOdds: po, titleOdds }));
@@ -383,16 +387,30 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
     ...lineupFacts,
     ...calledFacts,
   });
-  const narrative = (await llmNarrative(facts)) || templateNarrative(facts);
-
-  const data = { generatedAt: new Date().toISOString(), facts, narrative };
-  await pool.query(
+  // Template first (ADR 0059): the stored row never waits on Claude.
+  const data = { generatedAt: new Date().toISOString(), facts, narrative: templateNarrative(facts) };
+  const store = () => pool.query(
     `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
      VALUES ($1, $2, $3, 'weekly_recap', $4)
      ON CONFLICT ("league_id", "season", "week", "type")
      DO UPDATE SET "data" = EXCLUDED."data", "updated_at" = now()`,
     [leagueId, season, week, JSON.stringify(data)]
   );
+  await store();
+
+  // Every team of the week is in a matchup row or the power rankings.
+  const idByName = new Map();
+  for (const m of matchupsResult.rows) {
+    idByName.set(m.home_team_name, m.home_team_id);
+    idByName.set(m.away_team_name, m.away_team_id);
+  }
+  for (const r of oddsRankings) idByName.set(r.name, r.teamId);
+  const prompt = tokenizeTeamNames(facts, idByName);
+  const enhanced = await llmNarrative(prompt.facts, { placeholders: prompt.placeholders });
+  if (enhanced) {
+    data.narrative = enhanced;
+    await store();
+  }
   return data;
 }
 
