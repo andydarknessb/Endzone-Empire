@@ -1,5 +1,5 @@
 import { matchupWinProbability, finite } from '../../../shared/lib';
-import { useWeekMatchups, viewerMatchupOf, applyScoreEvent } from '../../../entities/matchup';
+import { useWeekMatchups, viewerMatchupOf, applyScoreEvent, matchupBoard } from '../../../entities/matchup';
 
 /**
  * Data model for the team-summary-strip widget (#1237 AC4): "live score
@@ -72,10 +72,14 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
   else if (!myMatchup) status = 'empty';
   else status = 'ready';
 
+  // The per-side figures come off the board, which states no Expected final
+  // once the week is settled (#2048): a played or final week shows the score
+  // alone, though the server still prices a projection.
+  const board = matchupBoard(myMatchup, viewerTeamId);
   const sideOf = (teamId) => {
     if (!myMatchup || teamId == null) return null;
-    if (myMatchup.home.teamId === teamId) return myMatchup.home;
-    if (myMatchup.away.teamId === teamId) return myMatchup.away;
+    if (myMatchup.home.teamId === teamId) return board.home;
+    if (myMatchup.away.teamId === teamId) return board.away;
     return null;
   };
 

@@ -1,10 +1,10 @@
-import { matchupStatusView, matchupResultLine } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { matchupWinProbability, finite } from '../../../shared/lib';
 
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
  * #898): everything the strip paints, derived from the Matchup entity model
- * and the status view alone, with no render. The component below reads this
+ * and the `matchupBoard` reading alone, with no render. The component below reads this
  * object and nothing else, so the display rules (how a score, an Expected
  * final and a Players remaining count are written, which side is the viewer,
  * when the bar shows, which chip variant a status takes) are table-testable
@@ -40,12 +40,6 @@ function recordFor(records, teamId) {
   return value == null || value === '' ? null : String(value);
 }
 
-// The status chip's Badge variant per server status, the canvas's statusChip()
-// (#903 review, the hero's and the matchup cards' map): `.chip.live` is the
-// danger red with the dot, `.chip.final` the success green, `.chip.warn` for
-// Awaiting final, the plain chip for Scheduled.
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
 /**
  * @param {object} matchup the Matchup entity model (`entities/matchup`)
  * @param {object} [options]
@@ -57,15 +51,15 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const home = m.home || {};
   const away = m.away || {};
 
-  // Status is the server's fact read through the entity's one predicate (ADR
+  // Status is the server's fact read through the entity's `matchupBoard` (ADR
   // 0030). The bar shows only for `hasStarted === true`: false (scheduled) and
   // null (the server could not say) both show no bar, so an unknown status
   // never paints a probability the page cannot stand behind. A settled
   // (played or final) Matchup states its result instead (#2007): the bar and
   // the Expected final and Players remaining figures give way to `result`.
-  const status = matchupStatusView(m.status);
-  const result = matchupResultLine(m, viewerTeamId);
-  const showBar = status.hasStarted === true && result == null;
+  const board = matchupBoard(m, viewerTeamId);
+  const result = board.resultLine;
+  const showBar = board.hasStarted === true && result == null;
 
   const probability = matchupWinProbability({
     homeScore: home.score,
@@ -101,12 +95,7 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
     homeShare,
     showBar,
     result,
-    // The chip is the entity's own label; a null label (unknown status) is no
-    // chip at all, never a guessed one. The variant is the canvas's
-    // statusChip() per status (CHIP_VARIANTS), the same map the hero and the
-    // matchup cards use, with the dot on LIVE alone.
-    chip: status.chipLabel == null
-      ? null
-      : { label: status.chipLabel, variant: CHIP_VARIANTS[m.status] || 'neutral', dot: m.status === 'live' },
+    // The entity's chip: null for an unknown status, never a guessed one.
+    chip: board.chip,
   };
 }

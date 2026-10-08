@@ -3,7 +3,6 @@ import {
   matchupFromDetailBody,
   applyScoreEvent,
   applyIdentityPatch,
-  matchupStatusView,
   matchupResultLine,
   viewerMatchupOf,
 } from './matchupModel';
@@ -204,44 +203,6 @@ describe('applyIdentityPatch: a Team identity update per side', () => {
     const next = applyIdentityPatch(base, { leagueId: 1, teamId: 999, name: 'Nobody' });
     expect(next.home).toBe(base.home);
     expect(next.away).toBe(base.away);
-  });
-});
-
-describe('matchupStatusView: the one status predicate', () => {
-  test.each([
-    ['scheduled', 'Scheduled', false, 'default', 'outlined'],
-    ['live', 'LIVE', true, 'error', 'filled'],
-    ['played', 'Awaiting final', true, 'default', 'outlined'],
-    ['final', 'Final', true, 'success', 'filled'],
-  ])('status %s -> chip %s, hasStarted %s', (status, chipLabel, hasStarted, color, variant) => {
-    expect(matchupStatusView(status)).toEqual({ chipLabel, color, variant, hasStarted });
-  });
-
-  // G7: the chip's colour and variant are the predicate's to own, so a fifth
-  // status is a one-line edit here rather than a ternary duplicated across every
-  // scoreboard. A caller spreads these straight onto its Chip.
-  test('carries the chip colour and variant so both scoreboards spread one presentation', () => {
-    expect(matchupStatusView('final')).toMatchObject({ color: 'success', variant: 'filled' });
-    expect(matchupStatusView('live')).toMatchObject({ color: 'error', variant: 'filled' });
-    expect(matchupStatusView('played')).toMatchObject({ color: 'default', variant: 'outlined' });
-    expect(matchupStatusView('scheduled')).toMatchObject({ color: 'default', variant: 'outlined' });
-  });
-
-  test('an unknown status (null) renders no chip and asserts neither started nor not-started', () => {
-    // ADR 0030: a status the server could not compute is stated as unknown, never
-    // guessed. No chip (not a false "Scheduled"), and hasStarted is null, never
-    // false, so a caller's not-started branch (hasStarted === false) stays shut.
-    // The colour/variant are inert on an unknown status (no chip is rendered), so
-    // they default to the outlined-default pair.
-    expect(matchupStatusView(null)).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
-    expect(matchupStatusView(undefined)).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
-  });
-
-  test('an unrecognised non-null status reads as unknown, never as started (F5)', () => {
-    // A value outside the four (a skewed server's 'postponed') is not a state the
-    // client knows: no chip, and hasStarted null - never true, which would render
-    // the win-probability bar for a state the client cannot vouch for.
-    expect(matchupStatusView('postponed')).toEqual({ chipLabel: null, color: 'default', variant: 'outlined', hasStarted: null });
   });
 });
 

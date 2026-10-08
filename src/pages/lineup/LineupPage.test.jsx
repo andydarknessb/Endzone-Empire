@@ -1406,6 +1406,15 @@ test('the lean line appears when the Expected finals are 10 or more apart, from 
   expect(line.textContent).not.toMatch(/range|—/i);
 });
 
+test.each(['played', 'final'])('a %s week shows no Expected final line, though the server still sends one (#2048)', async (status) => {
+  renderPage({
+    [MATCHUPS_URL]: { data: [matchupRow({ status, final: status === 'final', home_expected_final: '88.0', away_expected_final: '100.4' })] },
+    [ADVICE_URL]: { data: adviceBody({ suggestions: [adviceSuggestion()] }) },
+  });
+  await screen.findByText('Bench Guy');
+  expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
+});
+
 test('the lean line favors Floor when the viewer leads by 10 or more, whichever side he is on', async () => {
   renderPage({
     [MATCHUPS_URL]: { data: [matchupRow({ home_team_id: 7, away_team_id: 3, home_expected_final: '80.0', away_expected_final: '95.0' })] },

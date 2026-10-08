@@ -34,10 +34,10 @@ export {
   matchupFromDetailBody,
   applyScoreEvent,
   applyIdentityPatch,
-  matchupStatusView,
   matchupResultLine,
   viewerMatchupOf,
 } from './model/matchupModel';
+export { matchupBoard } from './model/matchupBoard';
 export {
   playsFromScoreEvent, deltasFor, matchupPlaySide, playLabel, formatSignedPoints,
 } from './model/play';

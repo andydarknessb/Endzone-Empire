@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { matchupWinProbability, finite, formatKickoff } from '../../../shared/lib';
 // ordinal itself is shared/lib's contract now (#1272 Addendum); MatchupHero
 // imports it directly rather than through this view model.
@@ -12,7 +12,7 @@ import { matchupWinProbability, finite, formatKickoff } from '../../../shared/li
  *   - which side is the viewer's (`viewerSide`), matched on Team id and never
  *     on home/away (#112: the You pill follows the viewer's Team, the layout
  *     stays home-left / away-right the way SplitBar encodes it);
- *   - the status chip and `hasStarted`, straight from the entity predicate
+ *   - the status chip and `hasStarted`, straight from the entity's `matchupBoard`
  *     (ADR 0030: status is a server fact, never inferred here), with the
  *     chip's Badge variant (danger / success / warning / neutral for live /
  *     final / played / scheduled) and whether it carries the live dot;
@@ -33,12 +33,6 @@ import { matchupWinProbability, finite, formatKickoff } from '../../../shared/li
  * The arithmetic and the kickoff/finite-value contracts come from
  * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer.
  */
-
-// The status chip's Badge variant per server status, the canvas's statusChip():
-// `.chip.live` is the danger red with the dot, `.chip.final` the success
-// green, `.chip.warn` for Awaiting final, the plain chip for Scheduled. The
-// label is the entity predicate's; an unknown status has no chip at all.
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
 /** A difference rounded to a tenth, so "by 0.0" never reads as a lead. */
 function tenth(value) {
@@ -62,7 +56,7 @@ function tenth(value) {
  * Every "by N" is the margin to a tenth; a margin that rounds to zero reads
  * as tied/even rather than "by 0.0".
  */
-export function heroSentence({ me, them, status }) {
+export function heroSentence({ me, them, status, settled = false }) {
   const mine = me || {};
   const theirs = them || {};
   const lead = tenth((finite(mine.score) ?? 0) - (finite(theirs.score) ?? 0));
@@ -73,7 +67,9 @@ export function heroSentence({ me, them, status }) {
     if (lead < 0) return `Lost by ${by}`;
     return 'Tied';
   }
-  if (status === 'played') {
+  // A settled Matchup that is not final is played: the score of record is not
+  // written yet.
+  if (settled) {
     if (lead > 0) return `Ahead by ${by}, awaiting the final`;
     if (lead < 0) return `Behind by ${by}, awaiting the final`;
     return 'Tied, awaiting the final';
@@ -119,12 +115,13 @@ export function matchupHeroView(matchup, viewerTeamId) {
         ? 'away'
         : null;
 
-  const status = matchupStatusView(m.status);
-  const { hasStarted } = status;
+  const { chip, hasStarted, settled } = matchupBoard(m, viewerTeamId);
 
   let winProbability = null;
   let sentence = null;
   if (hasStarted === true) {
+    // The hero keeps its bar once settled (the result sentence sits under it),
+    // so it prices the status-gated share itself rather than the live-only one.
     const { home: homeShare } = matchupWinProbability({
       homeScore: finite(home.score) ?? 0,
       awayScore: finite(away.score) ?? 0,
@@ -139,7 +136,7 @@ export function matchupHeroView(matchup, viewerTeamId) {
     winProbability = { homeShare: clamped, homePct, awayPct: 100 - homePct };
     const me = viewerSide === 'away' ? away : home;
     const them = viewerSide === 'away' ? home : away;
-    sentence = heroSentence({ me, them, status: m.status });
+    sentence = heroSentence({ me, them, status: m.status, settled });
   }
 
   const kickoff = hasStarted === false ? formatKickoff(m.firstKickoffAt) : null;
@@ -147,9 +144,9 @@ export function matchupHeroView(matchup, viewerTeamId) {
   return {
     viewerSide,
     hasStarted,
-    chipLabel: status.chipLabel,
-    chipVariant: CHIP_VARIANTS[m.status] ?? 'neutral',
-    chipDot: m.status === 'live',
+    chipLabel: chip?.label ?? null,
+    chipVariant: chip?.variant ?? 'neutral',
+    chipDot: chip?.dot ?? false,
     winProbability,
     sentence,
     kickoff,

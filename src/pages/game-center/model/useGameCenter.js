@@ -8,7 +8,7 @@ import {
   applyTeamProfileUpdate,
   subscribeToTeamProfileUpdates,
 } from '../../../lib/teamProfileEvents';
-import { useLeagueMatchups, matchupStatusView } from '../../../entities/matchup';
+import { useLeagueMatchups, matchupBoard } from '../../../entities/matchup';
 import { recordsByTeamId } from '../../../entities/standings';
 
 /**
@@ -132,7 +132,7 @@ export function syncLineText(syncedAt, now = Date.now()) {
  */
 export function weekGlanceFacts(matchups) {
   const list = Array.isArray(matchups) ? matchups.filter(Boolean) : [];
-  const started = list.filter((m) => matchupStatusView(m.status).hasStarted === true);
+  const started = list.filter((m) => matchupBoard(m).hasStarted === true);
 
   let top = null;
   let closest = null;
@@ -296,7 +296,7 @@ export function useGameCenter(leagueId) {
   const nextKickoffAt = useMemo(() => {
     let best = null;
     for (const m of weekMatchups) {
-      if (matchupStatusView(m.status).hasStarted !== false) continue;
+      if (matchupBoard(m).hasStarted !== false) continue;
       const ms = toMs(m.firstKickoffAt);
       if (ms != null && (best == null || ms < best.ms)) best = { ms, iso: m.firstKickoffAt };
     }

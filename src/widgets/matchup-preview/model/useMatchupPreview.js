@@ -4,7 +4,7 @@ import {
   useWeekMatchups,
   viewerMatchupOf,
   matchupFromDetailBody,
-  matchupStatusView,
+  matchupBoard,
 } from '../../../entities/matchup';
 
 /**
@@ -124,12 +124,6 @@ import {
 // BEFORE reading `detail.status`), so the "idles at 'loading'" notes throughout
 // this hook refer to that shared contract. See src/shared/lib/useEndpoint.js.
 
-// The status chip's Badge variant per server status, the same mapping the
-// Matchup page's hero paints. A widget never imports another widget's model
-// (ADR 0020), so the map is restated here rather than reached for; the labels
-// and `hasStarted` still come from the one entity predicate (ADR 0030).
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
-
 export function useMatchupPreview(leagueId) {
   const { teams, viewerTeamId, league } = useLeague(leagueId);
   const week = league?.current_week ?? null;
@@ -167,10 +161,10 @@ export function useMatchupPreview(leagueId) {
   // that predates this field keeps its current behavior.
   const isBestBall = !!league?.best_ball;
 
-  // The Matchup's status, through the one entity predicate (ADR 0030: status
+  // The Matchup's status, through the entity's `matchupBoard` (ADR 0030: status
   // is a server fact, never inferred here). `hasStarted` is true / false /
   // null, and every branch below tests it against an explicit value.
-  const { hasStarted, chipLabel } = matchupStatusView(myMatchup?.status);
+  const { hasStarted, chip } = matchupBoard(myMatchup, viewerTeamId);
 
   // Whether the detail read stands any chance of answering: the list didn't
   // already answer both sides, AND the league isn't best-ball (#688, where
@@ -351,9 +345,9 @@ export function useMatchupPreview(leagueId) {
 
   const game = {
     hasStarted,
-    chipLabel,
-    chipVariant: CHIP_VARIANTS[myMatchup?.status] ?? 'neutral',
-    chipDot: myMatchup?.status === 'live',
+    chipLabel: chip?.label ?? null,
+    chipVariant: chip?.variant ?? 'neutral',
+    chipDot: chip?.dot ?? false,
     winProbability,
     projectedMargin,
     kickoffLabel,

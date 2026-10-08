@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { matchupWinProbability, formatKickoff, formatPoints, finite } from '../../../shared/lib';
 import { lookupRecord } from '../lib/records';
 
@@ -12,7 +12,7 @@ import { lookupRecord } from '../lib/records';
  * build.mjs, matchupCard / matchupRowMobile):
  *
  *   - Whether the Matchup has started is the server's status fact through the
- *     entity's one predicate (ADR 0030). `hasStarted === true` shows the scores
+ *     entity's `matchupBoard` (ADR 0030). `hasStarted === true` shows the scores
  *     and the win probability bar; `hasStarted === false` shows each side's
  *     projected total in the faint tier, a hairline instead of a bar, and the
  *     kickoff line; an unknown status (`null`) asserts neither: the scores
@@ -30,19 +30,13 @@ import { lookupRecord } from '../lib/records';
  *   - The status chip's Badge variant follows the design source's statusChip():
  *     the danger red with the dot while live, success green once final,
  *     warning for Awaiting final, the plain chip for Scheduled. The label is
- *     the entity predicate's.
+ *     the board's.
  *
  * Win probability, the kickoff format and the points figure all come from
  * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer: a side
  * whose Expected final is unknown is treated as having nothing left to add,
  * and an empty points string reads as unknown (the dash), not `0.0`.
  */
-
-// The status chip's Badge variant per server status, the design source's
-// statusChip(): `.chip.live` is the danger red with the dot, `.chip.final` the
-// success green, `.chip.warn` for Awaiting final, the plain chip for
-// Scheduled. The label is the entity predicate's; an unknown status has none.
-const CHIP_VARIANTS = { live: 'danger', final: 'success', played: 'warning', scheduled: 'neutral' };
 
 /** Players remaining as a whole number, or a dash when unknown. */
 export function formatCount(value) {
@@ -59,10 +53,10 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
   const home = m.home || {};
   const away = m.away || {};
   const status = m.status ?? null;
-  const { chipLabel, hasStarted } = matchupStatusView(status);
-  const started = hasStarted === true;
-  const scheduled = hasStarted === false;
-  const settled = status === 'played' || status === 'final';
+  const board = matchupBoard(m);
+  const { chip, settled } = board;
+  const started = board.hasStarted === true;
+  const scheduled = board.hasStarted === false;
 
   const homeScore = Number(home.score) || 0;
   const awayScore = Number(away.score) || 0;
@@ -87,8 +81,7 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
 
   let footer = '';
   if (status === 'live') footer = `Win probability ${homePct}% \u00b7 ${awayPct}%`;
-  else if (status === 'played') footer = 'Waiting on the score of record';
-  else if (status === 'final') footer = 'Score of record';
+  else if (settled) footer = status === 'final' ? 'Score of record' : 'Waiting on the score of record';
   else if (scheduled) footer = 'Projected totals shown until kickoff';
 
   const side = (s, leads) => {
@@ -127,9 +120,9 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
     id: m.id ?? null,
     week: m.week ?? null,
     status,
-    chipLabel,
-    chipVariant: CHIP_VARIANTS[status] ?? 'neutral',
-    chipDot: status === 'live',
+    chipLabel: chip?.label ?? null,
+    chipVariant: chip?.variant ?? 'neutral',
+    chipDot: chip?.dot ?? false,
     started,
     scheduled,
     headerNote,

@@ -1,4 +1,4 @@
-import { matchupStatusView } from '../../../entities/matchup';
+import { matchupBoard } from '../../../entities/matchup';
 import { matchupWinProbability, finite, formatPoints } from '../../../shared/lib';
 
 /**
@@ -11,8 +11,8 @@ import { matchupWinProbability, finite, formatPoints } from '../../../shared/lib
  * What it settles:
  *
  *   - Whether the Matchup has started is the server's status fact through the
- *     entity's one predicate (ADR 0030), never inferred here. `started` is
- *     true only once the predicate says `hasStarted === true`; every other
+ *     entity's `matchupBoard` (ADR 0030), never inferred here. `started` is
+ *     true only once the board says `hasStarted === true`; every other
  *     value (false, or the unknown-status null) reads the projected total,
  *     matching matchup-grid's own `scheduled ? ef : score` convention.
  *   - The win probability is the same arithmetic the hero and matchup-grid
@@ -39,7 +39,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   const m = matchup || {};
   const home = m.home || {};
   const away = m.away || {};
-  const { hasStarted } = matchupStatusView(m.status ?? null);
+  const { hasStarted } = matchupBoard(m, viewerTeamId);
   const started = hasStarted === true;
   // Matches matchup-grid's matchupCardView: the projected total shows unless
   // the server's status fact says the Matchup has started. An unknown status
@@ -77,7 +77,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     status: m.status ?? null,
     started,
     // Exposed alongside `started` so a caller can name what the figure IS
-    // (its accessible label) using the same three-way ADR 0030 predicate the
+    // (its accessible label) using the same three-way ADR 0030 `matchupBoard` reading the
     // figure's own VALUE already uses, rather than `!started` - which
     // collapses the unknown-status case into "not started" and would then
     // print a live score under a "Projected" label (a false accessible
