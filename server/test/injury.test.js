@@ -277,7 +277,7 @@ test('#929: the bulk write skips a no-op row via its own IS DISTINCT FROM predic
     ['Ankle', 'Hamstring'],
   ]);
   // The predicate compares BOTH columns against the target row p, and the
-  // statement never names nfl_team (ADR 0061: the Tank01 player sync owns it).
+  // statement never names nfl_team (ADR 0060: the Tank01 player sync owns it).
   assert.match(
     injuryWrites[0].text,
     /"injury_status" IS DISTINCT FROM v\."status"[\s\S]*OR[\s\S]*"injury_detail" IS DISTINCT FROM v\."detail"/,

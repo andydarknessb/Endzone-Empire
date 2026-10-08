@@ -83,7 +83,7 @@ real active NFL athlete as of capture time). Team: NE (ESPN numeric team id
 
 - URL: `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries`
   (the league-wide injuries document, one call for all 32 teams, #2115 and
-  ADR 0061; `site.api.espn.com` answers 200 too from a developer machine)
+  ADR 0060; `site.api.espn.com` answers 200 too from a developer machine)
 - Captured: 2026-10-08 (800 athletes: Questionable 191, Out 25, Active 522,
   Injured Reserve 50, Doubtful 12)
 - Trimmed to five real entries, one per status (Questionable, Doubtful, Out,

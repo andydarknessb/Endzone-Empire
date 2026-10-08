@@ -625,7 +625,7 @@ test('teamRoster: an unknown team code resolves null with no call; a failed fetc
   assert.equal(await teamRoster('NYG', { transport: failing }), null);
 });
 
-// --- the league injuries document (#2115, ADR 0061) --------------------------
+// --- the league injuries document (#2115, ADR 0060) --------------------------
 
 test('injuries: one uncached GET of the league document; the athlete id comes from the player-card link, else the headshot, never the entry id', async () => {
   const transport = fakeTransport(() => okResponse(require('./fixtures/espn/injuries.json')));

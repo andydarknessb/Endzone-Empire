@@ -132,7 +132,7 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
  * `injuries` run in data_sync_runs, not a module variable, so a worker restart
  * (a fresh module instance) cannot re-run it more often than the cadence
  * allows. One cadence inside and outside a game window: the ESPN document is
- * free, so there is no quota doubling and no window branch (ADR 0061).
+ * free, so there is no quota doubling and no window branch (ADR 0060).
  */
 function injuryWorld(t, { inWindow = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');
@@ -259,7 +259,7 @@ test('injurySyncMs defaults to 15 minutes and honors INJURY_SYNC_MS (#2115)', ()
   }
 });
 
-// ---- daily Tank01 player sync (#2115, ADR 0061) ------------------------------
+// ---- daily Tank01 player sync (#2115, ADR 0060) ------------------------------
 
 function playerSyncWorld(t, { credentials = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');

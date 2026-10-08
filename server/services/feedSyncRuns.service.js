@@ -58,7 +58,7 @@ const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
  * "team":"HOU" six months after Houston released him). Reading `team` alone
  * kept every one of them rostered, projected at his old per-game pace and
  * ranked as a waiver Upgrade. Read by the player sync (`syncPlayers`), the only
- * writer of `nfl_team` since the injuries job moved to ESPN (ADR 0061).
+ * writer of `nfl_team` since the injuries job moved to ESPN (ADR 0060).
  */
 function feedTeamOf(entry) {
   if (!entry || String(entry.isFreeAgent).toLowerCase() === 'true') return null;
@@ -103,7 +103,7 @@ function normalizePlayerEntry(entry) {
  * POST /api/scoring/sync-players.
  *
  * This is the only writer of `nfl_team` (the injuries job moved to ESPN and no
- * longer touches it, #2115, ADR 0061) and never writes `injury_status` or
+ * longer touches it, #2115, ADR 0060) and never writes `injury_status` or
  * `injury_detail`, which belong to the ESPN injuries job alone.
  *
  * Note the blank team: this writes the feed's null through (a hand-run sync is
@@ -461,19 +461,19 @@ async function applyScheduleUnit(client, { season, games, failedWeeks }) {
   return { season, gamesUpserted: upserted, failedWeeks };
 }
 
-// #2115, ADR 0061: ESPN's injuries document uses exactly five designation
+// #2115, ADR 0060: ESPN's injuries document uses exactly five designation
 // strings. Exact match, no guessing; Active is healthy, like an unlisted player.
 const ESPN_INJURY_STATUS = Object.freeze({
   Questionable: 'Q', Doubtful: 'D', Out: 'O', 'Injured Reserve': 'IR', Active: null,
 });
 
 /**
- * Injury sync (#2115, ADR 0061): ESPN's league-wide injuries document is the
+ * Injury sync (#2115, ADR 0060): ESPN's league-wide injuries document is the
  * only writer of `players.injury_status` and `players.injury_detail`. One free
  * GET, every player with an external_id written: listed Questionable, Doubtful,
  * Out and Injured Reserve map to Q, D, O and IR; Active and any player the
  * document does not list are cleared back to healthy. It no longer touches
- * `nfl_team` (the Tank01 player sync owns the player row, ADR 0061). Player-row
+ * `nfl_team` (the Tank01 player sync owns the player row, ADR 0060). Player-row
  * locks make overlapping manual/scheduled syncs observe transitions exactly
  * once; IR flag rows commit with the designation updates before best-effort
  * push.

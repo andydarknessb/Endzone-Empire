@@ -138,7 +138,7 @@ async function runRetention() {
   }
 }
 
-/** Cadence of the injury sync (#2115, ADR 0061); env-tunable. ESPN is free, so no quota doubling and no game-window split. */
+/** Cadence of the injury sync (#2115, ADR 0060); env-tunable. ESPN is free, so no quota doubling and no game-window split. */
 function injurySyncMs() {
   const parsed = Number(process.env.INJURY_SYNC_MS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
@@ -193,7 +193,7 @@ function injurySyncDue({ now, lastRunAt, windowMs }) {
 }
 
 /**
- * ESPN injury refresh (#2115, ADR 0061): every INJURY_SYNC_MS (15 min), inside
+ * ESPN injury refresh (#2115, ADR 0060): every INJURY_SYNC_MS (15 min), inside
  * and outside game windows alike, off the last successful `injuries` run
  * (`lastInjurySyncAt`, data_sync_runs), so a worker restart cannot re-run it
  * (#1188), and a thrown run records ok=false and does not move the gate, so the
@@ -258,7 +258,7 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
 }
 
 /**
- * The daily Tank01 player-list sync (#2115, ADR 0061): keeps `players` (name,
+ * The daily Tank01 player-list sync (#2115, ADR 0060): keeps `players` (name,
  * position, nfl_team, departures) current unattended, once per UTC day by the
  * cadence gate on the 'players' Sync run's own rows, which a hand-run sync also
  * writes. Tank01 is metered, so it needs the same credentials as every Tank01
@@ -1415,7 +1415,7 @@ const TICK_JOBS = [
   { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
   // A throw leaves the retention day unstamped, so it retries every tick.
   { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
-  // Daily Tank01 player-list sync (#2115, ADR 0061): the only writer of nfl_team
+  // Daily Tank01 player-list sync (#2115, ADR 0060): the only writer of nfl_team
   // and of departures now that the injuries job reads ESPN. One metered call a
   // day, so it is gated on the Tank01 credentials; until #2117 moves the player
   // list to ESPN. Still hand-runnable (admin dashboard, /api/scoring/sync-players).

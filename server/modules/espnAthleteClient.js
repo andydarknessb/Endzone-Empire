@@ -49,7 +49,7 @@ const depthChartUrl = (numericTeamId) =>
 // server-side request 403 (captured 2026-09-29), `site.web.api` answers 200.
 const teamRosterUrl = (numericTeamId) =>
   `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/${numericTeamId}/roster`;
-// The league-wide injuries document (#2115, ADR 0061): one call, all 32 teams.
+// The league-wide injuries document (#2115, ADR 0060): one call, all 32 teams.
 // `site.web.api` rather than `site.api`: it is the host the roster capture above
 // found answering a server-side request, and both serve this document.
 const INJURIES_URL = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
@@ -521,7 +521,7 @@ async function ownership({ transport, season } = {}) {
 }
 
 /**
- * The league injuries document (#2115, ADR 0061) -> `{ athleteId, status,
+ * The league injuries document (#2115, ADR 0060) -> `{ athleteId, status,
  * detail }[]`, never cached (the injuries Sync run is the cache). `null` on any
  * fetch failure or a document with no team groups - the Sync run tells the
  * caller's `fetch_failed` apart from a healthy league. Never throws.

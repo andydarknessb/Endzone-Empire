@@ -193,7 +193,7 @@ services:
       # ingested), so it is no longer the live-scoring cadence.
       - key: SYNC_EVERY_TICKS
         value: "6"
-      # ESPN injury refresh (#2115, ADR 0061): gated on the last successful
+      # ESPN injury refresh (#2115, ADR 0060): gated on the last successful
       # data_sync_runs row so a restart cannot re-run it. 900000 = 15 min, in and
       # out of game windows; it spends no Tank01 budget.
       - key: INJURY_SYNC_MS
