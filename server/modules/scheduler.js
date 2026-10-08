@@ -1041,6 +1041,25 @@ async function runNightlyProjectionFill({ now = new Date() } = {}) {
   } catch (err) {
     console.error('nightly projection fill: availability reconcile failed, continuing:', err.message);
   }
+  // ADR 0059: Projection explanations for the current week, template first.
+  // Logged and swallowed like the sweep above: prose never fails the fill.
+  try {
+    // The NFL calendar's week in play, not a league's current_week (a league
+    // that has not advanced would pin this to last week).
+    const season = await require('../services/nflSeason.service').upcomingNflSeason();
+    const week = season == null ? null : require('../services/practiceParticipation.service').weekInPlay(
+      await require('../services/pickemSeason.service').getSeasonWeekBounds({ season }), now
+    );
+    if (week != null) {
+      const explanationStart = Date.now();
+      const counts = await require('../services/projectionExplanation.service')
+        .generateForWeek({ season, week }, { now });
+      console.log('nightly projection fill: projection explanations', JSON.stringify(counts),
+        `in ${Date.now() - explanationStart} ms`);
+    }
+  } catch (err) {
+    console.error('nightly projection fill: projection explanations failed, continuing:', err.message);
+  }
   // One result per league's unit (`fetch` above has no refusal path).
   const perLeague = outcome.results;
   const weeksGenerated = perLeague.reduce((sum, r) => sum + (r.weeksGenerated || 0), 0);

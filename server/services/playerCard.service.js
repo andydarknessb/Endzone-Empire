@@ -695,6 +695,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     seasonResult,
     espnFacts,
     practice,
+    explanation,
   ] = await Promise.all([
     loadUpgradeContext({ league, team, season, week: effectiveWeek, playerIds: [player.id] }),
     decisionCardContextService.loadUsage({
@@ -738,6 +739,15 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         console.error('getPlayerCard: practice participation failed', err);
         return null;
       }),
+    // ADR 0059: the stored Projection explanation, null until the nightly fill
+    // writes one. A failed read hides the line, never the card.
+    pool.query(
+      `SELECT "narrative" FROM "projection_explanations" WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3`,
+      [player.id, season, effectiveWeek]
+    ).then((r) => (r.rows[0] ? r.rows[0].narrative : null)).catch((err) => {
+      console.error('getPlayerCard: projection explanation failed', err);
+      return null;
+    }),
   ]);
 
   const ros = rosMap.get(player.id) || { total: 0, perGame: 0 };
@@ -909,6 +919,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
       practice,
     },
     availability,
+    explanation,
     // Start verdict (spec #2042): the Weekly projection read's one verdict, so
     // the card's "No practice this week" and Backup notes show on every surface
     // that opens it, not only the Lineup page.

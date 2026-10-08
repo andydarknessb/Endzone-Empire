@@ -17,6 +17,7 @@ const { rulesForLeague, SCORING_RULES } = require('../services/scoringRules');
 
 test('the nightly fill hands getWeeklyProjections the league row WITH its scoring_rules, so the run it fills is the one requests look up', async (t) => {
   const seen = [];
+  t.mock.method(require('../services/projectionExplanation.service'), 'generateForWeek', async () => ({}));
   t.mock.method(projection, 'getWeeklyProjections', async ({ league, playerIds }) => {
     seen.push(league);
     return { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) };

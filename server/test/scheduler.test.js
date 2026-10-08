@@ -1773,6 +1773,7 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
 test('runNightlyProjectionFill skips a week every player already has cached, and runs at most once per local day', async (t) => {
   const projection = require('../services/projection.service');
   const logs = [];
+  t.mock.method(require('../services/projectionExplanation.service'), 'generateForWeek', async () => ({}));
   t.mock.method(console, 'log', (...args) => { logs.push(args.join(' ')); });
   let call = 0;
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
