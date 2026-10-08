@@ -682,6 +682,7 @@ async function syncAndScoreLiveWeeks() {
       for (const leagueId of leagueIds) {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
+        await alertScoreUpdates({ leagueId, season, week, scored });
         await alertBigPlays({ leagueId, season, week, scored, plays });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
@@ -1389,6 +1390,122 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
   }
 }
 
+const leaderOf = (m) => {
+  const home = Number(m.homeScore);
+  const away = Number(m.awayScore);
+  return home > away ? 'home' : away > home ? 'away' : 'tied';
+};
+// One decimal, unless that prints the two scores as the same figure: then two,
+// so the copy never shows equal figures beside a lead (matchupModel does the same).
+const scoreText = (a, b) => {
+  const places = Number(a).toFixed(1) === Number(b).toFixed(1) ? 2 : 1;
+  return [Number(a).toFixed(places), Number(b).toFixed(places)];
+};
+
+/**
+ * Push each owner their own matchup's score news (#2107), after the scoring
+ * pass has committed: a lead change (home | away | tied), and once the matchup
+ * reaches `played` (every starter's game over, the status scoreMatchups
+ * attaches per ADR 0030). The leader is remembered in the push_events ledger:
+ * the owner's latest `score-lead` row for the matchup holds `<leader>:<n>`, and
+ * a push goes out only when the leader differs from it, at most one per owner
+ * per five minutes (the live poll can flip a close game every 30 seconds). The counter n keeps a return
+ * to an earlier leader (home, away, home) from hitting the ledger's unique key.
+ * The first scoring of a week records the leader without a push.
+ */
+async function alertScoreUpdates({ leagueId, season, week, scored }) {
+  const push = require('../services/push.service');
+  const { usersWanting } = require('../services/prefs.service');
+  const url = `/#/league/${leagueId}/game-center`;
+  for (const m of scored || []) {
+    if (m.status === 'final') continue; // the result is written; nothing is news
+    try {
+      const subject = String(m.matchupId);
+      const teams = await pool.query(
+        `SELECT "id", "name", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
+        [[m.homeTeamId, m.awayTeamId]]
+      );
+      const sides = [
+        { mine: teams.rows.find((r) => r.id === m.homeTeamId), theirs: teams.rows.find((r) => r.id === m.awayTeamId), mineScore: m.homeScore, theirScore: m.awayScore, side: 'home' },
+        { mine: teams.rows.find((r) => r.id === m.awayTeamId), theirs: teams.rows.find((r) => r.id === m.homeTeamId), mineScore: m.awayScore, theirScore: m.homeScore, side: 'away' },
+      ].filter((s) => s.mine && s.theirs && s.mine.owner_id != null);
+      const leader = leaderOf(m);
+      const figures = (s) => scoreText(s.mineScore, s.theirScore);
+      const body = (s) => { const [x, y] = figures(s); return `${s.mine.name} ${x} - ${s.theirs.name} ${y}`; };
+
+      // Once played, the Final push is the news; a later stat correction must not
+      // send a lead change to someone already told the result.
+      if (m.status !== 'played') {
+        for (const s of sides) {
+          const userId = s.mine.owner_id;
+          if ((await usersWanting([userId], 'scoreUpdates')).length === 0) continue;
+          // Each owner compares against their own last row, so a capped owner
+          // (below) still gets the change once the cap lapses.
+          const prev = await pool.query(
+            `SELECT "fingerprint" FROM "push_events"
+             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "subject" = $2
+             ORDER BY "created_at" DESC LIMIT 1`,
+            [userId, subject]
+          );
+          if (!prev.rows[0]) {
+            await pool.query(
+              `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
+               VALUES ($1, 'score-lead', $2, $3) ON CONFLICT DO NOTHING`,
+              [userId, subject, `${leader}:0`]
+            );
+            continue;
+          }
+          const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
+          if (prevLeader === leader) continue;
+          // At most one lead push per owner per five minutes; a capped change
+          // writes no row, so the next poll still sees the old leader and sends
+          // once five minutes pass. The ':0' rows are silent records, not pushes.
+          const capped = await pool.query(
+            `SELECT 1 FROM "push_events"
+             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "fingerprint" NOT LIKE '%:0'
+               AND "created_at" > now() - interval '5 minutes' LIMIT 1`,
+            [userId]
+          );
+          if (capped.rows[0]) continue;
+          await push.sendPushOnce({
+            userIds: [userId],
+            prefKey: 'scoreUpdates',
+            kind: 'score-lead',
+            subject,
+            fingerprint: `${leader}:${Number(n) + 1}`,
+            payload: {
+              title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
+              body: body(s),
+              url,
+            },
+          });
+        }
+      }
+
+      if (m.status === 'played') {
+        for (const s of sides) {
+          const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
+          const score = figures(s).join('-');
+          await push.sendPushOnce({
+            userIds: [s.mine.owner_id],
+            prefKey: 'scoreUpdates',
+            kind: 'score-played',
+            subject,
+            fingerprint: 'played',
+            payload: {
+              title: `Final: ${result} ${score}`,
+              body: `Unofficial until the commissioner advances the week. ${body(s)}`,
+              url,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error('score update push failed:', err.message);
+    }
+  }
+}
+
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
 async function draftTickUnlocked() {
   if (draftRunning) return;
@@ -1694,6 +1811,7 @@ module.exports = {
   tickUnlocked,
   draftTick,
   alertCloseMatchups,
+  alertScoreUpdates,
   alertBigPlays,
   getSchedulerStatus,
   SYNC_RUN_JOBS,

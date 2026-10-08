@@ -81,7 +81,7 @@ test('rescoreGate: a league is due immediately the first time and not again insi
 
 // --- pollChangedGames: fetch once per changed game, apply, re-score rostering leagues ----
 
-function pollWorld(t, { fetch, leaguesByPlayer, priorStats = [] }) {
+function pollWorld(t, { fetch, leaguesByPlayer, priorStats = [], scoredRows = [] }) {
   liveBox.__resetLiveBoxState();
   liveBoxPoll.__resetPollState();
   const fake = createFakePool([
@@ -98,12 +98,14 @@ function pollWorld(t, { fetch, leaguesByPlayer, priorStats = [] }) {
   fake.install(t);
   t.mock.method(liveBox, 'fetchLiveBox', fetch);
   const scored = [];
-  t.mock.method(scoring, 'scoreMatchups', async ({ leagueId, plays }) => { scored.push({ leagueId, plays }); return { scored: [] }; });
+  t.mock.method(scoring, 'scoreMatchups', async ({ leagueId, plays }) => { scored.push({ leagueId, plays }); return { scored: scoredRows }; });
   t.mock.method(scheduler, 'alertCloseMatchups', async () => {});
+  const alerted = [];
+  t.mock.method(scheduler, 'alertScoreUpdates', async (args) => { alerted.push(args); });
   const bigPlayCalls = [];
   t.mock.method(scheduler, 'alertBigPlays', async (args) => { bigPlayCalls.push(args); });
   t.after(() => { liveBox.__resetLiveBoxState(); liveBoxPoll.__resetPollState(); });
-  return { fake, scored, bigPlayCalls };
+  return { fake, scored, alerted, bigPlayCalls };
 }
 
 const jsnBox = (tds) => ({
@@ -133,6 +135,21 @@ test('pollChangedGames: each changed game is fetched once, only rostering league
     { leagueId: 1, season: 2026, week: 1 }
   );
   assert.deepEqual(w.bigPlayCalls[0].plays, w.scored[0].plays, 'alerted with the league plays');
+});
+
+test('pollChangedGames: score updates are alerted after each re-score with the scored array', async (t) => {
+  const scoredRows = [{ matchupId: 9, homeTeamId: 3, awayTeamId: 4, homeScore: 12, awayScore: 15 }];
+  const w = pollWorld(t, {
+    fetch: async () => jsnBox(1),
+    leaguesByPlayer: () => [{ league_id: 1 }],
+    scoredRows,
+  });
+  await liveBoxPoll.pollChangedGames({
+    season: 2026, week: 1, now: 1_000,
+    games: [{ gameId: 'g1', espnEventId: '401', status: 'in_progress' }],
+    finalSyncedGameIds: new Set(),
+  });
+  assert.deepEqual(w.alerted, [{ leagueId: 1, season: 2026, week: 1, scored: scoredRows }]);
 });
 
 test('pollChangedGames: two passes 20 s apart run a league once and carry both passes’ plays into the next run', async (t) => {
