@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import NotificationBell from './NotificationBell';
+import { invalidate } from '../../lib/resourceCache';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
@@ -17,6 +18,12 @@ const notificationsResponse = (overrides = {}) => ({
   ],
   unread: 2,
   ...overrides,
+});
+
+// /api/notifications is a shared read (ADR 0004): start each test with an empty
+// store so an earlier test's response or in-flight request cannot answer it.
+beforeEach(() => {
+  invalidate(undefined, { reload: false });
 });
 
 afterEach(() => {
