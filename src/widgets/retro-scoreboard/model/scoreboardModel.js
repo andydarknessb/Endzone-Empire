@@ -1,4 +1,4 @@
-import { matchupBoard } from '../../../entities/matchup';
+import { matchupPhase } from '../../../entities/matchup';
 import { formatInstant, unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
 
 /**
@@ -65,11 +65,11 @@ export function ledPercents(homeProb) {
 
 /** The board's chip label (ADR 0030), uppercased for the LED face; blank when unknown. */
 export function ledStatus(status) {
-  return (matchupBoard({ status }).chip?.label || '').toUpperCase();
+  return (matchupPhase(status).chip?.label || '').toUpperCase();
 }
 
 /**
- * Whether the Matchup has started, read through the entity's `matchupBoard`
+ * Whether the Matchup has started, read through the entity's `matchupPhase`
  * (ADR 0030) and gated on `hasStarted === true` exactly as the Standard view's
  * scoreboard strip gates its bar (#903 review): a scheduled Matchup (false)
  * and a status the server could not compute (null) both read as not started,
@@ -78,7 +78,7 @@ export function ledStatus(status) {
  * behind.
  */
 export function matchupHasStarted(status) {
-  return matchupBoard({ status }).hasStarted === true;
+  return matchupPhase(status).hasStarted === true;
 }
 
 // The reason an Unavailable player (CONTEXT.md, Roster and lineup) shows in

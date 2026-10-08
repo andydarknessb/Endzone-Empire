@@ -333,9 +333,9 @@ function FantasyBody({ league, status }) {
     );
   }
   const record = recordText(status.record);
-  const showOdds = ['scheduled', 'live', 'played'].includes(matchup.status);
   // A settled week states no Expected final (#2048); the board nulls it.
   const board = matchupBoard({ status: matchup.status, home: matchup.my, away: matchup.opp });
+  const showOdds = board.chip != null && !board.isFinal;
   const opponentName = matchup.opponent?.name || 'Opponent';
   return (
     <>
@@ -372,7 +372,7 @@ function FantasyBody({ league, status }) {
       </Box>
       <Box sx={{ px: 2.5, pt: 1, pb: 2 }}>
         {showOdds && <WinProbabilityBar mine={myWinProbability(matchup)} opponentName={opponentName} />}
-        {matchup.status === 'final' && resultText(matchup) && (
+        {board.isFinal && resultText(matchup) && (
           <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 700 }}>{resultText(matchup)}</Typography>
         )}
         {status.pickem && <Box sx={{ mt: 1 }}><PickemLine pickem={status.pickem} /></Box>}

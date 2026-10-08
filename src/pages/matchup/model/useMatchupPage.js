@@ -228,15 +228,17 @@ export function useMatchupPage(leagueId, matchupId) {
     }
   }, []);
 
+  const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
+  const board = matchupBoard(matchup, viewerTeamId);
+
   // Final is the MODEL's status, never the fetched body's `final` flag (#912):
   // the score feed moves the status through applyScoreEvent (ADR 0030, status
   // is a server fact, and the server states `final` for exactly a settled
   // week), so a Matchup that settles while the page is open is final here with
-  // no refetch, and one that a correction pass re-opens stops being final. A
-  // status the server did not state (null, ADR 0030's unknown) is the one case
-  // that falls back to the `final` flag, the only finality fact such a body
-  // carries.
-  const isFinal = matchup?.status === 'final' || (matchup?.status == null && !!matchup?.final);
+  // no refetch, and one that a correction pass re-opens stops being final. The
+  // board states it (a status the server did not state falls back to the
+  // `final` flag inside `matchupBoard`).
+  const { isFinal, isLive } = board;
 
   // Points left on the bench: only once final, and only for a league that
   // sets a lineup (ADR 0023). Both gates are read here, so a best-ball league
@@ -283,12 +285,8 @@ export function useMatchupPage(leagueId, matchupId) {
     return rows.length ? Object.fromEntries(recordsByTeamId(rows)) : null;
   }, [standings.data]);
 
-  const viewerTeamId = detail?.viewerTeamId ?? leagueViewerTeamId ?? null;
   // Keyed by the user alone (never the Team id): one key, known at first paint.
   const [view, setView] = useMatchupView(userId);
-
-  const board = matchupBoard(matchup, viewerTeamId);
-  const isLive = matchup?.status === 'live';
 
   const homeProb = useMemo(() => {
     if (!matchup) return null;
@@ -321,6 +319,10 @@ export function useMatchupPage(leagueId, matchupId) {
     refetch,
     records,
     statusChip: board.chip,
+    // The empty slot's "Set lineup" link only makes sense while a lineup can
+    // still be set: a scheduled or live Matchup, in a league that is not best
+    // ball (best ball sets no lineup, ADR 0023). Held until the league is known.
+    canSetLineup: !!league && !league.best_ball && board.hasStarted !== null && !board.settled,
     isLive,
     isFinal,
     isPlayoff: !!detail?.matchup?.is_playoff,
