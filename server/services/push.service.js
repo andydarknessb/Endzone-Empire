@@ -1,4 +1,5 @@
 const pool = require('../modules/pool');
+const { usersWanting } = require('./prefs.service');
 
 /**
  * Web push (VAPID). Depends on the optional `web-push` package plus
@@ -106,9 +107,36 @@ async function sendPushToUsers(userIds, payload) {
   return { sent };
 }
 
+/**
+ * Send a push at most once per (user, kind, subject, fingerprint). Users with
+ * `prefKey` off are dropped, then one ledger insert keeps only the users whose
+ * row is new (ON CONFLICT DO NOTHING), and only those are sent. A changed
+ * fingerprint is a new push. Returns { sent, skipped }: skipped counts the
+ * users filtered by preference or already in the ledger.
+ */
+async function sendPushOnce({ userIds, prefKey, kind, subject, fingerprint, payload }) {
+  const ids = [...new Set(userIds)].filter((id) => id != null);
+  const wanting = await usersWanting(ids, prefKey);
+  let fresh = [];
+  if (wanting.length > 0) {
+    const inserted = await pool.query(
+      `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
+       SELECT unnest($1::int[]), $2, $3, $4
+       ON CONFLICT DO NOTHING
+       RETURNING "user_id"`,
+      [wanting, kind, subject, fingerprint]
+    );
+    fresh = inserted.rows.map((r) => r.user_id);
+  }
+  // Through module.exports so a test can stand in for the web-push send.
+  const { sent } = fresh.length > 0 ? await module.exports.sendPushToUsers(fresh, payload) : { sent: 0 };
+  return { sent, skipped: ids.length - fresh.length };
+}
+
 module.exports = {
   getPublicKey,
   saveSubscription,
   removeSubscription,
   sendPushToUsers,
+  sendPushOnce,
 };

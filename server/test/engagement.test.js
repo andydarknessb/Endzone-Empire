@@ -91,6 +91,8 @@ test('sendLineupReminders carries forward an unresolved IR stash before checking
       email: 'manager@example.test',
     }] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    // The push_events ledger: every user's row is new.
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: [{ player_id: 801, position: 'RB' }],
     })],
@@ -152,6 +154,8 @@ test('sendLineupReminders ignores a dropped player left in lineup history', asyn
       email: 'manager@example.test',
     }] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    // The push_events ledger: every user's row is new.
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
     [/^SELECT "team_players"\."player_id"/, () => ({ rows: [] })],
     [/^SELECT "lineup_entries"\."slot"/, (text) => ({
       rows: text.includes('JOIN "team_players"') ? [] : [{
@@ -200,6 +204,8 @@ test('sendLineupReminders sends best-ball teams only the unresolved IR warning',
       email: 'best-ball@example.test',
     }] })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    // The push_events ledger: every user's row is new.
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: [{ player_id: 803, position: 'QB' }],
     })],
@@ -236,10 +242,10 @@ const hoursFromNow = (h) => new Date(Date.now() + h * HOUR).toISOString();
 
 // One live league, its teams, and a lineup that is already materialized. The
 // week's kickoffs answer `kickoffRows`; `kickoffReads` records each read.
-// remindedTeamWeeks is module-level, so every world takes its own Team ids.
 let nextTeamId = 6100;
 function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1 }) {
   const kickoffReads = [];
+  const ledger = new Set();
   const teams = Array.from({ length: teamCount }, (_, i) => ({
     id: nextTeamId + i, name: `Team ${i}`, owner_id: nextTeamId + 1000 + i, email: `manager${i}@example.test`,
   }));
@@ -261,6 +267,12 @@ function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1 }) {
     }],
     [/^SELECT "teams"\."id"/, () => ({ rows: teams })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    // The push_events unique index: a (user, kind, subject, fingerprint) goes in once.
+    [/^INSERT INTO "push_events"/, (text, [userIds, ...key]) => ({
+      rows: userIds
+        .filter((id) => !ledger.has([id, ...key].join('|')) && ledger.add([id, ...key].join('|')))
+        .map((user_id) => ({ user_id })),
+    })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: entries.map((e, i) => ({ player_id: 900 + i, position: e.slot })),
     })],
@@ -375,6 +387,24 @@ test('sendLineupReminders sends nothing once the week\'s last kickoff has passed
   fake.assertClean();
 });
 
+test('sendLineupReminders reminds a team-week once across two calls, held by the ledger', async (t) => {
+  const { fake, pushes } = lineupReminderWorld(t, {
+    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
+    kickoffRows: [kickoff('GB', hoursFromNow(1))],
+  });
+
+  assert.deepEqual(await sendLineupReminders(), { remindersSent: 1 });
+  assert.deepEqual(await sendLineupReminders(), { remindersSent: 0 }); // the ledger returns no new row
+
+  assert.equal(pushes.length, 1);
+  assert.equal(fake.matching(insert('notifications')).length, 1);
+  const [ledgerWrite] = fake.matching(insert('push_events'));
+  assert.equal(ledgerWrite.params[1], 'lineup-reminder');
+  assert.match(ledgerWrite.params[2], /^[0-9]+:2026:9$/);
+  assert.equal(ledgerWrite.params[3], 'sent');
+  fake.assertClean();
+});
+
 test('sendLineupReminders reads the week\'s kickoffs once per league and week, not per Team', async (t) => {
   const { fake, pushes, kickoffReads } = lineupReminderWorld(t, {
     entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
@@ -451,4 +481,12 @@ test('irAlerts is an opt-out preference that defaults on', () => {
   assert.equal(mergePrefs(undefined).irAlerts, true);
   assert.equal(mergePrefs({ irAlerts: false }).irAlerts, false);
   assert.deepEqual(validatePrefs({ irAlerts: false }), []);
+});
+
+test('injuryAlerts and scoreUpdates are opt-out preferences that default on', () => {
+  for (const key of ['injuryAlerts', 'scoreUpdates']) {
+    assert.equal(mergePrefs(undefined)[key], true);
+    assert.equal(mergePrefs({ [key]: false })[key], false);
+    assert.deepEqual(validatePrefs({ [key]: false }), []);
+  }
 });
