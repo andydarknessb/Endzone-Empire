@@ -40,6 +40,7 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 import './App.css';
 import { lazyWithReload } from '../../shared/lib/lazyWithReload';
+import { hasSessionHint } from '../../lib/sessionHint';
 
 const LeagueManagement = lazyWithReload(() => import('../LeagueManagement/LeagueManagement'));
 const LeagueDiscovery = lazyWithReload(() => import('../LeagueDiscovery/LeagueDiscovery'));
@@ -162,6 +163,12 @@ function AppLayout({ children }) {
   );
 }
 
+const pageLoading = (
+  <Box role="status" aria-label="Loading page" sx={{ py: 8, textAlign: 'center' }}>
+    <CircularProgress />
+  </Box>
+);
+
 function LegacyLineupRedirect() {
   const { leagueId } = useParams();
   const [searchParams] = useSearchParams();
@@ -178,6 +185,7 @@ function App() {
   const dispatch = useDispatch();
 
   const user = useSelector(store => store.user);
+  const sessionResolved = useSelector(store => store.session.resolved);
 
   useEffect(() => {
     dispatch({ type: 'FETCH_USER' });
@@ -190,13 +198,7 @@ function App() {
     <Router>
       <NavigationGuard>
       <AppLayout>
-        <Suspense
-          fallback={(
-            <Box role="status" aria-label="Loading page" sx={{ py: 8, textAlign: 'center' }}>
-              <CircularProgress />
-            </Box>
-          )}
-        >
+        <Suspense fallback={pageLoading}>
         <Routes>
           <Route path="/present/:token" element={<DraftPresenter />} />
           <Route path="/league" element={<ProtectedRoute><LeagueManagement /></ProtectedRoute>} />
@@ -284,6 +286,12 @@ function App() {
                 // If the user is already logged in,
                 // redirect them to the /user page
                 <Navigate to="/user" replace />
+                : !sessionResolved && hasSessionHint() ?
+                // A hard load by a logged-in user is `user: {}` until SET_USER
+                // lands; the landing page would mount, fetch its public data,
+                // and be redirected away (#2097). The hint says someone was
+                // logged in here, so wait; a cold visitor paints at once.
+                pageLoading
                 :
                 // Otherwise, show the Landing page
                 <LandingPage />

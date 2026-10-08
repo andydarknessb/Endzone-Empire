@@ -8,6 +8,7 @@ import apiClient from '../../api/apiClient';
 import publicApiClient from '../../api/publicApiClient';
 import { createDraftSocket } from '../../api/socket';
 import { clearLeagueCache } from '../../hooks/useLeague';
+import { SESSION_HINT_KEY } from '../../lib/sessionHint';
 
 // App's routes mount real page components (LeagueManagement, UserPage,
 // DraftBoard, ...); every one of them fetches via apiClient (and DraftBoard
@@ -42,6 +43,7 @@ function renderApp(hash, state = {}, configureApi) {
   if (configureApi) configureApi(); // runs after the defaults, before mount
   const store = mockStore({
     user: {},
+    session: { resolved: true },
     errors: { loginMessage: '', registrationMessage: '' },
     ...state,
   });
@@ -59,6 +61,41 @@ const loggedIn = { id: 1, username: 'alice' };
 test('"/" redirects to "/home", showing the Landing page when logged out', async () => {
   renderApp('#/', { user: loggedOut });
   expect(await screen.findByRole('heading', { name: 'Welcome to Endzone Empire' })).toBeInTheDocument();
+});
+
+// A hard load by a logged-in user starts with `user: {}` until SET_USER lands.
+// Mounting the landing page in that window fires its two public GETs, and the
+// redirect to /user then fires them again from PublicHighlights (#2097). The
+// session hint says "someone was logged in here", so only then does /home wait.
+describe('"/home" before the session is resolved (#2097)', () => {
+  const landingHeading = { name: 'Welcome to Endzone Empire' };
+  const publicUrls = () => publicApiClient.get.mock.calls.map(([url]) => url);
+
+  afterEach(() => window.localStorage.removeItem(SESSION_HINT_KEY));
+
+  test('waits on the loading box, with no public requests, when the device has a session hint', () => {
+    window.localStorage.setItem(SESSION_HINT_KEY, '1');
+    renderApp('#/home', { user: {}, session: { resolved: false } });
+
+    expect(screen.getByRole('status', { name: 'Loading page' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', landingHeading)).not.toBeInTheDocument();
+    expect(publicUrls()).not.toContain('/api/public/rankings');
+    expect(publicUrls()).not.toContain('/api/public/recaps');
+  });
+
+  test('shows the landing page once the session is resolved as logged out', async () => {
+    window.localStorage.setItem(SESSION_HINT_KEY, '1');
+    renderApp('#/home', { user: {}, session: { resolved: true } });
+
+    expect(await screen.findByRole('heading', landingHeading)).toBeInTheDocument();
+    expect(publicUrls()).toEqual(expect.arrayContaining(['/api/public/rankings', '/api/public/recaps']));
+  });
+
+  test('a visitor with no session hint gets the landing page without waiting', async () => {
+    renderApp('#/home', { user: {}, session: { resolved: false } });
+
+    expect(await screen.findByRole('heading', landingHeading)).toBeInTheDocument();
+  });
 });
 
 test('"/home" redirects to "/user" when already logged in', async () => {
