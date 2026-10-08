@@ -100,8 +100,30 @@ test('an owner with scoreUpdates off gets nothing, the other still does', async 
   const { sent, call, ledger } = world(t, { optedOut: [22] });
 
   await call(10, 5);
+  await call(10, 15, 'live');
   await call(10, 15, 'played');
 
   assert.deepEqual(titles(sent), [[11, 'You lost the lead'], [11, 'Final: you lost 10.0-15.0']]);
   assert.ok(ledger.every((r) => r.user_id === 11));
+});
+
+test('once played, only the Final push goes out; a later correction sends nothing', async (t) => {
+  const { sent, call } = world(t);
+
+  await call(30, 20);
+  await call(30, 31, 'played');
+  assert.deepEqual(titles(sent), [[11, 'Final: you lost 30.0-31.0'], [22, 'Final: you won 31.0-30.0']]);
+
+  await call(32, 31, 'played');
+  assert.equal(sent.length, 2, 'a correction after played is not a lead change');
+});
+
+test('scores that round to the same figure print two decimals', async (t) => {
+  const { sent, call } = world(t);
+
+  await call(10, 5);
+  await call(100.2, 100.24);
+
+  assert.equal(sent[0].payload.body, 'Home FC 100.20 - Away FC 100.24');
+  assert.equal(sent[1].payload.body, 'Away FC 100.24 - Home FC 100.20');
 });

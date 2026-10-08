@@ -1286,7 +1286,12 @@ const leaderOf = (m) => {
   const away = Number(m.awayScore);
   return home > away ? 'home' : away > home ? 'away' : 'tied';
 };
-const oneDecimal = (n) => Number(n).toFixed(1);
+// One decimal, unless that prints the two scores as the same figure: then two,
+// so the copy never shows equal figures beside a lead (matchupModel does the same).
+const scoreText = (a, b) => {
+  const places = Number(a).toFixed(1) === Number(b).toFixed(1) ? 2 : 1;
+  return [Number(a).toFixed(places), Number(b).toFixed(places)];
+};
 
 /**
  * Push each owner their own matchup's score news (#2107), after the scoring
@@ -1315,39 +1320,44 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
         { mine: teams.rows.find((r) => r.id === m.awayTeamId), theirs: teams.rows.find((r) => r.id === m.homeTeamId), mineScore: m.awayScore, theirScore: m.homeScore, side: 'away' },
       ].filter((s) => s.mine && s.theirs && s.mine.owner_id != null);
       const leader = leaderOf(m);
-      const body = (s) => `${s.mine.name} ${oneDecimal(s.mineScore)} - ${s.theirs.name} ${oneDecimal(s.theirScore)}`;
+      const figures = (s) => scoreText(s.mineScore, s.theirScore);
+      const body = (s) => { const [x, y] = figures(s); return `${s.mine.name} ${x} - ${s.theirs.name} ${y}`; };
 
-      const prev = await pool.query(
-        `SELECT "fingerprint" FROM "push_events"
-         WHERE "kind" = 'score-lead' AND "subject" = $1
-         ORDER BY "created_at" DESC LIMIT 1`,
-        [subject]
-      );
-      if (!prev.rows[0]) {
-        const wanting = await usersWanting(sides.map((s) => s.mine.owner_id), 'scoreUpdates');
-        if (wanting.length > 0) {
-          await pool.query(
-            `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
-             SELECT unnest($1::int[]), $2, $3, $4 ON CONFLICT DO NOTHING`,
-            [wanting, 'score-lead', subject, `${leader}:0`]
-          );
-        }
-      } else {
-        const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
-        if (prevLeader !== leader) {
-          for (const s of sides) {
-            await push.sendPushOnce({
-              userIds: [s.mine.owner_id],
-              prefKey: 'scoreUpdates',
-              kind: 'score-lead',
-              subject,
-              fingerprint: `${leader}:${Number(n) + 1}`,
-              payload: {
-                title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
-                body: body(s),
-                url,
-              },
-            });
+      // Once played, the Final push is the news; a later stat correction must not
+      // send a lead change to someone already told the result.
+      if (m.status !== 'played') {
+        const prev = await pool.query(
+          `SELECT "fingerprint" FROM "push_events"
+           WHERE "kind" = 'score-lead' AND "subject" = $1
+           ORDER BY "created_at" DESC LIMIT 1`,
+          [subject]
+        );
+        if (!prev.rows[0]) {
+          const wanting = await usersWanting(sides.map((s) => s.mine.owner_id), 'scoreUpdates');
+          if (wanting.length > 0) {
+            await pool.query(
+              `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
+               SELECT unnest($1::int[]), $2, $3, $4 ON CONFLICT DO NOTHING`,
+              [wanting, 'score-lead', subject, `${leader}:0`]
+            );
+          }
+        } else {
+          const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
+          if (prevLeader !== leader) {
+            for (const s of sides) {
+              await push.sendPushOnce({
+                userIds: [s.mine.owner_id],
+                prefKey: 'scoreUpdates',
+                kind: 'score-lead',
+                subject,
+                fingerprint: `${leader}:${Number(n) + 1}`,
+                payload: {
+                  title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
+                  body: body(s),
+                  url,
+                },
+              });
+            }
           }
         }
       }
@@ -1355,7 +1365,7 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
       if (m.status === 'played') {
         for (const s of sides) {
           const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
-          const score = `${oneDecimal(s.mineScore)}-${oneDecimal(s.theirScore)}`;
+          const score = figures(s).join('-');
           await push.sendPushOnce({
             userIds: [s.mine.owner_id],
             prefKey: 'scoreUpdates',
