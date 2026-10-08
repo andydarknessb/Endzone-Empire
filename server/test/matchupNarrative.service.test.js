@@ -8,7 +8,7 @@ const {
 } = require('../services/matchupNarrative.service');
 
 /**
- * Matchup narrative (ADR 0059): templates, the template-first write, the
+ * Matchup narrative (ADR 0060): templates, the template-first write, the
  * once-only preview, the overwriting postgame, the number check on a rewrite
  * and the parallel rewrites. A small world of rows behind the fake pool;
  * league_analytics is stateful and merges one (matchup, moment) key per

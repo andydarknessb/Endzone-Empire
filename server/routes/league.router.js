@@ -599,7 +599,7 @@ router.get('/:id/matchups', async (req, res) => {
       league = leagueResult.rows[0] || null;
     }
     const rows = await attachExpectedFinals(result.rows, { league, now: clock.now() });
-    // The stored preview Narrative (ADR 0059), null until one is written.
+    // The stored preview Narrative (ADR 0060), null until one is written.
     // Display data: a failed read costs the line, never the list.
     const narratives = new Map();
     try {

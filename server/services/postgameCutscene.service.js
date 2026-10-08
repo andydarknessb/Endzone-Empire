@@ -133,7 +133,7 @@ async function loadAwards(db, due) {
 }
 
 /**
- * Each due Matchup's stored postgame Narrative (ADR 0059), keyed by Matchup id.
+ * Each due Matchup's stored postgame Narrative (ADR 0060), keyed by Matchup id.
  * Display data: a failed read costs the line, never the cutscene.
  */
 async function loadNarratives(db, due) {
