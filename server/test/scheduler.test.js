@@ -276,17 +276,18 @@ function playerSyncWorld(t, { credentials = true } = {}) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
     }
   });
-  const world = { runs: [], calls: [], clock: null };
+  const world = { runs: [], calls: [], clock: null, fail: false };
   createFakePool([
     [/FROM "data_sync_runs"/, () => {
-      const latestOk = [...world.runs].sort((a, b) => b.finished_at - a.finished_at)[0];
-      const row = latestOk ? { id: world.runs.length, finished_at: latestOk.finished_at, ok: true, detail: null } : null;
-      return { rows: [{ latest: row, latestOk: row }] };
+      const row = (r) => (r ? { id: world.runs.length, finished_at: r.finished_at, ok: r.ok, detail: null } : null);
+      const sorted = [...world.runs].sort((a, b) => b.finished_at - a.finished_at);
+      return { rows: [{ latest: row(sorted[0]), latestOk: row(sorted.find((r) => r.ok)) }] };
     }],
   ]).install(t);
   t.mock.method(scoring, 'syncPlayers', async (args) => {
     world.calls.push(args);
-    world.runs.push({ finished_at: world.clock });
+    world.runs.push({ finished_at: world.clock, ok: !world.fail });
+    if (world.fail) throw new Error('Tank01 unavailable');
     return { season: args.season, playersUpserted: 3 };
   });
   world.run = (now) => {
@@ -304,7 +305,18 @@ test('runDailyPlayerSync runs once per UTC day, not twice, and again the next UT
   assert.equal(await world.run(new Date('2026-10-08T23:55:00Z')), null, 'late the same UTC day: not due');
   assert.ok(await world.run(new Date('2026-10-09T00:05:00Z')), 'the next UTC day: due');
   assert.equal(world.calls.length, 2);
-  assert.deepEqual(world.calls[0], { season: 2026 });
+  assert.deepEqual(world.calls[0], { season: 2026, now: T });
+});
+
+test('runDailyPlayerSync backs off an hour after a failed run, then retries the same UTC day', async (t) => {
+  const world = playerSyncWorld(t);
+  const T = new Date('2026-10-08T09:00:00Z');
+  world.fail = true;
+  await assert.rejects(world.run(T), /Tank01 unavailable/);
+  assert.equal(await world.run(new Date(T.getTime() + 30 * 60 * 1000)), null, '30 minutes after the failure: backing off');
+  world.fail = false;
+  assert.ok(await world.run(new Date(T.getTime() + 60 * 60 * 1000)), 'an hour after the failure: retries');
+  assert.equal(world.calls.length, 2, 'the backed-off tick spent no Tank01 call');
 });
 
 test('runDailyPlayerSync does nothing without the Tank01 credentials', async (t) => {

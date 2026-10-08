@@ -8,6 +8,10 @@ const espnAthleteClient = require('../modules/espnAthleteClient');
 const injuriesFixture = require('./fixtures/espn/injuries.json');
 const { DEFAULT_ROSTER_SLOTS, setLineup } = require('../services/lineup.service');
 
+// The document floor (#2115) is exercised by its own tests below; every other
+// case here feeds a handful of entries, so it is off for this file.
+process.env.INJURY_DOC_FLOOR = '0';
+
 // One row of the ESPN injuries document as espnAthleteClient.injuries() returns it (#2115).
 const listed = (athleteId, status, detail = null) => ({ athleteId, status, detail });
 
@@ -974,4 +978,68 @@ test('#2115: a player moving Questionable to Out through the ESPN document pushe
   assert.equal(sends.length, 1);
   assert.equal(sends[0].fingerprint, 'Out:2026-10-08');
   assert.deepEqual(sends[0].payload, { title: 'Test Runner is now Out', body: 'Knee', url: '/#/league/1/lineup' });
+});
+
+// ---- #2115: the document floor and the detail cap ---------------------------
+
+/** An ESPN injuries document: `groups` team groups, `perGroup` Out entries in each, athlete ids from 1000. */
+function espnDocument(groups, perGroup, status = 'Out') {
+  let next = 1000;
+  return {
+    injuries: Array.from({ length: groups }, () => ({
+      injuries: Array.from({ length: perGroup }, () => {
+        const id = next++;
+        return { status, shortComment: `note ${id}`, athlete: { links: [{ href: `https://www.espn.com/nfl/player/_/id/${id}/x` }] } };
+      }),
+    })),
+  };
+}
+
+test('#2115 floor: a 200 document with 32 empty team groups is fetch_failed and writes nothing', async (t) => {
+  delete process.env.INJURY_DOC_FLOOR;
+  t.after(() => { process.env.INJURY_DOC_FLOOR = '0'; });
+  const axios = require('axios');
+  t.mock.method(axios, 'get', async () => ({ data: espnDocument(32, 0) }));
+  const fake = createFakePool([
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const promise = syncInjuries();
+  await assert.rejects(promise, /too small: 0 listed, floor 100/);
+  assert.equal((await promise.catch((e) => e)).syncFailureReason, 'fetch_failed');
+  assert.equal(fake.calls.filter((c) => c.text === 'BEGIN').length, 0, 'no transaction: nothing cleared, no alert');
+  assert.equal(fake.matching(update('players')).length, 0);
+  const records = dataSyncRuns(fake.calls);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].params[2], false);
+  fake.assertClean();
+});
+
+test('#2115 floor: a document with 150 non-Active entries is an ok run; Active entries do not count toward the floor', async (t) => {
+  delete process.env.INJURY_DOC_FLOOR;
+  t.after(() => { process.env.INJURY_DOC_FLOOR = '0'; });
+  const axios = require('axios');
+  const ok = espnDocument(3, 50); // 150 Out entries
+  t.mock.method(axios, 'get', async () => ({ data: ok }));
+  const fake = espnWorld(t, { players: [{ id: 1, external_id: '1000', injury_status: null }] });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+
+  const result = await syncInjuries();
+  assert.equal(result.playersUpdated, 1);
+  assert.deepEqual(fake.matching(update('players'))[0].params[1], ['O']);
+
+  // 150 Active entries are not injuries: the same size of document is refused.
+  t.mock.method(axios, 'get', async () => ({ data: espnDocument(3, 50, 'Active') }));
+  createFakePool([[insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })]]).install(t);
+  await assert.rejects(syncInjuries(), /too small: 0 listed/);
+});
+
+test('#2115: a detail longer than 255 characters is cut to 255', async (t) => {
+  const fake = espnWorld(t, { players: [{ id: 1, external_id: '21', injury_status: null }] });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+
+  await syncInjuries({ fetchInjuries: async () => [listed('21', 'Out', 'x'.repeat(300))] });
+
+  const detail = fake.matching(update('players'))[0].params[2][0];
+  assert.equal(detail.length, 255);
 });

@@ -10,7 +10,7 @@ want a designation change within minutes, and the Tank01 player list is one
 metered call per refresh, so refreshing it every 15 minutes all week would
 cost about 2,900 calls a month against a 950 budget. ESPN publishes a free,
 unauthenticated league-wide injuries document
-(`site.api.espn.com/apis/site/v2/sports/football/nfl/injuries`): one call,
+(`site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries`): one call,
 all 32 teams, about 800 listed athletes on a Thursday, each with the athlete
 id (our `players.external_id`, ADR 0035), a designation drawn from exactly
 five strings (Questionable, Doubtful, Out, Injured Reserve, Active), the
@@ -24,10 +24,11 @@ there is no quota. The mapping is fixed: Questionable to Q, Doubtful to D,
 Out to O, Injured Reserve to IR; Active and any athlete not listed are
 healthy (null). The Tank01 player-list call keeps a daily job (`syncPlayers`,
 scheduled by #2115 and still hand-runnable) for the player row itself (name,
-position, NFL team) and never writes designation. Tank01's remaining production roles are the Live box and clock
-fallback after three ESPN failures and the Final box (ADR 0035, for fumble
-recoveries ESPN lacks); every other feed is on its way off it, one ticket
-each. Injury alerts (#2106) read the same transitions as before; only the
+position, NFL team) and never writes designation. Tank01's roles that stay
+are the Live box and clock fallback after three ESPN failures and the Final
+box (ADR 0035, for fumble recoveries ESPN lacks). Its other calls are leaving
+one ticket each: the daily player list (#2117), the game schedule (#2116) and
+news (#2118). Injury alerts (#2106) read the same transitions as before; only the
 writer changed.
 
 ## Considered options
@@ -46,8 +47,8 @@ writer changed.
 
 - `INJURY_OFF_WINDOW_MS` (added in #2113) is removed; one `INJURY_SYNC_MS`
   (default 15 minutes) governs the injuries job.
-- The injuries Sync run (ADR 0036) spends no Tank01 budget; the monthly
-  estimate in `render.yaml` drops by the whole injuries line.
+- The injuries Sync run (ADR 0036) spends no Tank01 budget; the game-window
+  and off-window Tank01 cost lines leave `render.yaml`.
 - A player ESPN lists as Active with a news note is healthy, the same as one
   not listed; the note is not written anywhere by this ADR.
 - The Tank01 label normaliser for designation is retired; the ESPN strings

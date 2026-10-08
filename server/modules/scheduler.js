@@ -60,6 +60,7 @@ let lastCorrectionDay = null;
 // stat-corrections do, below. A refused run is not retried: it settles the job's
 // cadence period (a UTC day for `utc-day` jobs, the interval for `{ ms }` jobs).
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
+const PLAYER_SYNC_RETRY_MS = 60 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
 // The ESPN injury refresh keeps its last-run stamp in data_sync_runs, not
@@ -262,13 +263,14 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
  * position, nfl_team, departures) current unattended, once per UTC day by the
  * cadence gate on the 'players' Sync run's own rows, which a hand-run sync also
  * writes. Tank01 is metered, so it needs the same credentials as every Tank01
- * call. A failed run retries on the next tick, like the other daily Sync runs.
+ * call. A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so a
+ * Tank01 outage does not spend a call every tick.
  */
 async function runDailyPlayerSync({ now = new Date() } = {}) {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
-  const gate = await cadence.due({ job: 'players', every: 'utc-day', now });
+  const gate = await cadence.due({ job: 'players', every: 'utc-day', retryMs: PLAYER_SYNC_RETRY_MS, now });
   if (!gate.due) return null;
-  return require('../services/feedSyncRuns.service').syncPlayers({ season: now.getUTCFullYear() });
+  return require('../services/feedSyncRuns.service').syncPlayers({ season: now.getUTCFullYear(), now });
 }
 
 const ROSTER_STATUS_JOB = 'espn-roster-status';
