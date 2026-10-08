@@ -1687,10 +1687,9 @@ test('runNightlyProjectionFill only runs inside its own off-peak UTC hour', asyn
   assert.equal(await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T10:00:00Z') }), null);
   assert.equal(calls.length, 0, 'no query at all outside the window, not even the eligibility read');
 
-  assert.deepEqual(
-    await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T09:30:00Z') }),
-    { weeksGenerated: 0, weeksSkipped: 0, leagues: 0 }
-  );
+  const { elapsedMs, ...counts } = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-20T09:30:00Z') });
+  assert.ok(Number.isFinite(elapsedMs), 'the result carries the elapsed ms (#2081)');
+  assert.deepEqual(counts, { weeksGenerated: 0, weeksSkipped: 0, leagues: 0 });
 });
 
 test('runNightlyProjectionFill queries leagues with the same live-season eligibility the hourly syncs use', async (t) => {
@@ -1704,7 +1703,9 @@ test('runNightlyProjectionFill queries leagues with the same live-season eligibi
   ]);
   fake.install(t);
   const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-12T09:00:00Z') });
-  assert.deepEqual(result, { weeksGenerated: 0, weeksSkipped: 0, leagues: 0 });
+  const { elapsedMs, ...counts } = result;
+  assert.ok(Number.isFinite(elapsedMs));
+  assert.deepEqual(counts, { weeksGenerated: 0, weeksSkipped: 0, leagues: 0 });
 });
 
 test('runNightlyProjectionFill fills every week from each league\'s current week through its OWN last playoff week', async (t) => {
@@ -1771,6 +1772,8 @@ test('runNightlyProjectionFill fills every week from each league\'s current week
 
 test('runNightlyProjectionFill skips a week every player already has cached, and runs at most once per local day', async (t) => {
   const projection = require('../services/projection.service');
+  const logs = [];
+  t.mock.method(console, 'log', (...args) => { logs.push(args.join(' ')); });
   let call = 0;
   t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => {
     call += 1;
@@ -1794,6 +1797,10 @@ test('runNightlyProjectionFill skips a week every player already has cached, and
   assert.equal(result.weeksSkipped, 1);
   assert.equal(result.weeksGenerated, 1);
   assert.equal(call, 2);
+  // #2081: the success line ends with the elapsed wall time, and the result carries it.
+  assert.ok(Number.isFinite(result.elapsedMs));
+  const fillLine = logs.find((l) => l.startsWith('scheduler: nightly projection fill generated 1 week(s), skipped 1 already-cached week(s) across 1 league(s)'));
+  assert.match(fillLine, / in \d+ ms$/);
 
   // Same local day, still inside the window: the pass does not run again.
   const laterSameDay = new Date('2026-09-16T09:40:00Z');
@@ -1849,7 +1856,9 @@ test('records one Sync run through runSyncJob for the whole pass, detail carryin
   fake.install(t);
 
   const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-14T09:00:00Z') });
-  assert.deepEqual(result, { weeksGenerated: 1, weeksSkipped: 0, leagues: 1 });
+  const { elapsedMs, ...counts } = result;
+  assert.ok(Number.isFinite(elapsedMs));
+  assert.deepEqual(counts, { weeksGenerated: 1, weeksSkipped: 0, leagues: 1 });
 
   const inserted = fake.calls.find((c) => c.text.startsWith('INSERT INTO "data_sync_runs"'));
   assert.ok(inserted, 'one data_sync_runs row is written, by runSyncJob itself');
@@ -2219,4 +2228,20 @@ test('runHoldoutSnapshots runs the pre-capture roster run first, and a throw the
 
   assert.deepEqual(order, ['pre-run', 'capture']);
   assert.ok(errors.some((line) => /pre-holdout ESPN roster-status sync failed/.test(line)));
+});
+
+test('runHoldoutSnapshots ends its capture success line with the elapsed ms (#2081)', async (t) => {
+  const holdout = require('../services/holdout.service');
+  const logs = [];
+  t.mock.method(console, 'log', (...args) => { logs.push(args.join(' ')); });
+  t.mock.method(holdout, 'captureNotAfterFor', () => null);
+  t.mock.method(holdout, 'captureDueSnapshots', async () => ({
+    captured: [{ season: 2026, week: 4, profileName: 'half_ppr', inserted: 1540 }],
+    failures: [],
+  }));
+
+  await scheduler.runHoldoutSnapshots();
+
+  const line = logs.find((l) => l.startsWith('scheduler: captured 1 holdout snapshot(s): 2026 w4 half_ppr (1540 rows)'));
+  assert.match(line, / in \d+ ms$/);
 });
