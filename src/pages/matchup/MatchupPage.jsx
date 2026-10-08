@@ -99,8 +99,8 @@ export default function MatchupPage() {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
-    matchup, starterRows, loading, error, refetch, league, leagueName, viewerTeamId, records,
-    statusChip, isLive, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
+    matchup, starterRows, loading, error, refetch, leagueName, viewerTeamId, records,
+    statusChip, isLive, canSetLineup, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
@@ -157,12 +157,6 @@ export default function MatchupPage() {
   const viewerSide = viewerTeamId == null ? null
     : matchup?.home?.teamId === viewerTeamId ? 'home'
       : matchup?.away?.teamId === viewerTeamId ? 'away' : null;
-
-  // The empty slot's "Set lineup" link only makes sense while a lineup can
-  // still be set: a scheduled or live Matchup, in a league that is not best
-  // ball (best ball sets no lineup, ADR 0023). Held until the league is known.
-  const canSetLineup = !!league && !league.best_ball
-    && (matchup?.status === 'scheduled' || matchup?.status === 'live');
 
   // The Decision card's entry for whichever player a name link opened
   // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the

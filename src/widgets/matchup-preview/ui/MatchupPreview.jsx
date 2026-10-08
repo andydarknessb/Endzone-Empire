@@ -14,7 +14,7 @@ import useMatchupPreview from '../model/useMatchupPreview';
  * the My Team card and Quick Actions both carry Set Lineup.
  *
  * The card has two faces, and which one it wears is the server's `status`, read
- * through the entity predicate in the model (ADR 0030), never inferred here:
+ * through the entity's `matchupBoard` in the model (ADR 0030), never inferred here:
  *
  *   - BEFORE kickoff (and on an unknown status, which asserts neither state):
  *     the display slot holds each side's projected total under a "Projected"

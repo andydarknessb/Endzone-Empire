@@ -3,7 +3,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { Box, Link, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { visuallyHidden } from '@mui/utils';
-import { matchupBoard } from '../../../entities/matchup';
+import { matchupPhase } from '../../../entities/matchup';
 import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark, StateGlyph } from '../../../shared/ui';
 import {
   columnTotals,
@@ -90,7 +90,7 @@ export default function SlotComparison({
   const totals = columnTotals(list);
   // A settled Matchup (played or final) has no Expected final to show: the
   // strip and the LED board hide it, and the server still prices one (#2008 QA).
-  const ef = matchupBoard({ status }).settled ? {} : expectedFinal || {};
+  const ef = matchupPhase(status).settled ? {} : expectedFinal || {};
   const count = `${list.length} ${list.length === 1 ? 'slot' : 'slots'}`;
   const lineupHref = `/league/${leagueId}/lineup`;
 

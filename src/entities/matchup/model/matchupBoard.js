@@ -8,7 +8,8 @@ import { matchupResultLine } from './matchupModel';
  * lays it out instead of branching on `status` itself.
  *
  *   { chip: { label, variant, dot } | null,
- *     hasStarted, settled, resultLine, winProbability: { home, away } | null,
+ *     hasStarted, settled, isLive, isFinal, resultLine,
+ *     winProbability: { home, away } | null,
  *     home: { score, expectedFinal, playersRemaining }, away: { ...same } }
  *
  * - `chip` is null for an unknown status (null, absent, unrecognised): "the
@@ -18,8 +19,16 @@ import { matchupResultLine } from './matchupModel';
  *   null when unknown (asserting neither state).
  * - `settled` is played or final: the week is decided, so the result line
  *   stands in for the win bar and the Expected final figures.
- * - `winProbability` is live only; a scheduled, settled or unknown Matchup
- *   prices none.
+ * - `isLive` is the exact live status; `isFinal` is the exact final status,
+ *   or, for a status the server did not state (null), the body's own `final`
+ *   flag, the only finality fact such a body carries (#912).
+ * - `winProbability` is the one priced figure, for every known status: the
+ *   scores decide a settled week, the projections price a scheduled one. Null
+ *   only when the status is unknown. A reader shows or hides it under its own
+ *   gate (`hasStarted === true`, `isLive`, `settled`).
+ * - `matchupPhase(status)` is the status-only part (`chip`, `hasStarted`,
+ *   `settled`, `isLive`, `isFinal`) for a caller that holds a status and no
+ *   Matchup.
  * - `expectedFinal` is null once settled (the server still prices one, #2008).
  *   Scores and Players remaining pass through raw; the reader formats them.
  */
@@ -30,11 +39,21 @@ const CHIP_VARIANTS = {
   final: { label: 'Final', variant: 'success', dot: false },
 };
 
+export function matchupPhase(status) {
+  const chip = Object.prototype.hasOwnProperty.call(CHIP_VARIANTS, status) ? { ...CHIP_VARIANTS[status] } : null;
+  return {
+    chip,
+    hasStarted: chip ? status !== 'scheduled' : null,
+    settled: status === 'played' || status === 'final',
+    isLive: status === 'live',
+    isFinal: status === 'final',
+  };
+}
+
 export function matchupBoard(matchup, viewerTeamId) {
   const m = matchup || {};
-  const chip = Object.prototype.hasOwnProperty.call(CHIP_VARIANTS, m.status) ? { ...CHIP_VARIANTS[m.status] } : null;
-  const hasStarted = chip ? m.status !== 'scheduled' : null;
-  const settled = m.status === 'played' || m.status === 'final';
+  const phase = matchupPhase(m.status);
+  const { chip, settled } = phase;
   const side = (s = {}) => ({
     score: s.score ?? null,
     expectedFinal: settled ? null : s.expectedFinal ?? null,
@@ -43,12 +62,11 @@ export function matchupBoard(matchup, viewerTeamId) {
   const home = side(m.home);
   const away = side(m.away);
   return {
-    chip,
-    hasStarted,
-    settled,
+    ...phase,
+    isFinal: phase.isFinal || (m.status == null && !!m.final),
     resultLine: matchupResultLine(m, viewerTeamId),
     winProbability:
-      m.status === 'live'
+      chip
         ? matchupWinProbability({
             homeScore: home.score,
             awayScore: away.score,

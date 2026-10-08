@@ -80,8 +80,8 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
   const headerNote = kickoff ? `Kicks off ${kickoff}` : weekNote;
 
   let footer = '';
-  if (status === 'live') footer = `Win probability ${homePct}% \u00b7 ${awayPct}%`;
-  else if (settled) footer = status === 'final' ? 'Score of record' : 'Waiting on the score of record';
+  if (board.isLive) footer = `Win probability ${homePct}% \u00b7 ${awayPct}%`;
+  else if (settled) footer = board.isFinal ? 'Score of record' : 'Waiting on the score of record';
   else if (scheduled) footer = 'Projected totals shown until kickoff';
 
   const side = (s, leads) => {
