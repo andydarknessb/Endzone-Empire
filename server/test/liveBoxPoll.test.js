@@ -100,8 +100,10 @@ function pollWorld(t, { fetch, leaguesByPlayer, priorStats = [] }) {
   const scored = [];
   t.mock.method(scoring, 'scoreMatchups', async ({ leagueId, plays }) => { scored.push({ leagueId, plays }); return { scored: [] }; });
   t.mock.method(scheduler, 'alertCloseMatchups', async () => {});
+  const bigPlayCalls = [];
+  t.mock.method(scheduler, 'alertBigPlays', async (args) => { bigPlayCalls.push(args); });
   t.after(() => { liveBox.__resetLiveBoxState(); liveBoxPoll.__resetPollState(); });
-  return { fake, scored };
+  return { fake, scored, bigPlayCalls };
 }
 
 const jsnBox = (tds) => ({
@@ -125,6 +127,12 @@ test('pollChangedGames: each changed game is fetched once, only rostering league
   assert.deepEqual(out.changedPlayerIds, [12]);
   assert.deepEqual(w.scored.map((s) => s.leagueId), [1], 'league A rosters JSN; league B (not returned) is not re-scored');
   assert.equal(w.scored[0].plays.length, 1, 'the TD rode the emit');
+  assert.equal(w.bigPlayCalls.length, 1, 'big play alerts run once, for the re-scored league only');
+  assert.deepEqual(
+    { leagueId: w.bigPlayCalls[0].leagueId, season: w.bigPlayCalls[0].season, week: w.bigPlayCalls[0].week },
+    { leagueId: 1, season: 2026, week: 1 }
+  );
+  assert.deepEqual(w.bigPlayCalls[0].plays, w.scored[0].plays, 'alerted with the league plays');
 });
 
 test('pollChangedGames: two passes 20 s apart run a league once and carry both passes’ plays into the next run', async (t) => {
