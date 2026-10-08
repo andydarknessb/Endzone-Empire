@@ -49,6 +49,10 @@ const depthChartUrl = (numericTeamId) =>
 // server-side request 403 (captured 2026-09-29), `site.web.api` answers 200.
 const teamRosterUrl = (numericTeamId) =>
   `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/${numericTeamId}/roster`;
+// The league-wide injuries document (#2115, ADR 0061): one call, all 32 teams.
+// `site.web.api` rather than `site.api`: it is the host the roster capture above
+// found answering a server-side request, and both serve this document.
+const INJURIES_URL = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
 const FANTASY_PLAYER_INFO_URL = (season) =>
   `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/1`;
 
@@ -315,6 +319,50 @@ function normalizeTeamRoster(payload, teamCode) {
   return rows;
 }
 
+/** Pure: the ESPN athlete id of one injuries entry, from the player-card link or the headshot filename, or null. */
+function injuryAthleteId(athlete) {
+  const links = athlete && Array.isArray(athlete.links) ? athlete.links : [];
+  for (const link of links) {
+    const match = link && typeof link.href === 'string' && link.href.match(/\/id\/(\d+)(?:\/|$)/);
+    if (match) return match[1];
+  }
+  const headshot = athlete && athlete.headshot && athlete.headshot.href;
+  const match = typeof headshot === 'string' && headshot.match(/\/(\d+)\.\w+$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Pure: the league injuries document (#2115) -> `{ athleteId, status, detail }[]`
+ * (null when the document has no team groups at all). `status` is ESPN's own
+ * string (Questionable, Doubtful, Out, Injured Reserve, Active), untouched;
+ * the caller maps it. `detail` is the entry's `shortComment`, else
+ * `type.description` plus `details.type`. The entry's own `id` is the injury
+ * record's, never the athlete's. An entry with no derivable athlete id is
+ * skipped; an athlete listed twice keeps his first entry.
+ */
+function normalizeInjuries(payload) {
+  const teams = payload && Array.isArray(payload.injuries) ? payload.injuries : null;
+  if (!teams || teams.length === 0) return null;
+  const seen = new Set();
+  const rows = [];
+  for (const team of teams) {
+    const entries = team && Array.isArray(team.injuries) ? team.injuries : [];
+    for (const entry of entries) {
+      const athleteId = entry && injuryAthleteId(entry.athlete);
+      if (!athleteId || seen.has(athleteId)) continue;
+      seen.add(athleteId);
+      const fallback = [entry.type && entry.type.description, entry.details && entry.details.type]
+        .filter(Boolean).join(' ');
+      rows.push({
+        athleteId,
+        status: typeof entry.status === 'string' ? entry.status : null,
+        detail: entry.shortComment ? String(entry.shortComment) : (fallback || null),
+      });
+    }
+  }
+  return rows;
+}
+
 /**
  * Pure: a fantasy `kona_player_info` payload -> `{ athleteId, percentOwned,
  * percentStarted, percentChange }[]`, one per `players[]` entry that carries
@@ -472,8 +520,20 @@ async function ownership({ transport, season } = {}) {
   return payload ? normalizeOwnership(payload) : null;
 }
 
+/**
+ * The league injuries document (#2115, ADR 0061) -> `{ athleteId, status,
+ * detail }[]`, never cached (the injuries Sync run is the cache). `null` on any
+ * fetch failure or a document with no team groups - the Sync run tells the
+ * caller's `fetch_failed` apart from a healthy league. Never throws.
+ */
+async function injuries({ transport } = {}) {
+  const payload = await getJson(transport, INJURIES_URL);
+  return payload ? normalizeInjuries(payload) : null;
+}
+
 module.exports = {
   profile,
+  injuries,
   overview,
   teamDepthChart,
   teamRoster,
@@ -485,6 +545,7 @@ module.exports = {
   normalizeFantasyNews,
   parseRotowirePublished,
   normalizeInjuryFacts,
+  normalizeInjuries,
   normalizeDepthChart,
   normalizeOwnership,
   refId,

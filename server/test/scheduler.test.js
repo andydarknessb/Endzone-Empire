@@ -128,18 +128,19 @@ test('syncEveryTicks falls back to the default when quota state is unavailable',
 });
 
 /**
- * #1188: inside a game window, the every-windowMs decision reads the last
- * successful `injuries` run in data_sync_runs, not a module variable, so a
- * worker restart (a fresh module instance) cannot re-run it more often than
- * the window allows. Outside a window (#2106) the same read decides against
- * the 6 h INJURY_OFF_WINDOW_MS.
+ * #1188, #2115: the every-INJURY_SYNC_MS decision reads the last successful
+ * `injuries` run in data_sync_runs, not a module variable, so a worker restart
+ * (a fresh module instance) cannot re-run it more often than the cadence
+ * allows. One cadence inside and outside a game window: the ESPN document is
+ * free, so there is no quota doubling and no window branch (ADR 0061).
  */
 function injuryWorld(t, { inWindow = true } = {}) {
   const scoring = require('../services/feedSyncRuns.service');
+  // ESPN needs no credential: the job must run with no Tank01 key configured.
   const previousKey = process.env.RAPID_API_KEY;
   const previousHost = process.env.RAPID_API_HOST;
-  process.env.RAPID_API_KEY = 'test-key';
-  process.env.RAPID_API_HOST = 'test-host';
+  delete process.env.RAPID_API_KEY;
+  delete process.env.RAPID_API_HOST;
   t.after(() => {
     if (previousKey === undefined) delete process.env.RAPID_API_KEY;
     else process.env.RAPID_API_KEY = previousKey;
@@ -162,14 +163,13 @@ function injuryWorld(t, { inWindow = true } = {}) {
       };
     }],
     [/FROM "live_game_states"/, () => ({ rows: world.inWindow ? [{ '?column?': 1 }] : [] })],
-    [/FROM "private"."api_usage"|FROM "private"."api_quota_snapshots"/, () => ({ rows: [] })],
   ]);
   fake.install(t);
   t.mock.method(scoring, 'syncInjuries', async () => {
     world.calls += 1;
     if (world.fail) {
       world.runs.push({ ok: false, finished_at: world.clock });
-      throw new Error('Tank01 unavailable');
+      throw new Error('ESPN unavailable');
     }
     world.runs.push({ ok: true, finished_at: world.clock });
     return { playersUpdated: 10, irFlags: 1 };
@@ -181,59 +181,32 @@ function injuryWorld(t, { inWindow = true } = {}) {
   return world;
 }
 
-test('runDailyInjurySync: inside a game window it runs every 15 minutes, not every 10 (#1188)', async (t) => {
+for (const [label, inWindow, T] of [
+  ['inside a game window', true, new Date('2026-09-13T12:00:00-05:00')], // Sunday, first kickoff minus 90 min
+  ['outside a game window', false, new Date('2026-08-20T12:00:00-05:00')],
+]) {
+  test(`runDailyInjurySync ${label}: due at 15 minutes after the last ok run, not at 14 (#2115)`, async (t) => {
+    const world = injuryWorld(t, { inWindow });
+    assert.ok(await world.run(T), 'never run: due');
+    assert.equal(await world.run(new Date(T.getTime() + 14 * 60 * 1000)), null, 'fourteen minutes on: not yet');
+    assert.ok(await world.run(new Date(T.getTime() + 15 * 60 * 1000)), 'fifteen minutes on: runs');
+    assert.equal(world.calls, 2);
+  });
+}
+
+test('runDailyInjurySync is unchanged by degraded Tank01 quota: still due at 15 minutes, and quota is never read (#2115)', async (t) => {
   const world = injuryWorld(t, { inWindow: true });
-  const T = new Date('2026-09-13T12:00:00-05:00'); // Sunday, first kickoff minus 90 min
-  assert.ok(await world.run(T), 'first run of the window');
-  assert.equal(await world.run(new Date(T.getTime() + 10 * 60 * 1000)), null, 'ten minutes on: not yet');
-  assert.ok(await world.run(new Date(T.getTime() + 15 * 60 * 1000)), 'fifteen minutes on: runs');
-  assert.equal(world.calls, 2);
+  const tank01Client = require('../modules/tank01Client');
+  const quota = t.mock.method(tank01Client, 'getQuotaState', async () => ({ mode: 'degraded' }));
+  const T = new Date('2026-09-13T12:00:00-05:00');
+  assert.ok(await world.run(T));
+  assert.ok(await world.run(new Date(T.getTime() + 15 * 60 * 1000)), 'degraded quota does not double the cadence');
+  assert.equal(quota.mock.callCount(), 0, 'ESPN spends no Tank01 budget, so quota is not consulted');
 });
 
-test('runDailyInjurySync never consults the cadence gate while inside a game window', async (t) => {
-  // Inside a window, injurySyncDue/lastInjurySyncAt decide alone; the cadence
-  // gate is an outside-window concern only (#1509).
-  const world = injuryWorld(t, { inWindow: true });
-  const cadence = require('../modules/cadence');
-  let dueCalls = 0;
-  t.mock.method(cadence, 'due', async () => { dueCalls += 1; return { due: true, reason: 'stubbed due' }; });
-
-  await world.run(new Date('2026-09-13T12:00:00-05:00'));
-  assert.equal(dueCalls, 0);
-});
-
-test('injurySyncDue is the cadence rule against the window it is given; INJURY_GAME_WINDOW_MS doubles while quota is degraded', () => {
-  const now = new Date('2026-09-13T15:00:00-05:00');
-  const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, windowMs: 900000 }), true, 'never run: due regardless of window');
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), windowMs: 900000 }), true);
-  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), windowMs: 900000 }), false);
-  const prev = process.env.INJURY_GAME_WINDOW_MS;
-  delete process.env.INJURY_GAME_WINDOW_MS;
-  try {
-    assert.equal(scheduler.injuryGameWindowMs('ok'), 15 * 60 * 1000);
-    assert.equal(scheduler.injuryGameWindowMs('degraded'), 30 * 60 * 1000);
-    process.env.INJURY_GAME_WINDOW_MS = '60000';
-    assert.equal(scheduler.injuryGameWindowMs('ok'), 60000);
-  } finally {
-    if (prev === undefined) delete process.env.INJURY_GAME_WINDOW_MS; else process.env.INJURY_GAME_WINDOW_MS = prev;
-  }
-});
-
-// ---- outside a window: every INJURY_OFF_WINDOW_MS, 6 h (#2106) -------------
-// Replaces the once-per-UTC-day cadence gate (#1188, #1509): outside a window
-// the same last-successful-run read decides, against a 6 h window.
-
-test('runDailyInjurySync outside a window is due 6 h after the last ok run, not at 5 h (#2106)', async (t) => {
-  const world = injuryWorld(t, { inWindow: false });
-  const T = new Date('2026-08-20T12:00:00-05:00');
-  assert.ok(await world.run(T), 'never run: due');
-  assert.equal(await world.run(new Date(T.getTime() + 5 * 60 * 60 * 1000)), null, 'five hours on: not yet');
-  assert.ok(await world.run(new Date(T.getTime() + 6 * 60 * 60 * 1000)), 'six hours on: runs');
-  assert.equal(world.calls, 2);
-});
-
-test('runDailyInjurySync outside a window never consults the cadence gate', async (t) => {
+test('runDailyInjurySync never consults the cadence gate', async (t) => {
+  // injurySyncDue/lastInjurySyncAt decide alone; the cadence gate is not part
+  // of this job's decision (#1509).
   const world = injuryWorld(t, { inWindow: false });
   const cadence = require('../modules/cadence');
   let dueCalls = 0;
@@ -242,18 +215,18 @@ test('runDailyInjurySync outside a window never consults the cadence gate', asyn
   assert.equal(dueCalls, 0);
 });
 
-test('runDailyInjurySync propagates a thrown syncInjuries outside a window; the failed run does not move the gate', async (t) => {
+test('runDailyInjurySync propagates a thrown syncInjuries; the failed run does not move the gate', async (t) => {
   const world = injuryWorld(t, { inWindow: false });
   const T = new Date('2026-08-20T12:00:00-05:00');
   assert.ok(await world.run(T));
   world.fail = true;
-  const retryAt = new Date(T.getTime() + 6 * 60 * 60 * 1000);
-  await assert.rejects(world.run(retryAt), /Tank01 unavailable/);
+  const retryAt = new Date(T.getTime() + 15 * 60 * 1000);
+  await assert.rejects(world.run(retryAt), /ESPN unavailable/);
   world.fail = false;
   assert.ok(await world.run(new Date(retryAt.getTime() + 5 * 60 * 1000)), 'next tick retries off the last OK run');
 });
 
-test('runDailyInjurySync fails closed when the data_sync_runs read fails: no Tank01 call, the error surfaces', async (t) => {
+test('runDailyInjurySync fails closed when the data_sync_runs read fails: no sync, the error surfaces', async (t) => {
   const world = injuryWorld(t, { inWindow: false });
   const pool = require('../modules/pool');
   const original = pool.query;
@@ -264,16 +237,25 @@ test('runDailyInjurySync fails closed when the data_sync_runs read fails: no Tan
   assert.equal(world.calls, 0);
 });
 
-test('injuryOffWindowMs defaults to 6 h, honors INJURY_OFF_WINDOW_MS, and doubles while quota is degraded (#2106)', () => {
-  const prev = process.env.INJURY_OFF_WINDOW_MS;
-  delete process.env.INJURY_OFF_WINDOW_MS;
+test('injurySyncDue is the cadence rule against the window it is given', () => {
+  const now = new Date('2026-09-13T15:00:00-05:00');
+  const at = (minutesAgo) => new Date(now.getTime() - minutesAgo * 60 * 1000);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: null, windowMs: 900000 }), true, 'never run: due');
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(30), windowMs: 900000 }), true);
+  assert.equal(scheduler.injurySyncDue({ now, lastRunAt: at(10), windowMs: 900000 }), false);
+});
+
+test('injurySyncMs defaults to 15 minutes and honors INJURY_SYNC_MS (#2115)', () => {
+  const prev = process.env.INJURY_SYNC_MS;
+  delete process.env.INJURY_SYNC_MS;
   try {
-    assert.equal(scheduler.injuryOffWindowMs('ok'), 6 * 60 * 60 * 1000);
-    assert.equal(scheduler.injuryOffWindowMs('degraded'), 12 * 60 * 60 * 1000);
-    process.env.INJURY_OFF_WINDOW_MS = '60000';
-    assert.equal(scheduler.injuryOffWindowMs('ok'), 60000);
+    assert.equal(scheduler.injurySyncMs(), 15 * 60 * 1000);
+    process.env.INJURY_SYNC_MS = '60000';
+    assert.equal(scheduler.injurySyncMs(), 60000);
+    process.env.INJURY_SYNC_MS = 'not a number';
+    assert.equal(scheduler.injurySyncMs(), 15 * 60 * 1000, 'an unusable value falls back to the default');
   } finally {
-    if (prev === undefined) delete process.env.INJURY_OFF_WINDOW_MS; else process.env.INJURY_OFF_WINDOW_MS = prev;
+    if (prev === undefined) delete process.env.INJURY_SYNC_MS; else process.env.INJURY_SYNC_MS = prev;
   }
 });
 

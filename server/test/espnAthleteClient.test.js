@@ -625,6 +625,33 @@ test('teamRoster: an unknown team code resolves null with no call; a failed fetc
   assert.equal(await teamRoster('NYG', { transport: failing }), null);
 });
 
+// --- the league injuries document (#2115, ADR 0061) --------------------------
+
+test('injuries: one uncached GET of the league document; the athlete id comes from the player-card link, else the headshot, never the entry id', async () => {
+  const transport = fakeTransport(() => okResponse(require('./fixtures/espn/injuries.json')));
+  const rows = await espnAthleteClient.injuries({ transport });
+  assert.equal(transport.calls.length, 1);
+  assert.match(transport.calls[0].url, /site\.web\.api\.espn\.com\/apis\/site\/v2\/sports\/football\/nfl\/injuries$/);
+  assert.deepEqual(rows.map((r) => [r.athleteId, r.status]).sort(), [
+    ['3127287', 'Active'],
+    ['4428991', 'Injured Reserve'],
+    ['4870808', 'Questionable'], // link id; the entry id is 641386
+    ['4873232', 'Doubtful'],
+    ['5084939', 'Out'], // no link: the headshot filename
+  ]);
+});
+
+test('injuries: a failed GET and a document with no team groups both resolve null; a repeated athlete keeps his first entry', async () => {
+  assert.equal(await espnAthleteClient.injuries({ transport: fakeTransport(() => { throw httpError(403); }) }), null);
+  assert.equal(await espnAthleteClient.injuries({ transport: fakeTransport(() => okResponse({ injuries: [] })) }), null);
+  const twice = { injuries: [{ injuries: [
+    { status: 'Out', shortComment: 'first', athlete: { links: [{ href: 'https://www.espn.com/nfl/player/_/id/7/x' }] } },
+    { status: 'Active', athlete: { links: [{ href: 'https://www.espn.com/nfl/player/_/id/7/x' }] } },
+    { status: 'Out', athlete: {} },
+  ] }] };
+  assert.deepEqual(espnAthleteClient.normalizeInjuries(twice), [{ athleteId: '7', status: 'Out', detail: 'first' }]);
+});
+
 // --- NFL roster status on the card (#1766) ----------------------------------
 
 async function cardWithRosterRow(t, rosterRow) {

@@ -62,7 +62,7 @@ let lastCorrectionDay = null;
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
-// The Tank01 injury refresh keeps its last-run stamp in data_sync_runs, not
+// The ESPN injury refresh keeps its last-run stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
 // ADP market refresh (#747): the once-a-day decision is now the cadence gate's
 // own concern (#1509) - see runDailyAdpSync below.
@@ -138,18 +138,10 @@ async function runRetention() {
   }
 }
 
-/** Cadence of the injury sync inside a game window (#1188); env-tunable, doubled while quota is degraded. */
-function injuryGameWindowMs(quotaMode) {
-  const parsed = Number(process.env.INJURY_GAME_WINDOW_MS);
-  const base = Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
-  return quotaMode === 'degraded' ? base * 2 : base;
-}
-
-/** Cadence of the injury sync outside a game window (#2106); env-tunable, doubled while quota is degraded. */
-function injuryOffWindowMs(quotaMode) {
-  const parsed = Number(process.env.INJURY_OFF_WINDOW_MS);
-  const base = Number.isFinite(parsed) && parsed > 0 ? parsed : 6 * 60 * 60 * 1000;
-  return quotaMode === 'degraded' ? base * 2 : base;
+/** Cadence of the injury sync (#2115, ADR 0061); env-tunable. ESPN is free, so no quota doubling and no game-window split. */
+function injurySyncMs() {
+  const parsed = Number(process.env.INJURY_SYNC_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
 }
 
 /**
@@ -184,16 +176,14 @@ async function inGameWindow() {
     );
     return Boolean(res.rows[0]);
   } catch (err) {
-    console.warn('runDailyInjurySync: game-window read failed, treating as outside a window:', err.message);
+    console.warn('inGameWindow: game-window read failed, treating as outside a window:', err.message);
     return false;
   }
 }
 
 /**
  * Pure: should the injury sync run right now? Due when it never ran, or when
- * `windowMs` has passed since the last successful run. The caller passes the
- * game window's cadence inside a window (#1188) and the off-window cadence
- * (#2106) outside one.
+ * `windowMs` (`injurySyncMs()`) has passed since the last successful run.
  *
  * @param {{ now: Date, lastRunAt: ?Date, windowMs: number }} args
  */
@@ -203,25 +193,16 @@ function injurySyncDue({ now, lastRunAt, windowMs }) {
 }
 
 /**
- * Tank01 injury refresh: every INJURY_GAME_WINDOW_MS inside a game window and
- * every INJURY_OFF_WINDOW_MS (6 h) outside one (#2106, replacing the once-a-UTC-
- * day gate). Both decide off the last successful `injuries` run
+ * ESPN injury refresh (#2115, ADR 0061): every INJURY_SYNC_MS (15 min), inside
+ * and outside game windows alike, off the last successful `injuries` run
  * (`lastInjurySyncAt`, data_sync_runs), so a worker restart cannot re-run it
- * (#1188), and a thrown run records ok=false and does not move the gate, so
- * the next tick retries.
+ * (#1188), and a thrown run records ok=false and does not move the gate, so the
+ * next tick retries. ESPN's document is free and keyless: no credential gate
+ * and no quota mode.
  */
 async function runDailyInjurySync({ now = new Date() } = {}) {
-  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
-  const inWindow = await inGameWindow();
-  let quotaMode = 'ok';
-  try {
-    quotaMode = (await require('./tank01Client').getQuotaState()).mode;
-  } catch (err) {
-    quotaMode = 'ok';
-  }
   const lastRunAt = await lastInjurySyncAt();
-  const windowMs = inWindow ? injuryGameWindowMs(quotaMode) : injuryOffWindowMs(quotaMode);
-  if (!injurySyncDue({ now, lastRunAt, windowMs })) return null;
+  if (!injurySyncDue({ now, lastRunAt, windowMs: injurySyncMs() })) return null;
   const scoring = require('../services/feedSyncRuns.service');
   return scoring.syncInjuries({ now });
 }
@@ -1588,8 +1569,7 @@ module.exports = {
   syncEveryTicks,
   runDailyInjurySync,
   injurySyncDue,
-  injuryGameWindowMs,
-  injuryOffWindowMs,
+  injurySyncMs,
   runDailyAdpSync,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,

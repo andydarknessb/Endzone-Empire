@@ -16,7 +16,6 @@ const { tank01Get } = require('../modules/tank01Client');
 const { runSyncJob } = require('../modules/syncRun');
 const cadence = require('../modules/cadence');
 const { POSITION_GROUPS } = require('./lineup.service');
-const { normalizeNflTeam } = require('./nflTeam');
 const { normalizeNameKey } = require('./nameMatch');
 const { fantasySideWhereSql } = require('./leagueType');
 const { calculateFantasyPoints } = require('./scoringRules');
@@ -28,6 +27,7 @@ const {
 } = require('./boxScoreApply.service');
 const { aggregateSeasonStats } = require('./seasonSummary.service');
 const tank01BoxSource = require('./tank01BoxSource');
+const espnAthleteClient = require('../modules/espnAthleteClient');
 
 // Fantasy-relevant positions — Tank01's full player list includes every
 // position (OL, C, G, ...); only these are useful in a lineup. Individual
@@ -57,9 +57,8 @@ const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
  * 1,527 of 3,872 entries, every one still carrying a team label; Joe Mixon
  * "team":"HOU" six months after Houston released him). Reading `team` alone
  * kept every one of them rostered, projected at his old per-game pace and
- * ranked as a waiver Upgrade. The one reading both writers share, so the
- * unattended injury sync and the hand-run player sync can never disagree
- * about who is on a roster.
+ * ranked as a waiver Upgrade. Read by the player sync (`syncPlayers`), the only
+ * writer of `nfl_team` since the injuries job moved to ESPN (ADR 0061).
  */
 function feedTeamOf(entry) {
   if (!entry || String(entry.isFreeAgent).toLowerCase() === 'true') return null;
@@ -102,16 +101,13 @@ function normalizePlayerEntry(entry) {
  * are inserted). Not on the scheduler — trigger from the admin dashboard or
  * POST /api/scoring/sync-players.
  *
- * INSERTING new players is what this is for now. It is no longer the only
- * thing keeping an EXISTING player's team current: the daily injury sync reads
- * the same feed and corrects nfl_team on every run, so a roster move no longer
- * waits for someone to remember to press this. The one thing that
- * still needs a hand-run is a player who is not in our table at all.
+ * This is the only writer of `nfl_team` (the injuries job moved to ESPN and no
+ * longer touches it, #2115, ADR 0061) and never writes `injury_status` or
+ * `injury_detail`, which belong to the ESPN injuries job alone.
  *
- * Note the two writers differ on a blank team on purpose: this one writes the
- * feed's null through (a hand-run sync is a deliberate act, and clearing a
- * released player is a legitimate outcome of it), while the unattended daily
- * pass keeps the existing label instead.
+ * Note the blank team: this writes the feed's null through (a hand-run sync is
+ * a deliberate act, and clearing a released player is a legitimate outcome of
+ * it).
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
  * the advisory lock and the one data_sync_runs row per run, job 'players',
@@ -464,76 +460,37 @@ async function applyScheduleUnit(client, { season, games, failedWeeks }) {
   return { season, gamesUpserted: upserted, failedWeeks };
 }
 
-/**
- * Map a RapidAPI injury designation to our badge codes (Q/D/O/IR).
- *
- * Exported as a test-only seam (an injury normaliser), not cross-module
- * interface: no other module calls this directly.
- */
-function normalizeInjuryStatus(raw) {
-  const s = String(raw || '').toLowerCase();
-  if (!s) return null;
-  if (s.includes('injured reserve') || /\bir\b/.test(s)) return 'IR';
-  if (s.includes('question')) return 'Q';
-  if (s.includes('doubt')) return 'D';
-  if (s.includes('out')) return 'O';
-  return null;
-}
-
-// #1385: the size floor the unattended injury pass judges its own feed
-// against before it trusts a departure. A player absent from
-// getNFLPlayerList (or listed with no team) reads as "left the NFL" only
-// when the feed itself looks like a real player list; a short or truncated
-// response must never be able to read as the whole league departing at
-// once. An absolute floor over the UNFILTERED feed (not FANTASY_POSITIONS,
-// and not derived at runtime from a prior run - ruling (2)'s "a constant
-// near the observed list size"). Observed (formal-001 f1, a project-lead
-// read-only prod query, 2026-09-15): data_sync_runs' injuries runs report
-// playersUpdated 3254 - itself a LOWER bound, since it counts only feed
-// entries that matched a stored players row, never the feed's own total
-// length. Set with roughly 250 of headroom below that observed floor for
-// ordinary day-to-day roster churn (a cut, a signing, a practice-squad
-// churn shifting who matches), while staying close enough that a feed
-// truncated to a fraction of the real list still trips it - unlike the
-// prior 1500, which a ~1,600-entry truncation would have cleared.
-const NFL_PLAYER_LIST_FLOOR = 3000;
+// #2115, ADR 0061: ESPN's injuries document uses exactly five designation
+// strings. Exact match, no guessing; Active is healthy, like an unlisted player.
+const ESPN_INJURY_STATUS = Object.freeze({
+  Questionable: 'Q', Doubtful: 'D', Out: 'O', 'Injured Reserve': 'IR', Active: null,
+});
 
 /**
- * Injury sync: Tank01's player list carries each player's current injury
- * designation AND his current team, so one getNFLPlayerList call refreshes
- * both. Players with no current designation are cleared back to healthy; a
- * player the feed has moved gets his nfl_team corrected in the same bulk write.
- * This is the only UNATTENDED writer of that column — syncPlayers is manual —
- * so without it a team label frozen at the last hand-run sync survives every
- * signing, trade and practice-squad elevation for the rest of the season. Player-row locks make overlapping manual/scheduled syncs observe
- * transitions exactly once; IR flag rows commit with the designation updates
- * before best-effort push.
+ * Injury sync (#2115, ADR 0061): ESPN's league-wide injuries document is the
+ * only writer of `players.injury_status` and `players.injury_detail`. One free
+ * GET, every player with an external_id written: listed Questionable, Doubtful,
+ * Out and Injured Reserve map to Q, D, O and IR; Active and any player the
+ * document does not list are cleared back to healthy. It no longer touches
+ * `nfl_team` (the Tank01 player sync owns the player row, ADR 0061). Player-row
+ * locks make overlapping manual/scheduled syncs observe transitions exactly
+ * once; IR flag rows commit with the designation updates before best-effort
+ * push.
  *
  * `now` (#1509, spec #1493 "UTC day everywhere"): the UTC calendar day this
  * run belongs to, computed once via `cadence.utcDateKey(now)` and carried as
- * `detail.day` on the recorded row alongside `floorGuardTripped` (both are
- * run-level, not any one unit's own apply result). Defaults to `new Date()`
- * so the router caller (scoring.router.js) and admin.router.js are unchanged;
- * the scheduler (`runDailyInjurySync`) passes its own `now`. `day` is also the
- * fingerprint's day for the #2106 injury alerts.
- *
- * #1385: this is also the only writer that ever clears nfl_team for a player
- * who has left the NFL - present in our table but absent from the feed, or
- * present with no team - and it does so only when the feed cleared
- * NFL_PLAYER_LIST_FLOOR (see applyInjuryUnit). A cleared nfl_team is a
- * display fact only (CONTEXT.md's No NFL team): it locks nothing and refuses
- * no start. Ruling (4'): the clear is itself deferred - his label kept
- * exactly as stored - while his own team has a kicked-off game in a live
- * league's current week (openKickoffTeams), since the lock helper reads this
- * same column live and a departure clear mid-lock would unlock an as-played
- * row (risk-001 f1, #627).
+ * `detail.day` on the recorded row. Defaults to `new Date()` so the router
+ * callers (scoring.router.js, admin.router.js) are unchanged; the scheduler
+ * (`runDailyInjurySync`) passes its own `now`. `day` is also the fingerprint's
+ * day for the #2106 injury alerts. `fetchInjuries` is a test seam: production
+ * always calls espnAthleteClient.injuries.
  */
-async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
+async function syncInjuries({ fetchInjuries = espnAthleteClient.injuries, now = new Date() } = {}) {
   // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
   // the advisory lock and the one data_sync_runs row per run - the shape
   // #961 hand-rolled here is now written once, in server/modules/syncRun.js.
-  // syncInjuries has TWO outcomes and no refusal: it returns, or it throws (an
-  // empty or fully unmatched feed is a legitimate ok=true run with
+  // syncInjuries has TWO outcomes and no refusal: it returns, or it throws (a
+  // document listing nobody we store is a legitimate ok=true run with
   // playersUpdated 0, not a refusal, so fetchInjuryUnits never returns
   // `{ refused: true }`). The IR flag push is deliberately OUTSIDE runSyncJob:
   // it must run only after the designation write has committed, and it is not
@@ -544,7 +501,7 @@ async function syncInjuries({ api = tank01Get, now = new Date() } = {}) {
   const { results: [result] } = await runSyncJob({
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
-    fetch: () => fetchInjuryUnits(api, day),
+    fetch: () => fetchInjuryUnits(fetchInjuries, day),
     apply: (client, unit) => applyInjuryUnit(client, unit, (flags, changes) => {
       irFlagsForPush = flags;
       injuryChanges = changes;
@@ -615,59 +572,37 @@ async function sendInjuryAlerts(changes, day) {
 
 /**
  * fetch() for the injuries job: runs before any transaction or lock. Returns
- * one unit - `{ feedByExternal, floorGuardTripped }`, the whole Tank01 player
- * list boiled down to what apply needs - since this job's entire feed is one
- * atomic write (ADR 0036: "injuries: one unit, the Tank01 player list").
- * `floorGuardTripped` is also carried as run-level `detail` (#1202) so a
- * short feed's guard state is logged on the run's data_sync_runs row even
- * though it belongs to the whole run, not to apply's own result. `day`
- * (#1509) is `syncInjuries`'s already-computed UTC day key, carried
- * alongside `floorGuardTripped` in the same run-level `detail`.
+ * one unit - `{ feedByExternal }`, the ESPN document boiled down to `{ status:
+ * 'Q'|'D'|'O'|'IR'|null, detail }` per athlete id - since this job's entire
+ * feed is one atomic write (ADR 0036: "injuries: one unit"). An unknown ESPN
+ * status string maps to null and is logged once per run. `day` (#1509) is
+ * `syncInjuries`'s already-computed UTC day key, carried as run-level `detail`.
  */
-async function fetchInjuryUnits(api, day) {
-  let response;
-  try {
-    response = await api('/getNFLPlayerList');
-  } catch (error) {
-    // Upstream: the Tank01 call itself threw. Tagged here because such an error
-    // carries no statusCode, so it cannot be told apart from a database failure
-    // downstream without a tag - the exact conflation finding 1 called out.
-    // runSyncJob tags an untagged throw fetch_failed anyway; this tag is set
-    // explicitly so the site that knows WHY (an upstream call) says so.
-    error.syncFailureReason = error.syncFailureReason || 'fetch_failed';
-    throw error;
-  }
-  const entries = tank01Body(response.data) || [];
-  if (!Array.isArray(entries)) {
-    const err = new Error('unexpected getNFLPlayerList response shape');
-    err.statusCode = 502;
-    err.syncFailureReason = 'bad_response';
+async function fetchInjuryUnits(fetchInjuries, day) {
+  const rows = await fetchInjuries();
+  if (!Array.isArray(rows)) {
+    // The client answers null for a failed GET and for a document with no team
+    // groups; an empty league would otherwise read as everyone healthy.
+    const err = new Error('ESPN injuries document unavailable');
+    err.syncFailureReason = 'fetch_failed';
     throw err;
   }
-  // getNFLPlayerList carries each player's CURRENT team alongside the injury
-  // designation, so this one call refreshes both. `team` is read exactly
-  // the way normalizePlayerEntry reads it for syncPlayers, so both
-  // writers put the same vocabulary (Tank01's raw abbreviation, WSH not WAS)
-  // into players.nfl_team and the nfl_games join keeps working.
   const feedByExternal = new Map();
-  for (const entry of entries) {
-    if (!entry || entry.playerID == null) continue;
-    const injury = entry.injury || {};
-    feedByExternal.set(String(entry.playerID), {
-      status: normalizeInjuryStatus(injury.designation),
-      detail: injury.description ? String(injury.description).slice(0, 255) : null,
-      // null for a player the feed lists with no team, flags as off every
-      // roster, or omits entirely (No NFL team, CONTEXT.md). Whether that
-      // null actually clears the stored label depends on floorGuardTripped
-      // below, checked once in applyInjuryUnit rather than per row here.
-      team: feedTeamOf(entry),
+  const unknown = new Set();
+  for (const row of rows) {
+    const known = Object.prototype.hasOwnProperty.call(ESPN_INJURY_STATUS, row.status);
+    if (!known) unknown.add(String(row.status));
+    const status = known ? ESPN_INJURY_STATUS[row.status] : null;
+    feedByExternal.set(String(row.athleteId), {
+      status,
+      // A healthy (Active) entry carries a news note, not an injury: no detail.
+      detail: status && row.detail ? String(row.detail).slice(0, 255) : null,
     });
   }
-  // #1385: below the floor, the feed is too small to trust as a real player
-  // list - a transient truncation must never read as the whole league
-  // departing at once - so applyInjuryUnit clears no nfl_team this run.
-  const floorGuardTripped = feedByExternal.size < NFL_PLAYER_LIST_FLOOR;
-  return { units: [{ feedByExternal, floorGuardTripped }], detail: { day, floorGuardTripped } };
+  if (unknown.size > 0) {
+    console.warn(`injury sync: unknown ESPN status treated as healthy: ${[...unknown].join(', ')}`);
+  }
+  return { units: [{ feedByExternal }], detail: { day } };
 }
 
 /**
@@ -683,9 +618,9 @@ async function fetchInjuryUnits(api, day) {
  *
  * Returns exactly the shape recorded as this run's data_sync_runs detail on
  * success, and returned to syncInjuries's own caller: `{ playersUpdated,
- * irFlags, teamChanges, teamsCleared, teamsDeferred }`.
+ * irFlags }`. `playersUpdated` counts players the document listed.
  */
-async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, onIrFlags, now = new Date()) {
+async function applyInjuryUnit(client, { feedByExternal }, onIrFlags, now = new Date()) {
   // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
   // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
   // different order across its wipe and bulk set. Both writers take one
@@ -711,169 +646,75 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   // destroys, which drops the socket so Postgres frees the session's locks on
   // disconnect.
   const playersResult = await client.query(
-    `SELECT "id", "external_id", "injury_status", "nfl_team"
+    `SELECT "id", "external_id", "injury_status"
        FROM "players" WHERE "external_id" IS NOT NULL
        FOR UPDATE`
   );
-  // Build four parallel arrays (ids int[], statuses/details/teams text[]) over
-  // every feed match - resolved immediately in the first loop below, or a
-  // clear candidate resolved once deferral is known in the second - mirroring
-  // syncAdp's bulk idiom. A cleared designation writes null into both text
-  // columns, and nulls survive into the text[] as SQL NULL. transitions is
-  // built over the SAME matches and drives both playersUpdated and the IR
-  // flag pass, independent of which rows the statement actually writes or
-  // which of the two loops appended them (the bulk UPDATE and
-  // flagRecoveredIrStashes are both order-independent over these arrays).
-  //
-  // #1385: departedIds is separate from ids/statuses/details/teams on purpose.
-  // A player absent from the feed gets no `feed` entry at all, so there is no
-  // designation or detail to write for him - only nfl_team, cleared by its own
-  // bulk UPDATE below rather than by widening this statement's arrays with
-  // values that would no-op the other two columns.
+  // Three parallel arrays (ids int[], statuses/details text[]) over EVERY
+  // player with an external_id, mirroring syncAdp's bulk idiom: a player the
+  // document does not list is healthy, so he is written null into both text
+  // columns (nulls survive into the text[] as SQL NULL). transitions is built
+  // over the same players and drives the IR flag pass and the #2106 alerts.
   const transitions = [];
   const ids = [];
   const statuses = [];
   const details = [];
-  const teams = [];
-  const departedIds = [];
-  let teamChanges = 0;
-  let teamsCleared = 0;
-  let teamsDeferred = 0;
-  // #1385 ruling (4'): a clear candidate - absent from the feed, or listed
-  // with a blank team, with floorGuardTripped allowing a clear at all - is
-  // not decided here. Clearing his label is only safe once we know whether
-  // his OWN team currently has an open week's game already kicked off
-  // (openKickoffTeams below); collecting candidates first means that lookup
-  // runs at most once per run, and not at all for the common run that clears
-  // nobody.
-  const clearCandidates = []; // { player, feed: feed-match or null for absent }
-  // formal-001 f4: the append-one-feed-match shape (push the same row onto
-  // all four parallel arrays plus transitions) is identical at every site
-  // that resolves a feed match - only the team value differs - so it is
-  // written once here instead of three times, keeping a future fifth column
-  // from drifting out of sync at one of the three sites.
-  const pushMatch = (player, feed, team) => {
+  let listed = 0;
+  for (const player of playersResult.rows) {
+    const feed = feedByExternal.get(String(player.external_id));
+    if (feed) listed += 1;
+    const status = feed ? feed.status : null;
     ids.push(player.id);
-    statuses.push(feed.status);
-    details.push(feed.detail);
-    teams.push(team);
+    statuses.push(status);
+    details.push(feed ? feed.detail : null);
     transitions.push({
       playerId: player.id,
       previousDesignation: player.injury_status,
-      currentDesignation: feed.status,
+      currentDesignation: status,
     });
-  };
-  for (const player of playersResult.rows) {
-    const feed = feedByExternal.get(String(player.external_id));
-    if (!feed) {
-      // Not in the feed at all: below NFL_PLAYER_LIST_FLOOR this stays exactly
-      // the old behavior (leave untouched - a short feed must never read as a
-      // departure).
-      if (!floorGuardTripped && player.nfl_team) clearCandidates.push({ player, feed: null });
-      continue;
-    }
-    if (feed.team === null && !floorGuardTripped && player.nfl_team) {
-      // A blank team, at or above the floor: same candidacy as an absent
-      // player (CONTEXT.md's No NFL team), decided in the same place below.
-      clearCandidates.push({ player, feed });
-      continue;
-    }
-    // Every other case resolves immediately: a real team from the feed (a
-    // move or a same-team confirmation), or a blank team kept as the stored
-    // label because the floor tripped - the old behavior, unconditionally.
-    const team = feed.team !== null ? feed.team : player.nfl_team;
-    if (team !== player.nfl_team) teamChanges += 1;
-    pushMatch(player, feed, team);
   }
-  // #1385 ruling (4'): a clear candidate is DEFERRED - his label kept exactly
-  // as stored - while his own team has a kicked-off game in any OPEN week (a
-  // live fantasy league's own current_season/current_week). Deferring keeps
-  // removeLineupEntries' as-played spent-slot check (#627) working off a real
-  // team for exactly as long as that team's current week can still matter;
-  // the first run after every league carrying it advances past that week
-  // clears him normally. risk-001 f1: this is why the lock helper itself
-  // stays untouched.
-  const deferredTeams = clearCandidates.length > 0 ? await openKickoffTeams(client) : new Set();
-  for (const { player, feed } of clearCandidates) {
-    const deferred = deferredTeams.has(normalizeNflTeam(player.nfl_team));
-    if (deferred) {
-      teamsDeferred += 1;
-      if (!feed) continue; // absent + deferred: untouched, same as below the floor
-      // A blank-team feed match still refreshes his designation/detail
-      // normally; only the team stays (the SAME row shape every other feed
-      // match takes, just with the stored team instead of null).
-      pushMatch(player, feed, player.nfl_team);
-      continue;
-    }
-    teamsCleared += 1;
-    if (!feed) {
-      departedIds.push(player.id);
-      continue;
-    }
-    pushMatch(player, feed, null);
-  }
-  // One bulk UPDATE replaces the per-player loop. The three-column
-  // IS DISTINCT FROM predicate against the target row p skips no-op rows (all
-  // three columns unchanged), so an unchanged row costs no write and the FOR
-  // UPDATE scan does not need widening to compare injury_detail in JS. Guarded
-  // on a non-empty id list the way syncAdp guards its own bulk set.
+  // One bulk UPDATE. The IS DISTINCT FROM predicate against the target row p
+  // skips no-op rows, so an unchanged row costs no write. Guarded on a
+  // non-empty id list the way syncAdp guards its own bulk set.
   //
   // #1789: RETURNING carries back exactly the ids the predicate actually
-  // wrote - a real designation/team change, never a no-op match - which is
-  // the "changed ids" the availability reconcile below scopes to.
+  // wrote - a real designation change, never a no-op match - which is the
+  // "changed ids" the availability reconcile below scopes to.
   let changedIds = [];
   if (ids.length > 0) {
     const updateResult = await client.query(
       `UPDATE "players" p
-          SET "injury_status" = v."status", "injury_detail" = v."detail",
-              "nfl_team" = v."team"
+          SET "injury_status" = v."status", "injury_detail" = v."detail"
          FROM (SELECT unnest($1::int[]) AS "id",
                       unnest($2::text[]) AS "status",
-                      unnest($3::text[]) AS "detail",
-                      unnest($4::text[]) AS "team") v
+                      unnest($3::text[]) AS "detail") v
         WHERE p."id" = v."id"
           AND (p."injury_status" IS DISTINCT FROM v."status"
-               OR p."injury_detail" IS DISTINCT FROM v."detail"
-               OR p."nfl_team" IS DISTINCT FROM v."team")
+               OR p."injury_detail" IS DISTINCT FROM v."detail")
         RETURNING p."id"`,
-      [ids, statuses, details, teams]
+      [ids, statuses, details]
     );
     changedIds = updateResult.rows.map((row) => row.id);
   }
-  // #1385: the departure clear is its own bulk statement, touching only
-  // nfl_team - a player the feed does not list at all has no status/detail
-  // value to carry through the statement above.
-  if (departedIds.length > 0) {
-    await client.query(
-      `UPDATE "players" SET "nfl_team" = NULL WHERE "id" = ANY($1::int[])`,
-      [departedIds]
-    );
-  }
   // #1789: the cached engine's availability verdict goes stale the instant a
-  // designation, a team clear, or (through the roster-status sync/nightly
-  // sweep below) a roster move changes the facts it was computed from -
-  // `reconcileAvailability` (projection.service.js) is the one place that
-  // recompute lives. Scoped to exactly `changedIds` (a real designation/team
-  // move) plus `departedIds` (a cleared No NFL team, its own verdict input) -
-  // never the untouched no-op matches in `ids`. Runs on THIS transaction's
-  // client, deliberately, rather than after commit: the reconcile's own read
-  // must see the write above (a departure this run just cleared, say)
-  // without a race window against a concurrent reader between commit and a
-  // later, separate connection. A SAVEPOINT (not `withTransaction`/a second
+  // designation changes - `reconcileAvailability` (projection.service.js) is
+  // the one place that recompute lives, scoped to exactly `changedIds`. Runs on
+  // THIS transaction's client, deliberately, rather than after commit: the
+  // reconcile's own read must see the write above without a race window
+  // against a concurrent reader. A SAVEPOINT (not `withTransaction`/a second
   // unit) isolates it: `SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO
   // SAVEPOINT` never close the pooled transaction (#1723, the hand-rolled-
   // transaction guard's own carve-out), so a reconcile failure rolls back
   // only its own work and never poisons or aborts the designation write this
   // unit already committed to writing - matching the "log and continue"
   // rule every trigger of this reconcile follows.
-  const reconcileIds = [...changedIds, ...departedIds];
-  if (reconcileIds.length > 0) {
+  if (changedIds.length > 0) {
     try {
       const { reconcileAvailability, liveReconcileScope } = require('./projection.service');
       await client.query('SAVEPOINT reconcile_availability');
       const scope = await liveReconcileScope(client);
       if (scope) {
-        await reconcileAvailability({ ...scope, playerIds: reconcileIds, client, now });
+        await reconcileAvailability({ ...scope, playerIds: changedIds, client, now });
       }
       await client.query('RELEASE SAVEPOINT reconcile_availability');
     } catch (err) {
@@ -888,163 +729,11 @@ async function applyInjuryUnit(client, { feedByExternal, floorGuardTripped }, on
   const { flagRecoveredIrStashes } = require('./irPolicy.service');
   const irFlags = await flagRecoveredIrStashes(client, transitions);
   onIrFlags(irFlags, transitions.filter((tr) => (tr.previousDesignation ?? null) !== (tr.currentDesignation ?? null)));
-  // playersUpdated counts feed matches (the length of transitions), not the
-  // statement's rowCount: under the no-op predicate the two legitimately
-  // differ, and the count an admin reads must not silently shrink to the
-  // handful of rows that changed. It does not count a departure clear -
-  // teamsCleared is that signal instead, since a departed player carries no
-  // feed match (no designation, no detail) to call an "update" of him.
-  //
-  // teamChanges counts the matches whose nfl_team the feed moved to a
-  // DIFFERENT team. It is the only signal that this pass is keeping team
-  // labels current at all: a stale label is invisible until it misroutes
-  // something (the bug behind this was found because a player's stat line
-  // landed in a week his listed team had not played), and a run that silently
-  // stopped correcting teams reads as a healthy run without it. Expect a
-  // handful in-season and 0 on a quiet day.
-  //
-  // teamsCleared (#1385) counts every player whose label went to null this
-  // run - absent from the feed, or listed with no team - which is a
-  // DEPARTURE, not a move, and is kept out of teamChanges so the two counters
-  // answer two different questions: how many players changed teams, and how
-  // many left the NFL. teamsCleared stays 0 below NFL_PLAYER_LIST_FLOOR by
-  // construction (floorGuardTripped short-circuits both sites that would
-  // otherwise set it). teamChanges does NOT: a real move to a different team
-  // reported by the feed is still counted and still written below the floor -
-  // the floor guards only a departure/blank reading as a clear, not the
-  // pass's ordinary team-correction behavior, which predates #1385 unchanged.
-  //
-  // teamsDeferred (#1385 ruling (4')) counts every clear candidate held back
-  // this run because his own team still has a kicked-off game in an OPEN
-  // week - the risk-001 f1 fix: clearing him now would read as a departure
-  // to removeLineupEntries' as-played check (#627) for a slot that has
-  // already been played. A deferred player is untouched, same as one below
-  // the floor; the next run he is still a candidate, and clears (or defers
-  // again, if a different league is still on that week) exactly the same way.
-  return {
-    playersUpdated: transitions.length,
-    irFlags: irFlags.length,
-    teamChanges,
-    teamsCleared,
-    teamsDeferred,
-  };
-}
-
-/**
- * #1385 ruling (4'), bounded by #1391's ruling: the set of Team codes (folded
- * through fn_normalize_nfl_team on both sides, CONTEXT.md's Team code) with a
- * kicked-off nfl_games row for any OPEN week - a (current_season,
- * current_week) pair belonging to a league whose fantasy season is live
- * (`fantasySeasonLiveWhereSql`, leaguePhase.js: the same rule the scheduler's
- * own live-week sync uses, scheduler.js's syncAndScoreLiveWeeks) - that is
- * STILL within one NFL week of the calendar. #1385 left "open week"
- * unbounded: one league whose commissioner stops advancing pinned every
- * departure on its current-week teams, for every league, until that league's
- * season completed. #1391's bound: with N = `deriveNflWeek` (the same pure
- * function the pick'em lifecycle uses, pickemSeason.service.js) over that
- * season's `getSeasonWeekBounds`, an open week `(S, W)` counts only while
- * `W >= N - 1` - the week in play and the week just finished, one NFL week of
- * grace for the commissioner to advance. A league two or more weeks behind
- * the calendar holds nobody's label; its clear candidates on that team clear
- * and count in teamsCleared instead of teamsDeferred. N is computed once per
- * distinct season among the open weeks, not once per league.
- *
- * A season whose OWN calendar has fully closed (`seasonHasClosed`,
- * pickemSeason.service.js) is bounded differently: `deriveNflWeek` saturates
- * at REG_SEASON_WEEKS once every week has closed (its own doc comment:
- * "answers 18 both for 'week 18 is being played' and 'everything is over'"),
- * so `W >= N - 1` alone would hold forever for a league parked at week 17 or
- * 18 of a season that finished seasons ago - exactly the unbounded pin this
- * ruling removes, surviving at the tail of the season. #1391's season-tail
- * amendment (https://github.com/andydarknessb/Endzone-Empire/issues/1391#issuecomment-5680673660)
- * gives the season's own LAST week (L, the largest week in `bounds`) one more
- * NFL week of grace past its own last kickoff (T), since it has no following
- * week to hold its grace the way every other week does: an open week counts
- * only while `W >= L` AND `now < T + CLOSED_SEASON_TAIL_GRACE_MS`. Once that
- * instant passes, the season holds nobody's label - a closed season past its
- * own tail grace has no lineup left to unlock, the same as a league two-plus
- * weeks behind a still-open calendar.
- *
- * A team in the returned set is mid-lineup-lock somewhere right now: clearing
- * a departed/blank player's label while his OWN team is in it would read as a
- * departure to removeLineupEntries' as-played spent-slot check (#627) for a
- * row that has already been played - risk-001 f1. Read at most once per
- * applyInjuryUnit run, and only when there is at least one clear candidate to
- * judge against it; a run with none never queries this at all. No live league
- * at all (nobody mid-season) answers the empty set with one query, not two.
- */
-// #1391 season-tail amendment: the grace of "the week just finished" ends
-// when the FOLLOWING week closes for every ordinary week; a season's own last
-// week (18 with a full schedule) has no following week, so its grace instead
-// ends one NFL week - seven days, the calendar's own period - after its own
-// last kickoff, plus the same WEEK_ROLLOVER_GRACE_HOURS every other week's
-// rollover already uses. Named and commented beside its one use in
-// `openKickoffTeams` rather than reused from pickemSeason.service.js's
-// WEEK_SPAN_DAYS, which is also seven days but names an unrelated fact (how
-// far a rescheduled game may sit from its week's median kickoff before it
-// stops holding that week open) - this is a grace period, not a staleness
-// allowance, and the two must not drift together by accident.
-const CLOSED_SEASON_TAIL_GRACE_DAYS = 7;
-
-async function openKickoffTeams(client) {
-  const { fantasySeasonLiveWhereSql } = require('./leaguePhase');
-  const {
-    deriveNflWeek, getSeasonWeekBounds, seasonHasClosed, WEEK_ROLLOVER_GRACE_HOURS,
-  } = require('./pickemSeason.service');
-  const openWeeks = await client.query(
-    `SELECT DISTINCT "current_season", "current_week" FROM "leagues"
-      WHERE ${fantasySeasonLiveWhereSql()}`
-  );
-  if (openWeeks.rows.length === 0) return new Set();
-  // #1391: bound each open week to the NFL calendar before it can hold any
-  // team's departure. clock time, not the frozen transaction timestamp,
-  // matters far less here than for the kickoff read below - the calendar
-  // does not move mid-transaction - so `new Date()` is fine.
-  const now = new Date();
-  const tailGraceMs = (CLOSED_SEASON_TAIL_GRACE_DAYS * 24 * 60 * 60 * 1000)
-    + (WEEK_ROLLOVER_GRACE_HOURS * 60 * 60 * 1000);
-  const seasonStateBySeason = new Map();
-  const boundedWeeks = [];
-  for (const row of openWeeks.rows) {
-    const season = row.current_season;
-    if (!seasonStateBySeason.has(season)) {
-      const bounds = await getSeasonWeekBounds({ season, db: client });
-      const closed = seasonHasClosed(bounds, now);
-      // seasonHasClosed true implies bounds saw at least one valid week, so
-      // this reduce always has a row to start from when closed is true.
-      const lastWeek = closed
-        ? bounds.reduce((latest, bound) => (bound.week > latest.week ? bound : latest))
-        : null;
-      seasonStateBySeason.set(season, {
-        nflWeek: deriveNflWeek(bounds, now),
-        closed,
-        tailWeek: lastWeek ? lastWeek.week : null,
-        tailOpen: lastWeek ? now.getTime() < lastWeek.lastKickoffAt.getTime() + tailGraceMs : false,
-      });
-    }
-    const { nflWeek, closed, tailWeek, tailOpen } = seasonStateBySeason.get(season);
-    if (closed) {
-      if (tailOpen && row.current_week >= tailWeek) boundedWeeks.push(row);
-    } else if (row.current_week >= nflWeek - 1) {
-      boundedWeeks.push(row);
-    }
-  }
-  if (boundedWeeks.length === 0) return new Set();
-  const seasons = boundedWeeks.map((row) => row.current_season);
-  const weeks = boundedWeeks.map((row) => row.current_week);
-  const kickedOff = await client.query(
-    // clock_timestamp(), not NOW(): this is a long-held transaction (the
-    // players FOR UPDATE scan plus the advisory-lock wait ahead of it), and
-    // NOW()/transaction_timestamp() freezes at BEGIN - a game that kicks off
-    // mid-transaction would otherwise read as not-yet-kicked-off here.
-    `SELECT DISTINCT fn_normalize_nfl_team("ng"."nfl_team") AS "team"
-       FROM "nfl_games" "ng"
-       JOIN (SELECT unnest($1::int[]) AS "season", unnest($2::int[]) AS "week") "ow"
-         ON "ng"."season" = "ow"."season" AND "ng"."week" = "ow"."week"
-      WHERE "ng"."kickoff_at" <= clock_timestamp()`,
-    [seasons, weeks]
-  );
-  return new Set(kickedOff.rows.map((row) => row.team));
+  // playersUpdated counts players the document listed, not the statement's
+  // rowCount: under the no-op predicate the two legitimately differ, and the
+  // count an admin reads must not silently shrink to the handful of rows that
+  // changed.
+  return { playersUpdated: listed, irFlags: irFlags.length };
 }
 
 /**
@@ -1442,14 +1131,12 @@ async function applySyncPlayerSeasonStatsUnit(client, { cutoff, entries }) {
 module.exports = {
   missingTeamDefenses,
   syncTeamDefenses,
-  normalizeInjuryStatus,
   normalizePlayerEntry,
   IDP_POSITIONS,
   DEFENSIVE_POSITIONS,
   syncWeekStats,
   syncSchedule,
   syncInjuries,
-  NFL_PLAYER_LIST_FLOOR,
   syncPlayers,
   syncPlayerSeasonStats,
 };
