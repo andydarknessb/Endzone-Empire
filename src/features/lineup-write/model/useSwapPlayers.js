@@ -23,6 +23,11 @@ const REFUSAL_COPY = {
   ineligible: "That player can't fill that slot",
 };
 
+// Refusals that shut an empty slot's quick pick entirely: the league is
+// unsettled, or Best Ball leaves the slot unmanaged. Any other refusal just
+// leaves the menu's own empty state to say nobody fits.
+const SLOT_CLOSED = new Set(['unsettled', 'best_ball']);
+
 /**
  * swap-players feature (#1237, ADR 0019: Lineup is the sole team management
  * surface): select-then-target swap, slot-first quick pick, and the
@@ -85,6 +90,12 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
 
   const closeQuickPick = () => setQuickPick(null);
 
+  // Quick pick asks the rule about moving `e` into the empty `slot`. A player
+  // already in that slot type is no candidate: the server skips that move.
+  const quickPickCandidates = (slot) => list.filter((e) => e.slot !== slot);
+  const fillLegality = (e, slot) =>
+    moveLegality({ entry: e, targetEntry: null, targetSlot: slot, bestBall, leagueUnsettled });
+
   // A refusal says why when it has copy, and drops the selection that led to it.
   const refuse = (reason) => {
     const copy = REFUSAL_COPY[reason];
@@ -96,8 +107,12 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
   const onRowClick = (entry, slotType, event) => {
     if (!selectedEntry) {
       if (!entry) {
-        // An empty slot opens its quick pick only when someone could fill it.
-        if (!list.some((e) => isEligibleMove({ selectedEntry: e, targetEntry: null, targetSlot: slotType, bestBall, leagueUnsettled }))) return;
+        // An empty slot always opens its quick pick (its empty state is the
+        // feedback when nobody fits), unless the rule refuses every candidate
+        // for a reason that makes the whole slot unmanageable right now.
+        const candidates = quickPickCandidates(slotType);
+        const slotClosed = candidates.length > 0 && candidates.every((e) => SLOT_CLOSED.has(fillLegality(e, slotType).reason));
+        if (slotClosed) return;
         setQuickPick({ anchorEl: event?.currentTarget, slotType });
         return;
       }
@@ -140,7 +155,7 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
   };
 
   const quickPickEligible = quickPick
-    ? list.filter((e) => isEligibleMove({ selectedEntry: e, targetEntry: null, targetSlot: quickPick.slotType, bestBall, leagueUnsettled }))
+    ? quickPickCandidates(quickPick.slotType).filter((e) => fillLegality(e, quickPick.slotType).ok)
     : [];
 
   const handleQuickPickSelect = (chosenPlayerId) => {

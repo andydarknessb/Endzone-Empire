@@ -6,9 +6,10 @@ import { isEligibleMove } from '../../../features/lineup-write';
  * The Decision card's own two derived move sets (#1240, ADR 0037 AC2/AC4).
  *
  * Both are built on `isEligibleMove` (formal review round 2, findings
- * r1/r2/r3/r4/r5): the SAME pure legality rule `useSwapPlayers`' own
- * `onRowClick`/`isEligibleTarget` enforce, exported from `lineup-write` so
- * this card never keeps its own copy of that rule to fall out of sync with.
+ * r1/r2/r3/r4/r5): the boolean face of `moveLegality` (`entities/roster`,
+ * #2052), the SAME rule `useSwapPlayers`' own `onRowClick`/`isEligibleTarget`
+ * ask, exported from `lineup-write` so this card never keeps its own copy of
+ * that rule to fall out of sync with.
  * That is exactly what happened in round 1 - hand-enumerated
  * locked/spent/bestBall conditions here had already missed a spent
  * starter's Bench button, a spent Start target, and the whole rule while
@@ -90,8 +91,8 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
         // lock check, `locked(targetEntry)`, is unconditional and always
         // refuses a locked candidate regardless of what else is omitted.)
         // The candidate's own lock is the floor when `entry` itself is
-        // absent; `isEligibleMove` would refuse outright there (its own
-        // `!selectedEntry` guard), so this fallback is deliberately more
+        // absent; `isEligibleMove` would refuse outright there (`moveLegality`'s
+        // own no-entry guard), so this fallback is deliberately more
         // permissive than a call would be, not equivalent to one.
         swapEligible: entry
           ? isEligibleMove({ selectedEntry: entry, targetEntry: candidate, targetSlot: slot, bestBall, leagueUnsettled })

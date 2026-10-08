@@ -316,6 +316,31 @@ describe('quick pick', () => {
     );
   });
 
+  test('an empty slot nobody can fill still opens the quick pick, so its empty state speaks (settled, non-best-ball)', () => {
+    const wr = entry({ playerId: 6, slot: 'BENCH', position: 'WR', eligibleSlots: ['BENCH', 'WR'] });
+    const lockedQb = entry({ playerId: 7, slot: 'BENCH', locked: true, eligibleSlots: ['BENCH', 'QB'] });
+    const { result } = setup({ entries: [wr, lockedQb] });
+    act(() => result.current.onRowClick(null, 'QB', { currentTarget: 'anchor-el' }));
+    expect(result.current.quickPick).toEqual({ anchorEl: 'anchor-el', slotType: 'QB' });
+    expect(result.current.quickPickEligible).toEqual([]);
+  });
+
+  test('best ball: players already in the empty BENCH seat\'s slot are no quick-pick candidates', () => {
+    const benched = entry({ playerId: 6, slot: 'BENCH', eligibleSlots: ['BENCH', 'IR'] });
+    const irPlayer = entry({ playerId: 7, slot: 'IR', eligibleSlots: ['BENCH', 'IR'] });
+    const { result } = setup({ entries: [benched, irPlayer], bestBall: true });
+    act(() => result.current.onRowClick(null, 'BENCH', { currentTarget: null }));
+    expect(result.current.quickPickEligible.map((e) => e.playerId)).toEqual([7]);
+  });
+
+  test('a player already in a slot type is not offered for an empty seat of that same type', () => {
+    const rb1 = entry({ playerId: 6, slot: 'RB', position: 'RB', eligibleSlots: ['BENCH', 'RB'] });
+    const { result } = setup({ entries: [rb1] });
+    act(() => result.current.onRowClick(null, 'RB', { currentTarget: null }));
+    expect(result.current.quickPick).not.toBeNull();
+    expect(result.current.quickPickEligible).toEqual([]);
+  });
+
   test('best ball refuses a click on an empty STARTING slot outright (no quick pick at all)', () => {
     const benchPlayer = entry({ playerId: 6, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
     const { result } = setup({ entries: [benchPlayer], bestBall: true });
@@ -395,13 +420,9 @@ test('a connectivity failure queues the move locally and notifies "saved offline
   expect(JSON.stringify(readPendingLineupMutations()[0])).toContain('"playerId":2');
 });
 
-// isEligibleMove (#1240, formal review round 2, r1/r2/r3): the exported
-// pure rule the player-decision-card widget also calls. `isEligibleTarget`
-// above already exercises its reciprocal-eligibility and locked-source/
-// locked-target behaviour through the hook; these cover the three
-// refusals `isEligibleTarget`'s OLD body did not itself check (leagueUnsettled,
-// a spent SELECTED entry, and a best-ball-unmanaged slot on the selected
-// entry's own side, not just the target's).
+// isEligibleMove (#1240): the boolean face of `moveLegality` that the
+// player-decision-card widget calls. The reasons themselves are tabled in
+// `moveLegality.test.js`; this only pins the wrapper's argument mapping.
 describe('isEligibleMove', () => {
   const qb = entry({ playerId: 1, slot: 'QB', eligibleSlots: ['BENCH', 'QB'] });
   const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
