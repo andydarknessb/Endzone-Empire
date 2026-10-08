@@ -4,6 +4,9 @@ import { locked } from './lineupModel';
 // assignment is read-only there.
 const BEST_BALL_MANAGED_SLOTS = new Set(['BENCH', 'IR']);
 
+/** Whether Best Ball leaves `slot` to the manager; the empty-seat quick pick asks it about the seat alone. */
+export const isBestBallManagedSlot = (slot) => BEST_BALL_MANAGED_SLOTS.has(slot);
+
 const fits = (entry, slot) => Array.isArray(entry?.eligibleSlots) && entry.eligibleSlots.includes(slot);
 
 /**
