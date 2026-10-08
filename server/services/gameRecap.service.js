@@ -329,7 +329,7 @@ async function generateForGame(tank01GameId, { api, client } = {}) {
     topPerformers,
   };
 
-  // Template first (ADR 0059): the stored row never waits on Claude.
+  // Template first (ADR 0060): the stored row never waits on Claude.
   const generatedAt = new Date().toISOString();
   const data = {
     lineScore,
