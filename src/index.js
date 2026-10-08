@@ -31,7 +31,6 @@ root.render(
   </React.StrictMode>
 );
 
-// Enables offline viewing of cached league data (the allowlisted API reads,
-// on this origin or the configured API origin) + web push; no-op outside of
-// a production build (see serviceWorkerRegistration.js).
+// Web push only (the worker has no fetch listener, ADR 0059); no-op outside
+// of a production build (see serviceWorkerRegistration.js).
 registerServiceWorker();

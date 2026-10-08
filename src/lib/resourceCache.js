@@ -4,10 +4,10 @@
  * module directly, because dropping a session must not depend on React.
  *
  * Admission rule: a GET is cached through this module only when it is on the
- * service worker's API allowlist (read-only and viewer-safe) AND more than one
+ * ADR 0059's list of read-only, viewer-safe GETs AND more than one
  * mount reads it in a typical navigation. Everything else stays a plain fetch
  * in the component that needs it. The transaction log is the deliberate
- * exception: one consumer, not on the allowlist, and every roster mutation
+ * exception: one consumer, not on that list, and every roster mutation
  * would be an invalidation site.
  *
  * Keys are arrays, e.g. ['league', 7] or ['pickem-standings', 7, 2026]. Each
