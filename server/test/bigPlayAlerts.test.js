@@ -128,3 +128,14 @@ test('a second qualifying sync 2 minutes after a push sends nothing; 6 minutes a
   assert.equal(state.sent.length, 4, 'six minutes on, the same play now sends (it was dropped, not queued or ledgered)');
   assert.equal(state.sent[2].payload.title, 'Big play: Second Back rushing touchdown');
 });
+
+test('a qualifying play for a played or final matchup sends nothing', async (t) => {
+  const state = world(t);
+
+  for (const status of ['played', 'final']) {
+    await alertBigPlays({ leagueId: 42, season: 2026, week: 5, scored: [{ ...SCORED[0], status }], plays: [play()] });
+  }
+
+  assert.deepEqual(state.sent, []);
+  assert.deepEqual(state.ledger, []);
+});

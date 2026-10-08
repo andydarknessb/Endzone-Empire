@@ -1317,6 +1317,7 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
     const big = plays
       .map((p) => {
         const statKey = statKeyOf(p.type);
+        // ponytail: field goals are priced at default rules from pointsDelta; price by fieldGoalDistances under league rules if a league ever pays 6+ for a long kick.
         const points = statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
         return { ...p, statKey, points };
       })
@@ -1343,6 +1344,8 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
     const cutoff = new Date(clock.now().getTime() - BIG_PLAY_CAP_MS);
 
     for (const m of scored) {
+      // A stat correction on a finished game is not a live play.
+      if (m.status === 'played' || m.status === 'final') continue;
       const playsFor = (teamId) => big.filter((p) =>
         starters.rows.some((s) => s.team_id === teamId && s.player_id === p.playerId));
       const sides = [
