@@ -102,6 +102,15 @@ export const FORECAST_ADVICE = {
   }],
 };
 
+// The Sit name wraps at 390px and an injury tag joins its row (#2099).
+export const FORECAST_ADVICE_WRAPPED_NAME = {
+  ...FORECAST_ADVICE,
+  suggestions: [{
+    ...FORECAST_ADVICE.suggestions[0],
+    current: { ...FORECAST_ADVICE.suggestions[0].current, name: 'San Francisco Forty-Niners Defense Unit', availability: { status: 'Q' } },
+  }],
+};
+
 export async function setupLineupLedgerFixture(page: Page, options: { advice?: object } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem('endzone_token', 'ledger-access-token');
