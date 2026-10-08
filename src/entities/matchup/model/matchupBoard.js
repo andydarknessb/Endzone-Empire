@@ -1,4 +1,5 @@
-import { matchupWinProbability } from '../../../shared/lib';
+// The narrow module, not the shared/lib barrel: an eager card reaches this file.
+import { matchupWinProbability } from '../../../shared/lib/winProbability';
 import { matchupResultLine } from './matchupModel';
 
 /**

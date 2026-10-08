@@ -16,7 +16,9 @@ import { formatInstant } from '../../shared/lib/instantFormat';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
 import { matchupWinProbability } from '../../shared/lib/winProbability';
-import { matchupBoard } from '../../entities/matchup';
+// The narrow module, not the entity index: this card is in the initial chunk
+// and the index drags the hooks, the supabase client and their lazy routes in.
+import { matchupBoard } from '../../entities/matchup/model/matchupBoard';
 import { teamStandingFromRow } from '../../entities/standings';
 import {
   DISPLAY_FONT, HAIRLINE, chipSx as toneChipSx, dimSx, ghostButtonSx, panelSx, primaryButtonSx,
