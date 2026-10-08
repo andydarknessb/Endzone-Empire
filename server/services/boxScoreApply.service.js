@@ -399,4 +399,5 @@ module.exports = {
   markFinalStatsSynced,
   detectScoringEvents,
   attributePlayPoints,
+  PLAY_STAT_EVENTS,
 };
