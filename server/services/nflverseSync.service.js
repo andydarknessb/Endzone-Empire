@@ -755,7 +755,7 @@ function venueWithoutRoof(scheduleRows, { now = new Date() } = {}) {
  * 'schedule-nflverse'. This is one fetch (the CSV), so any fetch or parse
  * throw is tagged fetch_failed by the module with no special handling here.
  * The single unit (every row this file produced) writes in one transaction
- * under NFL_GAMES_BULK_WRITE_LOCK — the same lock syncSchedule (Tank01)
+ * under NFL_GAMES_BULK_WRITE_LOCK — the same lock syncSchedule (ESPN)
  * takes, so a run of each source started together serializes instead of
  * interleaving its upserts of the same season's games (#1203).
  */

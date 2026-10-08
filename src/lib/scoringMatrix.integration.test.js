@@ -198,9 +198,6 @@ describe('Tank01 payload normalization', () => {
 describe('isolated Tank01 ingestion and database update', () => {
   test('uses mocked Axios and PostgreSQL boundaries without fetch or Supabase traffic', async () => {
     mockRapidApiGet.mockImplementation(async (path) => {
-      if (path === '/getNFLGamesForWeek') {
-        return { data: { statusCode: 200, body: payload.games } };
-      }
       if (path === '/getNFLBoxScore') {
         return { data: { statusCode: 200, body: payload.boxScore } };
       }
@@ -213,7 +210,7 @@ describe('isolated Tank01 ingestion and database update', () => {
         return { rows: [] };
       }
       // No live_game_states rows for this week, so syncWeekStats falls back to
-      // the one counted /getNFLGamesForWeek call asserted below.
+      // the free ESPN scoreboard (#2116) for the week's game list.
       if (sql.includes('FROM "live_game_states"')) return { rows: [] };
       if (sql.includes('FROM "players" WHERE "external_id" IS NOT NULL')) {
         return {
@@ -240,7 +237,27 @@ describe('isolated Tank01 ingestion and database update', () => {
     });
     pool.connect.mockImplementation(async () => ({ query: pool.query, release: jest.fn() }));
 
-    const result = await syncWeekStats({ season: 2026, week: 1 });
+    // The week's one game, SEA at BAL, as ESPN's scoreboard lists it: the
+    // fallback keys it 20260913_SEA@BAL (ET-dated Tank01 id) for the box fetch.
+    const espnTransport = {
+      get: jest.fn(async () => ({
+        data: {
+          events: [{
+            id: '401872001',
+            date: '2026-09-13T17:00Z',
+            competitions: [{
+              date: '2026-09-13T17:00Z',
+              competitors: [
+                { homeAway: 'home', team: { abbreviation: 'BAL' } },
+                { homeAway: 'away', team: { abbreviation: 'SEA' } },
+              ],
+            }],
+          }],
+        },
+      })),
+    };
+
+    const result = await syncWeekStats({ season: 2026, week: 1, espnTransport });
 
     expect(result).toEqual({
       season: 2026,
@@ -268,10 +285,9 @@ describe('isolated Tank01 ingestion and database update', () => {
         headers: expect.objectContaining({ 'X-RapidAPI-Key': 'unit-test-key' }),
       })
     );
-    expect(mockRapidApiGet).toHaveBeenNthCalledWith(1, '/getNFLGamesForWeek', {
-      params: { week: 1, seasonType: 'reg', season: 2026 },
-    });
-    expect(mockRapidApiGet).toHaveBeenNthCalledWith(2, '/getNFLBoxScore', {
+    expect(espnTransport.get).toHaveBeenCalledTimes(1);
+    expect(mockRapidApiGet).toHaveBeenCalledTimes(1);
+    expect(mockRapidApiGet).toHaveBeenNthCalledWith(1, '/getNFLBoxScore', {
       params: {
         gameID: '20260913_SEA@BAL',
         playByPlay: 'true',
