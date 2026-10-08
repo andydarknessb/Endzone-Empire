@@ -121,3 +121,28 @@ entities.
 A reader reaching for the criterion "widgets read only entities and shared"
 should read ADR 0031's amendment instead, not this one; this ADR's own
 carve-out, and its Status line, are unchanged.
+
+## Amendment (2026-10-08, #2048): a narrow model-file import for an initial-chunk consumer
+
+The import rule above (a legacy `src/components` surface imports an entity
+through its index file only, never an internal path; ADR 0020 says the same of
+`shared/lib`) stands. One exception is sanctioned: a consumer in the initial
+JavaScript chunk may import a single model file of an entity, or a single
+module of `shared/lib`, directly, when going through the index would pull
+lazy-route code into that chunk. The reason is the bundle budget, and the
+check is `npm run check:bundle` (initial JavaScript, 250 KiB gzip): it was red
+at 296.85 KiB when `matchupBoard` reached the initial chunk through the Matchup
+entity's index, which also exports the hooks and the anon Supabase client, and
+through the `shared/lib` barrel.
+
+The two instances, both from #2048:
+
+- `src/components/common/LeagueStatusCard.jsx` imports `matchupBoard` from
+  `src/entities/matchup/model/matchupBoard`, not from the entity index.
+- `src/entities/matchup/model/matchupBoard.js` imports `matchupWinProbability`
+  from `src/shared/lib/winProbability`, not from the `shared/lib` index.
+
+With both in place the initial chunk is 246.19 KiB. A third narrow import needs
+the same justification: name the file, name the lazy code the index would add,
+and show the `check:bundle` figure with and without it. Where the index costs
+nothing, the index is still the rule.

@@ -33,7 +33,7 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *     row list both views render. A `scores:updated` event moves the model
  *     with no refetch; a reconnect refetches silently.
  *   - The status chip and the started state are the server's status fact
- *     (ADR 0030) read through the entity's one predicate, never a timer.
+ *     (ADR 0030) read through the entity's `matchupBoard`, never a timer.
  *     `isLive` is the exact live status (not the started state) and gates
  *     the live-only surfaces: the NFL game strip, the last-plays ticker and
  *     the bench what-if.

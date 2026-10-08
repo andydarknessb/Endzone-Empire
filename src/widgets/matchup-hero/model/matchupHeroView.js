@@ -12,7 +12,7 @@ import { matchupWinProbability, finite, formatKickoff } from '../../../shared/li
  *   - which side is the viewer's (`viewerSide`), matched on Team id and never
  *     on home/away (#112: the You pill follows the viewer's Team, the layout
  *     stays home-left / away-right the way SplitBar encodes it);
- *   - the status chip and `hasStarted`, straight from the entity predicate
+ *   - the status chip and `hasStarted`, straight from the entity's `matchupBoard`
  *     (ADR 0030: status is a server fact, never inferred here), with the
  *     chip's Badge variant (danger / success / warning / neutral for live /
  *     final / played / scheduled) and whether it carries the live dot;
@@ -56,7 +56,7 @@ function tenth(value) {
  * Every "by N" is the margin to a tenth; a margin that rounds to zero reads
  * as tied/even rather than "by 0.0".
  */
-export function heroSentence({ me, them, status }) {
+export function heroSentence({ me, them, status, settled = false }) {
   const mine = me || {};
   const theirs = them || {};
   const lead = tenth((finite(mine.score) ?? 0) - (finite(theirs.score) ?? 0));
@@ -67,9 +67,9 @@ export function heroSentence({ me, them, status }) {
     if (lead < 0) return `Lost by ${by}`;
     return 'Tied';
   }
-  // The only other started status that is not live is played: the score of
-  // record is not written yet. The view calls this for a started Matchup only.
-  if (status !== 'live') {
+  // A settled Matchup that is not final is played: the score of record is not
+  // written yet.
+  if (settled) {
     if (lead > 0) return `Ahead by ${by}, awaiting the final`;
     if (lead < 0) return `Behind by ${by}, awaiting the final`;
     return 'Tied, awaiting the final';
@@ -115,7 +115,7 @@ export function matchupHeroView(matchup, viewerTeamId) {
         ? 'away'
         : null;
 
-  const { chip, hasStarted } = matchupBoard(m, viewerTeamId);
+  const { chip, hasStarted, settled } = matchupBoard(m, viewerTeamId);
 
   let winProbability = null;
   let sentence = null;
@@ -136,7 +136,7 @@ export function matchupHeroView(matchup, viewerTeamId) {
     winProbability = { homeShare: clamped, homePct, awayPct: 100 - homePct };
     const me = viewerSide === 'away' ? away : home;
     const them = viewerSide === 'away' ? home : away;
-    sentence = heroSentence({ me, them, status: m.status });
+    sentence = heroSentence({ me, them, status: m.status, settled });
   }
 
   const kickoff = hasStarted === false ? formatKickoff(m.firstKickoffAt) : null;

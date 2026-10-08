@@ -4,7 +4,7 @@ import { matchupWinProbability, finite } from '../../../shared/lib';
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
  * #898): everything the strip paints, derived from the Matchup entity model
- * and the status view alone, with no render. The component below reads this
+ * and the `matchupBoard` reading alone, with no render. The component below reads this
  * object and nothing else, so the display rules (how a score, an Expected
  * final and a Players remaining count are written, which side is the viewer,
  * when the bar shows, which chip variant a status takes) are table-testable
@@ -51,7 +51,7 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const home = m.home || {};
   const away = m.away || {};
 
-  // Status is the server's fact read through the entity's one predicate (ADR
+  // Status is the server's fact read through the entity's `matchupBoard` (ADR
   // 0030). The bar shows only for `hasStarted === true`: false (scheduled) and
   // null (the server could not say) both show no bar, so an unknown status
   // never paints a probability the page cannot stand behind. A settled

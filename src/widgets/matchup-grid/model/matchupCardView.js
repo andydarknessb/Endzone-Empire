@@ -12,7 +12,7 @@ import { lookupRecord } from '../lib/records';
  * build.mjs, matchupCard / matchupRowMobile):
  *
  *   - Whether the Matchup has started is the server's status fact through the
- *     entity's one predicate (ADR 0030). `hasStarted === true` shows the scores
+ *     entity's `matchupBoard` (ADR 0030). `hasStarted === true` shows the scores
  *     and the win probability bar; `hasStarted === false` shows each side's
  *     projected total in the faint tier, a hairline instead of a bar, and the
  *     kickoff line; an unknown status (`null`) asserts neither: the scores
@@ -30,7 +30,7 @@ import { lookupRecord } from '../lib/records';
  *   - The status chip's Badge variant follows the design source's statusChip():
  *     the danger red with the dot while live, success green once final,
  *     warning for Awaiting final, the plain chip for Scheduled. The label is
- *     the entity predicate's.
+ *     the board's.
  *
  * Win probability, the kickoff format and the points figure all come from
  * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer: a side

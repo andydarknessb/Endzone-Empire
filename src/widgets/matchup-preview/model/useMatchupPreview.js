@@ -161,7 +161,7 @@ export function useMatchupPreview(leagueId) {
   // that predates this field keeps its current behavior.
   const isBestBall = !!league?.best_ball;
 
-  // The Matchup's status, through the one entity predicate (ADR 0030: status
+  // The Matchup's status, through the entity's `matchupBoard` (ADR 0030: status
   // is a server fact, never inferred here). `hasStarted` is true / false /
   // null, and every branch below tests it against an explicit value.
   const { hasStarted, chip } = matchupBoard(myMatchup, viewerTeamId);

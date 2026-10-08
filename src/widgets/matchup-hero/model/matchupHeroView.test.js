@@ -27,12 +27,12 @@ describe('heroSentence', () => {
     ['drops the projection when an Expected final is unknown', { me: { ...dock, expectedFinal: null }, them: frost, status: 'live' }, 'Ahead now with 6 of theirs still to play'],
     ['a projected tie reads as even', { me: { ...dock, expectedFinal: '100.0' }, them: { ...frost, expectedFinal: '100.04' }, status: 'live' }, 'Ahead now, projected to finish even with 6 of theirs still to play'],
     ['a level score reads as tied now', { me: { ...dock, score: '50.0' }, them: { ...frost, score: '50.0' }, status: 'live' }, 'Tied now, projected to trail by 13.4 with 6 of theirs still to play'],
-    ['awaiting the final while ahead', { me: dock, them: frost, status: 'played' }, 'Ahead by 5.2, awaiting the final'],
-    ['awaiting the final while behind', { me: frost, them: dock, status: 'played' }, 'Behind by 5.2, awaiting the final'],
-    ['awaiting the final while tied', { me: { score: '1' }, them: { score: '1' }, status: 'played' }, 'Tied, awaiting the final'],
-    ['a win once final', { me: dock, them: frost, status: 'final' }, 'Won by 5.2'],
-    ['a loss once final', { me: frost, them: dock, status: 'final' }, 'Lost by 5.2'],
-    ['a tie once final', { me: { score: '88.8' }, them: { score: '88.8' }, status: 'final' }, 'Tied'],
+    ['awaiting the final while ahead', { me: dock, them: frost, status: 'played', settled: true }, 'Ahead by 5.2, awaiting the final'],
+    ['awaiting the final while behind', { me: frost, them: dock, status: 'played', settled: true }, 'Behind by 5.2, awaiting the final'],
+    ['awaiting the final while tied', { me: { score: '1' }, them: { score: '1' }, status: 'played', settled: true }, 'Tied, awaiting the final'],
+    ['a win once final', { me: dock, them: frost, status: 'final', settled: true }, 'Won by 5.2'],
+    ['a loss once final', { me: frost, them: dock, status: 'final', settled: true }, 'Lost by 5.2'],
+    ['a tie once final', { me: { score: '88.8' }, them: { score: '88.8' }, status: 'final', settled: true }, 'Tied'],
   ])('%s', (_label, input, expected) => {
     expect(heroSentence(input)).toBe(expected);
   });

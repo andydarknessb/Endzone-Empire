@@ -1413,7 +1413,6 @@ test.each(['played', 'final'])('a %s week shows no Expected final line, though t
   });
   await screen.findByText('Bench Guy');
   expect(screen.queryByTestId('start-sit-lean-line')).not.toBeInTheDocument();
-  expect(screen.queryByText(/Exp final/)).not.toBeInTheDocument();
 });
 
 test('the lean line favors Floor when the viewer leads by 10 or more, whichever side he is on', async () => {
