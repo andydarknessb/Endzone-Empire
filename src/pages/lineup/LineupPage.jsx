@@ -207,7 +207,6 @@ export default function LineupPage() {
   const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw });
   const swap = useSwapPlayers({
     submit,
-    raw,
     entries: lineup?.entries || [],
     bestBall,
     leagueUnsettled,

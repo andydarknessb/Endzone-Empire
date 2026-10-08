@@ -31,14 +31,9 @@ const entry = (overrides = {}) => ({
   ...overrides,
 });
 
-// #1500: the hook parses `raw.rosterSlots` into the Roster template entity's
-// template and delegates every slot check to `accepts` (position-driven,
-// entry.eligibleSlots is no longer read by the hook path). Every test below
-// that does not supply its own `raw` gets the standard template by default,
-// mirroring a real league's default roster shape; a test still supplies
-// `eligibleSlots` on its fixtures for the standalone `isEligibleMove` describe
-// block below, which calls the exported function directly with no template
-// and so exercises its fallback.
+// The swap rules read only the server facts on each entry (`eligibleSlots`,
+// `locked`, `validStash`, `spent`), so every fixture states its own
+// `eligibleSlots`. `raw` is the write hook's wire body, not a rule input.
 function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEligibleTarget } = {}) {
   let currentRaw =
     raw ?? { week: 4, teamId: 9, rosterSlots: DEFAULT_ROSTER_SLOTS, entries: entries.map((e) => ({ id: e.playerId, slot: e.slot })) };
@@ -48,7 +43,7 @@ function setup({ entries, raw, bestBall = false, leagueUnsettled = false, hasEli
   // The page's wiring: one useLineupWrite, its submit handed to the swap hook.
   const { result, rerender } = renderHook((props) => {
     const { submit } = useLineupWrite({ leagueId: 7, raw: currentRaw, setRaw });
-    return useSwapPlayers({ submit, raw: currentRaw, entries, bestBall, leagueUnsettled, hasEligibleTarget, ...props });
+    return useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, hasEligibleTarget, ...props });
   });
   return { result, rerender, setRaw, getRaw: () => currentRaw };
 }
@@ -171,53 +166,37 @@ test('isEligibleTarget refuses an ineligible slot pairing and allows a matching 
   expect(result.current.isEligibleTarget(null, 'BENCH')).toBe(true);
 });
 
-// #1500: proves the hook's slot check genuinely comes from the league's own
-// roster template (via `slotsFor`), not from the entry's own precomputed
-// `eligibleSlots` - the fixture's `eligibleSlots` deliberately lies (claims
-// FLEX for a QB, which no template grants) so a regression that quietly kept
-// reading `eligibleSlots` instead of the template would still pass every
-// other test in this file.
-test('the slot check comes from the league template, not a stale eligibleSlots array', () => {
-  const narrowedTemplate = DEFAULT_ROSTER_SLOTS.map((slot) =>
-    slot.key === 'FLEX' ? { ...slot, eligiblePositions: ['RB'] } : slot
-  );
-  const qb = entry({ playerId: 1, slot: 'QB', position: 'QB', eligibleSlots: ['BENCH', 'QB', 'FLEX'] });
-  const { result } = setup({
-    entries: [qb],
-    raw: { week: 4, rosterSlots: narrowedTemplate, entries: [{ id: 1, slot: 'QB' }] },
-  });
+// The slot check reads the entry's server `eligibleSlots` and nothing else: no
+// league template is threaded through the hook any more.
+test('the slot check reads the entry\'s eligibleSlots', () => {
+  const qb = entry({ playerId: 1, slot: 'QB', position: 'QB', eligibleSlots: ['BENCH', 'QB'] });
+  const { result } = setup({ entries: [qb] });
   act(() => result.current.onRowClick(qb, 'QB'));
-  // The template's FLEX now accepts RB only; a QB must be refused there even
-  // though its own (stale) eligibleSlots array claims otherwise.
   expect(result.current.isEligibleTarget(null, 'FLEX')).toBe(false);
 });
 
-// Formal review f1: `slotFits` used to call `accepts(template, slotKey,
-// position)` directly, and `accepts` accepts IR for ANY position
-// unconditionally (a pure, position-only question by design) - so with a
-// template present, a healthy player was wrongly offered an empty IR slot,
-// could swap with an IR occupant, and appeared in the IR quick-pick list.
-// The fix routes the check through `slotsFor(template, entry)` instead,
-// which layers the injury-designation gate on top. These four cases are the
-// red-tells: each would have passed under the old bare-`accepts` body.
+// Formal review f1: a healthy player must never be offered an IR slot, as an
+// empty target, a swap with an IR occupant, or in the IR quick-pick list. The
+// IR-eligibility fact is built into `eligibleSlots` by `lineupEntries`
+// (`slotsFor`), so a healthy entry's list simply lacks IR.
 describe('IR gate (formal review f1)', () => {
   test('a healthy entry (no injury designation) is refused at an empty IR slot', () => {
-    const healthyWr = entry({ playerId: 1, slot: 'WR', position: 'WR', injuryStatus: null });
+    const healthyWr = entry({ playerId: 1, slot: 'WR', position: 'WR', injuryStatus: null, eligibleSlots: ['BENCH', 'WR'] });
     const { result } = setup({ entries: [healthyWr] });
     act(() => result.current.onRowClick(healthyWr, 'WR'));
     expect(result.current.isEligibleTarget(null, 'IR')).toBe(false);
   });
 
   test('a healthy entry is refused as a source into an occupied IR slot', () => {
-    const healthyWr = entry({ playerId: 1, slot: 'WR', position: 'WR', injuryStatus: null });
-    const irOccupant = entry({ playerId: 2, slot: 'IR', position: 'RB', injuryStatus: 'IR' });
+    const healthyWr = entry({ playerId: 1, slot: 'WR', position: 'WR', injuryStatus: null, eligibleSlots: ['BENCH', 'WR'] });
+    const irOccupant = entry({ playerId: 2, slot: 'IR', position: 'RB', injuryStatus: 'IR', eligibleSlots: ['BENCH', 'RB', 'IR'] });
     const { result } = setup({ entries: [healthyWr, irOccupant] });
     act(() => result.current.onRowClick(healthyWr, 'WR'));
     expect(result.current.isEligibleTarget(irOccupant, 'IR')).toBe(false);
   });
 
   test('a healthy entry never appears in an IR-slot quick pick', () => {
-    const healthyWr = entry({ playerId: 1, slot: 'BENCH', position: 'WR', injuryStatus: null });
+    const healthyWr = entry({ playerId: 1, slot: 'BENCH', position: 'WR', injuryStatus: null, eligibleSlots: ['BENCH', 'WR'] });
     const { result } = setup({ entries: [healthyWr] });
     act(() => result.current.onRowClick(null, 'IR', { currentTarget: null }));
     expect(result.current.quickPickEligible.map((e) => e.playerId)).toEqual([]);
@@ -226,7 +205,7 @@ describe('IR gate (formal review f1)', () => {
   test.each(['O', 'IR'])(
     'an IR-eligible entry (designation %s) is still accepted at an empty IR slot',
     (designation) => {
-      const stashable = entry({ playerId: 1, slot: 'BENCH', position: 'RB', injuryStatus: designation });
+      const stashable = entry({ playerId: 1, slot: 'BENCH', position: 'RB', injuryStatus: designation, eligibleSlots: ['BENCH', 'RB', 'IR'] });
       const { result } = setup({ entries: [stashable] });
       act(() => result.current.onRowClick(stashable, 'BENCH'));
       expect(result.current.isEligibleTarget(null, 'IR')).toBe(true);
@@ -265,6 +244,40 @@ test('a locked, invalid-stash IR occupant is refused as a source into a starting
   expect(result.current.isEligibleTarget(null, 'RB')).toBe(false);
   expect(result.current.isEligibleTarget(rbEmpty, 'RB')).toBe(false);
   expect(result.current.isEligibleTarget(null, 'BENCH')).toBe(true);
+});
+
+// The refusal toast reads `moveLegality`'s reason; a refused click makes no write.
+describe('refusal toasts', () => {
+  test('a locked stale stash clicked onto a starting slot says it can only go to the bench', () => {
+    const irEntry = entry({ playerId: 3, slot: 'IR', locked: true, validStash: false, eligibleSlots: ['BENCH', 'RB'] });
+    const rb = entry({ playerId: 9, slot: 'RB', eligibleSlots: ['BENCH', 'RB', 'IR'] });
+    const { result } = setup({ entries: [irEntry, rb] });
+    act(() => result.current.onRowClick(irEntry, 'IR'));
+    act(() => result.current.onRowClick(rb, 'RB'));
+    expect(mockNotify).toHaveBeenCalledWith('A locked player can only leave IR for the bench', { severity: 'warning' });
+    expect(result.current.selectedEntry).toBeNull();
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  test('clicking a locked target refuses with the locked copy and no write', () => {
+    const bench = entry({ playerId: 2, slot: 'BENCH', eligibleSlots: ['BENCH', 'QB'] });
+    const lockedQb = entry({ playerId: 1, slot: 'QB', locked: true });
+    const { result } = setup({ entries: [bench, lockedQb] });
+    act(() => result.current.onRowClick(bench, 'BENCH'));
+    act(() => result.current.onRowClick(lockedQb, 'QB'));
+    expect(mockNotify).toHaveBeenCalledWith("Locked players can't be moved", { severity: 'warning' });
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  test('clicking an ineligible target refuses with no write instead of sending it to the server', () => {
+    const qb = entry({ playerId: 1, slot: 'QB', eligibleSlots: ['BENCH', 'QB'] });
+    const wr = entry({ playerId: 2, slot: 'WR', position: 'WR', eligibleSlots: ['BENCH', 'WR'] });
+    const { result } = setup({ entries: [qb, wr] });
+    act(() => result.current.onRowClick(qb, 'QB'));
+    act(() => result.current.onRowClick(wr, 'WR'));
+    expect(mockNotify).toHaveBeenCalledWith("That player can't fill that slot", { severity: 'warning' });
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
 });
 
 // AC9 coverage gap: quick pick (a slot-first pick with nothing selected).

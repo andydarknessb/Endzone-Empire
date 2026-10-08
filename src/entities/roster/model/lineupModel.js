@@ -225,11 +225,11 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
  * Lineup lock), read as a plain fact off the wire's own `locked` boolean -
  * never recomputed here. Mirrors LineupScreen.jsx's `entry.locked` /
  * `targetEntry.locked` reads (:188-202) minus the drag-and-drop swap intent:
- * `canResolveLockedIrStash`'s exception (a locked, no-longer-eligible IR
- * occupant may still move to BENCH) is a client interaction rule about
- * WHERE a locked player may go, not a fact about whether he is locked, so it
- * stays out of this fact and out of `slotsFor` (the Roster template entity's
- * own slot-eligibility fact, `lineupEntries` below).
+ * the stale-stash exception (a locked, no-longer-eligible IR occupant may
+ * still move to BENCH) is a rule about WHERE a locked player may go, not a
+ * fact about whether he is locked, so it lives in `moveLegality`
+ * (`moveLegality.js`), not in this fact or in `slotsFor` (the Roster template
+ * entity's own slot-eligibility fact, `lineupEntries` below).
  */
 export function locked(entry) {
   return Boolean(entry && entry.locked);

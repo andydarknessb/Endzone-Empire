@@ -80,6 +80,7 @@
  * "through the index" rule - no exception needed there).
  */
 export { lineupModel, pairStartersBySlot, lineupEntries, locked, isQuestionable } from './model/lineupModel';
+export { moveLegality } from './model/moveLegality';
 export { useTeamLineup } from './model/useTeamLineup';
 export {
   parseRosterTemplate,
