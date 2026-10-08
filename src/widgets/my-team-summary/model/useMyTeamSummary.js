@@ -27,12 +27,12 @@ import { draftRosterSize } from '../../../lib/rosterShape';
  *     matchup card about it. That read is the widget's SPINE: its loading state drives the card's
  *     skeletons and its failure drives the card's compact error, so a failed
  *     summary never touches the rest of the page. Standings is a SHARED-cache
- *     read (useStandings / ADR 0004): it is on the service-worker allowlist and,
+ *     read (useStandings / ADR 0004): it is on the ADR 0059 read list and,
  *     since #641's standings-table landed on this same page, is read by more
  *     than one mount per navigation, so both admission conditions hold and the
  *     two readers dedupe onto one request. It is keyed by the league's current
  *     week, so a week advance is a fresh read for both.
- *   - Power-rankings stays a plain read here: it is on the allowlist too, but
+ *   - Power-rankings stays a plain read here: it is on that read list too, but
  *     its only reader is this widget's projected-finish tile. It moves to
  *     useResource the moment a second mount on this page reads it, exactly as
  *     standings did.

@@ -67,15 +67,13 @@ describe('registerUser (worker) — failure path', () => {
   });
 });
 
-// A new account created on this device is a session change like a login: both
-// the service worker's api cache and the shared useLeague cache must drop, or
+// A new account created on this device is a session change like a login: the
+// shared useLeague cache must drop, or
 // the new user can be served the previous account's rows.
 describe('registerUser drops the previous session caches', () => {
-  afterEach(() => { clearToken(); clearLeagueCache(); delete global.caches; });
+  afterEach(() => { clearToken(); clearLeagueCache(); });
 
-  test('a successful registration clears api-cache-v1 and the shared league cache', () => {
-    const deleted = [];
-    global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
+  test('a successful registration clears the shared league cache', () => {
     primeLeagueForTest(1, { id: 1, name: 'Previous account row', is_commissioner: true });
 
     const gen = registerUser({ type: 'REGISTER', payload: { username: 'bob', email: 'bob@test.local', password: 'pw123456' } });
@@ -83,7 +81,6 @@ describe('registerUser drops the previous session caches', () => {
     gen.next(); // the register request
     gen.next({ data: { token: 'jwt-new', user: { id: 9, username: 'bob' } } }); // token stored, caches dropped, SET_USER
 
-    expect(deleted).toEqual(['api-cache-v1']);
     const { result, unmount } = renderHook(() => useLeague(1));
     expect(result.current.league).toBeNull();
     // afterEach's clearLeagueCache() reloads whatever is still mounted on the

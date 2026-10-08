@@ -1,6 +1,6 @@
 /**
- * The registration wrapper hands the worker the API origin through its
- * script URL, since a service worker cannot read REACT_APP_* itself.
+ * The registration wrapper registers the bare /service-worker.js, in a
+ * production build only.
  */
 const ORIGINAL_ENV = process.env;
 
@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 test('does nothing outside a production build', () => {
-  const register = loadRegister({ NODE_ENV: 'test', REACT_APP_API_ORIGIN: 'https://api.endzoneempire.gg' });
+  const register = loadRegister({ NODE_ENV: 'test' });
   const swRegister = jest.fn(() => Promise.resolve());
   Object.defineProperty(navigator, 'serviceWorker', { value: { register: swRegister }, configurable: true });
 
@@ -38,20 +38,8 @@ test('does nothing outside a production build', () => {
   expect(swRegister).not.toHaveBeenCalled();
 });
 
-test('registers /service-worker.js?api=<origin> when the API lives on another origin (production)', () => {
-  const register = loadRegister({ REACT_APP_API_ORIGIN: 'https://api.endzoneempire.gg' });
-  const swRegister = jest.fn(() => Promise.resolve());
-  Object.defineProperty(navigator, 'serviceWorker', { value: { register: swRegister }, configurable: true });
-
-  const [onLoad] = loadListenersAddedBy(register);
-  onLoad();
-
-  expect(swRegister).toHaveBeenCalledTimes(1);
-  expect(swRegister).toHaveBeenCalledWith('/service-worker.js?api=https%3A%2F%2Fapi.endzoneempire.gg');
-});
-
-test('registers the bare /service-worker.js when the API is same-origin (dev proxy, previews)', () => {
-  const register = loadRegister({ REACT_APP_API_ORIGIN: '' });
+test('registers /service-worker.js in production', () => {
+  const register = loadRegister({});
   const swRegister = jest.fn(() => Promise.resolve());
   Object.defineProperty(navigator, 'serviceWorker', { value: { register: swRegister }, configurable: true });
 
@@ -61,4 +49,3 @@ test('registers the bare /service-worker.js when the API is same-origin (dev pro
   expect(swRegister).toHaveBeenCalledTimes(1);
   expect(swRegister).toHaveBeenCalledWith('/service-worker.js');
 });
-

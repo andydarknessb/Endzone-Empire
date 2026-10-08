@@ -57,9 +57,9 @@
 
 # A missing hashed asset (an old tab asking for last deploy's chunk) is a 404,
 # never the SPA page: the /* rewrite below would answer it 200 with index.html,
-# and /static/* carries a year-long immutable cache, so the browser and the
-# service worker would keep that HTML under the script's URL until the cache
-# was cleared. Unforced, so an asset that exists is served as always.
+# and /static/* carries a year-long immutable cache, so the browser would keep
+# that HTML under the script's URL until the cache was cleared. Unforced, so
+# an asset that exists is served as always.
 [[redirects]]
   from = "/static/*"
   to = "/404.html"
