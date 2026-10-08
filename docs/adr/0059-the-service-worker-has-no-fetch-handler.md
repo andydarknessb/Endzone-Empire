@@ -62,6 +62,10 @@ mount reads it per typical navigation):
   404 rule for `/static/*` and `lazyWithReload` stay.
 - Push is unchanged.
 - Browsers that still hold the old caches drop them on the next activate.
-- Rolling back means restoring the `fetch` handler and its caches AND
-  re-enabling navigation preload in `activate`; restoring the handler alone
-  leaves preload off.
+- Rolling back means restoring all four at once: the `fetch` handler and
+  its caches, `navigationPreload.enable()` in `activate` (restoring the
+  handler alone leaves preload off), the `?api=<origin>` registration URL
+  (without it production API GETs are same-origin only and never cached),
+  and the `api-cache-v1` delete in `dropSessionCaches` (without it a login
+  or logout leaves the previous account's viewer-scoped rows in the offline
+  store).

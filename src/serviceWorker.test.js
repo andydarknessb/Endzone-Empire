@@ -8,21 +8,21 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-function loadServiceWorker({ cacheNames = [], disable } = {}) {
+function loadServiceWorker({ cacheNames = [], disable, preload = true } = {}) {
   const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'service-worker.js'), 'utf8');
   const listeners = {};
-  const calls = { deleted: [], claimed: 0, disabled: 0, notifications: [], opened: [] };
+  const calls = { deleted: [], claimed: 0, disabled: 0, skipped: 0, notifications: [], opened: [] };
   const self = {
     location: { origin: 'https://endzoneempire.gg' },
     addEventListener: (type, handler) => { listeners[type] = handler; },
-    skipWaiting: () => Promise.resolve(),
+    skipWaiting: () => { calls.skipped += 1; return Promise.resolve(); },
     clients: {
       claim: () => { calls.claimed += 1; return Promise.resolve(); },
       openWindow: (url) => { calls.opened.push(url); return Promise.resolve(); },
     },
     registration: {
       showNotification: (title, options) => { calls.notifications.push({ title, options }); return Promise.resolve(); },
-      navigationPreload: { disable: () => { calls.disabled += 1; return disable ? disable() : Promise.resolve(); } },
+      navigationPreload: preload ? { disable: () => { calls.disabled += 1; return disable ? disable() : Promise.resolve(); } } : undefined,
     },
   };
   const caches = {
@@ -31,7 +31,7 @@ function loadServiceWorker({ cacheNames = [], disable } = {}) {
   };
   const context = vm.createContext({ self, caches, URL, console });
   vm.runInContext(source, context, { filename: 'service-worker.js' });
-  return { listeners, calls };
+  return { listeners, calls, self };
 }
 
 // Runs a listener and resolves whatever it handed to event.waitUntil.
@@ -42,8 +42,17 @@ async function dispatch(listener, event = {}) {
 }
 
 test('registers install, activate, push and notificationclick, and no fetch listener', () => {
-  const { listeners } = loadServiceWorker();
+  const { listeners, self } = loadServiceWorker();
   expect(Object.keys(listeners).sort()).toEqual(['activate', 'install', 'notificationclick', 'push']);
+  expect(self.onfetch).toBeUndefined();
+});
+
+test('install skips waiting, so the push-only worker replaces the old fetch-handler worker without every tab closing', async () => {
+  const { listeners, calls } = loadServiceWorker();
+
+  await dispatch(listeners.install);
+
+  expect(calls.skipped).toBe(1);
 });
 
 test('activate deletes every cache, disables navigation preload and claims clients', async () => {
@@ -62,6 +71,15 @@ test('activate still claims clients when navigationPreload.disable() rejects', a
   await dispatch(listeners.activate);
 
   expect(calls.disabled).toBe(1);
+  expect(calls.claimed).toBe(1);
+});
+
+test('activate still claims clients on a browser with no navigationPreload', async () => {
+  const { listeners, calls } = loadServiceWorker({ preload: false });
+
+  await dispatch(listeners.activate);
+
+  expect(calls.disabled).toBe(0);
   expect(calls.claimed).toBe(1);
 });
 

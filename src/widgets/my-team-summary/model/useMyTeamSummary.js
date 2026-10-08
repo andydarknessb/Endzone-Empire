@@ -32,7 +32,7 @@ import { draftRosterSize } from '../../../lib/rosterShape';
  *     than one mount per navigation, so both admission conditions hold and the
  *     two readers dedupe onto one request. It is keyed by the league's current
  *     week, so a week advance is a fresh read for both.
- *   - Power-rankings stays a plain read here: it is on the allowlist too, but
+ *   - Power-rankings stays a plain read here: it is on that read list too, but
  *     its only reader is this widget's projected-finish tile. It moves to
  *     useResource the moment a second mount on this page reads it, exactly as
  *     standings did.

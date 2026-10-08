@@ -11,8 +11,8 @@ export function* loginUser(action) {
     yield put({ type: 'CLEAR_LOGIN_ERROR' });
 
     // A fresh login may be a different account on this device: drop every
-    // cache the previous session left (offline API store, in-memory league
-    // and pick'em standings caches) before anything from this one lands.
+    // cache the previous session left (the in-memory league and pick'em
+    // standings caches) before anything from this one lands.
     dropSessionCaches();
 
     const response = yield apiClient.post('/api/auth/login', action.payload);
