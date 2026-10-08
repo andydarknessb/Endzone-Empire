@@ -193,12 +193,18 @@ services:
       # ingested), so it is no longer the live-scoring cadence.
       - key: SYNC_EVERY_TICKS
         value: "6"
-      # Tank01 injury refresh (#1188): once a day, gated on the last successful
-      # data_sync_runs row so a restart cannot re-run it, and every
+      # Tank01 injury refresh (#1188): gated on the last successful
+      # data_sync_runs row so a restart cannot re-run it, every
       # INJURY_GAME_WINDOW_MS inside a game window (first kickoff minus 90 min
-      # to the last final); doubles while quota is degraded. ~+350 calls/month.
+      # to the last final) and every INJURY_OFF_WINDOW_MS outside one (#2106);
+      # both double while quota is degraded.
       - key: INJURY_GAME_WINDOW_MS
         value: "900000"
+      # Injury refresh cadence outside a game window; 21600000 = 6 h. About 105
+      # off-window Tank01 calls a month in season, roughly 75 more than the old
+      # once-a-day gate; in-window cost is unchanged.
+      - key: INJURY_OFF_WINDOW_MS
+        value: "21600000"
       # The Final box (ADR 0035) is read this long after ESPN reports a game
       # final, so Tank01's box has settled and one essential-priority call is
       # enough. 900000 = 15 min.

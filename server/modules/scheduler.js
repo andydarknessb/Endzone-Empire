@@ -61,7 +61,7 @@ let lastCorrectionDay = null;
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
-// The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
+// The Tank01 injury refresh keeps its last-run stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
 // ADP market refresh (#747): the once-a-day decision is now the cadence gate's
 // own concern (#1509) - see runDailyAdpSync below.
@@ -134,23 +134,25 @@ function injuryGameWindowMs(quotaMode) {
   return quotaMode === 'degraded' ? base * 2 : base;
 }
 
+/** Cadence of the injury sync outside a game window (#2106); env-tunable, doubled while quota is degraded. */
+function injuryOffWindowMs(quotaMode) {
+  const parsed = Number(process.env.INJURY_OFF_WINDOW_MS);
+  const base = Number.isFinite(parsed) && parsed > 0 ? parsed : 6 * 60 * 60 * 1000;
+  return quotaMode === 'degraded' ? base * 2 : base;
+}
+
 /**
  * The last successful injury sync, read via `lastRun('injuries')`
  * (server/modules/syncRun.js, ADR 0036, #1205) rather than a hand-rolled
  * query: the in-memory day stamp reset on every worker restart, so "daily"
- * ran 3.4 times a day (#1188). Null when no successful run exists or the read
- * fails (which then runs the sync: the safe direction). Deliberately reads
- * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
- * so the next tick retries it.
+ * ran 3.4 times a day (#1188). Null when no successful run exists. A failed
+ * read throws: the gate fails closed, so a database outage spends no Tank01
+ * call and the next tick retries the read. Deliberately reads `latestOk`, not
+ * `latest`: a failed run must not move the gate, so the next tick retries it.
  */
 async function lastInjurySyncAt() {
-  try {
-    const { latestOk } = await lastRun('injuries');
-    return latestOk ? latestOk.finishedAt : null;
-  } catch (err) {
-    console.warn('runDailyInjurySync: data_sync_runs read failed, treating as never run:', err.message);
-    return null;
-  }
+  const { latestOk } = await lastRun('injuries');
+  return latestOk ? latestOk.finishedAt : null;
 }
 
 /**
@@ -177,47 +179,38 @@ async function inGameWindow() {
 }
 
 /**
- * Pure: should the injury sync run right now, INSIDE a game window - every
- * `windowMs` (#1188)? Outside a window the once-a-day decision is the
- * cadence gate's own concern now (server/modules/cadence.js, spec #1492 step
- * two, #1509, spec #1493 "UTC day everywhere") - see `runDailyInjurySync`
- * below, which only consults this function when `inWindow` is true.
+ * Pure: should the injury sync run right now? Due when it never ran, or when
+ * `windowMs` has passed since the last successful run. The caller passes the
+ * game window's cadence inside a window (#1188) and the off-window cadence
+ * (#2106) outside one.
  *
- * @param {{ now: Date, lastRunAt: ?Date, inWindow: boolean, windowMs: number }} args
+ * @param {{ now: Date, lastRunAt: ?Date, windowMs: number }} args
  */
-function injurySyncDue({ now, lastRunAt, inWindow, windowMs }) {
+function injurySyncDue({ now, lastRunAt, windowMs }) {
   if (!lastRunAt) return true;
-  return inWindow && now.getTime() - lastRunAt.getTime() >= windowMs;
+  return now.getTime() - lastRunAt.getTime() >= windowMs;
 }
 
 /**
- * Tank01 injury refresh: daily, and every INJURY_GAME_WINDOW_MS during a game
- * window. Inside a window, `injurySyncDue` above decides off the last
- * successful `injuries` run (`lastInjurySyncAt`, data_sync_runs); outside one,
- * the cadence gate decides instead (`cadence.due({ job: 'injuries', every:
- * 'utc-day' })`, #1509) - `syncInjuries` already records one `data_sync_runs`
- * row per run through `runSyncJob`, so the gate reads that same row and this
- * adds no second one. Either way a worker restart cannot re-run it (#1188),
- * and a thrown run records ok=false and does not move either gate, so the
- * next tick retries.
+ * Tank01 injury refresh: every INJURY_GAME_WINDOW_MS inside a game window and
+ * every INJURY_OFF_WINDOW_MS (6 h) outside one (#2106, replacing the once-a-UTC-
+ * day gate). Both decide off the last successful `injuries` run
+ * (`lastInjurySyncAt`, data_sync_runs), so a worker restart cannot re-run it
+ * (#1188), and a thrown run records ok=false and does not move the gate, so
+ * the next tick retries.
  */
 async function runDailyInjurySync({ now = new Date() } = {}) {
   if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
   const inWindow = await inGameWindow();
-  let due;
-  if (inWindow) {
-    let quotaMode = 'ok';
-    try {
-      quotaMode = (await require('./tank01Client').getQuotaState()).mode;
-    } catch (err) {
-      quotaMode = 'ok';
-    }
-    const lastRunAt = await lastInjurySyncAt();
-    due = injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) });
-  } else {
-    ({ due } = await cadence.due({ job: 'injuries', every: 'utc-day', now }));
+  let quotaMode = 'ok';
+  try {
+    quotaMode = (await require('./tank01Client').getQuotaState()).mode;
+  } catch (err) {
+    quotaMode = 'ok';
   }
-  if (!due) return null;
+  const lastRunAt = await lastInjurySyncAt();
+  const windowMs = inWindow ? injuryGameWindowMs(quotaMode) : injuryOffWindowMs(quotaMode);
+  if (!injurySyncDue({ now, lastRunAt, windowMs })) return null;
   const scoring = require('../services/feedSyncRuns.service');
   return scoring.syncInjuries({ now });
 }
@@ -1699,6 +1692,7 @@ module.exports = {
   runDailyInjurySync,
   injurySyncDue,
   injuryGameWindowMs,
+  injuryOffWindowMs,
   runDailyAdpSync,
   runDailyEspnDepthChartSync,
   runDailyEspnOwnershipSync,

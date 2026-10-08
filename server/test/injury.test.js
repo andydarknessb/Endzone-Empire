@@ -53,6 +53,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
       notifications.push({ type: params[2], message: params[3] });
       return { rows: [] };
     }, 'client'],
+    [TEAM_PLAYERS_ROSTER, () => ({ rows: [] })], // nobody rosters the changed player
   ]).install(t);
   t.mock.method(prefs, 'usersWanting', async (userIds, key) => {
     assert.ok(fake.calls.some((call) => call.text === 'COMMIT'));
@@ -1354,4 +1355,79 @@ test('#1789: a reconcile failure is isolated by ROLLBACK TO SAVEPOINT and never 
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
   assert.ok(commitIdx >= 0, 'the designation write still commits - the reconcile failure never poisons this transaction');
   fake.assertClean();
+});
+
+// ---- #2106: injury alerts ----------------------------------------------------
+
+const TEAM_PLAYERS_ROSTER = /FROM "team_players" tp JOIN "teams"/;
+
+/** One player (id 700, stored `before`) moving to the feed's `designation`; `rostered` is the post-commit roster read. */
+async function injuryAlertRun(t, { before = null, designation, description, rostered = [] }) {
+  const sends = [];
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 700, external_id: 'tank-700', injury_status: before, nfl_team: 'BUF' }],
+    }), 'client'],
+    [MAIN_INJURY_UPDATE, () => ({ rows: [{ id: 700 }] }), 'client'],
+    [SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
+    [RELEASE_SAVEPOINT_STMT, () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+    [TEAM_PLAYERS_ROSTER, () => ({
+      rows: rostered.map(([owner_id, league_id]) => ({
+        player_id: 700, league_id, owner_id, name: 'Test Runner', injury_detail: description || null,
+      })),
+    })],
+  ]).install(t);
+  t.mock.method(push, 'sendPushOnce', async (args) => { sends.push(args); return { sent: args.userIds.length, skipped: 0 }; });
+  await syncInjuries({
+    api: async () => ({ data: { body: [{ playerID: 'tank-700', team: 'BUF', injury: { designation, description } }] } }),
+    now: new Date('2026-10-08T12:00:00Z'),
+  });
+  return { sends, fake };
+}
+
+test('#2106: a player moving null to Out pushes once per manager across leagues, after COMMIT', async (t) => {
+  const { sends, fake } = await injuryAlertRun(t, { designation: 'Out', description: 'Knee', rostered: [[11, 1], [12, 2]] });
+
+  assert.equal(sends.length, 2, 'one call per distinct lineup url');
+  assert.deepEqual(sends.map((s) => s.userIds), [[11], [12]], 'exactly the two rostering managers');
+  assert.deepEqual(sends.map((s) => s.payload.url), ['/#/league/1/lineup', '/#/league/2/lineup'], 'each manager gets his own league');
+  assert.equal(sends[0].kind, 'injury');
+  assert.equal(sends[0].prefKey, 'injuryAlerts');
+  assert.equal(sends[0].subject, '700');
+  assert.equal(sends[0].fingerprint, 'Out:2026-10-08');
+  assert.deepEqual(sends[0].payload, { title: 'Test Runner is now Out', body: 'Knee', url: '/#/league/1/lineup' });
+  assert.match(fake.matching(TEAM_PLAYERS_ROSTER)[0].text, /"season_status" != 'complete'/, 'finished leagues are skipped');
+  const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
+  const rosterIdx = fake.calls.findIndex((c) => TEAM_PLAYERS_ROSTER.test(c.text));
+  assert.ok(commitIdx >= 0 && commitIdx < rosterIdx, 'the roster read and the push follow the commit');
+  fake.assertClean();
+});
+
+test('#2106: one manager rostering the player in two leagues is one target, with the first league lineup url', async (t) => {
+  const { sends } = await injuryAlertRun(t, { designation: 'Out', rostered: [[11, 1], [11, 2]] });
+
+  assert.deepEqual(sends.map((s) => s.userIds), [[11]]);
+  assert.equal(sends[0].payload.url, '/#/league/1/lineup');
+  assert.equal(sends[0].payload.body, '', 'no injury_detail: empty body');
+});
+
+test('#2106: a manager in leagues 1 and 2 and another only in league 2 each get their own first league', async (t) => {
+  const { sends } = await injuryAlertRun(t, { designation: 'Out', rostered: [[11, 1], [12, 2], [11, 2]] });
+
+  assert.deepEqual(sends.map((s) => [s.userIds, s.payload.url]), [
+    [[11], '/#/league/1/lineup'],
+    [[12], '/#/league/2/lineup'],
+  ]);
+});
+
+test('#2106: clearing a designation pushes "healthy"; an unchanged designation pushes nothing', async (t) => {
+  const cleared = await injuryAlertRun(t, { before: 'Q', designation: 'Active', rostered: [[11, 1]] });
+  assert.equal(cleared.sends[0].payload.title, 'Test Runner is now healthy');
+  assert.equal(cleared.sends[0].fingerprint, 'healthy:2026-10-08');
+
+  const unchanged = await injuryAlertRun(t, { before: 'Q', designation: 'Questionable', description: 'New detail', rostered: [[11, 1]] });
+  assert.deepEqual(unchanged.sends, []);
+  assert.equal(unchanged.fake.matching(TEAM_PLAYERS_ROSTER).length, 0, 'no change: no roster read either');
 });
