@@ -85,7 +85,24 @@ export const LINEUP_BODY = {
   entries: SEEDS.map(wireEntry),
 };
 
-export async function setupLineupLedgerFixture(page: Page) {
+// #2099: an Endzone Forecast card whose Start side is taller than its Sit side
+// (a Favored-by fact chip on Start only). 108 is the DEF starter; 201 is a
+// Bench player whose name the advice payload overrides (the panel takes the
+// name from the advice and the kickoff from the lineup entry, both have one).
+export const FORECAST_ADVICE = {
+  projectedTotal: 120,
+  optimalTotal: 120.7,
+  movePlan: [{ playerId: 109 }],
+  suggestions: [{
+    slot: 'DEF',
+    gain: 0.65,
+    verdict: 'tossup',
+    current: { playerId: 108, name: 'San Francisco 49ers', projection: 9.6, opponent: 'SEA', opponentPointsAllowed: 7.5, distribution: { p10: -8.4, p90: 22.6 } },
+    suggested: { playerId: 201, name: 'Cincinnati Bengals', projection: 10.2, opponent: 'MIA', opponentPointsAllowed: 13.3, distribution: { p10: -14.4, p90: 27.6 }, line: { spread: -7, total: 44, favoredBy: 7 } },
+  }],
+};
+
+export async function setupLineupLedgerFixture(page: Page, options: { advice?: object } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem('endzone_token', 'ledger-access-token');
     localStorage.setItem('endzone_refresh', 'ledger-refresh-token');
@@ -114,7 +131,7 @@ export async function setupLineupLedgerFixture(page: Page) {
       if (url.pathname === `/api/scoring/league/${LEAGUE_ID}/standings`) return json(route, 200, { standings: [] });
       if (url.pathname === '/api/team/lineup') return json(route, 200, LINEUP_BODY);
       if (url.pathname === '/api/team/lineup/advice') {
-        return json(route, 200, { projectedTotal: 0, optimalTotal: 0, suggestions: [] });
+        return json(route, 200, options.advice ?? { projectedTotal: 0, optimalTotal: 0, suggestions: [] });
       }
       if (url.pathname === '/api/team/hindsight') return json(route, 200, { totalPointsLeftOnBench: 0 });
     }

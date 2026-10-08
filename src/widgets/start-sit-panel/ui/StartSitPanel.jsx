@@ -303,7 +303,12 @@ const NAME_SX ={ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', ov
 
 function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard }) {
   return (
-    <Box data-testid="suggestion-player" sx={{ display: 'grid', gap: '4px', minWidth: 0 }}>
+    // The two columns share the parent grid's row tracks via subgrid, so the
+    // Sit and Start rows line up (#2099). Without it the shorter column
+    // stretched to the taller one and spread the slack across its own rows;
+    // `alignContent: 'start'` is the fallback where subgrid is unsupported.
+    // span 6 = label, name row, bar, Floor line, kickoff, fact chips.
+    <Box data-testid="suggestion-player" sx={{ display: 'grid', gridTemplateRows: 'subgrid', gridRow: 'span 6', rowGap: '4px', alignContent: 'start', minWidth: 0 }}>
       <Typography sx={{ fontSize: '11px', fontWeight: 600, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
         {label}
       </Typography>
@@ -344,7 +349,7 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
           {player.factChips.map((chip) => (
             <Badge key={chip.key} variant="neutral" data-testid="suggestion-fact-chip" data-chip={chip.key}>
               {chip.text}
-              {chip.contextOnly && <Box component="span" sx={{ ml: '4px', fontWeight: 400 }}>context only</Box>}
+              {chip.contextOnly && <>{' '}<Box component="span" sx={{ fontWeight: 400 }}>context only</Box></>}
             </Badge>
           ))}
         </Box>
