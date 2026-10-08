@@ -46,6 +46,8 @@ const defaultPrefs = {
   waiverResults: false,
   weeklyRecap: true,
   tradeOffers: false,
+  injuryAlerts: true,
+  scoreUpdates: false,
 };
 
 test('loads preferences on mount and renders a labeled switch for each', async () => {
@@ -58,7 +60,26 @@ test('loads preferences on mount and renders a labeled switch for each', async (
   expect(screen.getByLabelText('Waiver results')).not.toBeChecked();
   expect(screen.getByLabelText('Weekly recap')).toBeChecked();
   expect(screen.getByLabelText('Trade offers')).not.toBeChecked();
+  expect(screen.getByLabelText('Injury alerts')).toBeChecked();
+  expect(screen.getByLabelText('Score updates')).not.toBeChecked();
   expect(apiClient.get).toHaveBeenCalledWith('/api/notifications/prefs');
+});
+
+test('the injury alerts and score updates toggles carry their helper text and PUT their keys', async () => {
+  apiClient.get.mockResolvedValue({ data: defaultPrefs });
+  apiClient.put.mockResolvedValue({ data: { ...defaultPrefs, scoreUpdates: true } });
+
+  renderWithProviders(<NotificationPrefs />);
+
+  expect(await screen.findByLabelText('Injury alerts')).toHaveAccessibleDescription(
+    'A player on one of your rosters changes injury designation'
+  );
+  const scores = screen.getByLabelText('Score updates');
+  expect(scores).toHaveAccessibleDescription('Your matchup when the lead changes and when it is over');
+
+  await userEvent.click(scores);
+
+  expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/prefs', { prefs: { scoreUpdates: true } });
 });
 
 test('toggling a switch PUTs the correct partial body and disables it while saving', async () => {

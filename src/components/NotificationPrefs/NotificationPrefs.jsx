@@ -7,6 +7,16 @@ import { urlBase64ToUint8Array } from '../../utils/push';
 const PREF_FIELDS = [
   { key: 'lineupReminder', label: 'Lineup reminders' },
   { key: 'irAlerts', label: 'IR eligibility alerts' },
+  {
+    key: 'injuryAlerts',
+    label: 'Injury alerts',
+    helper: 'A player on one of your rosters changes injury designation',
+  },
+  {
+    key: 'scoreUpdates',
+    label: 'Score updates',
+    helper: 'Your matchup when the lead changes and when it is over',
+  },
   { key: 'waiverResults', label: 'Waiver results' },
   { key: 'weeklyRecap', label: 'Weekly recap' },
   { key: 'tradeOffers', label: 'Trade offers' },
