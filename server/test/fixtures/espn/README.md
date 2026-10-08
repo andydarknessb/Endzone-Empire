@@ -78,3 +78,17 @@ real active NFL athlete as of capture time). Team: NE (ESPN numeric team id
   each `{ position, items[] }`. Phil Mafah (ESPN athlete id `4431562`) is in
   `practiceSquad`; the roster status Sync run maps the group, not the
   athlete's own `status` object.
+
+## injuries.json
+
+- URL: `https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/injuries`
+  (the league-wide injuries document, one call for all 32 teams, #2115 and
+  ADR 0060; `site.api.espn.com` answers 200 too from a developer machine)
+- Captured: 2026-10-08 (800 athletes: Questionable 191, Out 25, Active 522,
+  Injured Reserve 50, Doubtful 12)
+- Trimmed to five real entries, one per status (Questionable, Doubtful, Out,
+  Injured Reserve, Active), with comments cut to 160 characters and the link,
+  headshot and team blocks cut to what the client reads. Two edits exercise the
+  fallbacks: the Doubtful entry has no `shortComment`, and the Out entry has no
+  `links` (its id comes from the headshot filename). The top-level `id` of an
+  entry is the injury record's id, never the athlete's.
