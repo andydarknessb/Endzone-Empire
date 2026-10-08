@@ -851,7 +851,8 @@ test('#2115: an unknown ESPN status writes null and is logged once per run', asy
   assert.deepEqual(write.params[1], [null, null, 'Q'], 'the unknown string is healthy, never guessed');
   assert.deepEqual(write.params[2], [null, null, 'Ankle'], 'and carries no detail');
   assert.equal(warn.mock.callCount(), 1, 'two players with the same unknown string log once');
-  assert.match(warn.mock.calls[0].arguments[0], /unknown ESPN status treated as healthy: Suspended/);
+  assert.match(warn.mock.calls[0].arguments[0], /unknown ESPN status treated as healthy/);
+  assert.equal(warn.mock.calls[0].arguments[1], 'Suspended');
   fake.assertClean();
 });
 

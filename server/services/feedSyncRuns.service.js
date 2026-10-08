@@ -695,7 +695,7 @@ async function fetchInjuryUnits(fetchInjuries, day) {
     });
   }
   if (unknown.size > 0) {
-    console.warn(`injury sync: unknown ESPN status treated as healthy: ${[...unknown].join(', ')}`);
+    console.warn('injury sync: unknown ESPN status treated as healthy: %s', [...unknown].join(', '));
   }
   return { units: [{ feedByExternal }], detail: { day } };
 }
@@ -725,11 +725,11 @@ async function reconcileAfterWrite(client, playerIds, now, label) {
     }
     await client.query('RELEASE SAVEPOINT reconcile_availability');
   } catch (err) {
-    console.error(`${label}: availability reconcile failed, continuing:`, err.message);
+    console.error('%s: availability reconcile failed, continuing:', label, err.message);
     try {
       await client.query('ROLLBACK TO SAVEPOINT reconcile_availability');
     } catch (rollbackErr) {
-      console.error(`${label}: reconcile savepoint rollback failed:`, rollbackErr.message);
+      console.error('%s: reconcile savepoint rollback failed:', label, rollbackErr.message);
     }
   }
 }
