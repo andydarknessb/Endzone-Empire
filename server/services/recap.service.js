@@ -15,7 +15,7 @@ const claude = require('./claude');
  * (type 'weekly_recap').
  *
  * The narrative comes from Claude when ANTHROPIC_API_KEY is set and the monthly
- * budget is not spent (ADR 0059); otherwise a clean templated version renders
+ * budget is not spent (ADR 0060); otherwise a clean templated version renders
  * from the same data, so the feature never depends on the LLM being available.
  */
 
@@ -210,7 +210,7 @@ async function llmNarrative(facts, { client, placeholders } = {}) {
 
 /**
  * Pure: a deep copy of `facts` with every team name replaced by its
- * `[[team:<id>]]` token (a manager typed those names; ADR 0059 section 5),
+ * `[[team:<id>]]` token (a manager typed those names; ADR 0060 section 5),
  * and the token -> name map to put them back. `idByName` is name -> teams.id.
  */
 function tokenizeTeamNames(facts, idByName) {
@@ -387,7 +387,7 @@ async function computeAndStoreWeeklyRecap({ leagueId, season, week }) {
     ...lineupFacts,
     ...calledFacts,
   });
-  // Template first (ADR 0059): the stored row never waits on Claude.
+  // Template first (ADR 0060): the stored row never waits on Claude.
   const data = { generatedAt: new Date().toISOString(), facts, narrative: templateNarrative(facts) };
   const store = () => pool.query(
     `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
