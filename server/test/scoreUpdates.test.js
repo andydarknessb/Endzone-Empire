@@ -9,6 +9,7 @@ const { alertScoreUpdates } = require('../modules/scheduler');
 function world(t, { optedOut = [] } = {}) {
   const ledger = [];
   const sent = [];
+  const clock = { minutes: 0 }; // the fake database's now()
   const fake = createFakePool([
     [select('teams'), () => ({
       rows: [{ id: 3, name: 'Home FC', owner_id: 11 }, { id: 4, name: 'Away FC', owner_id: 22 }],
@@ -16,15 +17,25 @@ function world(t, { optedOut = [] } = {}) {
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({
       rows: optedOut.map((user_id) => ({ user_id, prefs: { scoreUpdates: false } })),
     })],
-    [select('push_events'), (text, [subject]) => {
-      const last = ledger.filter((r) => r.kind === 'score-lead' && r.subject === subject).pop();
+    // The per-owner cap: a non-silent score-lead row under five minutes old.
+    [/NOT LIKE/, (text, [userId]) => ({
+      rows: ledger.some((r) => r.user_id === userId && r.kind === 'score-lead' && !r.fingerprint.endsWith(':0') && clock.minutes - r.at < 5)
+        ? [{ '?column?': 1 }] : [],
+    })],
+    [select('push_events'), (text, [userId, subject]) => {
+      const last = ledger.filter((r) => r.user_id === userId && r.kind === 'score-lead' && r.subject === subject).pop();
       return { rows: last ? [{ fingerprint: last.fingerprint }] : [] };
     }],
-    [insert('push_events'), (text, [userIds, kind, subject, fingerprint]) => ({
-      rows: userIds
-        .filter((u) => !ledger.some((r) => r.user_id === u && r.kind === kind && r.subject === subject && r.fingerprint === fingerprint))
-        .map((user_id) => { ledger.push({ user_id, kind, subject, fingerprint }); return { user_id }; }),
-    })],
+    // sendPushOnce inserts (userIds, kind, subject, fingerprint); the silent
+    // record inserts (userId, subject, fingerprint) with a literal kind.
+    [insert('push_events'), (text, params) => {
+      const [ids, kind, subject, fingerprint] = params.length === 4 ? params : [[params[0]], 'score-lead', params[1], params[2]];
+      return {
+        rows: ids
+          .filter((u) => !ledger.some((r) => r.user_id === u && r.kind === kind && r.subject === subject && r.fingerprint === fingerprint))
+          .map((user_id) => { ledger.push({ user_id, kind, subject, fingerprint, at: clock.minutes }); return { user_id }; }),
+      };
+    }],
   ]).install(t);
   t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
     sent.push({ userIds, payload });
@@ -34,7 +45,7 @@ function world(t, { optedOut = [] } = {}) {
     leagueId: 42, season: 2026, week: 7,
     scored: [{ matchupId: 987, homeTeamId: 3, awayTeamId: 4, homeScore, awayScore, status }],
   });
-  return { fake, sent, call, ledger };
+  return { fake, sent, call, ledger, clock };
 }
 
 const titles = (sent) => sent.map((s) => [s.userIds[0], s.payload.title]);
@@ -56,10 +67,11 @@ test('a lead change pushes each owner once; the first scoring and a steady lead 
 });
 
 test('home -> away -> home pushes on both changes', async (t) => {
-  const { sent, call } = world(t);
+  const { sent, call, clock } = world(t);
 
   await call(10, 5);
   await call(10, 15);
+  clock.minutes = 6; // past the per-owner cap
   await call(20, 15);
 
   assert.deepEqual(titles(sent), [
@@ -126,4 +138,36 @@ test('scores that round to the same figure print two decimals', async (t) => {
 
   assert.equal(sent[0].payload.body, 'Home FC 100.20 - Away FC 100.24');
   assert.equal(sent[1].payload.body, 'Away FC 100.24 - Home FC 100.20');
+});
+
+test('lead pushes are capped at one per owner per five minutes; a capped flip is delayed, not lost', async (t) => {
+  const { sent, call, clock, ledger } = world(t);
+
+  clock.minutes = -10;
+  await call(10, 5); // records home, no push
+  clock.minutes = 0;
+  await call(12, 15); // flips to away: pushed
+  assert.equal(sent.length, 2);
+
+  clock.minutes = 2;
+  await call(20, 15); // flips back inside the cap: no push, no row
+  assert.equal(sent.length, 2);
+  assert.equal(ledger.filter((r) => r.fingerprint.startsWith('home:') && !r.fingerprint.endsWith(':0')).length, 0);
+
+  clock.minutes = 6;
+  await call(20, 15); // still flipped once the cap lapses: pushed
+  assert.deepEqual(titles(sent.slice(2)), [[11, 'You took the lead'], [22, 'You lost the lead']]);
+});
+
+test('the played push is never capped', async (t) => {
+  const { sent, call, clock } = world(t);
+
+  clock.minutes = -10;
+  await call(10, 5);
+  clock.minutes = 0;
+  await call(10, 15); // lead push, starts the cap
+  clock.minutes = 1;
+  await call(10, 15, 'played');
+
+  assert.deepEqual(titles(sent.slice(2)), [[11, 'Final: you lost 10.0-15.0'], [22, 'Final: you won 15.0-10.0']]);
 });

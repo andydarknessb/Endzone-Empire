@@ -221,6 +221,7 @@ async function pollChangedGames({ season, week, games, finalSyncedGameIds, quota
         gate.markRan(leagueId, now);
         rescored.push(leagueId);
         await scheduler.alertCloseMatchups({ leagueId, week, scored });
+        await scheduler.alertScoreUpdates({ leagueId, season, week, scored });
       } catch (err) {
         // Left pending: the next tick retries and the plays are still owed.
         console.error('liveBoxPoll: re-score failed for league %s:', leagueId, err.message);

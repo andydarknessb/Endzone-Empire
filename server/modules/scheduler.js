@@ -1298,8 +1298,9 @@ const scoreText = (a, b) => {
  * pass has committed: a lead change (home | away | tied), and once the matchup
  * reaches `played` (every starter's game over, the status scoreMatchups
  * attaches per ADR 0030). The leader is remembered in the push_events ledger:
- * the latest `score-lead` row for the matchup holds `<leader>:<n>`, and a push
- * goes out only when the leader differs from it. The counter n keeps a return
+ * the owner's latest `score-lead` row for the matchup holds `<leader>:<n>`, and
+ * a push goes out only when the leader differs from it, at most one per owner
+ * per five minutes (the live poll can flip a close game every 30 seconds). The counter n keeps a return
  * to an earlier leader (home, away, home) from hitting the ledger's unique key.
  * The first scoring of a week records the leader without a push.
  */
@@ -1326,39 +1327,49 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
       // Once played, the Final push is the news; a later stat correction must not
       // send a lead change to someone already told the result.
       if (m.status !== 'played') {
-        const prev = await pool.query(
-          `SELECT "fingerprint" FROM "push_events"
-           WHERE "kind" = 'score-lead' AND "subject" = $1
-           ORDER BY "created_at" DESC LIMIT 1`,
-          [subject]
-        );
-        if (!prev.rows[0]) {
-          const wanting = await usersWanting(sides.map((s) => s.mine.owner_id), 'scoreUpdates');
-          if (wanting.length > 0) {
+        for (const s of sides) {
+          const userId = s.mine.owner_id;
+          if ((await usersWanting([userId], 'scoreUpdates')).length === 0) continue;
+          // Each owner compares against their own last row, so a capped owner
+          // (below) still gets the change once the cap lapses.
+          const prev = await pool.query(
+            `SELECT "fingerprint" FROM "push_events"
+             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "subject" = $2
+             ORDER BY "created_at" DESC LIMIT 1`,
+            [userId, subject]
+          );
+          if (!prev.rows[0]) {
             await pool.query(
               `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
-               SELECT unnest($1::int[]), $2, $3, $4 ON CONFLICT DO NOTHING`,
-              [wanting, 'score-lead', subject, `${leader}:0`]
+               VALUES ($1, 'score-lead', $2, $3) ON CONFLICT DO NOTHING`,
+              [userId, subject, `${leader}:0`]
             );
+            continue;
           }
-        } else {
           const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
-          if (prevLeader !== leader) {
-            for (const s of sides) {
-              await push.sendPushOnce({
-                userIds: [s.mine.owner_id],
-                prefKey: 'scoreUpdates',
-                kind: 'score-lead',
-                subject,
-                fingerprint: `${leader}:${Number(n) + 1}`,
-                payload: {
-                  title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
-                  body: body(s),
-                  url,
-                },
-              });
-            }
-          }
+          if (prevLeader === leader) continue;
+          // At most one lead push per owner per five minutes; a capped change
+          // writes no row, so the next poll still sees the old leader and sends
+          // once five minutes pass. The ':0' rows are silent records, not pushes.
+          const capped = await pool.query(
+            `SELECT 1 FROM "push_events"
+             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "fingerprint" NOT LIKE '%:0'
+               AND "created_at" > now() - interval '5 minutes' LIMIT 1`,
+            [userId]
+          );
+          if (capped.rows[0]) continue;
+          await push.sendPushOnce({
+            userIds: [userId],
+            prefKey: 'scoreUpdates',
+            kind: 'score-lead',
+            subject,
+            fingerprint: `${leader}:${Number(n) + 1}`,
+            payload: {
+              title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
+              body: body(s),
+              url,
+            },
+          });
         }
       }
 
