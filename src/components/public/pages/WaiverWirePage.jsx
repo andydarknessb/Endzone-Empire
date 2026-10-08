@@ -18,7 +18,7 @@ import publicApiClient from '../../../api/publicApiClient';
 
 const CARDS = [
   { slug: 'week5-waiver-wire-darkness-report', Icon: LeaderboardIcon },
-  { slug: 'week4-start-sit-darkness-report', Icon: SportsFootballIcon },
+  { slug: 'week5-start-sit-darkness-report', Icon: SportsFootballIcon },
   { slug: 'waiver-priority-vs-faab', Icon: PriorityHighIcon },
   { slug: 'streaming-defense-and-kicker', Icon: ShieldIcon },
 ];
