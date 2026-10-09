@@ -18,8 +18,6 @@ const {
 const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { verdictBand } = require('./intervalReading');
-const { unavailableFor, startVerdictOf } = require('./unavailable');
-const practiceParticipation = require('./practiceParticipation.service');
 const { normalizeNflTeam } = require('./nflTeam');
 // The schedule read start/sit advice pairs with getPositionDefense below;
 // shared with the Players page rather than copied (#1574, #1136).
@@ -57,10 +55,10 @@ function round2(x) {
 // The advice wire's per-player verdict fields (spec #2042): the availability
 // facts (probability, status, lock) without `reason`, and the one
 // `startVerdict` that carries the reason. Both null when the player has none.
-function wireVerdict(availability) {
+function wireVerdict(availability, startVerdict) {
   if (!availability) return { availability: null, startVerdict: null };
   const { reason, ...facts } = availability;
-  return { availability: facts, startVerdict: startVerdictOf(availability) };
+  return { availability: facts, startVerdict };
 }
 
 function finiteNumber(value) {
@@ -95,18 +93,16 @@ function finiteNumber(value) {
  * is the position's average, not his own evidence) or a Backup quarterback
  * (ADR 0057), is never auto-promoted
  * over a healthy starter, because there is no reliable data to make that
- * trade against (see unavailableFor).
+ * trade against (see the Start verdict).
  *
- * lineupEntries: [{ playerId, name, position, slot, locked?, injuryStatus?,
- * onBye? }] (slot includes BENCH/IR).
+ * lineupEntries: [{ playerId, name, position, slot, locked? }] (slot includes
+ * BENCH/IR). Every availability fact comes from `projections`' Start verdict
+ * (ADR 0061); the lock is the entry's own, composed beside it.
  * projections: the Weekly projection result object (`getWeeklyProjections`'s
  * return, #1703) - its `pointsFor`/`factorsFor`/`detailFor`/`startVerdictFor`
  * accessors and its own `projections` map (the raw run entries, for the full distribution and
  * for telling a present-but-no-estimate entry from an absent one) are the
  * only things read here.
- * Each entry may carry `practiceObservations` (this week's Practice
- * participation, `loadWeekObservations`) and `kickoff` (his game, the
- * coverage deadline's anchor); see unavailableFor's `practice`.
  * options.calledShot (#1856): `{ starterId, benchedId }` of the team's open
  * called shot, pinned as described above.
  * defenseByPlayer: Map playerId -> { opponent, opponentPointsAllowed,
@@ -154,29 +150,23 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   const pinned = new Map();
   const candidates = [];
   for (const entry of entries) {
-    // The Start verdict (spec #2042) says whether he is Position-baseline or a
-    // Backup quarterback; `unavailableFor` below still shapes the availability
-    // object the wire carries (probability, status, lock).
+    // The Start verdict (spec #2042; ADR 0061) from the read, the one producer:
+    // bye, No NFL team, Practice squad, Out, IR, Backup, Position-baseline,
+    // Doubtful, no-practice and Questionable. The lock is a Lineup fact, so it
+    // is composed beside the verdict here and is no part of it.
     const verdict = projections.startVerdictFor(entry.playerId);
-    const availability = unavailableFor({
-      injuryStatus: entry.injuryStatus ?? entry.injury_status ?? null,
-      onBye: Boolean(entry.onBye),
-      // null is a released player; undefined is a caller that did not say.
-      noTeam: entry.nflTeam === null,
-      nflRosterStatus: entry.nflRosterStatus ?? null,
+    const available = verdict.outcome !== 'unavailable';
+    const detail = projections.detailFor(entry.playerId);
+    const stored = (projections.factorsFor(entry.playerId) || {}).availability || {};
+    const availability = {
+      available,
+      ...(available && { autoRecommend: verdict.outcome === 'recommendable' }),
+      activeProbability: available ? (detail && detail.activeProbability) ?? null : 0,
+      reason: verdict.reason,
+      status: stored.status || null,
       locked: entry.locked,
       lockedSlot: entry.slot,
-      // A Position-baseline projection is never auto-recommended (#1775),
-      // through the same branch Doubtful uses below.
-      positionBaseline: verdict.reason === 'no_history',
-      // A Backup quarterback (ADR 0057) likewise: his number is his own, but
-      // he is behind an available teammate and will not play.
-      backup: verdict.reason === 'backup',
-      // This week's Practice participation (ADR 0056): a Questionable player
-      // with no practice all week is never auto-recommended, as Doubtful is.
-      // Only this reader passes it; no observations is the status quo.
-      practice: { observations: entry.practiceObservations || [], kickoffAt: entry.kickoff ?? null },
-    });
+    };
     availabilityById.set(entry.playerId, availability);
     verdictById.set(entry.playerId, verdict);
     if (entry.slot === IR) continue; // IR is never a lineup candidate
@@ -189,7 +179,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     // Doubtful, Position-baseline, Backup or no-practice on the bench. The
     // verdict gates too: a run that stored him Unavailable (a stale IR) is never
     // recommended whatever his live entry says.
-    if (!isStarter(entry) && !(availability.autoRecommend && verdict.outcome === 'recommendable')) continue;
+    if (!isStarter(entry) && verdict.outcome !== 'recommendable') continue;
     candidates.push({ playerId: entry.playerId, position: entry.position });
   }
 
@@ -316,7 +306,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
         distribution: swap.currentProjection.projection || null,
         confidence: swap.currentProjection.confidence || null,
         factors: swap.currentProjection.factors || null,
-        ...wireVerdict(availabilityById.get(swap.out.playerId)),
+        ...wireVerdict(availabilityById.get(swap.out.playerId), verdictById.get(swap.out.playerId)),
       },
       suggested: {
         playerId: swap.in.playerId,
@@ -326,7 +316,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
         distribution: swap.suggestedProjection.projection || null,
         confidence: swap.suggestedProjection.confidence || null,
         factors: swap.suggestedProjection.factors || null,
-        ...wireVerdict(availabilityById.get(swap.in.playerId)),
+        ...wireVerdict(availabilityById.get(swap.in.playerId), verdictById.get(swap.in.playerId)),
       },
       gain: round2(suggestedPoints - currentPoints),
       probabilityBetter: probability,
@@ -393,6 +383,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     // Every entry's verdict (the same object the suggestion sides carry), so
     // the wire's players[] rows read the reason off it.
     availabilityById,
+    verdictById,
   };
 }
 
@@ -422,7 +413,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   const effectiveWeek = lineup.week;
   const playerIds = lineup.entries.map((e) => e.id);
 
-  const [run, defense, opponents, gameChips, practiceByPlayer] = await Promise.all([
+  const [run, defense, opponents, gameChips] = await Promise.all([
     projectionService.getWeeklyProjections({
       season: effectiveSeason,
       week: effectiveWeek,
@@ -440,17 +431,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       nflTeams: lineup.entries.map((e) => e.nfl_team),
     }).catch((err) => {
       console.error('start/sit advice: game context lookup failed, continuing without chips:', err.message);
-      return new Map();
-    }),
-    // This week's Practice participation (ADR 0056), one batched read for the
-    // roster. Optional context: a failed read degrades to no observations,
-    // which is the status quo (no player reads no_practice), not no advice.
-    practiceParticipation.loadWeekObservations(pool, {
-      season: effectiveSeason,
-      week: effectiveWeek,
-      playerIds,
-    }).catch((err) => {
-      console.error('start/sit advice: practice participation lookup failed, continuing without it:', err.message);
       return new Map();
     }),
   ]);
@@ -506,15 +486,6 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
     position: e.position,
     slot: e.slot,
     locked: Boolean(e.locked),
-    injuryStatus: e.injury_status || null,
-    onBye: Boolean(e.onBye),
-    nflTeam: e.nfl_team ?? null,
-    // getLineup's own player read carries it (#1767).
-    nflRosterStatus: e.nfl_roster_status ?? null,
-    // getLineup's schedule fields (#1235): his kickoff anchors the Practice
-    // participation coverage deadline (ADR 0056).
-    kickoff: e.kickoff ?? null,
-    practiceObservations: practiceByPlayer.get(e.id) || [],
   }));
 
   // The ranking statistic comes from the RUN's constants (#1483), read back
@@ -599,7 +570,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
       // availability facts plus the one `startVerdict`, which the client reads
       // for "No practice this week" beside a Questionable tag (ADR 0056) among
       // others.
-      ...wireVerdict(plan.availabilityById.get(entry.playerId)),
+      ...wireVerdict(plan.availabilityById.get(entry.playerId), plan.verdictById.get(entry.playerId)),
       ...defenseByPlayer.get(entry.playerId),
     };
   });

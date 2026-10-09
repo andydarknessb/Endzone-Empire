@@ -1,17 +1,19 @@
 /**
- * #287: the two remaining raw `players.nfl_team = nfl_games.nfl_team` joins.
+ * #287: the raw `players.nfl_team = nfl_games.nfl_team` join.
  *
- * Both live in SQL, so both normalise in SQL through `fn_normalize_nfl_team`
+ * It lives in SQL, so it normalises in SQL through `fn_normalize_nfl_team`
  * on BOTH sides (the rule stated in `services/nflTeam.js`: a consumer that
  * JOINS two tables normalises in the database, a consumer that has already
- * read one side into memory normalises in JS). One issue, one defect, so the
- * two sites are tested together here:
+ * read one side into memory normalises in JS):
  *
- *   - `digest.service`'s lineup-reminder query reads `on_bye` off a LEFT JOIN,
- *     so a raw comparison makes every DEF unit permanently on bye;
  *   - `projection.service.getPositionDefense` uses an INNER join, so a raw
  *     comparison DROPS the row and the aggregate loses DEF units and every
  *     WSH-coded week with no null anywhere to notice.
+ *
+ * The digest's lineup-reminder query used to be the other site (an `on_bye`
+ * LEFT JOIN that made every DEF unit permanently on bye); it reads no bye any
+ * more, since the Start verdict comes from the Weekly projection read (ADR
+ * 0061), so its tests went with the join.
  *
  * HOW THIS TESTS A SQL JOIN WITHOUT A DATABASE, AND WHY THAT IS HONEST.
  * These services are driven through a fake pool, and the standing warning
@@ -39,11 +41,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const pool = require('../modules/pool');
-const { createFakePool } = require('./helpers/fakePool');
 const { normalizeNflTeam } = require('../services/nflTeam');
-const accountService = require('../services/account.service');
-const push = require('../services/push.service');
-const { sendLineupReminders } = require('../services/digest.service');
 const projection = require('../services/projection.service');
 
 const flat = (sql) => String(sql).replace(/\s+/g, ' ').trim();
@@ -125,184 +123,7 @@ const PLAYERS_TEAM = '"players"."nfl_team"';
 const RAW_PREDICATE =
   /"nfl_games"\."nfl_team" *= *"players"\."nfl_team"|"players"\."nfl_team" *= *"nfl_games"\."nfl_team"/;
 
-// --- digest: on_bye ---------------------------------------------------------
-
 const SEASON = 2026;
-
-/**
- * Answers the lineup-reminder digest query out of fixture tables, joining
- * `nfl_games` the way the statement itself says to.
- */
-const digestRows = (world) => (sql, params) => {
-  const [, season, week] = params;
-  requireInStatement(sql, /LEFT JOIN "nfl_games"/, 'the LEFT JOIN on nfl_games');
-  requireInStatement(sql, /"nfl_games"\."season" = \$2/, 'the season scope on the game join');
-  requireInStatement(sql, /"nfl_games"\."week" = \$3/, 'the week scope on the game join');
-  requireInStatement(
-    sql,
-    /\("players"\."nfl_team" IS NOT NULL AND "nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/,
-    // #1791: fn_normalize_nfl_team(NULL) is NULL, so a No NFL team row's own
-    // join never matches either - the guard is what keeps that reading as No
-    // NFL team rather than On bye.
-    'the on_bye projection with its No NFL team guard'
-  );
-  const sameTeam = teamPredicateFrom(sql, GAMES_TEAM, PLAYERS_TEAM);
-  const rows = world.entries.map((entry) => {
-    const player = world.players.find((p) => p.id === entry.player_id);
-    const game = gameFor(world.games, { season, week, team: player.nfl_team }, sameTeam);
-    return {
-      slot: entry.slot,
-      ir_attested: entry.ir_attested || false,
-      name: player.name,
-      injury_status: player.injury_status || null,
-      // Mirrors the guarded SQL: a No NFL team row is never on bye, join or no join.
-      on_bye: player.nfl_team != null && !game,
-    };
-  });
-  return { rows };
-};
-
-/**
- * A one-team league whose reminder run reaches the digest query. The roster
- * is already materialized (every roster player has a lineup row), so
- * materializeLineup returns before it writes anything.
- */
-function digestWorld(t, world) {
-  const statements = [];
-  const fake = createFakePool([
-    [/^SELECT 1 FROM "matchups"/, () => ({ rows: [] })],
-    [/^SELECT \* FROM "leagues"/, () => ({
-      rows: [{
-        id: world.leagueId,
-        current_season: SEASON,
-        current_week: world.week,
-        best_ball: false,
-        roster_slots: [],
-        bench_slots: 5,
-        ir_slots: 1,
-      }],
-    })],
-    [/^SELECT 1 FROM "nfl_games"/, () => ({ rows: [{ exists: 1 }] })],
-    // The week's kickoffs (the lock-aware status reads them): none locked here.
-    [/^SELECT "nfl_games"\."season"/, () => ({ rows: [] })],
-    [/^SELECT "teams"\."id"/, () => ({
-      rows: [{
-        id: world.teamId,
-        name: 'Test Team',
-        owner_id: world.ownerId,
-        email: 'manager@example.test',
-      }],
-    })],
-    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
-    // The push_events ledger: every user's row is new.
-    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
-    [/^SELECT "team_players"\."player_id"/, () => ({
-      rows: world.entries.map((e) => ({ player_id: e.player_id, position: e.position })),
-    })],
-    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
-      rows: world.entries.map((e) => ({ player_id: e.player_id })),
-    })],
-    [/^SELECT "lineup_entries"\."slot"/, (sql, params) => {
-      statements.push(flat(sql));
-      return digestRows(world)(sql, params);
-    }],
-    [/^INSERT INTO "notifications"/, () => ({ rows: [] })],
-  ]).install(t);
-  const messages = [];
-  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
-    messages.push(payload.body);
-    return { sent: 1 };
-  });
-  t.mock.method(accountService, 'deliverEmail', async () => ({ sent: 1 }));
-  return { fake, messages, statements };
-}
-
-const OUT_RECEIVER = {
-  id: 901, name: 'Hurt Receiver', position: 'WR', nfl_team: 'BUF', injury_status: 'O',
-};
-
-test('a DEF unit is not on bye in a week his team plays', async (t) => {
-  const denverDefense = {
-    // `syncTeamDefenses` seeds a DEF unit with name = nfl_team, so both
-    // columns carry the full team name and neither carries a code.
-    id: 902, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos',
-  };
-  const { fake, messages, statements } = digestWorld(t, {
-    leagueId: 5101, teamId: 5201, ownerId: 5301, week: 3,
-    players: [denverDefense, OUT_RECEIVER],
-    entries: [
-      { player_id: 902, position: 'DEF', slot: 'DEF' },
-      { player_id: 901, position: 'WR', slot: 'WR' },
-    ],
-    // players.nfl_team says "Denver Broncos"; the schedule says DEN. The
-    // receiver's own team plays too, so the only thing separating the two
-    // starters is the vocabulary their team is written in.
-    games: [
-      { season: SEASON, week: 3, nfl_team: 'DEN', opponent: 'KC' },
-      { season: SEASON, week: 3, nfl_team: 'BUF', opponent: 'NYJ' },
-    ],
-  });
-
-  const result = await sendLineupReminders();
-
-  // The reminder fires for the Out receiver, which is what makes the silence
-  // about the defense an assertion rather than an absence of output.
-  assert.equal(result.remindersSent, 1);
-  assert.match(messages[0], /Hurt Receiver \(WR\) is Out/);
-  assert.doesNotMatch(messages[0], /on bye/);
-  assert.doesNotMatch(statements[0], RAW_PREDICATE);
-  fake.assertClean();
-});
-
-// The control, and the only test here that also passes on the raw
-// comparison: a join that matches nothing satisfies "on bye" by accident.
-// It earns its place by proving the harness can still say TRUE, so the
-// silence in its partner above is a real answer and not a broken fixture.
-// Keep the pair together.
-test('a DEF unit is on bye in his real bye week', async (t) => {
-  const denverDefense = {
-    id: 912, name: 'Denver Broncos', position: 'DEF', nfl_team: 'Denver Broncos',
-  };
-  const { fake, messages } = digestWorld(t, {
-    leagueId: 5102, teamId: 5202, ownerId: 5302, week: 9,
-    players: [denverDefense],
-    entries: [{ player_id: 912, position: 'DEF', slot: 'DEF' }],
-    // Week 9 is Denver's bye: other teams play, Denver does not.
-    games: [{ season: SEASON, week: 9, nfl_team: 'KC', opponent: 'LV' }],
-  });
-
-  const result = await sendLineupReminders();
-
-  assert.equal(result.remindersSent, 1);
-  assert.match(messages[0], /Denver Broncos \(DEF\) is on bye/);
-  fake.assertClean();
-});
-
-test('a WAS player matches a WSH-coded game row', async (t) => {
-  const washingtonReceiver = {
-    id: 922, name: 'Washington Receiver', position: 'WR', nfl_team: 'WAS',
-  };
-  const { fake, messages } = digestWorld(t, {
-    leagueId: 5103, teamId: 5203, ownerId: 5303, week: 4,
-    players: [washingtonReceiver, OUT_RECEIVER],
-    entries: [
-      { player_id: 922, position: 'WR', slot: 'WR' },
-      { player_id: 901, position: 'WR', slot: 'FLEX' },
-    ],
-    // Tank01 spells Washington WSH; players.nfl_team spells it WAS.
-    games: [
-      { season: SEASON, week: 4, nfl_team: 'WSH', opponent: 'PHI' },
-      { season: SEASON, week: 4, nfl_team: 'BUF', opponent: 'NYJ' },
-    ],
-  });
-
-  const result = await sendLineupReminders();
-
-  assert.equal(result.remindersSent, 1);
-  assert.match(messages[0], /Hurt Receiver \(FLEX\) is Out/);
-  assert.doesNotMatch(messages[0], /on bye/);
-  fake.assertClean();
-});
 
 // --- projection: getPositionDefense -----------------------------------------
 

@@ -93,10 +93,11 @@ test("'mean' falls back to the displayed points for a projection with no distrib
 test("'mean' gives an unavailable player rank 0, same as the display rule", () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), onBye: true },
+    entry(2, 'RB', 'BENCH'),
   ];
   // The bye player's mean towers over the starter; he still must not start.
-  const projections = resultFromLegacyMap(new Map([[1, proj(4, 4)], [2, proj(20, 25)]]));
+  const bye = { available: false, activeProbability: 0, reason: 'bye', status: null };
+  const projections = resultFromLegacyMap(new Map([[1, proj(4, 4)], [2, proj(20, 25, { factors: { availability: bye } })]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1, { lineupRanking: 'mean' });
   assert.equal(result.suggestions.length, 0);
   assert.deepEqual(result.movePlan, []);
