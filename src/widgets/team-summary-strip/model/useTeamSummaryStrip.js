@@ -1,4 +1,4 @@
-import { matchupWinProbability, finite } from '../../../shared/lib';
+import { finite } from '../../../shared/lib';
 import { useWeekMatchups, viewerMatchupOf, applyScoreEvent, matchupBoard } from '../../../entities/matchup';
 
 /**
@@ -11,9 +11,9 @@ import { useWeekMatchups, viewerMatchupOf, applyScoreEvent, matchupBoard } from 
  * Reads the week's matchups list (`entities/matchup`'s `useWeekMatchups`,
  * the same shared read the matchup-preview widget and the page use) for the viewer's own
  * Matchup - score, projected total (Expected final) and Players remaining
- * for both sides, plus the win probability computed the same way
- * (`matchupWinProbability`, `shared/lib`, #1120) so this strip and the
- * Dashboard's matchup-preview card can never disagree.
+ * for both sides, plus the win probability off the same `matchupBoard`
+ * (#2142) so this strip and the Dashboard's matchup-preview card can never
+ * disagree.
  *
  * Deliberately simpler than matchup-preview's own model: no chained detail
  * fallback for a pre-kickoff week whose list row has no Expected final yet
@@ -59,11 +59,6 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
     ? (scoreEvent.scored || []).find((s) => s.matchupId === myMatchupFromList.id)
     : null;
   const myMatchup = scoredEntry ? applyScoreEvent(myMatchupFromList, scoredEntry) : myMatchupFromList;
-  const opponentId = myMatchup
-    ? myMatchup.home.teamId === viewerTeamId
-      ? myMatchup.away.teamId
-      : myMatchup.home.teamId
-    : null;
 
   let status;
   if (!hasRead) status = 'empty';
@@ -76,24 +71,15 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
   // once the week is settled (#2048): a played or final week shows the score
   // alone, though the server still prices a projection.
   const board = matchupBoard(myMatchup, viewerTeamId);
-  const sideOf = (teamId) => {
-    if (!myMatchup || teamId == null) return null;
-    if (myMatchup.home.teamId === teamId) return board.home;
-    if (myMatchup.away.teamId === teamId) return board.away;
-    return null;
-  };
+  const sideView = (side) => ({
+    score: finite(side?.score),
+    projected: finite(side?.expectedFinal),
+    playersRemaining: finite(side?.playersRemaining),
+  });
 
-  const sideView = (teamId) => {
-    const side = sideOf(teamId);
-    return {
-      score: finite(side?.score),
-      projected: finite(side?.expectedFinal),
-      playersRemaining: finite(side?.playersRemaining),
-    };
-  };
-
-  const viewer = status === 'ready' ? sideView(viewerTeamId) : null;
-  const opponent = status === 'ready' ? sideView(opponentId) : null;
+  const opponentSide = board.viewerSide === 'home' ? 'away' : 'home';
+  const viewer = status === 'ready' && board.viewerSide ? sideView(board[board.viewerSide]) : null;
+  const opponent = status === 'ready' && board.viewerSide ? sideView(board[opponentSide]) : null;
 
   // AC4 asks for win probability unconditionally once the matchup is ready
   // (formal review finding ac4-win-probability-gated-on-kickoff), not only
@@ -101,15 +87,9 @@ export function useTeamSummaryStrip({ leagueId, week, viewerTeamId, lineup, scor
   // reads purely off the two projected totals, which is exactly what a
   // manager wants to see before kickoff too.
   let winProbability = null;
-  if (status === 'ready') {
-    const shares = matchupWinProbability({
-      homeScore: finite(myMatchup.home.score) ?? 0,
-      awayScore: finite(myMatchup.away.score) ?? 0,
-      homeExpectedFinal: myMatchup.home.expectedFinal,
-      awayExpectedFinal: myMatchup.away.expectedFinal,
-      status: myMatchup.status,
-    });
-    const raw = myMatchup.home.teamId === viewerTeamId ? shares.home : shares.away;
+  const shares = board.winProbability ?? board.projectedWinProbability;
+  if (status === 'ready' && shares) {
+    const raw = board.viewerSide === 'home' ? shares.home : shares.away;
     const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
     winProbability = Math.round(clamped * 100);
   }
