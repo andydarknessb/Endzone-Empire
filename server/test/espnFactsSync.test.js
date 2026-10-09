@@ -434,3 +434,88 @@ test('runRosterStatusSync: a reconcile failure is logged and never fails the run
   assert.equal(result.results[0].teamCode, 'NYG', 'the run itself still succeeds');
   assert.equal(dataSyncRuns(fake.calls)[0].params[2], true, 'still recorded ok');
 });
+
+// ---------------------------------------------------------------------------
+// sharedRosterSweep (#2117): one team sweep serves the roster-status job and
+// the daily player sync
+// ---------------------------------------------------------------------------
+
+const { sharedRosterSweep } = require('../modules/espnFactsSync');
+
+/** A transport answering all 32 teams with a one-athlete roster, counting calls. */
+function fullRosterTransport({ failOn } = {}) {
+  const transport = {
+    calls: 0,
+    get: async (url) => {
+      transport.calls += 1;
+      const id = url.match(/\/teams\/(\d+)\/roster$/)[1];
+      if (failOn && failOn(id)) throw forbidden();
+      return { data: { athletes: [{ position: 'offense', items: [{ id: `9${id}`, fullName: `Player ${id}`, position: { abbreviation: 'WR' } }] }] } };
+    },
+  };
+  return transport;
+}
+
+test('sharedRosterSweep: a full sweep is complete; a second read on the same transport makes no further ESPN call', async () => {
+  const transport = fullRosterTransport();
+  const first = await sharedRosterSweep({ transport });
+  assert.equal(first.units.length, 32);
+  assert.equal(first.complete, true);
+  assert.equal(transport.calls, 32);
+  assert.equal(await sharedRosterSweep({ transport }), first, 'the same sweep, not a refetch');
+  assert.equal(transport.calls, 32);
+});
+
+test('sharedRosterSweep: one team failing makes the sweep incomplete (so nobody is cleared on it) without failing it', async () => {
+  const transport = fullRosterTransport({ failOn: (id) => id === '19' });
+  const sweep = await sharedRosterSweep({ transport });
+  assert.equal(sweep.units.length, 31);
+  assert.equal(sweep.complete, false);
+});
+
+test('sharedRosterSweep: a team that answers with no athletes also makes the sweep incomplete', async () => {
+  const transport = { get: async (url) => (/\/teams\/19\/roster$/.test(url) ? { data: { athletes: [] } } : fullRosterTransport().get(url)) };
+  const sweep = await sharedRosterSweep({ transport });
+  assert.equal(sweep.units.length, 31);
+  assert.equal(sweep.complete, false);
+});
+
+test('sharedRosterSweep: a failed sweep is never cached, the next read sweeps again', async () => {
+  const dead = { calls: 0, get: async () => { dead.calls += 1; throw forbidden(); } };
+  await assert.rejects(sharedRosterSweep({ transport: dead }), /espn-roster-sweep: .*consecutive/, 'the error names the sweep, not one job that reads it');
+  const callsAfterFirst = dead.calls;
+  await assert.rejects(sharedRosterSweep({ transport: dead }));
+  assert.ok(dead.calls > callsAfterFirst, 'the failure was not held');
+});
+
+test('sharedRosterSweep: the sweep expires after its TTL, and concurrent reads share one in-flight sweep', async (t) => {
+  const transport = fullRosterTransport();
+  const [a, b] = await Promise.all([sharedRosterSweep({ transport }), sharedRosterSweep({ transport })]);
+  assert.equal(a, b);
+  assert.equal(transport.calls, 32, 'two concurrent readers, one sweep');
+  const realNow = Date.now();
+  t.mock.method(Date, 'now', () => realNow + 11 * 60 * 1000);
+  const later = await sharedRosterSweep({ transport });
+  assert.notEqual(later, a);
+  assert.equal(transport.calls, 64);
+});
+
+test('runRosterStatusSync reads the shared sweep: a player sync sweep just before it costs the roster-status run no ESPN call', async (t) => {
+  rosterPool(t);
+  const transport = fullRosterTransport();
+  await sharedRosterSweep({ transport });
+  assert.equal(transport.calls, 32);
+  await runRosterStatusSync({ transport });
+  assert.equal(transport.calls, 32, 'one fetch served both jobs');
+});
+
+test('runRosterStatusSync (#2117): an athlete in a roster group we do not map has no status to record, so no row is written for him', async (t) => {
+  const fake = rosterPool(t);
+  const transport = {
+    get: async () => ({ data: { athletes: [{ position: 'mysteryGroup', items: [{ id: '4431562' }] }, { position: 'offense', items: [{ id: '16733' }] }] } }),
+  };
+  await runRosterStatusSync({ transport });
+  const written = fake.calls.filter((c) => insert('player_nfl_roster_status').test(c.text)).flatMap((c) => c.params[0]);
+  assert.ok(written.length > 0);
+  assert.ok(written.every((id) => id === 17733), 'only the mapped-group athlete (16733 + 1000) is written');
+});
