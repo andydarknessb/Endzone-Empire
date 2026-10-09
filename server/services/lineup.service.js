@@ -1208,8 +1208,8 @@ function factorEdgeText(factors) {
  * for a starting slot whose CURRENT occupant projects below him? The first
  * such starter found wins; `entries` is already ordered by position and name
  * (the entries query's own ORDER BY), so the result is deterministic without
- * a tie-break rule of its own. The comparison refuses either side whose
- * `unavailable` is set (#2066; CONTEXT.md, Unavailable: every surface shows
+ * a tie-break rule of its own. The comparison refuses either side in
+ * `wontStart` (#2066; CONTEXT.md, Unavailable: every surface shows
  * the reason instead of a number, so no "Outprojects" is said of or against a
  * player who cannot play); a starter on a bye or Out is already a Lineup
  * problem, and the Start/sit advice owns that swap.
@@ -1221,12 +1221,10 @@ function findBenchAboveStarter(entry, entries, rosterSlots, wontStart) {
   // player's own evidence, a Backup quarterback (ADR 0057) will not play, and
   // an Unavailable player adds nothing. `wontStart` holds the ids whose verdict
   // is Unavailable or carries an untrusted number.
-  // The row's own live `unavailable` (#2066) is read beside it: the stored
-  // verdict can lag a designation or a schedule the lineup read already sees.
-  if (wontStart.has(entry.id) || entry.unavailable) return null;
+  if (wontStart.has(entry.id)) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null || wontStart.has(other.id) || other.unavailable) continue;
+    if (other.projected_points == null || wontStart.has(other.id)) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1458,9 +1456,7 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // each row carries, straight from the Weekly projection read, the one
       // producer: Position-baseline (`no_history`, #1775) and Backup quarterback
       // (`backup`, ADR 0057) are its reasons, and bye, No NFL team, Practice
-      // squad, Out and IR are its Unavailable ones. `unavailable` (the Edge
-      // line's server-side read) is that reason when the outcome is
-      // 'unavailable'. `wontStart` is Unavailable, or a number that is not his
+      // squad, Out and IR are its Unavailable ones. `wontStart` is Unavailable, or a number that is not his
       // evidence, built for every row BEFORE any Edge line, since
       // `findBenchAboveStarter` reads it off the other entries too.
       const wontStart = new Set();
@@ -1468,7 +1464,6 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
         const verdict = weeklyResult.startVerdictFor(row.id);
         if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) wontStart.add(row.id);
         row.startVerdict = verdict;
-        row.unavailable = verdict.outcome === 'unavailable' ? verdict.reason : null;
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
@@ -1497,9 +1492,6 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
         // directly rather than re-deriving it, the same way it already reads
         // `projection`/`floor`/`ceiling` as the server's own numbers.
       }
-      // `unavailable` fed the Edge line above (`findBenchAboveStarter` reads it
-      // off every entry); the wire states it as `startVerdict` alone (#2045).
-      for (const row of annotated) delete row.unavailable;
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week
       // and its reads happen in one transaction; the assembly below is pure.

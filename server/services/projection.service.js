@@ -26,7 +26,7 @@ const {
  * verdict, but the stored field keeps the `locked: false, lockedSlot: null` keys
  * it has always carried: the holdout ledger captures the whole `factors` JSON
  * (ADR 0044) and the reconcilers compare stored against fresh, so the shape
- * does not move. Only this module calls `unavailable.js`.
+ * does not move. Besides the engine's model default, only this module calls `unavailable.js`.
  */
 function unavailableFor(facts) {
   return { ...verdictFor(facts), locked: false, lockedSlot: null };

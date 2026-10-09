@@ -232,7 +232,12 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       // The availability rule's verdict, so a surface can say WHY a row prices
       // at zero (on bye, out, on IR) instead of printing the number.
       // Questionable and Doubtful are available; their reason is not carried.
-      availability: verdict ? { available, reason: available ? null : verdict.reason } : null,
+      // With no read there is no verdict; the no-game facts this module already
+      // holds (bye, released) still state themselves, so the status stays
+      // truthful on an outage (ADR 0030, statusForMatchup).
+      availability: verdict
+        ? { available, reason: available ? null : verdict.reason }
+        : (onBye || noTeam ? { available: false, reason: onBye ? 'bye' : 'no_team' } : null),
       // Figures are null without a projection run (no forecast of zero); the
       // game state is real either way. rawExpectedFinal stays a number so the
       // best-ball optimizer can still order the lineup by points on the board.

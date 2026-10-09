@@ -480,6 +480,22 @@ test('a week nobody has kicked off in reads scheduled even when a starter is on 
   assert.equal(row.home_players_remaining, 1);
 });
 
+// ADR 0030 with ADR 0061: with the projection read down there is no verdict, but
+// a bye is a schedule fact this module holds, so the status still does not count
+// him as a game that finished. Red-tell: a null availability for him reads 'live'.
+test('on a projection outage a bye starter still reads scheduled, never live, before any kickoff', async (t) => {
+  const starters = [
+    { team_id: 10, player_id: 3, slot: 'WR', position: 'WR', nfl_team: 'Philadelphia Eagles', stats: null },
+    { team_id: 10, player_id: 4, slot: 'RB', position: 'RB', nfl_team: 'Ghosts', stats: null },
+  ];
+  const fake = weekPool(t, { starters, live: [], projections: new Error('run store down') });
+  const [row] = await attachExpectedFinals(
+    [{ id: 7, season: SEASON, week: WEEK, home_team_id: 10, away_team_id: 20, final: false }],
+    { league: LEAGUE, db: fake, now: NOW }
+  );
+  assert.equal(row.status, 'scheduled');
+});
+
 // ---------------------------------------------------------------------------
 // Matchup status
 // ---------------------------------------------------------------------------

@@ -262,7 +262,9 @@ function matchupSummary({ matchup, decoration, myTeamId, teamNameById }) {
 /* ------------------------------------------------------------------ *
  * Batched reads for the Home endpoints. Every read covers ALL of the   *
  * viewer's leagues at once (= ANY), so the query count never grows     *
- * with the number of leagues, and every read of league data is scoped  *
+ * with the number of leagues (the lineup status's Weekly projection    *
+ * read, one per league, is the exception), and every read of league    *
+ * data is scoped                                                       *
  * to the viewer through teams.owner_id. The schedule reads (kickoffs,  *
  * the Pick'em slate) are public NFL facts and run once per distinct    *
  * (season, week) in play, not per league.                              *
@@ -492,15 +494,21 @@ async function loadLineupStatuses(db, { userId, leagues, now }) {
     loadWeekKickoffs(db, { weeks: currentWeeks(leagues) }),
   ]);
   // The Start verdict (ADR 0061) per league, from the Weekly projection read
-  // for its current week: a stored lookup, not a model run.
+  // for its current week (a cached run when one exists; a miss generates it).
+  // One league's failed read leaves only that league without a lineup status,
+  // never the other leagues' (the one read that is not batched across leagues).
   const weekly = await Promise.all(leagues.map((league) => projectionService.getWeeklyProjections({
     season: league.current_season,
     week: league.current_week,
     league,
     playerIds: (lineups.get(league.my_team_id) || []).map((e) => e.playerId),
+  }).catch((err) => {
+    console.error('home lineup status: weekly projection read failed for league', league.id, err.message);
+    return null;
   })));
   const out = new Map();
   for (const [index, league] of leagues.entries()) {
+    if (!weekly[index]) continue;
     const week = kickoffs.get(weekKey(league.current_season, league.current_week)) || { byTeam: new Map(), last: null };
     out.set(league.id, lineupStatus({
       entries: lineups.get(league.my_team_id) || [],

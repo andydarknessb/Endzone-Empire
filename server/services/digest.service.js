@@ -218,10 +218,18 @@ async function sendLineupReminders() {
       const entries = entriesResult.rows.map((row) => ({
         ...lineupEntryFromRow(row), nflTeam: row.nfl_team,
       }));
-      // The Start verdict (ADR 0061), from the Weekly projection read.
-      const weekly = await require('./projection.service').getWeeklyProjections({
-        season, week, league, playerIds: entries.map((e) => e.playerId),
-      });
+      // The Start verdict (ADR 0061), from the Weekly projection read. Without
+      // it the team's availability is unknown, so the tick skips the team (a
+      // fail-closed read, like the ledger below) and the next tick retries.
+      let weekly;
+      try {
+        weekly = await require('./projection.service').getWeeklyProjections({
+          season, week, league, playerIds: entries.map((e) => e.playerId),
+        });
+      } catch (err) {
+        console.error('lineup reminder: weekly projection read failed, skipping team:', team.id, err.message);
+        continue;
+      }
       const { problems } = lineupStatus({
         entries,
         rosterSlots,
