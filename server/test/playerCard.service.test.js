@@ -1324,7 +1324,8 @@ function weekAwareProjection(overrides = {}) {
 }
 
 function firstWeekWorld(t, {
-  league = wrSlots(1), schedule, waiverRows = [], rosteredElsewhere = [], weeklyProjection = weekAwareProjection(),
+  league = wrSlots(1), schedule, waiverRows = [], rosteredElsewhere = [], ownRosterRows = [],
+  weeklyProjection = weekAwareProjection(),
   candidates = [{ id: PLAYER.id, nfl_team: 'BUF' }],
 }) {
   const kickedOffTeams = schedule
@@ -1340,6 +1341,7 @@ function firstWeekWorld(t, {
       schedule,
       waiverRows,
       rosteredElsewhere,
+      ownRosterRows,
       kickedOffTeams,
     }),
   ]).install(t);
@@ -1470,12 +1472,68 @@ test('upgradesFor (#2166): refusal uses the first playable week, so a candidate 
   assert.equal((await readUpgrade(wrSlots(1))).week, 2);
 });
 
-test('upgradesFor (#2166): another team\'s player keeps today\'s behaviour, the current week (#2167)', async (t) => {
+// #2167 (ADR 0062): another team's player joins when a trade could first
+// complete: now when the league does not review trades, now plus
+// `trade_review_hours` when it does (`trade_veto_votes > 0` and
+// `trade_review_hours > 0`, trade.service.js `respondToTrade`).
+const HOUR_MS = 3600 * 1000;
+const kicksOffAfterNow = (hours) => new Date(NOW.getTime() + hours * HOUR_MS).toISOString();
+const reviewLeague = (hours, votes = 1) => ({ ...wrSlots(1), trade_veto_votes: votes, trade_review_hours: hours });
+
+test('upgradesFor (#2167 a): another team\'s player in a league with no review is read in the current week when his team has not kicked off', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade({ ...wrSlots(1), trade_veto_votes: 0, trade_review_hours: 0 })).week, 1);
+});
+
+test('upgradesFor (#2167 a): without review, another team\'s player whose team kicked off before now is read in the next week', async (t) => {
   firstWeekWorld(t, {
     schedule: [game('BUF', 1, WK1_BEFORE_NOW), game('BUF', 2, WK2)],
     rosteredElsewhere: [PLAYER.id],
   });
-  assert.equal((await readUpgrade(wrSlots(1))).week, 1);
+  assert.equal((await readUpgrade(wrSlots(1))).week, 2);
+});
+
+test('upgradesFor (#2167 b): with 24 review hours, a kickoff 12 hours after now is before a trade could complete: next week', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(12)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(24))).week, 2);
+});
+
+test('upgradesFor (#2167 c): with 24 review hours, a kickoff 30 hours after now is after a trade could complete: this week', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(30)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(24))).week, 1);
+});
+
+test('upgradesFor (#2167 d): review hours above zero with veto votes at 0 is no review', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(12)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(24, 0))).week, 1);
+});
+
+test('upgradesFor (#2167): veto votes above zero with review hours at 0 is no review either', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(12)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(0, 2))).week, 1);
+});
+
+test('upgradesFor (#2167): a player on the caller\'s own roster is still null', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    ownRosterRows: [{ player_id: PLAYER.id }],
+  });
+  assert.equal(await readUpgrade(reviewLeague(24)), null);
 });
 
 test('upgradesFor (#2166): an unsynced schedule (no game rows at all) falls back to the current week', async (t) => {
