@@ -11,9 +11,9 @@ const sentry = require('./sentry');
  *   23001 league-scheduler  (modules/scheduler.js, via withAdvisoryLock)
  *   23002 draft-clock       (modules/scheduler.js, via withAdvisoryLock)
  *   23003 live-game-engine  (modules/liveGameEngine.js, direct call)
- *   23004 players-bulk-write - serializes syncAdp and syncInjuries
- *         (services/scoring.service.js), the two original whole-players-table
- *         writers, so their opposite row-lock orders cannot deadlock (#904).
+ *   23004 players-bulk-write - serializes syncAdp (services/adp.service.js)
+ *         and syncInjuries (services/feedSyncRuns.service.js), the two original
+ *         whole-players-table writers, so their opposite row-lock orders cannot deadlock (#904).
  *         Each issues a blocking pg_advisory_xact_lock(23004) as the first
  *         statement after its own BEGIN. #1204 added three more callers
  *         through server/modules/syncRun.js's `runSyncJob` (same blocking
@@ -36,10 +36,11 @@ const sentry = require('./sentry');
  *         syncPlayerSeasonStats, syncTeamDefenses (through `runSyncJob`) and
  *         Sleeper's syncSeasonStats (direct, own transaction).
  *   23005 nfl-games-bulk-write - serializes the two whole-nfl_games-table
- *         SYNC writers, syncSchedule (Tank01, services/scoring.service.js, job
- *         'schedule') and syncScheduleFromNflverse
- *         (services/nflverseSync.service.js, job 'schedule-nflverse'), so a
- *         Tank01 run and an nflverse run started together cannot interleave
+ *         SYNC writers, syncSchedule (ESPN scoreboard,
+ *         services/feedSyncRuns.service.js, job 'schedule') and
+ *         syncScheduleFromNflverse
+ *         (services/nflverseSync.service.js, job 'schedule-nflverse'), so an
+ *         ESPN run and an nflverse run started together cannot interleave
  *         their per-row upserts of the same season's games (#1203). (Not the
  *         one-off scripts/repair-schedule-orientation.js repair tool: it only
  *         ever null-only UPDATEs game_key/home_away/neutral_site, guarded by
