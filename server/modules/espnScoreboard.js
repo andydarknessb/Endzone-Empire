@@ -437,6 +437,45 @@ async function loadKickoffsForWeek({ season, week }) {
   return map;
 }
 
+/** One regular-season week's raw scoreboard body. */
+async function getScoreboard({ season, week, transport }) {
+  const client = transport || axios;
+  const response = await client.get(ESPN_SCOREBOARD_URL, {
+    params: { week, seasontype: 2, dates: season },
+    timeout: ESPN_TIMEOUT_MS,
+  });
+  return response.data;
+}
+
+/**
+ * One week's schedule from the free scoreboard (#2116, ADR 0060): each game's
+ * Tank01-style id, Team-code home/away (WSH, never WAS) and kickoff instant.
+ * The id is dated from the ET kickoff, the same convention Tank01 uses. A game
+ * whose competition says `timeValid: false` (a not-yet-flexed week's
+ * placeholder kickoff, e.g. week 18 before scheduling) is left out, exactly as
+ * Tank01's feed left out games with no epoch: writing it would overwrite a real
+ * or nflverse-placeholder `kickoff_at` with midnight ET (#2116 review). No nfl_games
+ * read: the schedule writer is what fills that table, and a game's kickoff is
+ * already ESPN's own, so nothing here needs re-dating.
+ *
+ * @returns {Promise<Array<{gameId: string, home: string, away: string, kickoffAt: Date}>>}
+ */
+async function fetchWeekGames({ season, week, transport }) {
+  const body = await getScoreboard({ season, week, transport });
+  // A body with no events array is a failed week, not an empty one: the poll
+  // tolerates it, but a schedule run must not read it as "no games".
+  if (!body || !Array.isArray(body.events)) throw new Error('unexpected scoreboard response shape');
+  const events = body.events.filter((event) => {
+    const competition = event && Array.isArray(event.competitions) ? event.competitions[0] : null;
+    return !(competition && competition.timeValid === false);
+  });
+  const { rows, dropped } = normalizeEspnScoreboard({ ...body, events }, { season, week });
+  if (dropped.length > 0) {
+    console.error('espnScoreboard: week %s dropped %d unusable event(s): %s', week, dropped.length, dropped.join(', '));
+  }
+  return rows.map((row) => ({ gameId: row.tank01GameId, home: row.homeTeam, away: row.awayTeam, kickoffAt: row.startTime }));
+}
+
 /**
  * Fetch and normalize one week's scoreboard. Zero quota cost.
  *
@@ -449,12 +488,7 @@ async function loadKickoffsForWeek({ season, week }) {
  * @returns {Promise<{rows: Array<object>, dropped: string[], unmatched: string[]}>}
  */
 async function fetchLiveRows({ season, week, transport, kickoffByPair }) {
-  const client = transport || axios;
-  const response = await client.get(ESPN_SCOREBOARD_URL, {
-    params: { week, seasontype: 2, dates: season },
-    timeout: ESPN_TIMEOUT_MS,
-  });
-  const { rows, dropped } = normalizeEspnScoreboard(response.data, { season, week });
+  const { rows, dropped } = normalizeEspnScoreboard(await getScoreboard({ season, week, transport }), { season, week });
   if (dropped.length > 0) {
     console.error('espnScoreboard: dropped %d unmatched event(s): %s', dropped.length, dropped.join(', '));
   }
@@ -474,6 +508,7 @@ async function fetchLiveRows({ season, week, transport, kickoffByPair }) {
 
 module.exports = {
   fetchLiveRows,
+  fetchWeekGames,
   loadKickoffsForWeek,
   // pure — unit tested
   normalizeEspnEvent,

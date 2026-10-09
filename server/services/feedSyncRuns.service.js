@@ -13,6 +13,7 @@
 const pool = require('../modules/pool');
 const { PLAYERS_BULK_WRITE_LOCK, NFL_GAMES_BULK_WRITE_LOCK } = require('../modules/advisoryLock');
 const { tank01Get } = require('../modules/tank01Client');
+const { fetchWeekGames } = require('../modules/espnScoreboard');
 const { runSyncJob } = require('../modules/syncRun');
 const cadence = require('../modules/cadence');
 const { POSITION_GROUPS } = require('./lineup.service');
@@ -21,7 +22,7 @@ const { normalizeNameKey } = require('./nameMatch');
 const { fantasySideWhereSql } = require('./leagueType');
 const { calculateFantasyPoints } = require('./scoringRules');
 const {
-  tank01Body, normalizeTeamAbbr, NFL_TEAM_NAME_TO_ABBR, buildGameKey, normalizeTank01Game, resolveHeadshotUrl,
+  tank01Body, normalizeTeamAbbr, NFL_TEAM_NAME_TO_ABBR, buildGameKey, resolveHeadshotUrl,
 } = require('./tank01Feed');
 const {
   loadWeekMaps, applyGameBoxScore, gamesNeedingBoxScore, markFinalStatsSynced,
@@ -161,7 +162,7 @@ async function syncPlayers({ season, api = tank01Get, now = new Date() }) {
 
 /**
  * fetch() for the players job: the Tank01 player-list call, before any
- * transaction or lock. `api` mirrors syncSchedule/syncInjuries's own
+ * transaction or lock. `api` mirrors syncInjuries's own
  * injectable default (`api = tank01Get`) — a test seam, not a behavior
  * change: production always calls the real tank01Get.
  */
@@ -423,9 +424,12 @@ async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped
 /**
  * Pull the real NFL schedule into nfl_games — one row per team per week,
  * keyed by Tank01 team abbreviations (matching players.nfl_team from
- * syncPlayers) — powering lineup locks and bye detection. One
- * getNFLGamesForWeek call per regular-season week (18, never more — Tank01 is
- * quota-metered), all 18 issued before any write.
+ * syncPlayers) — powering lineup locks and bye detection. One ESPN scoreboard
+ * call per regular-season week (18; free and unmetered, #2116 and ADR 0060 —
+ * Tank01 is the fallback and Final box only), all 18 issued before any write.
+ * Reached only by hand (the admin and scoring routes); the daily writer is
+ * syncScheduleFromNflverse. `transport` is the axios-like ESPN client (tests
+ * inject).
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
  * the advisory lock and the one data_sync_runs row per run, job 'schedule'.
@@ -438,7 +442,7 @@ async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped
  * same nothing-written outcome, just with no run row to show it). Otherwise
  * one unit (every game fetched across all weeks) is written in one
  * transaction under NFL_GAMES_BULK_WRITE_LOCK — the same lock
- * syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
+ * syncScheduleFromNflverse takes, so an ESPN run and an nflverse run started
  * together serialize instead of interleaving their upserts (#1203).
  *
  * `failedWeeks` lives ONLY in the recorded data_sync_runs row: applyScheduleUnit's
@@ -448,11 +452,11 @@ async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped
  * bodies... the routes see exactly what they see today" means the RESOLVED
  * VALUE (and so the JSON both routes forward), not the run detail.
  */
-async function syncSchedule({ season, api = tank01Get } = {}) {
+async function syncSchedule({ season, transport } = {}) {
   const { results: [{ season: resultSeason, gamesUpserted }] } = await runSyncJob({
     job: 'schedule',
     lock: NFL_GAMES_BULK_WRITE_LOCK,
-    fetch: () => fetchScheduleUnits({ season, api }),
+    fetch: () => fetchScheduleUnits({ season, transport }),
     apply: (client, unit) => applyScheduleUnit(client, unit),
   });
   return { season: resultSeason, gamesUpserted };
@@ -460,8 +464,7 @@ async function syncSchedule({ season, api = tank01Get } = {}) {
 
 /**
  * fetch() for the schedule job: runs before any transaction or lock. Issues
- * all 18 getNFLGamesForWeek calls (never short-circuits on a per-week
- * failure, since Tank01's quota is metered per call regardless of outcome)
+ * all 18 scoreboard calls (never short-circuits on a per-week failure)
  * and returns ONE unit — every normalized game across every week that
  * answered, plus the weeks that did not (`failedWeeks: [{ week, message }]`).
  * A week whose call throws, or whose response body is not an array, is
@@ -470,22 +473,13 @@ async function syncSchedule({ season, api = tank01Get } = {}) {
  * failed — there is then nothing to write, and the caller sees that as a
  * failed run instead of a silent zero.
  */
-async function fetchScheduleUnits({ season, api }) {
+async function fetchScheduleUnits({ season, transport }) {
   const games = [];
   const failedWeeks = [];
   for (let week = 1; week <= 18; week++) {
     try {
-      const response = await api('/getNFLGamesForWeek', {
-        params: { week, seasonType: 'reg', season },
-      });
-      const weekGames = tank01Body(response.data) || [];
-      if (!Array.isArray(weekGames)) {
-        throw new Error('unexpected getNFLGamesForWeek response shape');
-      }
-      for (const entry of weekGames) {
-        const game = normalizeTank01Game(entry);
-        if (!game) continue;
-        games.push({ week, ...game });
+      for (const { home, away, kickoffAt } of await fetchWeekGames({ season, week, transport })) {
+        games.push({ week, home, away, kickoffAt });
       }
     } catch (err) {
       console.error('schedule sync failed for week %s:', week, err.message);
@@ -504,8 +498,8 @@ async function fetchScheduleUnits({ season, api }) {
  * apply(client, unit) for the schedule job: runs inside runSyncJob's
  * withTransaction, after the module has already taken
  * NFL_GAMES_BULK_WRITE_LOCK on this client. Same per-team upsert the old
- * per-week loop ran, unchanged — game_key/home_away are additive, and Tank01
- * carries no venue, roof, surface or rest data, so those columns are left
+ * per-week loop ran, unchanged — game_key/home_away are additive, and the
+ * scoreboard's week fetch carries no venue, roof, surface or rest data, so those columns are left
  * exactly as they are (an nflverse schedule pass fills them in) — just run on
  * the transaction client instead of the bare pool, and once per fetched game
  * rather than interleaved with the fetch.
@@ -959,9 +953,10 @@ async function openKickoffTeams(client) {
  * external_id we know gets a player_stats upsert.
  *
  * The week's game list comes from live_game_states, which live scoring
- * (modules/liveGameEngine.js) keeps fresh for free off ESPN, so the old
- * always-on `/getNFLGamesForWeek` call is now only a fallback for a week we
- * have no live rows for.
+ * (modules/liveGameEngine.js) keeps fresh for free off ESPN. For a week we have
+ * no live rows for, it comes from the same free ESPN scoreboard (#2116,
+ * ADR 0060); `espnTransport` is that client (tests inject). Tank01 is only
+ * asked for the box scores.
  *
  * Returns typed touchdown events (`plays`) for the live UI — see
  * applyGameBoxScore (boxScoreApply.service.js).
@@ -975,7 +970,7 @@ async function openKickoffTeams(client) {
  * writes are per-game `player_stats` rows, the same rows the Live box poll
  * upserts, and a slate-wide lock would stall it (ADR 0036).
  */
-async function syncWeekStats({ season, week, pauseMs = 0, api }) {
+async function syncWeekStats({ season, week, pauseMs = 0, api, espnTransport }) {
   const stateRes = await pool.query(
     `SELECT "tank01_game_id", "game_status", "final_stats_synced_at"
        FROM "live_game_states" WHERE "season" = $1 AND "week" = $2`,
@@ -998,19 +993,10 @@ async function syncWeekStats({ season, week, pauseMs = 0, api }) {
     });
   } else {
     // No live rows for this week (a historical week, or live scoring has not
-    // run yet; see modules/liveGameEngine.js): fall back to one counted
-    // schedule call and treat every game as needing a fetch.
-    const gamesResponse = await tank01Get('/getNFLGamesForWeek', {
-      params: { week, seasonType: 'reg', season },
-      transport: api, // tests inject; uncounted when present
-    });
-    const games = tank01Body(gamesResponse.data) || [];
-    if (!Array.isArray(games)) {
-      return { season, week, playersUpdated: 0, gamesProcessed: 0, gamesSkipped: 0, plays: [] };
-    }
-    targets = games
-      .filter((g) => g && g.gameID)
-      .map((g) => ({ gameId: String(g.gameID), status: null, isFinal: false }));
+    // run yet; see modules/liveGameEngine.js): fall back to one free ESPN
+    // scoreboard call and treat every game as needing a fetch.
+    const games = await fetchWeekGames({ season, week, transport: espnTransport });
+    targets = games.map((g) => ({ gameId: g.gameId, status: null, isFinal: false }));
   }
 
   const gamesSkipped = Math.max(stateRes.rows.length - targets.length, 0);
