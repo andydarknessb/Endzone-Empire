@@ -48,8 +48,10 @@ const TOUCH = { minHeight: 44, minWidth: 44 };
  * #2168 (ADR 0062): `player.swapNet` is the card's net of the drop the manager
  * picked, signed. It replaces the gain line, and keeps the preview up when the
  * Upgrade is 0 with no overPlayer (a drop worth more than the claim).
+ * `netPending`: a drop is picked and its net has not arrived (loading or
+ * errored), so the Upgrade, which is not net of the drop, prints no gain line.
  */
-export function SwapPreview({ player }) {
+export function SwapPreview({ player, netPending = false }) {
   const upgrade = player.upgrade;
   const swapNet = player.swapNet ?? null;
   if (upgrade == null || upgrade.points == null || (upgrade.overPlayer == null && swapNet == null)) return null;
@@ -73,7 +75,7 @@ export function SwapPreview({ player }) {
           </Typography>
         )}
       </Box>
-      {!noHistory && (
+      {!noHistory && !netPending && (
         <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
       )}
     </Box>
@@ -94,7 +96,7 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
   const [saving, setSaving] = useState(false);
   const pending = filing || saving;
   // #2168: the card re-read with the picked drop netted out. No read until a
-  // drop is picked, and none for a row with no Upgrade to net (an edited claim).
+  // drop is picked, and none for a row with no Upgrade to net.
   const { card } = usePlayerCard({
     leagueId,
     playerId: dropId !== '' && player.upgrade != null ? player.id : null,
@@ -134,7 +136,10 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
     <>
       <DialogTitle id="claim-sheet-title">{editing ? `Edit claim: ${player.name}` : `Claim ${player.name}`}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <SwapPreview player={swapNet ? { ...player, swapNet } : player} />
+        <SwapPreview
+          player={swapNet ? { ...player, swapNet } : player}
+          netPending={dropId !== '' && player.upgrade != null && swapNet == null}
+        />
         <Box>
           <Typography id="claim-sheet-drop-label" sx={{ fontWeight: 700, mb: 0.5 }}>
             {atCapacity ? 'Drop a player' : 'Drop a player (optional)'}

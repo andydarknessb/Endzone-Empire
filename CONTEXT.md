@@ -1194,18 +1194,22 @@ kicked off is held, as the Start/sit advice holds him (a starter keeps his
 slot, a bench player is not a candidate). A candidate who adds nothing has an
 Upgrade of zero, which shows no pill or tile. The roster player the candidate
 displaces is the swap preview's other side. The Upgrade never takes a drop;
-the claim sheet's swap preview shows the **swap net** instead once the manager
-picks one: the best lineup in the candidate's first playable week with him in
-and the drop out, minus the best lineup the roster fields that week. Signed,
-so it goes negative when the drop is worth more than the claim; the card read
-carries it as `decision.swapNet` only when `dropPlayerId` names a player on
-the caller's roster. Undefined in a best ball league,
-where the column and tile are hidden, and for a player who is Unavailable
-this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
-who sorts last under the Upgrade sort. The same number for a free agent, a
-waiver candidate or another team's player, so it doubles as a trade-target
-score.
+see Swap net. Undefined in a best ball league, where the column and tile are
+hidden, and for a player who is Unavailable this week (bye, Out, IR or No NFL
+team), whose pill and tile are hidden and who sorts last under the Upgrade
+sort. The same number for a free agent, a waiver candidate or another team's
+player, so it doubles as a trade-target score.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
+
+**Swap net**:
+What claiming a candidate nets once the player the manager picks to drop
+leaves the roster: the optimal lineup total with the candidate on and the
+drop off, minus the optimal total the roster fields now, in the candidate's
+first playable week. Signed, so it goes negative when the drop is worth more
+than the claim. The claim sheet's swap preview shows it in place of the
+Upgrade once a drop is picked; with no drop picked there is no Swap net and
+the preview shows the Upgrade.
+_Avoid_: net upgrade, drop-adjusted upgrade
 
 **News**:
 A dated headline about a player, with an optional blurb (a short plain-text

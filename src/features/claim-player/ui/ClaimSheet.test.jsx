@@ -40,9 +40,21 @@ describe('SwapPreview', () => {
     expect(screen.queryByText('+3.2 this week')).not.toBeInTheDocument();
   });
 
-  it('prints a positive net with a plus sign, and still renders when the Upgrade is 0 with no overPlayer', () => {
+  it('still renders the net when the Upgrade is 0 with no overPlayer', () => {
     render(<SwapPreview player={{ name: 'Carson Beck', projWeek: { points: 8 }, upgrade: { points: 0, overPlayer: null }, swapNet: { points: -6, week: 1 } }} />);
     expect(screen.getByText('-6.0 this week')).toBeInTheDocument();
+  });
+
+  it('prints a positive net with a plus sign', () => {
+    render(<SwapPreview player={{ name: 'Carson Beck', projWeek: { points: 15.37 }, upgrade, swapNet: { points: 1.5, week: 1 } }} />);
+    expect(screen.getByText('+1.5 this week')).toBeInTheDocument();
+    expect(screen.queryByText('+3.2 this week')).not.toBeInTheDocument();
+  });
+
+  it('prints no gain line while the net of a picked drop is pending', () => {
+    render(<SwapPreview netPending player={{ name: 'Carson Beck', projWeek: { points: 15.37 }, upgrade }} />);
+    expect(screen.getByText('Starter 12.2')).toBeInTheDocument();
+    expect(screen.queryByText(/this week$/)).not.toBeInTheDocument();
   });
 
   it('renders nothing when the row has no upgrade', () => {
@@ -90,6 +102,22 @@ describe('ClaimSheet drop preselect', () => {
     usePlayerCard.mockReturnValue({ status: 'ready', card: { decision: { swapNet: { points: -2.4, week: 1 } } } });
     sheet({ dropSuggestion: { id: 9, name: 'Roster 9' } });
     expect(screen.getByText('-2.4 this week')).toBeInTheDocument();
+  });
+
+  // The Upgrade is not the net of a drop: never print it as one while the
+  // read for the picked drop is loading, or after it errored (#2168 f1).
+  for (const status of ['loading', 'error']) {
+    it(`prints no gain line for a picked drop while the card read is ${status}`, () => {
+      usePlayerCard.mockReturnValue({ status, card: null });
+      sheet({ dropSuggestion: { id: 9, name: 'Roster 9' } });
+      expect(screen.getByTestId('claim-sheet-swap')).toBeInTheDocument();
+      expect(screen.queryByText('+3.2 this week')).not.toBeInTheDocument();
+    });
+  }
+
+  it('prints the Upgrade gain with no drop picked', () => {
+    sheet({ dropSuggestion: null });
+    expect(screen.getByText('+3.2 this week')).toBeInTheDocument();
   });
 
   it('opens an edited claim on its own drop, whatever the suggestion', () => {
