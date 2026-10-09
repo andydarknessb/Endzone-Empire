@@ -65,3 +65,20 @@ id. It makes no Tank01 call and needs no Tank01 credentials, which supersedes
 the sentence above that the Tank01 player-list call keeps a daily job. A player
 on no roster of a complete 32-team sweep has his NFL team cleared; a sweep with
 a gap clears nobody.
+
+## Amendment (#2148)
+
+ESPN's injuries document lists an athlete only while his status is news; a
+season-ending IR drops off after his week, so the sync read the player as
+healthy and cleared him every 15 minutes. The injuries Sync run therefore also
+reads the 32 team rosters through the shared sweep. Each roster athlete's first
+`injuries` entry is the fallback designation for an athlete the document omits,
+mapped through the same five strings (an unknown string is logged once per run
+and treated as healthy; the roster's `Suspension` is healthy here, since it is
+not an injury). The document wins where both speak. A player the document
+omits is healthy when a roster saw him and listed no injury; a player neither
+feed saw (his team did not answer the sweep) keeps what he has: a stored
+designation is only cleared by a feed that saw him. A failed or slow sweep (20
+seconds, `INJURY_SWEEP_TIMEOUT_MS`) does not fail the run; it falls back to the
+document alone. This supersedes "written only by the ESPN injuries document"
+above.
