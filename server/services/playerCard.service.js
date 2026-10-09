@@ -124,7 +124,7 @@ async function loadIdentityIds(playerId) {
 
 /**
  * Shared plumbing for `upgradesFor`, `getPlayerCard` and the Players page's
- * `sort=upgrade` (which needs `projections` for its tie-break, #1911). Materializes
+ * `sort=upgrade` (which needs `pointsFor` for its tie-break, #1911). Materializes
  * the caller's lineup inside a transaction (withTransaction + materializeLineup,
  * same pattern commissioner.service.js's forceSetLineup uses at :150-165),
  * reading every lineup entry but IR (starters and bench) with whether his game
