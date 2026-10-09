@@ -3,6 +3,10 @@ const assert = require('node:assert/strict');
 const { createFakePool, select, insert } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const { alertScoreUpdates } = require('../modules/scheduler');
+const { banterFor } = require('../services/pushBanter');
+
+const HOME = { mine: 'Home FC', theirs: 'Away FC' };
+const AWAY = { mine: 'Away FC', theirs: 'Home FC' };
 
 // Team 3 (owner 11) is home, team 4 (owner 22) is away, matchup 987.
 // The ledger fake models the unique index and orders rows by insertion.
@@ -61,6 +65,8 @@ test('a lead change pushes each owner once; the first scoring and a steady lead 
   assert.equal(sent[0].payload.body, 'Home FC 12.0 - Away FC 15.0');
   assert.equal(sent[1].payload.body, 'Away FC 15.0 - Home FC 12.0');
   assert.equal(sent[0].payload.url, '/#/league/42/game-center');
+  assert.equal(sent[0].payload.banter, banterFor('leadLost', 'score-lead:987:away:1', HOME));
+  assert.equal(sent[1].payload.banter, banterFor('leadTaken', 'score-lead:987:away:1', AWAY));
 
   await call(12, 16);
   assert.equal(sent.length, 2, 'same leader again pushes nothing');
@@ -87,6 +93,8 @@ test('a tie is a lead change from either side', async (t) => {
   await call(10, 10);
 
   assert.deepEqual(titles(sent), [[11, 'Tied up'], [22, 'Tied up']]);
+  assert.equal(sent[0].payload.banter, banterFor('tied', 'score-lead:987:tied:1', HOME));
+  assert.equal(sent[1].payload.banter, banterFor('tied', 'score-lead:987:tied:1', AWAY));
 });
 
 test('reaching played pushes the result once per owner, then never', async (t) => {
@@ -98,6 +106,26 @@ test('reaching played pushes the result once per owner, then never', async (t) =
 
   assert.deepEqual(titles(sent), [[11, 'Final: you won 100.3-90.0'], [22, 'Final: you lost 90.0-100.3']]);
   assert.match(sent[0].payload.body, /unofficial until the commissioner advances the week/i);
+  assert.equal(sent[0].payload.banter, banterFor('finalWon', 'score-played:987:played', HOME));
+  assert.equal(sent[1].payload.banter, banterFor('finalLost', 'score-played:987:played', AWAY));
+});
+
+test('a final lost by less than a point reads finalLostClose; by 2.0 it reads finalLost; a tie reads tied', async (t) => {
+  const close = world(t);
+  await close.call(10.5, 10);
+  await close.call(10.5, 10, 'played');
+  assert.equal(close.sent[0].payload.banter, banterFor('finalWon', 'score-played:987:played', HOME));
+  assert.equal(close.sent[1].payload.banter, banterFor('finalLostClose', 'score-played:987:played', AWAY));
+
+  const far = world(t);
+  await far.call(12, 10);
+  await far.call(12, 10, 'played');
+  assert.equal(far.sent[1].payload.banter, banterFor('finalLost', 'score-played:987:played', AWAY));
+
+  const tie = world(t);
+  await tie.call(10, 10);
+  await tie.call(10, 10, 'played');
+  assert.equal(tie.sent[0].payload.banter, banterFor('tied', 'score-played:987:played', HOME));
 });
 
 test('a final matchup pushes nothing', async (t) => {

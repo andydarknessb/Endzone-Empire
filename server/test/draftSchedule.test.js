@@ -381,3 +381,55 @@ test('a recompute disagreement on a remind_24h tick pushes no reminder (#1071 di
   assert.equal(fake.matching(/FOR UPDATE/).length, 1, 'the row was locked and re-read once');
   assert.equal(fake.matching(/SET "draft_reminder_stage"/).length, 0, 'no reminder-stage UPDATE on a bail');
 });
+
+// --- Banter on the draft alerts (#2125) ------------------------------------
+
+// A pool for one league whose owners 5 and 6 are pushed to; notifyLeague's
+// own owner scan finds none, so the only owner query is the push's.
+function banterPool(t, { league, fresh }) {
+  createFakePool([
+    [/^SELECT "id", "name", "owner_id"/, () => ({ rows: [league] })],
+    [/^SELECT "draft_status", "draft_date", "draft_type", "min_teams", "draft_reminder_stage"/, () => ({ rows: [fresh] })],
+    [/FROM "players" WHERE "adp" IS NOT NULL/, () => ({ rows: [{ n: 500 }] })],
+    [/^UPDATE "leagues" SET "draft_reminder_stage"/, () => ({ rows: [], rowCount: 1 })],
+    [/^SELECT DISTINCT "owner_id" FROM "teams"/, () => ({ rows: [] })],
+    [/^SELECT "owner_id" FROM "teams" WHERE "league_id" = \$1/, () => ({ rows: [{ owner_id: 5 }, { owner_id: 6 }] })],
+  ]).install(t);
+  const prefs = require('../services/prefs.service');
+  const push = require('../services/push.service');
+  t.mock.method(prefs, 'usersWanting', async (ownerIds) => ownerIds);
+  const sent = [];
+  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => { sent.push({ userIds, payload }); return { sent: userIds.length }; });
+  return sent;
+}
+
+test('the Draft starting now push carries draftStarting banter; the draft reminder carries none (#2125)', async (t) => {
+  const { banterFor } = require('../services/pushBanter');
+  const draftStartService = require('../services/draftStart.service');
+  const pickClock = require('../services/pickClock.service');
+  t.mock.method(draftStartService, 'startDraft', async ({ leagueId }) => ({ leagueId, pickDeadlineAt: null }));
+  t.mock.method(pickClock, 'armExpiryTimer', () => {});
+  const sent = banterPool(t, { league: LEAGUE_ROW({ min_teams: 2, team_count: 5 }), fresh: FRESH_ROW({ min_teams: 2, team_count: 5 }) });
+
+  await processScheduledDrafts({ now: NOW });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].payload.title, 'Draft starting now');
+  assert.equal(sent[0].payload.banter, banterFor('draftStarting', `draft:${LEAGUE_ID}`, { league: 'Ballers' }));
+  assert.equal(typeof sent[0].payload.banter, 'string');
+});
+
+test('a remind_1h push carries no banter (#2125)', async (t) => {
+  const inWindow = at(30 * 60 * 1000);
+  const sent = banterPool(t, {
+    league: LEAGUE_ROW({ draft_date: inWindow, min_teams: 2, team_count: 5 }),
+    fresh: FRESH_ROW({ draft_date: inWindow, min_teams: 2, team_count: 5 }),
+  });
+
+  const actions = await processScheduledDrafts({ now: NOW });
+
+  assert.deepEqual(actions, [{ leagueId: LEAGUE_ID, action: 'remind_1h' }]);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].payload.title, 'Draft reminder');
+  assert.equal(sent[0].payload.banter, undefined);
+});

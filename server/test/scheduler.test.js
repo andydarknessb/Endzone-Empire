@@ -4,6 +4,7 @@ const { createFakePool } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const prefs = require('../services/prefs.service');
 const { alertCloseMatchups } = require('../modules/scheduler');
+const { banterFor } = require('../services/pushBanter');
 
 test('close-matchup push targets Game Center instead of the retired Matchups route', async (t) => {
   let sent;
@@ -27,6 +28,7 @@ test('close-matchup push targets Game Center instead of the retired Matchups rou
   assert.deepEqual(sent.ownerIds, [11, 22]);
   assert.equal(sent.payload.url, '/#/league/42/game-center');
   assert.equal(sent.payload.title, 'Your matchup is close!');
+  assert.equal(sent.payload.banter, banterFor('closeMatchup', 'close:987654:7', { margin: 4.5, week: 7 }));
 });
 
 // ---- quota-aware stat-sync cadence -----------------------------------------
