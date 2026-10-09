@@ -167,7 +167,7 @@ async function loadUpgradeContext({ league, team, season, week, playerIds, now =
       );
       // Whose game has kicked off: the same predicate the lineup lock uses.
       const kicked = await lineupService.lockedPlayerIds(client, {
-        season, week, players: result.rows.map((r) => ({ id: r.player_id, nflTeam: r.nfl_team })),
+        season, week, now, players: result.rows.map((r) => ({ id: r.player_id, nflTeam: r.nfl_team })),
       });
       return { rosterRows: result.rows, kickedOffIds: kicked };
     },
@@ -301,7 +301,7 @@ async function loadUpgradeContext({ league, team, season, week, playerIds, now =
 /**
  * `Map<playerId, week | null>` (#2166, ADR 0062): the first playable week of
  * every candidate. A Free agent joins now, a player on waivers at his Clear
- * time (his own, or the league's blanket one, whichever is later), and his
+ * time (his own when he has a waiver row, else the league's blanket one), and his
  * first playable week is the first week from `week` through the league's last
  * playoff week whose game for his NFL team kicks off after that. A bye (no
  * game row) is skipped; none left means `null`. Clear times are compared with
@@ -335,7 +335,7 @@ async function firstPlayableWeeks({ league, season, week, now, candidateIds, ide
   const kickoffsByTeam = new Map();
   for (const row of scheduleResult.rows) {
     const nflTeam = normalizeNflTeam(row.nfl_team);
-    if (nflTeam === null || row.week > lastWeek) continue;
+    if (nflTeam === null) continue;
     if (!kickoffsByTeam.has(nflTeam)) kickoffsByTeam.set(nflTeam, new Map());
     kickoffsByTeam.get(nflTeam).set(Number(row.week), new Date(row.kickoff_at));
   }
@@ -354,10 +354,14 @@ async function firstPlayableWeeks({ league, season, week, now, candidateIds, ide
       weekById.set(id, week);
       continue;
     }
-    let joinAt = now;
-    for (const at of [blanket, ...identities.map((identityId) => clearAt.get(identityId))]) {
-      if (at && at > joinAt) joinAt = at;
-    }
+    // His own clear time when he has a waiver row (the latest across his
+    // identities), else the league's blanket one, else now: the same
+    // COALESCE(own, blanket, now) `processWaivers` resolves a claim with. A
+    // clear time already past means he can join now.
+    const own = identities.map((identityId) => clearAt.get(identityId)).filter(Boolean)
+      .reduce((latest, at) => (latest && latest > at ? latest : at), null);
+    const clearsAt = own ?? blanket;
+    const joinAt = clearsAt && clearsAt > now ? clearsAt : now;
     let first = null;
     for (let wk = week; wk <= lastWeek && first === null; wk++) {
       const kickoff = kickoffs.get(wk);

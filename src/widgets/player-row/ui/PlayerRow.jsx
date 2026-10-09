@@ -120,10 +120,11 @@ function ProjWeekCell({ projWeek, noHistory = false }) {
  * nothing to show (best ball, a row the server never scores an Upgrade for -
  * the caller's own roster - or a candidate who does not crack the lineup,
  * `points` 0; a negative Upgrade no longer exists, ADR 0055) - the same rule
- * DecisionStrip's own Upgrade tile applies. */
+ * DecisionStrip's own Upgrade tile applies. A Free agent's or waiver player's
+ * Upgrade is read in his first playable week (#2166, ADR 0062), so the pill
+ * names that week ("Wk N") when it is not `currentWeek`, the row's own. */
 function UpgradeCell({ upgrade, currentWeek }) {
   if (!(upgrade?.points > 0)) return null;
-  // #2166 (ADR 0062): named when the Upgrade is read in a later week than the row's own.
   const weekLabel = upgrade.week != null && currentWeek != null && upgrade.week !== currentWeek
     ? ` Wk ${upgrade.week}`
     : '';

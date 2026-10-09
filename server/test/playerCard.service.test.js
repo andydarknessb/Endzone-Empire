@@ -1330,7 +1330,7 @@ function firstWeekWorld(t, {
   const kickedOffTeams = schedule
     .filter((g) => g.week === league.current_week && g.kickoff_at <= NOW)
     .map((g) => g.nfl_team);
-  createFakePool([
+  const fake = createFakePool([
     [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
       rows: candidates.map((c) => ({ position: 'WR', ...c })),
     })],
@@ -1344,7 +1344,11 @@ function firstWeekWorld(t, {
     }),
   ]).install(t);
   const { weekProjectionCalls } = mockServices(t, { weeklyProjection });
-  return { weekProjectionCalls, materializedWeeks: () => lineupService.materializeLineup.mock.calls.map((c) => c.arguments[1].week) };
+  return {
+    fake,
+    weekProjectionCalls,
+    materializedWeeks: () => lineupService.materializeLineup.mock.calls.map((c) => c.arguments[1].week),
+  };
 }
 
 const readUpgrade = async (league, id = PLAYER.id) => (await upgradesFor({
@@ -1383,6 +1387,31 @@ test('upgradesFor (#2166 c): a Clear time already past does not hold him; the co
     waiverRows: [{ player_id: PLAYER.id, available_at: new Date('2026-09-12T00:00:00Z') }],
   });
   assert.equal((await readUpgrade(wrSlots(1))).week, 1);
+});
+
+test('upgradesFor (#2166): his own waiver row decides, not the later blanket clear time (processWaivers COALESCE)', async (t) => {
+  // Own row clears at 15:00, before the 17:00 kickoff; the blanket clears at midnight, after it.
+  const league = { ...wrSlots(1), waivers_clear_at: new Date('2026-09-14T00:00:00Z') };
+  firstWeekWorld(t, {
+    league,
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    waiverRows: [{ player_id: PLAYER.id, available_at: new Date('2026-09-13T15:00:00Z') }],
+  });
+  assert.equal((await readUpgrade(league)).week, 1);
+});
+
+test('upgradesFor (#2166): with no waiver row the league\'s blanket clear time holds him', async (t) => {
+  const league = { ...wrSlots(1), waivers_clear_at: new Date('2026-09-14T00:00:00Z') };
+  firstWeekWorld(t, { league, schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)] });
+  assert.equal((await readUpgrade(league)).week, 2);
+});
+
+test('upgradesFor (#2166): the injected now reaches the roster kickoff lock, not only the first-playable-week read', async (t) => {
+  const { fake } = firstWeekWorld(t, { schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)] });
+  await readUpgrade(wrSlots(1));
+  const lockReads = fake.matching(/^SELECT "nfl_team" FROM "nfl_games"/);
+  assert.equal(lockReads.length, 1);
+  assert.deepEqual(lockReads[0].params, [2026, 1, NOW]);
 });
 
 test('upgradesFor (#2166 d): a Free agent on bye this week is read in the next week, with points', async (t) => {

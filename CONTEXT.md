@@ -1199,14 +1199,6 @@ this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
 who sorts last under the Upgrade sort. The same number for a free agent, a
 waiver candidate or another team's player, so it doubles as a trade-target
 score.
-A Free agent's or waiver player's Upgrade is read in his first playable week
-instead of "this week": the week of the first game his NFL team plays that
-kicks off after he could join the roster (now for a Free agent, his Clear time
-for a waiver player; a bye is skipped), and past the league's last playoff
-week it is none. It names that week ("Wk N") when it is not the current week.
-For a later week the baseline is the current roster under that week's Weekly
-projections and Start verdicts, with no kickoff hold. Another team's player is
-still read in the current week.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
 
 **News**:
