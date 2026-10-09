@@ -825,7 +825,9 @@ Questionable player with no practice all week). Every surface that shows or
 acts on it reads the same verdict and none re-decides it; a surface may
 ignore an outcome it has no use for, as a Lineup problem ignores Not
 recommended, and only the Start/sit advice acts on no practice all week (ADR
-0056).
+0056). It is a fact about the player, never about his Lineup entry: whether
+that entry is locked is a Lineup lock fact read beside the verdict, not part
+of it.
 _Avoid_: availability verdict (Availability is the league state), verdict
 reason
 
@@ -836,7 +838,10 @@ with injury designation and lock, position and Team code, the Game cell,
 the Edge line, projection and points. Tapping a player's name opens the
 Decision card; the one tap on the row itself is swap-select, on every form
 factor (#1240 ruling). Trade, Drop and acquisition detail live on the
-Decision card, and Undo stays a toast after a drop. It
+Decision card, and Undo stays a toast after a drop. The points figure is
+blank until the player's game kicks off and 0.0 from then until he scores: a
+player who has not taken the field has no points yet, unlike a Team, whose
+Matchup score is 0.0 from the moment the Matchup exists. It
 names a row shape, not a screen: it is distinct from Roster (everything a
 team holds) and Lineup (the surface that presents rows in this shape). It
 supersedes the Roster Management presentation, which descended from the
@@ -1211,7 +1216,11 @@ _Avoid_: alert, update, headline (a Pick'em term)
 One week's head-to-head pairing of two teams in a league. Once a matchup is
 final its lineups are a record of the week as played, never a working lineup:
 nothing is added to them after the fact, so re-scoring a final week counts
-only the players who were there when the games were played.
+only the players who were there when the games were played. A side's score
+reads 0.0 from the moment the Matchup exists, before kickoff included: a
+team that has scored nothing has a score of zero, not a missing one. Only a
+Team with no Matchup this week (a bye, nothing scheduled) has no score to
+show.
 _Avoid_: game (a game is an NFL game), fixture
 
 **NFL opponent**:
@@ -1593,6 +1602,18 @@ _Avoid_: projection, unqualified
 **Rest of season**:
 A third projection horizon covering a player's remaining schedule rather than
 one week. Deliberately kept separate from both of the above.
+
+**Availability input**:
+The availability facts the engine itself reads before it prices a player
+(bye, No NFL team, Practice squad, Out, IR) and stores beside the number as
+part of the Weekly projection, where the holdout ledger captures them with
+it. It feeds the Appearance probability inside the number and is kept
+current as the NFL facts change. It is not the Start verdict: it never
+carries Doubtful, no practice, Position-baseline or Backup, and no surface
+reads it as an answer to whether a player may be started. The Start verdict
+is derived on read from the live facts and the engine's flags (ADR 0061).
+_Avoid_: stored verdict, availability (unqualified; Availability is the
+league state), factors.availability (the field, fine in code)
 
 **Position-baseline projection**:
 A Weekly projection with no player evidence behind it: the player has no
