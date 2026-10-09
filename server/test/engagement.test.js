@@ -6,6 +6,7 @@ const { gradeTeams } = require('../services/draftgrade.service');
 const { sendLineupReminders, sendPickemReminders } = require('../services/digest.service');
 const { mergePrefs, validatePrefs, DEFAULT_PREFS } = require('../services/prefs.service');
 const push = require('../services/push.service');
+const { banterFor } = require('../services/pushBanter');
 const { logger } = require('../modules/logger');
 
 // --- trophy: longestWinStreak -----------------------------------------------
@@ -313,6 +314,7 @@ test('sendLineupReminders does not name a starter who is Out once his game has k
 
   assert.deepEqual(result, { remindersSent: 1 });
   assert.equal(pushes[0].payload.body, 'Lineup check for week 9: Open Out WR (WR) is Out');
+  assert.equal(pushes[0].payload.banter, banterFor('lineupProblem', `lineup-reminder:${nextTeamId - 10}:2026:9:sent`, { week: 9 }));
   fake.assertClean();
 });
 
@@ -491,6 +493,14 @@ test('mergePrefs fills defaults and respects stored overrides', () => {
   assert.equal(merged.weeklyRecap, false);
   assert.equal(merged.lineupReminder, true); // non-boolean stored value ignored
   assert.equal('junk' in merged, false);
+});
+
+test('banter is a known preference that defaults to on and can be switched off (#2125)', () => {
+  assert.equal(DEFAULT_PREFS.banter, true);
+  assert.equal(mergePrefs(undefined).banter, true);
+  assert.equal(mergePrefs({ weeklyRecap: false }).banter, true);
+  assert.equal(mergePrefs({ banter: false }).banter, false);
+  assert.deepEqual(validatePrefs({ banter: false }), []);
 });
 
 test('validatePrefs rejects unknown keys, non-booleans, and non-objects', () => {

@@ -76,3 +76,54 @@ test('sendPushOnce logs a delivery failure instead of throwing, and keeps the le
   assert.deepEqual(await once(), { sent: 0, skipped: 0 });
   assert.deepEqual(await once(), { sent: 0, skipped: 1 }); // the row stayed
 });
+
+// --- Banter on delivery (#2125) ---------------------------------------------
+
+// Two users each hold one subscription; `banterOff` have banter: false stored.
+// web-push is stood in for, and every delivered JSON string is captured.
+function deliveryWorld(t, { banterOff = [] } = {}) {
+  const webPush = require('web-push');
+  const delivered = [];
+  process.env.VAPID_PUBLIC_KEY = 'pub';
+  process.env.VAPID_PRIVATE_KEY = 'priv';
+  t.after(() => { delete process.env.VAPID_PUBLIC_KEY; delete process.env.VAPID_PRIVATE_KEY; });
+  t.mock.method(webPush, 'setVapidDetails', () => {});
+  t.mock.method(webPush, 'sendNotification', async (sub, json) => { delivered.push({ endpoint: sub.endpoint, json }); });
+  const fake = createFakePool([
+    [/^SELECT "id", "user_id", "endpoint", "keys" FROM "push_subscriptions"/, (text, [ids]) => ({
+      rows: ids.map((user_id) => ({ id: user_id * 10, user_id, endpoint: `https://push.test/${user_id}`, keys: {} })),
+    })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({
+      rows: banterOff.map((user_id) => ({ user_id, prefs: { banter: false } })),
+    })],
+  ]).install(t);
+  return { fake, delivered };
+}
+
+test('sendPushToUsers appends banter as a second body line for users with banter on, never in the JSON', async (t) => {
+  const { fake, delivered } = deliveryWorld(t, { banterOff: [2] });
+
+  const result = await push.sendPushToUsers([1, 2], { ...payload, banter: 'Kickers.' });
+
+  assert.deepEqual(result, { sent: 2 });
+  const bodies = Object.fromEntries(delivered.map((d) => [d.endpoint, JSON.parse(d.json)]));
+  assert.equal(bodies['https://push.test/1'].body, 'B\nKickers.');
+  assert.equal(bodies['https://push.test/2'].body, 'B');
+  for (const d of delivered) {
+    assert.equal('banter' in JSON.parse(d.json), false);
+    assert.equal(JSON.parse(d.json).title, 'T');
+    assert.equal(JSON.parse(d.json).url, '/#/x');
+  }
+  assert.equal(fake.matching(/notification_prefs/).length, 1, 'one prefs lookup per call');
+});
+
+test('sendPushToUsers without banter makes no prefs query and sends the payload as given', async (t) => {
+  const { fake, delivered } = deliveryWorld(t);
+
+  await push.sendPushToUsers([1, 2], payload);
+  await push.sendPushToUsers([1], { ...payload, banter: '' });
+
+  assert.equal(fake.matching(/notification_prefs/).length, 0);
+  assert.equal(delivered.length, 3);
+  for (const d of delivered) assert.deepEqual(JSON.parse(d.json), payload);
+});

@@ -75,8 +75,10 @@ async function removeSubscription({ userId, endpoint }) {
 
 /**
  * Send a push to every subscription a set of users holds. payload:
- * { title, body, url }. Dead endpoints are deleted; other errors are logged
- * and skipped. Returns { sent }.
+ * { title, body, url, banter? }. A `banter` string (pushBanter.js) is appended
+ * as a second body line for users whose `banter` preference is on, and is never
+ * part of the delivered JSON. Dead endpoints are deleted; other errors are
+ * logged and skipped. Returns { sent }.
  */
 async function sendPushToUsers(userIds, payload) {
   const webPush = webPushOrNull();
@@ -85,15 +87,22 @@ async function sendPushToUsers(userIds, payload) {
   if (ids.length === 0) return { sent: 0 };
 
   const subs = await pool.query(
-    `SELECT "id", "endpoint", "keys" FROM "push_subscriptions" WHERE "user_id" = ANY($1::int[])`,
+    `SELECT "id", "user_id", "endpoint", "keys" FROM "push_subscriptions" WHERE "user_id" = ANY($1::int[])`,
     [ids]
   );
+  const { banter, ...plain } = payload;
+  const hasBanter = typeof banter === 'string' && banter !== '';
+  const bantering = hasBanter ? new Set(await usersWanting(ids, 'banter')) : null;
   let sent = 0;
   for (const sub of subs.rows) {
     try {
+      const out = hasBanter && bantering.has(sub.user_id)
+        ? { ...plain, body: `${plain.body}
+${banter}` }
+        : plain;
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
-        JSON.stringify(payload)
+        JSON.stringify(out)
       );
       sent += 1;
     } catch (err) {
