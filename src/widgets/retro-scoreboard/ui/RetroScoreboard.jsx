@@ -37,6 +37,9 @@ import GamesTile from './GamesTile';
  *   - `rows`: the paired starter rows the Matchup page model hands down
  *     (`[{ slot, home, away }]`, `pairStartersBySlot` from `entities/roster`;
  *     #1210 moved the pairing out of `entities/matchup`), rendered as given.
+ *     Each side is the Matchup entity's normalised player
+ *     (`playerFromDetailRow`, #2147: `playerId`, `nflTeam`, `photoUrl`,
+ *     `gameState`, `gameClock`, `projectedPoints`, ...) or null.
  *   - `games`: the live_game_states rows on `model.games`.
  *   - `activePlay`: `{ side, type, isTouchdown, nflTeam, opponent }` or null;
  *     a touchdown dashes that side's sprite, a moment play flashes the callout.

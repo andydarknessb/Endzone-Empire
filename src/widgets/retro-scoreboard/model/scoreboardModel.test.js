@@ -4,7 +4,6 @@ import {
   ledFigure,
   ledPercents,
   ledStatus,
-  unavailableLabel,
   positionRingKey,
   lineupNoteParts,
   lineupNote,
@@ -67,19 +66,25 @@ test('positionRingKey maps a position onto the pos-* palette and falls back to d
   expect(positionRingKey(null)).toBe('def');
 });
 
+// The row is the Matchup entity's normalised player (`playerFromDetailRow`, #2147):
+// `projectedPoints`, not the wire's `projected`.
 test('a lineup note is points and projection, or the Unavailable reason in its place', () => {
-  expect(lineupNoteParts({ points: 18.6, projected: 19.2 })).toEqual({ points: '18.6', reason: null, projected: '19.2' });
-  expect(lineupNoteParts({ points: 0, projected: 0, availability: { available: false, reason: 'bye' } }))
+  const bye = { available: false, reason: 'bye' };
+  expect(lineupNoteParts({ points: 18.6, projectedPoints: 19.2 })).toEqual({ points: '18.6', reason: null, projected: '19.2' });
+  expect(lineupNoteParts({ points: 0, projectedPoints: 0, availability: bye }))
     .toEqual({ points: '0.0', reason: 'on bye', projected: null });
-  expect(lineupNoteParts({ points: 4.2, projected: null })).toEqual({ points: '4.2', reason: null, projected: null });
+  expect(lineupNoteParts({ points: 4.2, projectedPoints: null })).toEqual({ points: '4.2', reason: null, projected: null });
 
-  expect(lineupNote({ points: 18.6, projected: 19.2 })).toBe('18.6 · proj 19.2');
-  expect(lineupNote({ points: 0, projected: 0, availability: { available: false, reason: 'bye' } })).toBe('0.0 · on bye');
-  expect(lineupNote({ points: 2.5, projected: 8, availability: { available: false, reason: 'ir' } })).toBe('2.5 · on IR');
-  expect(lineupNote({ points: 0, projected: 8, availability: { available: false, reason: 'out' } })).toBe('0.0 · out');
-  expect(lineupNote({ points: 4.2, projected: null })).toBe('4.2');
-  expect(unavailableLabel({ available: true })).toBeNull();
-  expect(unavailableLabel(null)).toBeNull();
+  expect(lineupNote({ points: 18.6, projectedPoints: 19.2 })).toBe('18.6 · proj 19.2');
+  expect(lineupNote({ points: 0, projectedPoints: 0, availability: bye })).toBe('0.0 · on bye');
+  expect(lineupNote({ points: 2.5, projectedPoints: 8, availability: { available: false, reason: 'ir' } })).toBe('2.5 · on IR');
+  expect(lineupNote({ points: 0, projectedPoints: 8, availability: { available: false, reason: 'out' } })).toBe('0.0 · out');
+  expect(lineupNote({ points: 4.2, projectedPoints: null })).toBe('4.2');
+  // A player the server has not judged, or one it called available, shows his projection.
+  expect(lineupNote({ points: 4.2, projectedPoints: 6, availability: { available: true, reason: null } })).toBe('4.2 · proj 6.0');
+  expect(lineupNote({ points: 4.2, projectedPoints: 6, availability: null })).toBe('4.2 · proj 6.0');
+  // The Roster entity's one fallback word for a reason it has no label for.
+  expect(lineupNote({ points: 0, projectedPoints: 8, availability: { available: false, reason: 'mystery' } })).toBe('0.0 · unavailable');
 });
 
 test('a game row reads as live, final or scheduled with the matching line and clock', () => {

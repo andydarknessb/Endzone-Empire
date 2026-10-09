@@ -22,7 +22,7 @@ import Icon from './icons';
  * Unavailable starter, the reason ("0.0 · on bye"), the reason carrying the
  * `unavailable-reason` test id the Matchup Detail page tests read. Each name
  * carries the Standard view's state marker (a live dot, a check, a clock,
- * through `starterStateView` from `shared/lib`, #2010: the one `game_state`
+ * through `starterStateView` from `shared/lib`, #2010: the one game-state
  * map both views read) and the note line adds "vs OPP · clock" so game day
  * shows who is playing; the line wraps rather than ellipsizes, so a phone
  * never loses the clock (below md the marker leads that line and the name wraps
@@ -52,12 +52,12 @@ const TOTAL_NOTE = { ...NOTE, whiteSpace: 'normal' };
 // "vs OPP · clock": the schedule's opponent code (no home/away marker rides
 // the wire, ADR 0011) and the live clock, each dropped when absent.
 function Game({ player }) {
-  if (!player.opponent && !player.game_clock) return null;
+  if (!player.opponent && !player.gameClock) return null;
   return (
     <Box component="span" data-testid="lineup-game" sx={NOTE}>
       {player.opponent ? `vs ${player.opponent}` : null}
-      {player.opponent && player.game_clock ? ' · ' : null}
-      {player.game_clock ? <span>{player.game_clock}</span> : null}
+      {player.opponent && player.gameClock ? ' · ' : null}
+      {player.gameClock ? <span>{player.gameClock}</span> : null}
     </Box>
   );
 }
@@ -87,7 +87,7 @@ function Side({ player, side }) {
   // falls back to the default theme outside a provider, as the page widget's does.
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('md'));
-  const mark = <StateMark view={starterStateView(player?.game_state)} />;
+  const mark = <StateMark view={starterStateView(player?.gameState)} />;
   if (!player) return <Box data-testid={`lineup-side-${side}`} sx={{ flex: '1 1 0', minWidth: 0 }} />;
   return (
     <Box
@@ -112,7 +112,7 @@ function Side({ player, side }) {
           boxShadow: `0 0 0 2px var(--pos-${positionRingKey(player.position)})`,
         }}
       >
-        <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photo_url} size={28} />
+        <PlayerAvatar name={player.name} position={player.position} photoUrl={player.photoUrl} size={28} />
       </Box>
       <Box
         sx={{
@@ -149,7 +149,7 @@ function Side({ player, side }) {
             {player.name}
           </Box>
           {!compact && mark}
-          <InjuryTag status={player.injury_status} />
+          <InjuryTag status={player.injuryStatus} />
         </Box>
         <Box
           data-testid="lineup-line2"
@@ -240,7 +240,7 @@ export default function LineupsCard({ rows, board, headingLevel = 2, onFullCompa
           {list.map((row, i) => (
           <Box
             data-testid="slot-row"
-            key={`${row.slot}-${row.home?.id ?? 'x'}-${row.away?.id ?? 'x'}-${i}`}
+            key={`${row.slot}-${row.home?.playerId ?? 'x'}-${row.away?.playerId ?? 'x'}-${i}`}
             sx={{
               display: 'flex',
               alignItems: 'center',

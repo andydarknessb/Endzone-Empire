@@ -5,6 +5,7 @@ import {
   applyIdentityPatch,
   matchupResultLine,
   viewerMatchupOf,
+  playerFromDetailRow,
 } from './matchupModel';
 
 // A list row exactly as GET /api/league/:id/matchups delivers it
@@ -306,5 +307,71 @@ describe('matchupResultLine (#2007)', () => {
   test('a nameless winner reads Home or Away, as the scoreboards do', () => {
     const nameless = { status: 'final', home: { score: 1 }, away: { score: 2 } };
     expect(matchupResultLine(nameless, null)).toBe('Away won by 1.0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2147: one detail player row, normalised to the Roster entity's shape.
+// ---------------------------------------------------------------------------
+describe('playerFromDetailRow (#2147)', () => {
+  // A row exactly as league.router.js's `toPlayer` emits it.
+  const wireRow = {
+    id: 10,
+    name: 'J. Goff',
+    position: 'QB',
+    slot: 'QB',
+    nfl_team: 'DET',
+    injury_status: 'Q',
+    stats: { passing_yards: 250 },
+    points: 18.6,
+    projected: 19.2,
+    availability: { available: true, reason: null },
+    opponent: 'GB',
+    game_state: 'in_progress',
+    game_clock: 'Q3 7:22',
+    photo_url: 'https://cdn.example/goff.png',
+  };
+
+  test('renames the wire columns to the Roster entity\'s camelCase shape', () => {
+    expect(playerFromDetailRow(wireRow)).toEqual({
+      playerId: 10,
+      name: 'J. Goff',
+      position: 'QB',
+      slot: 'QB',
+      nflTeam: 'DET',
+      injuryStatus: 'Q',
+      photoUrl: 'https://cdn.example/goff.png',
+      gameState: 'in_progress',
+      gameClock: 'Q3 7:22',
+      opponent: 'GB',
+      projectedPoints: 19.2,
+      availability: { available: true, reason: null },
+      stats: { passing_yards: 250 },
+      points: 18.6,
+    });
+  });
+
+  test('points is null exactly while the producer calls the game scheduled', () => {
+    expect(playerFromDetailRow({ ...wireRow, game_state: 'scheduled', points: 0 }).points).toBeNull();
+    expect(playerFromDetailRow({ ...wireRow, game_state: 'final', points: 0 }).points).toBe(0);
+    expect(playerFromDetailRow({ ...wireRow, game_state: 'in_progress', points: 7.4 }).points).toBe(7.4);
+  });
+
+  test('a null game_state (nothing priced) keeps the wire number, nothing inferred (ADR 0030)', () => {
+    const row = playerFromDetailRow({ ...wireRow, game_state: null, game_clock: null, points: 0 });
+    expect(row.points).toBe(0);
+    expect(row.gameState).toBeNull();
+    expect(row.gameClock).toBeNull();
+  });
+
+  test('absent fields read null, and no row is no player', () => {
+    const bare = playerFromDetailRow({ id: 3 });
+    expect(bare).toMatchObject({
+      playerId: 3, name: null, nflTeam: null, injuryStatus: null, photoUrl: null,
+      gameState: null, gameClock: null, opponent: null, projectedPoints: null,
+      availability: null, stats: null,
+    });
+    expect(playerFromDetailRow(null)).toBeNull();
+    expect(playerFromDetailRow(undefined)).toBeNull();
   });
 });
