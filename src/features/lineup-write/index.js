@@ -1,8 +1,7 @@
 /**
  * Public surface of the lineup-write feature (spec #2042): the one Lineup write
- * (`useLineupWrite`'s `submit(moves)`) and the two move-plan builders on it,
- * swap-players (#1237) and apply-advice (#1238). The Lineup page imports from
- * HERE only.
+ * (`useLineupWrite`'s `submit(moves)`) and the swap-players hook (#1237)
+ * that calls it. The Lineup page imports from HERE only.
  *
  * `isEligibleMove` (#1240) is the boolean face of `entities/roster`'s
  * `moveLegality`, the one client legality rule `onRowClick`/`isEligibleTarget`
@@ -30,6 +29,5 @@
  */
 export { useLineupWrite } from './model/useLineupWrite';
 export { useSwapPlayers, isEligibleMove } from './model/useSwapPlayers';
-export { useApplyAdvice } from './model/useApplyAdvice';
 export { describeOutcome } from './model/describeOutcome';
 export { default as QuickPickMenu } from './ui/QuickPickMenu';

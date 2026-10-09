@@ -186,16 +186,21 @@ export function buildSuggestionView(suggestion, entriesById) {
  * and one start (bench player -> that slot), so a dismissed pair removes the
  * moves of those two players and nothing else: open-slot fills and reshuffles
  * name other players and pass through untouched.
+ *
+ * The one place the server's `{ playerId, fromSlot, toSlot }` becomes the
+ * lineup write's `{ playerId, slot }` (#2143): the result goes to `submit`
+ * unchanged. An entry with no player or no destination is dropped.
  */
 export function movePlanWithout(movePlan, dismissedViews) {
   const plan = Array.isArray(movePlan) ? movePlan : [];
-  if (!dismissedViews || dismissedViews.length === 0) return plan;
   const held = new Set();
-  for (const view of dismissedViews) {
+  for (const view of dismissedViews || []) {
     held.add(view.sit.playerId);
     held.add(view.start.playerId);
   }
-  return plan.filter((move) => !held.has(move.playerId));
+  return plan
+    .filter((m) => m && m.playerId != null && m.toSlot != null && !held.has(m.playerId))
+    .map((m) => ({ playerId: m.playerId, slot: m.toSlot }));
 }
 
 /**
