@@ -1203,7 +1203,7 @@ test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill 
 
   // #1203: the writes run inside one transaction, under NFL_GAMES_BULK_WRITE_LOCK
   // (23005) taken as the FIRST statement after BEGIN, before either upsert -
-  // the same lock syncSchedule (Tank01) takes, so the two sources serialize.
+  // the same lock syncSchedule (ESPN) takes, so the two sources serialize.
   const beginIdx = fake.calls.findIndex((c) => c.text === 'BEGIN');
   const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
   const firstWriteIdx = fake.calls.findIndex((c) => /^INSERT INTO "nfl_games"/.test(c.text));

@@ -1093,8 +1093,8 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
 /**
  * Daily nflverse game-context fill (#1725, follow-up to #1707): run the
  * existing `syncScheduleFromNflverse` for the CURRENT season so `nfl_games`
- * `venue`, `roof`, `surface` and `rest_days` are populated. The Tank01 schedule
- * insert never writes them, so without this pass `venue` stays NULL, the
+ * `venue`, `roof`, `surface` and `rest_days` are populated. The manual schedule
+ * sync (ESPN scoreboard) never writes them, so without this pass `venue` stays NULL, the
  * venue-keyed coordinate table (services/venueCoordinates.js) resolves nothing
  * and the NWS weather job is starved, and `roof` NULL reads a dome as outdoors.
  * This schedules the one sync that exists, not a new path; the manual

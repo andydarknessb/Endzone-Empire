@@ -1,6 +1,6 @@
 /**
  * Disposable-Postgres tests for the schedule Sync run pair (#1203, ADR 0036):
- * syncSchedule (Tank01, job 'schedule') and syncScheduleFromNflverse
+ * syncSchedule (ESPN scoreboard, #2116, job 'schedule') and syncScheduleFromNflverse
  * (job 'schedule-nflverse') both write nfl_games through runSyncJob, sharing
  * NFL_GAMES_BULK_WRITE_LOCK (23005, server/modules/advisoryLock.js).
  *
@@ -13,7 +13,7 @@
  *      one transaction (ADR 0033), so a later game's real constraint
  *      violation (the Team-code unique index, #421) rolls back the earlier
  *      games in the SAME run too, not just the offending one.
- *   2. A Tank01 run and an nflverse run started together serialize: the
+ *   2. An ESPN run and an nflverse run started together serialize: the
  *      second's write does not start until the first's transaction commits
  *      and releases 23005 - proving both call sites actually share the same
  *      lock id, which a generic runSyncJob test (syncRun.pg.test.js) cannot
@@ -61,11 +61,30 @@ if (!ENABLED) {
   const pool = require('../modules/pool');
   const { syncSchedule } = require('../services/feedSyncRuns.service');
   const { syncScheduleFromNflverse } = require('../services/nflverseSync.service');
+  const { OUR_TEAM_CODES } = require('../modules/espnScoreboard');
+
+  // syncSchedule's injected ESPN transport (#2116): an axios-like { get } that
+  // answers each week's scoreboard with the events `eventsForWeek(week)` returns.
+  const scoreboardTransport = (eventsForWeek) => ({
+    get: async (url, { params }) => ({ data: { events: eventsForWeek(params.week) } }),
+  });
+  // A minimal scoreboard event: only the fields normalizeEspnEvent reads.
+  const espnEvent = (home, away, kickoffIso) => ({
+    id: `${home}${away}`,
+    date: kickoffIso,
+    competitions: [{
+      date: kickoffIso,
+      competitors: [
+        { homeAway: 'home', team: { abbreviation: home } },
+        { homeAway: 'away', team: { abbreviation: away } },
+      ],
+    }],
+  });
 
   // Disposable-DB-only season numbers, well outside any real NFL season, so
   // cleanup is exact and never touches another pg test file's fixtures.
   const ROLLBACK_SEASON = 900201;
-  const LOCK_SEASON_TANK01 = 900202;
+  const LOCK_SEASON_ESPN = 900202;
   const LOCK_SEASON_NFLVERSE = 900203;
 
   // Unlike the other *.pg.test.js files, this one's data_sync_runs cleanup
@@ -125,7 +144,7 @@ if (!ENABLED) {
   test.after(async () => {
     try {
       await clearSeason(ROLLBACK_SEASON);
-      await clearSeason(LOCK_SEASON_TANK01);
+      await clearSeason(LOCK_SEASON_ESPN);
       await clearSeason(LOCK_SEASON_NFLVERSE);
       // Every data_sync_runs row this file's two jobs wrote since it started -
       // bounded by started_at (not season, which a failed run's detail may
@@ -159,19 +178,14 @@ if (!ENABLED) {
       [ROLLBACK_SEASON]
     )).rows;
 
-    const api = async (path, opts) => {
-      const { week } = opts.params;
-      if (week === 1) {
-        return { data: { body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: '1700000000' }] } };
-      }
-      if (week === 2) {
-        // Folds to the same Team code as the pre-seeded 'WAS' row above.
-        return { data: { body: [{ home: 'WSH', away: 'DAL', gameTime_epoch: '1700003600' }] } };
-      }
-      return { data: { body: [] } };
-    };
+    const transport = scoreboardTransport((week) => {
+      if (week === 1) return [espnEvent('NYJ', 'BUF', '2026-09-13T17:00Z')];
+      // WSH folds to the same Team code as the pre-seeded 'WAS' row above.
+      if (week === 2) return [espnEvent('WSH', 'DAL', '2026-09-20T17:00Z')];
+      return [];
+    });
 
-    await assert.rejects(syncSchedule({ season: ROLLBACK_SEASON, api }), (err) => {
+    await assert.rejects(syncSchedule({ season: ROLLBACK_SEASON, transport }), (err) => {
       assert.equal(err.code, '23505', 'the real Team-code unique index rejects the second WAS/WSH row for the week');
       return true;
     });
@@ -186,26 +200,29 @@ if (!ENABLED) {
   // Red-tell 2: remove NFL_GAMES_BULK_WRITE_LOCK from either syncSchedule's
   // or syncScheduleFromNflverse's runSyncJob call (or give them different
   // lock ids) and this goes red - the nflverse run's write starts, and
-  // finishes writing rows, while the Tank01 run's transaction is still open.
+  // finishes writing rows, while the ESPN run's transaction is still open.
   test('syncSchedule and syncScheduleFromNflverse started together serialize: the second\'s write does not start until the first commits', async (t) => {
-    await clearSeason(LOCK_SEASON_TANK01);
+    await clearSeason(LOCK_SEASON_ESPN);
     await clearSeason(LOCK_SEASON_NFLVERSE);
 
-    // A big enough single week that the write transaction (hundreds of
-    // sequential upserts on the SAME lock-holding connection) stays open long
-    // enough to observe mid-flight; every other week is empty and fast, so
-    // the fetch phase itself (outside the lock) stays quick. Keep this well
+    // A big enough run that the write transaction (hundreds of sequential
+    // upserts on the SAME lock-holding connection) stays open long enough to
+    // observe mid-flight. The scoreboard only admits the 32 real Team codes
+    // (espnAbbrToOurs), so the old 400 made-up teams in one week are out:
+    // instead all 18 weeks carry a full 16-game slate pairing those 32 codes
+    // (no team twice in a week, so no (season, week, team) conflict), which is
+    // 576 sequential upserts in one transaction. The fetch phase itself
+    // (outside the lock) stays quick, answered from memory. Keep this well
     // under pool.js's statement_timeout (15s web / 30s worker): run B's own
     // lock-wait is a statement on that same timeout, so a GAME_COUNT large
     // enough to push run A's transaction past it would fail run B with
     // SQLSTATE 57014 instead of proving anything about the lock.
-    const GAME_COUNT = 400;
-    const bigWeek = Array.from({ length: GAME_COUNT }, (_, i) => ({
-      home: `H${i}`, away: `A${i}`, gameTime_epoch: String(1700000000 + i),
-    }));
-    const tank01Api = async (path, opts) => ({
-      data: { body: opts.params.week === 1 ? bigWeek : [] },
-    });
+    const codes = [...OUR_TEAM_CODES];
+    const SLATE = codes.length / 2;
+    const WEEKS = 18;
+    const GAME_COUNT = SLATE * WEEKS;
+    const transport = scoreboardTransport(() => Array.from({ length: SLATE }, (_, i) =>
+      espnEvent(codes[2 * i], codes[2 * i + 1], '2026-09-13T17:00Z')));
 
     const csv = [
       'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,roof,surface,stadium',
@@ -213,13 +230,13 @@ if (!ENABLED) {
     ].join('\n');
     t.mock.method(axios, 'get', async () => ({ data: csv }));
 
-    const runA = syncSchedule({ season: LOCK_SEASON_TANK01, api: tank01Api });
+    const runA = syncSchedule({ season: LOCK_SEASON_ESPN, transport });
     let runB = null;
 
     try {
       assert.ok(
         await lockHeldByOther(),
-        'run A (Tank01) reached its write transaction and is holding NFL_GAMES_BULK_WRITE_LOCK (23005)'
+        'run A (ESPN) reached its write transaction and is holding NFL_GAMES_BULK_WRITE_LOCK (23005)'
       );
 
       runB = syncScheduleFromNflverse({ season: LOCK_SEASON_NFLVERSE });
@@ -235,7 +252,7 @@ if (!ENABLED) {
       await runB;
 
       const [countA, countB] = await Promise.all([
-        pool.query(`SELECT count(*)::int AS n FROM "nfl_games" WHERE "season" = $1`, [LOCK_SEASON_TANK01]),
+        pool.query(`SELECT count(*)::int AS n FROM "nfl_games" WHERE "season" = $1`, [LOCK_SEASON_ESPN]),
         pool.query(`SELECT count(*)::int AS n FROM "nfl_games" WHERE "season" = $1`, [LOCK_SEASON_NFLVERSE]),
       ]);
       assert.equal(countA.rows[0].n, GAME_COUNT * 2, 'run A wrote both perspectives of every fetched game');
