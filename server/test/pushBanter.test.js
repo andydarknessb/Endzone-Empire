@@ -14,8 +14,8 @@ const FORBIDDEN_NAME_PATTERN = new RegExp(
 );
 const PLACEHOLDERS = new Set(['mine', 'theirs', 'player', 'event', 'points', 'count', 'margin', 'week', 'league']);
 
-test('the bank covers exactly the twelve situations', () => {
-  assert.equal(SITUATIONS.length, 12);
+test('the bank covers exactly the thirteen situations', () => {
+  assert.equal(SITUATIONS.length, 13);
   assert.deepEqual(Object.keys(LINES).sort(), [...SITUATIONS].sort());
 });
 
@@ -41,7 +41,7 @@ test('banterFor is deterministic over (situation, seed) and pins a line', () => 
   const facts = { theirs: 'Away FC' };
   const first = banterFor('leadLost', 'score-lead:7:away:1', facts);
   assert.equal(first, banterFor('leadLost', 'score-lead:7:away:1', facts));
-  assert.equal(first, 'The lead is gone, like my hairline and my 1966 trophy. One of those came back. Not the trophy.');
+  assert.equal(first, 'The lead is gone, like my hairline and my 1966 letterman jacket. One of those came back. Not the hairline.');
 });
 
 test('a different seed can pick a different line, and placeholders are filled from the facts', () => {

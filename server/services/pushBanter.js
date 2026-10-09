@@ -20,16 +20,18 @@
  */
 
 const SITUATIONS = [
-  'leadTaken', 'leadLost', 'tied', 'finalWon', 'finalLost', 'finalLostClose',
+  'leadTaken', 'leadLost', 'tied', 'finalWon', 'finalLost', 'finalLostClose', 'finalTied',
   'bigPlayMine', 'bigPlayTheirs', 'bigPlaySeveral', 'lineupProblem', 'closeMatchup', 'draftStarting',
 ];
 
 // Placeholders: {mine} {theirs} team names; {player} {event} {points} one
 // Scoring play; {count} plays in one alert; {margin} points apart; {week};
+// `tied` is a live tie and `finalTied` a Final one; the Final lines never
+// read as a game still running.
 // {league} a league name.
 const LINES = {
   leadTaken: [
-    '{mine} on top of {theirs}. Enjoy it. The last lead I held lasted one quarter in 1966 and I still talk about it.',
+    '{mine} on top of {theirs}. Enjoy it. I held a lead for a whole championship once and I still talk about it.',
     'You took the lead. Four touchdowns in one game, I had, and nobody ever buzzed my pocket about it.',
     '{theirs} just fell behind. Do not get comfortable. Comfortable is how a man ends up selling shoes.',
     'Lead is yours. Sit down, stay seated, and do not touch anything. That is how I handle every win.',
@@ -38,9 +40,9 @@ const LINES = {
   leadLost: [
     'Lost the lead to {theirs}. Probably a kicker. It is always a kicker. I sold shoes for less humiliation than this.',
     '{theirs} just went ahead. I have watched a lot of things slip away from the couch. Add this to the pile.',
-    'Behind now. In 1966 I never trailed, and look how that worked out for the rest of my life.',
-    'The lead is gone, like my hairline and my 1966 trophy. One of those came back. Not the trophy.',
-    '{theirs} on top. Somebody on your bench is laughing, and it is not the one you started.',
+    'Behind now. I never trailed in the 1966 title game, and look how that worked out for the rest of my life.',
+    'The lead is gone, like my hairline and my 1966 letterman jacket. One of those came back. Not the hairline.',
+    '{theirs} on top. The couch has absorbed worse news than this. Barely.',
   ],
   tied: [
     'Dead even with {theirs}. A tie is a loss with better manners.',
@@ -51,38 +53,45 @@ const LINES = {
   ],
   finalWon: [
     'You beat {theirs}. Take the win, frame nothing, and bring it up in forty years like I do.',
-    'A win over {theirs}. I scored four touchdowns in one game and nobody threw me a parade. You get a push notification.',
-    '{theirs} goes home empty. You go home a winner, which still means home, but with a win.',
+    'A win over {theirs}. I won a championship with four touchdowns and nobody threw me a parade. You get a push notification.',
+    'Nothing for {theirs} tonight. You go home a winner, which still means home, but with a win.',
     'Final, and it is yours. Savor it. The shoe store opens at nine on Monday either way.',
-    'You won. Somewhere {theirs} is explaining this to a bench that saw it coming.',
+    'You won. {theirs} had a bench that saw it coming. Benches always do.',
   ],
   finalLost: [
-    '{theirs} took this one. I lost the 1966 playoff too, and I still blame the kicker.',
+    '{theirs} took this one. I have lost to worse. I have also sold shoes to worse, so take that for what it is.',
     'It is over, and not your way. The couch is right there. It never judges.',
     'A loss to {theirs}. Write it down, forget it, and start somebody else next week. That is the whole playbook.',
-    '{theirs} wins. If it helps, I have sold shoes to people who lost worse than this on purpose.',
+    'That one goes to {theirs}. If it helps, I have sold shoes to people who lost worse than this on purpose.',
     'Final. Not the result you wanted, same as every size nine I ever tried to sell to a size eleven.',
   ],
   finalLostClose: [
     '{theirs} by less than a point. That is not a loss, that is a rounding error with a grudge.',
-    'Lost by under a point. A kicker did this to you. A kicker did it to me in 1966. Nothing changes.',
+    'Lost by under a point. Probably a kicker. It is always a kicker, and I have hated every one of them since 1966.',
     'So close to beating {theirs} that the scoreboard had to check its glasses. Still a loss, though.',
     'Under a point. One extra yard somewhere and we are not having this conversation.',
-    '{theirs} wins by a fraction. I have measured feet more forgiving than that margin.',
+    'A fraction of a point to {theirs}. I have measured feet more forgiving than that margin.',
+  ],
+  finalTied: [
+    'A tie with {theirs}. Nobody wins, nobody loses, everybody feels a little cheated. Welcome to my career.',
+    'Final, and it is a tie. In 1966 we did not allow those. We had a fourth touchdown for that.',
+    'Dead even with {theirs} at the end. Half a win, half a loss, and a full week of explaining it.',
+    'A tie. Even the scoreboard shrugged. I shrug at most things too. It saves the knees.',
+    'Tied with {theirs} when the whistle went. Not a loss. Not a win either. I know the feeling.',
   ],
   bigPlayMine: [
     '{player} just went off for {points}. That is a real play. I had four of those in one game, but who is counting. Me. I am counting.',
     '{player}, {event}, {points} points. Even I got off the couch for that one.',
-    'Your {player} just put up {points} on a {event}. Finally, something on this roster that works.',
+    'Your {player} just put up {points} on the {event}. Finally, something on this roster that works.',
     '{points} points from {player}. In 1966 that kind of play got a sandwich named after you.',
-    '{player} with the {event}. {points} points. Your opponent is reading this same alert and liking it a lot less.',
+    '{player} with the {event}. {points} points. Somewhere your opponent is liking this a lot less.',
   ],
   bigPlayTheirs: [
-    'Their {player} just scored {points} on you. Four touchdowns in one game, I had, and nobody pushes ME a notification.',
+    'Their {player} just scored {points} on you. I have taken hits like that. Mine came with a trophy at the end. Yours comes with this.',
     '{player} just went for {points} against you. I have been kicked by smaller cleats.',
     'Your opponent\'s {player}, {event}, {points} points. Go ahead and sit back down. That is what I would do.',
     '{points} points for the other side\'s {player}. Somewhere a shoe salesman is nodding. It is me. I have seen this before.',
-    '{player} with a {event} against you. {points} points. The couch has room if you need to lie down.',
+    '{player} with the {event} against you. {points} points. The couch has room if you need to lie down.',
   ],
   bigPlaySeveral: [
     '{count} big plays at once. This matchup has more action than my last twenty years combined.',
@@ -92,10 +101,10 @@ const LINES = {
     '{count} scoring plays worth bragging about. I only ever got one game to brag about. Make yours count.',
   ],
   lineupProblem: [
-    'Your week {week} lineup has a hole in it and kickoff is coming. Even I got off the couch for game day. Set it.',
+    'Your week {week} lineup needs attention and kickoff is coming. Even I got off the couch for game day. Set it.',
     'Fix the lineup. Leave an empty slot and you are one bad Sunday from selling shoes for a living. I would know.',
-    'Something in your week {week} lineup is not going to play. Fix it before kickoff fixes it for you.',
-    'Your lineup needs you. It is the only thing that does. Set it, then sit back down.',
+    'Something in your week {week} lineup is not right. Fix it before kickoff fixes it for you.',
+    'Your lineup needs you. Nothing has needed me since 1966. Set it, then sit back down.',
     'Week {week}, and your lineup has a problem. In 1966 I never missed a start. Be like 1966.',
   ],
   closeMatchup: [
@@ -106,9 +115,9 @@ const LINES = {
     '{margin} points in it. Somebody\'s kicker decides this. It is always the kicker.',
   ],
   draftStarting: [
-    '{league} is drafting now. Get in the room. The pool does not wait, and neither does a man with my patience.',
+    '{league} is drafting now. The pool does not wait, and neither does a man with my patience.',
     'Draft time in {league}. Pick well. I scored four touchdowns in one game and still got drafted by nobody.',
-    '{league}\'s draft is live. Do not let Autopick live your life for you. It has been living mine.',
+    'Draft night in {league}. Do not let Autopick live your life for you. It has been living mine.',
     'The room is open for {league}. Bring a plan or bring excuses. I have heard both.',
     '{league} is on the clock. Thirty years of selling shoes taught me one thing: the good ones go first.',
   ],
