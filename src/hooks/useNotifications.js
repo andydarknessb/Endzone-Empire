@@ -5,7 +5,7 @@ import { useResource } from './useResource';
 // The nav bell and the Home activity card read the same list, so the shared
 // store serves both from one request (ADR 0004, ADR 0059's #2097 amendment).
 const KEY = ['notifications'];
-const URL = '/api/notifications';
+const NOTIFICATIONS_URL = '/api/notifications';
 
 /**
  * Reloads every mounted reader of the shared notifications cache, keeping the
@@ -20,14 +20,21 @@ export function clearNotificationsCache() {
  * with no GET. The merge base is the store's current entry, read after the PUT
  * returns, not the list a component rendered with: a poll that landed while the
  * PUT was in flight is kept and marked read instead of being overwritten by the
- * older list. Rejects when the PUT fails, leaving the cache untouched.
+ * older list. With no entry data to merge into it reloads instead. Rejects when
+ * the PUT fails, leaving the cache untouched.
  */
 export async function markAllNotificationsRead() {
-  await apiClient.put(`${URL}/read`);
+  await apiClient.put(`${NOTIFICATIONS_URL}/read`);
   const current = read(KEY)?.data;
-  // No entry (a reload dropped it): nothing to merge into, and the reload on
-  // the wire carries the read state itself.
-  if (!current) return;
+  // Nothing to merge into: a failed poll deleted the entry, or a reload is in
+  // flight and its response may have been read before the PUT. Writing a
+  // truncated list would be worse, so reload instead; the GET issued now
+  // follows the PUT and carries the read state, and the generation bump
+  // refuses the older response still on the wire.
+  if (!current) {
+    invalidate(KEY);
+    return;
+  }
   setResource(KEY, {
     ...current,
     unread: 0,
@@ -42,7 +49,7 @@ export async function markAllNotificationsRead() {
  * screen through a poll.
  */
 export function useNotifications() {
-  const { data, loading, error, refetch } = useResource(KEY, URL);
+  const { data, loading, error, refetch } = useResource(KEY, NOTIFICATIONS_URL);
   return {
     notifications: data?.notifications || [],
     unread: data?.unread || 0,

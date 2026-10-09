@@ -93,6 +93,56 @@ test('markAllNotificationsRead keeps a poll that landed while the PUT was in fli
   expect(result.current.unread).toBe(0);
 });
 
+// With no entry data to merge into, writing through would publish a truncated
+// list, so the function reloads instead and the GET that follows the PUT carries
+// the read state. Both states end with unread 0 on screen.
+describe('markAllNotificationsRead with no entry data in the store', () => {
+  const unreadList = { data: { notifications: [note(1)], unread: 1 } };
+  const readList = { data: { notifications: [note(1, { read: true })], unread: 0 } };
+
+  test('after a failed poll deleted the entry', async () => {
+    apiClient.get.mockResolvedValueOnce(unreadList);
+    apiClient.put.mockResolvedValue({});
+    const { result } = renderHook(() => useNotifications());
+    await waitFor(() => expect(result.current.unread).toBe(1));
+
+    // The 60 s poll fails: load() deletes the entry, the mount keeps its list.
+    apiClient.get.mockRejectedValueOnce(new Error('network blip'));
+    await act(async () => { result.current.refetch(); });
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(read(['notifications'])).toBeUndefined();
+    expect(result.current.unread).toBe(1);
+
+    apiClient.get.mockResolvedValue(readList);
+    await act(async () => { await markAllNotificationsRead(); });
+
+    await waitFor(() => expect(result.current.unread).toBe(0));
+    expect(result.current.notifications).toEqual([note(1, { read: true })]);
+  });
+
+  test('while a poll is in flight', async () => {
+    apiClient.get.mockResolvedValueOnce(unreadList);
+    apiClient.put.mockResolvedValue({});
+    const { result } = renderHook(() => useNotifications());
+    await waitFor(() => expect(result.current.unread).toBe(1));
+
+    // The poll's GET was answered before the PUT and is still on the wire; the
+    // store entry is data-less while it is.
+    let landStalePoll;
+    apiClient.get.mockReturnValueOnce(new Promise((resolve) => { landStalePoll = resolve; }));
+    await act(async () => { result.current.refetch(); });
+    expect(read(['notifications']).data).toBeUndefined();
+
+    apiClient.get.mockResolvedValue(readList);
+    await act(async () => { await markAllNotificationsRead(); });
+    await waitFor(() => expect(result.current.unread).toBe(0));
+
+    // And the older response cannot undo it.
+    await act(async () => { landStalePoll(unreadList); });
+    expect(result.current.unread).toBe(0);
+  });
+});
+
 test('markAllNotificationsRead rejects when the PUT fails and leaves the cache alone', async () => {
   apiClient.get.mockResolvedValue({ data: { notifications: [note(1)], unread: 1 } });
   apiClient.put.mockRejectedValue(new Error('nope'));
