@@ -112,22 +112,24 @@ if (!ENABLED) {
   // this goes red - the valid first player survives despite the second
   // entry's real type error.
   test('syncPlayers: a later entry with a non-numeric external_id rolls back the whole run, including a valid entry already upserted', async () => {
-    const api = async (path) => {
-      assert.equal(path, '/getNFLPlayerList');
-      return {
-        data: {
-          body: [
-            { playerID: String(PLAYERS_VALID_EXTERNAL_ID), longName: 'Disposable Valid', pos: 'WR', team: 'BUF' },
-            // players.external_id is INTEGER (20260710000001_initial_schema.js) -
-            // a non-numeric playerID passes normalizePlayerEntry (truthy) but
-            // fails Postgres's integer parse on INSERT (22P02).
-            { playerID: 'not-a-number', longName: 'Disposable Invalid', pos: 'WR', team: 'MIA' },
-          ],
-        },
-      };
-    };
+    const rosterRow = (athleteId, name, teamCode) => ({
+      athleteId, teamCode, rosterStatus: 'active', name, position: 'WR', jerseyNumber: null, photoUrl: null,
+    });
+    const sweep = async () => ({
+      complete: false,
+      units: [{
+        teamCode: 'BUF',
+        rows: [
+          rosterRow(String(PLAYERS_VALID_EXTERNAL_ID), 'Disposable Valid', 'BUF'),
+          // players.external_id is INTEGER (20260710000001_initial_schema.js) -
+          // a non-numeric athlete id passes normalizeRosterRow (truthy) but
+          // fails Postgres's integer parse on INSERT (22P02).
+          rosterRow('not-a-number', 'Disposable Invalid', 'MIA'),
+        ],
+      }],
+    });
 
-    await assert.rejects(syncPlayers({ season: 2026, api }), (err) => {
+    await assert.rejects(syncPlayers({ season: 2026, sweep }), (err) => {
       assert.equal(err.code, '22P02', 'a real Postgres integer-parse error, not a JS-level throw');
       return true;
     });

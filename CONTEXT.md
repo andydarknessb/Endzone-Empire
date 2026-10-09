@@ -378,9 +378,11 @@ _Avoid_: bye collision, bye conflict
 
 **Injury designation**:
 What the injury feed says about a real player's availability: questionable,
-doubtful, out, or injured reserve — or nothing, which means healthy. A fact
-about the NFL world, written only by the feed sync, never by anything a
-manager does in the app. Distinct from the IR slot, which is a place in a
+doubtful, out, or injured reserve — or nothing, which means healthy. The feed
+is ESPN's injuries document, with the team roster's injuries block as its
+fallback for an athlete the document omits (ADR 0060, #2148). A fact about
+the NFL world, written only by the feed sync, never by anything a manager
+does in the app. Distinct from the IR slot, which is a place in a
 lineup; a player can carry the injured-reserve designation while never
 occupying an IR slot, and vice versa is exactly what enforcement exists to
 prevent.
@@ -388,15 +390,15 @@ _Avoid_: injury status (the column name, not the concept), IR (unqualified —
 ambiguous with the slot)
 
 **No NFL team**:
-A player who has left the NFL — released, retired, or otherwise dropped from
-Tank01's player list — or who the list carries with no team or flags as off
-every roster (its `isFreeAgent` field; the list keeps such a player under
-his last team, so the flag is the only sign he has gone). A fact about the
-NFL world, written only by the daily player sync (never the injury sync, and
-never anything a manager does), which clears `nfl_team` to null for
-such a player once its own feed is large enough to trust; a feed too small to
-be a real player list trips a size floor and clears nothing, logged on that
-run's Sync run row. The clear is itself deferred, label kept exactly as
+A player who has left the NFL — released, retired, or otherwise on no NFL
+team's roster. The roster is ESPN's: the 32 team rosters the daily player sync
+reads, where the active roster, the practice squad and reserve all count as
+being on it. A fact about the NFL world, written only by the daily player sync
+(never the injury sync, and never anything a manager does), which clears
+`nfl_team` to null for such a player only when the sweep is complete, all 32
+teams having answered with rows; a sweep with a gap (a team failed or answered
+empty) clears nobody, recorded as `rosterComplete: false` on that run's Sync
+run row. The clear is itself deferred, label kept exactly as
 stored, while the player's own team has a kicked-off game in an open week (a
 live league's own current season and week): the lineup lock question reads
 this same column live, so clearing mid-lock would unlock a slot whose game
