@@ -1560,3 +1560,57 @@ test('upgradesFor (#2166): one getWeeklyProjections call per distinct first play
   assert.deepEqual([55, 56, 57].map((id) => upgrades.get(id).week), [1, 2, 2]);
   assert.deepEqual(weekProjectionCalls.map((c) => c.week), [1, 2], 'two calls: this week and next, not one per candidate');
 });
+
+// #2168 (ADR 0062): the card's `swapNet` is the best lineup with the candidate
+// in and the manager's picked drop out, minus the best lineup the roster fields
+// now. Signed; the Upgrade itself never takes the drop.
+function swapNetWorld(t, { starter, candidate }) {
+  createFakePool(starterHandlers([
+    { player_id: 999, slot: 'WR', name: 'Starter' },
+    { player_id: 998, slot: 'BENCH', name: 'Bench WR' },
+  ], 'WR', wrSlots(1))).install(t);
+  const points = { 999: starter, 998: 3, [PLAYER.id]: candidate };
+  mockServices(t, {
+    weeklyProjection: (week, id) => ({ mean: points[id], median: points[id], factors: { availability: { available: true } } }),
+  });
+}
+const readCard = (dropPlayerId) => getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id, dropPlayerId });
+
+test('getPlayerCard (#2168 a): dropping a bench player outside the best lineup nets exactly the Upgrade', async (t) => {
+  swapNetWorld(t, { starter: 5, candidate: 14 });
+  const { decision } = await readCard(998);
+  assert.equal(decision.upgrade.points, 9);
+  assert.equal(decision.swapNet.points, 9);
+});
+
+test('getPlayerCard (#2168 b): dropping a starter worth more than the candidate nets a negative number', async (t) => {
+  swapNetWorld(t, { starter: 20, candidate: 10 });
+  const { decision } = await readCard(999);
+  assert.equal(decision.swapNet.points, -10);
+});
+
+test('getPlayerCard (#2168 c): swapNet.week is the Upgrade\'s week', async (t) => {
+  swapNetWorld(t, { starter: 5, candidate: 14 });
+  const { decision } = await readCard(998);
+  assert.equal(decision.swapNet.week, decision.upgrade.week);
+});
+
+test('getPlayerCard (#2168 d): with no dropPlayerId there is no swapNet and the Upgrade is unchanged', async (t) => {
+  swapNetWorld(t, { starter: 5, candidate: 14 });
+  const { decision } = await readCard();
+  assert.equal('swapNet' in decision, false);
+  assert.deepEqual(decision.upgrade, {
+    points: 9,
+    overPlayer: { id: 999, name: 'Starter', points: 5, unavailable: null },
+    slot: 'WR',
+    week: 1,
+  });
+});
+
+test('getPlayerCard (#2168): a candidate with no Upgrade (null) carries no swapNet either', async (t) => {
+  createFakePool(buildHandlers({ league: { ...LEAGUE, best_ball: true } })).install(t);
+  mockServices(t);
+  const { decision } = await readCard(998);
+  assert.equal(decision.upgrade, null);
+  assert.equal('swapNet' in decision, false);
+});

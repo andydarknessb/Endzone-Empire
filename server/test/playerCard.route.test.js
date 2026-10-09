@@ -125,3 +125,49 @@ test('GET /:id/card rejects a non-integer or out-of-range week without reaching 
   assert.equal(outOfRange.status, 400);
   assert.equal(calls, 0);
 });
+
+// #2168 (ADR 0062): `dropPlayerId` names a player on the CALLER's roster.
+function mockMembershipAndRoster(t, team, rosterIds) {
+  t.mock.method(pool, 'query', async (sql, params) => {
+    const text = String(sql);
+    if (text.includes('FROM "teams" WHERE "league_id" = $1 AND "owner_id" = $2')) return { rows: [team] };
+    if (text.includes('FROM "team_players" WHERE "team_id" = $1 AND "player_id" = $2')) {
+      return { rows: rosterIds.includes(params[1]) ? [{ player_id: params[1] }] : [] };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+}
+
+test('GET /:id/card refuses a dropPlayerId that is not on the caller\'s roster with 400, before the service', async (t) => {
+  mockMembershipAndRoster(t, { id: 10, league_id: 3, owner_id: 7 }, [201]);
+  let calls = 0;
+  t.mock.method(playerCardService, 'getPlayerCard', async () => {
+    calls += 1;
+    return {};
+  });
+
+  const notMine = await request(app)
+    .get('/api/players/59/card?leagueId=3&dropPlayerId=999')
+    .set('Authorization', tokenFor(7));
+  assert.equal(notMine.status, 400);
+  const malformed = await request(app)
+    .get('/api/players/59/card?leagueId=3&dropPlayerId=abc')
+    .set('Authorization', tokenFor(7));
+  assert.equal(malformed.status, 400);
+  assert.equal(calls, 0);
+});
+
+test('GET /:id/card passes a rostered dropPlayerId to the service and caches it apart from the no-drop read', async (t) => {
+  mockMembershipAndRoster(t, { id: 10, league_id: 3, owner_id: 7 }, [201]);
+  const seen = [];
+  t.mock.method(playerCardService, 'getPlayerCard', async ({ dropPlayerId }) => {
+    seen.push(dropPlayerId ?? null);
+    return { player: { id: 60 }, decision: {} };
+  });
+
+  const get = (query) => request(app).get(`/api/players/60/card?leagueId=3${query}`).set('Authorization', tokenFor(7));
+  assert.equal((await get('&dropPlayerId=201')).status, 200);
+  await get('');
+  await get('&dropPlayerId=201');
+  assert.deepEqual(seen, [201, null], 'drop and no-drop are separate cache entries; a repeat is a hit');
+});

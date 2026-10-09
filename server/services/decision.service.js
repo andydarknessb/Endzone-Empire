@@ -1175,6 +1175,29 @@ async function analyzeTrade({ leagueId, proposingTeamId, receivingTeamId, offere
 const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
 
 /**
+ * The optimal assignment over `roster` (sorted by `playerId`), with
+ * `candidate` (`{ position, projection }`) added when given. A kicked-off
+ * starter is pinned to his slot and a kicked-off bench player is no candidate.
+ */
+function bestLineup(roster, rosterSlots, candidate = null) {
+  const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
+  const pinned = new Map();
+  const pool = [];
+  for (const r of roster) {
+    if (r.kickedOff) {
+      if (r.slot !== BENCH) pinned.set(r.playerId, r.slot);
+    } else {
+      pool.push({ playerId: r.playerId, position: r.position });
+    }
+  }
+  if (candidate) {
+    pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
+    pool.push({ playerId: UPGRADE_CANDIDATE, position: candidate.position });
+  }
+  return optimalAssignment({ rosterSlots, candidates: pool, pointsFor, pinned });
+}
+
+/**
  * Pure: the Upgrade (ADR 0055) - how much `candidate` (`{ position, projection }`)
  * adds to the caller's optimal lineup for the week: the optimal total with him
  * on the roster minus the optimal total without him, never below 0.
@@ -1198,24 +1221,8 @@ const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
  */
 function upgradeFor(candidate, unsortedRoster, rosterSlots) {
   const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
-  const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
-  pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
-  const pinned = new Map();
-  const pool = [];
-  for (const r of roster) {
-    if (r.kickedOff) {
-      if (r.slot !== BENCH) pinned.set(r.playerId, r.slot);
-    } else {
-      pool.push({ playerId: r.playerId, position: r.position });
-    }
-  }
-  const without = optimalAssignment({ rosterSlots, candidates: pool, pointsFor, pinned });
-  const withHim = optimalAssignment({
-    rosterSlots,
-    candidates: [...pool, { playerId: UPGRADE_CANDIDATE, position: candidate.position }],
-    pointsFor,
-    pinned,
-  });
+  const without = bestLineup(roster, rosterSlots);
+  const withHim = bestLineup(roster, rosterSlots, candidate);
   const points = Math.max(0, round2(withHim.total - without.total));
   const out = points > 0
     ? roster.find((r) => without.byPlayer.has(r.playerId) && !withHim.byPlayer.has(r.playerId))
@@ -1227,6 +1234,19 @@ function upgradeFor(candidate, unsortedRoster, rosterSlots) {
       : null,
     slot: withHim.byPlayer.get(UPGRADE_CANDIDATE) ?? null,
   };
+}
+
+/**
+ * Pure: what claiming `candidate` nets once the manager's pick `dropPlayerId`
+ * leaves the roster (ADR 0062): the optimal lineup with him in and the drop
+ * out, minus the optimal lineup `roster` fields now. Signed, so it goes
+ * negative when the drop is worth more than the candidate. `roster` and
+ * `candidate` are `upgradeFor`'s; the Upgrade itself never takes the drop.
+ */
+function swapNetFor(candidate, unsortedRoster, rosterSlots, dropPlayerId) {
+  const roster = [...unsortedRoster].sort((a, b) => a.playerId - b.playerId);
+  const kept = roster.filter((r) => r.playerId !== Number(dropPlayerId));
+  return round2(bestLineup(kept, rosterSlots, candidate).total - bestLineup(roster, rosterSlots).total);
 }
 
 module.exports = {
@@ -1246,4 +1266,5 @@ module.exports = {
   tradeFairnessSummary,
   analyzeTrade,
   upgradeFor,
+  swapNetFor,
 };

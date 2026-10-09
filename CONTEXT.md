@@ -1193,7 +1193,13 @@ out. An Unavailable roster player counts as zero; a player whose game has
 kicked off is held, as the Start/sit advice holds him (a starter keeps his
 slot, a bench player is not a candidate). A candidate who adds nothing has an
 Upgrade of zero, which shows no pill or tile. The roster player the candidate
-displaces is the swap preview's other side. Undefined in a best ball league,
+displaces is the swap preview's other side. The Upgrade never takes a drop;
+the claim sheet's swap preview shows the **swap net** instead once the manager
+picks one: the best lineup in the candidate's first playable week with him in
+and the drop out, minus the best lineup the roster fields that week. Signed,
+so it goes negative when the drop is worth more than the claim; the card read
+carries it as `decision.swapNet` only when `dropPlayerId` names a player on
+the caller's roster. Undefined in a best ball league,
 where the column and tile are hidden, and for a player who is Unavailable
 this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
 who sorts last under the Upgrade sort. The same number for a free agent, a

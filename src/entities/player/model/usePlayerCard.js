@@ -18,12 +18,15 @@ import { playerCardFromResponse, playerCardUrl } from './playerCardModel';
  * from the query string when not given, matching the route's own default
  * (the league's current week).
  *
- * @param {{ leagueId?: number|string|null, playerId?: number|string|null, week?: number|string|null }} [params]
+ * `dropPlayerId` (#2168) re-reads the card with that roster player netted out
+ * (`decision.swapNet`); a new value is a new URL, so a new read.
+ *
+ * @param {{ leagueId?: number|string|null, playerId?: number|string|null, week?: number|string|null, dropPlayerId?: number|string|null }} [params]
  * @returns {{ status: 'loading'|'ready'|'error', card: object|null }}
  */
-export function usePlayerCard({ leagueId, playerId, week } = {}) {
+export function usePlayerCard({ leagueId, playerId, week, dropPlayerId } = {}) {
   const ready = leagueId != null && playerId != null;
-  const url = ready ? playerCardUrl({ leagueId, playerId, week }) : null;
+  const url = ready ? playerCardUrl({ leagueId, playerId, week, dropPlayerId }) : null;
   const { status, data } = useEndpoint(url);
   return { status, card: playerCardFromResponse(data) };
 }
