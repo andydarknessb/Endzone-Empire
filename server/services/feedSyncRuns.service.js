@@ -18,11 +18,10 @@ const { runSyncJob } = require('../modules/syncRun');
 const cadence = require('../modules/cadence');
 const { POSITION_GROUPS } = require('./lineup.service');
 const { normalizeNflTeam } = require('./nflTeam');
-const { normalizeNameKey } = require('./nameMatch');
 const { fantasySideWhereSql } = require('./leagueType');
 const { calculateFantasyPoints } = require('./scoringRules');
 const {
-  tank01Body, normalizeTeamAbbr, NFL_TEAM_NAME_TO_ABBR, buildGameKey, resolveHeadshotUrl,
+  tank01Body, normalizeTeamAbbr, NFL_TEAM_NAME_TO_ABBR, buildGameKey,
 } = require('./tank01Feed');
 const {
   loadWeekMaps, applyGameBoxScore, gamesNeedingBoxScore, markFinalStatsSynced,
@@ -30,20 +29,21 @@ const {
 const { aggregateSeasonStats } = require('./seasonSummary.service');
 const tank01BoxSource = require('./tank01BoxSource');
 const espnAthleteClient = require('../modules/espnAthleteClient');
+const { sharedRosterSweep } = require('../modules/espnFactsSync');
 
-// Fantasy-relevant positions — Tank01's full player list includes every
-// position (OL, C, G, ...); only these are useful in a lineup. Individual
-// defenders (DL/LB/DB group members — DE/DT/NT/LB/ILB/OLB/CB/S/FS/SS) are
-// included so DP-enabled leagues can roster them; they keep their specific
-// Tank01 position for display (see lineup.service.js's POSITION_GROUPS,
-// which expands DL/LB/DB slot eligibility to match).
+// Fantasy-relevant positions — an ESPN team roster lists every position (OL, C,
+// G, ...); only these are useful in a lineup. Individual defenders (DL/LB/DB
+// group members — DE/DT/NT/LB/ILB/OLB/CB/S/FS/SS) are included so DP-enabled
+// leagues can roster them; they keep the specific position code ESPN gives
+// for display (see lineup.service.js's POSITION_GROUPS, which expands DL/LB/DB
+// slot eligibility to match).
 const FANTASY_POSITIONS = new Set([
   'QB', 'RB', 'WR', 'TE', 'K', 'PK', 'DEF',
   ...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB,
 ]);
 
-// Individual-defender position codes as stored on players rows (Tank01's
-// specific codes, not the DL/LB/DB roster-group keys).
+// Individual-defender position codes as stored on players rows (the specific
+// codes, not the DL/LB/DB roster-group keys).
 const IDP_POSITIONS = [...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB];
 
 // Every position whose season rollups come from our own player_stats weeklies
@@ -52,136 +52,91 @@ const IDP_POSITIONS = [...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION
 // these positions, so a scoped upsert cannot clobber a Sleeper rollup.
 const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
 
-/**
- * The NFL team a getNFLPlayerList entry actually places a player on, or null
- * for No NFL team (CONTEXT.md). Tank01 keeps a player who has left the NFL
- * in the list under his LAST team with `isFreeAgent: "True"` (2026-09-15:
- * 1,527 of 3,872 entries, every one still carrying a team label; Joe Mixon
- * "team":"HOU" six months after Houston released him). Reading `team` alone
- * kept every one of them rostered, projected at his old per-game pace and
- * ranked as a waiver Upgrade. Read by the player sync (`syncPlayers`), the only
- * writer of `nfl_team` since the injuries job moved to ESPN (ADR 0060).
- */
-function feedTeamOf(entry) {
-  if (!entry || String(entry.isFreeAgent).toLowerCase() === 'true') return null;
-  return entry.team ? String(entry.team) : null;
+/** The row's position as our fantasy position code (PK stored as K), or null when it has none or is not a fantasy position. */
+function fantasyPosition(row) {
+  let position = row && row.position && String(row.position).toUpperCase();
+  if (position === 'PK') position = 'K';
+  return position && FANTASY_POSITIONS.has(position) ? position : null;
 }
 
 /**
- * Normalize one entry from Tank01's getNFLPlayerList into our player shape.
- * Returns null for entries missing an id, name, or position, and for
- * non-fantasy positions. Tank01 calls kickers 'PK' — stored as 'K' to match
- * our slot eligibility. Also carries a resolved headshot URL and jersey
- * number (both null when the feed omits them).
+ * Normalize one row of an ESPN team roster (espnAthleteClient.normalizeTeamRoster)
+ * into our player shape. Returns null for a row missing an id, name, or position,
+ * and for non-fantasy positions. ESPN calls kickers 'PK' - stored as 'K' to match
+ * our slot eligibility. `nflTeam` is the Team code of the roster the athlete was
+ * read from (already our canonical code), `photoUrl` and `jerseyNumber` are null
+ * when ESPN omits them.
  *
- * Exported as a test-only seam (a player normaliser), not cross-module
- * interface: no other module calls this directly.
+ * Called by applySyncPlayersUnit; exported for its unit tests, not as
+ * cross-module interface: no other module calls this directly.
  */
-function normalizePlayerEntry(entry) {
-  const externalId = entry && entry.playerID;
-  const name = entry && entry.longName;
-  let position = entry && entry.pos && String(entry.pos).toUpperCase();
-  if (position === 'PK') position = 'K';
-  if (!externalId || !name || !position || !FANTASY_POSITIONS.has(position)) return null;
-  const jersey = entry.jerseyNum != null && String(entry.jerseyNum) !== ''
-    ? String(entry.jerseyNum).slice(0, 8)
-    : null;
+function normalizeRosterRow(row) {
+  const position = fantasyPosition(row);
+  if (!row || !row.athleteId || !row.name || !position) return null;
   return {
-    externalId: String(externalId),
-    name,
+    externalId: String(row.athleteId),
+    name: row.name,
     position,
-    nflTeam: feedTeamOf(entry),
-    photoUrl: resolveHeadshotUrl(entry),
-    jerseyNumber: jersey,
+    nflTeam: row.teamCode,
+    photoUrl: row.photoUrl ?? null,
+    jerseyNumber: row.jerseyNumber ?? null,
   };
 }
 
-// #1385: the size floor the daily player sync judges Tank01's list against
-// before it trusts a departure. A player absent from getNFLPlayerList (or
-// listed with no team) reads as "left the NFL" only when the list itself looks
-// like a real player list; a short or truncated response must never be able to
-// read as the whole league departing at once. An absolute floor over the
-// UNFILTERED list (not FANTASY_POSITIONS, and not derived at runtime from a
-// prior run). Observed (a read-only prod query, 2026-09-15): the list matched
-// 3254 stored players, itself a LOWER bound; the floor sits roughly 250 below
-// that for ordinary day-to-day roster churn while staying close enough that a
-// list truncated to a fraction of the real one still trips it.
-const NFL_PLAYER_LIST_FLOOR = 3000;
-
 /**
- * Discover and refresh the NFL player pool from Tank01's getNFLPlayerList —
- * a single call covering the whole league. Upserts by external_id (safe to
- * re-run; existing players get their name/position/team refreshed, new ones
- * are inserted). Runs daily on the scheduler (`player-sync`, #2115, gated on
- * the Tank01 credentials) and stays hand-runnable from the admin dashboard or
- * POST /api/scoring/sync-players.
+ * Discover and refresh the NFL player pool from the 32 ESPN team rosters (#2117,
+ * ADR 0060: Tank01 is the fallback and Final box only). Upserts by external_id,
+ * which is the ESPN athlete id (ADR 0035): existing players get their
+ * name/position/team refreshed, new ones are inserted. A stored player whose
+ * ESPN position is outside FANTASY_POSITIONS (a fullback stored as RB and listed
+ * FB, a long snapper) still gets his team written, with his stored name and
+ * position kept. Runs daily on the
+ * scheduler (`player-sync`, #2115, no credentials needed) and stays hand-runnable
+ * from the admin dashboard or POST /api/scoring/sync-players.
+ *
+ * One fetch serves both team-level ESPN jobs: this reads `sharedRosterSweep`
+ * (espnFactsSync.js), the same cached sweep the roster-status Sync run reads, so
+ * whichever of the two runs first in a tick pays for the 32 `teamRoster` calls.
+ * `sweep` is the test seam for it.
  *
  * This is the only writer of `nfl_team` (the injuries job moved to ESPN and no
  * longer touches it, #2115, ADR 0060) and never writes `injury_status` or
  * `injury_detail`, which belong to the ESPN injuries job alone.
  *
  * Team maintenance (#1385, #1391, moved here from the injuries job by #2115):
- * a player whose team the list changed gets it written; a player absent from
- * the list, or listed with no team (`feedTeamOf`), is a No NFL team candidate
- * and gets `nfl_team` cleared, but only when the list cleared
- * NFL_PLAYER_LIST_FLOOR (a short list clears nobody and a blank team keeps the
- * stored label), and never while his own team has a kicked-off game in an open
- * week (`openKickoffTeams`). The result carries `teamChanges`, `teamsCleared`
+ * a player whose roster team differs from the stored one gets it written; a
+ * player on NO roster is a No NFL team candidate and gets `nfl_team` cleared, but
+ * only when the sweep was `complete` (all 32 teams answered - a failed or empty
+ * team would otherwise read as its whole roster departing; this replaces the old
+ * Tank01 list-size floor), and never while his own team has a kicked-off game in
+ * an open week (`openKickoffTeams`). Practice squad and reserve athletes are on a
+ * roster and keep their team. The result carries `teamChanges`, `teamsCleared`
  * and `teamsDeferred` for the run record.
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
  * the advisory lock and the one data_sync_runs row per run, job 'players',
  * sharing PLAYERS_BULK_WRITE_LOCK with the other players-table-family jobs
- * (#1204). The one unit (every parsed feed entry) upserts in a single
- * transaction: a mid-run upsert failure now rolls the whole unit back instead
- * of leaving the players upserted before it (the previous per-player
- * try/catch swallowed and continued past a failure). Resolved shape:
- * `{ season, playersUpserted, skippedNonFantasy, skippedDuplicateIdentity }`
- * - a feed carrying a duplicate `external_id` counts it once in
- * `playersUpserted` (#1251's JS-side dedup, applySyncPlayersUnit's own
- * docblock), where the old per-row loop counted it twice.
+ * (#1204). The one unit (every roster row) upserts in a single transaction: a
+ * mid-run upsert failure rolls the whole unit back. Resolved shape:
+ * `{ season, playersUpserted, skippedNonFantasy, rosterComplete, teamChanges,
+ * teamsCleared, teamsDeferred }` - a roster set listing a duplicate id counts
+ * it once in `playersUpserted` (#1251's JS-side dedup).
  *
- * #1562: an entry whose `playerID` the table has never seen is refused
- * rather than inserted when it is provably the same athlete as an existing
- * row (applySyncPlayersUnit's identity guard) - the case that let a teamless
- * second copy of a rostered player (a new source id under `isFreeAgent:
- * "True"`) get drafted as an empty roster slot. Refused entries never
- * silently vanish: they are counted and listed as `skippedDuplicateIdentity`
- * in both this resolved body and the run's `data_sync_runs` detail (the
- * refused `playerID` and the existing `external_id` it matched).
+ * The #1562 identity guard (a second Tank01 `playerID` minted for an athlete
+ * already stored under his ESPN id) is gone with Tank01's ids: the roster's id IS
+ * `external_id`, so there is no second id to fold.
  */
-async function syncPlayers({ season, api = tank01Get, now = new Date() }) {
+async function syncPlayers({ season, now = new Date(), sweep = sharedRosterSweep }) {
   const { results: [players] } = await runSyncJob({
     job: 'players',
     lock: PLAYERS_BULK_WRITE_LOCK,
-    fetch: () => fetchSyncPlayersUnit({ season, api }),
+    fetch: async () => {
+      const { units, complete } = await sweep();
+      return { units: [{ season, rows: units.flatMap((u) => u.rows), complete }], detail: { complete } };
+    },
     apply: (client, unit) => applySyncPlayersUnit(client, unit, now),
   });
   return players;
-}
-
-/**
- * fetch() for the players job: the Tank01 player-list call, before any
- * transaction or lock. `api` mirrors syncInjuries's own
- * injectable default (`api = tank01Get`) — a test seam, not a behavior
- * change: production always calls the real tank01Get.
- */
-async function fetchSyncPlayersUnit({ season, api }) {
-  const response = await api('/getNFLPlayerList');
-  const entries = tank01Body(response.data) || [];
-  if (!Array.isArray(entries)) {
-    const err = new Error('unexpected getNFLPlayerList response shape');
-    err.statusCode = 502;
-    err.syncFailureReason = 'bad_response';
-    throw err;
-  }
-  // #1385: below the floor the list is too small to trust as a real player
-  // list, so applySyncPlayersUnit clears no nfl_team this run. Counted over
-  // the UNFILTERED list, as the floor's own observation was.
-  const listed = new Set();
-  for (const entry of entries) if (entry && entry.playerID != null) listed.add(String(entry.playerID));
-  const floorGuardTripped = listed.size < NFL_PLAYER_LIST_FLOOR;
-  return { units: [{ season, entries, floorGuardTripped }], detail: { floorGuardTripped } };
 }
 
 /**
@@ -195,157 +150,49 @@ async function fetchSyncPlayersUnit({ season, api }) {
  * cannot reach pool.js's statement_timeout (15s web / 30s worker, SQLSTATE
  * 57014). `ON CONFLICT DO UPDATE` raises 21000 if the same `external_id`
  * appears twice in one statement, so a duplicate key within the batch is
- * deduped in JS first (last entry wins) and counted once in
- * `playersUpserted`. An empty batch (every entry skipped, or every surviving
- * entry refused by the identity guard below) issues no write statement,
- * mirroring `syncInjuries`/`syncAdp`'s own guard.
- *
- * #1562 identity guard: `players`' only identity is `external_id`, so an
- * entry whose `playerID` this table has never seen is a new row by
- * construction - which is how a teamless second copy of a rostered player
- * (a new source id, `isFreeAgent: "True"`) got minted and drafted as an
- * empty slot. Before upserting, one read of every existing `players` row
- * that carries an `external_id` (mirroring `applyInjuryUnit`'s own
- * existing-rows read, same table, same job family) builds two lookups: by
- * `external_id` itself (is this `playerID` already known?), and by
- * normalized name+position for rows that carry an `nfl_team` (a real
- * rostered player to fold a teamless duplicate into). A `playerID` already
- * known upserts exactly as before. A new `playerID` is refused - counted in
- * `skippedDuplicateIdentity`, never inserted - when either:
- *   (a) its feed-carried `espnID` is numeric, differs from its own
- *       `playerID`, and equals an existing row's `external_id` (the feed
- *       carries `espnID` beside `playerID`, tank01Feed.js's
- *       `resolveHeadshotUrl`; ADR 0035/0041: `external_id` IS the ESPN id,
- *       so a second `playerID` under the same `espnID` is the same athlete
- *       under a new source id), or
- *   (b) it resolves teamless through `feedTeamOf` and its normalized name +
- *       position match an existing row that has an `nfl_team` (the worked
- *       example: a teamless entry under a brand-new `playerID` with the same
- *       name/position as an already-rostered player).
- * A same-name player who IS on an NFL team still inserts under either arm -
- * only a teamless new id can match arm (b), and arm (a) requires the
- * `espnID` itself to collide - so the four legitimate same-name groups and
- * any future rookie namesake are untouched.
- *
- * Both arms also match against the REST OF THIS SAME BATCH, not only rows
- * already in `players` (qa-reviewer #1562 f1): a pair minted in one feed
- * body with neither id in the table yet - a fresh table, a new tenant, or
- * simply the first run to see either id - is caught the same way a
- * previously-seeded duplicate is, by building the anchor maps from the
- * WHOLE batch before any filtering runs (order in the feed can't matter).
- * This never weakens the "already known" branch above it: that branch reads
- * only the SELECT's own rows, never this batch, so a `playerID` cannot ride
- * its own presence in the batch to skip the guard. Every id comparison
- * (`playerID` vs an existing row, `espnID` vs an existing `external_id`)
- * goes through `Number(...)` (qa-reviewer #1562 f2), matching the batch
- * dedup's own reasoning below: a zero-padded or whitespace-varied id for an
- * ALREADY-KNOWN player must still land in the "known" branch, never read as
- * new and get refused as a duplicate of itself.
+ * deduped in JS first (last row wins, keyed by the NUMERIC external_id - the
+ * actual ::int[] conflict target - so '4432' and '04432' collide) and counted
+ * once in `playersUpserted`. An empty batch issues no write statement.
  */
-async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped = true }, now = new Date()) {
+async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete = false }, now = new Date()) {
+  const existing = await client.query(
+    `SELECT "id", "external_id", "name", "position", "nfl_team" FROM "players" WHERE "external_id" IS NOT NULL`
+  );
+  const existingByExternalId = new Map(existing.rows.map((row) => [Number(row.external_id), row]));
+
   let skipped = 0;
-  // Keyed by the NUMERIC external_id (the actual ::int[] conflict target),
-  // not the parsed string, so two entries whose ids differ as text but
-  // coincide as integers ('4432' vs '04432') still collide in JS instead of
-  // reaching ON CONFLICT DO UPDATE as two array elements for the same row
-  // (21000, qa-reviewer #1251). A duplicate within one feed batch keeps only
-  // its last entry - the per-row loop's last-write-wins tolerance, preserved
-  // here in JS instead.
   const byExternalId = new Map();
-  // espnID travels alongside the parsed shape for the identity guard's arm
-  // (a) only - it is not part of normalizePlayerEntry's own returned shape
-  // (a cross-module/test seam other suites assert the exact fields of).
-  const espnIdByExternalId = new Map();
-  for (const raw of entries) {
-    const parsed = normalizePlayerEntry(raw);
-    if (!parsed) {
+  // Every athlete on any roster, fantasy position or not: a stored player ESPN
+  // still rosters is never a clear candidate, whatever position ESPN lists.
+  const onRoster = new Set();
+  for (const raw of rosterRows) {
+    onRoster.add(Number(raw.athleteId));
+    const parsed = normalizeRosterRow(raw);
+    if (parsed) {
+      byExternalId.set(Number(parsed.externalId), parsed);
+      continue;
+    }
+    // Not a fantasy row as ESPN lists him (a non-fantasy position, or no name).
+    // A STORED player still moves with his roster: write the roster team and keep
+    // his stored name (and his stored position unless ESPN gave a fantasy one).
+    // An athlete we do not store is skipped. A fantasy row for the same id, from
+    // another team's roster, always beats this team-only row.
+    const stored = existingByExternalId.get(Number(raw.athleteId));
+    if (!stored || !raw.teamCode) {
       skipped += 1;
       continue;
     }
-    const numericExternalId = Number(parsed.externalId);
-    byExternalId.set(numericExternalId, parsed);
-    const rawEspnId = raw && raw.espnID;
-    espnIdByExternalId.set(
-      numericExternalId,
-      rawEspnId != null && /^\d+$/.test(String(rawEspnId)) ? String(rawEspnId) : null
-    );
-  }
-
-  const skippedDuplicateIdentity = [];
-  let rows = Array.from(byExternalId.values());
-  // The team-maintenance pass below reads every stored player too, so the read
-  // also runs for a list with no fantasy entry at all once it is big enough to
-  // trust.
-  let existingRows = [];
-  const existingByExternalId = new Map();
-  if (rows.length > 0 || !floorGuardTripped) {
-    const existing = await client.query(
-      `SELECT "id", "external_id", "name", "position", "nfl_team" FROM "players" WHERE "external_id" IS NOT NULL`
-    );
-    existingRows = existing.rows;
-    // Numeric keys throughout (qa-reviewer #1562 f2): players.external_id is
-    // an integer column, and the batch's own dedup above already keys on
-    // Number(...) so that '4432' and '04432' collide as the same id (line
-    // 209's comment). Keying this lookup on the raw string instead would let
-    // a zero-padded or whitespace-varied playerID for an EXISTING player
-    // read as "new", match its own real row under arm (a)/(b), and get
-    // silently refused as a duplicate of itself - dropping that run's
-    // update. Every comparison below goes through Number() for the same
-    // reason.
-    const rosteredAnchorsByNameKeyPosition = new Map();
-    for (const row of existing.rows) {
-      existingByExternalId.set(Number(row.external_id), row);
-      if (row.nfl_team) {
-        rosteredAnchorsByNameKeyPosition.set(`${normalizeNameKey(row.name)}|${row.position}`, row);
-      }
-    }
-    // qa-reviewer #1562 f1: a duplicate pair can also arrive in ONE feed body
-    // with neither id in `players` yet (a fresh table, a new tenant, or -
-    // this run - the very first sync to see either id), so matching against
-    // only rows the SELECT above already found would insert both. Anchor
-    // maps are seeded from the whole batch too, in a pass BEFORE any
-    // filtering runs, so order within the feed can't matter: every teamed
-    // entry (a real rostered player, never itself refusable under arm (b))
-    // and every entry's own external_id becomes a same-run anchor a
-    // teamless/`espnID`-colliding batch-mate can be caught against, exactly
-    // as if it had already been in `players`. This never lets an entry
-    // short-circuit the "already known" branch below off ITSELF: that
-    // branch only ever consults `existingByExternalId`, built from the
-    // SELECT alone.
-    const identityAnchorsByExternalId = new Map(existingByExternalId);
-    for (const parsed of rows) {
-      const numericExternalId = Number(parsed.externalId);
-      if (!identityAnchorsByExternalId.has(numericExternalId)) {
-        identityAnchorsByExternalId.set(numericExternalId, {
-          external_id: parsed.externalId, name: parsed.name, position: parsed.position, nfl_team: parsed.nflTeam,
-        });
-      }
-      if (parsed.nflTeam) {
-        const key = `${normalizeNameKey(parsed.name)}|${parsed.position}`;
-        if (!rosteredAnchorsByNameKeyPosition.has(key)) rosteredAnchorsByNameKeyPosition.set(key, parsed);
-      }
-    }
-
-    rows = rows.filter((parsed) => {
-      if (existingByExternalId.has(Number(parsed.externalId))) return true; // playerID already known: upsert as before
-      const espnId = espnIdByExternalId.get(Number(parsed.externalId));
-      if (espnId && Number(espnId) !== Number(parsed.externalId)) {
-        const matched = identityAnchorsByExternalId.get(Number(espnId));
-        if (matched) {
-          skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.external_id) });
-          return false; // arm (a)
-        }
-      }
-      if (!parsed.nflTeam) {
-        const matched = rosteredAnchorsByNameKeyPosition.get(`${normalizeNameKey(parsed.name)}|${parsed.position}`);
-        if (matched) {
-          skippedDuplicateIdentity.push({ playerId: parsed.externalId, matchedExternalId: String(matched.externalId ?? matched.external_id) });
-          return false; // arm (b)
-        }
-      }
-      return true;
+    if (byExternalId.has(Number(raw.athleteId))) continue;
+    byExternalId.set(Number(raw.athleteId), {
+      externalId: String(raw.athleteId),
+      name: stored.name,
+      position: fantasyPosition(raw) ?? stored.position,
+      nflTeam: raw.teamCode,
+      photoUrl: raw.photoUrl ?? null,
+      jerseyNumber: raw.jerseyNumber ?? null,
     });
   }
+  const rows = Array.from(byExternalId.values());
 
   if (rows.length > 0) {
     await client.query(
@@ -353,10 +200,8 @@ async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped
        SELECT * FROM unnest($1::int[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
        ON CONFLICT ("external_id")
        DO UPDATE SET "name" = EXCLUDED."name", "position" = EXCLUDED."position",
-                     -- a blank feed team keeps the stored label here; a real departure
-                     -- is cleared below, behind the size floor and the kickoff deferral
-                     "nfl_team" = COALESCE(EXCLUDED."nfl_team", "players"."nfl_team"),
-                     -- keep an existing headshot/jersey if a later feed omits it
+                     "nfl_team" = EXCLUDED."nfl_team",
+                     -- keep an existing headshot/jersey if the roster omits it
                      "photo_url" = COALESCE(EXCLUDED."photo_url", "players"."photo_url"),
                      "jersey_number" = COALESCE(EXCLUDED."jersey_number", "players"."jersey_number")`,
       [
@@ -364,33 +209,30 @@ async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped
         rows.map((r) => r.name),
         rows.map((r) => r.position),
         rows.map((r) => r.nflTeam),
-        // null (not '') survives text[], so a feed that omits photo_url/jersey_number
+        // null (not '') survives text[], so a roster that omits photo_url/jersey_number
         // keeps the stored value through the COALESCE above rather than clearing it.
         rows.map((r) => r.photoUrl),
         rows.map((r) => r.jerseyNumber),
       ]
     );
   }
-  // Team maintenance (#1385, #1391). Moves first: a fantasy entry the list put
-  // on a different real team than the stored one.
+  // Team maintenance (#1385, #1391). Moves first: a player a roster put on a
+  // different real team than the stored one (compared through the Team code
+  // fold, so a stored WSH is not a move to WAS).
   const touchedIds = [];
   let teamChanges = 0;
   for (const parsed of rows) {
     const stored = existingByExternalId.get(Number(parsed.externalId));
-    if (stored && parsed.nflTeam !== null && parsed.nflTeam !== stored.nfl_team) {
+    if (stored && normalizeNflTeam(stored.nfl_team) !== parsed.nflTeam) {
       teamChanges += 1;
       touchedIds.push(stored.id);
     }
   }
-  // Then clear candidates: a stored player with a team who is absent from the
-  // list or listed teamless. Never decided on a short list (floorGuardTripped).
-  const listedTeam = new Map();
-  for (const entry of entries) {
-    if (entry && entry.playerID != null) listedTeam.set(String(entry.playerID), feedTeamOf(entry));
-  }
-  const clearCandidates = floorGuardTripped ? [] : existingRows.filter((player) => (
-    player.nfl_team && (listedTeam.get(String(player.external_id)) ?? null) === null
-  ));
+  // Then clear candidates: a stored player with a team who is on no roster.
+  // Never decided on a sweep with a gap (not `complete`).
+  const clearCandidates = complete
+    ? existing.rows.filter((player) => player.nfl_team && !onRoster.has(Number(player.external_id)))
+    : [];
   // #1385 ruling (4'): a candidate is DEFERRED - his label kept exactly as
   // stored - while his own team has a kicked-off game in any OPEN week (a live
   // fantasy league's own current_season/current_week), bounded to the calendar
@@ -414,7 +256,7 @@ async function applySyncPlayersUnit(client, { season, entries, floorGuardTripped
     season,
     playersUpserted: rows.length,
     skippedNonFantasy: skipped,
-    skippedDuplicateIdentity,
+    rosterComplete: complete,
     teamChanges,
     teamsCleared: clearedIds.length,
     teamsDeferred,
@@ -1334,13 +1176,12 @@ async function applySyncPlayerSeasonStatsUnit(client, { cutoff, entries }) {
 module.exports = {
   missingTeamDefenses,
   syncTeamDefenses,
-  normalizePlayerEntry,
+  normalizeRosterRow,
   IDP_POSITIONS,
   DEFENSIVE_POSITIONS,
   syncWeekStats,
   syncSchedule,
   syncInjuries,
-  NFL_PLAYER_LIST_FLOOR,
   syncPlayers,
   syncPlayerSeasonStats,
 };

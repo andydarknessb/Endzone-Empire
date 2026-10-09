@@ -54,3 +54,14 @@ writer changed.
 - The Tank01 label normaliser for designation is retired; the ESPN strings
   are an exact match, and an unknown string is logged and treated as
   healthy rather than guessed.
+
+## Amendment (#2117)
+
+The daily player job no longer calls Tank01. `syncPlayers` (still scheduled as
+`player-sync`, still hand-runnable) reads the 32 ESPN team rosters through the
+sweep the roster-status Sync run shares, and writes the player row itself (name,
+position, NFL team, jersey, headshot) on `players.external_id`, the ESPN athlete
+id. It makes no Tank01 call and needs no Tank01 credentials, which supersedes
+the sentence above that the Tank01 player-list call keeps a daily job. A player
+on no roster of a complete 32-team sweep has his NFL team cleared; a sweep with
+a gap clears nobody.
