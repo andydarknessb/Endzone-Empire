@@ -4,7 +4,7 @@ const { cycleStart } = require('../modules/tank01Client');
 const { logger } = require('../modules/logger');
 
 /**
- * The ONE Claude client (ADR 0060): pins the model, records every call in
+ * The ONE Claude client (ADR 0061): pins the model, records every call in
  * `llm_usage`, and refuses to call once the billing month's
  * ANTHROPIC_MONTHLY_BUDGET is spent. Callers get a string or null and fall back
  * to their stored template on null.
@@ -34,7 +34,7 @@ let spentLoggedFor = null; // cycle start (ISO) already logged as spent
  * Rewrite one Narrative. Returns the trimmed text, or null when unconfigured,
  * over budget, not a clean end_turn (refusal, max_tokens), empty or failed
  * (never throws). `placeholders` maps `[[team:<id>]]` tokens to the real
- * strings the prompt must not carry (ADR 0060 section 5); every token is put
+ * strings the prompt must not carry (ADR 0061 section 5); every token is put
  * back in the output, and an output with a token left over or mangled is null.
  */
 async function narrative(

@@ -79,6 +79,7 @@ test('syncPlayers upserts every fetched entry inside one transaction under PLAYE
 
   assert.deepEqual(result, {
     season: 2026, playersUpserted: 1, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+    teamChanges: 0, teamsCleared: 0, teamsDeferred: 0,
   });
 
   // Red-tell: remove the lock and this ordering assertion goes red.
@@ -138,12 +139,13 @@ test('syncPlayers issues a fixed number of statements between the lock and COMMI
 
   assert.deepEqual(result, {
     season: 2026, playersUpserted: 250, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+    teamChanges: 0, teamsCleared: 0, teamsDeferred: 0,
   });
   const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
   const commitIdx = fake.calls.findIndex((c) => c.text === 'COMMIT');
   const between = fake.calls.slice(lockIdx + 1, commitIdx);
   assert.equal(between.length, 2, 'one existing-rows read plus one write, independent of row count');
-  assert.ok(between[0].text.startsWith('SELECT "external_id", "name", "position", "nfl_team" FROM "players"'));
+  assert.ok(between[0].text.startsWith('SELECT "id", "external_id", "name", "position", "nfl_team" FROM "players"'));
   assert.ok(between[1].text.startsWith('INSERT INTO "players"'));
   fake.assertClean();
 });
@@ -191,6 +193,7 @@ test('syncPlayers dedupes a duplicate external_id within one batch, last entry w
 
   assert.deepEqual(result, {
     season: 2026, playersUpserted: 1, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+    teamChanges: 0, teamsCleared: 0, teamsDeferred: 0,
   });
   assert.equal(insertParams[0].length, 1, 'one parallel-array row for the deduped external_id');
   assert.deepEqual(insertParams[0], ['77']);
@@ -263,6 +266,9 @@ test('#1562 arm (a): a new playerID whose numeric espnID matches an existing ext
     playersUpserted: 0,
     skippedNonFantasy: 0,
     skippedDuplicateIdentity: [{ playerId: '999', matchedExternalId: '16800' }],
+    teamChanges: 0,
+    teamsCleared: 0,
+    teamsDeferred: 0,
   });
   fake.assertClean();
 });

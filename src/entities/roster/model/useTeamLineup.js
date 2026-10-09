@@ -17,9 +17,8 @@ import { lineupModel } from './lineupModel';
  * mounts that arrive together share one GET while a mount arriving after the
  * read settled reads again, and a lineup saved on the Lineup page is never
  * served stale on the way back. It meets ADR 0004's admission rule: the GET is
- * on the service-worker API allowlist (public/service-worker.js, viewer-scoped
- * like `/api/team/roster`, network-first with the cache only an offline
- * fallback, dropped on every session change by `dropSessionCaches`) and is
+ * on the ADR 0059 read list (viewer-scoped like `/api/team/roster`, dropped on
+ * every session change by `dropSessionCaches`) and is
  * read by more than one mount per typical navigation.
  *
  * A null `leagueId` or `week` binds no URL, so no request fires: the caller

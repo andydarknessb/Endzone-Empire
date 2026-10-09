@@ -193,12 +193,13 @@ services:
       # ingested), so it is no longer the live-scoring cadence.
       - key: SYNC_EVERY_TICKS
         value: "6"
-      # Tank01 injury refresh (#1188): once a day, gated on the last successful
-      # data_sync_runs row so a restart cannot re-run it, and every
-      # INJURY_GAME_WINDOW_MS inside a game window (first kickoff minus 90 min
-      # to the last final); doubles while quota is degraded. ~+350 calls/month.
-      - key: INJURY_GAME_WINDOW_MS
+      # ESPN injury refresh (#2115, ADR 0060): gated on the last successful
+      # data_sync_runs row so a restart cannot re-run it. 900000 = 15 min, in and
+      # out of game windows; it spends no Tank01 budget.
+      - key: INJURY_SYNC_MS
         value: "900000"
+      # INJURY_DOC_FLOOR (unset, default 50): the injuries run is refused as failed when
+      # ESPN's document lists fewer entries than this, so a truncated body clears nobody.
       # The Final box (ADR 0035) is read this long after ESPN reports a game
       # final, so Tank01's box has settled and one essential-priority call is
       # enough. 900000 = 15 min.
