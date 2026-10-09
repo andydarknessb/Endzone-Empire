@@ -37,10 +37,9 @@ export { initialsFor } from './initials';
 // promoted once quick-actions, my-team-summary and the Matchup page each
 // carried their own parse-and-tolerate body for `league.roster_slots`.
 export { parseRosterSlots } from './rosterSlots';
-// The Unavailable reason -> label map (#1208), promoted once LineupScreen,
-// the retro-scoreboard widget model and the slot-comparison widget model
-// each carried an identical bye/out/ir label object.
-export { unavailableLabel } from './unavailableLabel';
+// The Unavailable reason -> label map (#1208), for callers that hold only a
+// reason string; a whole Roster entry reads its label from entities/roster.
+export { reasonLabel } from './reasonLabel';
 // The starter game-state marker map (#2010), promoted once the Standard
 // Starters table and the Scoreboard Lineups card both drew it.
 export { starterStateView } from './starterState';

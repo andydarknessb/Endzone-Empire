@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { finite, formatPoints, unavailableLabel, NO_HISTORY_LABEL } from '../../../shared/lib';
+import { finite, formatPoints, reasonLabel, NO_HISTORY_LABEL } from '../../../shared/lib';
 
 /**
  * The decision strip (#1307, ADR 0040: "Every context adds the decision
@@ -29,7 +29,7 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
         {decision.projWeek.reason
           // #1765: an Unavailable week shows the reason, never a number
           // (CONTEXT.md, Unavailable) - the same label map the weekly bars use.
-          ? (unavailableLabel(decision.projWeek.reason) || decision.projWeek.reason)
+          ? (reasonLabel(decision.projWeek.reason) || decision.projWeek.reason)
           // #1777: `noHistory` (the caller's `hasNoHistory(entry)`, the one
           // shared helper) reads "no history" instead of the Position-baseline
           // number, after the Unavailable reason above, which always wins.

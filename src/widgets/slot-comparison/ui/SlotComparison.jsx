@@ -13,8 +13,8 @@ import {
   paceView,
   positionRingKey,
   starterStateView,
-  unavailableLabel,
 } from '../model/slotComparisonModel';
+import { unavailableLabel } from '../../../entities/roster';
 
 /**
  * The Starters table of Matchup Detail (ADR 0031, #899): one row per paired
@@ -393,7 +393,7 @@ function SideCell({ player, side, expanded, panelId, avatarSize, compact, lineup
   // A starter yet to play is de-emphasized (the design's `dim`): dim name,
   // faint points.
   const dim = state?.kind === 'scheduled';
-  const reason = unavailableLabel(player.availability);
+  const reason = unavailableLabel(player);
   const pace = reason ? null : paceView(player.points, player.projected);
   const grid = CELL_GRID[side];
 
@@ -649,7 +649,7 @@ function PhoneLineTwo({ player, away, dim, proj, state }) {
  */
 function ExpandedStrip({ id, player }) {
   const statLine = formatStatLine(player.stats);
-  const reason = unavailableLabel(player.availability);
+  const reason = unavailableLabel(player);
   const pace = reason ? null : paceView(player.points, player.projected);
   return (
     <Box

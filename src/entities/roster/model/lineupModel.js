@@ -65,7 +65,7 @@
  *     league's own `roster_slots`.
  */
 
-import { parseRosterSlots, isStartVerdictUnavailable } from '../../../shared/lib';
+import { parseRosterSlots, isStartVerdictUnavailable, reasonLabel, hasNoHistory } from '../../../shared/lib';
 import { slotsFor } from './rosterTemplateModel';
 
 const BENCH = 'BENCH';
@@ -233,6 +233,71 @@ export function pairStartersBySlot(homeStarters, awayStarters, slotOrder) {
  */
 export function locked(entry) {
   return Boolean(entry && entry.locked);
+}
+
+/**
+ * Whether a lineup entry is a spent row: a departed starter's record holding a
+ * slot for a settled week (CONTEXT.md's Lineup entry). NOT `locked` - a played
+ * out starter is locked and not spent; a departed one is spent and not locked.
+ */
+export function spent(entry) {
+  return Boolean(entry && entry.spent);
+}
+
+/**
+ * Whether a lineup entry (or any row carrying the same `availability`) is
+ * Unavailable (CONTEXT.md): `availability.available === false`, the one read of
+ * the server's Start verdict that surfaces render, so no widget keeps its own.
+ */
+export function unavailable(entry) {
+  return Boolean(entry && entry.availability && entry.availability.available === false);
+}
+
+/**
+ * The Bench order (#2140: one rule, the Ledger and the Decision card's bench
+ * options both read it). Stable partition: every available entry (sorted by
+ * projectedPoints, the Point estimate - the same number the Ledger row headlines, #1482 - high to
+ * low, an unknown value sorting last among them) before every Unavailable
+ * one (kept in the order the server returned them). Never `entry.projection`
+ * (the distribution's bare mean): sorting by a different statistic than the
+ * row prints could put the bench in an order its own headline numbers
+ * contradict.
+ *
+ * Position-baseline players (#1776, `hasNoHistory`) sit between the two: their
+ * number is the position's average, not evidence, so every evidenced player
+ * sorts before them (kept in the order the server returned them, since their
+ * hidden numbers tie), and Unavailable players still come last.
+ */
+export function sortBench(benchEntries) {
+  const available = [];
+  const noHistory = [];
+  const unavailableEntries = [];
+  for (const entry of benchEntries) {
+    if (unavailable(entry)) unavailableEntries.push(entry);
+    else if (hasNoHistory(entry)) noHistory.push(entry);
+    else available.push(entry);
+  }
+  available.sort((a, b) => {
+    const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
+    const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
+    return bp - ap;
+  });
+  return [...available, ...noHistory, ...unavailableEntries];
+}
+
+
+// The one word for an Unavailable player whose reason the label map does not
+// know or the wire left out (the Slot comparison used to say 'out').
+const UNAVAILABLE_FALLBACK = 'unavailable';
+
+/**
+ * The label an Unavailable entry shows ("on bye", "out", "on IR", ...), or
+ * `UNAVAILABLE_FALLBACK` for a missing or unknown reason; null when the entry
+ * is not Unavailable. One fallback for every surface.
+ */
+export function unavailableLabel(entry) {
+  if (!unavailable(entry)) return null;
+  return reasonLabel(entry.availability.reason) || UNAVAILABLE_FALLBACK;
 }
 
 /**

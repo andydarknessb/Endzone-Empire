@@ -1,5 +1,4 @@
-import { hasNoHistory } from '../../../shared/lib';
-import { locked } from '../../../entities/roster';
+import { locked, sortBench, spent } from '../../../entities/roster';
 import { isEligibleMove } from '../../../features/lineup-write';
 
 /**
@@ -18,12 +17,10 @@ import { isEligibleMove } from '../../../features/lineup-write';
  * `benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnsettled })`:
  * the bench players who could fill `slot` (AC4, "the bench options for the
  * player's slot"), sorted by `projectedPoints` (CONTEXT.md's Point estimate,
- * #1482 - never `projection`, the distribution's bare mean) descending - a
- * null value sorts last (a Position-baseline candidate after all of them,
- * #1777), the same rule `widgets/lineup-ledger/model/
- * buildLedgerSections.js`'s own bench sort applies, restated here rather
- * than imported since that module's export is a full section builder, not
- * this narrower filter. Only a real starting slot has bench options: a card
+ * #1482 - never `projection`, the distribution's bare mean) descending, a
+ * Position-baseline candidate after the evidenced ones (#1777), Unavailable
+ * players last: `sortBench` from `entities/roster`, the one Bench order the
+ * Ledger uses too. Only a real starting slot has bench options: a card
  * opened on a BENCH or IR row (no starting slot of its own to fill) gets an
  * empty list, which is that section's own null-source hide rule. Each
  * candidate carries its own `swapEligible` (via `isEligibleMove`, covering
@@ -61,22 +58,9 @@ export function benchOptionsForSlot(entries, slot, { entry, bestBall, leagueUnse
   if (slot == null || slot === 'BENCH' || slot === 'IR') return [];
   const list = Array.isArray(entries) ? entries : [];
   const eligible = list.filter(
-    (e) => e && e.slot === 'BENCH' && !e.spent && Array.isArray(e.eligibleSlots) && e.eligibleSlots.includes(slot)
+    (e) => e && e.slot === 'BENCH' && !spent(e) && Array.isArray(e.eligibleSlots) && e.eligibleSlots.includes(slot)
   );
-  // #1777: a Position-baseline candidate (`hasNoHistory`, the one helper the
-  // Ledger row also reads) sits after every evidenced option - his number is
-  // the position's average, not evidence, and the card hides it - kept in the
-  // order given since his hidden numbers tie.
-  const evidenced = eligible.filter((e) => !hasNoHistory(e));
-  const noHistory = eligible.filter((e) => hasNoHistory(e));
-  return [
-    ...evidenced.sort((a, b) => {
-      const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
-      const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
-      return bp - ap;
-    }),
-    ...noHistory,
-  ]
+  return sortBench(eligible)
     .map((candidate) => {
       const candidateLocked = locked(candidate);
       return {
