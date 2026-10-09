@@ -164,6 +164,36 @@ test('#2117: a stored player ESPN lists at a non-fantasy position still moves te
   fake.assertClean();
 });
 
+test('#2117: a fantasy row for an athlete beats a team-only row for him from another roster, whatever the order; a nameless row keeps ESPN\'s fantasy position', async (t) => {
+  const inserts = [];
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [
+        { id: 811, external_id: '811', name: 'Old', position: 'RB', nfl_team: 'KC' },
+        { id: 812, external_id: '812', name: 'Old Two', position: 'RB', nfl_team: 'KC' },
+      ],
+    }), 'client'],
+    [insert('players'), (text, params) => { inserts.push(params); return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  await syncPlayers({
+    season: 2026,
+    sweep: sweepOf([
+      row(811, 'KC', { name: 'New', position: 'WR' }), // fantasy row first
+      row(811, 'SF', { position: 'FB' }), // team-only row later: must not replace it
+      row(812, 'SF', { name: null, position: 'WR' }), // nameless, ESPN gave a fantasy position
+    ]),
+  });
+
+  const [ids, names, positions, teams] = inserts[0];
+  const at = (id) => ids.indexOf(id);
+  assert.deepEqual([names[at('811')], positions[at('811')], teams[at('811')]], ['New', 'WR', 'KC']);
+  assert.deepEqual([names[at('812')], positions[at('812')], teams[at('812')]], ['Old Two', 'WR', 'SF']);
+  fake.assertClean();
+});
+
 test('#2117: an athlete ESPN files under a roster group we do not map is still on the roster, so a complete sweep does not clear him', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],

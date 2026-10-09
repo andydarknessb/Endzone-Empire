@@ -52,6 +52,13 @@ const IDP_POSITIONS = [...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION
 // these positions, so a scoped upsert cannot clobber a Sleeper rollup.
 const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
 
+/** The row's position as our fantasy position code (PK stored as K), or null when it has none or is not a fantasy position. */
+function fantasyPosition(row) {
+  let position = row && row.position && String(row.position).toUpperCase();
+  if (position === 'PK') position = 'K';
+  return position && FANTASY_POSITIONS.has(position) ? position : null;
+}
+
 /**
  * Normalize one row of an ESPN team roster (espnAthleteClient.normalizeTeamRoster)
  * into our player shape. Returns null for a row missing an id, name, or position,
@@ -64,9 +71,8 @@ const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
  * cross-module interface: no other module calls this directly.
  */
 function normalizeRosterRow(row) {
-  let position = row && row.position && String(row.position).toUpperCase();
-  if (position === 'PK') position = 'K';
-  if (!row || !row.athleteId || !row.name || !position || !FANTASY_POSITIONS.has(position)) return null;
+  const position = fantasyPosition(row);
+  if (!row || !row.athleteId || !row.name || !position) return null;
   return {
     externalId: String(row.athleteId),
     name: row.name,
@@ -168,16 +174,19 @@ async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete
     }
     // Not a fantasy row as ESPN lists him (a non-fantasy position, or no name).
     // A STORED player still moves with his roster: write the roster team and keep
-    // his stored name and position. An athlete we do not store is skipped.
+    // his stored name (and his stored position unless ESPN gave a fantasy one).
+    // An athlete we do not store is skipped. A fantasy row for the same id, from
+    // another team's roster, always beats this team-only row.
     const stored = existingByExternalId.get(Number(raw.athleteId));
     if (!stored || !raw.teamCode) {
       skipped += 1;
       continue;
     }
+    if (byExternalId.has(Number(raw.athleteId))) continue;
     byExternalId.set(Number(raw.athleteId), {
       externalId: String(raw.athleteId),
       name: stored.name,
-      position: stored.position,
+      position: fantasyPosition(raw) ?? stored.position,
       nflTeam: raw.teamCode,
       photoUrl: raw.photoUrl ?? null,
       jerseyNumber: raw.jerseyNumber ?? null,
