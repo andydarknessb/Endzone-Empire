@@ -14,6 +14,7 @@ import { readHttpFailure } from '../../lib/httpFailure';
 import { useNotifications } from '../../hooks/useNotifications';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
+import AlertPrompt from './AlertPrompt';
 import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import {
   GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
@@ -263,7 +264,11 @@ function UserPage() {
               its own fetch and states, so it never holds up My leagues. */}
           <Grid container spacing={3} sx={{ mb: 5 }}>
             <Grid xs={12} lg={nextDraft ? 8 : 12}>
-              <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
+              {/* The queue shrinks to leave room for the Alert prompt below it. */}
+              <Stack spacing={3} useFlexGap sx={{ height: '100%' }}>
+                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
+                <AlertPrompt leagues={myLeagues} />
+              </Stack>
             </Grid>
             {nextDraft && (
               <Grid xs={12} lg={4}>
