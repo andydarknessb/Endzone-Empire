@@ -187,8 +187,8 @@ export function buildSuggestionView(suggestion, entriesById) {
  * moves of those two players and nothing else: open-slot fills and reshuffles
  * name other players and pass through untouched.
  *
- * The one place the server's `{ playerId, fromSlot, toSlot }` becomes the
- * lineup write's `{ playerId, slot }` (#2143): the result goes to `submit`
+ * The one place the server's plan entries (a player, where from, where to)
+ * become the lineup write's `{ playerId, slot }` (#2143): the result goes to `submit`
  * unchanged. An entry with no player or no destination is dropped.
  */
 export function movePlanWithout(movePlan, dismissedViews) {
