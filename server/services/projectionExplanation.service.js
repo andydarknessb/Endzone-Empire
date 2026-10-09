@@ -3,7 +3,7 @@ const projection = require('./projection.service');
 const claude = require('./claude');
 
 /**
- * Projection explanation (ADR 0060, CONTEXT.md): one Narrative per player per
+ * Projection explanation (ADR 0061, CONTEXT.md): one Narrative per player per
  * week under the pool-wide DEFAULT scoring rules. Template first, stored, then
  * Claude may rewrite it. Names Factors in words only: never a value, a rank or
  * a verdict.
@@ -25,7 +25,7 @@ const PHRASES = {
 };
 const STATUS_SENTENCES = { Q: 'Carries a questionable tag.', D: 'Carries a doubtful tag.' };
 
-// ADR 0060 section 3: Claude's words carry no number and no verdict.
+// ADR 0061 section 3: Claude's words carry no number and no verdict.
 const BAD_OUTPUT = /\d|\b(start|sit|bench|flex|must-start|fade)\b/i;
 
 /** The base sentence: recentProduction's contribution is the baseline itself, not a change. */

@@ -450,7 +450,7 @@ test('no Factor tile when factorExplanation is null', async () => {
   expect(screen.queryByTestId('decision-card-factor')).not.toBeInTheDocument();
 });
 
-// ADR 0060: the stored Projection explanation rides the card payload.
+// ADR 0061: the stored Projection explanation rides the card payload.
 test.each([
   ['a stored explanation', 'Recent production is the biggest driver this week.', true],
   ['no explanation', null, false],

@@ -739,7 +739,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         console.error('getPlayerCard: practice participation failed', err);
         return null;
       }),
-    // ADR 0060: the stored Projection explanation, null until the nightly fill
+    // ADR 0061: the stored Projection explanation, null until the nightly fill
     // writes one. A failed read hides the line, never the card.
     pool.query(
       `SELECT "narrative" FROM "projection_explanations" WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3`,
