@@ -209,12 +209,14 @@ function Tile({ tile, to }) {
     >
       <TileRow side={tile.home} testId="around-the-league-tile-home" figureLabel={figureLabel} />
       <TileRow side={tile.away} testId="around-the-league-tile-away" figureLabel={figureLabel} />
-      <SplitBar
-        homeName={tile.home.name}
-        awayName={tile.away.name}
-        homeShare={tile.homeShare}
-        height={5}
-      />
+      {tile.homeShare != null && (
+        <SplitBar
+          homeName={tile.home.name}
+          awayName={tile.away.name}
+          homeShare={tile.homeShare}
+          height={5}
+        />
+      )}
     </Box>
   );
 }

@@ -12,15 +12,19 @@ import { ledFigure, ledPercents, ledStatus } from '../model/scoreboardModel';
  * ink-on-surface pairing it paints, `dash-led` on `dash-board`, is registered
  * in tokens.contrast.test.js (ADR 0031).
  *
- * The WIN row (#903 review): rendered only while `showWin` (the widget passes
- * the started state, so a scheduled Matchup prints no WIN digits at all), and
+ * Every figure but the names, the week and the status chip is the entity
+ * board's (#2142): the score text, Players remaining, Win probability and
+ * result line. The WIN row (#903 review): rendered only while the board says
+ * the Matchup has started and states no result (so a scheduled Matchup prints
+ * no WIN digits at all), and
  * aria-hidden when it is: it is the visible, decorative duplicate of the
  * field image's accessible name, which already states the home side's win
  * probability, so the page announces the probability once. An unknown
  * probability under a started Matchup still prints the hyphens, visibly.
  *
  * A settled (played or final) Matchup states its result instead (#2007): one
- * result line ("You won by 6.2", from `viewerTeamId`'s side) replaces the WIN
+ * result line ("You won by 6.2", the board's `resultLine`, written from the
+ * viewer's side) replaces the WIN
  * row and the EXP FINAL / TO PLAY row. It is real text, never aria-hidden, set
  * in capitals on the LED face by CSS so the DOM keeps the sentence as written.
  */

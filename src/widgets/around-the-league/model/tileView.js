@@ -48,7 +48,8 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   // server could not say how far along it is.
   const scheduled = hasStarted === false;
 
-  const probability = board.winProbability ?? board.projectedWinProbability ?? { home: 0.5 };
+  // The board states no probability for an unknown status: the tile draws no bar.
+  const probability = board.winProbability ?? board.projectedWinProbability;
 
   // Per-side, so the UI can name WHICH side is the viewer's own (the "You"
   // pill sits on that side's row, never on both, and never guessed from
@@ -79,7 +80,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     scheduled,
     // The tile-level ring (#1103): true when either side is the viewer's.
     isViewer: homeSide.isViewer || awaySide.isViewer,
-    homeShare: probability.home,
+    homeShare: probability ? probability.home : null,
     home: homeSide,
     away: awaySide,
   };

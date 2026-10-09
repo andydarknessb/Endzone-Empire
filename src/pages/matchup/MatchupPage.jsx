@@ -256,6 +256,7 @@ export default function MatchupPage() {
                 homeName={homeName}
                 awayName={awayName}
                 expectedFinal={{ home: matchup.home.expectedFinal, away: matchup.away.expectedFinal }}
+                scoreLabels={{ home: board.home.scoreLabel, away: board.away.scoreLabel }}
                 status={matchup.status}
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}

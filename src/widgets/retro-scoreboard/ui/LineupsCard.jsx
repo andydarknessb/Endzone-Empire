@@ -3,7 +3,6 @@ import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
-import { matchupBoard } from '../../../entities/matchup';
 import { starterStateView } from '../../../shared/lib';
 import { ledFigure, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
@@ -194,9 +193,8 @@ const DISPLAY_NUM = {
   color: 'var(--dash-ink)',
 };
 
-export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullComparison, mobile }) {
+export default function LineupsCard({ rows, board, headingLevel = 2, onFullComparison, mobile }) {
   const list = rows || [];
-  const board = matchupBoard(matchup);
   const { settled } = board;
   return (
     <Card

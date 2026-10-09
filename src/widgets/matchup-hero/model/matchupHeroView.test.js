@@ -19,6 +19,12 @@ const live = {
 };
 
 describe('matchupHeroView', () => {
+  test('carries the board score text, 0.0 when the Matchup has no score yet', () => {
+    expect(matchupHeroView(live, 10).scoreLabels).toEqual({ home: '82.2', away: '77.0' });
+    const bare = { ...live, status: 'scheduled', home: { ...dock, score: null }, away: { ...frost, score: undefined } };
+    expect(matchupHeroView(bare, 10).scoreLabels).toEqual({ home: '0.0', away: '0.0' });
+  });
+
   test('finds the viewer side by Team id, not by home/away', () => {
     expect(matchupHeroView(live, 20).viewerSide).toBe('away');
     expect(matchupHeroView(live, 10).viewerSide).toBe('home');

@@ -63,6 +63,10 @@ describe('aroundLeagueTileView', () => {
     expect(view.homeShare).toBeLessThan(1);
   });
 
+  it('states no split on an unknown status, so the tile draws no bar', () => {
+    expect(aroundLeagueTileView(row({ status: null })).homeShare).toBeNull();
+  });
+
   it('reads the score, and is neither started nor scheduled, on an unknown status', () => {
     // ADR 0030: an unknown status asserts neither state. `started` and
     // `scheduled` must BOTH read false here - a caller keying a label off

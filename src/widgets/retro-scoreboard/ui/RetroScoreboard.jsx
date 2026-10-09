@@ -108,7 +108,7 @@ export default function RetroScoreboard({
         }}
       >
         <Box data-testid="lineups-slot" sx={{ order: { xs: 2, md: 1 }, minWidth: 0 }}>
-          <LineupsCard rows={rows} matchup={matchup} headingLevel={headingLevel} onFullComparison={onFullComparison} mobile={mobile} />
+          <LineupsCard rows={rows} board={board} headingLevel={headingLevel} onFullComparison={onFullComparison} mobile={mobile} />
         </Box>
         <Box
           data-testid="right-column"

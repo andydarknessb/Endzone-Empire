@@ -63,6 +63,7 @@ export function matchupHeroView(matchup, viewerTeamId) {
 
   return {
     viewerSide,
+    scoreLabels: { home: board.home.scoreLabel, away: board.away.scoreLabel },
     hasStarted,
     chipLabel: chip?.label ?? null,
     chipVariant: chip?.variant ?? 'neutral',
