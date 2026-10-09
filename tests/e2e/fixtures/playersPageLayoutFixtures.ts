@@ -14,7 +14,14 @@ export const PLAYERS_LAYOUT_LEAGUE_NAME = 'Layout Guard League';
 const ROSTER_COUNT = 16;
 const ROSTER_CAPACITY = 16;
 
-type Seed = { name: string; position: string; state: string; teamName?: string };
+type Seed = { name: string; position: string; state: string; teamName?: string; weeksReason?: string };
+
+// A player Unavailable for the whole season (no NFL team, practice squad):
+// every week carries the reason code and no number (ADR 0040).
+const SEASON_UNAVAILABLE_SEEDS: Seed[] = [
+  { name: 'Ethan Fernea', position: 'WR', state: 'free_agent', weeksReason: 'no_team' },
+  { name: 'Michael Trigg', position: 'TE', state: 'free_agent', weeksReason: 'practice_squad' },
+];
 
 const SEEDS: Seed[] = [
   { name: 'Jaylen Warren', position: 'RB', state: 'free_agent' },
@@ -46,7 +53,8 @@ function cardsPlayer(seed: Seed, index: number) {
   const points = 8 + index;
   const weeks = [];
   for (let week = 2; week <= 18; week += 1) {
-    weeks.push(week === 9 ? { week, reason: 'on bye' } : { week, points });
+    if (seed.weeksReason) weeks.push({ week, reason: seed.weeksReason });
+    else weeks.push(week === 9 ? { week, reason: 'on bye' } : { week, points });
   }
   const { state } = seed;
   return {
@@ -71,11 +79,11 @@ function cardsPlayer(seed: Seed, index: number) {
   };
 }
 
-function playersResponse() {
+function playersResponse(seeds: Seed[]) {
   return {
-    players: SEEDS.map(cardsPlayer),
+    players: seeds.map(cardsPlayer),
     totalPages: 1,
-    total: SEEDS.length,
+    total: seeds.length,
     context: {
       leagueId: LEAGUE_ID,
       leagueName: PLAYERS_LAYOUT_LEAGUE_NAME,
@@ -88,7 +96,7 @@ function playersResponse() {
   };
 }
 
-async function fulfilApi(route: Route) {
+async function fulfilApi(route: Route, seeds: Seed[]) {
   const request = route.request();
   const { pathname } = new URL(request.url());
   const method = request.method();
@@ -98,11 +106,16 @@ async function fulfilApi(route: Route) {
   if (method === 'GET' && pathname === '/api/notifications/prefs') return json(route, 200, { prefs: {} });
   if (method === 'GET' && pathname === '/api/league') return json(route, 200, [leagueRow()]);
   if (method === 'GET' && pathname === '/api/team/roster') return json(route, 200, []);
-  if (method === 'GET' && pathname === '/api/players') return json(route, 200, playersResponse());
+  if (method === 'GET' && pathname === '/api/players') return json(route, 200, playersResponse(seeds));
 
   return json(route, 500, { error: `unexpected mocked request: ${method} ${pathname}` });
 }
 
-export async function setupPlayersPageLayout(page: Page) {
-  await page.route('**/api/**', fulfilApi);
+/**
+ * `seasonUnavailable` swaps the last two players for two Unavailable every
+ * week, still ten rows, so the Weeks strip's all-reason form is on the page.
+ */
+export async function setupPlayersPageLayout(page: Page, { seasonUnavailable = false } = {}) {
+  const seeds = seasonUnavailable ? [...SEEDS.slice(0, -2), ...SEASON_UNAVAILABLE_SEEDS] : SEEDS;
+  await page.route('**/api/**', (route) => fulfilApi(route, seeds));
 }
