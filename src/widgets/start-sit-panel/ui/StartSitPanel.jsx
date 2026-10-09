@@ -20,11 +20,12 @@ import { buildSuggestionView, calledRecordLine, calledShotLine, forecastRecordLi
  * both arrive as plain props the page already fetched (`useAdvice`,
  * `useLineupData`) - the same "value two widgets both need is passed down
  * by the page" rule the Ledger and the summary strip already follow. The
- * Apply action itself is the page's own apply-advice feature, reached only
+ * Apply action itself is the page's one lineup write (`submit`), reached only
  * through the `onApply` callback (ADR 0020: a widget never imports a
- * feature) - Dismiss (session-only, local state) and Compare (a no-op
- * affordance until ticket 8, AC3) are the only interactions this widget
- * owns outright.
+ * feature) - Dismiss (session-only, local state) is the only interaction this
+ * widget owns outright. `onApply` receives the lineup write's own moves
+ * (`[{ playerId, slot }]`, see `movePlanWithout`), ready for `submit`.
+ * Compare renders only when the page passes `onCompare`; no page wires it yet.
  *
  * Three more things ride in as plain props (#1852): each player carries the
  * shared injury tag from his designation; his name opens the Decision card
@@ -249,14 +250,16 @@ export default function StartSitPanel({
             )}
 
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <DashButton
-                variant="ghost"
-                size="sm"
-                data-testid="suggestion-compare"
-                onClick={() => onCompare?.(view)}
-              >
-                Compare
-              </DashButton>
+              {onCompare && (
+                <DashButton
+                  variant="ghost"
+                  size="sm"
+                  data-testid="suggestion-compare"
+                  onClick={() => onCompare(view)}
+                >
+                  Compare
+                </DashButton>
+              )}
               <DashButton
                 variant="ghost"
                 size="sm"
