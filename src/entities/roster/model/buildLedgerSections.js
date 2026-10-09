@@ -1,4 +1,4 @@
-import { sortBench, spent } from '../../../entities/roster';
+import { sortBench, spent } from './lineupModel';
 
 /**
  * Groups the Roster entity's normalized lineup entries (`entities/roster`'s
@@ -95,8 +95,9 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
  * The phone bar's counts (#1957 L6, #1965): Starters counts filled seats (a
  * spent row starts nobody, so it is not one) of the configured total; Bench
  * counts occupied Bench and IR rows, the group the Bench view shows. One rule,
- * exported through the widget's index so the page that owns the bar computes
- * its labels from `buildLedgerSections` without copying it.
+ * exported through the entity's index so the page that owns the bar computes
+ * its labels from the sections `useTeamLineup`/`useLedgerSections` return
+ * without copying it.
  */
 export function ledgerTabCounts({ starters, bench, ir }) {
   return {

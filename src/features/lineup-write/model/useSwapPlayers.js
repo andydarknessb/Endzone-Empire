@@ -44,8 +44,8 @@ const REFUSAL_COPY = {
  * `hasEligibleTarget` (#1425, optional): "does this candidate have a legal
  * target ANYWHERE in the lineup, filled or empty slot" - a whole-lineup
  * question `entries` alone cannot answer (it carries occupied rows only, no
- * empty-slot capacity), so the page supplies it, built from the Ledger
- * widget's own row enumeration (`buildLedgerSections`) over `isEligibleMove`
+ * empty-slot capacity), so the page supplies it, built from the Roster
+ * entity's Ledger sections (`useLedgerSections`) over `isEligibleMove`
  * above. Consulted only at the moment a fresh selection would begin.
  *
  * `submit` (spec #2042): `useLineupWrite`'s one write, which this hook feeds a

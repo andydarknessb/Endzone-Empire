@@ -40,6 +40,55 @@ test('fetches GET /api/team/lineup with leagueId and week, mapped through lineup
   expect(result.current.lineup.week).toBe(4);
 });
 
+const sectionsBody = {
+  ...body,
+  rosterSlots: [{ key: 'QB', count: 1 }, { key: 'WR', count: 2 }],
+  benchSlots: 2,
+  irSlots: 1,
+  entries: [
+    { id: 1, name: 'Josh Allen', position: 'QB', nfl_team: 'BUF', slot: 'QB', projected_points: 24.3, injury_status: null },
+    { id: 2, name: 'Bench Guy', position: 'WR', nfl_team: 'NYJ', slot: 'BENCH', projected_points: 8, injury_status: null },
+    { id: 3, name: 'Hurt Guy', position: 'WR', nfl_team: 'MIA', slot: 'IR', projected_points: 0, injury_status: 'O' },
+  ],
+};
+
+test('returns the built Ledger sections: starters, bench and IR rows for the lineup', async () => {
+  apiClient.get.mockResolvedValue({ data: sectionsBody });
+
+  const { result } = renderHook(() => useTeamLineup(7, 4));
+
+  await waitFor(() => expect(result.current.sections).not.toBeNull());
+  const { starters, bench, ir } = result.current.sections;
+  expect(starters.map((row) => row.slotLabel)).toEqual(['QB', 'WR 1', 'WR 2']);
+  expect(starters[0].entry.playerId).toBe(1);
+  expect(bench.map((row) => row.entry?.playerId ?? null)).toEqual([2, null]);
+  expect(ir.map((row) => row.entry?.playerId ?? null)).toEqual([3]);
+});
+
+test('the IR entry is what fills the IR row: without it the IR row is empty', async () => {
+  apiClient.get.mockResolvedValue({
+    data: { ...sectionsBody, entries: sectionsBody.entries.filter((e) => e.slot !== 'IR') },
+  });
+
+  const { result } = renderHook(() => useTeamLineup(7, 4));
+
+  await waitFor(() => expect(result.current.sections).not.toBeNull());
+  expect(result.current.sections.ir).toHaveLength(1);
+  expect(result.current.sections.ir[0].entry).toBeNull();
+});
+
+test('sections are null while no lineup is held, and memoised across re-renders', async () => {
+  apiClient.get.mockResolvedValue({ data: sectionsBody });
+
+  const { result, rerender } = renderHook(() => useTeamLineup(7, 4));
+  expect(result.current.sections).toBeNull();
+
+  await waitFor(() => expect(result.current.sections).not.toBeNull());
+  const first = result.current.sections;
+  rerender();
+  expect(result.current.sections).toBe(first);
+});
+
 test('a null leagueId binds no URL: the apiClient mock is never called', async () => {
   renderHook(() => useTeamLineup(null, 4));
   // There is nothing to await for (a null url idles forever), so a microtask

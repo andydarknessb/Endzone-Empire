@@ -36,6 +36,12 @@
  * (#1500), the Draft Simulator's existing hand-mirrored copy, unaffected by
  * that move. #1501 below deletes that copy.
  *
+ * `useTeamLineup` returns the built Ledger `sections` (starters, IR, bench rows) with the
+ * lineup, memoised once (#2146); `useLedgerSections(lineup)` is the same build for a
+ * caller that holds its own lineup (the Lineup page's optimistic one), and
+ * `ledgerTabCounts` is the phone bar's count rule over those sections. The builder
+ * itself, `buildLedgerSections`, is not exported: it lives behind the hook.
+ *
  * `moveLegality` (#2052, spec #2042, `model/moveLegality.js`) is the one client
  * move rule: "may this entry move into this slot", answered `{ ok }` or
  * `{ ok: false, reason }` from server facts on the entries alone
@@ -101,7 +107,8 @@ export {
   isQuestionable,
 } from './model/lineupModel';
 export { moveLegality, isBestBallManagedSlot } from './model/moveLegality';
-export { useTeamLineup } from './model/useTeamLineup';
+export { ledgerTabCounts } from './model/buildLedgerSections';
+export { useTeamLineup, useLedgerSections } from './model/useTeamLineup';
 export {
   parseRosterTemplate,
   accepts,
