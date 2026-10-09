@@ -383,9 +383,11 @@ _Avoid_: bye collision, bye conflict
 
 **Injury designation**:
 What the injury feed says about a real player's availability: questionable,
-doubtful, out, or injured reserve — or nothing, which means healthy. A fact
-about the NFL world, written only by the feed sync, never by anything a
-manager does in the app. Distinct from the IR slot, which is a place in a
+doubtful, out, or injured reserve — or nothing, which means healthy. The feed
+is ESPN's injuries document, with the team roster's injuries block as its
+fallback for an athlete the document omits (ADR 0060, #2148). A fact about
+the NFL world, written only by the feed sync, never by anything a manager
+does in the app. Distinct from the IR slot, which is a place in a
 lineup; a player can carry the injured-reserve designation while never
 occupying an IR slot, and vice versa is exactly what enforcement exists to
 prevent.

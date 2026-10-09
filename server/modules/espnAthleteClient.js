@@ -298,10 +298,14 @@ const ROSTER_GROUP_STATUS = Object.freeze({
 
 /**
  * Pure: one team's site-API roster document -> `{ athleteId, teamCode,
- * rosterStatus, name, position, jerseyNumber, photoUrl }[]`, one per athlete
- * (the first group an athlete appears in wins). `rosterStatus` is `'active' |
- * 'practice_squad' | 'reserve' | null` (null: a group not named in
- * ROSTER_GROUP_STATUS); the last four are null when ESPN omits them.
+ * rosterStatus, name, position, jerseyNumber, photoUrl, injuryStatus }[]`, one
+ * per athlete (the first group an athlete appears in wins). `rosterStatus` is
+ * `'active' | 'practice_squad' | 'reserve' | null` (null: a group not named in
+ * ROSTER_GROUP_STATUS); the last five are null when ESPN omits them.
+ * `injuryStatus` (#2148) is ESPN's own string from the athlete's first
+ * `injuries` entry (Questionable, Out, Injured Reserve ...), untouched; the
+ * caller maps it. The league injuries document drops an athlete once ESPN stops
+ * listing him, season-ending IR included, but his roster entry keeps the block.
  */
 function normalizeTeamRoster(payload, teamCode) {
   const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
@@ -335,6 +339,8 @@ function normalizeTeamRoster(payload, teamCode) {
         position: item.position && item.position.abbreviation ? String(item.position.abbreviation) : null,
         jerseyNumber: jersey,
         photoUrl: item.headshot && item.headshot.href ? String(item.headshot.href) : null,
+        injuryStatus: Array.isArray(item.injuries) && typeof item.injuries[0]?.status === 'string'
+          ? item.injuries[0].status : null,
       };
       seen.set(athleteId, row);
       rows.push(row);
@@ -510,9 +516,9 @@ async function teamDepthChart(teamCode, { transport } = {}) {
 }
 
 /** This team's NFL roster -> `{ athleteId, teamCode, rosterStatus, name, position,
- * jerseyNumber, photoUrl }[]` (`normalizeTeamRoster`'s rows: `rosterStatus` is
- * null for an athlete in a group ROSTER_GROUP_STATUS does not map, and the last
- * four are null when ESPN omits them). Not cached here: `espnFactsSync.js`'s
+ * jerseyNumber, photoUrl, injuryStatus }[]` (`normalizeTeamRoster`'s rows:
+ * `rosterStatus` is null for an athlete in a group ROSTER_GROUP_STATUS does not
+ * map, and the last five are null when ESPN omits them). Not cached here: `espnFactsSync.js`'s
  * `sharedRosterSweep` holds the 32-team sweep for ten minutes, and the daily
  * roster-status table is the durable cache. `null` for an unknown team code or
  * any fetch failure, `[]` when ESPN answered with no usable groups -

@@ -613,9 +613,20 @@ test('normalizeTeamRoster (#2117): each row carries the athlete name, position, 
     position: 'WR',
     jerseyNumber: '13',
     photoUrl: 'https://a.espncdn.com/i/headshots/nfl/players/full/16733.png',
+    injuryStatus: null,
   });
   assert.ok(rows.every((r) => r.name && r.position), 'every recorded NYG athlete has a name and a position');
   assert.ok(rows.some((r) => r.jerseyNumber === null), 'an athlete with no jersey in the document reads null, not undefined');
+});
+
+test("normalizeTeamRoster (#2148): injuryStatus is ESPN's first injuries string, null without one", () => {
+  const rows = normalizeTeamRoster(teamRosterNygFixture, 'NYG');
+  const status = (id) => rows.find((r) => r.athleteId === id).injuryStatus;
+  assert.equal(status('4689114'), 'Injured Reserve'); // Jaxson Dart, injuredReserveOrOut
+  assert.equal(status('4428328'), 'Out'); // Deonte Banks, defense
+  assert.equal(status('16733'), null); // Odell Beckham Jr., empty injuries array
+  const odd = normalizeTeamRoster({ athletes: [{ position: 'offense', items: [{ id: '1', injuries: [{}] }, { id: '2' }] }] }, 'NYG');
+  assert.deepEqual(odd.map((r) => r.injuryStatus), [null, null]);
 });
 
 test('normalizeTeamRoster (#2117): an athlete in an unmapped group listed before his mapped one still gets the mapped status', () => {
@@ -633,6 +644,7 @@ test('normalizeTeamRoster (#2117): a bare item with only an id gets null name, p
   const [row] = normalizeTeamRoster({ athletes: [{ position: 'offense', items: [{ id: '7' }] }] }, 'NYG');
   assert.deepEqual(row, {
     athleteId: '7', teamCode: 'NYG', rosterStatus: 'active', name: null, position: null, jerseyNumber: null, photoUrl: null,
+    injuryStatus: null,
   });
 });
 

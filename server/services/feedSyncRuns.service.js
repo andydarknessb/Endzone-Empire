@@ -101,7 +101,8 @@ function normalizeRosterRow(row) {
  *
  * This is the only writer of `nfl_team` (the injuries job moved to ESPN and no
  * longer touches it, #2115, ADR 0060) and never writes `injury_status` or
- * `injury_detail`, which belong to the ESPN injuries job alone.
+ * `injury_detail`, which belong to the ESPN injuries job alone (it reads this
+ * same sweep for the roster injuries block, #2148).
  *
  * Team maintenance (#1385, #1391, moved here from the injuries job by #2115):
  * a player whose roster team differs from the stored one gets it written; a
@@ -388,16 +389,34 @@ function injuryDocFloor() {
 
 // #2115, ADR 0060: ESPN's injuries document uses exactly five designation
 // strings. Exact match, no guessing; Active is healthy, like an unlisted player.
+// Suspension (#2148) is the team roster block's string for a suspended player:
+// healthy here, since it is not an injury; whether a suspended player is
+// unavailable is #2150's question.
 const ESPN_INJURY_STATUS = Object.freeze({
-  Questionable: 'Q', Doubtful: 'D', Out: 'O', 'Injured Reserve': 'IR', Active: null,
+  Questionable: 'Q', Doubtful: 'D', Out: 'O', 'Injured Reserve': 'IR', Active: null, Suspension: null,
 });
 
+// #2148: the roster sweep is 32 team GETs; the injuries run waits at most
+// this long for it, then goes document-only. INJURY_SWEEP_TIMEOUT_MS tunes it.
+function injurySweepTimeoutMs() {
+  const raw = process.env.INJURY_SWEEP_TIMEOUT_MS;
+  const parsed = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 20000;
+}
+
 /**
- * Injury sync (#2115, ADR 0060): ESPN's league-wide injuries document is the
- * only writer of `players.injury_status` and `players.injury_detail`. One free
- * GET, every player with an external_id written: listed Questionable, Doubtful,
- * Out and Injured Reserve map to Q, D, O and IR; Active and any player the
- * document does not list are cleared back to healthy. It no longer touches
+ * Injury sync (#2115, #2148, ADR 0060): this job alone writes
+ * `players.injury_status` and `players.injury_detail`, from ESPN's league-wide
+ * injuries document with the team rosters' `injuries` block as the fallback for
+ * an athlete the document omits (ESPN drops season-ending IR from the document
+ * after a week). One free GET plus the shared roster sweep, every player with an
+ * external_id written: Questionable, Doubtful, Out and Injured Reserve map to Q,
+ * D, O and IR; the document wins where both speak; Active and any player neither
+ * source designates are cleared back to healthy, except that a player neither
+ * feed saw (the document does not list him and no answering roster covers him)
+ * keeps the designation and detail he has: a stored designation is only cleared
+ * by a feed that saw him. A failed or slow sweep never fails the run. It no
+ * longer touches
  * `nfl_team` (the Tank01 player sync owns the player row, ADR 0060). Player-row
  * locks make overlapping manual/scheduled syncs observe transitions exactly
  * once; IR flag rows commit with the designation updates before best-effort
@@ -409,9 +428,12 @@ const ESPN_INJURY_STATUS = Object.freeze({
  * callers (scoring.router.js, admin.router.js) are unchanged; the scheduler
  * (`runDailyInjurySync`) passes its own `now`. `day` is also the fingerprint's
  * day for the #2106 injury alerts. `fetchInjuries` is a test seam: production
- * always calls espnAthleteClient.injuries.
+ * always calls espnAthleteClient.injuries. `sweep` (#2148) is the test seam for
+ * `sharedRosterSweep`, the same cached sweep `syncPlayers` reads.
  */
-async function syncInjuries({ fetchInjuries = espnAthleteClient.injuries, now = new Date() } = {}) {
+async function syncInjuries({
+  fetchInjuries = espnAthleteClient.injuries, sweep = sharedRosterSweep, now = new Date(),
+} = {}) {
   // Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
   // the advisory lock and the one data_sync_runs row per run - the shape
   // #961 hand-rolled here is now written once, in server/modules/syncRun.js.
@@ -427,7 +449,7 @@ async function syncInjuries({ fetchInjuries = espnAthleteClient.injuries, now = 
   const { results: [result] } = await runSyncJob({
     job: 'injuries',
     lock: PLAYERS_BULK_WRITE_LOCK,
-    fetch: () => fetchInjuryUnits(fetchInjuries, day),
+    fetch: () => fetchInjuryUnits(fetchInjuries, day, sweep),
     apply: (client, unit) => applyInjuryUnit(client, unit, (flags, changes) => {
       irFlagsForPush = flags;
       injuryChanges = changes;
@@ -498,13 +520,21 @@ async function sendInjuryAlerts(changes, day) {
 
 /**
  * fetch() for the injuries job: runs before any transaction or lock. Returns
- * one unit - `{ feedByExternal }`, the ESPN document boiled down to `{ status:
- * 'Q'|'D'|'O'|'IR'|null, detail }` per athlete id - since this job's entire
- * feed is one atomic write (ADR 0036: "injuries: one unit"). An unknown ESPN
- * status string maps to null and is logged once per run. `day` (#1509) is
- * `syncInjuries`'s already-computed UTC day key, carried as run-level `detail`.
+ * one unit - `{ feedByExternal, rosterByExternal, rosterCovered }` - since this
+ * job's entire feed is one atomic write (ADR 0036: "injuries: one unit").
+ * `feedByExternal` is the ESPN document boiled down to `{ status:
+ * 'Q'|'D'|'O'|'IR'|null, detail }` per athlete id; `rosterByExternal` (#2148)
+ * is the same shape from the team rosters' `injuries` block (no detail: the
+ * roster carries no comment) for every athlete who has one; `rosterCovered` is
+ * every athlete id the sweep saw, so a player whose team answered is known to
+ * be seen. A sweep that throws or times out (INJURY_SWEEP_TIMEOUT_MS, 20 s) is
+ * warned about and read as nobody covered, not an injuries failure; a partial
+ * sweep covers only the teams that answered. An unknown ESPN status string maps
+ * to null and is logged once per run. `day` (#1509) is `syncInjuries`'s
+ * already-computed UTC day key, carried as run-level `detail` with
+ * `rosterComplete`, whether all 32 teams answered.
  */
-async function fetchInjuryUnits(fetchInjuries, day) {
+async function fetchInjuryUnits(fetchInjuries, day, sweep) {
   const rows = await fetchInjuries();
   if (!Array.isArray(rows)) {
     // The client answers null for a failed GET and for a document with no team
@@ -518,22 +548,49 @@ async function fetchInjuryUnits(fetchInjuries, day) {
     err.syncFailureReason = 'fetch_failed';
     throw err;
   }
+  let roster = { units: [], complete: false };
+  let timer;
+  try {
+    const ms = injurySweepTimeoutMs();
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms);
+    });
+    roster = await Promise.race([sweep(), timeout]);
+  } catch (error) {
+    console.warn('injury sync: roster sweep failed, document only:', error.message);
+  } finally {
+    clearTimeout(timer);
+  }
   const feedByExternal = new Map();
+  const rosterByExternal = new Map();
+  const rosterCovered = new Set();
   const unknown = new Set();
+  const mapStatus = (espnStatus) => {
+    const known = Object.prototype.hasOwnProperty.call(ESPN_INJURY_STATUS, espnStatus);
+    if (!known) unknown.add(String(espnStatus));
+    return known ? ESPN_INJURY_STATUS[espnStatus] : null;
+  };
   for (const row of rows) {
-    const known = Object.prototype.hasOwnProperty.call(ESPN_INJURY_STATUS, row.status);
-    if (!known) unknown.add(String(row.status));
-    const status = known ? ESPN_INJURY_STATUS[row.status] : null;
+    const status = mapStatus(row.status);
     feedByExternal.set(String(row.athleteId), {
       status,
       // A healthy (Active) entry carries a news note, not an injury: no detail.
       detail: status && row.detail ? String(row.detail).slice(0, 255) : null,
     });
   }
+  for (const unit of roster.units) {
+    for (const row of unit.rows) {
+      rosterCovered.add(String(row.athleteId));
+      if (row.injuryStatus) rosterByExternal.set(String(row.athleteId), { status: mapStatus(row.injuryStatus), detail: null });
+    }
+  }
   if (unknown.size > 0) {
     console.warn('injury sync: unknown ESPN status treated as healthy: %s', [...unknown].join(', '));
   }
-  return { units: [{ feedByExternal }], detail: { day } };
+  return {
+    units: [{ feedByExternal, rosterByExternal, rosterCovered }],
+    detail: { day, rosterComplete: roster.complete },
+  };
 }
 
 /**
@@ -583,9 +640,20 @@ async function reconcileAfterWrite(client, playerIds, now, label) {
  *
  * Returns exactly the shape recorded as this run's data_sync_runs detail on
  * success, and returned to syncInjuries's own caller: `{ playersUpdated,
- * irFlags }`. `playersUpdated` counts players the document listed.
+ * rosterDesignated, irFlags }`. `playersUpdated` counts players the document
+ * listed; `rosterDesignated` (#2148) counts players whose designation came from
+ * the roster fallback. Per player: the document entry wins, else the roster
+ * entry (keeping the stored detail when it agrees with the stored designation,
+ * since the roster carries no comment), else his stored designation and detail
+ * are kept when no answering roster covered him (a sweep gap never clears
+ * anyone), else healthy.
  */
-async function applyInjuryUnit(client, { feedByExternal }, onIrFlags, now = new Date()) {
+async function applyInjuryUnit(
+  client,
+  { feedByExternal, rosterByExternal = new Map(), rosterCovered = new Set() },
+  onIrFlags,
+  now = new Date()
+) {
   // SERIALIZED WITH syncAdp (#904). This scan locks near the whole players
   // table FOR UPDATE and holds to commit; syncAdp locks the same rows in a
   // different order across its wipe and bulk set. Both writers take one
@@ -611,13 +679,14 @@ async function applyInjuryUnit(client, { feedByExternal }, onIrFlags, now = new 
   // destroys, which drops the socket so Postgres frees the session's locks on
   // disconnect.
   const playersResult = await client.query(
-    `SELECT "id", "external_id", "injury_status"
+    `SELECT "id", "external_id", "injury_status", "injury_detail"
        FROM "players" WHERE "external_id" IS NOT NULL
        FOR UPDATE`
   );
   // Three parallel arrays (ids int[], statuses/details text[]) over EVERY
-  // player with an external_id, mirroring syncAdp's bulk idiom: a player the
-  // document does not list is healthy, so he is written null into both text
+  // player with an external_id, mirroring syncAdp's bulk idiom: a player
+  // neither source designates is healthy (unless neither feed saw him, #2148:
+  // then his stored values are rewritten as they are), so he is written null into both text
   // columns (nulls survive into the text[] as SQL NULL). transitions is built
   // over the same players and drives the IR flag pass and the #2106 alerts.
   const transitions = [];
@@ -625,13 +694,24 @@ async function applyInjuryUnit(client, { feedByExternal }, onIrFlags, now = new 
   const statuses = [];
   const details = [];
   let listed = 0;
+  let rosterDesignated = 0;
   for (const player of playersResult.rows) {
-    const feed = feedByExternal.get(String(player.external_id));
+    const externalId = String(player.external_id);
+    const feed = feedByExternal.get(externalId);
     if (feed) listed += 1;
-    const status = feed ? feed.status : null;
+    const fromRoster = feed ? null : rosterByExternal.get(externalId);
+    if (fromRoster?.status) rosterDesignated += 1;
+    let { status, detail } = feed || fromRoster || { status: null, detail: null };
+    if (fromRoster && status === player.injury_status) detail = player.injury_detail;
+    // A sweep gap (his team did not answer) never clears anyone: only a feed
+    // that saw him can, else a roster-only Out would flip healthy and back.
+    if (!feed && !fromRoster && !rosterCovered.has(externalId)) {
+      status = player.injury_status;
+      detail = player.injury_detail;
+    }
     ids.push(player.id);
     statuses.push(status);
-    details.push(feed ? feed.detail : null);
+    details.push(detail);
     transitions.push({
       playerId: player.id,
       previousDesignation: player.injury_status,
@@ -669,7 +749,7 @@ async function applyInjuryUnit(client, { feedByExternal }, onIrFlags, now = new 
   // rowCount: under the no-op predicate the two legitimately differ, and the
   // count an admin reads must not silently shrink to the handful of rows that
   // changed.
-  return { playersUpdated: listed, irFlags: irFlags.length };
+  return { playersUpdated: listed, rosterDesignated, irFlags: irFlags.length };
 }
 
 /**
