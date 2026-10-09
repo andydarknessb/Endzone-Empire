@@ -6,6 +6,7 @@ import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
 import NotificationBell from '../NotificationBell/NotificationBell';
 import { invalidate } from '../../lib/resourceCache';
+import { clearNotificationsCache } from '../../hooks/useNotifications';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 
 jest.mock('../../api/apiClient', () => ({
@@ -211,7 +212,7 @@ describe('the activity card while the bell polls', () => {
     renderWithProviders(<UserPage />, { state: baseState });
     await screen.findByText('Poll survivor');
 
-    act(() => invalidate(['notifications']));
+    act(() => clearNotificationsCache());
 
     expect(screen.getByText('Poll survivor')).toBeInTheDocument();
     await waitFor(() => expect(apiClient.get.mock.calls.filter(([u]) => u === '/api/notifications')).toHaveLength(2));
@@ -222,7 +223,7 @@ describe('the activity card while the bell polls', () => {
     renderWithProviders(<UserPage />, { state: baseState });
     await screen.findByText('Poll survivor');
 
-    act(() => invalidate(['notifications']));
+    act(() => clearNotificationsCache());
     await waitFor(() => expect(apiClient.get.mock.calls.filter(([u]) => u === '/api/notifications')).toHaveLength(2));
 
     expect(screen.getByText('Poll survivor')).toBeInTheDocument();

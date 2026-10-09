@@ -11,10 +11,8 @@ import {
   ListSubheader,
 } from '@mui/material';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
-import apiClient from '../../api/apiClient';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
-import useResource from '../../hooks/useResource';
-import { setResource } from '../../lib/resourceCache';
+import { markAllNotificationsRead, useNotifications } from '../../hooks/useNotifications';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -24,9 +22,7 @@ function NotificationBell() {
   // One shared read with the Home activity card (ADR 0004, ADR 0059's #2097
   // amendment): the key is the dedup, and the poll below is an invalidating
   // refetch, so the card reloads with the bell instead of requesting itself.
-  const { data, error, refetch } = useResource(['notifications'], '/api/notifications');
-  const notifications = data?.notifications || [];
-  const unread = data?.unread || 0;
+  const { notifications, unread, error, refetch } = useNotifications();
 
   useEffect(() => {
     if (error) console.error(error);
@@ -39,13 +35,8 @@ function NotificationBell() {
 
   const markAllRead = async () => {
     try {
-      await apiClient.put('/api/notifications/read');
-      // Write-through, so the activity card sees the read state without a GET.
-      setResource(['notifications'], {
-        ...data,
-        unread: 0,
-        notifications: notifications.map((n) => ({ ...n, read: true })),
-      });
+      // Writes through, so the activity card sees the read state without a GET.
+      await markAllNotificationsRead();
     } catch (err) {
       console.error(err);
     }

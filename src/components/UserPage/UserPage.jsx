@@ -11,7 +11,7 @@ import { ThemeProvider, useTheme } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import useResource from '../../hooks/useResource';
+import { useNotifications } from '../../hooks/useNotifications';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
 import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
@@ -114,13 +114,14 @@ function UserPage() {
   // in only for a list we don't have; a poll that is loading or has failed
   // keeps the good list on screen.
   const {
-    data: notifications,
+    notifications,
+    loaded: haveActivity,
     loading: loadingActivity,
     error: activityFailure,
-  } = useResource(['notifications'], '/api/notifications');
-  const activityItems = (notifications?.notifications || []).slice(0, 5);
-  const awaitingActivity = loadingActivity && !notifications;
-  const activityError = Boolean(activityFailure) && !notifications;
+  } = useNotifications();
+  const activityItems = notifications.slice(0, 5);
+  const awaitingActivity = loadingActivity && !haveActivity;
+  const activityError = Boolean(activityFailure) && !haveActivity;
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
