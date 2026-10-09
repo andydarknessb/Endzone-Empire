@@ -306,8 +306,11 @@ async function loadUpgradeContext({ league, team, season, week, playerIds, now =
  * playoff week whose game for his NFL team kicks off after that. A bye (no
  * game row) is skipped; none left means `null`. Clear times are compared with
  * `now` here rather than in SQL, so a test injects the clock. Another team's
- * player keeps the current week (#2167), and so does a team with no game row
- * anywhere in the window (an unsynced schedule, which locks nobody either).
+ * player (#2167) joins when a trade could first complete: now, or now plus
+ * `trade_review_hours` when the league reviews trades (`trade_veto_votes > 0`
+ * and `trade_review_hours > 0`), an immediate accept being the only fair upper
+ * bound. A team with no game row anywhere in the window (an unsynced schedule,
+ * which locks nobody either) keeps the current week.
  */
 async function firstPlayableWeeks({ league, season, week, now, candidateIds, identityIdsById, nflTeamById }) {
   const weekById = new Map();
@@ -350,18 +353,28 @@ async function firstPlayableWeeks({ league, season, week, now, candidateIds, ide
   for (const id of candidateIds) {
     const identities = identityIdsById.get(id) || [id];
     const kickoffs = kickoffsByTeam.get(normalizeNflTeam(nflTeamById.get(id)));
-    if (!kickoffs || identities.some((identityId) => rosteredElsewhere.has(identityId))) {
+    if (!kickoffs) {
       weekById.set(id, week);
       continue;
     }
-    // His own clear time when he has a waiver row (the latest across his
-    // identities), else the league's blanket one, else now: the same
-    // COALESCE(own, blanket, now) `processWaivers` resolves a claim with. A
-    // clear time already past means he can join now.
-    const own = identities.map((identityId) => clearAt.get(identityId)).filter(Boolean)
-      .reduce((latest, at) => (latest && latest > at ? latest : at), null);
-    const clearsAt = own ?? blanket;
-    const joinAt = clearsAt && clearsAt > now ? clearsAt : now;
+    let joinAt;
+    if (identities.some((identityId) => rosteredElsewhere.has(identityId))) {
+      // Another team's player (#2167): he joins when a trade could first
+      // complete, assuming an immediate accept: now, or now plus the review
+      // window when the league reviews trades (same predicate as
+      // `respondToTrade`).
+      const reviewed = league.trade_veto_votes > 0 && league.trade_review_hours > 0;
+      joinAt = reviewed ? new Date(now.getTime() + league.trade_review_hours * 3600 * 1000) : now;
+    } else {
+      // His own clear time when he has a waiver row (the latest across his
+      // identities), else the league's blanket one, else now: the same
+      // COALESCE(own, blanket, now) `processWaivers` resolves a claim with. A
+      // clear time already past means he can join now.
+      const own = identities.map((identityId) => clearAt.get(identityId)).filter(Boolean)
+        .reduce((latest, at) => (latest && latest > at ? latest : at), null);
+      const clearsAt = own ?? blanket;
+      joinAt = clearsAt && clearsAt > now ? clearsAt : now;
+    }
     let first = null;
     for (let wk = week; wk <= lastWeek && first === null; wk++) {
       const kickoff = kickoffs.get(wk);
