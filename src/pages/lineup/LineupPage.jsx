@@ -202,8 +202,8 @@ export default function LineupPage() {
   };
 
   // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
-  // Bench what-if and the Decision card all hand move plans to its `submit`. It clears the week's cached Matchups list itself
-  // when a save lands (#1881), as drop-player does for a roster change.
+  // Bench what-if and the Decision card all hand move plans to its `submit`.
+  // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
   const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw });
   const swap = useSwapPlayers({
     submit,

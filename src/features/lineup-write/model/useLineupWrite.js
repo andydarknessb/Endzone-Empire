@@ -9,11 +9,13 @@ const CORRECT_WEEK = /\/correct-week$/;
 /**
  * The one Lineup write (spec #2042, #1881, #1964, #1969). The Lineup page calls
  * this once and hands `submit` to `useSwapPlayers`, the Start/sit card's Apply,
- * the Bench what-if and the Decision card, which only build move plans. It owns the optimistic patch, the owned-slot rollback,
- * Undo, the toast copy (`describeOutcome`), Matchups cache invalidation, and
- * the one offline-replay subscriber, so a replayed save toasts once.
+ * the Bench what-if and the Decision card, which only build move plans. It owns
+ * the optimistic patch, the owned-slot rollback, Undo, the toast copy
+ * (`describeOutcome`), Matchups cache invalidation, and the one offline-replay
+ * subscriber, so a replayed save toasts once.
  *
- * `submit(moves)` takes the write endpoint's `[{ playerId, slot }]`. Every patch,
+ * `submit(moves)` takes the write endpoint's `[{ playerId, slot }]`; callers pass
+ * `moves` only (the other two arguments belong to Undo). Every patch,
  * rollback included, sets only the moved ids' slots on whatever `prev` is by
  * then, and only while `prev` is still the lineup the move was made on, so a
  * live score tick, a silent refetch or a navigation mid-request is never undone.

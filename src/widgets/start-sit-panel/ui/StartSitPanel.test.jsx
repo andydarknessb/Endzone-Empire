@@ -120,7 +120,13 @@ test('dismissing the only remaining card moves focus to the panel itself, never 
   expect(screen.getByTestId('start-sit-panel-content')).toHaveAttribute('tabindex', '-1');
 });
 
-test('Compare renders only when onCompare is passed, and calls only that callback', async () => {
+test('no Compare button renders when onCompare is not passed', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('suggestion-dismiss')).toBeInTheDocument();
+  expect(screen.queryByTestId('suggestion-compare')).toBeNull();
+});
+
+test('Compare renders when onCompare is passed, and calls only that callback', async () => {
   const user = userEvent.setup();
   const onCompare = jest.fn();
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} onCompare={onCompare} />);
