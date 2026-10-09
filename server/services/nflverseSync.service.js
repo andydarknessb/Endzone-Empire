@@ -744,11 +744,13 @@ function venueWithoutRoof(scheduleRows, { now = new Date() } = {}) {
  * Backfill one season's schedule into nfl_games from games.csv — free (no
  * Tank01 quota) and complete even for weeks whose kickoff times are still
  * placeholders (week 18 is listed at Sunday 1pm ET until flexed; Tank01's
- * feed drops those games entirely, which is how 2026 ended up with no week-18
- * rows and every bye underivable). INSERT-only: an existing row keeps its
- * Tank01-synced kickoff, so this can run any time without degrading live
- * data, and a later Tank01 re-sync still corrects placeholder times. Bye
- * derivation needs every week's ROW to exist, not exact times.
+ * feed drops those games entirely, and so does the ESPN scoreboard schedule
+ * sync (it skips timeValid: false events), which is how 2026 ended up with no
+ * week-18 rows and every bye underivable). INSERT-only: an existing row keeps
+ * its synced kickoff, so this can run any time without degrading live data,
+ * and a later schedule sync (ESPN, once the game is flexed to a real time)
+ * still corrects placeholder times. Bye derivation needs every week's ROW to
+ * exist, not exact times.
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
  * the advisory lock and the one data_sync_runs row per run, job

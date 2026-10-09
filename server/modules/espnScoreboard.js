@@ -450,7 +450,11 @@ async function getScoreboard({ season, week, transport }) {
 /**
  * One week's schedule from the free scoreboard (#2116, ADR 0060): each game's
  * Tank01-style id, Team-code home/away (WSH, never WAS) and kickoff instant.
- * The id is dated from the ET kickoff, the same convention Tank01 uses. No nfl_games
+ * The id is dated from the ET kickoff, the same convention Tank01 uses. A game
+ * whose competition says `timeValid: false` (a not-yet-flexed week's
+ * placeholder kickoff, e.g. week 18 before scheduling) is left out, exactly as
+ * Tank01's feed left out games with no epoch: writing it would overwrite a real
+ * or nflverse-placeholder `kickoff_at` with midnight ET (#2116 review). No nfl_games
  * read: the schedule writer is what fills that table, and a game's kickoff is
  * already ESPN's own, so nothing here needs re-dating.
  *
@@ -461,7 +465,14 @@ async function fetchWeekGames({ season, week, transport }) {
   // A body with no events array is a failed week, not an empty one: the poll
   // tolerates it, but a schedule run must not read it as "no games".
   if (!body || !Array.isArray(body.events)) throw new Error('unexpected scoreboard response shape');
-  const { rows } = normalizeEspnScoreboard(body, { season, week });
+  const events = body.events.filter((event) => {
+    const competition = event && Array.isArray(event.competitions) ? event.competitions[0] : null;
+    return !(competition && competition.timeValid === false);
+  });
+  const { rows, dropped } = normalizeEspnScoreboard({ ...body, events }, { season, week });
+  if (dropped.length > 0) {
+    console.error('espnScoreboard: week %s dropped %d unusable event(s): %s', week, dropped.length, dropped.join(', '));
+  }
   return rows.map((row) => ({ gameId: row.tank01GameId, home: row.homeTeam, away: row.awayTeam, kickoffAt: row.startTime }));
 }
 

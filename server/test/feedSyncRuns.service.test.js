@@ -526,7 +526,8 @@ test('syncTeamDefenses: a later insert that throws rolls back the run (no per-te
 
 const SCOREBOARD_WEEK = require('./fixtures/espn/scoreboard-week.json');
 const { ESPN_SCOREBOARD_URL, espnAbbrToOurs } = require('../modules/espnScoreboard');
-const { buildGameKey } = require('../services/tank01Feed');
+const tank01Feed = require('../services/tank01Feed');
+const { buildGameKey } = tank01Feed;
 
 // What each fixture event must write: home/away as our Team spellings, the
 // competition's own kickoff instant.
@@ -537,8 +538,31 @@ const FIXTURE_GAMES = SCOREBOARD_WEEK.events.map((event) => {
   return { home: side('home'), away: side('away'), kickoffAt: new Date(competition.date) };
 });
 
-// Tank01's quota-metered client must never be touched by the schedule run.
-const tank01Api = async () => { throw new Error('syncSchedule must not call Tank01'); };
+// Tank01's quota-metered client must never be touched by the schedule run:
+// tank01Get resolves its transport through tank01Feed.rapidApiClient() at call
+// time, so a stub there is reached by ANY counted Tank01 call the service makes
+// (a reintroduced module-level tank01Get included), not just one on an argument.
+function stubTank01(t) {
+  return t.mock.method(tank01Feed, 'rapidApiClient', () => {
+    throw new Error('the schedule run must not call Tank01');
+  });
+}
+
+// A not-yet-flexed game as ESPN lists it (live 2026-10-08: all 16 week-18 events
+// sat at 2027-01-10T05:00Z, competitions[0].timeValid false, shortDetail 'TBD').
+const TBD_KICKOFF = '2027-01-10T05:00Z';
+const TBD_EVENT = {
+  id: 'tbd-buf-nyj',
+  date: TBD_KICKOFF,
+  competitions: [{
+    date: TBD_KICKOFF,
+    timeValid: false,
+    competitors: [
+      { homeAway: 'home', team: { abbreviation: 'BUF' } },
+      { homeAway: 'away', team: { abbreviation: 'NYJ' } },
+    ],
+  }],
+};
 
 function scoreboardTransport(respond = () => ({ data: SCOREBOARD_WEEK })) {
   const calls = [];
@@ -553,13 +577,16 @@ function scoreboardTransport(respond = () => ({ data: SCOREBOARD_WEEK })) {
 
 test('syncSchedule fetches all 18 weeks from the ESPN scoreboard before writing, then upserts both team perspectives in one transaction under NFL_GAMES_BULK_WRITE_LOCK', async (t) => {
   const transport = scoreboardTransport();
+  const tank01 = stubTank01(t);
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncSchedule({ season: 2026, transport, api: tank01Api });
+  const result = await syncSchedule({ season: 2026, transport });
+
+  assert.equal(tank01.mock.callCount(), 0, 'zero Tank01 calls: nothing resolved the Tank01 transport');
 
   assert.deepEqual(
     transport.calls.map((c) => [c.url, c.week, c.seasontype, c.dates]),
@@ -581,19 +608,21 @@ test('syncSchedule fetches all 18 weeks from the ESPN scoreboard before writing,
   // scoreboard's kickoff instant and the nfl_games.game_key spelling. Params
   // are ($1 season, $2 week, $3 team, $4 opponent, $5 kickoff_at, $6 game_key,
   // $7 home_away).
-  const weekOne = writes.filter((w) => w.params[1] === 1).map((w) => w.params);
-  for (const { home, away, kickoffAt } of FIXTURE_GAMES) {
-    const gameKey = buildGameKey({ season: 2026, week: 1, away, home });
-    assert.ok(
-      weekOne.some((p) => p[2] === home && p[3] === away && p[6] === 'home' && p[5] === gameKey && +p[4] === +kickoffAt),
-      `${home} home row for ${away} at ${home}`
-    );
-    assert.ok(
-      weekOne.some((p) => p[2] === away && p[3] === home && p[6] === 'away' && p[5] === gameKey && +p[4] === +kickoffAt),
-      `${away} away row for ${away} at ${home}`
-    );
+  for (let week = 1; week <= 18; week++) {
+    const weekRows = writes.filter((w) => w.params[1] === week).map((w) => w.params);
+    for (const { home, away, kickoffAt } of FIXTURE_GAMES) {
+      const gameKey = buildGameKey({ season: 2026, week, away, home });
+      assert.ok(
+        weekRows.some((p) => p[2] === home && p[3] === away && p[6] === 'home' && p[5] === gameKey && +p[4] === +kickoffAt),
+        `week ${week}: ${home} home row for ${away} at ${home}`
+      );
+      assert.ok(
+        weekRows.some((p) => p[2] === away && p[3] === home && p[6] === 'away' && p[5] === gameKey && +p[4] === +kickoffAt),
+        `week ${week}: ${away} away row for ${away} at ${home}`
+      );
+    }
+    assert.ok(weekRows.some((p) => p[2] === 'WSH'), `week ${week}: Washington is written as WSH, the nfl_games spelling (ADR 0011)`);
   }
-  assert.ok(weekOne.some((p) => p[2] === 'WSH'), 'Washington is written as WSH, the nfl_games spelling (ADR 0011)');
 
   // Red-tell: remove the lock and this ordering assertion (or the pg
   // serialization test) goes red.
@@ -607,6 +636,28 @@ test('syncSchedule fetches all 18 weeks from the ESPN scoreboard before writing,
   assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
   assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first upsert');
   assert.ok(commitIdx > firstWriteIdx, 'every write commits in the same transaction');
+  fake.assertClean();
+});
+
+test('syncSchedule skips a game ESPN lists with timeValid false: a placeholder kickoff never overwrites kickoff_at', async (t) => {
+  const transport = scoreboardTransport(() => ({ data: { events: [...SCOREBOARD_WEEK.events, TBD_EVENT] } }));
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncSchedule({ season: 2026, transport });
+
+  const writes = fake.matching(insert('nfl_games'));
+  const expected = 18 * FIXTURE_GAMES.length * 2;
+  assert.equal(writes.length, expected, 'only the valid-time events are written, the TBD event adds nothing');
+  assert.deepEqual(result, { season: 2026, gamesUpserted: expected });
+  assert.equal(
+    writes.filter((w) => +w.params[4] === +new Date(TBD_KICKOFF) || w.params[2] === 'NYJ').length,
+    0,
+    'no row carries the placeholder kickoff, and the TBD game NYJ at BUF (not on the valid slate) is not written at all'
+  );
   fake.assertClean();
 });
 
