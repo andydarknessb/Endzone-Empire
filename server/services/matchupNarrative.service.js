@@ -8,7 +8,7 @@ const { countedRoster } = require('./countedRoster.service');
 const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
 
 /**
- * Matchup narrative (ADR 0060, CONTEXT.md): per Matchup a preview (once the
+ * Matchup narrative (ADR 0061, CONTEXT.md): per Matchup a preview (once the
  * week's projections exist, before the first Kickoff, written once) and a
  * postgame (once final, overwritten on a correction). One league_analytics row
  * per league-week, type 'matchup_narratives':
@@ -19,7 +19,7 @@ const { rulesForLeague, calculateFantasyPoints } = require('./scoringRules');
  * stored before any model call, the rewrites then run in parallel, and each
  * write merges one (matchup, moment) key in SQL so siblings cannot clobber
  * each other. A rewrite that states a number the facts do not carry is
- * discarded for the template (ADR 0060 section 3).
+ * discarded for the template (ADR 0061 section 3).
  */
 
 const TYPE = 'matchup_narratives';
