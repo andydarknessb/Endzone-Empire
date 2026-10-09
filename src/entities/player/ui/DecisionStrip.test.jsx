@@ -54,6 +54,20 @@ test('a positive Upgrade renders as a pill naming its slot', () => {
   expect(screen.getByTestId('decision-strip-upgrade')).toHaveTextContent('at FLEX');
 });
 
+test('an Upgrade read in a later week names it in the pill; an equal or absent week names none (#2166)', () => {
+  const strip = (upgrade) => (
+    <DecisionStrip decision={{ projWeek: { week: 4, points: 18.2 }, ros: { points: 140 }, upgrade }} usage={null} />
+  );
+  const { rerender } = render(strip({ points: 4.1, slot: 'FLEX', week: 5 }));
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).toHaveTextContent('+4.1 Wk 5');
+
+  rerender(strip({ points: 4.1, slot: 'FLEX', week: 4 }));
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).not.toHaveTextContent('Wk');
+
+  rerender(strip({ points: 4.1, slot: 'FLEX' }));
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).not.toHaveTextContent('Wk');
+});
+
 test('an Upgrade of 0 renders no Upgrade tile (#1910)', () => {
   render(
     <DecisionStrip
