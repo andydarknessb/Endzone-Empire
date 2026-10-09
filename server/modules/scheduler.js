@@ -10,6 +10,7 @@ const { withAdvisoryLock } = require('./advisoryLock');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
 const { lastRun, runSyncJob } = require('./syncRun');
 const cadence = require('./cadence');
+const clock = require('./clock');
 
 /**
  * In-process job runner for time-based league mechanics (waiver clearing,
@@ -60,9 +61,10 @@ let lastCorrectionDay = null;
 // stat-corrections do, below. A refused run is not retried: it settles the job's
 // cadence period (a UTC day for `utc-day` jobs, the interval for `{ ms }` jobs).
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
+const PLAYER_SYNC_RETRY_MS = 60 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
-// The Tank01 injury refresh keeps its once-a-day stamp in data_sync_runs, not
+// The ESPN injury refresh keeps its last-run stamp in data_sync_runs, not
 // here (#1188): see runDailyInjurySync.
 // ADP market refresh (#747): the once-a-day decision is now the cadence gate's
 // own concern (#1509) - see runDailyAdpSync below.
@@ -138,30 +140,24 @@ async function runRetention() {
   }
 }
 
-/** Cadence of the injury sync inside a game window (#1188); env-tunable, doubled while quota is degraded. */
-function injuryGameWindowMs(quotaMode) {
-  const parsed = Number(process.env.INJURY_GAME_WINDOW_MS);
-  const base = Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
-  return quotaMode === 'degraded' ? base * 2 : base;
+/** Cadence of the injury sync (#2115, ADR 0060); env-tunable. ESPN is free, so no quota doubling and no game-window split. */
+function injurySyncMs() {
+  const parsed = Number(process.env.INJURY_SYNC_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15 * 60 * 1000;
 }
 
 /**
  * The last successful injury sync, read via `lastRun('injuries')`
  * (server/modules/syncRun.js, ADR 0036, #1205) rather than a hand-rolled
  * query: the in-memory day stamp reset on every worker restart, so "daily"
- * ran 3.4 times a day (#1188). Null when no successful run exists or the read
- * fails (which then runs the sync: the safe direction). Deliberately reads
- * `latestOk`, not `latest`: a failed run must not move the once-a-day gate,
- * so the next tick retries it.
+ * ran 3.4 times a day (#1188). Null when no successful run exists. A failed
+ * read throws: the gate fails closed, so a database outage spends no Tank01
+ * call and the next tick retries the read. Deliberately reads `latestOk`, not
+ * `latest`: a failed run must not move the gate, so the next tick retries it.
  */
 async function lastInjurySyncAt() {
-  try {
-    const { latestOk } = await lastRun('injuries');
-    return latestOk ? latestOk.finishedAt : null;
-  } catch (err) {
-    console.warn('runDailyInjurySync: data_sync_runs read failed, treating as never run:', err.message);
-    return null;
-  }
+  const { latestOk } = await lastRun('injuries');
+  return latestOk ? latestOk.finishedAt : null;
 }
 
 /**
@@ -182,53 +178,33 @@ async function inGameWindow() {
     );
     return Boolean(res.rows[0]);
   } catch (err) {
-    console.warn('runDailyInjurySync: game-window read failed, treating as outside a window:', err.message);
+    console.warn('inGameWindow: game-window read failed, treating as outside a window:', err.message);
     return false;
   }
 }
 
 /**
- * Pure: should the injury sync run right now, INSIDE a game window - every
- * `windowMs` (#1188)? Outside a window the once-a-day decision is the
- * cadence gate's own concern now (server/modules/cadence.js, spec #1492 step
- * two, #1509, spec #1493 "UTC day everywhere") - see `runDailyInjurySync`
- * below, which only consults this function when `inWindow` is true.
+ * Pure: should the injury sync run right now? Due when it never ran, or when
+ * `windowMs` (`injurySyncMs()`) has passed since the last successful run.
  *
- * @param {{ now: Date, lastRunAt: ?Date, inWindow: boolean, windowMs: number }} args
+ * @param {{ now: Date, lastRunAt: ?Date, windowMs: number }} args
  */
-function injurySyncDue({ now, lastRunAt, inWindow, windowMs }) {
+function injurySyncDue({ now, lastRunAt, windowMs }) {
   if (!lastRunAt) return true;
-  return inWindow && now.getTime() - lastRunAt.getTime() >= windowMs;
+  return now.getTime() - lastRunAt.getTime() >= windowMs;
 }
 
 /**
- * Tank01 injury refresh: daily, and every INJURY_GAME_WINDOW_MS during a game
- * window. Inside a window, `injurySyncDue` above decides off the last
- * successful `injuries` run (`lastInjurySyncAt`, data_sync_runs); outside one,
- * the cadence gate decides instead (`cadence.due({ job: 'injuries', every:
- * 'utc-day' })`, #1509) - `syncInjuries` already records one `data_sync_runs`
- * row per run through `runSyncJob`, so the gate reads that same row and this
- * adds no second one. Either way a worker restart cannot re-run it (#1188),
- * and a thrown run records ok=false and does not move either gate, so the
- * next tick retries.
+ * ESPN injury refresh (#2115, ADR 0060): every INJURY_SYNC_MS (15 min), inside
+ * and outside game windows alike, off the last successful `injuries` run
+ * (`lastInjurySyncAt`, data_sync_runs), so a worker restart cannot re-run it
+ * (#1188), and a thrown run records ok=false and does not move the gate, so the
+ * next tick retries. ESPN's document is free and keyless: no credential gate
+ * and no quota mode.
  */
 async function runDailyInjurySync({ now = new Date() } = {}) {
-  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
-  const inWindow = await inGameWindow();
-  let due;
-  if (inWindow) {
-    let quotaMode = 'ok';
-    try {
-      quotaMode = (await require('./tank01Client').getQuotaState()).mode;
-    } catch (err) {
-      quotaMode = 'ok';
-    }
-    const lastRunAt = await lastInjurySyncAt();
-    due = injurySyncDue({ now, lastRunAt, inWindow, windowMs: injuryGameWindowMs(quotaMode) });
-  } else {
-    ({ due } = await cadence.due({ job: 'injuries', every: 'utc-day', now }));
-  }
-  if (!due) return null;
+  const lastRunAt = await lastInjurySyncAt();
+  if (!injurySyncDue({ now, lastRunAt, windowMs: injurySyncMs() })) return null;
   const scoring = require('../services/feedSyncRuns.service');
   return scoring.syncInjuries({ now });
 }
@@ -281,6 +257,21 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
   const gate = await cadence.due({ job: 'espn-ownership', every: 'utc-day', now });
   if (!gate.due) return null;
   return require('./espnFactsSync').runOwnershipSync({ now });
+}
+
+/**
+ * The daily Tank01 player-list sync (#2115, ADR 0060): keeps `players` (name,
+ * position, nfl_team, departures) current unattended, once per UTC day by the
+ * cadence gate on the 'players' Sync run's own rows, which a hand-run sync also
+ * writes. Tank01 is metered, so it needs the same credentials as every Tank01
+ * call. A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so a
+ * Tank01 outage does not spend a call every tick.
+ */
+async function runDailyPlayerSync({ now = new Date() } = {}) {
+  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
+  const gate = await cadence.due({ job: 'players', every: 'utc-day', retryMs: PLAYER_SYNC_RETRY_MS, now });
+  if (!gate.due) return null;
+  return require('../services/feedSyncRuns.service').syncPlayers({ season: now.getUTCFullYear(), now });
 }
 
 const ROSTER_STATUS_JOB = 'espn-roster-status';
@@ -681,6 +672,8 @@ async function syncAndScoreLiveWeeks() {
       for (const leagueId of leagueIds) {
         const { scored } = await matchupScoring.scoreMatchups({ leagueId, season, week, plays }); // emits scores:updated
         await alertCloseMatchups({ leagueId, week, scored });
+        await alertScoreUpdates({ leagueId, season, week, scored });
+        await alertBigPlays({ leagueId, season, week, scored, plays });
       }
       console.log(`scheduler: live-scored ${leagueIds.length} league(s) for ${season} week ${week}`);
     } catch (err) {
@@ -1280,6 +1273,229 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
   }
 }
 
+const BIG_PLAY_CAP_MS = 5 * 60 * 1000;
+const BIG_PLAY_WORDS = {
+  passing: 'passing touchdown', rushing: 'rushing touchdown', receiving: 'receiving touchdown',
+  defensive: 'defensive touchdown', return: 'return touchdown', fieldGoal: 'field goal',
+  extraPoint: 'extra point', sack: 'sack', interception: 'interception return',
+  fumble: 'fumble recovery', puntReturn: 'punt return',
+};
+
+/**
+ * Big play alerts (#2108): after a live sync's league is scored, push both
+ * managers of a matchup when one of this sync's Scoring plays by a starter is
+ * worth BIG_PLAY_MIN_POINTS (default 6) under that league's rules. One push per
+ * owner per sync, and none while a `big-play` ledger row for that owner is under
+ * five minutes old (the capped plays are dropped, not queued). Runs after
+ * scoreMatchups has committed, never inside its transaction.
+ *
+ * A play's `pointsDelta` is priced at the default rules, so the league's price
+ * is the play's own stat moved by its count under `rulesForLeague`; a field
+ * goal has no single-key price (its worth is on the per-make distances), so it
+ * keeps `pointsDelta`.
+ */
+async function alertBigPlays({ leagueId, season, week, scored, plays }) {
+  const minPoints = Number(process.env.BIG_PLAY_MIN_POINTS) || 6;
+  if (!plays || plays.length === 0 || !scored || scored.length === 0) return;
+  try {
+    const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
+    const { PLAY_STAT_EVENTS } = require('../services/boxScoreApply.service');
+    const push = require('../services/push.service');
+    const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
+    const rules = rulesForLeague(league);
+    // A play carries its event `type` but not the stat key it was detected from.
+    const statKeyOf = (type) => Object.keys(PLAY_STAT_EVENTS).find((k) => PLAY_STAT_EVENTS[k].type === type);
+    const big = plays
+      .map((p) => {
+        const statKey = statKeyOf(p.type);
+        // ponytail: field goals are priced at default rules from pointsDelta; price by fieldGoalDistances under league rules if a league ever pays 6+ for a long kick.
+        const points = statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
+        return { ...p, statKey, points };
+      })
+      .filter((p) => p.points >= minPoints);
+    if (big.length === 0) return;
+
+    const teamIds = scored.flatMap((m) => [m.homeTeamId, m.awayTeamId]);
+    const [starters, owners, stats] = await Promise.all([
+      pool.query(
+        `SELECT "team_id", "player_id" FROM "lineup_entries"
+         WHERE "team_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3
+           AND "slot" NOT IN ('BENCH', 'IR') AND "player_id" = ANY($4::int[])`,
+        [teamIds, season, week, big.map((p) => p.playerId)]
+      ),
+      pool.query(`SELECT "id", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`, [teamIds]),
+      pool.query(
+        `SELECT "player_id", "stats" FROM "player_stats"
+         WHERE "player_id" = ANY($1::int[]) AND "season" = $2 AND "week" = $3`,
+        [big.map((p) => p.playerId), season, week]
+      ),
+    ]);
+    const ownerOf = new Map(owners.rows.map((r) => [r.id, r.owner_id]));
+    const statsOf = new Map(stats.rows.map((r) => [r.player_id, r.stats || {}]));
+    const cutoff = new Date(clock.now().getTime() - BIG_PLAY_CAP_MS);
+
+    for (const m of scored) {
+      // A stat correction on a finished game is not a live play.
+      if (m.status === 'played' || m.status === 'final') continue;
+      const playsFor = (teamId) => big.filter((p) =>
+        starters.rows.some((s) => s.team_id === teamId && s.player_id === p.playerId));
+      const sides = [
+        { teamId: m.homeTeamId, own: playsFor(m.homeTeamId) },
+        { teamId: m.awayTeamId, own: playsFor(m.awayTeamId) },
+      ];
+      const qualifying = [...sides[0].own, ...sides[1].own];
+      if (qualifying.length === 0) continue;
+      // The fingerprint's count is the player's running total of that stat, so a
+      // later touchdown by the same player is a new push, not a ledger repeat.
+      const fingerprint = qualifying
+        .map((p) => `${p.playerId}:${p.statKey}:${Number((statsOf.get(p.playerId) || {})[p.statKey]) || p.tdDelta}`)
+        .sort().join(',');
+      for (const side of sides) {
+        const userId = ownerOf.get(side.teamId);
+        if (userId == null) continue;
+        const capped = await pool.query(
+          `SELECT 1 FROM "push_events" WHERE "user_id" = $1 AND "kind" = 'big-play' AND "created_at" > $2 LIMIT 1`,
+          [userId, cutoff]
+        );
+        if (capped.rows.length > 0) continue;
+        const what = (p) => `${p.name} ${BIG_PLAY_WORDS[p.type] || p.type}`;
+        const lines = qualifying.map((p) =>
+          `${what(p)} (${Math.round(p.points * 10) / 10} pts, ${side.own.includes(p) ? 'yours' : "your opponent's"})`);
+        await push.sendPushOnce({
+          userIds: [userId],
+          prefKey: 'touchdownCelebrations',
+          kind: 'big-play',
+          subject: String(m.matchupId),
+          fingerprint,
+          payload: {
+            title: lines.length === 1 ? `Big play: ${what(qualifying[0])}` : `${lines.length} big plays`,
+            body: lines.join('\n'),
+            url: `/#/league/${leagueId}/game-center`,
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error('big play alert failed:', err.message);
+  }
+}
+
+const leaderOf = (m) => {
+  const home = Number(m.homeScore);
+  const away = Number(m.awayScore);
+  return home > away ? 'home' : away > home ? 'away' : 'tied';
+};
+// One decimal, unless that prints the two scores as the same figure: then two,
+// so the copy never shows equal figures beside a lead (matchupModel does the same).
+const scoreText = (a, b) => {
+  const places = Number(a).toFixed(1) === Number(b).toFixed(1) ? 2 : 1;
+  return [Number(a).toFixed(places), Number(b).toFixed(places)];
+};
+
+/**
+ * Push each owner their own matchup's score news (#2107), after the scoring
+ * pass has committed: a lead change (home | away | tied), and once the matchup
+ * reaches `played` (every starter's game over, the status scoreMatchups
+ * attaches per ADR 0030). The leader is remembered in the push_events ledger:
+ * the owner's latest `score-lead` row for the matchup holds `<leader>:<n>`, and
+ * a push goes out only when the leader differs from it, at most one per owner
+ * per five minutes (the live poll can flip a close game every 30 seconds). The counter n keeps a return
+ * to an earlier leader (home, away, home) from hitting the ledger's unique key.
+ * The first scoring of a week records the leader without a push.
+ */
+async function alertScoreUpdates({ leagueId, season, week, scored }) {
+  const push = require('../services/push.service');
+  const { usersWanting } = require('../services/prefs.service');
+  const url = `/#/league/${leagueId}/game-center`;
+  for (const m of scored || []) {
+    if (m.status === 'final') continue; // the result is written; nothing is news
+    try {
+      const subject = String(m.matchupId);
+      const teams = await pool.query(
+        `SELECT "id", "name", "owner_id" FROM "teams" WHERE "id" = ANY($1::int[])`,
+        [[m.homeTeamId, m.awayTeamId]]
+      );
+      const sides = [
+        { mine: teams.rows.find((r) => r.id === m.homeTeamId), theirs: teams.rows.find((r) => r.id === m.awayTeamId), mineScore: m.homeScore, theirScore: m.awayScore, side: 'home' },
+        { mine: teams.rows.find((r) => r.id === m.awayTeamId), theirs: teams.rows.find((r) => r.id === m.homeTeamId), mineScore: m.awayScore, theirScore: m.homeScore, side: 'away' },
+      ].filter((s) => s.mine && s.theirs && s.mine.owner_id != null);
+      const leader = leaderOf(m);
+      const figures = (s) => scoreText(s.mineScore, s.theirScore);
+      const body = (s) => { const [x, y] = figures(s); return `${s.mine.name} ${x} - ${s.theirs.name} ${y}`; };
+
+      // Once played, the Final push is the news; a later stat correction must not
+      // send a lead change to someone already told the result.
+      if (m.status !== 'played') {
+        for (const s of sides) {
+          const userId = s.mine.owner_id;
+          if ((await usersWanting([userId], 'scoreUpdates')).length === 0) continue;
+          // Each owner compares against their own last row, so a capped owner
+          // (below) still gets the change once the cap lapses.
+          const prev = await pool.query(
+            `SELECT "fingerprint" FROM "push_events"
+             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "subject" = $2
+             ORDER BY "created_at" DESC LIMIT 1`,
+            [userId, subject]
+          );
+          if (!prev.rows[0]) {
+            await pool.query(
+              `INSERT INTO "push_events" ("user_id", "kind", "subject", "fingerprint")
+               VALUES ($1, 'score-lead', $2, $3) ON CONFLICT DO NOTHING`,
+              [userId, subject, `${leader}:0`]
+            );
+            continue;
+          }
+          const [prevLeader, n] = prev.rows[0].fingerprint.split(':');
+          if (prevLeader === leader) continue;
+          // At most one lead push per owner per five minutes; a capped change
+          // writes no row, so the next poll still sees the old leader and sends
+          // once five minutes pass. The ':0' rows are silent records, not pushes.
+          const capped = await pool.query(
+            `SELECT 1 FROM "push_events"
+             WHERE "user_id" = $1 AND "kind" = 'score-lead' AND "fingerprint" NOT LIKE '%:0'
+               AND "created_at" > now() - interval '5 minutes' LIMIT 1`,
+            [userId]
+          );
+          if (capped.rows[0]) continue;
+          await push.sendPushOnce({
+            userIds: [userId],
+            prefKey: 'scoreUpdates',
+            kind: 'score-lead',
+            subject,
+            fingerprint: `${leader}:${Number(n) + 1}`,
+            payload: {
+              title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
+              body: body(s),
+              url,
+            },
+          });
+        }
+      }
+
+      if (m.status === 'played') {
+        for (const s of sides) {
+          const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
+          const score = figures(s).join('-');
+          await push.sendPushOnce({
+            userIds: [s.mine.owner_id],
+            prefKey: 'scoreUpdates',
+            kind: 'score-played',
+            subject,
+            fingerprint: 'played',
+            payload: {
+              title: `Final: ${result} ${score}`,
+              body: `Unofficial until the commissioner advances the week. ${body(s)}`,
+              url,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error('score update push failed:', err.message);
+    }
+  }
+}
+
 /** Fast loop: expired draft pick clocks -> server-side auto-pick. */
 async function draftTickUnlocked() {
   if (draftRunning) return;
@@ -1427,6 +1643,11 @@ const TICK_JOBS = [
   { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
   // A throw leaves the retention day unstamped, so it retries every tick.
   { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
+  // Daily Tank01 player-list sync (#2115, ADR 0060): the only writer of nfl_team
+  // and of departures now that the injuries job reads ESPN. One metered call a
+  // day, so it is gated on the Tank01 credentials; until #2117 moves the player
+  // list to ESPN. Still hand-runnable (admin dashboard, /api/scoring/sync-players).
+  { name: 'player-sync', tier: 'housekeeping', syncRun: ['players'], run: () => runDailyPlayerSync() },
   // Weather snapshots (#1883): after live scoring and every deadline duty, ahead
   // of the multi-minute nightly fill; it never throws.
   { name: 'weather-snapshots', tier: 'housekeeping', syncRun: ['weather-snapshots'], run: () => runWeatherSnapshotSync() },
@@ -1450,7 +1671,7 @@ const TICK_JOBS = [
 
 // Sync runs only a commissioner trigger writes (feedSyncRuns.service.js); no tick
 // job does, so the list cannot declare them.
-const MANUAL_SYNC_RUN_JOBS = ['schedule', 'players', 'season-stats', 'team-defenses'];
+const MANUAL_SYNC_RUN_JOBS = ['schedule', 'season-stats', 'team-defenses'];
 
 /**
  * Every feed-sync job the Sync run module records (ADR 0036), in the order
@@ -1585,6 +1806,8 @@ module.exports = {
   tickUnlocked,
   draftTick,
   alertCloseMatchups,
+  alertScoreUpdates,
+  alertBigPlays,
   getSchedulerStatus,
   SYNC_RUN_JOBS,
   MANUAL_SYNC_RUN_JOBS,
@@ -1595,9 +1818,10 @@ module.exports = {
   syncEveryTicks,
   runDailyInjurySync,
   injurySyncDue,
-  injuryGameWindowMs,
+  injurySyncMs,
   runDailyAdpSync,
   runDailyEspnDepthChartSync,
+  runDailyPlayerSync,
   runDailyEspnOwnershipSync,
   runDailyEspnRosterStatusSync,
   runSaturdayEspnRosterStatusSync,

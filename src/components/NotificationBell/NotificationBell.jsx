@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   IconButton,
   Badge,
@@ -13,35 +13,39 @@ import {
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import apiClient from '../../api/apiClient';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
+import useResource from '../../hooks/useResource';
+import { setResource } from '../../lib/resourceCache';
 
 const POLL_INTERVAL_MS = 60000;
 
 function NotificationBell() {
-  const [notifications, setNotifications] = useState([]);
-  const [unread, setUnread] = useState(0);
   const [anchorEl, setAnchorEl] = useState(null);
 
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const res = await apiClient.get('/api/notifications');
-      setNotifications(res.data.notifications || []);
-      setUnread(res.data.unread || 0);
-    } catch (err) {
-      console.error(err);
-    }
-  }, []);
+  // One shared read with the Home activity card (ADR 0004, ADR 0059's #2097
+  // amendment): the key is the dedup, and the poll below is an invalidating
+  // refetch, so the card reloads with the bell instead of requesting itself.
+  const { data, error, refetch } = useResource(['notifications'], '/api/notifications');
+  const notifications = data?.notifications || [];
+  const unread = data?.unread || 0;
 
   useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, POLL_INTERVAL_MS);
+    if (error) console.error(error);
+  }, [error]);
+
+  useEffect(() => {
+    const interval = setInterval(refetch, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [fetchNotifications]);
+  }, [refetch]);
 
   const markAllRead = async () => {
     try {
       await apiClient.put('/api/notifications/read');
-      setUnread(0);
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      // Write-through, so the activity card sees the read state without a GET.
+      setResource(['notifications'], {
+        ...data,
+        unread: 0,
+        notifications: notifications.map((n) => ({ ...n, read: true })),
+      });
     } catch (err) {
       console.error(err);
     }

@@ -224,7 +224,9 @@ export default function StartSitPanel({
               )}
             </Box>
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            {/* Column gap only: the subgrid rows carry their own 4px rowGap, and a
+                parent row gap would leave blank tracks (no chips, no kickoff) 10px tall. */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
               <PlayerColumn label="Sit" player={view.sit} domainMin={view.domainMin} domainMax={view.domainMax} onOpenDecisionCard={onOpenDecisionCard} />
               <PlayerColumn label="Start" player={view.start} domainMin={view.domainMin} domainMax={view.domainMax} onOpenDecisionCard={onOpenDecisionCard} />
             </Box>
@@ -303,11 +305,18 @@ const NAME_SX ={ fontSize: '13px', fontWeight: 600, color: 'var(--dash-ink)', ov
 
 function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard }) {
   return (
-    <Box data-testid="suggestion-player" sx={{ display: 'grid', gap: '4px', minWidth: 0 }}>
+    // The two columns share the parent grid's row tracks via subgrid, so the
+    // Sit and Start rows line up (#2099). Without it the shorter column
+    // stretched to the taller one and spread the slack across its own rows;
+    // `alignContent: 'start'` is the fallback where subgrid is unsupported.
+    // span 6 = label, name row, bar, Floor line, kickoff, fact chips.
+    <Box data-testid="suggestion-player" sx={{ display: 'grid', gridTemplateRows: 'subgrid', gridRow: 'span 6', rowGap: '4px', alignContent: 'start', minWidth: 0 }}>
       <Typography sx={{ fontSize: '11px', fontWeight: 600, color: 'var(--dash-faint)', textTransform: 'uppercase' }}>
         {label}
       </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
+      {/* alignSelf start: when the other side's name row wraps, the shared track grows;
+          centring would drop this side's single line down inside it. */}
+      <Box sx={{ display: 'flex', alignItems: 'center', alignSelf: 'start', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
         {onOpenDecisionCard ? (
           <PlayerNameLink name={player.name} playerId={player.playerId} onOpen={onOpenDecisionCard} sx={{ ...NAME_SX, minWidth: 0, display: 'block', lineHeight: 'inherit' }} />
         ) : (
@@ -344,7 +353,7 @@ function PlayerColumn({ label, player, domainMin, domainMax, onOpenDecisionCard 
           {player.factChips.map((chip) => (
             <Badge key={chip.key} variant="neutral" data-testid="suggestion-fact-chip" data-chip={chip.key}>
               {chip.text}
-              {chip.contextOnly && <Box component="span" sx={{ ml: '4px', fontWeight: 400 }}>context only</Box>}
+              {chip.contextOnly && <>{' '}<Box component="span" sx={{ fontWeight: 400 }}>context only</Box></>}
             </Badge>
           ))}
         </Box>
