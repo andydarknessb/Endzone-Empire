@@ -777,8 +777,6 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const { countedRoster } = require('../services/countedRoster.service');
     const { decorateMatchups } = require('../services/expectedFinal.service');
     const { normalizeNflTeam } = require('../services/nflTeam');
-    const { unavailableFor } = require('../services/unavailable');
-    const { nflRosterStatusColumn } = require('../services/nflRosterStatus');
     const rules = rulesForLeague(leagueRow);
 
     // This week's real-game opponents, for the cutscene's chasing defender.
@@ -828,8 +826,7 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     const lineupSql = (slotPredicate) => `SELECT "players"."id", "players"."name", "players"."position",
                 "players"."nfl_team", "players"."injury_status", "players"."photo_url",
                 "lineup_entries"."player_id",
-                "lineup_entries"."slot", "player_stats"."stats",
-                ${nflRosterStatusColumn()}
+                "lineup_entries"."slot", "player_stats"."stats"
          FROM "lineup_entries"
          ${rosterJoin}
          JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
@@ -915,21 +912,40 @@ router.get('/:id/matchups/:matchupId', async (req, res) => {
     // pass last touched the week (#892), the same two facts the list row carries.
     matchup.first_kickoff_at = decoration.firstKickoffAt ?? null;
     matchup.synced_at = decoration.syncedAt ?? null;
+    // A row the producer did not price (a settled week, or its read failed) gets
+    // its availability from the Weekly projection read directly (ADR 0061): the
+    // read answers from facts whether or not pricing succeeded, so there is no
+    // hand-built fallback verdict here. Best-effort: with no read there is no
+    // verdict, and the row says so (null).
+    const pricedIds = new Set(
+      [decoration.home, decoration.away]
+        .flatMap((team) => (team ? [...team.starters, ...(team.bench || [])] : []))
+        .filter((p) => p.availability)
+        .map((p) => p.playerId)
+    );
+    const unpricedIds = [homeRaw, awayRaw]
+      .flatMap((raw) => [...raw.starterRows, ...raw.benchRows])
+      .map((row) => row.id)
+      .filter((id) => !pricedIds.has(id));
+    let weekly = null;
+    if (unpricedIds.length > 0) {
+      try {
+        weekly = await projectionService.getWeeklyProjections({
+          season: matchup.season, week: matchup.week, league: leagueRow, playerIds: unpricedIds,
+        });
+      } catch (verdictErr) {
+        console.error('matchup availability unavailable', verdictErr.message);
+      }
+    }
+    const verdictAvailability = (row) => {
+      if (!weekly) return null;
+      const verdict = weekly.startVerdictFor(row.id);
+      const available = verdict.outcome !== 'unavailable';
+      return { available, reason: available ? null : verdict.reason };
+    };
     const toPlayer = (row, priced) => {
       const projected = priced ? priced.projection : null;
-      // With no priced row (the producer's read failed) the availability rule
-      // still speaks from the injury designation alone; a bye is unknown then.
-      const availability = priced
-        ? priced.availability
-        : (() => {
-          const verdict = unavailableFor({
-            injuryStatus: row.injury_status,
-            onBye: false,
-            noTeam: row.nfl_team == null,
-            nflRosterStatus: row.nfl_roster_status ?? null,
-          });
-          return { available: verdict.available, reason: verdict.available ? null : verdict.reason };
-        })();
+      const availability = priced && priced.availability ? priced.availability : verdictAvailability(row);
       return {
         id: row.id,
         name: row.name,

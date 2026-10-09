@@ -67,13 +67,15 @@ test('annotateLineupEntries does not treat an incomplete schedule gap as a bye',
   assert.equal(entry.onBye, false);
 });
 
-test('annotateLineupEntries: Unavailable reason and the schedule fields (#1235)', () => {
+// ADR 0061: annotateLineupEntries sets no `unavailable`; getLineup reads it off
+// the Weekly projection read's Start verdict (covered through getLineup below).
+test('annotateLineupEntries: the schedule fields (#1235), and no verdict of its own', () => {
   const entries = annotateLineupEntries(
     [
       { id: 1, nfl_team: 'CHI', injury_status: null, slot: 'BENCH' }, // on bye
-      { id: 2, nfl_team: 'DAL', injury_status: 'O', slot: 'RB' }, // out
-      { id: 3, nfl_team: 'GB', injury_status: 'IR', slot: 'IR' }, // on IR
-      { id: 4, nfl_team: 'KC', injury_status: 'Q', slot: 'QB' }, // Questionable is not Unavailable
+      { id: 2, nfl_team: 'DAL', injury_status: 'O', slot: 'RB' },
+      { id: 3, nfl_team: 'GB', injury_status: 'IR', slot: 'IR' },
+      { id: 4, nfl_team: 'KC', injury_status: 'Q', slot: 'QB' },
     ],
     {
       locked: new Set(),
@@ -85,14 +87,12 @@ test('annotateLineupEntries: Unavailable reason and the schedule fields (#1235)'
     }
   );
   const byId = new Map(entries.map((e) => [e.id, e]));
-  assert.equal(byId.get(1).unavailable, 'bye');
+  assert.equal(byId.get(1).onBye, true);
   // A bye week carries no opponent or kickoff either (issue #1235's own rule).
   assert.equal(byId.get(1).opponent, null);
   assert.equal(byId.get(1).kickoff, null);
   assert.equal(byId.get(1).game_key, null);
-  assert.equal(byId.get(2).unavailable, 'out');
-  assert.equal(byId.get(3).unavailable, 'ir');
-  assert.equal(byId.get(4).unavailable, null);
+  for (const entry of entries) assert.equal('unavailable' in entry, false, 'the Start verdict is not this function\'s');
   assert.equal(byId.get(4).opponent, 'DEN');
   assert.equal(byId.get(4).kickoff, '2026-11-01T18:00:00Z');
   assert.equal(byId.get(4).game_key, 'KC-DEN');
@@ -276,6 +276,14 @@ test('getLineup: a bench-above-starter Edge line follows the Point estimate even
 // so the client can read "no history" without holding a copy of the verdict.
 const POSITION_BASELINE_FACTORS = { dataQuality: { reasons: ['position baseline'] } };
 
+// ADR 0061: availability facts are the run's stored Availability input
+// (`factors.availability`), never the lineup row's own.
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
+const PRACTICE_SQUAD = { available: false, activeProbability: 0, reason: 'practice_squad', status: null };
+const stored = (status) => ({ available: true, activeProbability: null, reason: null, status });
+
 function installPositionBaselineWorld(t, { entries, projections, backupIds, byeRows = [] }) {
   t.mock.method(projectionService, 'getWeeklyProjections', async () => projectionService.toWeeklyProjectionResult({
     projections, backupIds,
@@ -314,9 +322,9 @@ test('getLineup: each entry carries a startVerdict, Unavailable winning over Pos
     projections: new Map([
       [1, { mean: 20, median: 20, factors: {} }],
       [2, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
-      [3, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
-      [4, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
-      [5, { mean: 15.37, median: 15.37, factors: POSITION_BASELINE_FACTORS }],
+      [3, { mean: 15.37, median: 15.37, factors: { ...POSITION_BASELINE_FACTORS, availability: stored('D') } }],
+      [4, { mean: 15.37, median: 15.37, factors: { ...POSITION_BASELINE_FACTORS, availability: OUT } }],
+      [5, { mean: 15.37, median: 15.37, factors: { ...POSITION_BASELINE_FACTORS, availability: NO_TEAM } }],
     ]),
   });
 
@@ -377,18 +385,15 @@ test('getLineup: a bench player on a bye this week never Outprojects a starter, 
     { id: 3, name: 'Bye Starter', position: 'WR', nfl_team: 'CAR', injury_status: null, injury_detail: null, slot: 'WR', ir_attested: false },
     { id: 4, name: 'Healthy Bench', position: 'WR', nfl_team: 'LAC', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
   ];
-  // CAR plays every regular-season week except the selected one: a schedule-derived bye.
-  const byeRows = Array.from({ length: REG_SEASON_WEEKS }, (_, i) => i + 1)
-    .filter((w) => w !== week)
-    .map((w) => ({ nfl_team: 'CAR', week: w }));
+  // The run stores CAR's players on bye this week (ADR 0061: the Start verdict
+  // is the read's, not a fact of the lineup row).
   const fake = installPositionBaselineWorld(t, {
     entries,
-    byeRows,
     projections: new Map([
       [1, { mean: 11, median: 11, factors: {} }],
       // The engine's own number for a bye player is higher than the starter's.
-      [2, { mean: 14, median: 14, factors: {} }],
-      [3, { mean: 9, median: 9, factors: {} }],
+      [2, { mean: 14, median: 14, factors: { availability: BYE } }],
+      [3, { mean: 9, median: 9, factors: { availability: BYE } }],
       [4, { mean: 12, median: 12, factors: {} }],
     ]),
   });
@@ -460,10 +465,8 @@ test('getLineup: a stale-IR Position-baseline bench rookie is never bench-above-
   const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
 
   assert.notEqual(byId.get(2).edge.kind, 'bench-above-starter', 'a stored-Unavailable rookie outprojects nobody');
-  // The stored run says IR but his live facts say available: the row keeps
-  // stating the live verdict (as the advice wire does), the stored one only
-  // keeps the Edge line off him.
-  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'recommendable', reason: null, numberTrusted: true });
+  // The run is the one producer (ADR 0061): its Unavailable verdict is the row's.
+  assert.deepEqual(byId.get(2).startVerdict, { outcome: 'unavailable', reason: 'ir', numberTrusted: true });
   assert.equal(byId.get(3).startVerdict.reason, 'backup');
   assert.equal(byId.get(3).edge.kind, 'none', 'the QB who is both outprojects nobody');
   fake.assertClean();
@@ -2403,27 +2406,30 @@ test('getLineup leaves the CURRENT week unchanged: a departed starter still arri
   assert.equal(fake.matching(/FROM "roster_tenures"/).length, 0);
 });
 
-test('annotateLineupEntries: a released player (no NFL team) reads Unavailable no_team (#1668)', () => {
-  const [entry] = annotateLineupEntries(
-    [{ id: 1, nfl_team: null, injury_status: null, slot: 'BENCH' }],
-    { locked: new Set(), byeByTeam: new Map(), selectedWeek: 8 }
-  );
-  assert.equal(entry.unavailable, 'no_team');
-});
+// #1668, #1767: a released player and a fresh Practice squad row are Unavailable in
+// the run, and getLineup states them as the Start verdict (ADR 0061).
+test('getLineup: a released player and a Practice squad row read Unavailable from the run (#1668, #1767)', async (t) => {
+  const entries = [
+    { id: 1, name: 'Starter', position: 'RB', nfl_team: 'KC', injury_status: null, injury_detail: null, slot: 'RB', ir_attested: false },
+    { id: 2, name: 'Released', position: 'RB', nfl_team: null, injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+    { id: 3, name: 'Practice Squad', position: 'RB', nfl_team: 'HOU', injury_status: null, injury_detail: null, slot: 'BENCH', ir_attested: false },
+  ];
+  const fake = installPositionBaselineWorld(t, {
+    entries,
+    projections: new Map([
+      [1, { mean: 11, median: 11, factors: {} }],
+      [2, { mean: 5, median: 5, factors: { availability: NO_TEAM } }],
+      [3, { mean: 5, median: 5, factors: { availability: PRACTICE_SQUAD } }],
+    ]),
+  });
 
-// #1767: the Lineup reads the NFL roster status off its own player read and
-// passes it to the one verdict.
-test('annotateLineupEntries: a fresh Practice squad row reads Unavailable practice_squad; a stale one reads Active (#1767)', () => {
-  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
-  const [fresh, stale] = annotateLineupEntries(
-    [
-      { id: 1, nfl_team: 'HOU', injury_status: null, slot: 'RB', nfl_roster_status: { status: 'practice_squad', capturedAt: hoursAgo(2) } },
-      { id: 2, nfl_team: 'HOU', injury_status: null, slot: 'RB', nfl_roster_status: { status: 'practice_squad', capturedAt: hoursAgo(72) } },
-    ],
-    { locked: new Set(), byeByTeam: new Map(), selectedWeek: 8 }
-  );
-  assert.equal(fresh.unavailable, 'practice_squad');
-  assert.equal(stale.unavailable, null);
+  const lineup = await getLineup({ leagueId: 5, userId: 7, week: 8 });
+  const byId = new Map(lineup.entries.map((entry) => [entry.id, entry]));
+
+  assert.equal(byId.get(1).startVerdict.outcome, 'recommendable');
+  assert.equal(byId.get(2).startVerdict.reason, 'no_team');
+  assert.equal(byId.get(3).startVerdict.reason, 'practice_squad');
+  fake.assertClean();
 });
 
 test('getLineup: the entries read and the spent read both select the NFL roster status column (#1767)', async (t) => {

@@ -2,9 +2,9 @@
 
 /**
  * NFL roster status (CONTEXT.md, #1766): the latest `player_nfl_roster_status`
- * row for a player, as the one fact every Unavailable reader passes to
- * `unavailableFor` (#1767). Each reader adds this column to the player read it
- * already performs, so no reader decides Practice squad on its own.
+ * row for a player, as the fact the Weekly projection read passes to
+ * `unavailableFor` (#1767; ADR 0061: every other reader gets the Start verdict
+ * from that read), so no reader decides Practice squad on its own.
  *
  * The value is `{ status, capturedAt } | null`: `status` is 'active',
  * 'practice_squad' or 'reserve'; `capturedAt` is the row's `updated_at`. The

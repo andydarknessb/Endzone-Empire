@@ -12,7 +12,6 @@ const ROWS = [
   ['doubtful', { injuryStatus: 'D' }, { available: true, autoRecommend: false, activeProbability: null, reason: 'doubtful' }],
   ['questionable', { injuryStatus: 'Q' }, { available: true, autoRecommend: true, activeProbability: null, reason: 'questionable' }],
   ['healthy', {}, { available: true, autoRecommend: true, activeProbability: 1, reason: null }],
-  ['locked', { locked: true, lockedSlot: 'QB' }, { available: true, autoRecommend: true, activeProbability: 1, reason: null, locked: true, lockedSlot: 'QB' }],
 ];
 
 for (const [name, facts, expected] of ROWS) {
@@ -21,6 +20,17 @@ for (const [name, facts, expected] of ROWS) {
     for (const [key, value] of Object.entries(expected)) assert.equal(verdict[key], value, key);
   });
 }
+
+// ADR 0061: Lineup lock is a Lineup fact composed beside the verdict by the
+// callers that need both, never a field of it. Threading `locked` back into the
+// facts turns this red.
+test('unavailableFor: the verdict carries no lock, whatever facts are passed', () => {
+  for (const facts of [{}, { onBye: true }, { injuryStatus: 'O' }, { injuryStatus: 'D' }, { injuryStatus: 'Q' }, { backup: true }, { positionBaseline: true }]) {
+    const verdict = unavailableFor({ ...facts, locked: true, lockedSlot: 'QB' });
+    assert.equal('locked' in verdict, false, JSON.stringify(facts));
+    assert.equal('lockedSlot' in verdict, false, JSON.stringify(facts));
+  }
+});
 
 // #1775: a Position-baseline projection is available but never auto-recommended.
 test('unavailableFor: positionBaseline wins over no designation, Questionable and Doubtful', () => {

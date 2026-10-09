@@ -10,7 +10,6 @@ const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
-const { unavailableFor, startVerdictOf } = require('./unavailable');
 const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
@@ -1124,22 +1123,10 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  * answer or an empty string. Defaulted so every existing 3-arg call (and
  * test) keeps working unchanged.
  *
- * `unavailable` (CONTEXT.md, Unavailable; #1235) is derived here, once, from
- * the same `onBye` this function already computes plus the row's own
- * `injury_status` and `nfl_roster_status` (#1767):
- * 'bye' | 'no_team' | 'practice_squad' | 'out' | 'ir' | null. It stays on the
- * row only for the Edge line's server-side reads; `getLineup` strips it before
- * returning, and the wire states the answer as `startVerdict` (spec #2042).
+ * `unavailable` (CONTEXT.md, Unavailable; #1235) is not set here: `getLineup`
+ * reads it off the Weekly projection read's Start verdict (ADR 0061), the one
+ * producer, once the rows are annotated.
  */
-function unavailableReason(row, onBye) {
-  const verdict = unavailableFor({
-    injuryStatus: row.injury_status,
-    onBye,
-    noTeam: row.nfl_team == null,
-    nflRosterStatus: row.nfl_roster_status ?? null,
-  });
-  return verdict.available ? null : verdict.reason;
-}
 
 function annotateLineupEntries(entries, {
   locked, byeByTeam, opponentByTeam = new Map(), oddsByGameKey = new Map(), weatherByGameKey = new Map(), selectedWeek,
@@ -1158,7 +1145,6 @@ function annotateLineupEntries(entries, {
       opponent: schedule?.opponent ?? null,
       kickoff: schedule?.kickoffAt ?? null,
       game_key: schedule?.gameKey ?? null,
-      unavailable: unavailableReason(row, onBye),
       // #1329 (ADR 0037): the Ledger row's own Line and weather, read once
       // per distinct game key by `getLineup` and looked up here per row -
       // never re-fetched or re-derived per row.
@@ -1222,8 +1208,8 @@ function factorEdgeText(factors) {
  * for a starting slot whose CURRENT occupant projects below him? The first
  * such starter found wins; `entries` is already ordered by position and name
  * (the entries query's own ORDER BY), so the result is deterministic without
- * a tie-break rule of its own. The comparison refuses either side whose
- * `unavailable` is set (#2066; CONTEXT.md, Unavailable: every surface shows
+ * a tie-break rule of its own. The comparison refuses either side in
+ * `wontStart` (#2066; CONTEXT.md, Unavailable: every surface shows
  * the reason instead of a number, so no "Outprojects" is said of or against a
  * player who cannot play); a starter on a bye or Out is already a Lineup
  * problem, and the Start/sit advice owns that swap.
@@ -1235,12 +1221,10 @@ function findBenchAboveStarter(entry, entries, rosterSlots, wontStart) {
   // player's own evidence, a Backup quarterback (ADR 0057) will not play, and
   // an Unavailable player adds nothing. `wontStart` holds the ids whose verdict
   // is Unavailable or carries an untrusted number.
-  // The row's own live `unavailable` (#2066) is read beside it: the stored
-  // verdict can lag a designation or a schedule the lineup read already sees.
-  if (wontStart.has(entry.id) || entry.unavailable) return null;
+  if (wontStart.has(entry.id)) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null || wontStart.has(other.id) || other.unavailable) continue;
+    if (other.projected_points == null || wontStart.has(other.id)) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1468,31 +1452,18 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // guard): a bench player outprojecting a departed starter's frozen
       // record is not a seat he could actually take.
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
-      // The Start verdict (CONTEXT.md; spec #2042) is the one field each row
-      // carries: Position-baseline (`no_history`, #1775) and Backup quarterback
-      // (`backup`, ADR 0057) are its reasons. The row's own Unavailable facts
-      // (bye, No NFL team, Practice squad, Out, IR) are live and always win, so
-      // they state the verdict as they always did on this wire. `wontStart` is
-      // the STORED verdict (Unavailable, or a number that is not his evidence),
-      // built for every row BEFORE any Edge line, since `findBenchAboveStarter`
-      // reads it off the other entries too. A stored Unavailable verdict over a
-      // live-available player (a stale IR, #2044) gates `wontStart` only: the
-      // row states the live-facts verdict, as the advice wire does, so what the
-      // row shows is unchanged.
+      // The Start verdict (CONTEXT.md; spec #2042; ADR 0061) is the one field
+      // each row carries, straight from the Weekly projection read, the one
+      // producer: Position-baseline (`no_history`, #1775) and Backup quarterback
+      // (`backup`, ADR 0057) are its reasons, and bye, No NFL team, Practice
+      // squad, Out and IR are its Unavailable ones. `wontStart` is Unavailable, or a number that is not his
+      // evidence, built for every row BEFORE any Edge line, since
+      // `findBenchAboveStarter` reads it off the other entries too.
       const wontStart = new Set();
       for (const row of annotated) {
-        const stored = weeklyResult.startVerdictFor(row.id);
-        if (stored.outcome === 'unavailable' || !stored.numberTrusted) wontStart.add(row.id);
-        if (row.unavailable != null) {
-          row.startVerdict = startVerdictOf({ available: false, reason: row.unavailable });
-        } else if (stored.outcome === 'unavailable') {
-          row.startVerdict = startVerdictOf(unavailableFor({
-            injuryStatus: row.injury_status,
-            nflRosterStatus: row.nfl_roster_status ?? null,
-          }));
-        } else {
-          row.startVerdict = stored;
-        }
+        const verdict = weeklyResult.startVerdictFor(row.id);
+        if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) wontStart.add(row.id);
+        row.startVerdict = verdict;
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
@@ -1521,9 +1492,6 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
         // directly rather than re-deriving it, the same way it already reads
         // `projection`/`floor`/`ceiling` as the server's own numbers.
       }
-      // `unavailable` fed the Edge line above (`findBenchAboveStarter` reads it
-      // off every entry); the wire states it as `startVerdict` alone (#2045).
-      for (const row of annotated) delete row.unavailable;
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week
       // and its reads happen in one transaction; the assembly below is pure.

@@ -1286,9 +1286,9 @@ function candidate(id, points, over = {}) {
 }
 
 // Installs the no-board world: Pool projections, the candidate read, Ownership,
-// and a Weekly run whose Position-baseline / Unavailable verdicts come from
-// `baseline` and `unavailable` (sets of ids).
-function installComputed(t, candidates, { baseline = [], backup = [], unavailable = [], identity = [], week3LastStatus = 'final' } = {}) {
+// and a Weekly run whose Start verdicts come from `baseline`, `backup`,
+// `doubtful` and `unavailable` (sets of ids; any other id is Recommendable).
+function installComputed(t, candidates, { baseline = [], backup = [], doubtful = [], unavailable = [], identity = [], week3LastStatus = 'final' } = {}) {
   t.mock.method(waiverBoards, 'getBoard', () => null);
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map(
     candidates.map((c) => [c.id, { points: c.points, source: 'extrapolated' }])
@@ -1299,6 +1299,7 @@ function installComputed(t, candidates, { baseline = [], backup = [], unavailabl
       if (unavailable.includes(id)) return { outcome: 'unavailable', reason: 'bye', numberTrusted: true };
       if (backup.includes(id)) return { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
       if (baseline.includes(id)) return { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
+      if (doubtful.includes(id)) return { outcome: 'not_recommended', reason: 'doubtful', numberTrusted: true };
       return { outcome: 'recommendable', reason: null, numberTrusted: true };
     },
     playerIds,
@@ -1385,7 +1386,7 @@ test('GET /waiver-targets computed: Out, IR and Doubtful are not returned; Quest
     candidate(3, 18, { name: 'Doubtful Guy', injury_status: 'D' }),
     candidate(4, 17, { name: 'Questionable Guy', injury_status: 'Q' }),
     candidate(5, 16, { name: 'Healthy Guy', injury_status: null }),
-  ]);
+  ], { unavailable: [1, 2], doubtful: [3] });
 
   const res = await request(makeApp()).get('/api/public/waiver-targets');
 

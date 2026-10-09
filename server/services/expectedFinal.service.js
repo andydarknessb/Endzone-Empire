@@ -1,7 +1,5 @@
 const pool = require('../modules/pool');
 const projectionService = require('./projection.service');
-const { unavailableFor } = require('./unavailable');
-const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { optimalLineup, parseLineupSettings } = require('./lineup.service');
@@ -118,8 +116,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
 
   const candidateRows = await db.query(
     `SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot",
-            "players"."position", "players"."nfl_team", "players"."injury_status", "player_stats"."stats",
-            ${nflRosterStatusColumn()}
+            "players"."position", "players"."nfl_team", "player_stats"."stats"
      FROM "lineup_entries"
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
@@ -208,10 +205,11 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
     const team = normalizeNflTeam(row.nfl_team);
     const onBye = byeByTeam.get(row.nfl_team) === Number(week);
     const noTeam = row.nfl_team == null;
-    const availability = unavailableFor({
-      injuryStatus: row.injury_status, onBye, noTeam, nflRosterStatus: row.nfl_roster_status ?? null, now,
-    });
-    const point = priced && availability.available ? projections.result.pointsFor(row.player_id) : null;
+    // The Start verdict (ADR 0061) from the Weekly projection read, the one
+    // producer; with no read there is no verdict, and the row says so (null).
+    const verdict = priced ? projections.result.startVerdictFor(row.player_id) : null;
+    const available = verdict === null || verdict.outcome !== 'unavailable';
+    const point = priced && available ? projections.result.pointsFor(row.player_id) : null;
     const projection = point != null && Number.isFinite(Number(point))
       ? round2(Number(point))
       : 0;
@@ -234,10 +232,12 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       // The availability rule's verdict, so a surface can say WHY a row prices
       // at zero (on bye, out, on IR) instead of printing the number.
       // Questionable and Doubtful are available; their reason is not carried.
-      availability: {
-        available: availability.available,
-        reason: availability.available ? null : availability.reason,
-      },
+      // With no read there is no verdict; the no-game facts this module already
+      // holds (bye, released) still state themselves, so the status stays
+      // truthful on an outage (ADR 0030, statusForMatchup).
+      availability: verdict
+        ? { available, reason: available ? null : verdict.reason }
+        : (onBye || noTeam ? { available: false, reason: onBye ? 'bye' : 'no_team' } : null),
       // Figures are null without a projection run (no forecast of zero); the
       // game state is real either way. rawExpectedFinal stays a number so the
       // best-ball optimizer can still order the lineup by points on the board.
@@ -255,7 +255,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       // rawExpectedFinal): his projection Interval (p10..p90), only when he is
       // available (an Out or bye starter cannot move the score), and how much
       // of his game is left to play.
-      rawInterval: priced && availability.available && typeof projections.result.detailFor === 'function'
+      rawInterval: priced && available && typeof projections.result.detailFor === 'function'
         ? projections.result.detailFor(row.player_id)
         : null,
       rawGameFraction: gameFraction,

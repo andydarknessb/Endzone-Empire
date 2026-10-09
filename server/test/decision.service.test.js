@@ -30,6 +30,18 @@ const projectionModel = require('../services/projectionModel');
 
 const entry = (playerId, position, slot, name = `p${playerId}`) => ({ playerId, name, position, slot });
 
+// ADR 0061: every availability fact is the Weekly projection result's, never
+// the lineup entry's. A fixture player carries the run's stored Availability
+// input (`factors.availability`) the way the engine writes it; the Start verdict
+// is derived from it on read.
+const stored = (availability, points, extra = {}) => ({ points, factors: { availability, ...extra } });
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const IR_STATUS = { available: false, activeProbability: 0, reason: 'ir', status: 'IR' };
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
+const PS = { available: false, activeProbability: 0, reason: 'practice_squad', status: null };
+const withStatus = (status) => ({ available: true, activeProbability: null, reason: null, status });
+
 const RB1 = [{ key: 'RB', label: 'RB', count: 1, eligiblePositions: ['RB'] }];
 const RB2 = [{ key: 'RB', label: 'RB', count: 2, eligiblePositions: ['RB'] }];
 const FLEX1 = [{ key: 'FLEX', label: 'FLEX', count: 1, eligiblePositions: ['RB', 'WR', 'TE'] }];
@@ -238,10 +250,10 @@ test('buildSuggestions: an EMPTY starting slot is reported as a fill, not a swap
 
 test('buildSuggestions: a starter on a bye is worth zero and gets replaced', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), onBye: true },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 20 }], [2, { points: 8 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, stored(BYE, 20)], [2, { points: 8 }]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.projectedTotal, 0, 'a player on a bye scores 0, not his projection');
   assert.equal(result.optimalTotal, 8);
@@ -251,12 +263,12 @@ test('buildSuggestions: a starter on a bye is worth zero and gets replaced', () 
 });
 
 test('buildSuggestions: Out and IR designations make a player unavailable', () => {
-  for (const [status, reason] of [['O', 'out'], ['IR', 'ir']]) {
+  for (const [status, reason, availability] of [['O', 'out', OUT], ['IR', 'ir', IR_STATUS]]) {
     const lineup = [
-      { ...entry(1, 'RB', 'RB'), injuryStatus: status },
+      entry(1, 'RB', 'RB'),
       entry(2, 'RB', 'BENCH'),
     ];
-    const projections = resultFromLegacyMap(new Map([[1, { points: 25 }], [2, { points: 4 }]]));
+    const projections = resultFromLegacyMap(new Map([[1, stored(availability, 25)], [2, { points: 4 }]]));
     const result = buildSuggestions(lineup, projections, new Map(), RB1);
     assert.equal(result.suggestions.length, 1, status);
     assert.equal(result.suggestions[0].suggested.playerId, 2, status);
@@ -266,14 +278,12 @@ test('buildSuggestions: Out and IR designations make a player unavailable', () =
 
 // #1767: a fresh Practice squad row is Unavailable - worth 0 as a starter
 // (and replaced), never proposed from the bench.
-const PRACTICE_SQUAD = () => ({ status: 'practice_squad', capturedAt: new Date(Date.now() - 3600 * 1000).toISOString() });
-
 test('buildSuggestions: a Practice squad starter is worth zero, reads practice_squad and gets replaced', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), nflRosterStatus: PRACTICE_SQUAD() },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 20 }], [2, { points: 8 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, stored(PS, 20)], [2, { points: 8 }]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.projectedTotal, 0);
   assert.equal(result.optimalTotal, 8);
@@ -284,9 +294,9 @@ test('buildSuggestions: a Practice squad starter is worth zero, reads practice_s
 test('buildSuggestions: a Practice squad bench player with the highest projection is never proposed as a start', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), nflRosterStatus: PRACTICE_SQUAD() },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 30 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, stored(PS, 30)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
   assert.equal(result.optimalTotal, 10);
@@ -295,9 +305,9 @@ test('buildSuggestions: a Practice squad bench player with the highest projectio
 test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'D' },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, stored(withStatus('D'), 25)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0, 'no active-probability data means no automatic swap');
   assert.equal(result.optimalTotal, 8);
@@ -309,28 +319,31 @@ test('buildSuggestions: a Doubtful bench player is never auto-promoted', () => {
 const SUNDAY_1PM = '2026-10-11T17:00:00Z';
 const DNP_WEEK = [{ practiceStatus: 'Did Not Participate In Practice', practicePrimaryInjury: 'Hamstring', reportPrimaryInjury: 'Hamstring', observedAt: '2026-10-07T22:00:00Z' }];
 
+// The read loads this week's Practice participation itself (`practiceById`).
 test('buildSuggestions: a no-practice Questionable bench player is not suggested, a plain Questionable one still is', () => {
-  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
-  const lineup = (practiceObservations, kickoff = SUNDAY_1PM) => [
-    entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'Q', kickoff, practiceObservations },
-  ];
-  const held = buildSuggestions(lineup(DNP_WEEK), projections, new Map(), RB1);
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
+  const projections = (observations, kickoffAt = SUNDAY_1PM) => resultFromLegacyMap(
+    new Map([[1, { points: 8 }], [2, stored(withStatus('Q'), 25)]]),
+    { practiceById: new Map([[2, { observations, kickoffAt }]]) }
+  );
+  const held = buildSuggestions(lineup, projections(DNP_WEEK), new Map(), RB1);
   assert.equal(held.suggestions.length, 0, 'no practice all week means no automatic promotion');
   assert.equal(held.optimalTotal, 8);
-  const promoted = buildSuggestions(lineup([]), projections, new Map(), RB1);
+  const promoted = buildSuggestions(lineup, projections([]), new Map(), RB1);
   assert.equal(promoted.suggestions.length, 1, 'no observations is the status quo');
   assert.equal(promoted.suggestions[0].suggested.startVerdict.reason, 'questionable');
-  const noKickoff = buildSuggestions(lineup(DNP_WEEK, null), projections, new Map(), RB1);
+  const noKickoff = buildSuggestions(lineup, projections(DNP_WEEK, null), new Map(), RB1);
   assert.equal(noKickoff.suggestions.length, 1, 'no kickoff on file: the coverage deadline cannot be met, so the status quo');
 });
 
 test('buildSuggestions: a no-practice Questionable starter keeps his slot, and every entry carries its verdict', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), injuryStatus: 'Q', kickoff: SUNDAY_1PM, practiceObservations: DNP_WEEK },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 15 }], [2, { points: 4 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, stored(withStatus('Q'), 15)], [2, { points: 4 }]]), {
+    practiceById: new Map([[1, { observations: DNP_WEEK, kickoffAt: SUNDAY_1PM }]]),
+  });
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
   assert.equal(result.projectedTotal, 15, 'his projection still counts');
@@ -386,12 +399,12 @@ test('buildSuggestions: a bench player with a NON-baseline reason is still promo
 
 test('buildSuggestions: an Out starter is still replaced by a healthy bench player when the other bench player is a Position-baseline one', () => {
   const lineup = [
-    { ...entry(1, 'RB', 'RB'), injuryStatus: 'O' },
+    entry(1, 'RB', 'RB'),
     entry(2, 'RB', 'BENCH'),
     entry(3, 'RB', 'BENCH'),
   ];
   const projections = resultFromLegacyMap(new Map([
-    [1, { points: 20 }],
+    [1, stored(OUT, 20)],
     [2, { points: 25, factors: POSITION_BASELINE }],
     [3, { points: 6 }],
   ]));
@@ -403,9 +416,9 @@ test('buildSuggestions: an Out starter is still replaced by a healthy bench play
 test('buildSuggestions: a Questionable bench player CAN be promoted, flagged as such', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), injuryStatus: 'Q' },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, { points: 25 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 8 }], [2, stored(withStatus('Q'), 25)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 1);
   assert.equal(result.suggestions[0].suggested.availability.status, 'Q');
@@ -770,9 +783,9 @@ test('upgradeFor: a gain that arrives through a FLEX chain is found', () => {
 test('buildSuggestions: a released bench player with the highest projection is never proposed as a start', () => {
   const lineup = [
     entry(1, 'RB', 'RB'),
-    { ...entry(2, 'RB', 'BENCH'), nflTeam: null },
+    entry(2, 'RB', 'BENCH'),
   ];
-  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, { points: 30 }]]));
+  const projections = resultFromLegacyMap(new Map([[1, { points: 10 }], [2, stored(NO_TEAM, 30)]]));
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
 });
@@ -938,11 +951,10 @@ test('buildSuggestions: a Backup quarterback on the bench is never suggested, ev
 });
 
 // Start verdict (spec #2042, #2044): a run that stored the bench rookie
-// Unavailable (IR when it was cached; he has since been activated, so his lineup
-// entry reads active) and marked him Position-baseline is never a candidate.
+// Unavailable (IR) and marked him Position-baseline is never a candidate.
 // The verdict's outcome gates, not the flags rebuilt from its reason (#1775).
-test('buildSuggestions: a stale-IR Position-baseline bench rookie is never a candidate, however active his entry reads', () => {
-  const lineup = [entry(1, 'RB', 'RB'), { ...entry(2, 'RB', 'BENCH'), injuryStatus: null }];
+test('buildSuggestions: a stale-IR Position-baseline bench rookie is never a candidate, whatever else the run holds', () => {
+  const lineup = [entry(1, 'RB', 'RB'), entry(2, 'RB', 'BENCH')];
   const staleIr = {
     points: 20,
     factors: { availability: { available: false, status: 'IR', reason: 'ir' }, dataQuality: { reasons: ['position baseline'] } },

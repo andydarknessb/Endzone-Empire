@@ -2,7 +2,7 @@ const pool = require('../modules/pool');
 const model = require('./projectionModel');
 // The Pool projection accessor (#1705) lives in its own pure module; re-exported below.
 const { poolPointsFor, poolPointsMap } = require('./poolProjection');
-const { unavailableFor, startVerdictOf } = require('./unavailable');
+const { unavailableFor: verdictFor, startVerdictOf } = require('./unavailable');
 const { loadNflRosterStatusById, nflRosterStatusColumn } = require('./nflRosterStatus');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -19,6 +19,18 @@ const {
   // later calls the wrong one.
   slateAverageImplied: computeSlateAverageImplied,
 } = require('./vegasOdds.provider');
+
+/**
+ * The stored Availability input (`factors.availability`; ADR 0061) and the
+ * verdict behind the Start verdict, from one set of facts. Lineup lock left the
+ * verdict, but the stored field keeps the `locked: false, lockedSlot: null` keys
+ * it has always carried: the holdout ledger captures the whole `factors` JSON
+ * (ADR 0044) and the reconcilers compare stored against fresh, so the shape
+ * does not move. Besides the engine's model default, only this module calls `unavailable.js`.
+ */
+function unavailableFor(facts) {
+  return { ...verdictFor(facts), locked: false, lockedSlot: null };
+}
 
 class ProjectionError extends Error {
   constructor(statusCode, message) {

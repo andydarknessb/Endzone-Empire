@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const homeStatus = require('../services/homeStatus.service');
 const expectedFinalService = require('../services/expectedFinal.service');
+const projectionService = require('../services/projection.service');
 const { createFakePool } = require('./helpers/fakePool');
 
 /**
@@ -12,13 +13,23 @@ const { createFakePool } = require('./helpers/fakePool');
  */
 
 const slots = (spec) => Object.entries(spec).map(([key, count]) => ({ key, count }));
-const entry = (slot, name, extra = {}) => ({ slot, name, onBye: false, injury_status: null, ...extra });
+
+// ADR 0061: starter availability is the Start verdict the Weekly projection read
+// gives by player id, never a fact of the lineup row. A fixture entry names the
+// verdict the read would give it (`verdict`, test-only); the stand-in accessor
+// answers by player id, as the read's `startVerdictFor` does.
+const HEALTHY = { outcome: 'recommendable', reason: null, numberTrusted: true };
+const unavailable = (reason) => ({ outcome: 'unavailable', reason, numberTrusted: true });
+let nextPlayerId = 1;
+const entry = (slot, name, extra = {}) => ({ playerId: nextPlayerId++, slot, name, injury_status: null, ...extra });
+const readOf = (entries) => (playerId) => (entries.find((e) => e.playerId === playerId) || {}).verdict || HEALTHY;
+const lineupStatus = (args) => homeStatus.lineupStatus({ startVerdictFor: readOf(args.entries), ...args });
 
 // --- the lineup problems, read through lineupStatus (nothing locked) --------
 
 // A week with no schedule and no clock pressure: nothing has kicked off, so
 // the status' problems are the whole lineup's.
-const unlockedProblems = (args) => homeStatus.lineupStatus({
+const unlockedProblems = (args) => lineupStatus({
   kickoffByTeam: new Map(),
   weekLastKickoff: null,
   now: new Date('2026-10-04T12:00:00.000Z'),
@@ -27,7 +38,7 @@ const unlockedProblems = (args) => homeStatus.lineupStatus({
 
 test('lineupStatus checks a standard league in full against its roster slots', () => {
   const problems = unlockedProblems({
-    entries: [entry('QB', 'Quarterback', { onBye: true })],
+    entries: [entry('QB', 'Quarterback', { verdict: unavailable('bye') })],
     rosterSlots: slots({ QB: 1, RB: 1 }),
     bestBall: false,
   });
@@ -37,7 +48,7 @@ test('lineupStatus checks a standard league in full against its roster slots', (
 test('lineupStatus gives a best-ball league only its unresolved IR stashes', () => {
   const problems = unlockedProblems({
     entries: [
-      entry('QB', 'Benched By Optimizer', { injury_status: 'O' }),
+      entry('QB', 'Benched By Optimizer', { injury_status: 'O', verdict: unavailable('out') }),
       entry('IR', 'Healthy Stash', { injury_status: 'Q', ir_attested: false }),
     ],
     rosterSlots: slots({ QB: 1, RB: 2 }),
@@ -50,10 +61,10 @@ test('lineupStatus flags bye and Out/IR starters, ignores the bench, and lets a 
   const problems = unlockedProblems({
     entries: [
       entry('QB', 'Healthy QB'),
-      entry('RB', 'Bye RB', { onBye: true }),
-      entry('WR', 'Hurt WR', { injury_status: 'O' }),
-      entry('TE', 'Q Guy', { injury_status: 'Q' }),
-      entry('BENCH', 'Hurt Bench Guy', { injury_status: 'IR' }),
+      entry('RB', 'Bye RB', { verdict: unavailable('bye') }),
+      entry('WR', 'Hurt WR', { injury_status: 'O', verdict: unavailable('out') }),
+      entry('TE', 'Q Guy', { injury_status: 'Q', verdict: { outcome: 'recommendable', reason: 'questionable', numberTrusted: true } }),
+      entry('BENCH', 'Hurt Bench Guy', { injury_status: 'IR', verdict: unavailable('ir') }),
     ],
     rosterSlots: slots({ QB: 1, RB: 1, WR: 1, TE: 1 }),
     bestBall: false,
@@ -61,21 +72,17 @@ test('lineupStatus flags bye and Out/IR starters, ignores the bench, and lets a 
   assert.deepEqual(problems, ['Bye RB (RB) is on bye', 'Hurt WR (WR) is Out']);
 });
 
-// #1791: lineupProblems used to decide starter availability by hand from
-// onBye and injury_status O/IR, so a Practice squad or a No NFL team starter
-// raised no problem while the Lineup and Start/sit pages marked him
-// Unavailable. It now routes through `unavailableFor` (unavailable.js), the
-// one verdict every other reader uses, so these two reasons raise a problem
-// here too.
+// #1791: a Practice squad or a No NFL team starter raises a problem here
+// exactly as the Lineup and Start/sit pages mark him Unavailable: the problem
+// reads the one Start verdict, so it can never disagree with them. (The
+// precedence between the reasons and the 48-hour Practice squad window live in
+// the verdict itself: unavailable.test.js.)
 test('lineupStatus flags a Practice squad starter and a No NFL team starter (#1791)', () => {
   const problems = unlockedProblems({
     entries: [
       entry('QB', 'Healthy QB'),
-      entry('RB', 'PS Runner', {
-        nflTeam: 'GB',
-        nflRosterStatus: { status: 'practice_squad', capturedAt: '2026-10-03T12:00:00.000Z' },
-      }),
-      entry('WR', 'Free Agent WR', { nflTeam: null }),
+      entry('RB', 'PS Runner', { nflTeam: 'GB', verdict: unavailable('practice_squad') }),
+      entry('WR', 'Free Agent WR', { nflTeam: null, verdict: unavailable('no_team') }),
     ],
     rosterSlots: slots({ QB: 1, RB: 1, WR: 1 }),
     bestBall: false,
@@ -83,31 +90,9 @@ test('lineupStatus flags a Practice squad starter and a No NFL team starter (#17
   assert.deepEqual(problems, ['PS Runner (RB) is on the practice squad', 'Free Agent WR (WR) has no NFL team']);
 });
 
-test('lineupStatus reads the same 48-hour Practice squad freshness window as unavailableFor (#1767), probed at the boundary through its own now', () => {
-  const capturedAt = '2026-10-02T12:00:00.000Z';
-  const psRunner = (now) => homeStatus.lineupStatus({
-    entries: [entry('RB', 'Boundary PS Runner', {
-      nflTeam: 'GB',
-      nflRosterStatus: { status: 'practice_squad', capturedAt },
-    })],
-    rosterSlots: slots({ RB: 1 }),
-    bestBall: false,
-    kickoffByTeam: new Map(),
-    weekLastKickoff: null,
-    now,
-  }).problems;
-  // 47 hours after capture: still fresh, still a problem.
-  assert.deepEqual(psRunner(new Date('2026-10-04T11:00:00.000Z')), ['Boundary PS Runner (RB) is on the practice squad']);
-  // 49 hours after capture: stale, no longer a problem.
-  assert.deepEqual(psRunner(new Date('2026-10-04T13:00:00.000Z')), []);
-});
-
 test('lineupStatus: a locked Practice squad starter sheds his problem too, like a locked bye or injury', () => {
-  const status = homeStatus.lineupStatus({
-    entries: [entry('QB', 'Locked PS Quarterback', {
-      nflTeam: 'KC',
-      nflRosterStatus: { status: 'practice_squad', capturedAt: '2026-10-04T10:00:00.000Z' },
-    })],
+  const status = lineupStatus({
+    entries: [entry('QB', 'Locked PS Quarterback', { nflTeam: 'KC', verdict: unavailable('practice_squad') })],
     rosterSlots: slots({ QB: 1 }),
     bestBall: false,
     kickoffByTeam: KICKOFFS,
@@ -117,36 +102,42 @@ test('lineupStatus: a locked Practice squad starter sheds his problem too, like 
   assert.deepEqual(status.problems, []);
 });
 
-// unavailableFor's precedence is bye, then No NFL team (unavailable.js): if a
-// row's onBye fact is ever true alongside a null nflTeam - the shape the SQL
-// bug below used to hand every No NFL team starter before it guarded
-// `players.nfl_team IS NOT NULL` - bye wins the wording, never "has no NFL
-// team". Documented here at the pure-function level so the precedence stays
-// pinned regardless of what the SQL reads carry.
-test('lineupStatus: bye takes precedence over No NFL team when a row somehow carries both (unavailableFor precedence)', () => {
+test('lineupStatus: Not recommended is no lineup problem; only Unavailable names a starter', () => {
   const problems = unlockedProblems({
-    entries: [entry('WR', 'Both Facts WR', { nflTeam: null, onBye: true })],
-    rosterSlots: slots({ WR: 1 }),
+    entries: [
+      entry('QB', 'Doubtful QB', { verdict: { outcome: 'not_recommended', reason: 'doubtful', numberTrusted: true } }),
+      entry('RB', 'Backup Runner', { verdict: { outcome: 'not_recommended', reason: 'backup', numberTrusted: false } }),
+    ],
+    rosterSlots: slots({ QB: 1, RB: 1 }),
     bestBall: false,
   });
-  assert.deepEqual(problems, ['Both Facts WR (WR) is on bye']);
+  assert.deepEqual(problems, []);
 });
 
-// #1791 QA: loadLineups' `on_bye` LEFT JOIN keys on
-// fn_normalize_nfl_team(players.nfl_team) = fn_normalize_nfl_team(nfl_games.nfl_team).
-// fn_normalize_nfl_team(NULL) is NULL, so a No NFL team row's join never
-// matches and on_bye would read true (bye, wrongly) without the
-// `players.nfl_team IS NOT NULL` guard added alongside it - asserted here so
-// reverting the guard goes red.
-test("loadLineups' on_bye guards a No NFL team row from reading as on bye (#1791)", async (t) => {
-  const fake = homeWorld(t);
-  await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
-  const [sourceQuery] = fake.matching(/FROM "source"/);
+// ADR 0061: the lineup read carries no availability fact (bye, roster status),
+// only the player id the Start verdict is asked by. The verdict reaches the
+// league card's lineup line through the Weekly projection read: seed the
+// starter Out in the run and the card names him; seed him healthy and it does
+// not.
+test('leagueStatuses names a starter the Weekly projection read says is Out, and not a healthy one (ADR 0061)', async (t) => {
+  const outRun = homeWorld(t, { verdict: unavailable('out') });
+  const out = await homeStatus.leagueStatuses(outRun, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+  assert.deepEqual(out.get(71).status.lineup.problems, ['1 empty FLEX slot', 'Quarterback (QB) is Out']);
+  assert.deepEqual(projectionCalls.at(-1).playerIds, [901], 'the read is asked for the roster alone');
+  const [sourceQuery] = outRun.matching(/FROM "source"/);
   assert.ok(sourceQuery, 'loadLineups\' query never ran');
-  assert.match(
-    sourceQuery.text,
-    /\("players"\."nfl_team" IS NOT NULL AND "nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/
-  );
+  assert.doesNotMatch(sourceQuery.text, /on_bye|nfl_roster_status/, 'no availability fact rides the lineup read');
+
+  t.mock.restoreAll();
+  const healthyRun = homeWorld(t);
+  const healthy = await homeStatus.leagueStatuses(healthyRun, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+  assert.deepEqual(healthy.get(71).status.lineup.problems, ['1 empty FLEX slot']);
+});
+
+test('leagueStatuses names a starter on bye in the run', async (t) => {
+  const fake = homeWorld(t, { verdict: unavailable('bye') });
+  const statuses = await homeStatus.leagueStatuses(fake, { userId: 7, leagues: [HOME_LEAGUE], now: HOME_NOW });
+  assert.deepEqual(statuses.get(71).status.lineup.problems, ['1 empty FLEX slot', 'Quarterback (QB) is on bye']);
 });
 
 test('lineupStatus resurfaces an unresolved ineligible IR stash but never a commissioner-attested one (#100)', () => {
@@ -161,8 +152,8 @@ test('lineupStatus resurfaces an unresolved ineligible IR stash but never a comm
 
 test('lineupEntryFromRow reads the lineup query row into the builder shape', () => {
   assert.deepEqual(
-    homeStatus.lineupEntryFromRow({ slot: 'RB', name: 'Runner', on_bye: true, injury_status: 'Q', ir_attested: false, extra: 1 }),
-    { slot: 'RB', name: 'Runner', onBye: true, injury_status: 'Q', ir_attested: false }
+    homeStatus.lineupEntryFromRow({ player_id: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false, extra: 1 }),
+    { playerId: 9, slot: 'RB', name: 'Runner', injury_status: 'Q', ir_attested: false }
   );
 });
 
@@ -197,7 +188,7 @@ const LAST_KICKOFF = '2026-10-05T00:20:00.000Z';
 const at = (iso) => new Date(iso);
 
 test('lineupStatus names each empty seat, its problems, and the next lock among the roster', () => {
-  const status = homeStatus.lineupStatus({
+  const status = lineupStatus({
     entries: [
       entry('QB', 'Quarterback', { nflTeam: 'KC' }),
       entry('RB', 'Runner', { nflTeam: 'DAL' }),
@@ -217,10 +208,10 @@ test('lineupStatus names each empty seat, its problems, and the next lock among 
 });
 
 test('lineupStatus: a starter whose game has kicked off is locked, so his status is no longer a to-do', () => {
-  const status = homeStatus.lineupStatus({
+  const status = lineupStatus({
     entries: [
-      entry('QB', 'Locked Out Quarterback', { nflTeam: 'KC', injury_status: 'O' }),
-      entry('RB', 'Late Out Runner', { nflTeam: 'DAL', injury_status: 'O' }),
+      entry('QB', 'Locked Out Quarterback', { nflTeam: 'KC', injury_status: 'O', verdict: unavailable('out') }),
+      entry('RB', 'Late Out Runner', { nflTeam: 'DAL', injury_status: 'O', verdict: unavailable('out') }),
     ],
     rosterSlots: slots({ QB: 1, RB: 1 }),
     bestBall: false,
@@ -236,7 +227,7 @@ test('lineupStatus: a starter whose game has kicked off is locked, so his status
 });
 
 test('lineupStatus falls back to the week\'s last kickoff once every roster team has kicked off', () => {
-  const status = homeStatus.lineupStatus({
+  const status = lineupStatus({
     entries: [entry('QB', 'Quarterback', { nflTeam: 'KC' })],
     rosterSlots: slots({ QB: 1, FLEX: 1 }),
     bestBall: false,
@@ -250,7 +241,7 @@ test('lineupStatus falls back to the week\'s last kickoff once every roster team
 });
 
 test('lineupStatus: after the week\'s last kickoff nothing is actionable', () => {
-  const status = homeStatus.lineupStatus({
+  const status = lineupStatus({
     entries: [entry('QB', 'Quarterback', { nflTeam: 'KC' })],
     rosterSlots: slots({ QB: 1, FLEX: 1 }),
     bestBall: false,
@@ -262,9 +253,9 @@ test('lineupStatus: after the week\'s last kickoff nothing is actionable', () =>
 });
 
 test('lineupStatus: best ball carries no emptySlots and only its IR problems, like the digest', () => {
-  const status = homeStatus.lineupStatus({
+  const status = lineupStatus({
     entries: [
-      entry('QB', 'Out Quarterback', { nflTeam: 'DAL', injury_status: 'O' }),
+      entry('QB', 'Out Quarterback', { nflTeam: 'DAL', injury_status: 'O', verdict: unavailable('out') }),
       entry('IR', 'Healthy Stash', { nflTeam: 'GB', injury_status: null, ir_attested: false }),
     ],
     rosterSlots: slots({ QB: 1, RB: 2 }),
@@ -280,8 +271,8 @@ test('lineupStatus: best ball carries no emptySlots and only its IR problems, li
 });
 
 test('lineupStatus: two missing seats of one slot are two emptySlots entries; bye starters are flagged', () => {
-  const status = homeStatus.lineupStatus({
-    entries: [entry('QB', 'Bye Quarterback', { nflTeam: 'NYJ', onBye: true })],
+  const status = lineupStatus({
+    entries: [entry('QB', 'Bye Quarterback', { nflTeam: 'NYJ', verdict: unavailable('bye') })],
     rosterSlots: slots({ QB: 1, RB: 2 }),
     bestBall: false,
     kickoffByTeam: KICKOFFS,
@@ -341,7 +332,14 @@ const HOME_LEAGUE = {
   is_owner: false, is_commissioner: false,
 };
 
-function homeWorld(t, { matchups = [], kickoffs = [], trades = [] } = {}) {
+// The Weekly projection reads the league cards and the to-do list make, one
+// per league, with the verdict the stored run gives the lone starter.
+const projectionCalls = [];
+function homeWorld(t, { matchups = [], kickoffs = [], trades = [], verdict = HEALTHY } = {}) {
+  t.mock.method(projectionService, 'getWeeklyProjections', async (args) => {
+    projectionCalls.push(args);
+    return { startVerdictFor: () => verdict };
+  });
   t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map([
     [11, { expectedFinal: 118.6, playersRemaining: 4, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
     [12, { expectedFinal: 104.1, playersRemaining: 3, statusReliable: true, firstKickoffAt: '2026-10-04T17:00:00.000Z', syncedAt: null, starters: [{ gameState: 'in_progress', availability: { available: true, reason: null } }], bench: [] }],
@@ -355,7 +353,7 @@ function homeWorld(t, { matchups = [], kickoffs = [], trades = [] } = {}) {
     [/FROM "matchups"/, () => ({ rows: matchups })],
     // One KC quarterback and no FLEX: a lineup with a problem.
     [/FROM "source"/, () => ({ rows: [
-      { team_id: 11, slot: 'QB', name: 'Quarterback', injury_status: null, ir_attested: false, nfl_team: 'KC', on_bye: false },
+      { team_id: 11, player_id: 901, slot: 'QB', name: 'Quarterback', injury_status: null, ir_attested: false, nfl_team: 'KC' },
     ] })],
     [/FROM "nfl_games" JOIN unnest/, () => ({ rows: kickoffs })],
     [/FROM "pickem_settings"/, () => ({ rows: [] })],
