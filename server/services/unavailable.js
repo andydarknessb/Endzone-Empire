@@ -16,12 +16,12 @@ const NFL_ROSTER_STATUS_FRESH_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Pure: true when `nflRosterStatus` (the latest `player_nfl_roster_status`
- * row as `{ status, capturedAt }`, see nflRosterStatus.js) says Practice squad
- * and was captured within the last 48 hours of `now`. Missing, stale,
- * unparseable, Active and Reserve all read false: Reserve gates nothing.
+ * row as `{ status, capturedAt }`, see nflRosterStatus.js) says `status` and
+ * was captured within the last 48 hours of `now`. Missing, stale, unparseable
+ * and any other status all read false: Active and Reserve gate nothing.
  */
-function onPracticeSquad(nflRosterStatus, now) {
-  if (!nflRosterStatus || nflRosterStatus.status !== 'practice_squad') return false;
+function rosterStatusIs(status, nflRosterStatus, now) {
+  if (!nflRosterStatus || nflRosterStatus.status !== status) return false;
   const capturedAt = new Date(nflRosterStatus.capturedAt).getTime();
   if (!Number.isFinite(capturedAt)) return false;
   return new Date(now).getTime() - capturedAt <= NFL_ROSTER_STATUS_FRESH_MS;
@@ -110,7 +110,7 @@ function noPracticeAllWeek(observations, kickoffAt) {
  * is no snapshot history to calibrate "Questionable" into a real probability
  * from. Inventing 0.6 would look like a measurement.
  *
- * Precedence: bye, then No NFL team, then Practice squad, then Out and IR, then
+ * Precedence: bye, then No NFL team, then Practice squad, then Suspended, then Out and IR, then
  * Backup quarterback (ADR 0057, `backup`: available but never auto-recommended,
  * reason `backup`; above Position-baseline since the 2026-10-07 amendment, #2044),
  * then Position-baseline (#1775, `positionBaseline`: the same shape, reason
@@ -144,8 +144,14 @@ function unavailableFor({
   // Practice squad (#1767): not on the 53, so no game this week unless
   // elevated (#1768 checks that a Saturday elevation reads Active). Like No
   // NFL team, the projected number itself is unchanged.
-  if (onPracticeSquad(nflRosterStatus, now)) {
+  if (rosterStatusIs('practice_squad', nflRosterStatus, now)) {
     return { available: false, activeProbability: 0, reason: 'practice_squad', status };
+  }
+  // Suspended (#2150): ESPN's roster `suspended` group, a fact apart from the
+  // injury designation (which stays null). Same freshness as the Practice squad;
+  // like No NFL team, the projected number itself is unchanged.
+  if (rosterStatusIs('suspended', nflRosterStatus, now)) {
+    return { available: false, activeProbability: 0, reason: 'suspended', status };
   }
   if (status === 'O') {
     return { available: false, activeProbability: 0, reason: 'out', status };

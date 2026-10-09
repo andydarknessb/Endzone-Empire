@@ -7,7 +7,7 @@
  * from that read), so no reader decides Practice squad on its own.
  *
  * The value is `{ status, capturedAt } | null`: `status` is 'active',
- * 'practice_squad' or 'reserve'; `capturedAt` is the row's `updated_at`. The
+ * 'practice_squad', 'reserve' or 'suspended';`capturedAt` is the row's `updated_at`. The
  * 48-hour staleness rule lives in the verdict, not here, so a stale row still
  * comes back and `unavailableFor` reads it as Active. Both reads skip rows
  * captured before CURRENT_DATE - 3, which can never be fresh even so: 48

@@ -19,11 +19,11 @@ const { isPickemOnly } = require('./leagueType');
 
 /**
  * Pure: the `lineupProblems` phrase for a starter carrying the Start verdict's
- * Unavailable reason ('bye' | 'no_team' | 'practice_squad' | 'out' | 'ir'), or null for
+ * Unavailable reason ('bye' | 'no_team' | 'practice_squad' | 'suspended' | 'out' | 'ir'), or null for
  * every other verdict (available, doubtful, questionable - none of those are
  * a problem here). The wording matches this module's existing tone (`is on
  * bye`, `is Out`, `is on IR`) and the client's own reason labels
- * (src/shared/lib/unavailableLabel.js: 'no team', 'practice squad').
+ * (src/shared/lib/reasonLabel.js: 'no team', 'practice squad').
  */
 function starterProblemPhrase(reason) {
   switch (reason) {
@@ -31,6 +31,7 @@ function starterProblemPhrase(reason) {
     case 'out': return 'is Out';
     case 'ir': return 'is on IR';
     case 'practice_squad': return 'is on the practice squad';
+    case 'suspended': return 'is suspended';
     case 'no_team': return 'has no NFL team';
     default: return null;
   }
