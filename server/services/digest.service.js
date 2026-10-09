@@ -260,6 +260,7 @@ async function sendLineupReminders() {
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
       try {
         const push = require('./push.service');
+        const { banterFor } = require('./pushBanter');
         const { skipped } = await push.sendPushOnce({
           userIds: [team.owner_id],
           prefKey: 'lineupReminder',
@@ -270,6 +271,7 @@ async function sendLineupReminders() {
             title: 'Set your lineup before kickoff',
             body: message,
             url: `/#/league/${leagueId}/lineup`,
+            banter: banterFor('lineupProblem', `lineup-reminder:${team.id}:${season}:${week}:sent`, { week }),
           },
         });
         if (skipped) continue;

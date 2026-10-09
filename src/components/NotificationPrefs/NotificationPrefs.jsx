@@ -17,6 +17,11 @@ const PREF_FIELDS = [
     label: 'Score updates',
     helper: 'Your matchup when the lead changes and when it is over',
   },
+  {
+    key: 'banter',
+    label: 'Banter in notifications',
+    helper: 'A washed-up football legend comments on your alerts. Off gives you the plain facts.',
+  },
   { key: 'waiverResults', label: 'Waiver results' },
   { key: 'weeklyRecap', label: 'Weekly recap' },
   { key: 'tradeOffers', label: 'Trade offers' },

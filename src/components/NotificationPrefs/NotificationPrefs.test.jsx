@@ -82,6 +82,23 @@ test('the injury alerts and score updates toggles carry their helper text and PU
   expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/prefs', { prefs: { scoreUpdates: true } });
 });
 
+test('the Banter toggle carries its helper text and PUTs { banter: false } when switched off', async () => {
+  apiClient.get.mockResolvedValue({ data: { ...defaultPrefs, banter: true } });
+  apiClient.put.mockResolvedValue({ data: { ...defaultPrefs, banter: false } });
+
+  renderWithProviders(<NotificationPrefs />);
+
+  const banter = await screen.findByLabelText('Banter in notifications');
+  expect(banter).toBeChecked();
+  expect(banter).toHaveAccessibleDescription(
+    'A washed-up football legend comments on your alerts. Off gives you the plain facts.'
+  );
+
+  await userEvent.click(banter);
+
+  expect(apiClient.put).toHaveBeenCalledWith('/api/notifications/prefs', { prefs: { banter: false } });
+});
+
 test('toggling a switch PUTs the correct partial body and disables it while saving', async () => {
   apiClient.get.mockResolvedValue({ data: defaultPrefs });
   let resolvePut;

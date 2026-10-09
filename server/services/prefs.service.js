@@ -22,6 +22,9 @@ const DEFAULT_PREFS = {
   irAlerts: true,
   injuryAlerts: true,
   scoreUpdates: true,
+  // Push: append the Polk High Legend's one-line Banter to score, big play,
+  // lineup, close matchup and draft-start alerts. Off sends the plain facts.
+  banter: true,
   // In-app: play the Tecmo touchdown cutscene when the viewer's own starter
   // scores on the live matchup page. Opt-out, like the rest.
   touchdownCelebrations: true,

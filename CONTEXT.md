@@ -1502,6 +1502,19 @@ can receive one. Each kind of Push alert has its own per-Manager preference.
 _Avoid_: notification (the in-app list), toast, app push (there is no
 separate native app channel)
 
+**Banter**:
+The Polk High Legend's one-line remark on the end of a Push alert's body, in
+the Draft assistant's voice. The alert's facts sit above it and are complete
+without it; the remark names the opponent only by team name and roasts a team,
+a player's day or the narrator's own life, never a person. Each alert picks
+its line from the event itself, so the same event reads the same on every
+device. A Manager who turns Banter off receives the plain alert. Score
+updates, Big plays, Lineup reminders, close-matchup alerts and the draft
+starting alert carry it; Injury alerts and every transactional alert (waiver
+results, trade offers, IR action, draft reminders, Pick'em reminders) never do.
+_Avoid_: joke, quip, trash talk (the weekly recap's register, not a term),
+commentary
+
 **Injury alert**:
 A Push alert that a player on one of the Manager's rosters has changed Injury
 designation, sent once per change however many of the Manager's leagues roster

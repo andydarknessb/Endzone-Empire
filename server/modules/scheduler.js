@@ -1247,6 +1247,7 @@ const CLOSE_MARGIN = 10;
  */
 async function alertCloseMatchups({ leagueId, week, scored }) {
   const push = require('../services/push.service');
+  const { banterFor } = require('../services/pushBanter');
   for (const m of scored || []) {
     const key = `${m.matchupId}:${week}`;
     if (closeAlertedMatchups.has(key)) continue;
@@ -1265,6 +1266,7 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
           title: 'Your matchup is close!',
           body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points. Keep watching.`,
           url: `/#/league/${leagueId}/game-center`,
+          banter: banterFor('closeMatchup', `close:${m.matchupId}:${week}`, { margin: Math.round(margin * 10) / 10, week }),
         }
       );
     } catch (err) {
@@ -1301,6 +1303,7 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
     const { PLAY_STAT_EVENTS } = require('../services/boxScoreApply.service');
     const push = require('../services/push.service');
+    const { banterFor } = require('../services/pushBanter');
     const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
     const rules = rulesForLeague(league);
     // A play carries its event `type` but not the stat key it was detected from.
@@ -1361,6 +1364,14 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
         const what = (p) => `${p.name} ${BIG_PLAY_WORDS[p.type] || p.type}`;
         const lines = qualifying.map((p) =>
           `${what(p)} (${Math.round(p.points * 10) / 10} pts, ${side.own.includes(p) ? 'yours' : "your opponent's"})`);
+        const first = qualifying[0];
+        const banter = lines.length > 1
+          ? banterFor('bigPlaySeveral', `big-play:${m.matchupId}:${fingerprint}`, { count: lines.length })
+          : banterFor(side.own.includes(first) ? 'bigPlayMine' : 'bigPlayTheirs', `big-play:${m.matchupId}:${fingerprint}`, {
+            player: first.name,
+            event: BIG_PLAY_WORDS[first.type] || first.type,
+            points: Math.round(first.points * 10) / 10,
+          });
         await push.sendPushOnce({
           userIds: [userId],
           prefKey: 'touchdownCelebrations',
@@ -1371,6 +1382,7 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
             title: lines.length === 1 ? `Big play: ${what(qualifying[0])}` : `${lines.length} big plays`,
             body: lines.join('\n'),
             url: `/#/league/${leagueId}/game-center`,
+            banter,
           },
         });
       }
@@ -1406,6 +1418,7 @@ const scoreText = (a, b) => {
 async function alertScoreUpdates({ leagueId, season, week, scored }) {
   const push = require('../services/push.service');
   const { usersWanting } = require('../services/prefs.service');
+  const { banterFor } = require('../services/pushBanter');
   const url = `/#/league/${leagueId}/game-center`;
   for (const m of scored || []) {
     if (m.status === 'final') continue; // the result is written; nothing is news
@@ -1467,6 +1480,11 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
               title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
               body: body(s),
               url,
+              banter: banterFor(
+                leader === 'tied' ? 'tied' : leader === s.side ? 'leadTaken' : 'leadLost',
+                `score-lead:${subject}:${leader}:${Number(n) + 1}`,
+                { mine: s.mine.name, theirs: s.theirs.name }
+              ),
             },
           });
         }
@@ -1476,6 +1494,9 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
         for (const s of sides) {
           const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
           const score = figures(s).join('-');
+          // Compared in hundredths so 63.1 vs 64.1 (0.9999999999999929 apart) is a full point.
+          const lostClose = Math.abs(Math.round(Number(s.mineScore) * 100) - Math.round(Number(s.theirScore) * 100)) < 100;
+          const situation = leader === 'tied' ? 'finalTied' : leader === s.side ? 'finalWon' : lostClose ? 'finalLostClose' : 'finalLost';
           await push.sendPushOnce({
             userIds: [s.mine.owner_id],
             prefKey: 'scoreUpdates',
@@ -1486,6 +1507,7 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
               title: `Final: ${result} ${score}`,
               body: `Unofficial until the commissioner advances the week. ${body(s)}`,
               url,
+              banter: banterFor(situation, `score-played:${subject}:played`, { mine: s.mine.name, theirs: s.theirs.name }),
             },
           });
         }
