@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AlertPrompt, { alertPromptState, hasLiveTeam } from './AlertPrompt';
 import {
@@ -17,6 +17,9 @@ jest.mock('../../utils/push', () => ({
   getCurrentSubscription: jest.fn(),
   subscribeToPush: jest.fn(),
 }));
+
+// Let every pending effect and resolved promise run, so an absence check cannot pass early.
+const flushEffects = () => act(() => new Promise((resolve) => { setTimeout(resolve, 0); }));
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 9, 9, 12);
@@ -152,11 +155,13 @@ describe('AlertPrompt', () => {
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
   });
 
-  test('renders nothing when the browser already holds a subscription', async () => {
+  test('renders nothing and requests no public key when the browser already holds a subscription', async () => {
     getCurrentSubscription.mockResolvedValue({ endpoint: 'e' });
     const { container } = render(<AlertPrompt leagues={leagues} />);
     await waitFor(() => expect(getCurrentSubscription).toHaveBeenCalled());
+    await flushEffects();
     expect(container).toBeEmptyDOMElement();
+    expect(fetchPushPublicKey).not.toHaveBeenCalled();
   });
 
   test('Enable alerts subscribes with the public key and hides the card on success', async () => {
@@ -164,6 +169,26 @@ describe('AlertPrompt', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Enable alerts' }));
     expect(subscribeToPush).toHaveBeenCalledWith('key');
     expect(screen.queryByTestId('alert-prompt')).not.toBeInTheDocument();
+  });
+
+  test('the card never shrinks below its content in the Home column', async () => {
+    render(<AlertPrompt leagues={leagues} />);
+    expect(getComputedStyle(await screen.findByTestId('alert-prompt')).flexShrink).toBe('0');
+  });
+
+  test('a refused prompt leaves only the blocked sentence', async () => {
+    subscribeToPush.mockImplementation(async () => {
+      window.Notification = { permission: 'denied' };
+      throw new Error('Notification permission was not granted');
+    });
+    render(<AlertPrompt leagues={leagues} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Enable alerts' }));
+    expect(await screen.findByText(
+      'Notifications are blocked for this site. Allow them in your browser settings to get alerts.',
+    )).toBeInTheDocument();
+    expect(screen.queryByText('Notification permission was not granted')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   test('Enable alerts shows the error text and keeps the card on rejection', async () => {
@@ -185,7 +210,15 @@ describe('AlertPrompt', () => {
   test('stays hidden on a device that dismissed it twice', async () => {
     writeAlertPromptDismissal({ count: 2, at: Date.now() - 30 * DAY });
     const { container } = render(<AlertPrompt leagues={leagues} />);
-    await waitFor(() => expect(fetchPushPublicKey).toHaveBeenCalled());
+    await flushEffects();
     expect(container).toBeEmptyDOMElement();
+    expect(fetchPushPublicKey).not.toHaveBeenCalled();
+  });
+
+  test('shows again on a device whose one dismissal is 30 days old', async () => {
+    writeAlertPromptDismissal({ count: 1, at: Date.now() - 30 * DAY });
+    render(<AlertPrompt leagues={leagues} />);
+    expect(await screen.findByTestId('alert-prompt')).toBeInTheDocument();
+    expect(fetchPushPublicKey).toHaveBeenCalledTimes(1);
   });
 });

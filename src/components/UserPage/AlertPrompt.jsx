@@ -28,6 +28,15 @@ export function hasLiveTeam(leagues) {
 }
 
 /**
+ * Does the stored dismissal hide the card right now? The first dismissal hides
+ * it for seven days, the second for good.
+ */
+export function dismissalHides(dismissal, now) {
+  const { count = 0, at = 0 } = dismissal || {};
+  return count >= 2 || (count === 1 && now - at < WEEK_MS);
+}
+
+/**
  * Which Alert prompt state to show: 'hidden', 'default', 'install' or
  * 'blocked'. Pure: every browser and storage read is passed in.
  * `dismissal` is `{ count, at }` (at in ms); the first dismissal hides the card
@@ -37,8 +46,7 @@ export function alertPromptState({
   leagues, supported, publicKey, subscribed, permission, installHint, dismissal, now,
 }) {
   if (!hasLiveTeam(leagues) || !publicKey) return 'hidden';
-  const { count = 0, at = 0 } = dismissal || {};
-  if (count >= 2 || (count === 1 && now - at < WEEK_MS)) return 'hidden';
+  if (dismissalHides(dismissal, now)) return 'hidden';
   if (installHint) return 'install';
   if (!supported || subscribed) return 'hidden';
   return permission === 'denied' ? 'blocked' : 'default';
@@ -75,18 +83,25 @@ function AlertPrompt({ leagues }) {
   const [subscribed, setSubscribed] = useState(false);
   const [permission, setPermission] = useState(readPermission);
   const [dismissal, setDismissal] = useState(readAlertPromptDismissal);
+  const dismissed = dismissalHides(dismissal, Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!live || !(supported || installHint)) return undefined;
+    if (!live || dismissed || !(supported || installHint)) return undefined;
     let cancelled = false;
     (async () => {
       try {
+        // The local subscription check costs no request, so it goes first: only
+        // an eligible, unsubscribed, undismissed device asks for the key.
+        const subscription = supported ? await getCurrentSubscription() : null;
+        if (subscription) {
+          if (!cancelled) setSubscribed(true);
+          return;
+        }
         const key = await fetchPushPublicKey();
-        const subscription = key && supported ? await getCurrentSubscription() : null;
         if (!cancelled) {
-          setSubscribed(Boolean(subscription));
+          setSubscribed(false);
           setPublicKey(key);
         }
       } catch {
@@ -94,7 +109,7 @@ function AlertPrompt({ leagues }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [live, supported, installHint]);
+  }, [live, dismissed, supported, installHint]);
 
   const state = alertPromptState({
     leagues, supported, publicKey, subscribed, permission, installHint, dismissal, now: Date.now(),
@@ -128,7 +143,7 @@ function AlertPrompt({ leagues }) {
       variant="outlined"
       aria-labelledby={title ? 'alert-prompt-heading' : undefined}
       data-testid="alert-prompt"
-      sx={panelSx}
+      sx={{ ...panelSx, flexShrink: 0 }}
     >
       <CardContent>
         <Stack spacing={1.5}>
@@ -160,7 +175,7 @@ function AlertPrompt({ leagues }) {
               </Button>
             </Stack>
           )}
-          {error && <Alert severity="error" sx={alertSx('danger')}>{error}</Alert>}
+          {error && state !== 'blocked' && <Alert severity="error" sx={alertSx('danger')}>{error}</Alert>}
         </Stack>
       </CardContent>
     </Card>

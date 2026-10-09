@@ -363,6 +363,9 @@ test('an empty Postgame list renders no overlay', async () => {
 
 // --- Alert prompt (#2136) --------------------------------------------------
 
+// Let every pending effect and resolved promise run, so an absence check cannot pass early.
+const flushEffects = () => act(() => new Promise((resolve) => { setTimeout(resolve, 0); }));
+
 const mockAlertHome = (rows) => {
   window.localStorage.clear();
   isPushSupported.mockReturnValue(true);
@@ -393,6 +396,15 @@ test('no Alert prompt when no league row carries a team of the manager', async (
   renderPage();
 
   await screen.findByText('Sunday Ballers');
-  await waitFor(() => expect(fetchPushPublicKey).not.toHaveBeenCalled());
+  await flushEffects();
+  expect(fetchPushPublicKey).not.toHaveBeenCalled();
   expect(screen.queryByRole('heading', { name: 'Get alerts on this phone' })).not.toBeInTheDocument();
+});
+
+test('an eligible league asks for the push public key', async () => {
+  mockAlertHome([league({ status: { phase: 'in-season' } })]);
+  renderPage();
+
+  await screen.findByRole('heading', { level: 2, name: 'Get alerts on this phone' });
+  expect(fetchPushPublicKey).toHaveBeenCalledTimes(1);
 });
