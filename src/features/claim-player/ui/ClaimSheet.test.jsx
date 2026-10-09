@@ -57,6 +57,59 @@ describe('SwapPreview', () => {
     expect(screen.queryByText(/this week$/)).not.toBeInTheDocument();
   });
 
+  // #2175 (ADR 0062 point 2): a swap for any week but the current one names its
+  // week, and both sides are read in that week.
+  describe('a later week than the current one', () => {
+    const later = { points: 3, week: 7, overPlayer: { name: 'Stud Starter', points: 6 } };
+    const row = (weeks, extra = {}) => ({ name: 'Carson Beck', projWeek: { week: 6, points: 12 }, weeks, upgrade: later, ...extra });
+
+    it('heads the preview with its week and reads the claimed player in that week', () => {
+      render(<SwapPreview player={row([{ week: 6, points: 12 }, { week: 7, points: 9 }])} />);
+      expect(screen.getByText('Wk 7 swap')).toBeInTheDocument();
+      expect(screen.getByText('Carson Beck 9.0')).toBeInTheDocument();
+      expect(screen.getByText('Stud Starter 6.0')).toBeInTheDocument();
+      expect(screen.getByText('+3.0 Wk 7')).toBeInTheDocument();
+      expect(screen.queryByText(/this week/i)).not.toBeInTheDocument();
+    });
+
+    it('prints "-" for the claimed player when the row has no entry for that week', () => {
+      render(<SwapPreview player={row([{ week: 6, points: 12 }])} />);
+      expect(screen.getByText('Wk 7 swap')).toBeInTheDocument();
+      expect(screen.getByText('Carson Beck -')).toBeInTheDocument();
+      expect(screen.queryByText(/12\.0/)).not.toBeInTheDocument();
+    });
+
+    it('prints "-" for the claimed player when his entry for that week is a reason', () => {
+      render(<SwapPreview player={row([{ week: 6, points: 12 }, { week: 7, reason: 'bye' }])} />);
+      expect(screen.getByText('Wk 7 swap')).toBeInTheDocument();
+      expect(screen.getByText('Carson Beck -')).toBeInTheDocument();
+    });
+
+    it('names the net\'s week over the Upgrade\'s', () => {
+      render(<SwapPreview player={row([{ week: 6, points: 12 }, { week: 8, points: 10 }], { swapNet: { points: -1.5, week: 8 } })} />);
+      expect(screen.getByText('Wk 8 swap')).toBeInTheDocument();
+      expect(screen.getByText('Carson Beck 10.0')).toBeInTheDocument();
+      expect(screen.getByText('-1.5 Wk 8')).toBeInTheDocument();
+    });
+
+    it('falls back to the claimed number in that week minus the Upgrade when overPlayer has no number', () => {
+      const upgradeNoNumber = { points: 3, week: 7, overPlayer: { name: 'Stud Starter' } };
+      render(<SwapPreview player={row([{ week: 6, points: 12 }, { week: 7, points: 9 }], { upgrade: upgradeNoNumber })} />);
+      expect(screen.getByText('Stud Starter 6.0')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps "This week" copy when the Upgrade is for the current week', () => {
+    render(
+      <SwapPreview
+        player={{ name: 'Carson Beck', projWeek: { week: 6, points: 12 }, weeks: [{ week: 6, points: 12 }], upgrade: { ...upgrade, week: 6 } }}
+      />,
+    );
+    expect(screen.getByText("This week's swap")).toBeInTheDocument();
+    expect(screen.getByText('Carson Beck 12.0')).toBeInTheDocument();
+    expect(screen.getByText('+3.2 this week')).toBeInTheDocument();
+  });
+
   it('renders nothing when the row has no upgrade', () => {
     const { container } = render(<SwapPreview player={{ name: 'Carson Beck', upgrade: null }} />);
     expect(container).toBeEmptyDOMElement();

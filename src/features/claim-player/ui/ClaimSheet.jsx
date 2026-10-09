@@ -55,7 +55,14 @@ export function SwapPreview({ player, netPending = false }) {
   const upgrade = player.upgrade;
   const swapNet = player.swapNet ?? null;
   if (upgrade == null || upgrade.points == null || (upgrade.overPlayer == null && swapNet == null)) return null;
-  const mine = player.projWeek?.points ?? null;
+  // #2175 (ADR 0062 point 2): a swap for any week but the current one names its
+  // week, and both sides are read in that week, as DecisionStrip's pill does.
+  const week = swapNet?.week ?? upgrade.week;
+  const currentWeek = player.projWeek?.week;
+  const later = week != null && currentWeek != null && week !== currentWeek;
+  const mine = later
+    ? (player.weeks?.find((w) => w.week === week)?.points ?? null)
+    : (player.projWeek?.points ?? null);
   const { overPlayer } = upgrade;
   const reason = overPlayer?.unavailable ? reasonLabel(overPlayer.unavailable) : null;
   const theirs = overPlayer?.points ?? (mine != null ? mine - upgrade.points : null);
@@ -66,7 +73,9 @@ export function SwapPreview({ player, netPending = false }) {
   const noHistory = hasNoHistory(player);
   return (
     <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
-      <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>This week&apos;s swap</Typography>
+      <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>
+        {later ? `Wk ${week} swap` : "This week's swap"}
+      </Typography>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{ minWidth: 0 }}>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</Typography>
         {overPlayer && (
@@ -76,7 +85,7 @@ export function SwapPreview({ player, netPending = false }) {
         )}
       </Box>
       {!noHistory && !netPending && (
-        <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
+        <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} ${later ? `Wk ${week}` : 'this week'}`}</Typography>
       )}
     </Box>
   );
