@@ -1643,10 +1643,10 @@ const TICK_JOBS = [
   { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
   // A throw leaves the retention day unstamped, so it retries every tick.
   { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
-  // Daily Tank01 player-list sync (#2115, ADR 0060): the only writer of nfl_team
-  // and of departures now that the injuries job reads ESPN. One metered call a
-  // day, so it is gated on the Tank01 credentials; until #2117 moves the player
-  // list to ESPN. Still hand-runnable (admin dashboard, /api/scoring/sync-players).
+  // Daily player sync (#2115, #2117, ADR 0060): the only writer of nfl_team and
+  // of departures now that the injuries job reads ESPN. It reads the ESPN team
+  // rosters (shared with the roster-status run's sweep), so it needs no Tank01
+  // credentials. Still hand-runnable (admin dashboard, /api/scoring/sync-players).
   { name: 'player-sync', tier: 'housekeeping', syncRun: ['players'], run: () => runDailyPlayerSync() },
   // Weather snapshots (#1883): after live scoring and every deadline duty, ahead
   // of the multi-minute nightly fill; it never throws.

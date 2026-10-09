@@ -618,6 +618,17 @@ test('normalizeTeamRoster (#2117): each row carries the athlete name, position, 
   assert.ok(rows.some((r) => r.jerseyNumber === null), 'an athlete with no jersey in the document reads null, not undefined');
 });
 
+test('normalizeTeamRoster (#2117): an athlete in an unmapped group listed before his mapped one still gets the mapped status', () => {
+  const rows = normalizeTeamRoster({
+    athletes: [
+      { position: 'mystery', items: [{ id: '1', fullName: 'First Group Name' }, { id: '2' }] },
+      { position: 'offense', items: [{ id: '1', fullName: 'Later Group Name' }] },
+    ],
+  }, 'NYG');
+  assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus]), [['1', 'active'], ['2', null]]);
+  assert.equal(rows[0].name, 'First Group Name', 'the first group still supplies the other fields');
+});
+
 test('normalizeTeamRoster (#2117): a bare item with only an id gets null name, position, jersey and photo', () => {
   const [row] = normalizeTeamRoster({ athletes: [{ position: 'offense', items: [{ id: '7' }] }] }, 'NYG');
   assert.deepEqual(row, {

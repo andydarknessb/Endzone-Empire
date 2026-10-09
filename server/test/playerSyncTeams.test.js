@@ -134,6 +134,32 @@ test('#1385: a stored player ESPN still rosters at a non-fantasy position is on 
 
   assert.equal(fake.matching(update('players')).length, 0);
   assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  assert.equal(result.skippedNonFantasy, 0, 'a stored athlete is not skipped, only team-written');
+  fake.assertClean();
+});
+
+test('#2117: a stored player ESPN lists at a non-fantasy position still moves teams, keeping his stored name and position; an unstored one is skipped', async (t) => {
+  let insertParams = null;
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      // Tank01 called fullbacks RB; ESPN lists them FB.
+      rows: [{ id: 801, external_id: '801', name: 'Stored Fullback', position: 'RB', nfl_team: 'KC' }],
+    }), 'client'],
+    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  const result = await syncPlayers({
+    season: 2026,
+    sweep: sweepOf([row(801, 'SF', { name: 'ESPN Fullback Name', position: 'FB' }), row(802, 'SF', { position: 'OT' })]),
+  });
+
+  assert.deepEqual(insertParams[0], ['801'], 'the stored fullback is upserted, the unstored tackle is not');
+  assert.deepEqual(insertParams[1], ['Stored Fullback'], 'his stored name stays');
+  assert.deepEqual(insertParams[2], ['RB'], 'his stored position stays');
+  assert.deepEqual(insertParams[3], ['SF'], 'his team moves with his roster');
+  assert.deepEqual(teamCounts(result), { teamChanges: 1, teamsCleared: 0, teamsDeferred: 0 });
   assert.equal(result.skippedNonFantasy, 1);
   fake.assertClean();
 });

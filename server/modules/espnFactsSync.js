@@ -132,7 +132,7 @@ function sharedRosterSweep({ transport } = {}) {
     return sharedSweep.promise;
   }
   const promise = sweepTeams({
-    job: 'espn-roster-status',
+    job: 'espn-roster-sweep',
     fetchTeam: (teamCode) => espnAthleteClient.teamRoster(teamCode, { transport }),
   });
   const entry = { transport, promise, expires: Date.now() + SHARED_SWEEP_TTL_MS };

@@ -482,7 +482,7 @@ test('sharedRosterSweep: a team that answers with no athletes also makes the swe
 
 test('sharedRosterSweep: a failed sweep is never cached, the next read sweeps again', async () => {
   const dead = { calls: 0, get: async () => { dead.calls += 1; throw forbidden(); } };
-  await assert.rejects(sharedRosterSweep({ transport: dead }));
+  await assert.rejects(sharedRosterSweep({ transport: dead }), /espn-roster-sweep: .*consecutive/, 'the error names the sweep, not one job that reads it');
   const callsAfterFirst = dead.calls;
   await assert.rejects(sharedRosterSweep({ transport: dead }));
   assert.ok(dead.calls > callsAfterFirst, 'the failure was not held');

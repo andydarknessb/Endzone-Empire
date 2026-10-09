@@ -31,19 +31,19 @@ const tank01BoxSource = require('./tank01BoxSource');
 const espnAthleteClient = require('../modules/espnAthleteClient');
 const { sharedRosterSweep } = require('../modules/espnFactsSync');
 
-// Fantasy-relevant positions — Tank01's full player list includes every
-// position (OL, C, G, ...); only these are useful in a lineup. Individual
-// defenders (DL/LB/DB group members — DE/DT/NT/LB/ILB/OLB/CB/S/FS/SS) are
-// included so DP-enabled leagues can roster them; they keep their specific
-// Tank01 position for display (see lineup.service.js's POSITION_GROUPS,
-// which expands DL/LB/DB slot eligibility to match).
+// Fantasy-relevant positions — an ESPN team roster lists every position (OL, C,
+// G, ...); only these are useful in a lineup. Individual defenders (DL/LB/DB
+// group members — DE/DT/NT/LB/ILB/OLB/CB/S/FS/SS) are included so DP-enabled
+// leagues can roster them; they keep the specific position code ESPN gives
+// for display (see lineup.service.js's POSITION_GROUPS, which expands DL/LB/DB
+// slot eligibility to match).
 const FANTASY_POSITIONS = new Set([
   'QB', 'RB', 'WR', 'TE', 'K', 'PK', 'DEF',
   ...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB,
 ]);
 
-// Individual-defender position codes as stored on players rows (Tank01's
-// specific codes, not the DL/LB/DB roster-group keys).
+// Individual-defender position codes as stored on players rows (the specific
+// codes, not the DL/LB/DB roster-group keys).
 const IDP_POSITIONS = [...POSITION_GROUPS.DL, ...POSITION_GROUPS.LB, ...POSITION_GROUPS.DB];
 
 // Every position whose season rollups come from our own player_stats weeklies
@@ -60,8 +60,8 @@ const DEFENSIVE_POSITIONS = ['DEF', ...IDP_POSITIONS];
  * read from (already our canonical code), `photoUrl` and `jerseyNumber` are null
  * when ESPN omits them.
  *
- * Exported as a test-only seam (a player normaliser), not cross-module
- * interface: no other module calls this directly.
+ * Called by applySyncPlayersUnit; exported for its unit tests, not as
+ * cross-module interface: no other module calls this directly.
  */
 function normalizeRosterRow(row) {
   let position = row && row.position && String(row.position).toUpperCase();
@@ -81,7 +81,10 @@ function normalizeRosterRow(row) {
  * Discover and refresh the NFL player pool from the 32 ESPN team rosters (#2117,
  * ADR 0060: Tank01 is the fallback and Final box only). Upserts by external_id,
  * which is the ESPN athlete id (ADR 0035): existing players get their
- * name/position/team refreshed, new ones are inserted. Runs daily on the
+ * name/position/team refreshed, new ones are inserted. A stored player whose
+ * ESPN position is outside FANTASY_POSITIONS (a fullback stored as RB and listed
+ * FB, a long snapper) still gets his team written, with his stored name and
+ * position kept. Runs daily on the
  * scheduler (`player-sync`, #2115, no credentials needed) and stays hand-runnable
  * from the admin dashboard or POST /api/scoring/sync-players.
  *
@@ -110,8 +113,8 @@ function normalizeRosterRow(row) {
  * (#1204). The one unit (every roster row) upserts in a single transaction: a
  * mid-run upsert failure rolls the whole unit back. Resolved shape:
  * `{ season, playersUpserted, skippedNonFantasy, rosterComplete, teamChanges,
- * teamsCleared, teamsDeferred }` - a feed carrying a duplicate `external_id`
- * counts it once in `playersUpserted` (#1251's JS-side dedup).
+ * teamsCleared, teamsDeferred }` - a roster set listing a duplicate id counts
+ * it once in `playersUpserted` (#1251's JS-side dedup).
  *
  * The #1562 identity guard (a second Tank01 `playerID` minted for an athlete
  * already stored under his ESPN id) is gone with Tank01's ids: the roster's id IS
@@ -146,6 +149,11 @@ async function syncPlayers({ season, now = new Date(), sweep = sharedRosterSweep
  * once in `playersUpserted`. An empty batch issues no write statement.
  */
 async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete = false }, now = new Date()) {
+  const existing = await client.query(
+    `SELECT "id", "external_id", "name", "position", "nfl_team" FROM "players" WHERE "external_id" IS NOT NULL`
+  );
+  const existingByExternalId = new Map(existing.rows.map((row) => [Number(row.external_id), row]));
+
   let skipped = 0;
   const byExternalId = new Map();
   // Every athlete on any roster, fantasy position or not: a stored player ESPN
@@ -154,18 +162,28 @@ async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete
   for (const raw of rosterRows) {
     onRoster.add(Number(raw.athleteId));
     const parsed = normalizeRosterRow(raw);
-    if (!parsed) {
+    if (parsed) {
+      byExternalId.set(Number(parsed.externalId), parsed);
+      continue;
+    }
+    // Not a fantasy row as ESPN lists him (a non-fantasy position, or no name).
+    // A STORED player still moves with his roster: write the roster team and keep
+    // his stored name and position. An athlete we do not store is skipped.
+    const stored = existingByExternalId.get(Number(raw.athleteId));
+    if (!stored || !raw.teamCode) {
       skipped += 1;
       continue;
     }
-    byExternalId.set(Number(parsed.externalId), parsed);
+    byExternalId.set(Number(raw.athleteId), {
+      externalId: String(raw.athleteId),
+      name: stored.name,
+      position: stored.position,
+      nflTeam: raw.teamCode,
+      photoUrl: raw.photoUrl ?? null,
+      jerseyNumber: raw.jerseyNumber ?? null,
+    });
   }
   const rows = Array.from(byExternalId.values());
-
-  const existing = await client.query(
-    `SELECT "id", "external_id", "name", "position", "nfl_team" FROM "players" WHERE "external_id" IS NOT NULL`
-  );
-  const existingByExternalId = new Map(existing.rows.map((row) => [Number(row.external_id), row]));
 
   if (rows.length > 0) {
     await client.query(

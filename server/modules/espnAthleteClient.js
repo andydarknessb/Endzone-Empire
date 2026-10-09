@@ -305,7 +305,7 @@ const ROSTER_GROUP_STATUS = Object.freeze({
  */
 function normalizeTeamRoster(payload, teamCode) {
   const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
-  const seen = new Set();
+  const seen = new Map();
   const rows = [];
   for (const group of groups) {
     if (!group) continue;
@@ -317,10 +317,15 @@ function normalizeTeamRoster(payload, teamCode) {
     for (const item of items) {
       if (!item || item.id == null || item.id === '') continue;
       const athleteId = String(item.id);
-      if (seen.has(athleteId)) continue;
-      seen.add(athleteId);
+      const earlier = seen.get(athleteId);
+      if (earlier) {
+        // First group wins, except that a mapped status beats an unmapped
+        // group's null for the same athlete.
+        if (earlier.rosterStatus === null && rosterStatus !== null) earlier.rosterStatus = rosterStatus;
+        continue;
+      }
       const jersey = item.jersey != null && String(item.jersey) !== '' ? String(item.jersey).slice(0, 8) : null;
-      rows.push({
+      const row = {
         athleteId,
         teamCode,
         rosterStatus,
@@ -330,7 +335,9 @@ function normalizeTeamRoster(payload, teamCode) {
         position: item.position && item.position.abbreviation ? String(item.position.abbreviation) : null,
         jerseyNumber: jersey,
         photoUrl: item.headshot && item.headshot.href ? String(item.headshot.href) : null,
-      });
+      };
+      seen.set(athleteId, row);
+      rows.push(row);
     }
   }
   return rows;
@@ -502,11 +509,14 @@ async function teamDepthChart(teamCode, { transport } = {}) {
   return payload ? normalizeDepthChart(payload, teamCode) : null;
 }
 
-/** This team's NFL roster -> `{ athleteId, teamCode, rosterStatus }[]` (never
- * cached: the daily roster-status Sync run's table is the cache). `null` for an
- * unknown team code or any fetch failure, `[]` when ESPN answered with no
- * usable groups - `espnFactsSync.js`'s `fetchRosterStatus` tells the two apart.
- * Never throws. */
+/** This team's NFL roster -> `{ athleteId, teamCode, rosterStatus, name, position,
+ * jerseyNumber, photoUrl }[]` (`normalizeTeamRoster`'s rows: `rosterStatus` is
+ * null for an athlete in a group ROSTER_GROUP_STATUS does not map, and the last
+ * four are null when ESPN omits them). Not cached here: `espnFactsSync.js`'s
+ * `sharedRosterSweep` holds the 32-team sweep for ten minutes, and the daily
+ * roster-status table is the durable cache. `null` for an unknown team code or
+ * any fetch failure, `[]` when ESPN answered with no usable groups -
+ * `sweepTeams` tells the two apart. Never throws. */
 async function teamRoster(teamCode, { transport } = {}) {
   const code = String(teamCode || '').toUpperCase();
   const numericId = ESPN_TEAM_NUMERIC_ID[code];

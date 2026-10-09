@@ -170,8 +170,8 @@ test('syncPlayerSeasonStats upserts every rollup inside one transaction under PL
 // upsert each, so the number of write statements per unit is a fixed
 // constant, not one per row. Each test drives a unit of hundreds of rows -
 // this goes red against the old per-row loop, which issued one INSERT per
-// row between the lock and COMMIT. #1562 adds one fixed existing-rows SELECT
-// (the identity guard's own read) ahead of that INSERT - still one query
+// row between the lock and COMMIT. The player sync also reads the stored
+// players once (team moves and clears) ahead of that INSERT - still one query
 // each, independent of row count.
 test('syncPlayers issues a fixed number of statements between the lock and COMMIT regardless of row count', async (t) => {
   const rows = Array.from({ length: 250 }, (_, i) => rosterRow(2000 + i, 'BUF'));
