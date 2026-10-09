@@ -36,6 +36,15 @@ services:
         value: https://endzoneempire.gg,https://www.endzoneempire.gg
       - key: DATABASE_URL_RUNTIME
         sync: false
+      # Web push (push.service.js): without both keys every send no-ops and the
+      # Notification settings switch never appears. Generate a pair once with
+      # `npx web-push generate-vapid-keys` and set the same pair on both services.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: https://endzoneempire.gg
       - key: DATABASE_URL_MIGRATIONS
         sync: false
       # preDeployCommand above runs `knex migrate:latest` through
@@ -131,6 +140,15 @@ services:
         value: https://endzoneempire.gg,https://www.endzoneempire.gg
       - key: DATABASE_URL_RUNTIME
         sync: false
+      # Web push (push.service.js): without both keys every send no-ops and the
+      # Notification settings switch never appears. Generate a pair once with
+      # `npx web-push generate-vapid-keys` and set the same pair on both services.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: https://endzoneempire.gg
       - key: DB_SSL_CA
         sync: false
       - key: REDIS_URL
