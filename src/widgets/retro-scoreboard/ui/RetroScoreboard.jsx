@@ -2,7 +2,6 @@ import React from 'react';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { matchupHasStarted } from '../model/scoreboardModel';
 import LedBoard from './LedBoard';
 import RetroField from './RetroField';
 import LineupsCard from './LineupsCard';
@@ -31,20 +30,20 @@ import GamesTile from './GamesTile';
  *     reads each side's name, score, Expected final and Players remaining, the
  *     week and the status.
  *   - `leagueName`: the league's name for the board's top line.
- *   - `viewerTeamId`: the viewer's own Team id; a settled Matchup's result line
- *     on the board reads from that side ("You won by 6.2", #2007).
+ *   - `board`: the entity's `matchupBoard(matchup, viewerTeamId)` (#2142): the
+ *     LED board prints its score text, Players remaining, result line ("You
+ *     won by 6.2", #2007) and Win probability, and the field its sprites'
+ *     position. The widget prices, picks and formats none of them.
  *   - `rows`: the paired starter rows the Matchup page model hands down
  *     (`[{ slot, home, away }]`, `pairStartersBySlot` from `entities/roster`;
  *     #1210 moved the pairing out of `entities/matchup`), rendered as given.
  *   - `games`: the live_game_states rows on `model.games`.
  *   - `activePlay`: `{ side, type, isTouchdown, nflTeam, opponent }` or null;
  *     a touchdown dashes that side's sprite, a moment play flashes the callout.
- *   - `homeProb`: the home win probability, 0..1 (null when unpriced). It is
- *     shown only once the Matchup has started, read through the entity's one
- *     predicate exactly as the Standard view's strip gates its bar (#903
- *     review, scoreboardModel.matchupHasStarted): before kickoff, or under a
- *     status the server could not compute, the board prints no WIN row and
- *     the field parks both sprites at the neutral midpoint.
+ *     The board's `winProbability` is stated once the Matchup has started
+ *     (#903 review): before kickoff, or under a status the server could not
+ *     compute, the LED board prints no WIN row and the field parks both
+ *     sprites at the neutral midpoint.
  *   - `headingLevel`: the level of the two cards' headings (default 2), so a
  *     page slots the widget under its own heading without skipping a level.
  *   - `onFullComparison`: optional; when given the Lineups card grows a "Full
@@ -64,11 +63,10 @@ import GamesTile from './GamesTile';
 export default function RetroScoreboard({
   matchup,
   leagueName,
-  viewerTeamId,
+  board,
   rows,
   games,
   activePlay,
-  homeProb,
   headingLevel = 2,
   onFullComparison,
   ticker,
@@ -84,18 +82,14 @@ export default function RetroScoreboard({
   if (!matchup) return null;
 
   const gap = mobile ? '12px' : '16px';
-  // The probability is shown only once the Matchup has started (the strip's
-  // rule): before kickoff, or under an unknown status, the board prints no
-  // WIN row and the field reads an unknown probability (sprites at midfield).
-  const started = matchupHasStarted(matchup.status);
-  const shownProb = started ? homeProb : null;
+  const shownProb = board.winProbability?.home ?? null;
 
   return (
     <Box
       data-testid="retro-scoreboard"
       sx={{ display: 'flex', flexDirection: 'column', gap, fontFamily: 'var(--dash-font-body)' }}
     >
-      <LedBoard matchup={matchup} leagueName={leagueName} homeProb={shownProb} showWin={started} viewerTeamId={viewerTeamId} mobile={mobile} />
+      <LedBoard matchup={matchup} board={board} leagueName={leagueName} mobile={mobile} />
       <RetroField
         homeName={matchup.home?.name}
         awayName={matchup.away?.name}

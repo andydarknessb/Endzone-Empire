@@ -5,7 +5,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark } from '../../../shared/ui';
 import { matchupBoard } from '../../../entities/matchup';
 import { starterStateView } from '../../../shared/lib';
-import { ledFigure, ledScore, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
+import { ledFigure, lineupNoteParts, positionRingKey } from '../model/scoreboardModel';
 import Icon from './icons';
 
 /**
@@ -177,7 +177,7 @@ function Side({ player, side }) {
 // as the LED board hides it, though the server still prices one (#2010 QA).
 function Total({ team, side, settled }) {
   const ef = settled ? null : team?.expectedFinal;
-  const score = <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{ledScore(team?.score)}</Box>;
+  const score = <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{team?.scoreLabel}</Box>;
   const note = ef != null && ef !== '' ? <Box component="span" data-testid="lineup-exp-final" sx={TOTAL_NOTE}>Exp final {ledFigure(ef)}</Box> : null;
   return (
     <Box data-testid={`lineup-total-${side}`} sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
@@ -196,7 +196,8 @@ const DISPLAY_NUM = {
 
 export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullComparison, mobile }) {
   const list = rows || [];
-  const { settled } = matchupBoard(matchup);
+  const board = matchupBoard(matchup);
+  const { settled } = board;
   return (
     <Card
       data-testid="lineups-card"
@@ -268,11 +269,11 @@ export default function LineupsCard({ rows, matchup, headingLevel = 2, onFullCom
               borderRadius: '0 0 var(--dash-radius) var(--dash-radius)',
             }}
           >
-            <Total team={matchup?.home} side="home" settled={settled} />
+            <Total team={board.home} side="home" settled={settled} />
             <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--dash-faint)' }}>
               Totals
             </Box>
-            <Total team={matchup?.away} side="away" settled={settled} />
+            <Total team={board.away} side="away" settled={settled} />
           </Box>
         </>
       )}
