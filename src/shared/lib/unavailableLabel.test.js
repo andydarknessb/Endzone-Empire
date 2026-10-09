@@ -9,6 +9,7 @@ describe('unavailableLabel', () => {
     expect(unavailableLabel('ir')).toBe('on IR');
     expect(unavailableLabel('no_team')).toBe('no team');
     expect(unavailableLabel('practice_squad')).toBe('practice squad');
+    expect(unavailableLabel('suspended')).toBe('suspended');
   });
 
   it('returns null for an unknown or missing reason', () => {

@@ -98,3 +98,17 @@ nothing on the card blocks on ESPN.
   flipped by kickoff reads Practice squad, projects to zero and is never
   auto-started until the next hourly run. No tolerance rule is built, because
   no source lists elevations (#1764).
+
+## Amendment (#2150)
+
+- 2026-10-09. The roster-status mapping above changes for one group: ESPN's
+  `suspended` group is now its own NFL roster status, Suspended, no longer
+  Reserve (`injuredReserveOrOut` stays Reserve). A fresh Suspended row (the
+  same 48-hour freshness as the Practice squad) makes the player Unavailable
+  with reason `suspended`, checked right after the Practice squad and before
+  Out; the projected number is unchanged and no injury designation is added,
+  so a suspended player is not IR-eligible. The card shows "Suspended". The
+  last sentence of the 2026-09-29 entry ("nothing reads the status for
+  availability yet") was superseded by #1767 for the Practice squad and is
+  now also false for Suspended. `player_nfl_roster_status.roster_status` was
+  widened to admit `suspended` by #2155.

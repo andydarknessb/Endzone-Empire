@@ -282,8 +282,8 @@ function normalizeDepthChart(payload, teamCode) {
 /**
  * ESPN's team-roster group -> NFL roster status (#1766). The roster document
  * files every athlete under one group: offense/defense/specialTeam are the
- * 53-man Active roster, injuredReserveOrOut/suspended are Reserve,
- * practiceSquad is the Practice squad. A group not named here is skipped, not
+ * 53-man Active roster, injuredReserveOrOut is Reserve, suspended is Suspended
+ * (#2150), practiceSquad is the Practice squad. A group not named here is skipped, not
  * guessed: an unknown group is ESPN adding a shape, never an Active player. Its
  * athletes get a null status (see normalizeTeamRoster), not a made-up one.
  */
@@ -292,7 +292,7 @@ const ROSTER_GROUP_STATUS = Object.freeze({
   defense: 'active',
   specialTeam: 'active',
   injuredReserveOrOut: 'reserve',
-  suspended: 'reserve',
+  suspended: 'suspended',
   practiceSquad: 'practice_squad',
 });
 
@@ -300,7 +300,7 @@ const ROSTER_GROUP_STATUS = Object.freeze({
  * Pure: one team's site-API roster document -> `{ athleteId, teamCode,
  * rosterStatus, name, position, jerseyNumber, photoUrl, injuryStatus }[]`, one
  * per athlete (the first group an athlete appears in wins). `rosterStatus` is
- * `'active' | 'practice_squad' | 'reserve' | null` (null: a group not named in
+ * `'active' | 'practice_squad' | 'reserve' | 'suspended' | null` (null: a group not named in
  * ROSTER_GROUP_STATUS); the last five are null when ESPN omits them.
  * `injuryStatus` (#2148) is ESPN's own string from the athlete's first
  * `injuries` entry (Questionable, Out, Injured Reserve ...), untouched; the

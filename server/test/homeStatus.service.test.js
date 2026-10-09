@@ -102,6 +102,20 @@ test('lineupStatus reads the same 48-hour Practice squad freshness window as una
   assert.deepEqual(psRunner(new Date('2026-10-04T13:00:00.000Z')), []);
 });
 
+test('lineupStatus flags a suspended starter (#2150)', () => {
+  const problems = unlockedProblems({
+    entries: [
+      entry('RB', 'Banned Runner', {
+        nflTeam: 'GB',
+        nflRosterStatus: { status: 'suspended', capturedAt: '2026-10-03T12:00:00.000Z' },
+      }),
+    ],
+    rosterSlots: slots({ RB: 1 }),
+    bestBall: false,
+  });
+  assert.deepEqual(problems, ['Banned Runner (RB) is suspended']);
+});
+
 test('lineupStatus: a locked Practice squad starter sheds his problem too, like a locked bye or injury', () => {
   const status = homeStatus.lineupStatus({
     entries: [entry('QB', 'Locked PS Quarterback', {
