@@ -140,7 +140,8 @@ The two instances, both from #2048:
 - `src/components/common/LeagueStatusCard.jsx` imports `matchupBoard` from
   `src/entities/matchup/model/matchupBoard`, not from the entity index.
 - `src/entities/matchup/model/matchupBoard.js` imports `matchupWinProbability`
-  from `src/shared/lib/winProbability`, not from the `shared/lib` index.
+  from its sibling `winProbability.js` (moved from `shared/lib` in #2142), so it
+  reaches neither the `shared/lib` index nor the entity index.
 
 With both in place the initial chunk is 246.19 KiB. A third narrow import needs
 the same justification: name the file, name the lazy code the index would add,
