@@ -100,7 +100,7 @@ export default function MatchupPage() {
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
     matchup, starterRows, loading, error, refetch, leagueName, viewerTeamId, records,
-    statusChip, isLive, canSetLineup, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
+    statusChip, isLive, canSetLineup, isPlayoff, board, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
@@ -154,9 +154,7 @@ export default function MatchupPage() {
   const lineupHref = `/league/${leagueId}/lineup`;
   // Which side of the table is the viewer's, for the empty slot's "Set lineup"
   // link (#2008): null for a non-participant.
-  const viewerSide = viewerTeamId == null ? null
-    : matchup?.home?.teamId === viewerTeamId ? 'home'
-      : matchup?.away?.teamId === viewerTeamId ? 'away' : null;
+  const { viewerSide } = board;
 
   // The Decision card's entry for whichever player a name link opened
   // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the
@@ -238,11 +236,10 @@ export default function MatchupPage() {
             <RetroScoreboard
               matchup={matchup}
               leagueName={leagueName}
-              viewerTeamId={viewerTeamId}
+              board={board}
               rows={starterRows}
               games={games}
               activePlay={retroActivePlay}
-              homeProb={homeProb}
               headingLevel={2}
               onFullComparison={showStandard}
               ticker={isLive ? <LastPlays items={ticker} mobile={compact} /> : null}
@@ -259,6 +256,7 @@ export default function MatchupPage() {
                 homeName={homeName}
                 awayName={awayName}
                 expectedFinal={{ home: matchup.home.expectedFinal, away: matchup.away.expectedFinal }}
+                scoreLabels={{ home: board.home.scoreLabel, away: board.away.scoreLabel }}
                 status={matchup.status}
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}

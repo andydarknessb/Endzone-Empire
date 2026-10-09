@@ -1,4 +1,4 @@
-import { useEndpoint, matchupWinProbability, formatKickoff, finite, teamNameLabel } from '../../../shared/lib';
+import { useEndpoint, formatKickoff, finite, teamNameLabel } from '../../../shared/lib';
 import { useLeague } from '../../../hooks/useLeague';
 import {
   useWeekMatchups,
@@ -164,7 +164,8 @@ export function useMatchupPreview(leagueId) {
   // The Matchup's status, through the entity's `matchupBoard` (ADR 0030: status
   // is a server fact, never inferred here). `hasStarted` is true / false /
   // null, and every branch below tests it against an explicit value.
-  const { hasStarted, chip } = matchupBoard(myMatchup, viewerTeamId);
+  const board = matchupBoard(myMatchup, viewerTeamId);
+  const { hasStarted, chip } = board;
 
   // Whether the detail read stands any chance of answering: the list didn't
   // already answer both sides, AND the league isn't best-ball (#688, where
@@ -292,9 +293,9 @@ export function useMatchupPreview(leagueId) {
   // bar, no caption), so the card asserts neither state (the entity's
   // `hasStarted === null` contract).
   //
-  // The win probability is the SAME helper Game Center's hero reads
-  // (shared/lib, ADR 0031, #1120), computed from the two scores and the two
-  // Expected finals, so the two surfaces cannot disagree. It is never a
+  // The win probability is the board's (#2142), the same figure Game Center's
+  // hero reads, computed from the two scores and the two Expected finals, so
+  // the two surfaces cannot disagree. It is never a
   // points ratio: SplitBar's accessible name is
   // the hard-coded "Win probability" (#872), and a ratio there would announce a
   // number that is not one. The share is clamped and rounded exactly as
@@ -302,15 +303,9 @@ export function useMatchupPreview(leagueId) {
   // because the card lays the viewer out on the left where SplitBar paints its
   // `homeShare` segment.
   let winProbability = null;
-  if (status === 'ready' && hasStarted === true) {
-    const shares = matchupWinProbability({
-      homeScore: finite(myMatchup.home.score) ?? 0,
-      awayScore: finite(myMatchup.away.score) ?? 0,
-      homeExpectedFinal: myMatchup.home.expectedFinal,
-      awayExpectedFinal: myMatchup.away.expectedFinal,
-      status: myMatchup.status,
-    });
-    const raw = myMatchup.home.teamId === viewerTeamId ? shares.home : shares.away;
+  if (status === 'ready' && board.winProbability) {
+    const shares = board.winProbability;
+    const raw = board.viewerSide === 'home' ? shares.home : shares.away;
     const clamped = Math.max(0, Math.min(1, Number(raw) || 0));
     const viewerPct = Math.round(clamped * 100);
     winProbability = { viewerShare: clamped, viewerPct, opponentPct: 100 - viewerPct };

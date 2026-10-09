@@ -1,4 +1,4 @@
-import { matchupHeroView, heroSentence } from './matchupHeroView';
+import { matchupHeroView } from './matchupHeroView';
 import { formatKickoff } from '../../../shared/lib';
 
 // The canvas's live Sunday (docs/design/game-center-matchups/build.mjs, HERO):
@@ -18,27 +18,13 @@ const live = {
   away: frost,
 };
 
-describe('heroSentence', () => {
-  test.each([
-    ['the canvas sentence, from the home viewer', { me: dock, them: frost, status: 'live' }, 'Ahead now, projected to trail by 13.4 with 6 of theirs still to play'],
-    ['the same matchup from the away viewer', { me: frost, them: dock, status: 'live' }, 'Behind now, projected to lead by 13.4 with 4 of theirs still to play'],
-    ['names the viewer\'s own starters when the opponent has none left', { me: { ...dock, playersRemaining: 3 }, them: { ...frost, playersRemaining: 0 }, status: 'live' }, 'Ahead now, projected to trail by 13.4 with 3 of yours still to play'],
-    ['drops the remaining clause when nobody has anyone left', { me: { ...dock, playersRemaining: 0 }, them: { ...frost, playersRemaining: 0 }, status: 'live' }, 'Ahead now, projected to trail by 13.4'],
-    ['drops the projection when an Expected final is unknown', { me: { ...dock, expectedFinal: null }, them: frost, status: 'live' }, 'Ahead now with 6 of theirs still to play'],
-    ['a projected tie reads as even', { me: { ...dock, expectedFinal: '100.0' }, them: { ...frost, expectedFinal: '100.04' }, status: 'live' }, 'Ahead now, projected to finish even with 6 of theirs still to play'],
-    ['a level score reads as tied now', { me: { ...dock, score: '50.0' }, them: { ...frost, score: '50.0' }, status: 'live' }, 'Tied now, projected to trail by 13.4 with 6 of theirs still to play'],
-    ['awaiting the final while ahead', { me: dock, them: frost, status: 'played', settled: true }, 'Ahead by 5.2, awaiting the final'],
-    ['awaiting the final while behind', { me: frost, them: dock, status: 'played', settled: true }, 'Behind by 5.2, awaiting the final'],
-    ['awaiting the final while tied', { me: { score: '1' }, them: { score: '1' }, status: 'played', settled: true }, 'Tied, awaiting the final'],
-    ['a win once final', { me: dock, them: frost, status: 'final', settled: true }, 'Won by 5.2'],
-    ['a loss once final', { me: frost, them: dock, status: 'final', settled: true }, 'Lost by 5.2'],
-    ['a tie once final', { me: { score: '88.8' }, them: { score: '88.8' }, status: 'final', settled: true }, 'Tied'],
-  ])('%s', (_label, input, expected) => {
-    expect(heroSentence(input)).toBe(expected);
-  });
-});
-
 describe('matchupHeroView', () => {
+  test('carries the board score text, 0.0 when the Matchup has no score yet', () => {
+    expect(matchupHeroView(live, 10).scoreLabels).toEqual({ home: '82.2', away: '77.0' });
+    const bare = { ...live, status: 'scheduled', home: { ...dock, score: null }, away: { ...frost, score: undefined } };
+    expect(matchupHeroView(bare, 10).scoreLabels).toEqual({ home: '0.0', away: '0.0' });
+  });
+
   test('finds the viewer side by Team id, not by home/away', () => {
     expect(matchupHeroView(live, 20).viewerSide).toBe('away');
     expect(matchupHeroView(live, 10).viewerSide).toBe('home');
@@ -110,7 +96,7 @@ describe('matchupHeroView', () => {
       10
     );
     expect(view.winProbability.homePct).toBeGreaterThan(50);
-    expect(view.sentence).toBe('Won by 5.2');
+    expect(view.sentence).toBe('You won by 5.2');
     // The canvas's `.chip.final`: the success chip, no live dot.
     expect(view.chipLabel).toBe('Final');
     expect(view.chipVariant).toBe('success');
@@ -119,6 +105,11 @@ describe('matchupHeroView', () => {
 
   // Red-tell (#897): collapsing the variant map back to live-or-neutral turns
   // this case and the final case above red (both read a third variant).
+  test('a settled matchup states the board result line, in the same words as the Matchup page', () => {
+    expect(matchupHeroView({ ...live, status: 'played' }, 10).sentence).toBe('Unofficial: You won by 5.2');
+    expect(matchupHeroView({ ...live, status: 'final' }, 20).sentence).toBe('You lost by 5.2');
+  });
+
   test('a played matchup carries the warning chip without the live dot', () => {
     const view = matchupHeroView({ ...live, status: 'played' }, 10);
     expect(view.chipLabel).toBe('Awaiting final');

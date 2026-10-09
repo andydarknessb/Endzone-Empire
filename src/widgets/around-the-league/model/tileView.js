@@ -1,5 +1,5 @@
 import { matchupBoard } from '../../../entities/matchup';
-import { matchupWinProbability, finite, formatPoints } from '../../../shared/lib';
+import { formatPoints } from '../../../shared/lib';
 
 /**
  * The per-tile view of one Matchup for the around-the-league widget (#1103):
@@ -15,10 +15,9 @@ import { matchupWinProbability, finite, formatPoints } from '../../../shared/lib
  *     true only once the board says `hasStarted === true`; every other
  *     value (false, or the unknown-status null) reads the projected total,
  *     matching matchup-grid's own `scheduled ? ef : score` convention.
- *   - The win probability is the same arithmetic the hero and matchup-grid
- *     use (shared/lib, ADR 0031, #1120), computed from whatever the two sides
- *     carry: before kickoff that is a projections-only split (each side's
- *     score reads 0), once live it moves with the score. The tile's SplitBar
+ *   - The win probability is the entity board's (#2142), the same figure the
+ *     hero and matchup-grid read: before kickoff that is the projections-only
+ *     split, once live it moves with the score. The tile's SplitBar
  *     is never gated on `started`, unlike matchup-grid's hairline-before-
  *     kickoff divider: the design source (docs/design/league-dashboard-v2/
  *     build.mjs, aroundLeague()) paints every tile's bar unconditionally.
@@ -39,7 +38,8 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   const m = matchup || {};
   const home = m.home || {};
   const away = m.away || {};
-  const { hasStarted } = matchupBoard(m, viewerTeamId);
+  const board = matchupBoard(m, viewerTeamId);
+  const { hasStarted } = board;
   const started = hasStarted === true;
   // Matches matchup-grid's matchupCardView: the projected total shows unless
   // the server's status fact says the Matchup has started. An unknown status
@@ -48,28 +48,23 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
   // server could not say how far along it is.
   const scheduled = hasStarted === false;
 
-  const probability = matchupWinProbability({
-    homeScore: finite(home.score) ?? 0,
-    awayScore: finite(away.score) ?? 0,
-    homeExpectedFinal: home.expectedFinal,
-    awayExpectedFinal: away.expectedFinal,
-    status: m.status,
-  });
+  // The board states no probability for an unknown status: the tile draws no bar.
+  const probability = board.winProbability ?? board.projectedWinProbability;
 
   // Per-side, so the UI can name WHICH side is the viewer's own (the "You"
   // pill sits on that side's row, never on both, and never guessed from
   // home/away position - #112).
-  const side = (s) => ({
+  const side = (s, key) => ({
     teamId: s.teamId ?? null,
     name: s.name ?? '',
     avatarUrl: s.avatarUrl ?? null,
     avatarStaticUrl: s.avatarStaticUrl ?? null,
     figure: scheduled ? formatPoints(s.expectedFinal) : formatPoints(s.score),
-    isViewer: viewerTeamId != null && s.teamId === viewerTeamId,
+    isViewer: key === board.viewerSide,
   });
 
-  const homeSide = side(home);
-  const awaySide = side(away);
+  const homeSide = side(home, 'home');
+  const awaySide = side(away, 'away');
 
   return {
     id: m.id ?? null,
@@ -85,7 +80,7 @@ export function aroundLeagueTileView(matchup, { viewerTeamId } = {}) {
     scheduled,
     // The tile-level ring (#1103): true when either side is the viewer's.
     isViewer: homeSide.isViewer || awaySide.isViewer,
-    homeShare: probability.home,
+    homeShare: probability ? probability.home : null,
     home: homeSide,
     away: awaySide,
   };

@@ -239,9 +239,9 @@ export default function LineupPage() {
   const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
   // The board nulls a settled week's Expected final (#2048), so a played week
   // draws no line even though the server still prices one.
-  const board = matchupBoard(viewerMatchup);
+  const board = matchupBoard(viewerMatchup, viewerTeamId);
   const expectedFinals = viewerMatchup
-    ? viewerMatchup.home.teamId === viewerTeamId
+    ? board.viewerSide === 'home'
       ? { mine: board.home.expectedFinal, theirs: board.away.expectedFinal }
       : { mine: board.away.expectedFinal, theirs: board.home.expectedFinal }
     : null;
