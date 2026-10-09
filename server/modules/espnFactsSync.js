@@ -210,6 +210,7 @@ function applyRosterStatusUnit(capturedDate) {
     const statuses = [];
     const capturedDates = [];
     for (const row of rows) {
+      if (!row.rosterStatus) continue; // a group we don't map: on the roster, but no status to record
       const playerId = idByExternalId.get(Number(row.athleteId));
       if (!playerId) continue; // ESPN reports an athlete we don't roster - skip, don't invent a player
       playerIds.push(playerId);

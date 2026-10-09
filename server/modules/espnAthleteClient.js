@@ -284,7 +284,8 @@ function normalizeDepthChart(payload, teamCode) {
  * files every athlete under one group: offense/defense/specialTeam are the
  * 53-man Active roster, injuredReserveOrOut/suspended are Reserve,
  * practiceSquad is the Practice squad. A group not named here is skipped, not
- * guessed: an unknown group is ESPN adding a shape, never an Active player.
+ * guessed: an unknown group is ESPN adding a shape, never an Active player. Its
+ * athletes get a null status (see normalizeTeamRoster), not a made-up one.
  */
 const ROSTER_GROUP_STATUS = Object.freeze({
   offense: 'active',
@@ -299,15 +300,19 @@ const ROSTER_GROUP_STATUS = Object.freeze({
  * Pure: one team's site-API roster document -> `{ athleteId, teamCode,
  * rosterStatus, name, position, jerseyNumber, photoUrl }[]`, one per athlete
  * (the first group an athlete appears in wins). `rosterStatus` is `'active' |
- * 'practice_squad' | 'reserve'`; the last four are null when ESPN omits them.
+ * 'practice_squad' | 'reserve' | null` (null: a group not named in
+ * ROSTER_GROUP_STATUS); the last four are null when ESPN omits them.
  */
 function normalizeTeamRoster(payload, teamCode) {
   const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
   const seen = new Set();
   const rows = [];
   for (const group of groups) {
-    const rosterStatus = group && ROSTER_GROUP_STATUS[group.position];
-    if (!rosterStatus) continue;
+    if (!group) continue;
+    // An unknown group's athletes are still on this team's roster (#2117): they
+    // stay in the rows with a null status, so the daily player sync never reads
+    // them as departed; the roster-status apply skips a null status.
+    const rosterStatus = ROSTER_GROUP_STATUS[group.position] ?? null;
     const items = Array.isArray(group.items) ? group.items : [];
     for (const item of items) {
       if (!item || item.id == null || item.id === '') continue;

@@ -508,3 +508,14 @@ test('runRosterStatusSync reads the shared sweep: a player sync sweep just befor
   await runRosterStatusSync({ transport });
   assert.equal(transport.calls, 32, 'one fetch served both jobs');
 });
+
+test('runRosterStatusSync (#2117): an athlete in a roster group we do not map has no status to record, so no row is written for him', async (t) => {
+  const fake = rosterPool(t);
+  const transport = {
+    get: async () => ({ data: { athletes: [{ position: 'mysteryGroup', items: [{ id: '4431562' }] }, { position: 'offense', items: [{ id: '16733' }] }] } }),
+  };
+  await runRosterStatusSync({ transport });
+  const written = fake.calls.filter((c) => insert('player_nfl_roster_status').test(c.text)).flatMap((c) => c.params[0]);
+  assert.ok(written.length > 0);
+  assert.ok(written.every((id) => id === 17733), 'only the mapped-group athlete (16733 + 1000) is written');
+});

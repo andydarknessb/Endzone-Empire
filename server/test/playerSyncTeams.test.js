@@ -138,6 +138,25 @@ test('#1385: a stored player ESPN still rosters at a non-fantasy position is on 
   fake.assertClean();
 });
 
+test('#2117: an athlete ESPN files under a roster group we do not map is still on the roster, so a complete sweep does not clear him', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 701, external_id: '701', name: 'Player 701', position: 'WR', nfl_team: 'KC' }],
+    }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // normalizeTeamRoster keeps an unknown-group athlete with a null rosterStatus.
+  // No handler answers a clear or a leagues read.
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf([row(701, 'KC', { rosterStatus: null })]) });
+
+  assert.equal(fake.matching(update('players')).length, 0);
+  assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  fake.assertClean();
+});
+
 test('#2117: a partial sweep (a team failed or answered empty) clears nobody, though it still writes the moves it saw', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],

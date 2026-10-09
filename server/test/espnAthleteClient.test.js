@@ -591,7 +591,7 @@ test('normalizeTeamRoster: the recorded NYG roster stores Mafah (4431562) as pra
   for (const id of groups.get('practiceSquad')) assert.equal(byId.get(id).rosterStatus, 'practice_squad', `ps ${id}`);
 });
 
-test('normalizeTeamRoster: suspended is Reserve; an unknown group and an athlete without an id are skipped; a repeated athlete keeps the first group', () => {
+test('normalizeTeamRoster: suspended is Reserve; an unknown group keeps its athletes with a null status (#2117); an athlete without an id is skipped; a repeated athlete keeps the first group', () => {
   const rows = normalizeTeamRoster({
     athletes: [
       { position: 'suspended', items: [{ id: '1' }] },
@@ -599,7 +599,7 @@ test('normalizeTeamRoster: suspended is Reserve; an unknown group and an athlete
       { position: 'offense', items: [{ id: '3' }, {}, { id: '1' }] },
     ],
   }, 'NYG');
-  assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus]), [['1', 'reserve'], ['3', 'active']]);
+  assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus]), [['1', 'reserve'], ['2', null], ['3', 'active']]);
 });
 
 test('normalizeTeamRoster (#2117): each row carries the athlete name, position, jersey and headshot, pinned against the recorded NYG roster', () => {
