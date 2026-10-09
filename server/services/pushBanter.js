@@ -36,7 +36,7 @@ const LINES = {
     'Ahead of {theirs} for now. For now is also how long my knees held up.',
   ],
   leadLost: [
-    'Lost the lead to {theirs}, whose kicker is carrying them. I sold shoes for less humiliation than this.',
+    'Lost the lead to {theirs}. Probably a kicker. It is always a kicker. I sold shoes for less humiliation than this.',
     '{theirs} just went ahead. I have watched a lot of things slip away from the couch. Add this to the pile.',
     'Behind now. In 1966 I never trailed, and look how that worked out for the rest of my life.',
     'The lead is gone, like my hairline and my 1966 trophy. One of those came back. Not the trophy.',
