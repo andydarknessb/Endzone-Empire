@@ -4,7 +4,9 @@ import apiClient from '../../../api/apiClient';
 import { useLeague } from '../../../hooks/useLeague';
 import { useStandings } from '../../../hooks/useStandings';
 import { formatPoints, parseRosterSlots } from '../../../shared/lib';
-import { useMatchup, matchupBoard, matchupFromDetailBody, deltasFor } from '../../../entities/matchup';
+import {
+  useMatchup, matchupBoard, matchupFromDetailBody, playerFromDetailRow, deltasFor,
+} from '../../../entities/matchup';
 import { pairStartersBySlot } from '../../../entities/roster';
 import { recordsByTeamId } from '../../../entities/standings';
 import { useCelebrateTouchdown } from '../../../features/celebrate-touchdown';
@@ -30,8 +32,11 @@ import { useMatchupView } from '../../../features/toggle-matchup-view';
  *     starters by slot is a Roster/Lineup fact, ADR 0029, so it lives in
  *     `entities/roster`'s `pairStartersBySlot`, never inside the Matchup
  *     entity) with the `slotOrder` below, into `starterRows`, the ONE paired
- *     row list both views render. A `scores:updated` event moves the model
- *     with no refetch; a reconnect refetches silently.
+ *     row list both views render, and derives `scoreboardRows` from it: the
+ *     same pairs with each player through the Matchup entity's
+ *     `playerFromDetailRow` (#2147), the rows the Scoreboard view's widget
+ *     reads. A `scores:updated` event moves the model with no refetch; a
+ *     reconnect refetches silently.
  *   - The status chip and the started state are the server's status fact
  *     (ADR 0030) read through the entity's `matchupBoard`, never a timer.
  *     `isLive` is the exact live status (not the started state) and gates
@@ -215,6 +220,19 @@ export function useMatchupPage(leagueId, matchupId) {
     [homeStarters, awayStarters, slotOrder]
   );
 
+  // The retro scoreboard's rows: the same pairs with each player normalised by
+  // the Matchup entity (#2147), so the widget names no wire column. A side
+  // nobody filled stays null. `starterRows` itself stays on the wire shape the
+  // Slot comparison, the Decision card lookup and the live deltas read.
+  const scoreboardRows = useMemo(
+    () => starterRows.map((row) => ({
+      ...row,
+      home: playerFromDetailRow(row.home),
+      away: playerFromDetailRow(row.away),
+    })),
+    [starterRows]
+  );
+
   useEffect(() => {
     detailRef.current = detail;
   }, [detail]);
@@ -303,6 +321,7 @@ export function useMatchupPage(leagueId, matchupId) {
     matchup,
     detail,
     starterRows,
+    scoreboardRows,
     loading,
     error,
     refetch,

@@ -58,7 +58,10 @@ import LastPlays from './ui/LastPlays';
  * Both views render the SAME `starterRows` the page model pairs (#1210:
  * pairing is a Roster/Lineup fact, ADR 0029, paired here via
  * `entities/roster`'s `pairStartersBySlot`, never inside the Matchup entity),
- * so the two agree slot for slot under any league slot order. The status chip
+ * so the two agree slot for slot under any league slot order. The Scoreboard
+ * view's widget gets the same pairs as `scoreboardRows`, each player through
+ * the Matchup entity's `playerFromDetailRow` (#2147); the Slot comparison and
+ * the Decision card lookup below stay on the wire rows. The status chip
  * is the server's status fact (ADR 0030) read through the entity's one
  * predicate: the header chip and the strip's chip carry the same label and
  * the same variant (the page model's `statusChip` and the strip's view model
@@ -99,7 +102,7 @@ export default function MatchupPage() {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
-    matchup, starterRows, loading, error, refetch, leagueName, viewerTeamId, records,
+    matchup, starterRows, scoreboardRows, loading, error, refetch, leagueName, viewerTeamId, records,
     statusChip, isLive, canSetLineup, isPlayoff, board, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
@@ -237,7 +240,7 @@ export default function MatchupPage() {
               matchup={matchup}
               leagueName={leagueName}
               board={board}
-              rows={starterRows}
+              rows={scoreboardRows}
               games={games}
               activePlay={retroActivePlay}
               headingLevel={2}

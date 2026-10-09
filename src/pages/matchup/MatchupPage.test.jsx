@@ -29,6 +29,29 @@ jest.mock('../../hooks/useLeague', () => ({
   useLeague: jest.fn(),
 }));
 
+// The rows each lineup view is handed (#2147): the two wrappers record the
+// `rows` prop of every render and render the real widget, so a test reads what
+// the page gave each view without changing what either draws.
+const mockHandedRows = { retro: [], comparison: [] };
+jest.mock('../../widgets/retro-scoreboard', () => {
+  const actual = jest.requireActual('../../widgets/retro-scoreboard');
+  const Actual = actual.default;
+  const Spy = (props) => {
+    mockHandedRows.retro.push(props.rows);
+    return <Actual {...props} />;
+  };
+  return { __esModule: true, ...actual, default: Spy };
+});
+jest.mock('../../widgets/slot-comparison', () => {
+  const actual = jest.requireActual('../../widgets/slot-comparison');
+  const Actual = actual.default;
+  const Spy = (props) => {
+    mockHandedRows.comparison.push(props.rows);
+    return <Actual {...props} />;
+  };
+  return { __esModule: true, ...actual, default: Spy };
+});
+
 let liveGameRows = [];
 function installSupabase() {
   const inFn = jest.fn().mockImplementation((column, ids) => Promise.resolve({
@@ -612,6 +635,55 @@ test('the toggle swaps the views: Scoreboard mounts the retro board, Standard re
   await toStandard();
   expect(screen.getByRole('button', { name: 'P. Mahomes' })).toBeInTheDocument();
   expect(screen.queryByTestId('retro-scoreboard')).not.toBeInTheDocument();
+});
+
+// #2147: the retro scoreboard reads the Matchup entity's normalised player rows
+// (`playerFromDetailRow`), while the Slot comparison, the Decision card lookup
+// and the live deltas stay on the wire shape `useMatchup` returns. Red-tell:
+// handing the raw rows to RetroScoreboard turns the first block red (no
+// `playerId`, `photoUrl`); normalising where `useMatchup` returns them turns
+// the second red (the Slot comparison loses `id` and `photo_url`).
+test('the scoreboard gets normalised player rows while the Slot comparison keeps the wire rows', async () => {
+  mockHandedRows.retro.length = 0;
+  mockHandedRows.comparison.length = 0;
+  mockApi({
+    matchup: matchupResponse({
+      homeStarters: [starter({
+        id: 5, photo_url: 'https://cdn.example/mahomes.png', game_state: 'in_progress', game_clock: 'Q3 7:22',
+        projected: 21.5, injury_status: 'Q',
+      })],
+      awayStarters: [starter({
+        id: 6, name: 'D. Adams', slot: 'WR', position: 'WR', nfl_team: 'LV', points: 0, projected: 12,
+        game_state: 'scheduled', game_clock: null, photo_url: null,
+      })],
+    }),
+  });
+  renderPage();
+  await screen.findByTestId('slot-comparison');
+  await toScoreboard();
+  await screen.findByTestId('retro-scoreboard');
+
+  const handed = (list) => list[list.length - 1];
+  const standardRows = handed(mockHandedRows.comparison);
+  expect(standardRows).toHaveLength(2);
+  expect(standardRows[0].home).toMatchObject({
+    id: 5, nfl_team: 'KC', photo_url: 'https://cdn.example/mahomes.png', injury_status: 'Q', points: 24.1,
+  });
+  expect(standardRows[0].home).not.toHaveProperty('playerId');
+  expect(standardRows[1].away).toMatchObject({ id: 6, game_state: 'scheduled', points: 0 });
+
+  const retroRows = handed(mockHandedRows.retro);
+  expect(retroRows).toHaveLength(2);
+  expect(retroRows[0].home).toMatchObject({
+    playerId: 5, nflTeam: 'KC', photoUrl: 'https://cdn.example/mahomes.png', injuryStatus: 'Q',
+    gameState: 'in_progress', gameClock: 'Q3 7:22', projectedPoints: 21.5, points: 24.1,
+  });
+  expect(retroRows[0].home).not.toHaveProperty('photo_url');
+  expect(retroRows[0].home).not.toHaveProperty('id');
+  // A side nobody filled stays null, and a scheduled player has no points yet.
+  expect(retroRows[0].away).toBeNull();
+  expect(retroRows[1].home).toBeNull();
+  expect(retroRows[1].away).toMatchObject({ playerId: 6, gameState: 'scheduled', points: null });
 });
 
 // The choice is remembered per VIEWER under the signed-in user's id: a second

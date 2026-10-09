@@ -47,19 +47,19 @@ const matchup = (overrides = {}) => ({
   ...overrides,
 });
 
-// A detail starter row as the wire carries it (league.router.js buildPlayer):
-// the Matchup page model pairs these by slot; the widget renders the pairs
-// as given.
+// A starter as the Matchup entity normalises a detail row (`playerFromDetailRow`,
+// #2147): the Matchup page model pairs these by slot; the widget renders the
+// pairs as given and reads no wire column.
 const starter = (overrides = {}) => ({
-  id: 10,
+  playerId: 10,
   name: 'J. Goff',
   position: 'QB',
   slot: 'QB',
-  nfl_team: 'DET',
+  nflTeam: 'DET',
   points: 18.6,
-  projected: 19.2,
+  projectedPoints: 19.2,
   availability: { available: true, reason: null },
-  photo_url: 'https://cdn.example/goff.png',
+  photoUrl: 'https://cdn.example/goff.png',
   ...overrides,
 });
 
@@ -68,22 +68,22 @@ const rows = [
     slot: 'QB',
     home: starter(),
     away: starter({
-      id: 11, name: 'J. Allen', nfl_team: 'BUF', points: 24.1, projected: 22.5,
-      photo_url: 'https://cdn.example/allen.png', injury_status: 'Q',
+      playerId: 11, name: 'J. Allen', nflTeam: 'BUF', points: 24.1, projectedPoints: 22.5,
+      photoUrl: 'https://cdn.example/allen.png', injuryStatus: 'Q',
     }),
   },
   {
     slot: 'RB',
-    home: starter({ id: 12, name: 'A. Jones', position: 'RB', slot: 'RB', nfl_team: 'GB', points: 14.3, projected: 13.8, photo_url: null }),
+    home: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', nflTeam: 'GB', points: 14.3, projectedPoints: 13.8, photoUrl: null }),
     away: null,
   },
   {
     slot: 'DEF',
     home: starter({
-      id: 13, name: 'Ravens D/ST', position: 'DEF', slot: 'DEF', nfl_team: 'BAL', points: 0, projected: 0,
-      availability: { available: false, reason: 'bye' }, photo_url: null,
+      playerId: 13, name: 'Ravens D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'BAL', points: 0, projectedPoints: 0,
+      availability: { available: false, reason: 'bye' }, photoUrl: null,
     }),
-    away: starter({ id: 14, name: '49ers D/ST', position: 'DEF', slot: 'DEF', nfl_team: 'SF', points: 3, projected: 6.5, photo_url: null }),
+    away: starter({ playerId: 14, name: '49ers D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'SF', points: 3, projectedPoints: 6.5, photoUrl: null }),
   },
 ];
 
@@ -443,13 +443,13 @@ test('every Lineups headshot wears its position\'s pos-* ring, the treatment the
 const gameRows = [
   {
     slot: 'QB',
-    home: starter({ game_state: 'in_progress', game_clock: 'Q3 7:22', opponent: 'GB' }),
-    away: starter({ id: 11, name: 'J. Allen', nfl_team: 'BUF', game_state: 'final', opponent: 'MIA', game_clock: null }),
+    home: starter({ gameState: 'in_progress', gameClock: 'Q3 7:22', opponent: 'GB' }),
+    away: starter({ playerId: 11, name: 'J. Allen', nflTeam: 'BUF', gameState: 'final', opponent: 'MIA', gameClock: null }),
   },
   {
     slot: 'RB',
-    home: starter({ id: 12, name: 'A. Jones', position: 'RB', slot: 'RB', game_state: 'scheduled', opponent: 'DET', game_clock: null }),
-    away: starter({ id: 15, name: 'No State', position: 'RB', slot: 'RB' }),
+    home: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', gameState: 'scheduled', opponent: 'DET', gameClock: null }),
+    away: starter({ playerId: 15, name: 'No State', position: 'RB', slot: 'RB' }),
   },
 ];
 

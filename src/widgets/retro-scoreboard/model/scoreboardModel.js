@@ -1,5 +1,6 @@
 import { matchupPhase } from '../../../entities/matchup';
-import { formatInstant, reasonLabel as sharedUnavailableLabel } from '../../../shared/lib';
+import { unavailableLabel } from '../../../entities/roster';
+import { formatInstant } from '../../../shared/lib';
 
 /**
  * Pure presentation arithmetic for the retro-scoreboard widget (ADR 0031,
@@ -68,18 +69,6 @@ export function ledStatus(status) {
   return (matchupPhase(status).chip?.label || '').toUpperCase();
 }
 
-// The reason an Unavailable player (CONTEXT.md, Roster and lineup) shows in
-// place of his projection, in the Lineup page's words; null for an available
-// row (or a row that carries no verdict), which shows its projection as ever.
-// The reason -> label lookup is shared/lib's unavailableLabel (#1208, replacing
-// the widget's own copy of the map); this wrapper keeps the widget's own
-// `availability`-object contract and its own fallback ('out') for a reason the
-// shared map does not know.
-export function unavailableLabel(availability) {
-  if (!availability || availability.available !== false) return null;
-  return sharedUnavailableLabel(availability.reason) || 'out';
-}
-
 // Position -> `pos-*` palette key for the headshot ring (design canvas
 // headshot(): every 28px headshot wears a 2px ring in its position's color),
 // the same map the app's PositionChip uses for its fills, so the ring and the
@@ -101,15 +90,19 @@ export function positionRingKey(position) {
 /**
  * The parts of a lineup row's second line: the player's points to one
  * decimal, then EITHER his projection ("proj 19.2") or, for an Unavailable
- * player, the reason ("on bye"). A player with no projection priced has
- * neither. The card joins the parts on a middot (house style).
+ * player, the reason ("on bye"), in the words of the Roster entity's
+ * `unavailableLabel` (CONTEXT.md, Roster and lineup; #2147: this widget keeps
+ * no Unavailable read of its own). A player with no projection priced has
+ * neither. The card joins the parts on a middot (house style). The player is
+ * the Matchup entity's normalised row (`playerFromDetailRow`), so his
+ * projection is `projectedPoints`.
  */
 export function lineupNoteParts(player) {
   const points = ledScore(player.points);
-  const reason = unavailableLabel(player.availability);
+  const reason = unavailableLabel(player);
   if (reason) return { points, reason, projected: null };
-  if (player.projected == null) return { points, reason: null, projected: null };
-  return { points, reason: null, projected: ledScore(player.projected) };
+  if (player.projectedPoints == null) return { points, reason: null, projected: null };
+  return { points, reason: null, projected: ledScore(player.projectedPoints) };
 }
 
 /** The second line of a lineup row as one string: "18.6 · proj 19.2", "0.0 · on bye", or "4.2". */
