@@ -1,6 +1,20 @@
 import { useMemo } from 'react';
 import { useResource } from '../../../hooks/useResource';
 import { lineupModel } from './lineupModel';
+import { buildLedgerSections } from './buildLedgerSections';
+
+/**
+ * The Ledger sections for a lineup-shaped object (`entries`, `rosterSlots`,
+ * `benchSlots`, `irSlots`), memoised on the lineup's identity; null for no
+ * lineup. `useTeamLineup` calls it on the read it owns; the Lineup page calls it
+ * on its own optimistic lineup (`pages/lineup/model/useLineupData.js`), which
+ * keeps that object referentially stable between changes.
+ *
+ * @param {object|null} lineup
+ */
+export function useLedgerSections(lineup) {
+  return useMemo(() => (lineup ? buildLedgerSections(lineup) : null), [lineup]);
+}
 
 /**
  * A team's weekly Lineup as a read model (ADR 0029: the thin hook on the
@@ -26,13 +40,17 @@ import { lineupModel } from './lineupModel';
  * as the Matchup entity's chained reads withhold their own URL (the shared
  * hook's null-key contract, src/hooks/useResource.js).
  *
+ * `sections` is the Ledger's Starters / IR / Bench rows for that lineup, built once
+ * and memoised here (`useLedgerSections`), so no page or widget rebuilds them.
+ * It is null exactly when `lineup` is.
+ *
  * `lineup` is null while a read is in flight or after one failed, even when a
  * previous response is still held (`useResource` keeps the last data through a
  * failed re-read), so a surface never paints the lineup it held before a save.
  *
  * @param {number|string|null} leagueId
  * @param {number|string|null} week
- * @returns {{ lineup: object|null, loading: boolean, error: boolean }}
+ * @returns {{ lineup: object|null, sections: {starters: object[], ir: object[], bench: object[]}|null, loading: boolean, error: boolean }}
  */
 export function useTeamLineup(leagueId, week) {
   const active = leagueId != null && week != null;
@@ -46,7 +64,9 @@ export function useTeamLineup(leagueId, week) {
     [loading, error, data]
   );
 
-  return { lineup, loading: active && loading, error: error != null };
+  const sections = useLedgerSections(lineup);
+
+  return { lineup, sections, loading: active && loading, error: error != null };
 }
 
 export default useTeamLineup;

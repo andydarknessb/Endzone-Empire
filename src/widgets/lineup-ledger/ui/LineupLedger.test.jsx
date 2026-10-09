@@ -40,17 +40,29 @@ beforeEach(() => {
   });
 });
 
-const rosterSlots = [
-  { key: 'QB', count: 1 },
-  { key: 'RB', count: 1 },
-];
-
 const starter = (over = {}) => ({ playerId: 1, name: 'Starter One', slot: 'QB', ...over });
 const benchPlayer = (over = {}) => ({ playerId: 2, name: 'Bench One', slot: 'BENCH', ...over });
-const lineup = () => ({ entries: [starter(), benchPlayer()], rosterSlots, benchSlots: 1, irSlots: 0 });
+const lineup = () => ({ teamId: 3, season: 2026 });
+
+// The built Ledger sections the Roster entity hands down (#2146): the widget
+// renders rows, it does not group entries into them.
+const row = (slotType, i, entry) => ({
+  key: `${slotType}-${i}`,
+  testId: `slot-row-${slotType}-${i}`,
+  slotLabel: slotType,
+  slotType,
+  entry,
+});
+const sectionsOf = ({ starters, bench }) => ({
+  starters: starters.map((entry, i) => row(entry.slot, i, entry)),
+  ir: [],
+  bench: bench.map((entry, i) => row('BENCH', i, entry)),
+});
+const sections = () => sectionsOf({ starters: [starter(), { playerId: 3, name: 'Starter Two', slot: 'RB' }], bench: [benchPlayer()] });
 
 const ledgerProps = (props) => ({
   lineup: lineup(),
+  sections: sections(),
   isEligibleTarget: () => false,
   selectedEntryId: null,
   onRowClick: jest.fn(),
@@ -175,16 +187,12 @@ test('the Ledger renders no phone bar and no sticky footer of its own', () => {
 // #1957: a spent row has no Drop, but keeps the Drop track so its numbers
 // share the right edge of the droppable rows around it.
 test('a spent row renders the Drop placeholder when other rows can drop, and none when no row can', () => {
-  const spentLineup = () => ({
-    entries: [starter({ spent: true }), { playerId: 3, name: 'Starter Two', slot: 'RB' }, benchPlayer()],
-    rosterSlots,
-    benchSlots: 1,
-    irSlots: 0,
-  });
-  const { unmount } = renderLedger({ lineup: spentLineup(), canDropEntry: () => true });
+  const spentSections = () =>
+    sectionsOf({ starters: [starter({ spent: true }), { playerId: 3, name: 'Starter Two', slot: 'RB' }], bench: [benchPlayer()] });
+  const { unmount } = renderLedger({ sections: spentSections(), canDropEntry: () => true });
   expect(screen.getAllByTestId('ledger-drop-spacer')).toHaveLength(1);
   expect(screen.getAllByRole('button', { name: /^Drop / })).toHaveLength(2);
   unmount();
-  renderLedger({ lineup: spentLineup(), canDropEntry: () => false });
+  renderLedger({ sections: spentSections(), canDropEntry: () => false });
   expect(screen.queryByTestId('ledger-drop-spacer')).toBeNull();
 });

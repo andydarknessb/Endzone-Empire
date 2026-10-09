@@ -6,12 +6,13 @@ import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, matchupBoard } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
-import LineupLedger, { buildLedgerSections, ledgerTabCounts, gameStatusKind } from '../../widgets/lineup-ledger';
+import LineupLedger, { gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
 import { useLineupWrite, useSwapPlayers, useApplyAdvice, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
+import { useLedgerSections, ledgerTabCounts } from '../../entities/roster';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
@@ -172,23 +173,22 @@ export default function LineupPage() {
   // widget's own model).
   const { scoreEvent } = useLiveScores({ leagueId: selectedLeagueId, setRaw, refetch });
 
+  // The Ledger's rows, built once by the Roster entity off this page's own
+  // (optimistic) lineup and shared by the Ledger, the eligibility check and the
+  // phone bar's counts (#2146).
+  const sections = useLedgerSections(lineup);
+
   // AC4 (#1425 ruling): "no eligible target anywhere" is a whole-lineup
   // question - every Starter, Bench and IR row, filled or empty, not just
-  // the occupied `entries` the swap rules read. Built from the Ledger
-  // widget's own row enumeration (`buildLedgerSections`, its public
-  // surface) so this reuses exactly the rows the widget renders and
+  // the occupied `entries` the swap rules read. Read off the entity's
+  // `sections` so this reuses exactly the rows the widget renders and
   // highlights rather than a second copy of the slot-count math, and from
   // `isEligibleMove` (the same exported pure rule `onRowClick` and the
   // Decision card already share) rather than a new copy of the eligibility
   // rule itself.
   const hasEligibleTarget = (candidate) => {
-    if (!lineup) return false;
-    const { starters, bench, ir } = buildLedgerSections({
-      entries: lineup.entries,
-      rosterSlots: lineup.rosterSlots,
-      benchSlots: lineup.benchSlots,
-      irSlots: lineup.irSlots,
-    });
+    if (!sections) return false;
+    const { starters, bench, ir } = sections;
     return [...starters, ...bench, ...ir].some((row) => {
       if (row.entry && row.entry.playerId === candidate.playerId) return false;
       return isEligibleMove({
@@ -302,16 +302,7 @@ export default function LineupPage() {
   // own rule, off the same rows it renders. Before the lineup has loaded there
   // is nothing to count, so the labels go without counts rather than read
   // `Starters 0/0`.
-  const tabCounts = lineup
-    ? ledgerTabCounts(
-        buildLedgerSections({
-          entries: lineup.entries,
-          rosterSlots: lineup.rosterSlots,
-          benchSlots: lineup.benchSlots,
-          irSlots: lineup.irSlots,
-        })
-      )
-    : null;
+  const tabCounts = sections ? ledgerTabCounts(sections) : null;
   const phoneTabs = [
     {
       key: 'starters',
@@ -501,7 +492,7 @@ export default function LineupPage() {
                     <LineupLedger
                       leagueId={selectedLeagueId}
                       lineup={lineup}
-                      league={league}
+                      sections={sections}
                       liveGamesByKey={liveGamesByKey}
                       disabled={leagueUnsettled}
                       showEligibility={Boolean(swap.selectedEntry)}
