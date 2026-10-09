@@ -110,7 +110,7 @@ test('reaching played pushes the result once per owner, then never', async (t) =
   assert.equal(sent[1].payload.banter, banterFor('finalLost', 'score-played:987:played', AWAY));
 });
 
-test('a final lost by less than a point reads finalLostClose; by 2.0 it reads finalLost; a tie reads tied', async (t) => {
+test('a final lost by less than a point reads finalLostClose; by 2.0 it reads finalLost; a tie reads finalTied', async (t) => {
   const close = world(t);
   await close.call(10.5, 10);
   await close.call(10.5, 10, 'played');
@@ -125,7 +125,20 @@ test('a final lost by less than a point reads finalLostClose; by 2.0 it reads fi
   const tie = world(t);
   await tie.call(10, 10);
   await tie.call(10, 10, 'played');
-  assert.equal(tie.sent[0].payload.banter, banterFor('tied', 'score-played:987:played', HOME));
+  assert.equal(tie.sent[0].payload.banter, banterFor('finalTied', 'score-played:987:played', HOME));
+  assert.equal(tie.sent[1].payload.banter, banterFor('finalTied', 'score-played:987:played', AWAY));
+});
+
+test('the close-loss boundary compares in hundredths: 63.1 to 64.1 is finalLost, 63.1 to 64.0 is finalLostClose', async (t) => {
+  const full = world(t);
+  await full.call(64.1, 63.1);
+  await full.call(64.1, 63.1, 'played');
+  assert.equal(full.sent[1].payload.banter, banterFor('finalLost', 'score-played:987:played', AWAY));
+
+  const under = world(t);
+  await under.call(64.0, 63.1);
+  await under.call(64.0, 63.1, 'played');
+  assert.equal(under.sent[1].payload.banter, banterFor('finalLostClose', 'score-played:987:played', AWAY));
 });
 
 test('a final matchup pushes nothing', async (t) => {

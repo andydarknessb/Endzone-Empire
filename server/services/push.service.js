@@ -77,8 +77,10 @@ async function removeSubscription({ userId, endpoint }) {
  * Send a push to every subscription a set of users holds. payload:
  * { title, body, url, banter? }. A `banter` string (pushBanter.js) is appended
  * as a second body line for users whose `banter` preference is on, and is never
- * part of the delivered JSON. Dead endpoints are deleted; other errors are
- * logged and skipped. Returns { sent }.
+ * part of the delivered JSON. The prefs lookup runs only when `banter` is a
+ * non-empty string and the users hold at least one subscription; if it fails,
+ * the error is logged and every user gets the plain body. Dead endpoints are
+ * deleted; other errors are logged and skipped. Returns { sent }.
  */
 async function sendPushToUsers(userIds, payload) {
   const webPush = webPushOrNull();
@@ -92,7 +94,14 @@ async function sendPushToUsers(userIds, payload) {
   );
   const { banter, ...plain } = payload;
   const hasBanter = typeof banter === 'string' && banter !== '';
-  const bantering = hasBanter ? new Set(await usersWanting(ids, 'banter')) : null;
+  let bantering = new Set();
+  if (hasBanter && subs.rows.length > 0) {
+    try {
+      bantering = new Set(await usersWanting(ids, 'banter'));
+    } catch (err) {
+      console.error('banter prefs lookup failed, sending plain:', err.message);
+    }
+  }
   let sent = 0;
   for (const sub of subs.rows) {
     try {

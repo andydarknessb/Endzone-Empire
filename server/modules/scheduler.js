@@ -1494,8 +1494,9 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
         for (const s of sides) {
           const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
           const score = figures(s).join('-');
-          const lostClose = Math.abs(Number(s.mineScore) - Number(s.theirScore)) < 1;
-          const situation = leader === 'tied' ? 'tied' : leader === s.side ? 'finalWon' : lostClose ? 'finalLostClose' : 'finalLost';
+          // Compared in hundredths so 63.1 vs 64.1 (0.9999999999999929 apart) is a full point.
+          const lostClose = Math.abs(Math.round(Number(s.mineScore) * 100) - Math.round(Number(s.theirScore) * 100)) < 100;
+          const situation = leader === 'tied' ? 'finalTied' : leader === s.side ? 'finalWon' : lostClose ? 'finalLostClose' : 'finalLost';
           await push.sendPushOnce({
             userIds: [s.mine.owner_id],
             prefKey: 'scoreUpdates',

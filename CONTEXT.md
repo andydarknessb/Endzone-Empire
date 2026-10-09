@@ -1512,7 +1512,7 @@ device. A Manager who turns Banter off receives the plain alert. Score
 updates, Big plays, Lineup reminders, close-matchup alerts and the draft
 starting alert carry it; Injury alerts and every transactional alert (waiver
 results, trade offers, IR action, draft reminders, Pick'em reminders) never do.
-_Avoid_: joke, quip, trash talk (the Weekly recap's register, not a term),
+_Avoid_: joke, quip, trash talk (the weekly recap's register, not a term),
 commentary
 
 **Injury alert**:
