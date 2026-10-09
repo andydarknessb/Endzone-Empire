@@ -1184,19 +1184,28 @@ _Avoid_: owner line, who has him, league status
 
 **Upgrade**:
 How many Weekly projection points a player would add to the manager's best
-possible lineup this week: the optimal lineup total with him on the roster
-minus the optimal total without him, over the starters and the bench (the IR
-slot excluded), never below zero. The baseline is the best lineup the current
-roster could field, not the lineup the manager happens to have set, so a
-healthy bench player who would fill an Unavailable starter's slot is netted
-out. An Unavailable roster player counts as zero; a player whose game has
-kicked off is held, as the Start/sit advice holds him (a starter keeps his
-slot, a bench player is not a candidate). A candidate who adds nothing has an
-Upgrade of zero, which shows no pill or tile. The roster player the candidate
-displaces is the swap preview's other side. Undefined in a best ball league,
-where the column and tile are hidden, and for a player who is Unavailable
-this week (bye, Out, IR or No NFL team), whose pill and tile are hidden and
-who sorts last under the Upgrade sort. The same number for a free agent, a
+possible lineup in his first playable week: the optimal lineup total with him
+on the roster minus the optimal total without him, over the starters and the
+bench (the IR slot excluded), never below zero. His first playable week is the
+week of the first game he can still play after he could join the roster: now
+for a Free agent, his Clear time for a player on waivers. It is what acquiring
+him can actually deliver, so it is often next week, and a pill for any week
+but this one names its week. For another team's player he could join when a
+trade could first complete: now, or once the league's review window ends. A
+bye week has no game, so it is skipped rather than refused. The baseline is the best lineup the current
+roster could field that week, not the lineup the manager happens to have set,
+so a healthy bench player who would fill an Unavailable starter's slot is
+netted out. An Unavailable roster player counts as zero; a player whose game
+has kicked off is held, as the Start/sit advice holds him (a starter keeps his
+slot, a bench player is not a candidate). The drop a claim makes is not part
+of the Upgrade, nor are the players a trade sends away; each belongs to its
+claim or trade, and the claim's swap preview nets the drop out. A candidate
+who adds nothing has an Upgrade of zero, which shows no pill or tile. The
+roster player the candidate displaces is the swap preview's other side.
+Undefined in a best ball league, where the column and tile are hidden, and for
+a player who is Out, on IR or has No NFL team, or whose first playable week
+falls after the team's last week of the season, whose pill and tile are hidden
+and who sorts last under the Upgrade sort. The same number for a free agent, a
 waiver candidate or another team's player, so it doubles as a trade-target
 score.
 _Avoid_: delta, gain (that is the Start/sit advice's word), improvement
