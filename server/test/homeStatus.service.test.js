@@ -90,6 +90,15 @@ test('lineupStatus flags a Practice squad starter and a No NFL team starter (#17
   assert.deepEqual(problems, ['PS Runner (RB) is on the practice squad', 'Free Agent WR (WR) has no NFL team']);
 });
 
+test('lineupStatus flags a suspended starter (#2150)', () => {
+  const problems = unlockedProblems({
+    entries: [entry('RB', 'Banned Runner', { nflTeam: 'GB', verdict: unavailable('suspended') })],
+    rosterSlots: slots({ RB: 1 }),
+    bestBall: false,
+  });
+  assert.deepEqual(problems, ['Banned Runner (RB) is suspended']);
+});
+
 test('lineupStatus: a locked Practice squad starter sheds his problem too, like a locked bye or injury', () => {
   const status = lineupStatus({
     entries: [entry('QB', 'Locked PS Quarterback', { nflTeam: 'KC', verdict: unavailable('practice_squad') })],

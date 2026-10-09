@@ -579,7 +579,7 @@ async function getRescoredPositionRank({ playerId, position, season, rules }) {
 }
 
 // The card shows only the roster statuses that are news; Active shows nothing (#1766).
-const ROSTER_STATUS_LABEL = Object.freeze({ practice_squad: 'Practice squad', reserve: 'Reserve' });
+const ROSTER_STATUS_LABEL = Object.freeze({ practice_squad: 'Practice squad', reserve: 'Reserve', suspended: 'Suspended' });
 
 /**
  * `{ bio, news, injuryFacts, depth, ownership, rosterStatus }` (#1308, #1766,
@@ -590,8 +590,8 @@ const ROSTER_STATUS_LABEL = Object.freeze({ practice_squad: 'Practice squad', re
  * minutes on failure); `depth`/`ownership` read the latest `captured_date`
  * row the daily Sync runs wrote (#1382) - never a live ESPN call, per the
  * Ruling (item 1). `rosterStatus` (#1766) is the card's NFL roster status
- * label from the latest `player_nfl_roster_status` row: "Practice squad" or
- * "Reserve", and null for Active or no row. Only a row updated in the last 48
+ * label from the latest `player_nfl_roster_status` row: "Practice squad",
+ * "Reserve" or "Suspended" (#2150), and null for Active or no row. Only a row updated in the last 48
  * hours counts, the same freshness the Unavailable verdict applies to the same
  * row (#1767, unavailable.js NFL_ROSTER_STATUS_FRESH_MS), so the tile never
  * says Practice squad while the verdict reads Active: the sweep writes a row

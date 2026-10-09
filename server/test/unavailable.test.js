@@ -93,6 +93,31 @@ test('unavailableFor (#1767): bye and No NFL team outrank Practice squad; Practi
   assert.equal(ir.status, 'IR', 'the injury designation still rides along');
 });
 
+const suspended = (h = 1) => ({ status: 'suspended', capturedAt: hoursBefore(h) });
+
+test('unavailableFor (#2150): a fresh suspended roster status is Unavailable with active probability 0', () => {
+  const verdict = unavailableFor({ nflRosterStatus: suspended(), now: NOW });
+  assert.equal(verdict.available, false);
+  assert.equal(verdict.activeProbability, 0);
+  assert.equal(verdict.reason, 'suspended');
+});
+
+test('unavailableFor (#2150): a suspended row 49h old reads available; 48h exactly is still fresh', () => {
+  assert.equal(unavailableFor({ nflRosterStatus: suspended(49), now: NOW }).available, true);
+  assert.equal(unavailableFor({ nflRosterStatus: suspended(48), now: NOW }).available, false);
+  assert.equal(unavailableFor({ nflRosterStatus: { status: 'suspended', capturedAt: 'garbage' }, now: NOW }).available, true, 'unparseable');
+});
+
+test('unavailableFor (#2150): bye, No NFL team and Practice squad outrank suspended; suspended outranks Out and IR', () => {
+  const s = suspended();
+  assert.equal(unavailableFor({ onBye: true, nflRosterStatus: s, now: NOW }).reason, 'bye');
+  assert.equal(unavailableFor({ noTeam: true, nflRosterStatus: s, now: NOW }).reason, 'no_team');
+  assert.equal(unavailableFor({ injuryStatus: 'O', nflRosterStatus: s, now: NOW }).reason, 'suspended');
+  const ir = unavailableFor({ injuryStatus: 'IR', nflRosterStatus: s, now: NOW });
+  assert.equal(ir.reason, 'suspended');
+  assert.equal(ir.status, 'IR', 'the injury designation still rides along');
+});
+
 test('unavailableFor (#1767): a missing, stale (49h), Active or Reserve status reads as Active', () => {
   const healthy = (nflRosterStatus) => unavailableFor({ nflRosterStatus, now: NOW });
   assert.equal(healthy(null).available, true);
@@ -277,8 +302,9 @@ const START_VERDICT_ROWS = [
   ['bye', { onBye: true, injuryStatus: 'Q' }, verdict('unavailable', 'bye')],
   ['No NFL team', { noTeam: true }, verdict('unavailable', 'no_team')],
   ['Practice squad', { nflRosterStatus: squad, now: NOW }, verdict('unavailable', 'practice_squad')],
+  ['Suspended (#2150)', { nflRosterStatus: { status: 'suspended', capturedAt: NOW.toISOString() }, now: NOW }, verdict('unavailable', 'suspended')],
   ['Out', { injuryStatus: 'O', positionBaseline: true, backup: true }, verdict('unavailable', 'out')],
-  ['IR', { injuryStatus: 'IR', backup: true }, verdict('unavailable', 'ir')],
+  ['IR',{ injuryStatus: 'IR', backup: true }, verdict('unavailable', 'ir')],
   ['Position-baseline', { injuryStatus: 'Q', positionBaseline: true }, verdict('not_recommended', 'no_history', false)],
   ['Backup over Position-baseline', { positionBaseline: true, backup: true }, verdict('not_recommended', 'backup', false)],
   ['Backup', { injuryStatus: 'D', backup: true }, verdict('not_recommended', 'backup', false)],

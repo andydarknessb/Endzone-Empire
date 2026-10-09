@@ -9,6 +9,7 @@ describe('reasonLabel', () => {
     expect(reasonLabel('ir')).toBe('on IR');
     expect(reasonLabel('no_team')).toBe('no team');
     expect(reasonLabel('practice_squad')).toBe('practice squad');
+    expect(reasonLabel('suspended')).toBe('suspended');
   });
 
   it('returns null for an unknown or missing reason', () => {
