@@ -1504,6 +1504,15 @@ results, trade offers, IR action, draft reminders, Pick'em reminders) never do.
 _Avoid_: joke, quip, trash talk (the weekly recap's register, not a term),
 commentary
 
+**Alert prompt**:
+The Home card that asks a Manager to allow Push alerts on the device in
+hand. It appears only while that device holds no subscription and the
+Manager has a team in a league still in play; on an iPhone that has not
+been added to the Home Screen it gives those two steps instead of a switch.
+A Manager may put it off once for a week and a second time for good, per
+device. It is not an Action item: it is about the device, not a league.
+_Avoid_: nag, banner, opt-in modal, onboarding
+
 **Injury alert**:
 A Push alert that a player on one of the Manager's rosters has changed Injury
 designation, sent once per change however many of the Manager's leagues roster

@@ -5,10 +5,19 @@ import renderWithProviders from '../../test-utils/renderWithProviders';
 import apiClient from '../../api/apiClient';
 import UserPage from './UserPage';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
+import { isPushSupported, fetchPushPublicKey, getCurrentSubscription } from '../../utils/push';
 
 jest.mock('../../api/apiClient', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
+}));
+
+// Push support is a browser fact jsdom lacks; the Alert prompt tests below turn it on.
+jest.mock('../../utils/push', () => ({
+  ...jest.requireActual('../../utils/push'),
+  isPushSupported: jest.fn(() => false),
+  fetchPushPublicKey: jest.fn(),
+  getCurrentSubscription: jest.fn(),
 }));
 
 const baseState = {
@@ -292,4 +301,52 @@ test('an empty Postgame list renders no overlay', async () => {
 
   expect(await screen.findByRole('heading', { level: 3, name: 'Sunday Ballers' })).toBeInTheDocument();
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+});
+
+// --- Alert prompt (#2136) --------------------------------------------------
+
+// Let every pending effect and resolved promise run, so an absence check cannot pass early.
+const flushEffects = () => act(() => new Promise((resolve) => { setTimeout(resolve, 0); }));
+
+const mockAlertHome = (rows) => {
+  window.localStorage.clear();
+  isPushSupported.mockReturnValue(true);
+  fetchPushPublicKey.mockResolvedValue('key');
+  getCurrentSubscription.mockResolvedValue(null);
+  apiClient.get.mockImplementation((url) => Promise.resolve({ data: url === '/api/league' ? rows : [] }));
+};
+
+afterEach(() => {
+  isPushSupported.mockReturnValue(false);
+  window.localStorage.clear();
+});
+
+test('the Alert prompt sits between the Action queue and Next draft for an eligible manager', async () => {
+  const draftDate = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString();
+  mockAlertHome([league({ draft_date: draftDate, status: { phase: 'pre-draft' } })]);
+  renderPage();
+
+  const prompt = await screen.findByRole('heading', { level: 2, name: 'Get alerts on this phone' });
+  const queue = screen.getByRole('heading', { level: 2, name: 'Needs your attention' });
+  const nextDraft = await screen.findByRole('region', { name: 'Next draft' });
+  expect(queue.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(prompt.compareDocumentPosition(nextDraft) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('no Alert prompt when no league row carries a team of the manager', async () => {
+  mockAlertHome([league({ my_team_id: null, status: { phase: 'in-season' } })]);
+  renderPage();
+
+  await screen.findByText('Sunday Ballers');
+  await flushEffects();
+  expect(fetchPushPublicKey).not.toHaveBeenCalled();
+  expect(screen.queryByRole('heading', { name: 'Get alerts on this phone' })).not.toBeInTheDocument();
+});
+
+test('an eligible league asks for the push public key', async () => {
+  mockAlertHome([league({ status: { phase: 'in-season' } })]);
+  renderPage();
+
+  await screen.findByRole('heading', { level: 2, name: 'Get alerts on this phone' });
+  expect(fetchPushPublicKey).toHaveBeenCalledTimes(1);
 });

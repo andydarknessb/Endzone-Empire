@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Container, Typography, Paper, Box, FormControlLabel, FormHelperText, Switch, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { urlBase64ToUint8Array, needsHomeScreenInstall } from '../../utils/push';
+import {
+  needsHomeScreenInstall, isPushSupported, fetchPushPublicKey, getCurrentSubscription, subscribeToPush,
+  unsubscribeFromPush,
+} from '../../utils/push';
 
 const PREF_FIELDS = [
   { key: 'lineupReminder', label: 'Lineup reminders' },
@@ -36,15 +39,6 @@ const PREF_FIELDS = [
   },
 ];
 
-// Feature-detected each render (cheap) rather than hoisted to module scope,
-// so tests can stub navigator.serviceWorker / window.PushManager per case.
-function isPushSupported() {
-  return typeof navigator !== 'undefined'
-    && 'serviceWorker' in navigator
-    && typeof window !== 'undefined'
-    && 'PushManager' in window;
-}
-
 function NotificationPrefs() {
   const [prefs, setPrefs] = useState({});
   const [loading, setLoading] = useState(true);
@@ -68,13 +62,10 @@ function NotificationPrefs() {
 
   const fetchPushState = async () => {
     try {
-      const res = await apiClient.get('/api/notifications/push-public-key');
-      const key = (res.data && res.data.publicKey) || null;
+      const key = await fetchPushPublicKey();
       setPushPublicKey(key);
       if (key) {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
-        setPushEnabled(Boolean(subscription));
+        setPushEnabled(Boolean(await getCurrentSubscription()));
       }
     } catch (err) {
       setPushPublicKey(null);
@@ -87,19 +78,7 @@ function NotificationPrefs() {
 
     if (!pushEnabled) {
       try {
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          throw new Error('Notification permission was not granted');
-        }
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(pushPublicKey),
-        });
-        const subscriptionJson = typeof subscription.toJSON === 'function'
-          ? subscription.toJSON()
-          : subscription;
-        await apiClient.post('/api/notifications/push-subscribe', { subscription: subscriptionJson });
+        await subscribeToPush(pushPublicKey);
         setPushEnabled(true);
       } catch (err) {
         setPushEnabled(false);
@@ -109,13 +88,7 @@ function NotificationPrefs() {
       }
     } else {
       try {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
-        if (subscription) {
-          const { endpoint } = subscription;
-          await subscription.unsubscribe();
-          await apiClient.delete('/api/notifications/push-subscribe', { data: { endpoint } });
-        }
+        await unsubscribeFromPush();
         setPushEnabled(false);
       } catch (err) {
         setPushEnabled(true);
