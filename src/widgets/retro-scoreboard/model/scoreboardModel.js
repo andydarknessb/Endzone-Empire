@@ -1,5 +1,5 @@
 import { matchupPhase } from '../../../entities/matchup';
-import { formatInstant, unavailableLabel as sharedUnavailableLabel } from '../../../shared/lib';
+import { formatInstant, reasonLabel as sharedUnavailableLabel } from '../../../shared/lib';
 
 /**
  * Pure presentation arithmetic for the retro-scoreboard widget (ADR 0031,

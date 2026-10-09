@@ -3,6 +3,7 @@ import { Box, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { Card } from '../../../shared/ui';
 import { buildLedgerSections } from '../model/buildLedgerSections';
 import { useBenchPointsLeft } from '../model/useBenchPointsLeft';
+import { spent } from '../../../entities/roster';
 import LedgerRow from './LedgerRow';
 
 /**
@@ -115,7 +116,7 @@ export default function LineupLedger({
 
   // Reserve the Drop track on every row when any row can drop (a spent row
   // has no Drop but must keep the same numbers edge).
-  const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !row.entry.spent && canDropEntry?.(row.entry));
+  const reserveDropTrack = [...starters, ...ir, ...bench].some((row) => row.entry && !spent(row.entry) && canDropEntry?.(row.entry));
 
   const rowProps = (row) => {
     const entry = row.entry;
@@ -137,8 +138,8 @@ export default function LineupLedger({
       // LineupScreen.jsx's own `disabled` computation used - only the
       // selected row itself (excluded from `rowShowsEligibility` above) and
       // a genuinely eligible target stay clickable during a swap.
-      disabled: Boolean(disabled) || Boolean(entry?.spent) || (rowShowsEligibility && !eligible),
-      canDrop: Boolean(entry && !entry.spent && canDropEntry?.(entry)),
+      disabled: Boolean(disabled) || spent(entry) || (rowShowsEligibility && !eligible),
+      canDrop: Boolean(entry && !spent(entry) && canDropEntry?.(entry)),
       reserveDropTrack,
       onClick: (event) => onRowClick?.(entry, row.slotType, event),
       onRequestDrop,

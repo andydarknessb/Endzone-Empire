@@ -19,7 +19,7 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX, NO_HISTORY_LABEL, formatPoints, hasNoHistory, timeUntil, unavailableLabel } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, NO_HISTORY_LABEL, formatPoints, hasNoHistory, timeUntil, reasonLabel } from '../../../shared/lib';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';
 import { weeksForSparkline } from '../model/weeksAdapter';
 
@@ -107,7 +107,7 @@ function StatusCell({ player }) {
  * players show the reason, never a number, in the list and on the bars"). */
 function ProjWeekCell({ projWeek, noHistory = false }) {
   if (!projWeek) return <span>-</span>;
-  if (projWeek.reason) return <span>{unavailableLabel(projWeek.reason) || projWeek.reason}</span>;
+  if (projWeek.reason) return <span>{reasonLabel(projWeek.reason) || projWeek.reason}</span>;
   // #1778 (spec #1774): a Position-baseline projection is the position's
   // average, so the column reads "no history" in place of its number. The
   // verdict is the server's (`startVerdict`); an Unavailable reason above

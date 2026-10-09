@@ -652,7 +652,10 @@ describe('a Position-baseline projection (#1777)', () => {
   });
 
   test('an Unavailable reason wins over "no history": the strip shows the reason, no section says no history', async () => {
-    const out = baselineStarter({ availability: { available: false, reason: 'out' } });
+    const out = baselineStarter({
+      startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true },
+      availability: { available: false, reason: 'out' },
+    });
     mockCardRoute({ decision: { projWeek: { week: 4, points: 0, reason: 'out' } } });
     renderCard({ entry: out, entries: [out] });
 

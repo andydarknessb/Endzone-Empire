@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import { Card, InjuryTag, PosChip } from '../../../shared/ui';
-import { unavailableLabel } from '../../../widgets/slot-comparison';
+import { unavailableLabel } from '../../../entities/roster';
 
 /**
  * The Bench card of the Matchup page (ADR 0031, #903), transcribed from the
@@ -236,7 +236,7 @@ function BenchColumn({ name, players, side, onOpenPlayer, mobile }) {
 }
 
 function BenchRow({ player, mirrored, first, onOpenPlayer, mobile }) {
-  const reason = unavailableLabel(player.availability);
+  const reason = unavailableLabel(player);
   const projected = player.projected != null && Number.isFinite(Number(player.projected))
     ? Number(player.projected).toFixed(1)
     : null;

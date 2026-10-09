@@ -198,6 +198,13 @@ test('a starter with an unknown game state shows no state marker', () => {
   expect(within(cell(0, 'home')).queryByRole('img')).not.toBeInTheDocument();
 });
 
+test('an Unavailable starter with no reason reads the one fallback word, "unavailable"', () => {
+  const noReason = { slot: 'WR', home: starter({ id: 50, availability: { available: false } }), away: null };
+  render(<SlotComparison {...baseProps} rows={[noReason]} />);
+
+  expect(within(cell(0, 'home')).getByTestId('unavailable-reason')).toHaveTextContent('unavailable');
+});
+
 test('an Unavailable starter shows the reason in place of the projection and no pace bar', () => {
   render(<SlotComparison {...baseProps} />);
   const collins = cell(2, 'away');

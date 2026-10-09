@@ -8,25 +8,11 @@
  * photo_url, stats.
  */
 
-import { unavailableLabel as sharedUnavailableLabel, starterStateView } from '../../../shared/lib';
+import { starterStateView } from '../../../shared/lib';
 
 // The state marker map lives in shared/lib (#2010); re-exported so this
 // widget's UI and tests keep one import path.
 export { starterStateView };
-
-/**
- * The reason an Unavailable starter (CONTEXT.md, Roster and lineup) shows in
- * place of his projection, in the Lineup page's words; null for an available
- * row or one that carries no verdict. The reason -> label lookup is
- * shared/lib's unavailableLabel (#1208, replacing this widget's own copy of
- * the map); this wrapper keeps the widget's own `availability`-object
- * contract and its own fallback ('out') for a reason the shared map does not
- * know.
- */
-export function unavailableLabel(availability) {
-  if (!availability || availability.available !== false) return null;
-  return sharedUnavailableLabel(availability.reason) || 'out';
-}
 
 // The stat line's fields in reading order, the same list and order as the
 // legacy MatchupExtras.formatStatLine (copied for the reason above).

@@ -1,4 +1,5 @@
-import { formatKickoff, unavailableLabel } from '../../../shared/lib';
+import { formatKickoff } from '../../../shared/lib';
+import { unavailable, unavailableLabel } from '../../../entities/roster';
 
 /**
  * The Ledger row's Game cell (CONTEXT.md's Game cell; ADR 0037; #1237 AC2):
@@ -43,8 +44,8 @@ import { formatKickoff, unavailableLabel } from '../../../shared/lib';
  */
 export function gameCellView(entry, liveRow) {
   if (!entry) return null;
-  if (entry.availability && entry.availability.available === false) {
-    return { kind: 'unavailable', reason: entry.availability.reason, reasonLabel: unavailableLabel(entry.availability.reason) };
+  if (unavailable(entry)) {
+    return { kind: 'unavailable', reason: entry.availability.reason, reasonLabel: unavailableLabel(entry) };
   }
 
   const kind = gameStatusKind(liveRow);

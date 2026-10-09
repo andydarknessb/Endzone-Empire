@@ -8,7 +8,9 @@
  * the Matchup and Standings slices use). Everything else in this folder is
  * internal.
  *
- * `pairStartersBySlot`, `lineupEntries`, `locked` and `isQuestionable` are
+ * `pairStartersBySlot`, `lineupEntries`, `locked`, `spent`, `sortBench`,
+ * `unavailable`, `unavailableLabel` (#2140: the entry facts a widget renders, one Unavailable
+ * read and one fallback word) and `isQuestionable` are
  * all exported from HERE - `isQuestionable` (#1330) is
  * the one spelling of the questionable-class injury designation (Q, D), read
  * by the team-summary-strip widget rather than that widget inventing its own
@@ -87,7 +89,17 @@
  * (a widget, so it reads it through THIS index instead, ADR 0029's ordinary
  * "through the index" rule - no exception needed there).
  */
-export { lineupModel, pairStartersBySlot, lineupEntries, locked, isQuestionable } from './model/lineupModel';
+export {
+  lineupModel,
+  pairStartersBySlot,
+  lineupEntries,
+  locked,
+  spent,
+  sortBench,
+  unavailable,
+  unavailableLabel,
+  isQuestionable,
+} from './model/lineupModel';
 export { moveLegality, isBestBallManagedSlot } from './model/moveLegality';
 export { useTeamLineup } from './model/useTeamLineup';
 export {

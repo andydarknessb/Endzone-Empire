@@ -6,7 +6,6 @@ import {
   paceView,
   positionRingKey,
   starterStateView,
-  unavailableLabel,
 } from './slotComparisonModel';
 
 describe('formatStatLine', () => {
@@ -22,17 +21,6 @@ describe('formatStatLine', () => {
     expect(formatStatLine(null)).toBe('');
     expect(formatStatLine({})).toBe('');
     expect(formatStatLine({ passingYards: 0 })).toBe('');
-  });
-});
-
-describe('unavailableLabel', () => {
-  test('names the reason in the Lineup page words, and nothing for an available row', () => {
-    expect(unavailableLabel({ available: false, reason: 'bye' })).toBe('on bye');
-    expect(unavailableLabel({ available: false, reason: 'out' })).toBe('out');
-    expect(unavailableLabel({ available: false, reason: 'ir' })).toBe('on IR');
-    expect(unavailableLabel({ available: false, reason: 'mystery' })).toBe('out');
-    expect(unavailableLabel({ available: true, reason: null })).toBeNull();
-    expect(unavailableLabel(null)).toBeNull();
   });
 });
 

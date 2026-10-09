@@ -20,7 +20,7 @@ import {
   hasNoHistory,
   isRosterAtCapacity,
   sortRosterForDrop,
-  unavailableLabel,
+  reasonLabel,
 } from '../../../shared/lib';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
@@ -49,7 +49,7 @@ export function SwapPreview({ player }) {
   if (upgrade == null || upgrade.points == null || upgrade.overPlayer == null) return null;
   const mine = player.projWeek?.points ?? null;
   const { overPlayer } = upgrade;
-  const reason = overPlayer.unavailable ? unavailableLabel(overPlayer.unavailable) : null;
+  const reason = overPlayer.unavailable ? reasonLabel(overPlayer.unavailable) : null;
   const theirs = overPlayer.points ?? (mine != null ? mine - upgrade.points : null);
   const gain = Number(upgrade.points);
   // A Position-baseline row prints "no history" for his number and no gain

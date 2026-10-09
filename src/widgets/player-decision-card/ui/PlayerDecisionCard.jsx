@@ -39,7 +39,7 @@ import {
   BACKUP_LABEL,
   VOLATILITY_LABELS,
 } from '../../../shared/lib';
-import { locked } from '../../../entities/roster';
+import { locked, spent } from '../../../entities/roster';
 import {
   usePlayerCard,
   lineContextFromResponse,
@@ -449,7 +449,7 @@ export default function PlayerDecisionCard(props) {
 
   const isStarting = entry ? entry.slot !== 'BENCH' && entry.slot !== 'IR' : false;
   const isLocked = entry ? locked(entry) : false;
-  const isSpent = Boolean(entry?.spent);
+  const isSpent = spent(entry);
   // f1/r1/r2/r3 (formal review, round 2): Bench and Start now ask the SAME
   // eligibility rule the row path uses (`isEligibleMove`, exported from
   // `lineup-write`) rather than a hand-enumerated set of conditions - the
@@ -587,7 +587,7 @@ export default function PlayerDecisionCard(props) {
                       Locked
                     </Typography>
                   )}
-                  {entry.spent && (
+                  {spent(entry) && (
                     <Typography
                       component="span"
                       data-testid="decision-card-spent"
