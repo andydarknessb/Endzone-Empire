@@ -21,19 +21,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete global.caches;
   invalidate(undefined, { reload: false });
   jest.clearAllMocks();
 });
 
-test('drops the offline API cache and every in-memory resource cache in one call', async () => {
-  const deleted = [];
-  global.caches = { delete: (name) => { deleted.push(name); return Promise.resolve(true); } };
+test('drops every in-memory resource cache in one call', async () => {
   primeLeagueForTest(1, { id: 1, name: 'Previous account row', is_commissioner: true });
 
   dropSessionCaches();
 
-  expect(deleted).toEqual(['api-cache-v1']);
   const { result } = renderHook(() => useLeague(1));
   expect(result.current.league).toBeNull();
   const { result: standings } = renderHook(() => usePickemStandings(1, 2026));
@@ -53,8 +49,4 @@ test('does not make a mounted hook refetch (a session drop forgets, it never rel
   dropSessionCaches();
 
   expect(apiClient.get).toHaveBeenCalledTimes(1);
-});
-
-test('is safe where the Cache API does not exist (jsdom, old browsers)', () => {
-  expect(() => dropSessionCaches()).not.toThrow();
 });

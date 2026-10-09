@@ -397,8 +397,8 @@ A player who has left the NFL — released, retired, or otherwise dropped from
 Tank01's player list — or who the list carries with no team or flags as off
 every roster (its `isFreeAgent` field; the list keeps such a player under
 his last team, so the flag is the only sign he has gone). A fact about the
-NFL world, written only by the unattended injury sync (never the hand-run
-player sync, and never anything a manager does), which clears `nfl_team` to null for
+NFL world, written only by the daily player sync (never the injury sync, and
+never anything a manager does), which clears `nfl_team` to null for
 such a player once its own feed is large enough to trust; a feed too small to
 be a real player list trips a size floor and clears nothing, logged on that
 run's Sync run row. The clear is itself deferred, label kept exactly as
@@ -1510,6 +1510,40 @@ The number, 1 up to the slate size, a manager attaches to a pick in
 Confidence mode, each number used at most once across the week. A correct
 pick earns exactly its confidence in points.
 _Avoid_: rank, weight, points (what it becomes, not what it is)
+
+### Push alerts
+
+**Push alert**:
+A notification delivered to a Manager's phone, tablet or desktop through the
+browser's push service, whether the app is open or not. A home-screen install
+receives the same alert as a browser tab; on iOS only a home-screen install
+can receive one. Each kind of Push alert has its own per-Manager preference.
+_Avoid_: notification (the in-app list), toast, app push (there is no
+separate native app channel)
+
+**Injury alert**:
+A Push alert that a player on one of the Manager's rosters has changed Injury
+designation, sent once per change however many of the Manager's leagues roster
+him. Distinct from an IR alert, which is about an IR roster policy flag.
+_Avoid_: IR alert (different thing), injury update
+
+**Score update**:
+A Push alert about the Manager's own live Matchup: sent when the lead changes
+and when the Matchup reaches played. Never sent for other Matchups in the
+league and never at Score of record, which may be days later.
+_Avoid_: score alert, close matchup (a separate kind that fires on margin)
+
+**Big play**:
+A Scoring play by a starter in the Manager's live Matchup, on either side,
+worth at least six points under that league's Scoring rules. A Push alert
+carries it; several detected in one sync are one alert.
+_Avoid_: highlight, touchdown alert (a Big play need not be a touchdown)
+
+**Lineup reminder**:
+A Push alert sent when a starter's Kickoff is near and the Manager's Lineup
+has a problem: an empty Slot, a starter on bye, or a starter with an Injury
+designation. Never sent when there is nothing to fix.
+_Avoid_: lineup nudge, set-your-lineup
 
 ### The projection engine
 

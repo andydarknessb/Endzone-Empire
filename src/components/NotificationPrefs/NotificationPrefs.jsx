@@ -2,11 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Container, Typography, Paper, Box, FormControlLabel, FormHelperText, Switch, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import { urlBase64ToUint8Array } from '../../utils/push';
+import { urlBase64ToUint8Array, needsHomeScreenInstall } from '../../utils/push';
 
 const PREF_FIELDS = [
   { key: 'lineupReminder', label: 'Lineup reminders' },
   { key: 'irAlerts', label: 'IR eligibility alerts' },
+  {
+    key: 'injuryAlerts',
+    label: 'Injury alerts',
+    helper: 'A player on one of your rosters changes injury designation',
+  },
+  {
+    key: 'scoreUpdates',
+    label: 'Score updates',
+    helper: 'Your matchup when the lead changes and when it is over',
+  },
   { key: 'waiverResults', label: 'Waiver results' },
   { key: 'weeklyRecap', label: 'Weekly recap' },
   { key: 'tradeOffers', label: 'Trade offers' },
@@ -36,7 +46,9 @@ function NotificationPrefs() {
   const [error, setError] = useState(null);
   const [savingKey, setSavingKey] = useState(null);
 
-  const pushSupported = isPushSupported();
+  const showInstallHint = needsHomeScreenInstall();
+  // The hint replaces the switch, so the two never render together.
+  const pushSupported = isPushSupported() && !showInstallHint;
   const [pushPublicKey, setPushPublicKey] = useState(null);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
@@ -154,6 +166,14 @@ function NotificationPrefs() {
       <Typography variant="h4" sx={{ mb: 3 }}>
         Notification Settings
       </Typography>
+
+      {showInstallHint && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="body2" data-testid="push-install-hint">
+            Push alerts on iPhone and iPad need the app on your Home Screen. In Safari tap Share, then Add to Home Screen, then open Endzone Empire from there to turn alerts on.
+          </Typography>
+        </Paper>
+      )}
 
       {pushSupported && pushPublicKey && (
         <Paper sx={{ p: 2, mb: 2 }}>

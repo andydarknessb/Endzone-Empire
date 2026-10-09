@@ -147,10 +147,6 @@ async function sendWaiverResultsDigest({ leagueId }) {
   return { sent };
 }
 
-// One reminder per team-week. In-process only: a restart may re-remind, which
-// beats persisting reminder state for what is inherently best-effort nudging.
-const remindedTeamWeeks = new Set();
-
 /**
  * Pre-lockout lineup reminders: when a league's current week has an NFL game
  * kicking off within the next 2 hours, warn owners whose lineups have empty
@@ -192,8 +188,7 @@ async function sendLineupReminders() {
     );
 
     for (const team of teams.rows) {
-      const key = `${team.id}:${season}:${week}`;
-      if (remindedTeamWeeks.has(key) || !wanted.has(team.owner_id)) continue;
+      if (!wanted.has(team.owner_id)) continue;
 
       // withTransaction owns connect/BEGIN/COMMIT-or-guarded-ROLLBACK and the
       // release rule (ADR 0033). This is the lineup transaction whose catch
@@ -254,24 +249,35 @@ async function sendLineupReminders() {
         weekLastKickoff: weekKickoffs.last,
         now: new Date(),
       });
-      if (problems.length === 0) {
-        remindedTeamWeeks.add(key); // lineup is fine — don't re-check this week
-        continue;
-      }
+      if (problems.length === 0) continue;
 
-      remindedTeamWeeks.add(key);
-      remindersSent += 1;
+      // One reminder per team-week, held by the push_events ledger (so a
+      // restart or a second instance does not re-remind). A skipped push means
+      // this team-week was already reminded, so the notification and email
+      // below are skipped with it. A ledger error fails closed: the tick is
+      // skipped and the next one retries, rather than re-sending the email on
+      // every tick of the 2-hour window.
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
       try {
         const push = require('./push.service');
-        await push.sendPushToUsers([team.owner_id], {
-          title: 'Set your lineup before kickoff',
-          body: message,
-          url: `/#/league/${leagueId}/lineup`,
+        const { skipped } = await push.sendPushOnce({
+          userIds: [team.owner_id],
+          prefKey: 'lineupReminder',
+          kind: 'lineup-reminder',
+          subject: `${team.id}:${season}:${week}`,
+          fingerprint: 'sent',
+          payload: {
+            title: 'Set your lineup before kickoff',
+            body: message,
+            url: `/#/league/${leagueId}/lineup`,
+          },
         });
+        if (skipped) continue;
       } catch (err) {
         console.error('lineup reminder push failed:', err.message);
+        continue;
       }
+      remindersSent += 1;
       // Notify-only, best-effort: the swallow sits here at the call site around
       // withTransaction (ADR 0033, #1072). The ROLLBACK was unguarded before, so
       // a rejecting rollback escaped this swallow and aborted the whole digest
@@ -304,9 +310,10 @@ async function sendLineupReminders() {
   return { remindersSent };
 }
 
-// Same in-process, one-shot-per-(league, user, week) bookkeeping as
-// remindedTeamWeeks above, kept separate so a lineup reminder and a Pick'em
-// reminder don't suppress each other.
+// One Pick'em reminder per (league, user, week), in process only: a restart may
+// re-remind, which beats persisting state for best-effort nudging. The lineup
+// reminder is held by the push_events ledger instead, so the two don't suppress
+// each other.
 const pickemRemindedUserWeeks = new Set();
 
 /**
