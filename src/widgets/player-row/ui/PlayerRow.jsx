@@ -121,8 +121,12 @@ function ProjWeekCell({ projWeek, noHistory = false }) {
  * the caller's own roster - or a candidate who does not crack the lineup,
  * `points` 0; a negative Upgrade no longer exists, ADR 0055) - the same rule
  * DecisionStrip's own Upgrade tile applies. */
-function UpgradeCell({ upgrade }) {
+function UpgradeCell({ upgrade, currentWeek }) {
   if (!(upgrade?.points > 0)) return null;
+  // #2166 (ADR 0062): named when the Upgrade is read in a later week than the row's own.
+  const weekLabel = upgrade.week != null && currentWeek != null && upgrade.week !== currentWeek
+    ? ` Wk ${upgrade.week}`
+    : '';
   return (
     <Box
       component="span"
@@ -138,7 +142,7 @@ function UpgradeCell({ upgrade }) {
         fontSize: 13,
       }}
     >
-      +{formatPoints(upgrade.points)}
+      +{formatPoints(upgrade.points)}{weekLabel}
     </Box>
   );
 }
@@ -369,7 +373,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
                   <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                     Upgrade
                   </Typography>
-                  <UpgradeCell upgrade={player.upgrade} />
+                  <UpgradeCell upgrade={player.upgrade} currentWeek={player.projWeek?.week} />
                 </Box>
               )}
             </Stack>
@@ -415,7 +419,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
       )}
       {showUpgrade && (
         <TableCell align="right">
-          <UpgradeCell upgrade={player.upgrade} />
+          <UpgradeCell upgrade={player.upgrade} currentWeek={player.projWeek?.week} />
         </TableCell>
       )}
       {/* Desktop table (2026-09-15 report): the full strip made this column
