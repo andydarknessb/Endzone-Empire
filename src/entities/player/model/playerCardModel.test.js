@@ -20,3 +20,10 @@ test('playerCardUrl appends week when given', () => {
     '/api/players/7/card?leagueId=1&week=4',
   );
 });
+
+test('playerCardUrl appends dropPlayerId when given (#2168)', () => {
+  expect(playerCardUrl({ leagueId: 1, playerId: 7, dropPlayerId: 9 })).toBe('/api/players/7/card?leagueId=1&dropPlayerId=9');
+  expect(playerCardUrl({ leagueId: 1, playerId: 7, week: 4, dropPlayerId: 9 })).toBe(
+    '/api/players/7/card?leagueId=1&week=4&dropPlayerId=9',
+  );
+});

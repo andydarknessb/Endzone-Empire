@@ -145,8 +145,12 @@ async function loadIdentityIds(playerId) {
  * current roster under that week's projections and verdicts, one
  * `getWeeklyProjections` call per distinct later week. `now` (default the
  * current time) is the clock Clear times and kickoffs are compared with.
+ *
+ * `dropPlayerId` (#2168, ADR 0062) adds `swapNets`: for each candidate with an
+ * Upgrade, `{ points, week }` with that roster player out of the lineup. The
+ * Upgrade itself never takes the drop.
  */
-async function loadUpgradeContext({ league, team, season, week, playerIds, now = new Date() }) {
+async function loadUpgradeContext({ league, team, season, week, playerIds, dropPlayerId = null, now = new Date() }) {
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   const settings = lineupService.parseLineupSettings(league);
 
@@ -265,6 +269,7 @@ async function loadUpgradeContext({ league, team, season, week, playerIds, now =
   const rosterByWeek = new Map([...projectionsByWeek].map(([w, run]) => [w, rosterFor(run, w === week)]));
 
   const upgrades = new Map();
+  const swapNets = new Map();
   for (const id of ids) {
     const candidateWeek = weekById.get(id);
     if (hasNoUpgrade(id) || candidateWeek === null) {
@@ -290,12 +295,18 @@ async function loadUpgradeContext({ league, team, season, week, playerIds, now =
     const candidate = { position: positionById.get(id) ?? null, projection: run.pointsFor(id) };
     const upgrade = decisionService.upgradeFor(candidate, roster, settings.rosterSlots);
     upgrades.set(id, upgrade && { ...upgrade, week: candidateWeek });
+    if (upgrade && dropPlayerId !== null) {
+      swapNets.set(id, {
+        points: decisionService.swapNetFor(candidate, roster, settings.rosterSlots, dropPlayerId),
+        week: candidateWeek,
+      });
+    }
   }
 
   // `pointsFor(id)`: the number `upgradeFor` got as his projection, from the
   // run of his own week (the Players page's Upgrade-sort tie-break).
   const pointsFor = (id) => (projectionsByWeek.get(weekById.get(id)) ?? projections).pointsFor(id);
-  return { projections, upgrades, pointsFor };
+  return { projections, upgrades, swapNets, pointsFor };
 }
 
 /**
@@ -768,7 +779,7 @@ async function loadEspnFacts(player) {
  * Throws PlayerCardError(404) when the league or player does not exist;
  * requireMember throws MembershipError(403) when the caller holds no team.
  */
-async function getPlayerCard({ leagueId, userId, playerId, week }) {
+async function getPlayerCard({ leagueId, userId, playerId, week, dropPlayerId = null }) {
   // requireMember runs FIRST (a risk-review catch, #1306): `teams.league_id`
   // references `leagues.id` ON DELETE CASCADE, so a team row can never
   // outlive its league, and this ordering means a non-member gets the exact
@@ -802,7 +813,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
   const byeWeek = await byeService.computeByeWeek(player.nfl_team, season);
 
   const [
-    { projections, upgrades },
+    { projections, upgrades, swapNets },
     usage,
     { line, weather },
     opponents,
@@ -814,7 +825,7 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
     espnFacts,
     practice,
   ] = await Promise.all([
-    loadUpgradeContext({ league, team, season, week: effectiveWeek, playerIds: [player.id] }),
+    loadUpgradeContext({ league, team, season, week: effectiveWeek, playerIds: [player.id], dropPlayerId }),
     decisionCardContextService.loadUsage({
       playerId: player.id,
       playerTeam: player.nfl_team,
@@ -1060,6 +1071,8 @@ async function getPlayerCard({ leagueId, userId, playerId, week }) {
         throughWeek: seasonEnd,
       },
       upgrade: upgrades.get(player.id) ?? null,
+      // #2168: present only when the read named a drop (and he has an Upgrade).
+      ...(swapNets.has(player.id) ? { swapNet: swapNets.get(player.id) } : {}),
       usage,
       volatility,
     },
