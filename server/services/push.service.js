@@ -106,8 +106,7 @@ async function sendPushToUsers(userIds, payload) {
   for (const sub of subs.rows) {
     try {
       const out = hasBanter && bantering.has(sub.user_id)
-        ? { ...plain, body: `${plain.body}
-${banter}` }
+        ? { ...plain, body: `${plain.body}\n${banter}` }
         : plain;
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
