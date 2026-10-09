@@ -602,6 +602,29 @@ test('normalizeTeamRoster: suspended is Reserve; an unknown group and an athlete
   assert.deepEqual(rows.map((r) => [r.athleteId, r.rosterStatus]), [['1', 'reserve'], ['3', 'active']]);
 });
 
+test('normalizeTeamRoster (#2117): each row carries the athlete name, position, jersey and headshot, pinned against the recorded NYG roster', () => {
+  const rows = normalizeTeamRoster(teamRosterNygFixture, 'NYG');
+  const obj = rows.find((r) => r.athleteId === '16733');
+  assert.deepEqual(obj, {
+    athleteId: '16733',
+    teamCode: 'NYG',
+    rosterStatus: 'active',
+    name: 'Odell Beckham Jr.',
+    position: 'WR',
+    jerseyNumber: '13',
+    photoUrl: 'https://a.espncdn.com/i/headshots/nfl/players/full/16733.png',
+  });
+  assert.ok(rows.every((r) => r.name && r.position), 'every recorded NYG athlete has a name and a position');
+  assert.ok(rows.some((r) => r.jerseyNumber === null), 'an athlete with no jersey in the document reads null, not undefined');
+});
+
+test('normalizeTeamRoster (#2117): a bare item with only an id gets null name, position, jersey and photo', () => {
+  const [row] = normalizeTeamRoster({ athletes: [{ position: 'offense', items: [{ id: '7' }] }] }, 'NYG');
+  assert.deepEqual(row, {
+    athleteId: '7', teamCode: 'NYG', rosterStatus: 'active', name: null, position: null, jerseyNumber: null, photoUrl: null,
+  });
+});
+
 test('normalizeTeamRoster: a reshaped or empty payload is an empty array, never a throw', () => {
   assert.deepEqual(normalizeTeamRoster(null, 'NYG'), []);
   assert.deepEqual(normalizeTeamRoster({ athletes: 'x' }, 'NYG'), []);

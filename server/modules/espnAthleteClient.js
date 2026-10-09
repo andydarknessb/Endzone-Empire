@@ -297,8 +297,9 @@ const ROSTER_GROUP_STATUS = Object.freeze({
 
 /**
  * Pure: one team's site-API roster document -> `{ athleteId, teamCode,
- * rosterStatus }[]`, one per athlete (the first group an athlete appears in
- * wins). `rosterStatus` is `'active' | 'practice_squad' | 'reserve'`.
+ * rosterStatus, name, position, jerseyNumber, photoUrl }[]`, one per athlete
+ * (the first group an athlete appears in wins). `rosterStatus` is `'active' |
+ * 'practice_squad' | 'reserve'`; the last four are null when ESPN omits them.
  */
 function normalizeTeamRoster(payload, teamCode) {
   const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
@@ -313,7 +314,18 @@ function normalizeTeamRoster(payload, teamCode) {
       const athleteId = String(item.id);
       if (seen.has(athleteId)) continue;
       seen.add(athleteId);
-      rows.push({ athleteId, teamCode, rosterStatus });
+      const jersey = item.jersey != null && String(item.jersey) !== '' ? String(item.jersey).slice(0, 8) : null;
+      rows.push({
+        athleteId,
+        teamCode,
+        rosterStatus,
+        // The player-row fields the daily player sync writes (#2117): ESPN's own
+        // spelling, null when the document omits them.
+        name: item.fullName ? String(item.fullName) : null,
+        position: item.position && item.position.abbreviation ? String(item.position.abbreviation) : null,
+        jerseyNumber: jersey,
+        photoUrl: item.headshot && item.headshot.href ? String(item.headshot.href) : null,
+      });
     }
   }
   return rows;

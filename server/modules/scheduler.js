@@ -260,15 +260,15 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
 }
 
 /**
- * The daily Tank01 player-list sync (#2115, ADR 0060): keeps `players` (name,
+ * The daily player sync (#2115, #2117, ADR 0060): keeps `players` (name,
  * position, nfl_team, departures) current unattended, once per UTC day by the
  * cadence gate on the 'players' Sync run's own rows, which a hand-run sync also
- * writes. Tank01 is metered, so it needs the same credentials as every Tank01
- * call. A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so a
- * Tank01 outage does not spend a call every tick.
+ * writes. It reads the 32 ESPN team rosters (the sweep the roster-status run
+ * shares), which is free and keyless, so it is not gated on Tank01 credentials.
+ * A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so an
+ * ESPN outage does not spend a 32-call sweep every tick.
  */
 async function runDailyPlayerSync({ now = new Date() } = {}) {
-  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
   const gate = await cadence.due({ job: 'players', every: 'utc-day', retryMs: PLAYER_SYNC_RETRY_MS, now });
   if (!gate.due) return null;
   return require('../services/feedSyncRuns.service').syncPlayers({ season: now.getUTCFullYear(), now });

@@ -1,21 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createFakePool, insert, select, update } = require('./helpers/fakePool');
-const { syncPlayers, NFL_PLAYER_LIST_FLOOR } = require('../services/feedSyncRuns.service');
+const { syncPlayers } = require('../services/feedSyncRuns.service');
 
 // Team maintenance in the daily player sync (#2115, ADR 0060): the #1385 departure
-// clear, its size floor and kickoff deferral, and the #1391 calendar bound, moved
-// here from the injuries job, which now reads ESPN and never touches nfl_team.
-// A player ESPN-era `players` row is { id, external_id, name, position, nfl_team };
-// every list entry is a Tank01 getNFLPlayerList entry.
+// clear, its completeness guard and kickoff deferral, and the #1391 calendar bound,
+// moved here from the injuries job, which now reads ESPN and never touches nfl_team.
+// A stored `players` row is { id, external_id, name, position, nfl_team }; the
+// sync reads the ESPN team rosters (#2117), faked here as `sweepOf(rows, complete)`
+// standing in for espnFactsSync.sharedRosterSweep. `complete` is true only when
+// all 32 teams answered; a clear needs it.
 
 const teamCounts = ({ teamChanges, teamsCleared, teamsDeferred }) => ({ teamChanges, teamsCleared, teamsDeferred });
-const entry = (playerID, team, extra = {}) => ({ playerID, longName: `Player ${playerID}`, pos: 'WR', team, ...extra });
+const row = (athleteId, teamCode, extra = {}) => ({
+  athleteId: String(athleteId), teamCode, rosterStatus: 'active', name: `Player ${athleteId}`, position: 'WR', jerseyNumber: null, photoUrl: null, ...extra,
+});
+const sweepOf = (rows, complete = true) => async () => ({ units: [{ teamCode: 'ANY', rows }], complete });
 const CLEAR_STMT = /"nfl_team" = NULL/;
 
-// ---- moves and the blank-team keep ------------------------------------------
+// ---- moves and the kept label ------------------------------------------
 
-test('team refresh: a player the list has moved gets his nfl_team written by the upsert, and is counted', async (t) => {
+test('team refresh: a player a roster has moved gets his nfl_team written by the upsert, and is counted', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
@@ -25,14 +30,14 @@ test('team refresh: a player the list has moved gets his nfl_team written by the
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api: async () => ({ data: { body: [entry('1041', 'NE')] } }) });
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf([row(1041, 'NE')]) });
 
-  assert.deepEqual(fake.matching(insert('players'))[0].params[3], ['NE'], 'the upsert carries the list team, not the stored one');
+  assert.deepEqual(fake.matching(insert('players'))[0].params[3], ['NE'], 'the upsert carries the roster team, not the stored one');
   assert.equal(result.teamChanges, 1, 'the correction is counted for the run record');
   fake.assertClean();
 });
 
-test('team refresh: an entry with no team keeps the stored label below the floor, and the upsert cannot null it', async (t) => {
+test('team refresh: the upsert writes the roster team, and COALESCE keeps a stored headshot and jersey the roster omits', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
@@ -42,41 +47,51 @@ test('team refresh: an entry with no team keeps the stored label below the floor
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api: async () => ({ data: { body: [entry('55', '')] } }) });
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf([row(55, 'GB')], false) });
 
-  // The one-entry list is far below the floor. Red-tell: dropping the COALESCE
-  // lets the upsert write the list's null over a stored label on any short list.
-  assert.match(fake.matching(insert('players'))[0].text, /COALESCE\(EXCLUDED\."nfl_team", "players"\."nfl_team"\)/);
-  assert.equal(fake.matching(update('players')).length, 0, 'no clear statement below the floor');
+  // Red-tell: dropping the COALESCE lets a roster that omits a headshot or jersey
+  // write null over the stored value.
+  const text = fake.matching(insert('players'))[0].text;
+  assert.match(text, /COALESCE\(EXCLUDED\."photo_url", "players"\."photo_url"\)/);
+  assert.match(text, /COALESCE\(EXCLUDED\."jersey_number", "players"\."jersey_number"\)/);
   assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
   fake.assertClean();
 });
 
-// ---- #1385: departure clears nfl_team, gated on the floor -------------------
-// A player who leaves the NFL - dropped from Tank01's list entirely, or listed
-// with no team - would keep his last label forever: he looks startable, has no
-// game in nfl_games to lock against, and scores 0 with no injury flag. The
-// floor keeps the protection for a short or truncated list while letting a
-// real, full list's silence about a player read as what it is.
+test('team refresh: a stored WSH against a roster WAS is the same team, not a move', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 56, external_id: '56', name: 'Player 56', position: 'WR', nfl_team: 'WSH' }],
+    }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
 
-/** `count` filler entries each on SF, matching no stored player, that inflate the list's size. */
-function paddingEntries(count) {
-  const entries = [];
-  for (let i = 0; i < count; i++) entries.push({ playerID: `pad-${i}`, team: 'SF' });
-  return entries;
-}
-const PADDED_ENTRY_COUNT = NFL_PLAYER_LIST_FLOOR;
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf([row(56, 'WAS')]) });
 
-test('#1385: at or above the floor, a departed player and a blank-team player both clear, a same-team control does not', async (t) => {
+  assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  fake.assertClean();
+});
+
+// ---- #1385: departure clears nfl_team, gated on a complete sweep -------------
+// A player who leaves the NFL - on no team's roster any more - would keep his
+// last label forever: he looks startable, has no game in nfl_games to lock
+// against, and scores 0 with no injury flag. The completeness guard (#2117)
+// replaces the old Tank01 list-size floor: a sweep where a team failed or
+// answered empty clears nobody, while a full 32-team sweep's silence about a
+// player reads as what it is.
+
+test('#1385: on a complete sweep a player on no roster clears, a rostered control does not, and a practice-squad player keeps his team', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        // Absent from the list below - departed.
+        // On no roster below - departed.
         { id: 201, external_id: '201', name: 'Player 201', position: 'WR', nfl_team: 'HOU' },
-        // Listed with team: '' below - also departed.
+        // On his stored team's practice squad - on a roster, so he keeps it.
         { id: 202, external_id: '202', name: 'Player 202', position: 'WR', nfl_team: 'MIA' },
-        // Listed on his stored team - a control, untouched.
+        // On his stored team's active roster - a control, untouched.
         { id: 203, external_id: '203', name: 'Player 203', position: 'WR', nfl_team: 'KC' },
       ],
     }), 'client'],
@@ -90,76 +105,63 @@ test('#1385: at or above the floor, a departed player and a blank-team player bo
 
   const result = await syncPlayers({
     season: 2026,
-    api: async () => ({ data: { body: [entry('202', ''), entry('203', 'KC'), ...paddingEntries(PADDED_ENTRY_COUNT)] } }),
+    sweep: sweepOf([row(202, 'MIA', { rosterStatus: 'practice_squad' }), row(203, 'KC')]),
   });
 
   const clear = fake.matching(update('players')).find((c) => CLEAR_STMT.test(c.text));
-  assert.deepEqual(clear.params, [[201, 202]], 'the absent and the blank-team player clear in one statement; the control stays');
-  assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 2, teamsDeferred: 0 });
-  fake.assertClean();
-});
-
-test('an entry flagged isFreeAgent "True" reads as No NFL team: his stored label clears at or above the floor, a "False" control keeps his', async (t) => {
-  // Tank01's list keeps a player who has left the NFL under his LAST team with
-  // the flag set (2026-09-15: 1,527 of 3,872 entries; Joe Mixon "team":"HOU"
-  // six months after Houston released him).
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [
-        { id: 204, external_id: '204', name: 'Player 204', position: 'WR', nfl_team: 'HOU' },
-        { id: 205, external_id: '205', name: 'Player 205', position: 'WR', nfl_team: 'KC' },
-      ],
-    }), 'client'],
-    [select('leagues'), () => ({ rows: [] }), 'client'],
-    [insert('players'), () => ({ rows: [] }), 'client'],
-    [update('players'), () => ({ rows: [] }), 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
-  ]).install(t);
-
-  const result = await syncPlayers({
-    season: 2026,
-    api: async () => ({
-      data: {
-        body: [
-          entry('204', 'HOU', { isFreeAgent: 'True' }),
-          entry('205', 'KC', { isFreeAgent: 'False' }),
-          ...paddingEntries(PADDED_ENTRY_COUNT),
-        ],
-      },
-    }),
-  });
-
-  const clear = fake.matching(update('players')).find((c) => CLEAR_STMT.test(c.text));
-  assert.deepEqual(clear.params, [[204]]);
+  assert.deepEqual(clear.params, [[201]], 'only the player on no roster clears');
   assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 1, teamsDeferred: 0 });
   fake.assertClean();
 });
 
-test('#1385: below the floor, neither a departed player nor a blank-team player clears', async (t) => {
+test('#1385: a stored player ESPN still rosters at a non-fantasy position is on a roster, so he keeps his team', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [{ id: 206, external_id: '206', name: 'Player 206', position: 'WR', nfl_team: 'KC' }],
+    }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+
+  // ESPN now lists him as a long snapper: skipped by the upsert (non-fantasy),
+  // but on KC's roster, so never a clear candidate. No handler answers a clear
+  // or a leagues read.
+  const result = await syncPlayers({
+    season: 2026,
+    sweep: sweepOf([row(206, 'KC', { position: 'LS' }), row(207, 'KC')]),
+  });
+
+  assert.equal(fake.matching(update('players')).length, 0);
+  assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  assert.equal(result.skippedNonFantasy, 1);
+  fake.assertClean();
+});
+
+test('#2117: a partial sweep (a team failed or answered empty) clears nobody, though it still writes the moves it saw', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({
       rows: [
-        { id: 301, external_id: '301', name: 'Player 301', position: 'WR', nfl_team: 'HOU' },
-        { id: 302, external_id: '302', name: 'Player 302', position: 'WR', nfl_team: 'MIA' },
-        { id: 303, external_id: '303', name: 'Player 303', position: 'WR', nfl_team: 'KC' },
+        { id: 301, external_id: '301', name: 'Player 301', position: 'WR', nfl_team: 'HOU' }, // HOU's fetch failed: absent
+        { id: 302, external_id: '302', name: 'Player 302', position: 'WR', nfl_team: 'MIA' }, // genuinely gone
+        { id: 303, external_id: '303', name: 'Player 303', position: 'WR', nfl_team: 'ARI' }, // moved to KC
       ],
     }), 'client'],
     [insert('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
 
-  // 301 omitted and 302 blank, the guard-passed shape, but this list never
-  // reaches the floor. No handler answers a clear or a leagues read: an
-  // implementation that tried either would fail with "unexpected query".
+  // No handler answers a clear or a leagues read: an implementation that tried
+  // either would fail with "unexpected query".
   const result = await syncPlayers({
     season: 2026,
-    api: async () => ({ data: { body: [entry('302', ''), entry('303', 'KC')] } }),
+    sweep: sweepOf([row(303, 'KC')], false),
   });
 
-  assert.equal(fake.matching(update('players')).length, 0, 'no clear statement at all below the floor');
-  assert.deepEqual(teamCounts(result), { teamChanges: 0, teamsCleared: 0, teamsDeferred: 0 });
+  assert.equal(fake.matching(update('players')).length, 0, 'no clear statement at all on a partial sweep');
+  assert.deepEqual(teamCounts(result), { teamChanges: 1, teamsCleared: 0, teamsDeferred: 0 });
+  assert.equal(result.rosterComplete, false);
   fake.assertClean();
 });
 
@@ -199,8 +201,8 @@ test("#1385 ruling (4'): a departed player whose team already kicked off in a li
 
   const result = await syncPlayers({
     season: 2026,
-    // 401 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    // 401 omitted - he is on no roster, on a complete sweep.
+    sweep: sweepOf([]),
   });
 
   assert.equal(
@@ -232,7 +234,7 @@ test("#1385 ruling (4'): the same shape clears once his team's current-week game
 
   const result = await syncPlayers({
     season: 2026,
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    sweep: sweepOf([]),
   });
 
   const departureWrite = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
@@ -268,7 +270,7 @@ test("#1385 ruling (4'): the deferral folds Team code aliases (a stored WSH agai
 
   const result = await syncPlayers({
     season: 2026,
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    sweep: sweepOf([]),
   });
 
   assert.equal(
@@ -323,8 +325,8 @@ test("#1391 ruling: a league two or more NFL weeks behind the calendar holds no 
 
   const result = await syncPlayers({
     season: 2026,
-    // 501 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    // 501 omitted - he is on no roster, on a complete sweep.
+    sweep: sweepOf([]),
   });
 
   // Bounded out of the deferral set: openKickoffTeams never even reads
@@ -361,7 +363,7 @@ test('#1391 ruling: one NFL week behind the calendar is still inside the grace -
 
   const result = await syncPlayers({
     season: 2026,
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    sweep: sweepOf([]),
   });
 
   assert.equal(
@@ -413,7 +415,7 @@ test('#1391 season-tail amendment: a league still on the closed season\'s LAST w
 
   const result = await syncPlayers({
     season: 2026,
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    sweep: sweepOf([]),
   });
 
   assert.equal(
@@ -444,8 +446,8 @@ test('#1391 season-tail amendment: once the tail grace has passed (8 days), the 
 
   const result = await syncPlayers({
     season: 2026,
-    // 505 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    // 505 omitted - he is on no roster, on a complete sweep.
+    sweep: sweepOf([]),
   });
 
   // No handler above answers a kicked-off-teams read: the tail grace expired,
@@ -478,8 +480,8 @@ test("#1391 season-tail amendment: a league on week 17 once week 18 has closed i
 
   const result = await syncPlayers({
     season: 2026,
-    // 506 omitted - he has left the list - padded past the floor.
-    api: async () => ({ data: { body: paddingEntries(PADDED_ENTRY_COUNT) } }),
+    // 506 omitted - he is on no roster, on a complete sweep.
+    sweep: sweepOf([]),
   });
 
   // No handler above answers a kicked-off-teams read: W=17 < L=18 excludes
@@ -522,7 +524,7 @@ test('#1789: a team move and a clear reconcile availability for exactly those id
   await syncPlayers({
     season: 2026,
     now,
-    api: async () => ({ data: { body: [entry('601', 'NE'), entry('603', 'KC'), ...paddingEntries(PADDED_ENTRY_COUNT)] } }),
+    sweep: sweepOf([row(601, 'NE'), row(603, 'KC')]),
   });
 
   assert.deepEqual(reconcileArgs.playerIds, [601, 602], 'the moved and the cleared player, never the control');
@@ -545,7 +547,7 @@ test('#1789: a run that moves and clears nobody never reconciles; a reconcile fa
     [insert('players'), () => ({ rows: [] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
-  await syncPlayers({ season: 2026, api: async () => ({ data: { body: [entry('1', 'KC')] } }) });
+  await syncPlayers({ season: 2026, sweep: sweepOf([row(1, 'KC')]) });
   assert.equal(calls, 0, 'nothing changed: no reconcile');
   assert.equal(quiet.calls.some((c) => SAVEPOINT_STMT.test(c.text)), false);
 
@@ -558,7 +560,7 @@ test('#1789: a run that moves and clears nobody never reconciles; a reconcile fa
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
   ]).install(t);
   t.mock.method(console, 'error', () => {});
-  const result = await syncPlayers({ season: 2026, api: async () => ({ data: { body: [entry('2', 'NE')] } }) });
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf([row(2, 'NE')]) });
   assert.equal(result.teamChanges, 1);
   assert.ok(fake.calls.some((c) => ROLLBACK_TO_STMT.test(c.text)), 'the failed reconcile rolls back to its own savepoint');
   assert.ok(fake.calls.some((c) => c.text === 'COMMIT'), 'the team write still commits');
