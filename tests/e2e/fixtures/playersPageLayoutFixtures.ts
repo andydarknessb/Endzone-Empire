@@ -54,7 +54,7 @@ function cardsPlayer(seed: Seed, index: number) {
   const weeks = [];
   for (let week = 2; week <= 18; week += 1) {
     if (seed.weeksReason) weeks.push({ week, reason: seed.weeksReason });
-    else weeks.push(week === 9 ? { week, reason: 'on bye' } : { week, points });
+    else weeks.push(week === 9 ? { week, reason: 'bye' } : { week, points });
   }
   const { state } = seed;
   return {
@@ -71,8 +71,12 @@ function cardsPlayer(seed: Seed, index: number) {
       teamName: state === 'rostered' ? seed.teamName ?? null : null,
       availableAt: state === 'waivers' ? '2026-09-17T07:00:00.000Z' : null,
     },
-    projWeek: { week: 2, points },
-    ros: { points: points * 16, perGame: points, posRank: 12, throughWeek: 17 },
+    // The wire's projWeek carries the current week's reason with 0 points
+    // (playerCard.service.js #1765), so the Proj cell reads "no team".
+    projWeek: seed.weeksReason ? { week: 2, points: 0, reason: seed.weeksReason } : { week: 2, points },
+    ros: seed.weeksReason
+      ? { points: 0, perGame: 0, posRank: null, throughWeek: 17 }
+      : { points: points * 16, perGame: points, posRank: 12, throughWeek: 17 },
     weeks,
     ownership: null,
     upgrade: state === 'my_team' ? null : { points: 3.2, overPlayer: { id: 1, name: 'Bench Guy' }, slot: seed.position },

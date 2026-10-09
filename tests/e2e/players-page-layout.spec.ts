@@ -113,8 +113,6 @@ function probeWeeks() {
   };
 }
 
-const WEEKS_STRIP_MAX = 160;
-
 test('1440x900: a player Unavailable every week keeps the Weeks strip as narrow as a points row', async ({ page }) => {
   await setupPlayersPageLayout(page, { seasonUnavailable: true });
   await page.setViewportSize(DESKTOP);
@@ -126,7 +124,11 @@ test('1440x900: a player Unavailable every week keeps the Weeks strip as narrow 
   // eslint-disable-next-line no-console
   console.log(`PLAYERS_LAYOUT_WEEKS ${JSON.stringify({ strips, container })}`);
   expect(strips.length).toBe(10);
-  for (const strip of strips) expect(strip.width, `strips ${JSON.stringify(strips)}`).toBeLessThanOrEqual(WEEKS_STRIP_MAX);
+  // Relative to the first (points) row, so a gap or column-width tweak moves
+  // every row together; the floor catches a probe that measured nothing.
+  const pointsRow = strips[0].width;
+  expect(pointsRow, `strips ${JSON.stringify(strips)}`).toBeGreaterThan(100);
+  for (const strip of strips) expect(strip.width, `strips ${JSON.stringify(strips)}`).toBeLessThanOrEqual(pointsRow + 1);
   expect(container!.scrollWidth, `table container ${JSON.stringify(container)}`).toBeLessThanOrEqual(container!.clientWidth + 1);
 });
 
