@@ -1,6 +1,7 @@
 const pool = require('../modules/pool');
 const { computeStandings, pairBySeed } = require('./season.service');
-const { parseLineupSettings, optimalLineup } = require('./lineup.service');
+const { parseLineupSettings } = require('./lineup.service');
+const { optimalLineup } = require('./lineupOptimizer');
 const { getWeekProjections } = require('./projection.service');
 const { poolPointsMap } = require('./poolProjection');
 const { LEAGUE_PHASE, deriveLeaguePhase } = require('./leaguePhase');
@@ -278,7 +279,7 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   }
   const models = new Map();
   for (const team of teams) {
-    const projected = optimalLineup(rosters.get(team.id) || [], rosterSlots, pointsFor).total;
+    const projected = optimalLineup({ rosterSlots, candidates: rosters.get(team.id) || [], pointsFor }).total;
     models.set(team.id, buildTeamModel(history.get(team.id) || [], projected));
   }
 

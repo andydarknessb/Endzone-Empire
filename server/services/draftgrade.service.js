@@ -1,7 +1,8 @@
 const pool = require('../modules/pool');
 const { getWeekProjections } = require('./projection.service');
 const { poolPointsMap } = require('./poolProjection');
-const { optimalLineup, parseLineupSettings } = require('./lineup.service');
+const { parseLineupSettings } = require('./lineup.service');
+const { optimalLineup } = require('./lineupOptimizer');
 
 /**
  * Draft grades: A–F per team, computed lazily on first request after the
@@ -214,7 +215,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
   for (const [teamId, { name, picks }] of byTeam) {
     const teamProjected = picks.some((pick) => pointsFor.has(pick.playerId));
     const players = picks.map(({ playerId, position }) => ({ playerId, position }));
-    const optimal = optimalLineup(players, rosterSlots, pointsFor);
+    const optimal = optimalLineup({ rosterSlots, candidates: players, pointsFor });
     const starterIds = new Set(optimal.starters.map((s) => s.playerId));
     const benchValue = players
       .filter((p) => !starterIds.has(p.playerId))

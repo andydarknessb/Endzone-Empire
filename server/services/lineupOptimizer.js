@@ -26,6 +26,12 @@ const { slotEligible, DEFAULT_ROSTER_SLOTS } = require('./lineup.service');
  * Leaving a slot EMPTY is a legal outcome and costs exactly 0, which is why a
  * player projected below zero (real for IDP and DST) is correctly left on the
  * bench instead of being forced into a slot.
+ *
+ * This is the one "best legal lineup" function (#2141): materialize, Hindsight,
+ * the live what-if, Expected final, Monte Carlo, Draft grade, Start/sit advice
+ * and the Upgrade all call `optimalLineup` (also exported as
+ * `optimalAssignment`). What may not move is computed by lineup.service's
+ * `heldLineup` and passed in as `pinned`; this module stays pure.
  */
 
 // Any cost this large is never chosen unless the matrix has no alternative,
@@ -123,9 +129,11 @@ function pointsValue(pointsFor, playerId) {
  * @param {Map}      args.pointsFor    playerId -> points (or { points })
  * @param {Map}      args.pinned       playerId -> slotKey for locked starters,
  *                                     who keep their exact slot instance
- * @returns {{ assignments, byPlayer, total }}
+ * @returns {{ starters, assignments, byPlayer, total }} `starters` is every
+ *   filled slot as `{ playerId, position, slot, points }` (`position` is known
+ *   for candidates; a pinned player carries none).
  */
-function optimalAssignment({
+function optimalLineup({
   rosterSlots = DEFAULT_ROSTER_SLOTS,
   candidates = [],
   pointsFor = new Map(),
@@ -138,6 +146,15 @@ function optimalAssignment({
     playerId: null,
     points: 0,
   }));
+  const positionOf = new Map(candidates.map((c) => [c.playerId, c.position]));
+  const result = (total) => ({
+    starters: assignments
+      .filter((a) => a.playerId !== null)
+      .map((a) => ({ playerId: a.playerId, position: positionOf.get(a.playerId), slot: a.slotKey, points: a.points })),
+    assignments,
+    byPlayer,
+    total: Math.round(total * 100) / 100,
+  });
 
   // Locked starters consume their slot instance up front and never enter the
   // matrix: they cannot legally be moved, so optimizing over them would
@@ -166,7 +183,7 @@ function optimalAssignment({
   const openSlots = assignments.filter((a) => a.playerId === null);
   const pool = candidates.filter((c) => c && !pinned.has(c.playerId));
   if (openSlots.length === 0 || pool.length === 0) {
-    return { assignments, byPlayer, total: Math.round(total * 100) / 100 };
+    return result(total);
   }
 
   // Rows: open slot instances. Columns: real players, then one "leave empty"
@@ -198,7 +215,7 @@ function optimalAssignment({
     total += openSlots[r].points;
   }
 
-  return { assignments, byPlayer, total: Math.round(total * 100) / 100 };
+  return result(total);
 }
 
 /**
@@ -287,7 +304,10 @@ module.exports = {
   INELIGIBLE,
   expandSlotInstances,
   minCostAssignment,
-  optimalAssignment,
+  optimalLineup,
+  // The same function under the name its other importers (the backtest
+  // scripts and their tests) already use.
+  optimalAssignment: optimalLineup,
   buildSwapSuggestions,
   pointsValue,
 };

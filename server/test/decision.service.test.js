@@ -7,8 +7,10 @@ const {
   tradeFairnessSummary,
   upgradeFor,
   madeAppearance,
+  liveWhatIf,
 } = require('../services/decision.service');
 const { DEFAULT_ROSTER_SLOTS } = require('../services/lineup.service');
+const { createFakePool } = require('./helpers/fakePool');
 const { resultFromLegacyMap } = require('./helpers/weeklyProjectionResult');
 const projectionModel = require('../services/projectionModel');
 
@@ -963,4 +965,87 @@ test('buildSuggestions: a stale-IR Position-baseline bench rookie is never a can
   assert.equal(projections.startVerdictFor(2).outcome, 'unavailable', 'the fixture: the run says Unavailable');
   const result = buildSuggestions(lineup, projections, new Map(), RB1);
   assert.equal(result.suggestions.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// liveWhatIf and Held (#2141): the live advisor asks lineup.service's
+// `heldLineup` who may move, then the one Optimizer for the best lineup. A
+// kicked-off bench player is no candidate however high he projects, and a
+// kicked-off starter keeps his slot instead of being re-seated.
+// ---------------------------------------------------------------------------
+
+const WHATIF_LEAGUE_ID = 5;
+const WHATIF_TEAM_ID = 10;
+
+function whatIfWorld(t, { entries, kickedOff, rosterSlots }) {
+  return createFakePool([
+    [/^SELECT \* FROM "leagues"/, () => ({
+      rows: [{
+        id: WHATIF_LEAGUE_ID, current_season: 2026, current_week: 8,
+        roster_slots: rosterSlots, bench_slots: 5, ir_slots: 1, scoring_rules: null,
+      }],
+    })],
+    [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ ok: 1 }] })],
+    [/^SELECT COUNT\(\*\)::int AS "n"/, () => ({ rows: [{ n: 2, all_final: false }] })],
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ player_id, position }) => ({ player_id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
+      rows: entries.map(({ player_id }) => ({ player_id })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: entries.map((e) => ({ ...e })) })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({
+      rows: kickedOff.map((nfl_team) => ({ nfl_team })),
+    })],
+  ]).install(t);
+}
+
+const whatIfRow = (player_id, position, slot, nfl_team, stats) => ({
+  player_id, name: `p${player_id}`, position, slot, nfl_team, stats,
+});
+const runLiveWhatIf = () => liveWhatIf({
+  leagueId: WHATIF_LEAGUE_ID, teamId: WHATIF_TEAM_ID, season: 2026, week: 8,
+});
+
+test('liveWhatIf: a kicked-off bench player with the highest projection is not started', async (t) => {
+  // p2 is worth 30 and has kicked off (KC); p3 is worth 15 and has not. The
+  // only thing that keeps p2 out of the swap is Held's bench exclusion.
+  const fake = whatIfWorld(t, {
+    rosterSlots: RB1,
+    kickedOff: ['KC'],
+    entries: [
+      whatIfRow(1, 'RB', 'RB', 'BUF', { rushingYards: 100 }), // 10
+      whatIfRow(2, 'RB', 'BENCH', 'KC', { rushingYards: 300 }), // 30, kicked off
+      whatIfRow(3, 'RB', 'BENCH', 'BUF', { rushingYards: 150 }), // 15
+    ],
+  });
+
+  const result = await runLiveWhatIf();
+
+  assert.deepEqual(result.swaps.map((s) => [s.out.playerId, s.in.playerId]), [[1, 3]]);
+  assert.equal(result.delta, 5);
+  assert.equal(result.optimalPoints, 15);
+  fake.assertClean();
+});
+
+test('liveWhatIf: a kicked-off starter keeps his slot, so no swap needs him to move', async (t) => {
+  // p1 started at FLEX and has kicked off. Re-seating him at RB would let p3
+  // take FLEX, but setLineup would refuse that move: advice must hold him in
+  // FLEX, where the open RB slot can only take p2.
+  const fake = whatIfWorld(t, {
+    rosterSlots: [...RB1, ...FLEX1],
+    kickedOff: ['KC'],
+    entries: [
+      whatIfRow(1, 'RB', 'FLEX', 'KC', { rushingYards: 120 }), // 12, kicked off
+      whatIfRow(2, 'RB', 'RB', 'BUF', { rushingYards: 40 }), // 4
+      whatIfRow(3, 'WR', 'BENCH', 'BUF', { receivingYards: 90 }), // 9
+    ],
+  });
+
+  const result = await runLiveWhatIf();
+
+  assert.deepEqual(result.swaps, []);
+  assert.equal(result.delta, 0);
+  fake.assertClean();
 });

@@ -1,4 +1,5 @@
-const { optimalLineup, parseLineupSettings } = require('./lineup.service');
+const { parseLineupSettings } = require('./lineup.service');
+const { optimalLineup } = require('./lineupOptimizer');
 
 /*
  * The FORMAT and the SUMMING RULE for a week's counted roster.
@@ -159,7 +160,7 @@ function countedRoster({ rows, league, price }) {
     });
   }
 
-  const optimal = optimalLineup(candidates, rosterSlots, pointsFor);
+  const optimal = optimalLineup({ rosterSlots, candidates, pointsFor });
   const optimalPoints = optimal.total;
   const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
 

@@ -2,7 +2,8 @@ const pool = require('../modules/pool');
 const projectionService = require('./projection.service');
 const { computeByeWeeks } = require('./bye.service');
 const { normalizeNflTeam } = require('./nflTeam');
-const { optimalLineup, parseLineupSettings } = require('./lineup.service');
+const { parseLineupSettings } = require('./lineup.service');
+const { optimalLineup } = require('./lineupOptimizer');
 const { gameStateFor } = require('./gameState');
 const { gameFractionRemaining, varianceRemaining } = require('./winProbability');
 
@@ -295,7 +296,7 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       ? (() => {
         const { rosterSlots } = parseLineupSettings(league);
         const pointsFor = new Map(candidates.map((candidate) => [candidate.playerId, candidate.rawExpectedFinal]));
-        const { starters: chosen } = optimalLineup(candidates, rosterSlots, pointsFor);
+        const { starters: chosen } = optimalLineup({ rosterSlots, candidates, pointsFor });
         const byPlayerId = new Map(candidates.map((candidate) => [candidate.playerId, candidate]));
         return chosen.map(({ playerId }) => byPlayerId.get(playerId));
       })()

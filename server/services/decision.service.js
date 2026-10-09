@@ -8,14 +8,14 @@ const {
   getTradeProjectionMetrics,
 } = require('./projection.service');
 const {
-  optimalLineup,
+  heldLineup,
   parseLineupSettings,
   slotEligible,
   materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
 } = require('./lineup.service');
-const { optimalAssignment, buildSwapSuggestions } = require('./lineupOptimizer');
+const { optimalLineup, buildSwapSuggestions } = require('./lineupOptimizer');
 const projectionModel = require('./projectionModel');
 const { verdictBand } = require('./intervalReading');
 const { normalizeNflTeam } = require('./nflTeam');
@@ -121,24 +121,14 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     || (projectionModel.MODEL_CONSTANTS.decision || {}).lineupRanking
     || 'median';
   const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
-  // An open called shot (#1856) is treated exactly as a locked pair: its starter
-  // keeps his slot and its benched player is never a candidate, so neither
-  // player reaches a suggestion or the movePlan. It holds only while the
-  // lineup still matches the shot (starter starting, benched player benched).
-  const heldByShot = new Set();
-  const shot = options && options.calledShot;
-  if (shot) {
-    const starterEntry = (lineupEntries || []).find((e) => e.playerId === shot.starterId);
-    const benchedEntry = (lineupEntries || []).find((e) => e.playerId === shot.benchedId);
-    if (starterEntry && benchedEntry && isStarter(starterEntry) && benchedEntry.slot === BENCH) {
-      heldByShot.add(shot.starterId);
-      heldByShot.add(shot.benchedId);
-    }
-  }
-  const entries = (lineupEntries || []).map((e) => ({
-    ...e,
-    locked: Boolean(e.locked) || heldByShot.has(e.playerId),
-  }));
+  // Held (lineup.service's `heldLineup`): a locked starter keeps his slot, a
+  // locked bench player is no candidate, and an open called shot (#1856) is
+  // treated exactly as a locked pair, so neither of its players reaches a
+  // suggestion or the movePlan.
+  const { entries, pinned, candidates: movable } = heldLineup(lineupEntries, {
+    calledShot: options && options.calledShot,
+  });
+  const movableIds = new Set(movable.map((c) => c.playerId));
   const startingSlots = new Set(entries.filter(isStarter).map((e) => e.slot));
 
   const contextFor = (playerId) =>
@@ -147,7 +137,6 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
 
   const availabilityById = new Map();
   const verdictById = new Map(); // the Start verdict, for ADR 0057's Backup zero
-  const pinned = new Map();
   const candidates = [];
   for (const entry of entries) {
     // The Start verdict (spec #2042; ADR 0061) from the read, the one producer:
@@ -169,12 +158,8 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
     };
     availabilityById.set(entry.playerId, availability);
     verdictById.set(entry.playerId, verdict);
-    if (entry.slot === IR) continue; // IR is never a lineup candidate
-    if (entry.locked) {
-      // Locked starters keep their slot; locked bench players cannot be started.
-      if (isStarter(entry)) pinned.set(entry.playerId, entry.slot);
-      continue;
-    }
+    // IR, a held starter and a locked bench player are no candidates.
+    if (!movableIds.has(entry.playerId)) continue;
     if (!availability.available) continue; // bye / Out / IR designation
     // Doubtful, Position-baseline, Backup or no-practice on the bench. The
     // verdict gates too: a run that stored him Unavailable (a stale IR) is never
@@ -262,7 +247,7 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
   }
   projectedTotal = round2(projectedTotal);
 
-  const optimal = optimalAssignment({
+  const optimal = optimalLineup({
     rosterSlots: slots,
     candidates,
     pointsFor: rankingValues,
@@ -869,7 +854,9 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   // (#977). The optimizer is a pure function over rows already in hand, so
   // this costs no query - and it needs no lock, because nothing is movable.
   if (league.best_ball) {
-    const bestBallTotal = optimalLineup(wholePool, settings.rosterSlots, pointsFor).total;
+    const bestBallTotal = optimalLineup({
+      rosterSlots: settings.rosterSlots, candidates: wholePool, pointsFor,
+    }).total;
     return {
       teamId, week, actualPoints: bestBallTotal, optimalPoints: bestBallTotal, delta: 0, swaps: [],
     };
@@ -891,23 +878,23 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
 
   const actualPoints = round2(startedPoints);
   const lockedById = new Map();
-  // Only unlocked players are candidates for the "what you could still do" pool;
-  // locked players stay wherever they are.
-  const candidatePool = [];
   for (const row of rows.rows) {
-    if (row.slot === IR) continue;
-    lockedById.set(row.player_id, row.locked === true);
-    if (row.locked !== true) {
-      candidatePool.push({ playerId: row.player_id, position: row.position });
-    }
+    if (row.slot !== IR) lockedById.set(row.player_id, row.locked === true);
   }
 
-  // Optimal over the actionable pool. Locked starters are pinned by adding them
-  // back as forced candidates so the optimizer keeps their slots realistic.
-  const forced = rows.rows
-    .filter((r) => r.locked === true && currentStarterIds.has(r.player_id))
-    .map((r) => ({ playerId: r.player_id, position: r.position }));
-  const optimal = optimalLineup([...candidatePool, ...forced], settings.rosterSlots, pointsFor);
+  // Optimal over the actionable pool. Held (lineup.service's `heldLineup`):
+  // only unlocked players are candidates for the "what you could still do"
+  // pool, and a locked starter keeps his exact slot, so the answer never
+  // needs him to move.
+  const held = heldLineup(rows.rows.map((row) => ({
+    playerId: row.player_id, position: row.position, slot: row.slot, locked: row.locked === true,
+  })));
+  const optimal = optimalLineup({
+    rosterSlots: settings.rosterSlots,
+    candidates: held.candidates,
+    pointsFor,
+    pinned: held.pinned,
+  });
   const optimalIds = new Set(optimal.starters.map((s) => s.playerId));
 
   // Actionable swaps: an unlocked bench player the optimizer promotes, replacing
@@ -1181,20 +1168,12 @@ const UPGRADE_CANDIDATE = Symbol('upgrade-candidate');
  */
 function bestLineup(roster, rosterSlots, candidate = null) {
   const pointsFor = new Map(roster.map((r) => [r.playerId, Number(r.projection) || 0]));
-  const pinned = new Map();
-  const pool = [];
-  for (const r of roster) {
-    if (r.kickedOff) {
-      if (r.slot !== BENCH) pinned.set(r.playerId, r.slot);
-    } else {
-      pool.push({ playerId: r.playerId, position: r.position });
-    }
-  }
+  const { pinned, candidates: pool } = heldLineup(roster.map((r) => ({ ...r, locked: r.kickedOff })));
   if (candidate) {
     pointsFor.set(UPGRADE_CANDIDATE, Number(candidate.projection) || 0);
     pool.push({ playerId: UPGRADE_CANDIDATE, position: candidate.position });
   }
-  return optimalAssignment({ rosterSlots, candidates: pool, pointsFor, pinned });
+  return optimalLineup({ rosterSlots, candidates: pool, pointsFor, pinned });
 }
 
 /**
