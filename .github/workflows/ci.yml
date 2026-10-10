@@ -179,7 +179,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        # Docker's official image via the ECR Public mirror: anonymous Docker
+        # Hub pulls are rate-limited on shared runners (toomanyrequests).
+        image: public.ecr.aws/docker/library/postgres:17
         env:
           POSTGRES_USER: endzone
           POSTGRES_PASSWORD: endzone_test
