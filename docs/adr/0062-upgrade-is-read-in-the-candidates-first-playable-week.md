@@ -24,8 +24,8 @@ We decide:
    list may mix weeks; each number is honest for its own week.
 3. A bye week has no game, so it is skipped, not refused: a free agent on bye
    reads next week's Upgrade. Out, IR and No NFL team stay undefined. So does
-   a candidate whose first playable week falls after the team's last week of
-   the season; zero would claim he adds nothing, when there is no week to add
+   a candidate whose first playable week falls after the league's last playoff
+   week; zero would claim he adds nothing, when there is no week to add
    him to.
 4. The drop a claim makes and the players a trade sends away are not part of
    the Upgrade. They belong to the claim or trade; the claim sheet's swap

@@ -1198,13 +1198,12 @@ so a healthy bench player who would fill an Unavailable starter's slot is
 netted out. An Unavailable roster player counts as zero; a player whose game
 has kicked off is held, as the Start/sit advice holds him (a starter keeps his
 slot, a bench player is not a candidate). The drop a claim makes is not part
-of the Upgrade, nor are the players a trade sends away; each belongs to its
-claim or trade; see Swap net. A candidate
-who adds nothing has an Upgrade of zero, which shows no pill or tile. The
+of the Upgrade (the claim nets it out: see Swap net), nor are the players a
+trade sends away, which belong to the trade. A candidate who adds nothing has an Upgrade of zero, which shows no pill or tile. The
 roster player the candidate displaces is the swap preview's other side.
 Undefined in a best ball league, where the column and tile are hidden, and for
 a player who is Out, on IR or has No NFL team, or whose first playable week
-falls after the team's last week of the season, whose pill and tile are hidden
+falls after the league's last playoff week, whose pill and tile are hidden
 and who sorts last under the Upgrade sort. The same number for a free agent, a
 waiver candidate or another team's player, so it doubles as a trade-target
 score.
