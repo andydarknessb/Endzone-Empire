@@ -76,6 +76,7 @@ const baseProps = {
   homeName: 'Duluth Dockworkers',
   awayName: 'Fargo Frostbite',
   expectedFinal: { home: 110.5, away: 123.9 },
+  scoreLabels: { home: '99.9', away: '88.8' },
   onOpenPlayer: jest.fn(),
   expandedId: null,
   onToggle: jest.fn(),
@@ -229,16 +230,15 @@ test('the pace bar fills by points over projection and turns to the ahead fill a
   expect(within(cell(1, 'home')).getByTestId('pace-bar-fill')).toHaveStyle({ width: '100%' });
 });
 
-test('the footer totals are the sum of each column points beside the Expected final', () => {
+test('the footer totals are the board score text beside the Expected final, never summed from the rows', () => {
   render(<SlotComparison {...baseProps} />);
   const home = screen.getByTestId('slot-total-home');
   const away = screen.getByTestId('slot-total-away');
 
-  // 18.6 + 14.3 + 0 + 9.7 (points, never projections, which would read 58.2).
-  expect(within(home).getByText('42.6')).toBeInTheDocument();
+  // The board's text; the rows' own points would sum to 42.6 and 28.9.
+  expect(within(home).getByText('99.9')).toBeInTheDocument();
   expect(within(home).getByText('Exp final 110.5')).toBeInTheDocument();
-  // 24.1 + 4.8 + 0 over three filled sides (projections would read 52.0).
-  expect(within(away).getByText('28.9')).toBeInTheDocument();
+  expect(within(away).getByText('88.8')).toBeInTheDocument();
   expect(within(away).getByText('Exp final 123.9')).toBeInTheDocument();
   expect(screen.getByText('Totals')).toBeInTheDocument();
 });
@@ -255,7 +255,7 @@ test.each(['played', 'final'])('a %s matchup hides the footer Exp final though t
   render(<SlotComparison {...baseProps} status={status} />);
 
   expect(screen.queryByText(/Exp final/)).not.toBeInTheDocument();
-  expect(within(screen.getByTestId('slot-total-home')).getByText('42.6')).toBeInTheDocument();
+  expect(within(screen.getByTestId('slot-total-home')).getByText('99.9')).toBeInTheDocument();
 });
 
 test.each(['live', 'scheduled', undefined])('a %s matchup keeps the footer Exp final', (status) => {

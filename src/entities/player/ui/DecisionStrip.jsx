@@ -86,6 +86,12 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
   }
 
   if (decision?.upgrade?.points > 0) {
+    // #2166 (ADR 0062): a Free agent's or waiver player's Upgrade is read in his
+    // first playable week; name it when that is not the week this strip shows.
+    const upgradeWeek = decision.upgrade.week;
+    const weekLabel = upgradeWeek != null && decision.projWeek?.week != null && upgradeWeek !== decision.projWeek.week
+      ? ` Wk ${upgradeWeek}`
+      : '';
     tiles.push(
       <Tile key="upgrade" label="Upgrade" testId="decision-strip-upgrade">
         {/* Risk-review finding (accessibility): a tinted (`accent-soft`)
@@ -106,7 +112,7 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
             fontWeight: 700,
           }}
         >
-          +{formatPoints(decision.upgrade.points)}
+          +{formatPoints(decision.upgrade.points)}{weekLabel}
         </Box>
         {decision.upgrade.slot && (
           <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>

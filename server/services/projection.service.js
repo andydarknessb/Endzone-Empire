@@ -40,6 +40,13 @@ class ProjectionError extends Error {
 }
 
 /**
+ * The `league` a public reader hands `getWeeklyProjections` when it has none
+ * by design: standard scoring, no league scope. Passed explicitly so an
+ * omitted league stays a refusal rather than a silent standard-rules price.
+ */
+const PUBLIC = Symbol('PUBLIC');
+
+/**
  * Weekly point projections, the substrate for start/sit advice, the trade
  * analyzer, waiver rankings, and the Monte Carlo simulator.
  *
@@ -1299,19 +1306,28 @@ async function liveReconcileScope(client = pool) {
  *    players are generated and inserted into the same run) rather than
  *    returned partial or thrown away wholesale;
  *  - `refresh: true` regenerates the requested players unconditionally.
+ *
+ * `league` is required: the league row, or `PUBLIC` (standard scoring, no
+ * league scope) for a reader that has no league by design.
  */
 async function getWeeklyProjections({
   season,
   week,
-  league = null,
+  league,
   playerIds = [],
   refresh = false,
   client = pool,
   now = new Date(),
   weatherService = null,
 }) {
+  // A projection is priced under a league's rules (ADR 0024), so an omitted
+  // league is a caller bug, never a quiet fall back to standard scoring. The
+  // public readers say so out loud with `league: PUBLIC`.
+  if (!league) {
+    throw new ProjectionError(500, 'getWeeklyProjections requires a league: pass the league row, or PUBLIC for standard scoring');
+  }
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
-  const rules = league ? rulesForLeague(league) : SCORING_RULES;
+  const rules = league === PUBLIC ? SCORING_RULES : rulesForLeague(league);
   const hashValue = model.scoringHash(rules);
   const empty = {
     season, week, modelVersion: model.MODEL_VERSION, scoringHash: hashValue,
@@ -1470,19 +1486,27 @@ async function completeRun({
  * remaining week of the season for every row on a page; before this they
  * did so one week at a time, each, and a page of 25 cost ~70 cache reads
  * warm and ~350 queries cold (#1403).
+ *
+ * `league` is required: the league row, or `PUBLIC` (standard scoring, no
+ * league scope) for a reader that has no league by design.
  */
 async function getWeeklyProjectionsForWeeks({
   season,
   weeks = [],
-  league = null,
+  league,
   playerIds = [],
   client = pool,
   now = new Date(),
   weatherService = null,
 }) {
+  // Same contract as getWeeklyProjections (#2144): no league is a caller bug,
+  // refused before any read and before the empty-weeks return.
+  if (!league) {
+    throw new ProjectionError(500, 'getWeeklyProjectionsForWeeks requires a league: pass the league row, or PUBLIC for standard scoring');
+  }
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   const wks = [...new Set((weeks || []).map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
-  const rules = league ? rulesForLeague(league) : SCORING_RULES;
+  const rules = league === PUBLIC ? SCORING_RULES : rulesForLeague(league);
   const hashValue = model.scoringHash(rules);
   const out = new Map();
   if (wks.length === 0) return out;
@@ -1934,6 +1958,7 @@ function toWeeklyProjectionResult(run) {
 
 module.exports = {
   ProjectionError,
+  PUBLIC,
   MODEL_VERSION: model.MODEL_VERSION,
   extrapolateWeekly,
   getWeekProjections,

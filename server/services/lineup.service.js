@@ -72,8 +72,8 @@ function rosterablePositions(league) {
   const out = new Set();
   for (const slot of rosterSlots) {
     if (!slot || NON_STARTING_SLOT_KEYS.has(slot.key)) continue;
-    // A count-0 row seats nobody - the same treatment optimalLineup's own
-    // `s.count > 0` filter and the lineup cap (count as the max) already
+    // A count-0 row seats nobody - the same treatment the Optimizer's slot
+    // expansion and the lineup cap (count as the max) already
     // give it - so it contributes nothing to the rosterable set (formal
     // review f1). A template that is every-row count-0 falls through to
     // out.size === 0 below, the same no-gate path an empty template gets.
@@ -301,7 +301,7 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
   const initialStarterSlots = new Map();
   if (league && !league.best_ball && existing.rows.length === 0 && prevEntries.size === 0) {
     const { rosterSlots } = parseLineupSettings(league);
-    const { starters } = optimalLineup(
+    const { starters } = seedLineup(
       roster.map(({ player_id, position }) => ({ playerId: player_id, position })),
       rosterSlots
     );
@@ -1154,12 +1154,13 @@ function annotateLineupEntries(entries, {
   });
 }
 
-async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }) {
-  const leagueResult = await client.query(
+async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false, league: held = null }) {
+  // A caller that already read the league row (the start/sit advice) hands it
+  // in rather than buying the same read a second time.
+  const league = held || (await client.query(
     `SELECT * FROM "leagues" WHERE "id" = $1`,
     [leagueId]
-  );
-  const league = leagueResult.rows[0];
+  )).rows[0];
   if (!league) throw new LineupError(404, 'league not found');
   const team = await requireMember(client, { leagueId, userId, forUpdate });
   return { league, team };
@@ -1295,14 +1296,14 @@ function computeEdgeLine(entry, { entries, rosterSlots, wontStart, factors, live
  * Fetch (materializing if needed) the caller's lineup for a week, annotated
  * with per-player locked, bye_week, and onBye metadata.
  */
-async function getLineup({ leagueId, userId, week, now = new Date() }) {
+async function getLineup({ leagueId, userId, week, now = new Date(), league: heldLeague = null }) {
   // `now` is the time the lock is read at (#1862): the override capture asks
   // for the lineup as it stood a minute before a kickoff, so the players
   // locking then still read as movable.
   return withTransaction(
     pool,
     async (client) => {
-      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId });
+      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, league: heldLeague });
       const season = league.current_season;
       const targetWeek = week || league.current_week;
 
@@ -1557,7 +1558,7 @@ function planLineupSave({ rows, moves, locked, spent, attested, settings, bestBa
     // slot's seat is already taken by the surviving row (#627).
     const spentBySlot = {};
     for (const row of spent) spentBySlot[row.slot] = (spentBySlot[row.slot] || 0) + 1;
-    const { starters } = optimalLineup(
+    const { starters } = seedLineup(
       entries
         .filter((entry) => !locked.has(entry.player_id))
         .map(({ player_id, position }) => ({ playerId: player_id, position })),
@@ -1796,7 +1797,7 @@ async function seedDraftedLineups(client, { league }) {
     const roster = await teamRosterForLineup(client, teamId);
     if (roster.length === 0) continue;
 
-    const { starters } = optimalLineup(
+    const { starters } = seedLineup(
       roster.map(({ player_id, position }) => ({ playerId: player_id, position })),
       rosterSlots
     );
@@ -1815,38 +1816,56 @@ async function seedDraftedLineups(client, { league }) {
 }
 
 /**
- * Pure: the best legal starting lineup for a set of players given per-player
- * points (actual or projected). Slots are filled most-restrictive first
- * (fewest eligible positions), each taking its best remaining players — with
- * the standard slot shapes (dedicated positions + FLEX as a superset) this
- * greedy order is provably optimal.
+ * Pure: what the Optimizer may not move (Held), computed once for every caller.
+ * A kicked-off starter keeps his slot (`pinned`), a kicked-off bench player is
+ * no candidate, and an open Called shot's pair is held as a kicked-off pair is:
+ * its starter pinned, its benched player no candidate. The shot holds only
+ * while the lineup still matches it (starter starting, benched player benched).
+ * An IR occupant is never a candidate.
  *
- * players: [{ playerId, position }]; pointsFor: Map playerId -> points.
- * Returns { starters: [{ playerId, position, slot, points }], total }.
+ * entries: [{ playerId, position, slot, locked? }]; slot includes BENCH/IR.
+ * Returns `{ entries, pinned, candidates }`: `entries` is the input with
+ * `locked` set for the shot's pair, `pinned` the Map playerId -> slot that
+ * `optimalLineup` takes, `candidates` the players it may place.
  */
-function optimalLineup(players, rosterSlots = DEFAULT_ROSTER_SLOTS, pointsFor = new Map()) {
-  const slots = rosterSlots
-    .filter((s) => s.count > 0)
-    .sort((a, b) => expandEligibility(a.eligiblePositions).size - expandEligibility(b.eligiblePositions).size);
-  const available = [...players].sort(
-    (a, b) => (Number(pointsFor.get(b.playerId)) || 0) - (Number(pointsFor.get(a.playerId)) || 0)
-  );
-  const taken = new Set();
-  const starters = [];
-  let total = 0;
-  for (const { key: slot, count } of slots) {
-    for (let i = 0; i < count; i++) {
-      const pick = available.find(
-        (p) => !taken.has(p.playerId) && slotEligible(slot, p.position, rosterSlots)
-      );
-      if (!pick) continue; // roster can't fill this slot — leave it empty
-      taken.add(pick.playerId);
-      const points = Number(pointsFor.get(pick.playerId)) || 0;
-      starters.push({ playerId: pick.playerId, position: pick.position, slot, points });
-      total += points;
+function heldLineup(entries, { calledShot = null } = {}) {
+  const list = entries || [];
+  const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
+  const held = new Set();
+  if (calledShot) {
+    const starter = list.find((e) => e.playerId === calledShot.starterId);
+    const benched = list.find((e) => e.playerId === calledShot.benchedId);
+    if (starter && benched && isStarter(starter) && benched.slot === BENCH) {
+      held.add(calledShot.starterId);
+      held.add(calledShot.benchedId);
     }
   }
-  return { starters, total: Math.round(total * 100) / 100 };
+  const marked = list.map((e) => ({ ...e, locked: Boolean(e.locked) || held.has(e.playerId) }));
+  const pinned = new Map();
+  const candidates = [];
+  for (const e of marked) {
+    if (e.slot === IR) continue;
+    if (e.locked) {
+      if (isStarter(e)) pinned.set(e.playerId, e.slot);
+      continue;
+    }
+    candidates.push({ playerId: e.playerId, position: e.position });
+  }
+  return { entries: marked, pinned, candidates };
+}
+
+/**
+ * The first lineup of a roster that has no points yet (the materialize seeds):
+ * every player is worth a little, earlier listed worth more, so the Optimizer
+ * seats as many as legally fit and ties go to the first listed.
+ *
+ * Required here, not at load: lineupOptimizer requires this module for
+ * `slotEligible`, so a top-level require would close the cycle.
+ */
+function seedLineup(players, rosterSlots) {
+  const { optimalLineup } = require('./lineupOptimizer');
+  const pointsFor = new Map(players.map((p, i) => [p.playerId, players.length - i]));
+  return optimalLineup({ rosterSlots, candidates: players, pointsFor });
 }
 
 module.exports = {
@@ -1878,5 +1897,5 @@ module.exports = {
   getLineup,
   setLineup,
   planLineupSave,
-  optimalLineup,
+  heldLineup,
 };

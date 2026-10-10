@@ -146,3 +146,13 @@ With both in place the initial chunk is 246.19 KiB. A third narrow import needs
 the same justification: name the file, name the lazy code the index would add,
 and show the `check:bundle` figure with and without it. Where the index costs
 nothing, the index is still the rule.
+
+## Amendment (2026-10-09, #2142): the win probability arithmetic lives in the Matchup entity
+
+`matchupWinProbability` and its helpers moved from `src/shared/lib/winProbability`
+to `src/entities/matchup/model/winProbability.js`, and left the `shared/lib`
+barrel: a surface reads the Win probability off the entity's `matchupBoard`
+and prices nothing itself. The second instance in the #2048 amendment above
+therefore reads, from #2142, as `matchupBoard.js` importing its sibling
+`./winProbability`, which reaches neither the `shared/lib` index nor the
+entity index. The rule and the first instance are unchanged.

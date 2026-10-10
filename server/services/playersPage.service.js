@@ -674,14 +674,15 @@ async function readPlayersPage(query, { db = pool } = {}) {
   // best ball, the full eligible pool's ids go to `upgradesFor` in ONE
   // call; rows sort by upgrade.points descending, nulls last, then the
   // candidate's own Weekly projection descending (the number `upgradeFor`
-  // got as `candidate.projection`, read from that same call and used for
-  // ordering only), then id - never toggled by `dir`.
+  // got as `candidate.projection`, read from that same call, in his first
+  // playable week, and used for ordering only), then id - never toggled by
+  // `dir`. Rows may mix weeks (#2166): points are points whatever the week.
   const upgradeBestBallFallback = upgradeSort && Boolean(league && league.best_ball);
   if (upgradeBestBallFallback) {
     await attachProjectedPoints(db, settled, { projectionRules, currentSeasonYear });
     settled.sort(nullsLastComparator((p) => Number(p.projected_points), -1));
   } else if (upgradeSort) {
-    const { upgrades, projections } = await playerCardService.loadUpgradeContext({
+    const { upgrades, pointsFor } = await playerCardService.loadUpgradeContext({
       league,
       team: memberTeam,
       season: currentSeasonYear,
@@ -692,7 +693,7 @@ async function readPlayersPage(query, { db = pool } = {}) {
     settled.sort(nullsLastComparator(
       (p) => p.upgrade?.points,
       -1,
-      nullsLastComparator((p) => projections.pointsFor(p.id), -1),
+      nullsLastComparator((p) => pointsFor(p.id), -1),
     ));
   }
 

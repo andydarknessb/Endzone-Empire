@@ -118,7 +118,7 @@ export function movesToStart(entry, targetSlot, entries, { bestBall, leagueUnset
   // one; an empty array is the refusal for the rare case that invariant is
   // stale (e.g. the menu stayed open across a refetch). Formal review round
   // 3 finding s2: an empty array is a refusal ONLY if the caller treats it
-  // as one - `onSwap` is `performMove`, which PUTs `moves: []` and reports
+  // as one - `onSwap` is the page's `submit`, which PUTs `moves: []` and reports
   // success on an empty array just as readily as a real move. Every caller
   // MUST check `.length` before calling `onSwap` with this return value.
   if (!occupant) return [];

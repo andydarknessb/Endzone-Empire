@@ -17,6 +17,7 @@ const {
   removeLineupEntries,
   currentWeekEntry,
   restoreInterruptedStash,
+  heldLineup,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -96,6 +97,39 @@ test('annotateLineupEntries: the schedule fields (#1235), and no verdict of its 
   assert.equal(byId.get(4).opponent, 'DEN');
   assert.equal(byId.get(4).kickoff, '2026-11-01T18:00:00Z');
   assert.equal(byId.get(4).game_key, 'KC-DEN');
+});
+
+test('#2144 getLineup handed the league row reads no league of its own and prices under the row it was handed', async (t) => {
+  const entries = [
+    { id: 1, name: 'Projected Player', position: 'RB', nfl_team: null, injury_status: null, slot: 'RB', ir_attested: false },
+  ];
+  const held = { id: 5, current_season: 2026, current_week: 8 };
+  const projectionCalls = [];
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => {
+    projectionCalls.push(options);
+    return projectionService.toWeeklyProjectionResult({
+      projections: new Map([[1, { mean: 10, median: 10, factors: {} }]]),
+    });
+  });
+  const fake = createFakePool([
+    [/^SELECT 1 FROM "matchups".*"final" = true/, () => ({ rows: [] })],
+    [/^SELECT .*FROM "lineup_overrides"/, () => ({ rows: [] })],
+    [/^SELECT \* FROM "teams"/, () => ({ rows: [{ id: 10 }] })],
+    [/^SELECT "team_players"\."player_id"/, () => ({
+      rows: entries.map(({ id, position }) => ({ player_id: id, position })),
+    })],
+    [/^SELECT "player_id" FROM "lineup_entries"/, () => ({ rows: entries.map(({ id }) => ({ player_id: id })) })],
+    [/^SELECT "players"\."id"/, () => ({ rows: entries })],
+    [/^SELECT "players"\."position"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "nfl_team", "opponent", "kickoff_at", "game_key", "roof", "home_away" FROM "nfl_games"/, () => ({ rows: [] })],
+    [/^SELECT "home_team", "away_team", "game_status" FROM "live_game_states"/, () => ({ rows: [] })],
+  ]).install(t);
+
+  await getLineup({ leagueId: 5, userId: 7, week: 8, league: held });
+
+  assert.equal(fake.matching(/FROM "leagues"/).length, 0, 'no second league read');
+  assert.equal(projectionCalls[0].league, held);
 });
 
 test('getLineup returns league-scored current-week projections and preserves unavailable values', async (t) => {
@@ -2480,4 +2514,31 @@ test('getLineup reads the kickoff lock at the time it is given, so the advice ca
   const later = await getLineup({ leagueId: 5, userId: 7, week: 6, now: new Date('2026-10-11T17:03:00.000Z') });
   assert.equal(later.entries[0].locked, true);
   fake.assertClean();
+});
+
+// #2141: Held is one rule in one helper, whoever asks.
+const heldEntries = () => [
+  { playerId: 1, position: 'RB', slot: 'RB', locked: true }, // kicked off, starting
+  { playerId: 2, position: 'RB', slot: 'BENCH', locked: true }, // kicked off, benched
+  { playerId: 3, position: 'WR', slot: 'WR' }, // the Called shot's starter
+  { playerId: 4, position: 'WR', slot: 'BENCH' }, // the Called shot's benched player
+  { playerId: 5, position: 'TE', slot: 'IR' },
+  { playerId: 6, position: 'TE', slot: 'BENCH' },
+  { playerId: 7, position: 'RB', slot: 'FLEX' },
+];
+
+test('heldLineup pins a kicked-off starter, drops a kicked-off bench player and holds a Called shot pair', () => {
+  const held = heldLineup(heldEntries(), { calledShot: { starterId: 3, benchedId: 4 } });
+  assert.deepEqual([...held.pinned], [[1, 'RB'], [3, 'WR']]);
+  assert.deepEqual(held.candidates.map((c) => c.playerId), [6, 7],
+    'no kicked-off bench player, no held starter, no IR occupant, no benched half of the shot');
+  assert.deepEqual(held.candidates[0], { playerId: 6, position: 'TE' });
+  assert.equal(held.entries.find((e) => e.playerId === 4).locked, true);
+});
+
+test('heldLineup holds nobody for a Called shot the lineup no longer matches', () => {
+  const entries = heldEntries().map((e) => (e.playerId === 3 ? { ...e, slot: 'BENCH' } : e));
+  const held = heldLineup(entries, { calledShot: { starterId: 3, benchedId: 4 } });
+  assert.deepEqual([...held.pinned], [[1, 'RB']]);
+  assert.deepEqual(held.candidates.map((c) => c.playerId), [3, 4, 6, 7]);
 });

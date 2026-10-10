@@ -1,5 +1,4 @@
 import {
-  columnTotals,
   formatPoints,
   formatStatLine,
   lineTwo,
@@ -50,18 +49,6 @@ describe('paceView', () => {
   });
 });
 
-describe('columnTotals', () => {
-  // The points-not-projections arithmetic itself is asserted once, in the
-  // widget's footer test (#899's red-tell binds that one case alone); this
-  // covers only the edges around it.
-  test('reads a missing or non-numeric points as zero, an empty side as nothing, and no rows as zero', () => {
-    expect(columnTotals([{ slot: 'K', home: { points: null, projected: null }, away: { points: 'x', projected: null } }]))
-      .toEqual({ home: 0, away: 0 });
-    expect(columnTotals([{ slot: 'K', home: null, away: null }])).toEqual({ home: 0, away: 0 });
-    expect(columnTotals([])).toEqual({ home: 0, away: 0 });
-    expect(columnTotals(null)).toEqual({ home: 0, away: 0 });
-  });
-});
 
 describe('lineTwo', () => {
   test('reads team, opponent and clock with middots, dropping what is absent', () => {

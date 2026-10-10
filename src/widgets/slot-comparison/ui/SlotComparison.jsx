@@ -6,7 +6,6 @@ import { visuallyHidden } from '@mui/utils';
 import { matchupPhase } from '../../../entities/matchup';
 import { Card, InjuryTag, PosChip, PlayerAvatar, StateMark, StateGlyph } from '../../../shared/ui';
 import {
-  columnTotals,
   formatPoints,
   formatStatLine,
   lineTwo,
@@ -42,6 +41,10 @@ import { unavailableLabel } from '../../../entities/roster';
  * Matchup in a league that is not best ball; #2008 QA), adds a "Set lineup"
  * link to the Lineup page.
  *
+ * The footer's two totals are each Team's Matchup score, the board's
+ * `scoreLabel` handed down as `scoreLabels` `{ home, away }` (#2142); the
+ * widget sums nothing.
+ *
  * The rows arrive already paired and ordered by the Matchup page model
  * (`pairStartersBySlot`, from `entities/roster`, in the league's slot order;
  * #1210 moved the pairing out of the Matchup entity); this widget renders
@@ -69,6 +72,7 @@ export default function SlotComparison({
   homeName,
   awayName,
   expectedFinal,
+  scoreLabels,
   status,
   onOpenPlayer,
   expandedId,
@@ -87,7 +91,6 @@ export default function SlotComparison({
   const compact = useMediaQuery(theme.breakpoints.down('md'));
   const avatarSize = compact ? 30 : 38;
   const list = rows || [];
-  const totals = columnTotals(list);
   // A settled Matchup (played or final) has no Expected final to show: the
   // strip and the LED board hide it, and the server still prices one (#2008 QA).
   const ef = matchupPhase(status).settled ? {} : expectedFinal || {};
@@ -188,13 +191,13 @@ export default function SlotComparison({
             }}
           >
             <Box data-testid="slot-total-home" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-              <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{formatPoints(totals.home)}</Box>
+              <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{scoreLabels?.home}</Box>
               {ef.home != null && <Box component="span" data-testid="slot-exp-final" sx={NOTE_WRAP}>Exp final {formatPoints(ef.home)}</Box>}
             </Box>
             <Box component="span" sx={LABEL}>Totals</Box>
             <Box data-testid="slot-total-away" sx={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               {ef.away != null && <Box component="span" data-testid="slot-exp-final" sx={NOTE_WRAP}>Exp final {formatPoints(ef.away)}</Box>}
-              <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{formatPoints(totals.away)}</Box>
+              <Box component="span" sx={{ ...DISPLAY_NUM, fontSize: '22px' }}>{scoreLabels?.away}</Box>
             </Box>
           </Box>
         </>

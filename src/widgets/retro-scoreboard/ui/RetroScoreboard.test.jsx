@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, within, act, isInaccessible } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { matchupBoard } from '../../../entities/matchup';
 import { RetroScoreboard } from '..';
 
 // prefers-reduced-motion (and the widget's own breakpoints) are read through
@@ -46,19 +47,19 @@ const matchup = (overrides = {}) => ({
   ...overrides,
 });
 
-// A detail starter row as the wire carries it (league.router.js buildPlayer):
-// the Matchup page model pairs these by slot; the widget renders the pairs
-// as given.
+// A starter as the Matchup entity normalises a detail row (`playerFromDetailRow`,
+// #2147): the Matchup page model pairs these by slot; the widget renders the
+// pairs as given and reads no wire column.
 const starter = (overrides = {}) => ({
-  id: 10,
+  playerId: 10,
   name: 'J. Goff',
   position: 'QB',
   slot: 'QB',
-  nfl_team: 'DET',
+  nflTeam: 'DET',
   points: 18.6,
-  projected: 19.2,
+  projectedPoints: 19.2,
   availability: { available: true, reason: null },
-  photo_url: 'https://cdn.example/goff.png',
+  photoUrl: 'https://cdn.example/goff.png',
   ...overrides,
 });
 
@@ -67,22 +68,22 @@ const rows = [
     slot: 'QB',
     home: starter(),
     away: starter({
-      id: 11, name: 'J. Allen', nfl_team: 'BUF', points: 24.1, projected: 22.5,
-      photo_url: 'https://cdn.example/allen.png', injury_status: 'Q',
+      playerId: 11, name: 'J. Allen', nflTeam: 'BUF', points: 24.1, projectedPoints: 22.5,
+      photoUrl: 'https://cdn.example/allen.png', injuryStatus: 'Q',
     }),
   },
   {
     slot: 'RB',
-    home: starter({ id: 12, name: 'A. Jones', position: 'RB', slot: 'RB', nfl_team: 'GB', points: 14.3, projected: 13.8, photo_url: null }),
+    home: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', nflTeam: 'GB', points: 14.3, projectedPoints: 13.8, photoUrl: null }),
     away: null,
   },
   {
     slot: 'DEF',
     home: starter({
-      id: 13, name: 'Ravens D/ST', position: 'DEF', slot: 'DEF', nfl_team: 'BAL', points: 0, projected: 0,
-      availability: { available: false, reason: 'bye' }, photo_url: null,
+      playerId: 13, name: 'Ravens D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'BAL', points: 0, projectedPoints: 0,
+      availability: { available: false, reason: 'bye' }, photoUrl: null,
     }),
-    away: starter({ id: 14, name: '49ers D/ST', position: 'DEF', slot: 'DEF', nfl_team: 'SF', points: 3, projected: 6.5, photo_url: null }),
+    away: starter({ playerId: 14, name: '49ers D/ST', position: 'DEF', slot: 'DEF', nflTeam: 'SF', points: 3, projectedPoints: 6.5, photoUrl: null }),
   },
 ];
 
@@ -93,18 +94,32 @@ const games = [
   { tank01_game_id: 'g3', game_status: 'final', quarter: 'Final', time_remaining: null, home_team: 'CLE', away_team: 'BAL', current_score_home: 20, current_score_away: 24 },
 ];
 
-const renderBoard = (props = {}) =>
-  render(
+// The widget takes the entity's board (#2142). `homeProb` pins the board's
+// Win probability for a started Matchup, the way the entity would state it;
+// a Matchup that has not started has none, whatever is pinned, as on the real
+// board (the entity's own tests pin that gate).
+const boardFor = (m, { homeProb = 0.36, viewerTeamId } = {}) => {
+  const board = matchupBoard(m, viewerTeamId);
+  if (board.winProbability === null) return board;
+  return { ...board, winProbability: homeProb == null ? null : { home: homeProb, away: 1 - homeProb } };
+};
+
+const scoreboard = (props = {}) => {
+  const { homeProb, viewerTeamId, matchup: m = matchup(), ...rest } = props;
+  return (
     <RetroScoreboard
-      matchup={matchup()}
+      matchup={m}
+      board={boardFor(m, { homeProb, viewerTeamId })}
       leagueName="Northwoods League"
       rows={rows}
       games={games}
       activePlay={null}
-      homeProb={0.36}
-      {...props}
+      {...rest}
     />
   );
+};
+
+const renderBoard = (props = {}) => render(scoreboard(props));
 
 // A sprite's x position on the field, from the CSS transform the widget
 // places it with (`translate(Xpx, Ypx)`, in the field's own user units).
@@ -222,7 +237,7 @@ test('the field places the two sprites by the home probability: a higher probabi
   const awayLow = spriteX(screen.getByTestId('sprite-away'));
 
   rerender(
-    <RetroScoreboard matchup={matchup()} leagueName="Northwoods League" rows={rows} games={games} activePlay={null} homeProb={0.8} />
+    scoreboard({ homeProb: 0.8 })
   );
   const homeHigh = spriteX(screen.getByTestId('sprite-home'));
   const awayHigh = spriteX(screen.getByTestId('sprite-away'));
@@ -305,17 +320,7 @@ test('the field caption carries the sentence and, on its right, whatever the pag
   expect(caption).toHaveTextContent('Sprites move with win probability. Plays flash on the field as they land.');
   expect(within(caption).queryByRole('button')).not.toBeInTheDocument();
 
-  rerender(
-    <RetroScoreboard
-      matchup={matchup()}
-      leagueName="Northwoods League"
-      rows={rows}
-      games={games}
-      activePlay={null}
-      homeProb={0.36}
-      fieldTail={<button type="button">Celebrations on</button>}
-    />
-  );
+  rerender(scoreboard({ fieldTail: <button type="button">Celebrations on</button> }));
   const withTail = within(screen.getByTestId('retro-field'));
   expect(withTail.getByRole('button', { name: 'Celebrations on' })).toBeInTheDocument();
   expect(screen.getByTestId('field-caption')).toContainElement(withTail.getByRole('button', { name: 'Celebrations on' }));
@@ -339,14 +344,7 @@ test('no callout renders without an active play, and a touchdown dashes the spri
   expect(within(screen.getByTestId('sprite-away')).getByText('FF')).toBeInTheDocument();
 
   rerender(
-    <RetroScoreboard
-      matchup={matchup()}
-      leagueName="Northwoods League"
-      rows={rows}
-      games={games}
-      activePlay={{ side: 'home', type: 'rushing', isTouchdown: true, nflTeam: 'KC', opponent: 'BUF' }}
-      homeProb={0.36}
-    />
+    scoreboard({ activePlay: { side: 'home', type: 'rushing', isTouchdown: true, nflTeam: 'KC', opponent: 'BUF' } })
   );
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
   expect(screen.getByRole('img', { name: /Field position/ })).toBeInTheDocument();
@@ -445,13 +443,13 @@ test('every Lineups headshot wears its position\'s pos-* ring, the treatment the
 const gameRows = [
   {
     slot: 'QB',
-    home: starter({ game_state: 'in_progress', game_clock: 'Q3 7:22', opponent: 'GB' }),
-    away: starter({ id: 11, name: 'J. Allen', nfl_team: 'BUF', game_state: 'final', opponent: 'MIA', game_clock: null }),
+    home: starter({ gameState: 'in_progress', gameClock: 'Q3 7:22', opponent: 'GB' }),
+    away: starter({ playerId: 11, name: 'J. Allen', nflTeam: 'BUF', gameState: 'final', opponent: 'MIA', gameClock: null }),
   },
   {
     slot: 'RB',
-    home: starter({ id: 12, name: 'A. Jones', position: 'RB', slot: 'RB', game_state: 'scheduled', opponent: 'DET', game_clock: null }),
-    away: starter({ id: 15, name: 'No State', position: 'RB', slot: 'RB' }),
+    home: starter({ playerId: 12, name: 'A. Jones', position: 'RB', slot: 'RB', gameState: 'scheduled', opponent: 'DET', gameClock: null }),
+    away: starter({ playerId: 15, name: 'No State', position: 'RB', slot: 'RB' }),
   },
 ];
 
@@ -566,17 +564,7 @@ test('the Lineups card offers a Full comparison action only when the page gives 
   const { rerender } = renderBoard();
   expect(screen.queryByRole('button', { name: 'Full comparison' })).not.toBeInTheDocument();
 
-  rerender(
-    <RetroScoreboard
-      matchup={matchup()}
-      leagueName="Northwoods League"
-      rows={rows}
-      games={games}
-      activePlay={null}
-      homeProb={0.36}
-      onFullComparison={onFullComparison}
-    />
-  );
+  rerender(scoreboard({ onFullComparison }));
   await userEvent.click(screen.getByRole('button', { name: 'Full comparison' }));
   expect(onFullComparison).toHaveBeenCalledTimes(1);
 });
@@ -632,7 +620,7 @@ test('the Games tile says so when the Matchup spans no listed games', () => {
 // --- Composition -----------------------------------------------------------------
 
 test('renders nothing without a Matchup', () => {
-  render(<RetroScoreboard matchup={null} rows={rows} games={games} homeProb={0.5} />);
+  render(<RetroScoreboard matchup={null} board={matchupBoard(null)} rows={rows} games={games} />);
   expect(screen.queryByTestId('retro-scoreboard')).not.toBeInTheDocument();
 });
 

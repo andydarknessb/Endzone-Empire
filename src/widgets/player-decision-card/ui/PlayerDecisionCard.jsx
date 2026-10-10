@@ -115,7 +115,7 @@ function isTypingTarget(el) {
  *
  * A pure presenter over the page's own interaction state, exactly like
  * `lineup-ledger` beside it: `onSwap` performs a slot move (the page's
- * `useSwapPlayers().performMove`), `onRequestDrop`/`canDropEntry` mirror the
+ * `useLineupWrite().submit`), `onRequestDrop`/`canDropEntry` mirror the
  * props `LineupLedger` already forwards to `LedgerRow` for the SAME
  * `useDropPlayer` feature instance, so Drop's confirmation dialog and its
  * Undo toast (AC5) are the one the page already owns, never a second copy.
@@ -473,7 +473,7 @@ export default function PlayerDecisionCard(props) {
     : [];
   // Formal review round 3 finding s2: `movesToStart` returns `[]` as its own
   // refusal for the rare case `startTargets` goes stale (the menu stayed
-  // open across a refetch or another move), but `onSwap` is `performMove`,
+  // open across a refetch or another move), but `onSwap` is the page's `submit`,
   // which PUTs an empty `moves` array and reports "Lineup saved" just as
   // readily as a real move - an empty array is a refusal only if the CALLER
   // treats it as one. This is that treatment, used by both call sites below

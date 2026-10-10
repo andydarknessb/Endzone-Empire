@@ -1,5 +1,5 @@
 import { matchupBoard } from '../../../entities/matchup';
-import { matchupWinProbability, finite } from '../../../shared/lib';
+import { finite } from '../../../shared/lib';
 
 /**
  * The scoreboard strip's view model (widget `scoreboard-strip`, ADR 0031,
@@ -10,25 +10,14 @@ import { matchupWinProbability, finite } from '../../../shared/lib';
  * when the bar shows, which chip variant a status takes) are table-testable
  * here without a DOM.
  *
- * The win probability arithmetic comes from `shared/lib` (ADR 0031, #1120),
- * the island's shared bottom layer.
+ * The win probability, the viewer side and the score and Players remaining
+ * text are the board's (#2142); nothing here prices or picks.
  */
-
-/** A score as the strip prints it: one decimal, a missing score reading 0.0. */
-export function formatScore(value) {
-  return Number(value || 0).toFixed(1);
-}
 
 /** An Expected final as the strip prints it: one decimal, or null when unknown. */
 export function formatExpectedFinal(value) {
   const n = finite(value);
   return n != null ? n.toFixed(1) : null;
-}
-
-/** Players remaining as the model reports it: the integer count, or null when unknown. */
-export function formatPlayersRemaining(value) {
-  const n = finite(value);
-  return n != null ? String(n) : null;
 }
 
 // The record lookup the page passes down (ADR 0031: Team record does not join
@@ -61,37 +50,30 @@ export function scoreboardView(matchup, { viewerTeamId, records } = {}) {
   const result = board.resultLine;
   const showBar = board.hasStarted === true && result == null;
 
-  const probability = matchupWinProbability({
-    homeScore: home.score,
-    awayScore: away.score,
-    homeExpectedFinal: home.expectedFinal,
-    awayExpectedFinal: away.expectedFinal,
-    status: m.status,
-  });
+  const probability = board.winProbability ?? board.projectedWinProbability ?? { home: 0.5 };
   const homeShare = Math.max(0, Math.min(1, Number(probability.home) || 0));
   // Rounded once, with the away side as the complement, so the two printed
   // percentages always sum to 100 and agree with the SplitBar's own rounding.
   const homePct = Math.round(homeShare * 100);
 
-  const side = (s, fallbackName, winPct) => ({
+  // Which side is the viewer's, the score text and the Players remaining text
+  // are the board's (#2142); this only lays them out.
+  const side = (s, key, fallbackName, winPct) => ({
     teamId: s.teamId ?? null,
     name: s.name || fallbackName,
     avatarUrl: s.avatarUrl ?? null,
     avatarStaticUrl: s.avatarStaticUrl ?? null,
-    // The same strict, null-guarded id comparison the dashboard widgets use for
-    // their viewer row (standings-table): the page passes the
-    // viewer's Team id in the model's own type.
-    isViewer: viewerTeamId != null && s.teamId != null && s.teamId === viewerTeamId,
+    isViewer: board.viewerSide === key,
     record: recordFor(records, s.teamId),
-    score: formatScore(s.score),
+    score: board[key].scoreLabel,
     expectedFinal: formatExpectedFinal(s.expectedFinal),
-    playersRemaining: formatPlayersRemaining(s.playersRemaining),
+    playersRemaining: board[key].playersRemainingLabel,
     winPct,
   });
 
   return {
-    home: side(home, 'Home', homePct),
-    away: side(away, 'Away', 100 - homePct),
+    home: side(home, 'home', 'Home', homePct),
+    away: side(away, 'away', 'Away', 100 - homePct),
     homeShare,
     showBar,
     result,

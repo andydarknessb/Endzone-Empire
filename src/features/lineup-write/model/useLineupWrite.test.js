@@ -6,7 +6,6 @@ import {
   PENDING_LINEUP_MUTATIONS_KEY,
   readPendingLineupMutations,
 } from '../../../lib/pendingLineupMutations';
-import { useApplyAdvice } from './useApplyAdvice';
 import { useLineupWrite } from './useLineupWrite';
 import { useSwapPlayers } from './useSwapPlayers';
 
@@ -114,7 +113,7 @@ describe('Matchups cache invalidation (#1881)', () => {
 });
 
 // One replay subscriber (spec #2042): the page mounts the write once, with swap
-// and apply advice both feeding it, and a replayed save must toast once.
+// feeding it, and a replayed save must toast once.
 describe('a replayed offline save', () => {
   const mountPage = () => {
     const raw = { ...RAW, rosterSlots: undefined };
@@ -122,12 +121,11 @@ describe('a replayed offline save', () => {
       const { submit } = useLineupWrite({ leagueId: 7, raw, setRaw: jest.fn() });
       return {
         swap: useSwapPlayers({ submit, raw, entries: [] }),
-        advice: useApplyAdvice({ submit }),
       };
     });
   };
 
-  test('with swap and apply advice both mounted, fires one toast and one invalidation', () => {
+  test('with swap mounted, fires one toast and one invalidation', () => {
     mountPage();
 
     replayed(LINEUP_REPLAY);

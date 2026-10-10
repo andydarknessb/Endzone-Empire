@@ -85,21 +85,6 @@ export function formatPoints(value) {
 }
 
 /**
- * The totals footer's two figures: each column's POINTS summed over the paired
- * rows (an empty side contributes nothing), to one decimal. Points, never
- * projections: the footer is the table's own arithmetic so it agrees with the
- * scoreboard, and a projection is a forecast, not a score.
- */
-export function columnTotals(rows) {
-  const sum = (side) => (rows || []).reduce(
-    (acc, row) => acc + (row && row[side] ? Number(row[side].points) || 0 : 0),
-    0
-  );
-  const round1 = (n) => Math.round(n * 10) / 10;
-  return { home: round1(sum('home')), away: round1(sum('away')) };
-}
-
-/**
  * The second line of a starter cell: "NFL vs OPP · clock". The opponent is
  * the schedule's team code (no home/away marker rides the wire, ADR 0011), the
  * clock the live "Q3 6:42" string while in progress, else null. Each part is
