@@ -15,7 +15,7 @@ function fakeClient(routes) {
     async query(sql, params) {
       seen.push(sql);
       const hit = routes.find(([needle]) => sql.includes(needle));
-      return { rows: hit ? hit[1] : [] };
+      return { rows: !hit ? [] : typeof hit[1] === 'function' ? hit[1](params) : hit[1] };
     },
   };
 }
@@ -117,10 +117,14 @@ function routes({ snapshot = true } = {}) {
       { position: 'QB', week: 5, stats: { passingYards: 250, passingTDs: 2 }, stored: null, scheduled: 'WAS' }, // 18, from the schedule
       { position: 'RB', week: 5, stats: { rushingYards: 100 }, stored: null, scheduled: null },
     ]],
-    ['LEFT JOIN "player_stats"', [
+    // The same roll-up query serves DST and IDP; the position list tells them apart.
+    ['LEFT JOIN "player_stats"', ([, , positions]) => (positions.includes('DEF') ? [
       { id: 7, name: 'Washington D/ST', position: 'DEF', nfl_team: 'WAS', week: 4, stats: { sack: 3 } },
       { id: 7, name: 'Washington D/ST', position: 'DEF', nfl_team: 'WAS', week: 5, stats: { sack: 1 } },
-    ]],
+    ] : [
+      { id: 8, name: 'A LB', position: 'LB', nfl_team: 'WSH', week: 4, stats: { sack: 1 } },
+      { id: 9, name: 'Idle CB', position: 'CB', nfl_team: 'DAL', week: null, stats: null }, // no games: dropped
+    ])],
     ['s."player_id", p."name"', [
       { player_id: 2, name: 'A WR', nfl_team: 'WSH', position: 'WR', week: 5, stats: WR_STATS },
       { player_id: 1, name: 'A QB', nfl_team: 'WSH', position: 'QB', week: 5, stats: { usageCarries: 4, usagePassAttempts: 35, passingYards: 250 } },
@@ -177,6 +181,7 @@ test('build: nine sections, newest odds and weather per game_key, WSH spelled WA
   assert.equal(doc.injuries[1].practice[0].practice_status, 'DNP');
 
   assert.deepEqual([doc.dst[0].nfl_team, doc.dst[0].games], ['WAS', 2]);
+  assert.deepEqual(doc.idp.map((p) => [p.name, p.nfl_team, p.games]), [['A LB', 'WAS', 1]]);
 
   // DAL allowed 30 in one game, WAS 36 in two: per-game puts DAL first
   assert.deepEqual(doc.fpa.QB.map((x) => [x.team, x.points, x.games, x.perGame, x.rank]), [['DAL', 30, 1, 30, 1], ['WAS', 36, 2, 18, 2]]);

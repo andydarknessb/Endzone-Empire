@@ -9,8 +9,8 @@ The Weekly Darkness Report (start/sit) is written from facts in the database and
    Read-only. Season and week default to the upcoming season and the first week whose last kickoff is still ahead. The document has nine sections: `games`, `projections`, `usage`, `depthChart`, `injuries`, `dst`, `idp`, `fpa`, `meta`. Points are PPR. Team codes are normalised to WAS everywhere except `game_key`, which keeps WSH as the opaque odds/weather key (e.g. `2026_06_DAL_WSH`). Exit code 2 with a stderr warning means there was no scheduled snapshot to read.
 2. **Rulings file**, written by Cory: `docs/editorial/week<N>-rulings.md` (contract below).
 3. **Writer** turns the dump and the rulings into the article and a calls file.
-4. **Calls file is committed before the first kickoff** of the week, so the calls are on record before any result.
-5. **Tuesday scorer**: `node scripts/editorial/score-calls.js --calls <path>` scores the calls against actual points and the engine's own pre-kickoff PPR read.
+4. **Calls file is committed before the first kickoff** of the week, so the calls are on record before any result. It lives beside the article: `src/content/articles/week<N>-start-sit-darkness-report.calls.json`.
+5. **Tuesday scorer**: `node scripts/editorial/score-calls.js --calls src/content/articles/week<N>-start-sit-darkness-report.calls.json` scores the calls against actual points and the engine's own pre-kickoff PPR read.
 
 No article or calls file is produced without the rulings file.
 
@@ -53,7 +53,7 @@ The consumer is `scripts/editorial/score-calls.js`. The writer emits this header
   "article": "week6-start-sit-darkness-report",
   "scoring": "ppr",
   "cutoffs": { "QB": 12, "RB": 24, "WR": 30, "TE": 12, "DEF": 12 },
-  "rankings": { "QB": [{ "rank": 1, "name": "Lamar Jackson", "playerId": 1234 }] },
+  "rankings": { "QB": [{ "rank": 1, "name": "Lamar Jackson", "team": "BAL", "playerId": 1234 }] },
   "calls": [
     { "id": "C1", "name": "Lamar Jackson", "position": "QB", "playerId": 1234, "verdict": "START", "condition": "if active", "injury": true }
   ]
@@ -62,4 +62,4 @@ The consumer is `scripts/editorial/score-calls.js`. The writer emits this header
 
 - `article` is `week<N>-start-sit-darkness-report`. `scoring` is always `"ppr"`; the cutoffs are the #1928 method.
 - Call fields: `id`, `name`, `position`, `playerId`, `verdict`, `condition` (`"if active"` or `null`), `injury` (boolean).
-- `rankings` has one array per position from `## Tiers`, each entry `{ rank, name, playerId }`.
+- `rankings` has one array per position from `## Tiers`, each entry `{ rank, name, team, playerId }`.
