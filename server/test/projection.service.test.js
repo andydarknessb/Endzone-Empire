@@ -2782,6 +2782,22 @@ const leagueAt = (currentWeek) => ({
 });
 const readsOf = (calls, fragment) => calls.filter((c) => c.text.includes(fragment)).length;
 
+// #2185: the multi-week reader holds the same league contract as #2144's
+// single-week one: no league rejects, before any read and before the empty-weeks return.
+test('#2185 getWeeklyProjectionsForWeeks without a league rejects instead of pricing under standard rules', async (t) => {
+  const calls = mockPool(t, { players: [player(1, 'RB')] });
+
+  await assert.rejects(
+    projection.getWeeklyProjectionsForWeeks({ season: SEASON, weeks: [5], playerIds: [1] }),
+    /requires a league/,
+  );
+  await assert.rejects(
+    projection.getWeeklyProjectionsForWeeks({ season: SEASON, weeks: [5], league: null, playerIds: [1] }),
+    /requires a league/,
+  );
+  assert.equal(calls.length, 0, 'the refusal comes before any read');
+});
+
 test('getWeeklyProjectionsForWeeks: five fully cached weeks cost ONE runs read and ONE rows read, never one per week', async (t) => {
   const calls = mockPool(t, {
     players: [player(1, 'RB'), player(2, 'WR')],

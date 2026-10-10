@@ -1490,15 +1490,20 @@ async function completeRun({
 async function getWeeklyProjectionsForWeeks({
   season,
   weeks = [],
-  league = null,
+  league,
   playerIds = [],
   client = pool,
   now = new Date(),
   weatherService = null,
 }) {
+  // Same contract as getWeeklyProjections (#2144): no league is a caller bug,
+  // refused before any read and before the empty-weeks return.
+  if (!league) {
+    throw new ProjectionError(500, 'getWeeklyProjectionsForWeeks requires a league: pass the league row, or PUBLIC for standard scoring');
+  }
   const ids = [...new Set((playerIds || []).map(Number).filter(Number.isInteger))];
   const wks = [...new Set((weeks || []).map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
-  const rules = league ? rulesForLeague(league) : SCORING_RULES;
+  const rules = league === PUBLIC ? SCORING_RULES : rulesForLeague(league);
   const hashValue = model.scoringHash(rules);
   const out = new Map();
   if (wks.length === 0) return out;
