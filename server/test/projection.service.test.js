@@ -2798,6 +2798,24 @@ test('#2185 getWeeklyProjectionsForWeeks without a league rejects instead of pri
   assert.equal(calls.length, 0, 'the refusal comes before any read');
 });
 
+test('#2190 getWeeklyProjectionsForWeeks league: PUBLIC prices under standard rules, the scoring hash of no league scope', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70, rushingTDs: 1 })),
+  });
+
+  const runs = await projection.getWeeklyProjectionsForWeeks({
+    season: SEASON, weeks: [5, 6], league: projection.PUBLIC, playerIds: [1],
+  });
+
+  assert.deepEqual([...runs.keys()], [5, 6]);
+  for (const run of runs.values()) {
+    assert.equal(run.scoringHash, model.scoringHash(SCORING_RULES));
+    assert.notEqual(run.scoringHash, model.scoringHash(SCORING_PRESETS.ppr), 'a PPR league is a different run');
+    assert.ok(run.projections.get(1).median > 0);
+  }
+});
+
 test('getWeeklyProjectionsForWeeks: five fully cached weeks cost ONE runs read and ONE rows read, never one per week', async (t) => {
   const calls = mockPool(t, {
     players: [player(1, 'RB'), player(2, 'WR')],

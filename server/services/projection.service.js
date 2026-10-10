@@ -1486,6 +1486,9 @@ async function completeRun({
  * remaining week of the season for every row on a page; before this they
  * did so one week at a time, each, and a page of 25 cost ~70 cache reads
  * warm and ~350 queries cold (#1403).
+ *
+ * `league` is required: the league row, or `PUBLIC` (standard scoring, no
+ * league scope) for a reader that has no league by design.
  */
 async function getWeeklyProjectionsForWeeks({
   season,
