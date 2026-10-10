@@ -1814,9 +1814,23 @@ private "You vs the Forecast" record and never shown to another manager.
 Distinct from a commissioner overriding a Roster lock.
 _Avoid_: disagreement, fade, ignored advice
 
+**Held**:
+What the Optimizer may not move in a lineup valuation, worked out once for
+every caller. A starter whose game has kicked off keeps his slot, and a bench
+player whose game has kicked off is not a candidate. An open Called shot's
+pair is held the same way (its starter keeps his slot, its benched player is
+not a candidate) for as long as the lineup still matches the shot. A player
+on IR is never a candidate.
+_Avoid_: frozen, pinned (the code's name for a held starter's slot)
+
 **Optimizer**:
-The assignment routine that fills every starting slot to maximize projected
-points. It will leave a slot empty rather than start a negative projection.
+The assignment routine that places players in starting slots to maximize
+projected points, solved exactly around what is Held. It has two modes. By
+default it leaves a slot empty rather than start a negative projection:
+Start/sit advice and the Upgrade use it. With `fillEverySlot` it first fills
+every slot that has an eligible player, then maximizes points: the counted
+roster (the best-ball score of record and Hindsight), the live what-if,
+Expected final, Monte Carlo and Draft grade use it.
 
 **Game status**:
 The designation a player carries into a week: none, Questionable, Doubtful,
