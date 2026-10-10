@@ -1,7 +1,6 @@
 # Upgrade is the gain to this week's optimal lineup
 
-Status: accepted (2026-10-01); superseded in part by ADR 0062 (the week the
-Upgrade reads, and holding the candidate)
+Status: accepted (2026-10-01); superseded in part by ADR 0062 (the week the Upgrade reads, and holding the candidate)
 
 ADR 0049 defined the Upgrade as a free agent's Weekly projection over the
 weakest starter at a slot he can fill, and #1793 zeroed an Unavailable
