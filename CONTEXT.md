@@ -1741,8 +1741,8 @@ moves the advice names, one manager action for all of them; it never
 re-assigns the whole lineup. A manager can dismiss a suggestion on the Start/sit
 card; Apply then leaves that suggestion's moves out. The dismissal is not
 saved: it lasts until the manager leaves or reloads the page. While a Called
-shot is open, its starter is
-pinned in his slot and its benched player is not a candidate, as locked
+shot is open, its starter
+keeps his slot and its benched player is not a candidate, as locked
 players are, so the advice never names that pair and Apply cannot undo it.
 The Start/sit card shows fact chips for each player's game only when notable:
 "High total" (a Line total of 48 or more), "Favored by" (7 points or more),
@@ -1815,22 +1815,25 @@ Distinct from a commissioner overriding a Roster lock.
 _Avoid_: disagreement, fade, ignored advice
 
 **Held**:
-What the Optimizer may not move in a lineup valuation, worked out once for
-every caller. A starter whose game has kicked off keeps his slot, and a bench
-player whose game has kicked off is not a candidate. An open Called shot's
-pair is held the same way (its starter keeps his slot, its benched player is
-not a candidate) for as long as the lineup still matches the shot. A player
-on IR is never a candidate.
+What the Optimizer may not move in a lineup valuation. Start/sit advice, the
+live what-if and the Upgrade hold; the counted roster, Expected final, Monte
+Carlo and the lineup seed do not. A starter whose game has kicked off keeps
+his slot, and a bench player whose game has kicked off is not a candidate. An
+open Called shot's pair is held the same way (its starter keeps his slot, its
+benched player is not a candidate) for as long as the lineup still matches the
+shot, but only Start/sit advice holds it. A player on IR is never a candidate.
 _Avoid_: frozen, pinned (the code's name for a held starter's slot)
 
 **Optimizer**:
 The assignment routine that places players in starting slots to maximize
 projected points, solved exactly around what is Held. It has two modes. By
 default it leaves a slot empty rather than start a negative projection:
-Start/sit advice and the Upgrade use it. With `fillEverySlot` it first fills
-every slot that has an eligible player, then maximizes points: the counted
-roster (the best-ball score of record and Hindsight), the live what-if,
-Expected final, Monte Carlo and Draft grade use it.
+Start/sit advice, the Upgrade and the lineup seed (a materialized lineup, a
+save's repair, a drafted team's first lineup) use it. With `fillEverySlot` it
+first fills every slot that has an eligible player, then maximizes points: the
+counted roster (the best-ball score of record and Hindsight), the live
+what-if, Expected final (in best ball only), Monte Carlo and Draft grade use
+it.
 
 **Game status**:
 The designation a player carries into a week: none, Questionable, Doubtful,
