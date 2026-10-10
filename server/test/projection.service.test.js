@@ -147,6 +147,29 @@ test('a No NFL team player projects a number but reads hard-unavailable (no_team
   assert.ok(projected.median > 0, 'the pace still reads');
 });
 
+// #2144: a projection is priced under a league's rules, so a read with no
+// league refuses; a reader with none by design says PUBLIC.
+test('#2144 getWeeklyProjections without a league rejects instead of pricing under standard rules', async (t) => {
+  const calls = mockPool(t, { players: [player(1, 'RB')] });
+
+  await assert.rejects(run({ season: SEASON, week: 5, playerIds: [1] }), /requires a league/);
+  await assert.rejects(run({ season: SEASON, week: 5, league: null, playerIds: [1] }), /requires a league/);
+  assert.equal(calls.length, 0, 'the refusal comes before any read');
+});
+
+test('#2144 league: PUBLIC prices under standard rules, the scoring hash of no league scope', async (t) => {
+  mockPool(t, {
+    players: [player(1, 'RB')],
+    weeklyStats: Array.from({ length: 4 }, (_, i) => weeklyRow(1, i + 1, { rushingYards: 70, rushingTDs: 1 })),
+  });
+
+  const result = await run({ season: SEASON, week: 5, league: projection.PUBLIC, playerIds: [1] });
+
+  assert.equal(result.scoringHash, model.scoringHash(SCORING_RULES));
+  assert.notEqual(result.scoringHash, model.scoringHash(SCORING_PRESETS.ppr), 'a PPR league is a different run');
+  assert.ok(result.projections.get(1).median > 0);
+});
+
 // #1767: the live cache path reads the NFL roster status and a fresh Practice
 // squad row makes the player hard-unavailable without moving any projected
 // number (the #1589 precedent).

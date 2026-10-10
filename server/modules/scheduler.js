@@ -1615,6 +1615,12 @@ async function runLiveSync() {
  * same-process short-circuit ahead of the gate's read); the nflverse HEAD polls throttle in memory (a check
  * that finds nothing writes no run row); retention has a day stamp (no run row);
  * the live sync is tick-counted.
+ *
+ * The next job added declares its throttle in its row, not in its body: a
+ * `gate: daily | everyTicks(n) | cadence(id)` field the tick reads before it
+ * calls `run`, so the order and the pacing of every duty read off this one
+ * table. No row carries `gate:` yet and the tick does not read one; the
+ * existing jobs keep the throttles above until each is moved.
  */
 const TICK_JOBS = [
   { name: 'stat-corrections', tier: 'deadline', syncRun: ['stat-corrections', 'nflverse-correction'], run: () => runDailyStatCorrections() },

@@ -1154,12 +1154,13 @@ function annotateLineupEntries(entries, {
   });
 }
 
-async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }) {
-  const leagueResult = await client.query(
+async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false, league: held = null }) {
+  // A caller that already read the league row (the start/sit advice) hands it
+  // in rather than buying the same read a second time.
+  const league = held || (await client.query(
     `SELECT * FROM "leagues" WHERE "id" = $1`,
     [leagueId]
-  );
-  const league = leagueResult.rows[0];
+  )).rows[0];
   if (!league) throw new LineupError(404, 'league not found');
   const team = await requireMember(client, { leagueId, userId, forUpdate });
   return { league, team };
@@ -1295,14 +1296,14 @@ function computeEdgeLine(entry, { entries, rosterSlots, wontStart, factors, live
  * Fetch (materializing if needed) the caller's lineup for a week, annotated
  * with per-player locked, bye_week, and onBye metadata.
  */
-async function getLineup({ leagueId, userId, week, now = new Date() }) {
+async function getLineup({ leagueId, userId, week, now = new Date(), league: heldLeague = null }) {
   // `now` is the time the lock is read at (#1862): the override capture asks
   // for the lineup as it stood a minute before a kickoff, so the players
   // locking then still read as movable.
   return withTransaction(
     pool,
     async (client) => {
-      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId });
+      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, league: heldLeague });
       const season = league.current_season;
       const targetWeek = week || league.current_week;
 

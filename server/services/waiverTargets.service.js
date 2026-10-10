@@ -289,7 +289,7 @@ async function computedTargets({ season, games, week }) {
     }
     if (batch.length === 0) break;
     const weekly = await projectionService.getWeeklyProjections({
-      season, week, playerIds: batch.map(({ row }) => Number(row.id)),
+      season, week, league: projectionService.PUBLIC, playerIds: batch.map(({ row }) => Number(row.id)),
     });
     for (const { row, points, percent, capturedDate } of batch) {
       const id = Number(row.id);

@@ -11,7 +11,6 @@ const {
   heldLineup,
   parseLineupSettings,
   slotEligible,
-  materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
 } = require('./lineup.service');
@@ -381,9 +380,17 @@ function buildSuggestions(lineupEntries, projections, defenseByPlayer = new Map(
  * an input to the projection rather than decoration hung off it, but the
  * legacy `opponent` / `opponentPointsAllowed` display fields are still
  * populated from getPositionDefense so no client field changes type.
+ *
+ * `db` and `projections` default to the production pool and projection
+ * service; the route is one adapter and a service test's fake pool and
+ * argument-recording projection stub are the other. The league is read ONCE
+ * and handed to the lineup read and the projection read alike. `now` rides in
+ * either place: the second argument wins, then `args.now`.
  */
-async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false, now = new Date() }) {
-  const leagueResult = await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
+async function startSitAdvice(args, deps = {}) {
+  const { leagueId, userId, week, ignoreCalledShot = false } = args;
+  const { db = pool, projections = projectionService, now = args.now || new Date() } = deps;
+  const leagueResult = await db.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId]);
   const league = leagueResult.rows[0];
   if (!league) throw new DecisionError(404, 'league not found');
   if (league.best_ball) {
@@ -391,7 +398,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   }
   // `now` is the time the lineup's locks are read at: the override capture asks
   // for the advice as of a minute before a kickoff (#1862).
-  const lineup = await lineupService.getLineup({ leagueId, userId, week, now });
+  const lineup = await lineupService.getLineup({ leagueId, userId, week, now, league });
   // The lineup's own season is authoritative — a caller-supplied season that
   // disagreed with it would pair this lineup with another year's projections.
   const effectiveSeason = lineup.season;
@@ -399,13 +406,13 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   const playerIds = lineup.entries.map((e) => e.id);
 
   const [run, defense, opponents, gameChips] = await Promise.all([
-    projectionService.getWeeklyProjections({
+    projections.getWeeklyProjections({
       season: effectiveSeason,
       week: effectiveWeek,
       league,
       playerIds,
     }),
-    projectionService.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
+    projections.getPositionDefense({ season: effectiveSeason, uptoWeek: effectiveWeek }),
     getWeekOpponents({ season: effectiveSeason, week: effectiveWeek }),
     // The Line and weather for the start/sit card's fact chips (#1853): the
     // Decision card's own loaders, one read per game. Optional context, so a
@@ -485,7 +492,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let calledShot = null;
   if (!ignoreCalledShot && lineup.teamId != null) {
     try {
-      calledShot = await lineupOverrideService.loadCalledShot(pool, {
+      calledShot = await lineupOverrideService.loadCalledShot(db, {
         league, teamId: lineup.teamId, season: effectiveSeason, week: effectiveWeek,
       });
     } catch (err) {
@@ -497,7 +504,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let pointsLeft = null;
   if (lineup.teamId != null) {
     try {
-      pointsLeft = await pointsLeftStanding(pool, {
+      pointsLeft = await pointsLeftStanding(db, {
         leagueId, season: effectiveSeason, teamId: lineup.teamId, throughWeek: league.regular_season_weeks,
       });
     } catch (err) {
@@ -510,7 +517,7 @@ async function startSitAdvice({ leagueId, userId, week, ignoreCalledShot = false
   let seasonRecord = { overrides: null, calledShots: null };
   if (lineup.teamId != null) {
     try {
-      seasonRecord = await lineupOverrideService.loadSeasonRecord(pool, {
+      seasonRecord = await lineupOverrideService.loadSeasonRecord(db, {
         leagueId, teamId: lineup.teamId, season: effectiveSeason,
       });
     } catch (err) {
@@ -790,8 +797,8 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   // A settled week has no actionable move left in it: every game has kicked
   // off, so every player is locked, the candidate pool is empty and the answer
   // is fixed at `delta: 0, swaps: []` (#977). Nothing below the population read
-  // can change that, so a settled week pays for none of it: no materialisation,
-  // no lock read, and no schedule or bye read behind the lock. The population
+  // can change that, so a settled week pays for none of it: no lock read, and
+  // no schedule or bye read behind the lock. The population
   // read stays - `actualPoints` is summed from those rows.
   //
   // `isWeekFinal` is a query of its own, so a caller that already holds the
@@ -799,9 +806,10 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   const isFinal = weekIsFinal === undefined || weekIsFinal === null
     ? await isWeekFinal({ leagueId, season, week })
     : weekIsFinal === true;
-  if (!isFinal) {
-    await materializeLineup(pool, { leagueId, teamId, season, week, league });
-  }
+  // This reader never materializes: `materializeLineup` must run inside the
+  // caller's transaction, and the bare pool is not one (#2144). The week's rows
+  // are the ones the caller's own lineup read just materialized and committed
+  // (the matchup route does, for both teams, before it calls this).
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",
