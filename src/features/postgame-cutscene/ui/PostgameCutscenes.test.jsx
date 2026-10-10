@@ -507,6 +507,15 @@ describe('static result card', () => {
     expect(within(card).queryByRole('link')).not.toBeInTheDocument();
   });
 
+  test('the stored postgame Narrative is one line of body text; nothing without it', async () => {
+    setReducedMotion(true);
+    const { unmount } = await show([item(1, { narrative: 'Mine 1 outlasted Theirs 1.' })]);
+    expect(screen.getByTestId('postgame-narrative')).toHaveTextContent('Mine 1 outlasted Theirs 1.');
+    unmount();
+    await show([item(2, { narrative: null })]);
+    expect(screen.queryByTestId('postgame-narrative')).not.toBeInTheDocument();
+  });
+
   test('a loss, under reduced motion, reads GAME OVER. and links to the league Waiver wire', async () => {
     setReducedMotion(true);
     await show([item(1, {

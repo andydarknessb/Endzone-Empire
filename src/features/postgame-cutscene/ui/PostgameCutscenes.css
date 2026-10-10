@@ -212,6 +212,15 @@
   color: #cfd4e0;
 }
 
+.postgame-narrative {
+  margin: 0;
+  max-width: 36em;
+  text-align: center;
+  font-size: clamp(9px, 2.8vw, 13px);
+  line-height: 1.5;
+  color: #cfd4e0;
+}
+
 .postgame-awards {
   display: flex;
   flex-direction: column;

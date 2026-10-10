@@ -46,6 +46,7 @@ function ResultCard({ item, onLeave }) {
         <Side side={item.opponent} kit={oppKit} testId="postgame-side-opponent" />
       </div>
       {line && <div className="postgame-record">{line}</div>}
+      {item.narrative && <p className="postgame-narrative" data-testid="postgame-narrative">{item.narrative}</p>}
       {item.outcome === 'loss' && (
         <a
           className="postgame-link"
@@ -69,6 +70,7 @@ ResultCard.propTypes = {
     opponent: PropTypes.object,
     record: PropTypes.object,
     standing: PropTypes.object,
+    narrative: PropTypes.string,
   }).isRequired,
   onLeave: PropTypes.func,
 };

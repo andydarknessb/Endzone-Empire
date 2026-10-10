@@ -52,6 +52,7 @@ describe('matchupFromListRow / matchupFromDetailBody: one shape from any wire', 
       nflGameIds: ['20250911_DAL@PHI', '20250914_SF@LAR'],
       firstKickoffAt: null,
       syncedAt: null,
+      narrative: null,
       home: {
         teamId: 10,
         name: 'Home Town',
