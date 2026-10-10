@@ -940,6 +940,47 @@ test('#1862 startSitAdvice reads the lineup at the as-of time and carries the ma
   assert.deepEqual(advice.calledShotRecord, { hits: 1, resolved: 1, streak: 1 });
 });
 
+// #2144: the advice's dependencies are arguments. The ambient pool (what the
+// schedule reads still use) refuses a league read, so a league read that
+// bypassed `db` fails rather than passes; the projection fake records what it
+// was handed.
+test('#2144 startSitAdvice reads the league once and hands that row to the lineup read and the projection read', async (t) => {
+  const lineupService = require('../services/lineup.service');
+  const decisionCardContext = require('../services/decisionCardContext.service');
+  const { startSitAdvice } = require('../services/decision.service');
+  const leagueRow = { id: 3, best_ball: false, scoring_rules: null, regular_season_weeks: 14 };
+  const db = createFakePool([
+    [/FROM "leagues"/, () => ({ rows: [leagueRow] })],
+    [/./, () => ({ rows: [] })],
+  ]);
+  createFakePool([
+    [/FROM "leagues"/, () => { throw new Error('the league was read off the ambient pool, not db'); }],
+    [/./, () => ({ rows: [] })],
+  ]).install(t);
+  const lineupReads = [];
+  t.mock.method(lineupService, 'getLineup', async (args) => {
+    lineupReads.push(args);
+    return { teamId: 10, season: 2026, week: 6, rosterSlots: [], entries: [] };
+  });
+  t.mock.method(decisionCardContext, 'loadGameChipContext', async () => new Map());
+  t.mock.method(decisionCardContext, 'loadVolatilityTags', async () => new Map());
+  const projectionReads = [];
+  const projections = {
+    getWeeklyProjections: async (args) => {
+      projectionReads.push(args);
+      return resultFromLegacyMap(new Map());
+    },
+    getPositionDefense: async () => new Map(),
+  };
+
+  await startSitAdvice({ leagueId: 3, userId: 7 }, { db, projections });
+
+  assert.equal(projectionReads.length, 1);
+  assert.equal(projectionReads[0].league, leagueRow, 'the projection read is priced under the league read');
+  assert.equal(lineupReads[0].league, leagueRow, 'the lineup read is handed the league, not left to read it again');
+  assert.equal(db.matching(/FROM "leagues"/).length, 1, 'the league is read exactly once, through db');
+});
+
 // ADR 0057: a Backup quarterback (his chart verdict rides the Weekly projection
 // result's `startVerdictFor`) is never auto-recommended, like a Position-baseline one,
 // but his own number is untouched.
