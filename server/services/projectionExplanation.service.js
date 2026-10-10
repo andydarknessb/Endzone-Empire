@@ -74,15 +74,16 @@ async function generateForWeek({ season, week }, { pool = defaultPool, client, n
   const counts = { considered: 0, written: 0, enhanced: 0 };
   // The existing-rows read comes first: an unapplied migration throws before a generation is paid for.
   const { rows: existing } = await pool.query(
-    'SELECT "player_id" FROM "projection_explanations" WHERE "season" = $1 AND "week" = $2',
+    'SELECT "player_id", "facts" FROM "projection_explanations" WHERE "season" = $1 AND "week" = $2',
     [season, week]
   );
-  const done = new Set(existing.map((r) => r.player_id));
+  const factsById = new Map(existing.map((r) => [r.player_id, r.facts]));
   // Position comes from the players rows: a cached projection entry does not carry one.
   const { rows: players } = await pool.query('SELECT "id", "position" FROM "players"');
   const positionById = new Map(players.map((p) => [p.id, p.position]));
+  // Pool-wide: one explanation per player, on DEFAULT (standard) scoring.
   const run = await projection.getWeeklyProjections({
-    season, week, playerIds: players.map((p) => p.id), now,
+    season, week, playerIds: players.map((p) => p.id), now, league: projection.PUBLIC,
   });
   const byPosition = {};
   for (const [playerId, entry] of run.projections) {
@@ -96,24 +97,35 @@ async function generateForWeek({ season, week }, { pool = defaultPool, client, n
     const top = list.sort((a, b) => b.entry.mean - a.entry.mean).slice(0, CUTOFFS[position]);
     for (const { playerId, entry } of top) {
       counts.considered += 1;
-      if (done.has(playerId)) continue;
+      // Once per fact set (ADR 0063): unchanged facts keep their row; changed
+      // facts (a new tag, a flipped factor) replace it, template first.
+      const facts = promptFacts(entry.factors, position);
+      if (factsById.get(playerId) === facts) continue;
       try {
-        const inserted = await pool.query(
-          `INSERT INTO "projection_explanations" ("player_id", "season", "week", "narrative", "narrative_source", "model_version")
-           VALUES ($1, $2, $3, $4, 'template', $5) ON CONFLICT DO NOTHING`,
-          [playerId, season, week, templateExplanation(entry.factors), entry.modelVersion || run.modelVersion || null]
-        );
-        if (!inserted.rowCount) continue;
+        const params = [playerId, season, week, templateExplanation(entry.factors), entry.modelVersion || run.modelVersion || null, facts];
+        const written = factsById.has(playerId)
+          ? await pool.query(
+            `UPDATE "projection_explanations"
+                SET "narrative" = $4, "narrative_source" = 'template', "model_version" = $5, "facts" = $6, "generated_at" = now()
+              WHERE "player_id" = $1 AND "season" = $2 AND "week" = $3 AND "facts" IS DISTINCT FROM $6`,
+            params
+          )
+          : await pool.query(
+            `INSERT INTO "projection_explanations" ("player_id", "season", "week", "narrative", "narrative_source", "model_version", "facts")
+             VALUES ($1, $2, $3, $4, 'template', $5, $6) ON CONFLICT DO NOTHING`,
+            params
+          );
+        if (!written.rowCount) continue;
         counts.written += 1;
         const text = await claude.narrative(
-          { feature: 'projection_explanation', system: SYSTEM, user: promptFacts(entry.factors, position) },
+          { feature: 'projection_explanation', system: SYSTEM, user: facts },
           { pool, client, now }
         );
         if (!text || BAD_OUTPUT.test(text)) continue;
         await pool.query(
           `UPDATE "projection_explanations" SET "narrative" = $1, "narrative_source" = 'llm'
-            WHERE "player_id" = $2 AND "season" = $3 AND "week" = $4`,
-          [text, playerId, season, week]
+            WHERE "player_id" = $2 AND "season" = $3 AND "week" = $4 AND "facts" = $5`,
+          [text, playerId, season, week, facts]
         );
         counts.enhanced += 1;
       } catch (err) {

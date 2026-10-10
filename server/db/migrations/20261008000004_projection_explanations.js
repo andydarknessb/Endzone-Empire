@@ -1,7 +1,10 @@
 /**
  * `projection_explanations` (ADR 0063, CONTEXT.md "Projection explanation"):
  * one Narrative per player per week under the pool-wide DEFAULT scoring rules,
- * written once by the nightly projection fill and read by the Decision card.
+ * written by the nightly projection fill and read by the Decision card.
+ * `facts` is the word-only fact set the text was written from: a night whose
+ * facts differ (a new injury tag, a factor that flipped) rewrites the row, an
+ * unchanged night leaves it alone (ADR 0063: once per fact set).
  * `narrative_source` is 'template' until Claude's rewrite replaces the text
  * ('llm'); the template is always stored first.
  *
@@ -22,6 +25,7 @@ exports.up = async function (knex) {
     t.text('narrative').notNullable();
     t.text('narrative_source').notNullable();
     t.text('model_version');
+    t.text('facts').notNullable();
     t.timestamp('generated_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
     t.unique(['player_id', 'season', 'week']);
   });
