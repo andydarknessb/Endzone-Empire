@@ -160,7 +160,9 @@ function countedRoster({ rows, league, price }) {
     });
   }
 
-  const optimal = optimalLineup({ rosterSlots, candidates, pointsFor });
+  // fillEverySlot: the score of record and Hindsight never leave a slot empty
+  // for a negative value, as the greedy this replaced never did (#2141).
+  const optimal = optimalLineup({ rosterSlots, candidates, pointsFor, fillEverySlot: true });
   const optimalPoints = optimal.total;
   const optimalStarters = optimal.starters.map((s) => ({ ...s, name: nameById.get(s.playerId) }));
 

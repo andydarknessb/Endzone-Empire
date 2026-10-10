@@ -32,11 +32,22 @@ const { slotEligible, DEFAULT_ROSTER_SLOTS } = require('./lineup.service');
  * and the Upgrade all call `optimalLineup` (also exported as
  * `optimalAssignment`). What may not move is computed by lineup.service's
  * `heldLineup` and passed in as `pinned`; this module stays pure.
+ *
+ * It has two modes. The default leaves a slot empty rather than start a
+ * negative value (Start/sit advice and the Upgrade). `fillEverySlot` fills
+ * every slot that has an eligible player, then maximizes points: the answer
+ * the deleted greedy scan gave, which the valuations and the best-ball score
+ * of record keep, so a K or DEF below zero still counts there.
  */
 
 // Any cost this large is never chosen unless the matrix has no alternative,
 // and such an assignment is discarded when the result is read back.
 const INELIGIBLE = 1e9;
+
+// What `fillEverySlot` charges for leaving a slot empty: far above any lineup
+// total, far below INELIGIBLE, so the solve fills as many slots as it can and
+// only then maximizes points.
+const EMPTY_SLOT_COST = 1e6;
 
 /** Pure: rosterSlots -> one entry per startable slot INSTANCE, in display order. */
 function expandSlotInstances(rosterSlots = DEFAULT_ROSTER_SLOTS) {
@@ -129,6 +140,9 @@ function pointsValue(pointsFor, playerId) {
  * @param {Map}      args.pointsFor    playerId -> points (or { points })
  * @param {Map}      args.pinned       playerId -> slotKey for locked starters,
  *                                     who keep their exact slot instance
+ * @param {boolean}  args.fillEverySlot  fill every slot that has an eligible
+ *                                     player, even with a negative value
+ *                                     (default: leave it empty)
  * @returns {{ starters, assignments, byPlayer, total }} `starters` is every
  *   filled slot as `{ playerId, position, slot, points }` (`position` is known
  *   for candidates; a pinned player carries none).
@@ -138,6 +152,7 @@ function optimalLineup({
   candidates = [],
   pointsFor = new Map(),
   pinned = new Map(),
+  fillEverySlot = false,
 }) {
   const instances = expandSlotInstances(rosterSlots);
   const assignments = instances.map((slot) => ({
@@ -187,13 +202,14 @@ function optimalLineup({
   }
 
   // Rows: open slot instances. Columns: real players, then one "leave empty"
-  // dummy per slot so that every row can always be filled at zero cost.
+  // dummy per slot so that every row can always be filled: at zero cost by
+  // default, at EMPTY_SLOT_COST under `fillEverySlot`.
   const rows = openSlots.length;
   const cols = pool.length + rows;
   const cost = [];
   for (let r = 0; r < rows; r++) {
     const slot = openSlots[r];
-    const row = new Array(cols).fill(0);
+    const row = new Array(cols).fill(fillEverySlot ? EMPTY_SLOT_COST : 0);
     for (let c = 0; c < pool.length; c++) {
       const player = pool[c];
       row[c] = slotEligible(slot.slotKey, player.position, rosterSlots)

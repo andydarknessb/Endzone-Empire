@@ -855,7 +855,7 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   // this costs no query - and it needs no lock, because nothing is movable.
   if (league.best_ball) {
     const bestBallTotal = optimalLineup({
-      rosterSlots: settings.rosterSlots, candidates: wholePool, pointsFor,
+      rosterSlots: settings.rosterSlots, candidates: wholePool, pointsFor, fillEverySlot: true,
     }).total;
     return {
       teamId, week, actualPoints: bestBallTotal, optimalPoints: bestBallTotal, delta: 0, swaps: [],
@@ -894,6 +894,7 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
     candidates: held.candidates,
     pointsFor,
     pinned: held.pinned,
+    fillEverySlot: true,
   });
   const optimalIds = new Set(optimal.starters.map((s) => s.playerId));
 

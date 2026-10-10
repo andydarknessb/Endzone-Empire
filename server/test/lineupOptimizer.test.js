@@ -352,19 +352,22 @@ test('parity: a SUPERFLEX shape with overlapping flexes pins the exact total', (
   );
 });
 
-test('parity: a DP shape pins the exact total', () => {
+test('parity: overlapping DP-group flexes pin the exact total', () => {
+  // DL/LB and LB/DB overlap at LB and neither contains the other, so a
+  // most-restrictive-first scan hands the DL/LB flex the LB 15 that the LB/DB
+  // flex needs (LB 15 + CB 3 = 18). The exact answer is 25.
   const slots = [
-    { key: 'LB', count: 1, eligiblePositions: ['LB'] },
-    { key: 'DP', count: 1, eligiblePositions: ['DL', 'LB', 'DB'] },
+    { key: 'DLLB', count: 1, eligiblePositions: ['DL', 'LB'] },
+    { key: 'LBDB', count: 1, eligiblePositions: ['LB', 'DB'] },
   ];
-  const roster = [[1, 'DE', 15], [2, 'ILB', 12], [3, 'OLB', 11], [4, 'CB', 9]];
+  const roster = [[1, 'DE', 10], [2, 'ILB', 15], [3, 'CB', 3]];
   const { total, starters } = optimalLineup({
     rosterSlots: slots, candidates: asCandidates(roster), pointsFor: asPoints(roster),
   });
-  assert.equal(total, 27);
+  assert.equal(total, 25);
   assert.deepEqual(
     Object.fromEntries(starters.map((s) => [s.slot, s.playerId])),
-    { LB: 2, DP: 1 }
+    { DLLB: 1, LBDB: 2 }
   );
 });
 
@@ -394,4 +397,36 @@ test('an empty roster and an unfillable template start nobody', () => {
   // The second QB has nowhere legal to go (FLEX excludes QB).
   assert.deepEqual(qbOnly.starters.map((s) => [s.playerId, s.slot]), [[1, 'QB']]);
   assert.equal(qbOnly.total, 30);
+});
+
+// ---------------------------------------------------------------------------
+// The Optimizer's two modes (#2141, Ruling B). The default leaves a slot empty
+// rather than start a negative value; `fillEverySlot` fills every slot that
+// has an eligible player (what the deleted greedy did), then maximizes.
+// ---------------------------------------------------------------------------
+
+test('negative-points parity: fillEverySlot fills every fillable slot, the default leaves the negatives out', () => {
+  const roster = [[1, 'QB', 20], [2, 'K', -1], [3, 'DEF', -2]];
+  const args = {
+    rosterSlots: DEFAULT_ROSTER_SLOTS, candidates: asCandidates(roster), pointsFor: asPoints(roster),
+  };
+
+  const filled = optimalLineup({ ...args, fillEverySlot: true });
+  assert.equal(filled.total, 17, 'QB 20, K -1, DEF -2: the greedy recorded 17');
+  assert.deepEqual(filled.starters.map((s) => s.slot), ['QB', 'K', 'DEF']);
+
+  const standard = optimalLineup(args);
+  assert.equal(standard.total, 20, 'the default leaves K and DEF empty rather than start a negative');
+  assert.deepEqual(standard.starters.map((s) => s.slot), ['QB']);
+});
+
+test('fillEverySlot fills as many slots as it can before it maximizes points', () => {
+  // One RB slot and a FLEX. The WR 30 would take FLEX either way, but only
+  // filling the RB slot with the RB -3 keeps both slots seated.
+  const roster = [[1, 'RB', -3], [2, 'WR', 30]];
+  const args = {
+    rosterSlots: SLOTS_RB_FLEX, candidates: asCandidates(roster), pointsFor: asPoints(roster),
+  };
+  assert.equal(optimalLineup({ ...args, fillEverySlot: true }).total, 27);
+  assert.equal(optimalLineup(args).total, 30);
 });

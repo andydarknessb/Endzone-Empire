@@ -215,7 +215,7 @@ async function getOrComputeDraftGrades({ leagueId }) {
   for (const [teamId, { name, picks }] of byTeam) {
     const teamProjected = picks.some((pick) => pointsFor.has(pick.playerId));
     const players = picks.map(({ playerId, position }) => ({ playerId, position }));
-    const optimal = optimalLineup({ rosterSlots, candidates: players, pointsFor });
+    const optimal = optimalLineup({ rosterSlots, candidates: players, pointsFor, fillEverySlot: true });
     const starterIds = new Set(optimal.starters.map((s) => s.playerId));
     const benchValue = players
       .filter((p) => !starterIds.has(p.playerId))

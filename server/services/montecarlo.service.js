@@ -279,7 +279,9 @@ async function computeLeagueOdds({ leagueId, runs = DEFAULT_RUNS, seed }) {
   }
   const models = new Map();
   for (const team of teams) {
-    const projected = optimalLineup({ rosterSlots, candidates: rosters.get(team.id) || [], pointsFor }).total;
+    const projected = optimalLineup({
+      rosterSlots, candidates: rosters.get(team.id) || [], pointsFor, fillEverySlot: true,
+    }).total;
     models.set(team.id, buildTeamModel(history.get(team.id) || [], projected));
   }
 

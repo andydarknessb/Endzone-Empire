@@ -296,7 +296,9 @@ async function expectedFinalsForWeek({ league, season, week, teamIds, db = pool,
       ? (() => {
         const { rosterSlots } = parseLineupSettings(league);
         const pointsFor = new Map(candidates.map((candidate) => [candidate.playerId, candidate.rawExpectedFinal]));
-        const { starters: chosen } = optimalLineup({ rosterSlots, candidates, pointsFor });
+        const { starters: chosen } = optimalLineup({
+          rosterSlots, candidates, pointsFor, fillEverySlot: true,
+        });
         const byPlayerId = new Map(candidates.map((candidate) => [candidate.playerId, candidate]));
         return chosen.map(({ playerId }) => byPlayerId.get(playerId));
       })()

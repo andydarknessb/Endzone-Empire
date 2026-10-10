@@ -977,12 +977,13 @@ test('buildSuggestions: a stale-IR Position-baseline bench rookie is never a can
 const WHATIF_LEAGUE_ID = 5;
 const WHATIF_TEAM_ID = 10;
 
-function whatIfWorld(t, { entries, kickedOff, rosterSlots }) {
+function whatIfWorld(t, { entries, kickedOff, rosterSlots, bestBall = false }) {
   return createFakePool([
     [/^SELECT \* FROM "leagues"/, () => ({
       rows: [{
         id: WHATIF_LEAGUE_ID, current_season: 2026, current_week: 8,
         roster_slots: rosterSlots, bench_slots: 5, ir_slots: 1, scoring_rules: null,
+        best_ball: bestBall,
       }],
     })],
     [/^SELECT 1 FROM "teams"/, () => ({ rows: [{ ok: 1 }] })],
@@ -1047,5 +1048,27 @@ test('liveWhatIf: a kicked-off starter keeps his slot, so no swap needs him to m
 
   assert.deepEqual(result.swaps, []);
   assert.equal(result.delta, 0);
+  fake.assertClean();
+});
+
+test('liveWhatIf: best ball fills every slot that has a player, so a negative K and DEF still count', async (t) => {
+  // QB 20, K -2, DEF -2 are the whole pool: the best-ball optimal is 16, the
+  // greedy it replaced said 16, and an Optimizer that left empty slots for
+  // negative values would say 20 (#2141, Ruling B).
+  const fake = whatIfWorld(t, {
+    rosterSlots: DEFAULT_ROSTER_SLOTS,
+    kickedOff: [],
+    bestBall: true,
+    entries: [
+      whatIfRow(1, 'QB', 'BENCH', 'BUF', { passingYards: 500 }), // 20
+      whatIfRow(2, 'K', 'BENCH', 'BUF', { interceptions: 1 }), // -2
+      whatIfRow(3, 'DEF', 'BENCH', 'BUF', { interceptions: 1 }), // -2
+    ],
+  });
+
+  const result = await runLiveWhatIf();
+
+  assert.equal(result.optimalPoints, 16);
+  assert.equal(result.actualPoints, 16);
   fake.assertClean();
 });
