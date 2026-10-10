@@ -2196,6 +2196,31 @@ test('runJobs logs a throwing job and the next job still runs', async (t) => {
   assert.match(logged[0], /kaput/);
 });
 
+test('runJobs returns each contained throw as { name, message }, and [] when nothing failed (#2058)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  assert.deepEqual(await scheduler.runJobs([
+    { name: 'first', tier: 'deadline', run: async () => {} },
+    { name: 'boom', tier: 'deadline', run: async () => { throw new Error('kaput'); } },
+  ]), [{ name: 'boom', message: 'kaput' }]);
+  assert.deepEqual(await scheduler.runJobs([{ name: 'ok', tier: 'deadline', run: async () => {} }]), []);
+});
+
+test('tickUnlocked records the last non-feed failure in lastTickError, ignores feed failures, and resets on a clean tick (#2058)', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  dataSyncRunsPool({}).install(t);
+  const boom = (name, extra = {}) => ({ name, tier: 'deadline', run: async () => { throw new Error('kaput'); }, ...extra });
+  const ok = { name: 'ok', tier: 'deadline', run: async () => {} };
+  const lastTickError = async (jobs) => {
+    await scheduler.tickUnlocked(jobs);
+    return (await scheduler.getSchedulerStatus()).lastTickError;
+  };
+
+  assert.equal(await lastTickError([ok, boom('waivers'), boom('retention'), ok]), 'retention: kaput', 'the last non-feed failure');
+  assert.equal(await lastTickError([boom('adp', { syncRun: ['x'] }), ok]), null, 'a feed failure alone records nothing');
+  assert.equal(await lastTickError([boom('waivers'), boom('adp', { syncRun: ['x'] })]), 'waivers: kaput', 'a later feed failure does not displace it');
+  assert.equal(await lastTickError([ok]), null, 'a clean tick resets it');
+});
+
 test('syncRunJobs lists the syncRun names the jobs declare, once each, in list order', () => {
   const jobs = [
     { name: 'a', tier: 'deadline', run: async () => {}, syncRun: ['x', 'y'] },
