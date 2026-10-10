@@ -1430,9 +1430,16 @@ tied that one move from the week as played would have won, the move being one
 bench player into a starting slot he was eligible for, replacing that starter
 or filling an empty slot; and the season's fewest points left on the bench
 (spec #1846).
-_Avoid_: what-if (the live, in-progress counterpart), regret (the holdout
-study's measure of the same gap), optimal lineup (the thing hindsight
-compares against, not the comparison)
+_Avoid_: what-if (the Bench what-if is the live, in-progress counterpart),
+regret (the holdout study's measure of the same gap), optimal lineup (the thing
+hindsight compares against, not the comparison)
+
+**Bench what-if**:
+The live, in-progress counterpart of Hindsight: a team's points so far against
+the best legal lineup achievable from here, priced under the league's own
+scoring rules, with every player whose game has kicked off held. A live
+Matchup shows it with the swaps that close the gap. In best ball it is always
+zero.
 
 **Trophy**:
 An automatic award written when a week or a season finalizes, such as weekly
@@ -1816,8 +1823,8 @@ _Avoid_: disagreement, fade, ignored advice
 
 **Held**:
 What the Optimizer may not move in a lineup valuation. Start/sit advice, the
-live what-if and the Upgrade hold; the counted roster, Expected final, Monte
-Carlo and the lineup seed do not. A starter whose game has kicked off keeps
+Bench what-if and the Upgrade hold; the counted roster, Expected final, Monte
+Carlo and the Lineup seed do not. A starter whose game has kicked off keeps
 his slot, and a bench player whose game has kicked off is not a candidate. An
 open Called shot's pair is held the same way (its starter keeps his slot, its
 benched player is not a candidate) for as long as the lineup still matches the
@@ -1828,12 +1835,18 @@ _Avoid_: frozen, pinned (the code's name for a held starter's slot)
 The assignment routine that places players in starting slots to maximize
 projected points, solved exactly around what is Held. It has two modes. By
 default it leaves a slot empty rather than start a negative projection:
-Start/sit advice, the Upgrade and the lineup seed (a materialized lineup, a
+Start/sit advice, the Upgrade and the Lineup seed (a materialized lineup, a
 save's repair, a drafted team's first lineup) use it. With `fillEverySlot` it
 first fills every slot that has an eligible player, then maximizes points: the
-counted roster (the best-ball score of record and Hindsight), the live
-what-if, Expected final (in best ball only), Monte Carlo and Draft grade use
-it.
+counted roster (the best-ball score of record and Hindsight),
+the Bench what-if, Expected final (in best ball only), Monte Carlo and Draft
+grade use it.
+
+**Lineup seed**:
+The first lineup the Optimizer places for a roster with no points yet: a
+materialized lineup, a save's repair, a drafted team's first lineup. Every
+player is worth a little and an earlier listed player more, so as many seat as
+legally fit and ties go to the first listed. It holds nothing.
 
 **Game status**:
 The designation a player carries into a week: none, Questionable, Doubtful,
