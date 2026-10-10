@@ -1,5 +1,4 @@
 const pool = require('../modules/pool');
-const { withTransaction } = require('../modules/withTransaction');
 // The two service objects are kept whole (rather than destructured) where the
 // call is a seam a test needs to replace: a destructured binding is captured at
 // require time and cannot be mocked afterwards.
@@ -12,7 +11,6 @@ const {
   heldLineup,
   parseLineupSettings,
   slotEligible,
-  materializeLineup,
   lockedPlayerIds,
   DEFAULT_ROSTER_SLOTS,
 } = require('./lineup.service');
@@ -799,8 +797,8 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   // A settled week has no actionable move left in it: every game has kicked
   // off, so every player is locked, the candidate pool is empty and the answer
   // is fixed at `delta: 0, swaps: []` (#977). Nothing below the population read
-  // can change that, so a settled week pays for none of it: no materialisation,
-  // no lock read, and no schedule or bye read behind the lock. The population
+  // can change that, so a settled week pays for none of it: no lock read, and
+  // no schedule or bye read behind the lock. The population
   // read stays - `actualPoints` is summed from those rows.
   //
   // `isWeekFinal` is a query of its own, so a caller that already holds the
@@ -808,12 +806,10 @@ async function liveWhatIf({ leagueId, teamId, season, week, weekIsFinal }) {
   const isFinal = weekIsFinal === undefined || weekIsFinal === null
     ? await isWeekFinal({ leagueId, season, week })
     : weekIsFinal === true;
-  // `materializeLineup` "must run inside the caller's transaction": it is a
-  // read-then-insert, so on the bare pool two requests could each see the gap
-  // and both insert (#2144). It closes through withTransaction (ADR 0033).
-  if (!isFinal) {
-    await withTransaction(pool, (client) => materializeLineup(client, { leagueId, teamId, season, week, league }));
-  }
+  // This reader never materializes: `materializeLineup` must run inside the
+  // caller's transaction, and the bare pool is not one (#2144). The week's rows
+  // are the ones the caller's own lineup read just materialized and committed
+  // (the matchup route does, for both teams, before it calls this).
 
   const rows = await pool.query(
     `SELECT "lineup_entries"."player_id", "players"."name", "players"."position",

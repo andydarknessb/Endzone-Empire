@@ -1293,17 +1293,21 @@ function installComputed(t, candidates, { baseline = [], backup = [], doubtful =
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map(
     candidates.map((c) => [c.id, { points: c.points, source: 'extrapolated' }])
   ));
-  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds }) => ({
-    pointsFor: () => null,
-    startVerdictFor: (id) => {
-      if (unavailable.includes(id)) return { outcome: 'unavailable', reason: 'bye', numberTrusted: true };
-      if (backup.includes(id)) return { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
-      if (baseline.includes(id)) return { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
-      if (doubtful.includes(id)) return { outcome: 'not_recommended', reason: 'doubtful', numberTrusted: true };
-      return { outcome: 'recommendable', reason: null, numberTrusted: true };
-    },
-    playerIds,
-  }));
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ playerIds, league }) => {
+    // #2144: the public reader has no league by design and says so.
+    assert.equal(league, projectionService.PUBLIC);
+    return {
+      pointsFor: () => null,
+      startVerdictFor: (id) => {
+        if (unavailable.includes(id)) return { outcome: 'unavailable', reason: 'bye', numberTrusted: true };
+        if (backup.includes(id)) return { outcome: 'not_recommended', reason: 'backup', numberTrusted: false };
+        if (baseline.includes(id)) return { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false };
+        if (doubtful.includes(id)) return { outcome: 'not_recommended', reason: 'doubtful', numberTrusted: true };
+        return { outcome: 'recommendable', reason: null, numberTrusted: true };
+      },
+      playerIds,
+    };
+  });
   const seen = { candidateParams: null };
   installPool(t, [
     ['"has_recent_stats"', (params) => {

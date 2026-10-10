@@ -35,9 +35,13 @@ function install(t, candidates, verdicts) {
   t.mock.method(projectionService, 'getWeekProjections', async () => new Map(
     candidates.map((c) => [c.id, { points: c.points, source: 'extrapolated' }])
   ));
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
-    startVerdictFor: (id) => verdicts[id] || { outcome: 'recommendable', reason: null, numberTrusted: true },
-  }));
+  t.mock.method(projectionService, 'getWeeklyProjections', async ({ league }) => {
+    // #2144: the public reader has no league by design and says so.
+    assert.equal(league, projectionService.PUBLIC);
+    return {
+      startVerdictFor: (id) => verdicts[id] || { outcome: 'recommendable', reason: null, numberTrusted: true },
+    };
+  });
   const handlers = [
     ['EXTRACT(MONTH FROM CURRENT_DATE)', { rows: [{ season: 2026 }] }],
     ['FROM "nfl_games"', { rows: games }],
