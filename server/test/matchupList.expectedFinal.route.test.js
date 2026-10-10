@@ -83,14 +83,15 @@ for (let w = 1; w <= 18; w++) for (const team of ['KC', 'BUF', 'DAL']) BYE_ROWS.
 // fixed instant (before the fixture's 2026-09-13 kickoffs) and the numbers
 // are deterministic whenever it runs.
 const FIXED_NOW = '2026-09-13T16:00:00.000Z';
+const HEALTHY = { outcome: 'recommendable', reason: null, numberTrusted: true };
 
 async function listMatchups(t, { matchups, starters = STARTERS, projections = PROJECTIONS, live = LIVE, narratives = [] }) {
   t.mock.method(clock, 'now', () => new Date(FIXED_NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => {
     if (projections instanceof Error) throw projections;
-    // A minimal stand-in for the real result object (#1703): just the one
-    // accessor `expectedFinalsForWeek` calls, reading this file's
-    // legacy-shaped `{ points }` fixtures.
+    // A minimal stand-in for the real result object (#1703): the accessors
+    // `expectedFinalsForWeek` calls, reading this file's legacy-shaped
+    // `{ points }` fixtures. Every fixture player is Recommendable (ADR 0061).
     return {
       modelVersion: 'test',
       projections,
@@ -100,6 +101,7 @@ async function listMatchups(t, { matchups, starters = STARTERS, projections = PR
         const raw = typeof entry === 'object' ? entry.points : entry;
         return Number.isFinite(Number(raw)) ? Number(raw) : null;
       },
+      startVerdictFor: () => HEALTHY,
     };
   });
   const fake = createFakePool([
@@ -195,6 +197,7 @@ test('each list row carries its status: scheduled, live, played and final at a f
     modelVersion: 'test',
     projections: new Map([21, 22, 23, 24, 25, 26].map((tid) => [tid * 100 + 1, { points: 10 }])),
     pointsFor() { return 10; },
+    startVerdictFor: () => HEALTHY,
   }));
 
   const M = (id, home, away, extra = {}) => row({ id, week: 2, home_team_id: home, away_team_id: away, ...extra });

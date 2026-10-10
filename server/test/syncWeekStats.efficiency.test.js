@@ -4,6 +4,7 @@ const pool = require('../modules/pool');
 const scoring = { ...require('../services/boxScoreApply.service'), ...require('../services/feedSyncRuns.service') };
 const finalBox = require('../modules/finalBox');
 const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+const SCOREBOARD_WEEK = require('./fixtures/espn/scoreboard-week.json');
 
 // The Tank01 plan allows ~1,000 calls a MONTH. The old syncWeekStats box-scored
 // every game in the week on every ~30-minute pass, so a game that finished at
@@ -205,10 +206,39 @@ test('syncWeekStats: a week of finished, ingested games costs zero calls', async
   assert.equal(dataSyncRuns(fake.calls).length, 0, 'no targets: no Sync run is even attempted');
 });
 
-test('syncWeekStats: with no live rows it falls back to one schedule call', async (t) => {
+// #2116 (ADR 0060): the fallback week list is ESPN's free scoreboard; Tank01 is
+// asked for box scores only. Ids are dated from the ET kickoff, so the two
+// 00:15Z kickoffs (the night games) fall on the previous ET day.
+test('syncWeekStats: with no live rows it falls back to one ESPN scoreboard call and never asks Tank01 for the schedule', async (t) => {
   const { fetched, api } = stubWorld(t, { liveRows: [] });
-  await scoring.syncWeekStats({ season: 2024, week: 7, api });
-  assert.equal(fetched[0].path, '/getNFLGamesForWeek');
+  const espnCalls = [];
+  const espnTransport = {
+    async get(url, opts) {
+      espnCalls.push({ url, ...opts.params });
+      return { data: SCOREBOARD_WEEK };
+    },
+  };
+  await scoring.syncWeekStats({ season: 2024, week: 7, api, espnTransport });
+  assert.equal(espnCalls.length, 1, 'one scoreboard call for the week');
+  assert.deepEqual(
+    [espnCalls[0].week, espnCalls[0].seasontype, espnCalls[0].dates],
+    [7, 2, 2024]
+  );
+  assert.equal(fetched.filter((f) => f.path === '/getNFLGamesForWeek').length, 0, 'zero Tank01 schedule calls');
+  assert.deepEqual(
+    fetched.map((f) => f.gameId),
+    ['20261012_BUF@LAR', '20261011_NYG@WSH', '20261008_TB@DAL', '20261011_PHI@JAX'],
+    'every scoreboard game is a box-score target, keyed by its ET-dated Tank01 id'
+  );
+});
+
+test('syncWeekStats: a scoreboard body with no events throws instead of reading as an empty week', async (t) => {
+  const { api } = stubWorld(t, { liveRows: [] });
+  const espnTransport = { get: async () => ({ data: {} }) };
+  await assert.rejects(
+    scoring.syncWeekStats({ season: 2024, week: 7, api, espnTransport }),
+    /unexpected scoreboard response shape/
+  );
 });
 
 // --- syncWeekStats as a Sync run (#1202, ADR 0036) ---------------------------

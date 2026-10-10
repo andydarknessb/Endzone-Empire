@@ -127,6 +127,8 @@ describe('buildSuggestionView', () => {
 });
 
 describe('movePlanWithout', () => {
+  // The server wire is { playerId, fromSlot, toSlot }; this function is the one
+  // place it becomes the lineup write's { playerId, slot } (#2143).
   const movePlan = [
     { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' },
     { playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' },
@@ -134,22 +136,43 @@ describe('movePlanWithout', () => {
     { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
     { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
   ];
+  const writeMoves = [
+    { playerId: 2, slot: 'RB' },
+    { playerId: 1, slot: 'BENCH' },
+    { playerId: 4, slot: 'WR' },
+    { playerId: 3, slot: 'BENCH' },
+    { playerId: 9, slot: 'FLEX' },
+  ];
   const view = (sitId, startId) => ({ sit: { playerId: sitId }, start: { playerId: startId } });
 
   test('drops both moves of a dismissed pair and keeps every other move', () => {
     expect(movePlanWithout(movePlan, [view(1, 2)])).toEqual([
-      { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
-      { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
-      { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+      { playerId: 4, slot: 'WR' },
+      { playerId: 3, slot: 'BENCH' },
+      { playerId: 9, slot: 'FLEX' },
     ]);
   });
 
-  test('nothing dismissed returns the plan unchanged', () => {
-    expect(movePlanWithout(movePlan, [])).toEqual(movePlan);
+  test('entries carry slot, not toSlot or fromSlot', () => {
+    for (const dismissed of [[], [view(77, 78)], [view(1, 2)]]) {
+      for (const move of movePlanWithout(movePlan, dismissed)) {
+        expect(Object.keys(move).sort()).toEqual(['playerId', 'slot']);
+      }
+    }
   });
 
-  test('a pair whose players are not in the plan leaves it unchanged', () => {
-    expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(movePlan);
+  test('nothing dismissed returns every move in the write shape', () => {
+    expect(movePlanWithout(movePlan, [])).toEqual(writeMoves);
+  });
+
+  test('a pair whose players are not in the plan leaves every move in place', () => {
+    expect(movePlanWithout(movePlan, [view(77, 78)])).toEqual(writeMoves);
+  });
+
+  test('drops entries with a null playerId or null toSlot, and tolerates a missing plan', () => {
+    const plan = [null, { playerId: null, toSlot: 'WR' }, { playerId: 3, fromSlot: 'WR' }, { playerId: 1, toSlot: 'BENCH' }];
+    expect(movePlanWithout(plan, [])).toEqual([{ playerId: 1, slot: 'BENCH' }]);
+    expect(movePlanWithout(undefined, [])).toEqual([]);
   });
 });
 

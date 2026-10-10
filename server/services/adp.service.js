@@ -330,7 +330,7 @@ async function fetchAdpUnit(fmt, teams, year, day) {
  *
  * SERIALIZED WITH syncInjuries (#904). Holding the wipe's row locks across the
  * bulk set (which locks target rows in a different order) would otherwise
- * permit a deadlock cycle with syncInjuries (scoring.service.js), which locks
+ * permit a deadlock cycle with syncInjuries (feedSyncRuns.service.js), which locks
  * near the whole players table FOR UPDATE in its own scan order and holds to
  * commit. Both writers take a single transaction-scoped advisory lock
  * (PLAYERS_BULK_WRITE_LOCK), taken by `runSyncJob` as the FIRST statement

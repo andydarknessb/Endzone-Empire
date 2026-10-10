@@ -10,7 +10,6 @@ const { computeByeWeeks } = require('./bye.service');
 const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { gameStateFor } = require('./gameState');
-const { unavailableFor, startVerdictOf } = require('./unavailable');
 const { nflRosterStatusColumn } = require('./nflRosterStatus');
 const { getVegasOddsProvider, impliedTeamPoints } = require('./vegasOdds.provider');
 const { isIndoorGame, isWeatherFresh } = require('./nwsWeather.service');
@@ -73,8 +72,8 @@ function rosterablePositions(league) {
   const out = new Set();
   for (const slot of rosterSlots) {
     if (!slot || NON_STARTING_SLOT_KEYS.has(slot.key)) continue;
-    // A count-0 row seats nobody - the same treatment optimalLineup's own
-    // `s.count > 0` filter and the lineup cap (count as the max) already
+    // A count-0 row seats nobody - the same treatment the Optimizer's slot
+    // expansion and the lineup cap (count as the max) already
     // give it - so it contributes nothing to the rosterable set (formal
     // review f1). A template that is every-row count-0 falls through to
     // out.size === 0 below, the same no-gate path an empty template gets.
@@ -302,7 +301,7 @@ async function materializeLineup(client, { leagueId, teamId, season, week, leagu
   const initialStarterSlots = new Map();
   if (league && !league.best_ball && existing.rows.length === 0 && prevEntries.size === 0) {
     const { rosterSlots } = parseLineupSettings(league);
-    const { starters } = optimalLineup(
+    const { starters } = seedLineup(
       roster.map(({ player_id, position }) => ({ playerId: player_id, position })),
       rosterSlots
     );
@@ -1124,22 +1123,10 @@ async function rowsHeldAsPlayed(client, { league, teamId, season, week, rows, ki
  * answer or an empty string. Defaulted so every existing 3-arg call (and
  * test) keeps working unchanged.
  *
- * `unavailable` (CONTEXT.md, Unavailable; #1235) is derived here, once, from
- * the same `onBye` this function already computes plus the row's own
- * `injury_status` and `nfl_roster_status` (#1767):
- * 'bye' | 'no_team' | 'practice_squad' | 'out' | 'ir' | null. It stays on the
- * row only for the Edge line's server-side reads; `getLineup` strips it before
- * returning, and the wire states the answer as `startVerdict` (spec #2042).
+ * `unavailable` (CONTEXT.md, Unavailable; #1235) is not set here: `getLineup`
+ * reads it off the Weekly projection read's Start verdict (ADR 0061), the one
+ * producer, once the rows are annotated.
  */
-function unavailableReason(row, onBye) {
-  const verdict = unavailableFor({
-    injuryStatus: row.injury_status,
-    onBye,
-    noTeam: row.nfl_team == null,
-    nflRosterStatus: row.nfl_roster_status ?? null,
-  });
-  return verdict.available ? null : verdict.reason;
-}
 
 function annotateLineupEntries(entries, {
   locked, byeByTeam, opponentByTeam = new Map(), oddsByGameKey = new Map(), weatherByGameKey = new Map(), selectedWeek,
@@ -1158,7 +1145,6 @@ function annotateLineupEntries(entries, {
       opponent: schedule?.opponent ?? null,
       kickoff: schedule?.kickoffAt ?? null,
       game_key: schedule?.gameKey ?? null,
-      unavailable: unavailableReason(row, onBye),
       // #1329 (ADR 0037): the Ledger row's own Line and weather, read once
       // per distinct game key by `getLineup` and looked up here per row -
       // never re-fetched or re-derived per row.
@@ -1168,12 +1154,13 @@ function annotateLineupEntries(entries, {
   });
 }
 
-async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false }) {
-  const leagueResult = await client.query(
+async function loadLeagueAndTeam(client, { leagueId, userId, forUpdate = false, league: held = null }) {
+  // A caller that already read the league row (the start/sit advice) hands it
+  // in rather than buying the same read a second time.
+  const league = held || (await client.query(
     `SELECT * FROM "leagues" WHERE "id" = $1`,
     [leagueId]
-  );
-  const league = leagueResult.rows[0];
+  )).rows[0];
   if (!league) throw new LineupError(404, 'league not found');
   const team = await requireMember(client, { leagueId, userId, forUpdate });
   return { league, team };
@@ -1222,8 +1209,8 @@ function factorEdgeText(factors) {
  * for a starting slot whose CURRENT occupant projects below him? The first
  * such starter found wins; `entries` is already ordered by position and name
  * (the entries query's own ORDER BY), so the result is deterministic without
- * a tie-break rule of its own. The comparison refuses either side whose
- * `unavailable` is set (#2066; CONTEXT.md, Unavailable: every surface shows
+ * a tie-break rule of its own. The comparison refuses either side in
+ * `wontStart` (#2066; CONTEXT.md, Unavailable: every surface shows
  * the reason instead of a number, so no "Outprojects" is said of or against a
  * player who cannot play); a starter on a bye or Out is already a Lineup
  * problem, and the Start/sit advice owns that swap.
@@ -1235,12 +1222,10 @@ function findBenchAboveStarter(entry, entries, rosterSlots, wontStart) {
   // player's own evidence, a Backup quarterback (ADR 0057) will not play, and
   // an Unavailable player adds nothing. `wontStart` holds the ids whose verdict
   // is Unavailable or carries an untrusted number.
-  // The row's own live `unavailable` (#2066) is read beside it: the stored
-  // verdict can lag a designation or a schedule the lineup read already sees.
-  if (wontStart.has(entry.id) || entry.unavailable) return null;
+  if (wontStart.has(entry.id)) return null;
   for (const other of entries) {
     if (other === entry || other.slot === BENCH || other.slot === IR || other.spent) continue;
-    if (other.projected_points == null || wontStart.has(other.id) || other.unavailable) continue;
+    if (other.projected_points == null || wontStart.has(other.id)) continue;
     if (!slotEligible(other.slot, entry.position, rosterSlots)) continue;
     if (entry.projected_points > other.projected_points) {
       return { slot: other.slot, name: other.name };
@@ -1311,14 +1296,14 @@ function computeEdgeLine(entry, { entries, rosterSlots, wontStart, factors, live
  * Fetch (materializing if needed) the caller's lineup for a week, annotated
  * with per-player locked, bye_week, and onBye metadata.
  */
-async function getLineup({ leagueId, userId, week, now = new Date() }) {
+async function getLineup({ leagueId, userId, week, now = new Date(), league: heldLeague = null }) {
   // `now` is the time the lock is read at (#1862): the override capture asks
   // for the lineup as it stood a minute before a kickoff, so the players
   // locking then still read as movable.
   return withTransaction(
     pool,
     async (client) => {
-      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId });
+      const { league, team } = await loadLeagueAndTeam(client, { leagueId, userId, league: heldLeague });
       const season = league.current_season;
       const targetWeek = week || league.current_week;
 
@@ -1468,31 +1453,18 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
       // guard): a bench player outprojecting a departed starter's frozen
       // record is not a seat he could actually take.
       const annotatedById = new Map(annotated.map((row) => [row.id, row]));
-      // The Start verdict (CONTEXT.md; spec #2042) is the one field each row
-      // carries: Position-baseline (`no_history`, #1775) and Backup quarterback
-      // (`backup`, ADR 0057) are its reasons. The row's own Unavailable facts
-      // (bye, No NFL team, Practice squad, Out, IR) are live and always win, so
-      // they state the verdict as they always did on this wire. `wontStart` is
-      // the STORED verdict (Unavailable, or a number that is not his evidence),
-      // built for every row BEFORE any Edge line, since `findBenchAboveStarter`
-      // reads it off the other entries too. A stored Unavailable verdict over a
-      // live-available player (a stale IR, #2044) gates `wontStart` only: the
-      // row states the live-facts verdict, as the advice wire does, so what the
-      // row shows is unchanged.
+      // The Start verdict (CONTEXT.md; spec #2042; ADR 0061) is the one field
+      // each row carries, straight from the Weekly projection read, the one
+      // producer: Position-baseline (`no_history`, #1775) and Backup quarterback
+      // (`backup`, ADR 0057) are its reasons, and bye, No NFL team, Practice
+      // squad, Out and IR are its Unavailable ones. `wontStart` is Unavailable, or a number that is not his
+      // evidence, built for every row BEFORE any Edge line, since
+      // `findBenchAboveStarter` reads it off the other entries too.
       const wontStart = new Set();
       for (const row of annotated) {
-        const stored = weeklyResult.startVerdictFor(row.id);
-        if (stored.outcome === 'unavailable' || !stored.numberTrusted) wontStart.add(row.id);
-        if (row.unavailable != null) {
-          row.startVerdict = startVerdictOf({ available: false, reason: row.unavailable });
-        } else if (stored.outcome === 'unavailable') {
-          row.startVerdict = startVerdictOf(unavailableFor({
-            injuryStatus: row.injury_status,
-            nflRosterStatus: row.nfl_roster_status ?? null,
-          }));
-        } else {
-          row.startVerdict = stored;
-        }
+        const verdict = weeklyResult.startVerdictFor(row.id);
+        if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) wontStart.add(row.id);
+        row.startVerdict = verdict;
       }
       for (const row of allRows) {
         const annotatedRow = annotatedById.get(row.id);
@@ -1521,9 +1493,6 @@ async function getLineup({ leagueId, userId, week, now = new Date() }) {
         // directly rather than re-deriving it, the same way it already reads
         // `projection`/`floor`/`ceiling` as the server's own numbers.
       }
-      // `unavailable` fed the Edge line above (`findBenchAboveStarter` reads it
-      // off every entry); the wire states it as `startVerdict` alone (#2045).
-      for (const row of annotated) delete row.unavailable;
 
       // Returning COMMITs (ADR 0033). Every read above materialized the week
       // and its reads happen in one transaction; the assembly below is pure.
@@ -1589,7 +1558,7 @@ function planLineupSave({ rows, moves, locked, spent, attested, settings, bestBa
     // slot's seat is already taken by the surviving row (#627).
     const spentBySlot = {};
     for (const row of spent) spentBySlot[row.slot] = (spentBySlot[row.slot] || 0) + 1;
-    const { starters } = optimalLineup(
+    const { starters } = seedLineup(
       entries
         .filter((entry) => !locked.has(entry.player_id))
         .map(({ player_id, position }) => ({ playerId: player_id, position })),
@@ -1828,7 +1797,7 @@ async function seedDraftedLineups(client, { league }) {
     const roster = await teamRosterForLineup(client, teamId);
     if (roster.length === 0) continue;
 
-    const { starters } = optimalLineup(
+    const { starters } = seedLineup(
       roster.map(({ player_id, position }) => ({ playerId: player_id, position })),
       rosterSlots
     );
@@ -1847,38 +1816,56 @@ async function seedDraftedLineups(client, { league }) {
 }
 
 /**
- * Pure: the best legal starting lineup for a set of players given per-player
- * points (actual or projected). Slots are filled most-restrictive first
- * (fewest eligible positions), each taking its best remaining players — with
- * the standard slot shapes (dedicated positions + FLEX as a superset) this
- * greedy order is provably optimal.
+ * Pure: what the Optimizer may not move (Held), computed once for every caller.
+ * A kicked-off starter keeps his slot (`pinned`), a kicked-off bench player is
+ * no candidate, and an open Called shot's pair is held as a kicked-off pair is:
+ * its starter pinned, its benched player no candidate. The shot holds only
+ * while the lineup still matches it (starter starting, benched player benched).
+ * An IR occupant is never a candidate.
  *
- * players: [{ playerId, position }]; pointsFor: Map playerId -> points.
- * Returns { starters: [{ playerId, position, slot, points }], total }.
+ * entries: [{ playerId, position, slot, locked? }]; slot includes BENCH/IR.
+ * Returns `{ entries, pinned, candidates }`: `entries` is the input with
+ * `locked` set for the shot's pair, `pinned` the Map playerId -> slot that
+ * `optimalLineup` takes, `candidates` the players it may place.
  */
-function optimalLineup(players, rosterSlots = DEFAULT_ROSTER_SLOTS, pointsFor = new Map()) {
-  const slots = rosterSlots
-    .filter((s) => s.count > 0)
-    .sort((a, b) => expandEligibility(a.eligiblePositions).size - expandEligibility(b.eligiblePositions).size);
-  const available = [...players].sort(
-    (a, b) => (Number(pointsFor.get(b.playerId)) || 0) - (Number(pointsFor.get(a.playerId)) || 0)
-  );
-  const taken = new Set();
-  const starters = [];
-  let total = 0;
-  for (const { key: slot, count } of slots) {
-    for (let i = 0; i < count; i++) {
-      const pick = available.find(
-        (p) => !taken.has(p.playerId) && slotEligible(slot, p.position, rosterSlots)
-      );
-      if (!pick) continue; // roster can't fill this slot — leave it empty
-      taken.add(pick.playerId);
-      const points = Number(pointsFor.get(pick.playerId)) || 0;
-      starters.push({ playerId: pick.playerId, position: pick.position, slot, points });
-      total += points;
+function heldLineup(entries, { calledShot = null } = {}) {
+  const list = entries || [];
+  const isStarter = (e) => e.slot !== BENCH && e.slot !== IR;
+  const held = new Set();
+  if (calledShot) {
+    const starter = list.find((e) => e.playerId === calledShot.starterId);
+    const benched = list.find((e) => e.playerId === calledShot.benchedId);
+    if (starter && benched && isStarter(starter) && benched.slot === BENCH) {
+      held.add(calledShot.starterId);
+      held.add(calledShot.benchedId);
     }
   }
-  return { starters, total: Math.round(total * 100) / 100 };
+  const marked = list.map((e) => ({ ...e, locked: Boolean(e.locked) || held.has(e.playerId) }));
+  const pinned = new Map();
+  const candidates = [];
+  for (const e of marked) {
+    if (e.slot === IR) continue;
+    if (e.locked) {
+      if (isStarter(e)) pinned.set(e.playerId, e.slot);
+      continue;
+    }
+    candidates.push({ playerId: e.playerId, position: e.position });
+  }
+  return { entries: marked, pinned, candidates };
+}
+
+/**
+ * The first lineup of a roster that has no points yet (the materialize seeds):
+ * every player is worth a little, earlier listed worth more, so the Optimizer
+ * seats as many as legally fit and ties go to the first listed.
+ *
+ * Required here, not at load: lineupOptimizer requires this module for
+ * `slotEligible`, so a top-level require would close the cycle.
+ */
+function seedLineup(players, rosterSlots) {
+  const { optimalLineup } = require('./lineupOptimizer');
+  const pointsFor = new Map(players.map((p, i) => [p.playerId, players.length - i]));
+  return optimalLineup({ rosterSlots, candidates: players, pointsFor });
 }
 
 module.exports = {
@@ -1910,5 +1897,5 @@ module.exports = {
   getLineup,
   setLineup,
   planLineupSave,
-  optimalLineup,
+  heldLineup,
 };

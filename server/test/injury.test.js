@@ -12,6 +12,17 @@ const { DEFAULT_ROSTER_SLOTS, setLineup } = require('../services/lineup.service'
 // case here feeds a handful of entries, so it is off for this file.
 process.env.INJURY_DOC_FLOOR = '0';
 
+// #2148: syncInjuries also reads the shared team-roster sweep. Cases that do not
+// pass their own `sweep` never reach the network: teamRoster answers null for
+// every team, which trips the sweep's consecutive-failure breaker, so the sweep
+// throws and the run takes the failed-sweep path (document only). That path
+// warns; the warning is filtered out here so it does not bury real output.
+test.mock.method(espnAthleteClient, 'teamRoster', async () => null);
+const realWarn = console.warn;
+test.mock.method(console, 'warn', (...args) => {
+  if (!String(args[0]).startsWith('injury sync: roster sweep failed')) realWarn(...args);
+});
+
 // One row of the ESPN injuries document as espnAthleteClient.injuries() returns it (#2115).
 const listed = (athleteId, status, detail = null) => ({ athleteId, status, detail });
 
@@ -63,7 +74,7 @@ test('syncInjuries commits designation updates and IR flags before delivering ga
           ],
   });
 
-  assert.deepEqual(result, { playersUpdated: 2, irFlags: 1 });
+  assert.deepEqual(result, { playersUpdated: 2, rosterDesignated: 0, irFlags: 1 });
   assert.match(fake.matching(select('players'))[0].text, /FOR UPDATE$/);
   // #929: one bulk UPDATE replaces the per-player loop. Rewritten from the old
   // assertion `fake.matching(update('players')).length === 2`, which pinned two
@@ -369,7 +380,7 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
   // that turns a local-calendar-day comparison red (fleet#1509 red-tell).
   const result = await syncInjuries({ fetchInjuries: healthyToQuestionableFeed, now: new Date('2026-08-20T23:30:00-05:00') });
 
-  assert.deepEqual(result, { playersUpdated: 1, irFlags: 0 });
+  assert.deepEqual(result, { playersUpdated: 1, rosterDesignated: 0, irFlags: 0 });
   const records = dataSyncRuns(fake.calls);
   // Red-tell for criterion 2: deleting the ok=true record call empties this.
   assert.equal(records.length, 1, 'exactly one data_sync_runs row is appended');
@@ -380,7 +391,7 @@ test('#961 success: one ok=true data_sync_runs row with job "injuries" and the r
   // en-CA day (2026-08-20).
   assert.deepEqual(
     JSON.parse(records[0].params[3]),
-    { day: '2026-08-21', playersUpdated: 1, irFlags: 0 },
+    { day: '2026-08-21', rosterComplete: false, playersUpdated: 1, rosterDesignated: 0, irFlags: 0 },
     'detail carries the UTC day and the run counts',
   );
   // Recorded after the run committed, never mid-transaction.
@@ -619,7 +630,7 @@ test('#961 best-effort: a record write that throws changes neither outcome nor r
 
   assert.deepEqual(
     result,
-    { playersUpdated: 1, irFlags: 0 },
+    { playersUpdated: 1, rosterDesignated: 0, irFlags: 0 },
     'the run returns its real result',
   );
   assert.equal(dataSyncRuns(fake.calls).length, 1, 'the record write was attempted once');
@@ -807,7 +818,7 @@ test('#2115: Questionable, Doubtful, Out, Injured Reserve, Active and an unliste
       { id: 3, external_id: '5084939', injury_status: null },
       { id: 4, external_id: '4428991', injury_status: null },
       { id: 5, external_id: '3127287', injury_status: null },
-      { id: 6, external_id: '999', injury_status: null },
+      { id: 6, external_id: '999', injury_status: null, injury_detail: null },
     ],
   });
   t.mock.method(prefs, 'usersWanting', async () => []);
@@ -824,7 +835,7 @@ test('#2115: Questionable, Doubtful, Out, Injured Reserve, Active and an unliste
   assert.match(details[3], /placed Johnson \(biceps\) on injured reserve/);
   assert.equal(details[4], null, 'an Active entry carries a news note, not an injury: no detail');
   assert.equal(details[5], null);
-  assert.deepEqual(result, { playersUpdated: 5, irFlags: 0 }, 'playersUpdated counts the five players the document lists');
+  assert.deepEqual(result, { playersUpdated: 5, rosterDesignated: 0, irFlags: 0 }, 'playersUpdated counts the five players the document lists');
   fake.assertClean();
 });
 
@@ -845,6 +856,7 @@ test('#2115: an unknown ESPN status writes null and is logged once per run', asy
       listed('12', 'Suspended', 'Violated policy'),
       listed('13', 'Questionable', 'Ankle'),
     ],
+    sweep: noSweep,
   });
 
   const [write] = fake.matching(update('players'));
@@ -856,7 +868,7 @@ test('#2115: an unknown ESPN status writes null and is logged once per run', asy
   fake.assertClean();
 });
 
-test('#2115: the run makes exactly one ESPN GET and no Tank01 call', async (t) => {
+test('#2115: the run makes one injuries-document GET and no Tank01 call (the roster sweep is mocked)', async (t) => {
   const axios = require('axios');
   const tank01Client = require('../modules/tank01Client');
   const tank01 = t.mock.method(tank01Client, 'tank01Get', async () => { throw new Error('Tank01 must not be called'); });
@@ -874,7 +886,7 @@ test('#2115: the run makes exactly one ESPN GET and no Tank01 call', async (t) =
   fake.assertClean();
 });
 
-test('#2115: a player ESPN drops from the document (IR to unlisted) is cleared and flags his IR stash', async (t) => {
+test('#2115: a player ESPN drops from the document and his roster shows no injury (IR to unlisted) is cleared and flags his IR stash', async (t) => {
   const notifications = [];
   const fake = espnWorld(t, {
     players: [{ id: 31, external_id: '3131', injury_status: 'IR' }],
@@ -885,7 +897,11 @@ test('#2115: a player ESPN drops from the document (IR to unlisted) is cleared a
   });
   t.mock.method(prefs, 'usersWanting', async () => []);
 
-  const result = await syncInjuries({ fetchInjuries: async () => [listed('9999', 'Out', 'Hamstring')] });
+  // #2148: his team answered (the sweep saw him) and lists no injury.
+  const result = await syncInjuries({
+    fetchInjuries: async () => [listed('9999', 'Out', 'Hamstring')],
+    sweep: sweepOf([rosterRow('3131', null)]),
+  });
 
   const [write] = fake.matching(update('players'));
   assert.deepEqual(write.params, [[31], [null], [null]], 'unlisted means healthy: both columns cleared');
@@ -1049,4 +1065,114 @@ test('#2115: a detail longer than 255 characters is cut to 255', async (t) => {
 
   const detail = fake.matching(update('players'))[0].params[2][0];
   assert.equal(detail.length, 255);
+});
+
+// ---- #2148: the team roster's injuries block is the fallback designation ----
+
+const rosterRow = (athleteId, injuryStatus) => ({ athleteId, teamCode: 'MIA', rosterStatus: 'active', injuryStatus });
+const sweepOf = (rows, complete = true) => async () => ({ units: [{ teamCode: 'MIA', rows }], complete });
+const noSweep = async () => ({ units: [], complete: false });
+
+async function runRosterCase(t, { players, document = [listed('espn-22', 'Active')], sweep }) {
+  const fake = espnWorld(t, { players });
+  t.mock.method(prefs, 'usersWanting', async () => []);
+  const result = await syncInjuries({ fetchInjuries: async () => document, sweep });
+  const [write] = fake.matching(update('players'));
+  return { result, write, fake };
+}
+
+test('#2148: an athlete the injuries document omits takes his designation from the team roster', async (t) => {
+  const { result, write, fake } = await runRosterCase(t, {
+    players: [
+      { id: 21, external_id: 'espn-21', injury_status: null, injury_detail: null },
+      { id: 22, external_id: 'espn-22', injury_status: null, injury_detail: null },
+    ],
+    sweep: sweepOf([rosterRow('espn-21', 'Injured Reserve'), rosterRow('espn-22', null)]),
+  });
+
+  assert.deepEqual(write.params, [[21, 22], ['IR', null], [null, null]]);
+  assert.equal(result.rosterDesignated, 1);
+  assert.equal(result.playersUpdated, 1, 'playersUpdated still counts document-listed players');
+  const [record] = fake.matching(insert('data_sync_runs'));
+  assert.equal(JSON.parse(record.params[3]).rosterComplete, true, 'the recorded run detail carries the roster read');
+});
+
+test('#2148: a roster designation keeps the stored detail when it agrees with the stored designation', async (t) => {
+  const { write } = await runRosterCase(t, {
+    players: [
+      { id: 21, external_id: 'espn-21', injury_status: 'IR', injury_detail: 'knee' },
+      { id: 23, external_id: 'espn-23', injury_status: 'O', injury_detail: 'hand' },
+    ],
+    sweep: sweepOf([rosterRow('espn-21', 'Injured Reserve'), rosterRow('espn-23', 'Doubtful')]),
+  });
+
+  assert.deepEqual(write.params, [[21, 23], ['IR', 'D'], ['knee', null]]);
+});
+
+test('#2148: the injuries document wins over the roster where both speak', async (t) => {
+  const { write } = await runRosterCase(t, {
+    players: [{ id: 21, external_id: 'espn-21', injury_status: null, injury_detail: null }],
+    document: [listed('espn-21', 'Questionable', 'Ankle')],
+    sweep: sweepOf([rosterRow('espn-21', 'Injured Reserve')]),
+  });
+
+  assert.deepEqual(write.params, [[21], ['Q'], ['Ankle']]);
+});
+
+test('#2148: a player neither feed saw keeps his stored designation and detail, IR or not', async (t) => {
+  const players = [
+    { id: 21, external_id: 'espn-21', injury_status: 'IR', injury_detail: 'knee' },
+    { id: 23, external_id: 'espn-23', injury_status: 'O', injury_detail: 'hand' },
+  ];
+  const failing = async () => { throw new Error('espn down'); };
+  t.mock.method(console, 'warn', () => {});
+  for (const sweep of [noSweep, failing]) {
+    const { result, fake } = await runRosterCase(t, { players, sweep });
+    const [write] = fake.matching(update('players'));
+    assert.deepEqual(write.params, [[21, 23], ['IR', 'O'], ['knee', 'hand']]);
+    assert.equal(result.rosterDesignated, 0);
+  }
+});
+
+test('#2148: a sweep that never resolves times out, warns once and the run goes document-only', async (t) => {
+  const before = process.env.INJURY_SWEEP_TIMEOUT_MS;
+  process.env.INJURY_SWEEP_TIMEOUT_MS = '10';
+  t.after(() => {
+    if (before === undefined) delete process.env.INJURY_SWEEP_TIMEOUT_MS;
+    else process.env.INJURY_SWEEP_TIMEOUT_MS = before;
+  });
+  const warn = t.mock.method(console, 'warn', () => {});
+  const { write, fake } = await runRosterCase(t, {
+    players: [{ id: 21, external_id: 'espn-21', injury_status: 'IR', injury_detail: 'knee' }],
+    sweep: () => new Promise(() => {}),
+  });
+
+  assert.deepEqual(write.params, [[21], ['IR'], ['knee']]);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[1], /timed out/);
+  const [record] = fake.matching(insert('data_sync_runs'));
+  assert.equal(JSON.parse(record.params[3]).rosterComplete, false);
+});
+
+test('#2148: a roster-covered athlete with no injuries entry is healthy, even from a stored IR', async (t) => {
+  const { write } = await runRosterCase(t, {
+    players: [{ id: 21, external_id: 'espn-21', injury_status: 'IR', injury_detail: 'knee' }],
+    sweep: sweepOf([rosterRow('espn-21', null)]),
+  });
+
+  assert.deepEqual(write.params, [[21], [null], [null]]);
+});
+
+test('#2148: an unknown roster injury string is healthy', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const { write, result } = await runRosterCase(t, {
+    players: [{ id: 21, external_id: 'espn-21', injury_status: null, injury_detail: null }],
+    sweep: sweepOf([rosterRow('espn-21', 'Day-To-Day')]),
+  });
+
+  assert.deepEqual(write.params[1], [null]);
+  assert.equal(result.rosterDesignated, 0);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(warn.mock.calls[0].arguments[0], /unknown ESPN status treated as healthy/);
+  assert.equal(warn.mock.calls[0].arguments[1], 'Day-To-Day');
 });

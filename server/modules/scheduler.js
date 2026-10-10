@@ -260,15 +260,15 @@ async function runDailyEspnOwnershipSync({ now = new Date() } = {}) {
 }
 
 /**
- * The daily Tank01 player-list sync (#2115, ADR 0060): keeps `players` (name,
+ * The daily player sync (#2115, #2117, ADR 0060): keeps `players` (name,
  * position, nfl_team, departures) current unattended, once per UTC day by the
  * cadence gate on the 'players' Sync run's own rows, which a hand-run sync also
- * writes. Tank01 is metered, so it needs the same credentials as every Tank01
- * call. A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so a
- * Tank01 outage does not spend a call every tick.
+ * writes. It reads the 32 ESPN team rosters (the sweep the roster-status run
+ * shares), which is free and keyless, so it is not gated on Tank01 credentials.
+ * A failed run retries after PLAYER_SYNC_RETRY_MS, like stat-corrections, so an
+ * ESPN outage does not spend a 32-call sweep every tick.
  */
 async function runDailyPlayerSync({ now = new Date() } = {}) {
-  if (!process.env.RAPID_API_KEY || !process.env.RAPID_API_HOST) return null;
   const gate = await cadence.due({ job: 'players', every: 'utc-day', retryMs: PLAYER_SYNC_RETRY_MS, now });
   if (!gate.due) return null;
   return require('../services/feedSyncRuns.service').syncPlayers({ season: now.getUTCFullYear(), now });
@@ -1100,8 +1100,8 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
 /**
  * Daily nflverse game-context fill (#1725, follow-up to #1707): run the
  * existing `syncScheduleFromNflverse` for the CURRENT season so `nfl_games`
- * `venue`, `roof`, `surface` and `rest_days` are populated. The Tank01 schedule
- * insert never writes them, so without this pass `venue` stays NULL, the
+ * `venue`, `roof`, `surface` and `rest_days` are populated. The manual schedule
+ * sync (ESPN scoreboard) never writes them, so without this pass `venue` stays NULL, the
  * venue-keyed coordinate table (services/venueCoordinates.js) resolves nothing
  * and the NWS weather job is starved, and `roof` NULL reads a dome as outdoors.
  * This schedules the one sync that exists, not a new path; the manual
@@ -1254,6 +1254,7 @@ const CLOSE_MARGIN = 10;
  */
 async function alertCloseMatchups({ leagueId, week, scored }) {
   const push = require('../services/push.service');
+  const { banterFor } = require('../services/pushBanter');
   for (const m of scored || []) {
     const key = `${m.matchupId}:${week}`;
     if (closeAlertedMatchups.has(key)) continue;
@@ -1272,6 +1273,7 @@ async function alertCloseMatchups({ leagueId, week, scored }) {
           title: 'Your matchup is close!',
           body: `Week ${week}: separated by just ${Math.round(margin * 10) / 10} points. Keep watching.`,
           url: `/#/league/${leagueId}/game-center`,
+          banter: banterFor('closeMatchup', `close:${m.matchupId}:${week}`, { margin: Math.round(margin * 10) / 10, week }),
         }
       );
     } catch (err) {
@@ -1308,6 +1310,7 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
     const { PLAY_STAT_EVENTS } = require('../services/boxScoreApply.service');
     const push = require('../services/push.service');
+    const { banterFor } = require('../services/pushBanter');
     const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
     const rules = rulesForLeague(league);
     // A play carries its event `type` but not the stat key it was detected from.
@@ -1368,6 +1371,14 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
         const what = (p) => `${p.name} ${BIG_PLAY_WORDS[p.type] || p.type}`;
         const lines = qualifying.map((p) =>
           `${what(p)} (${Math.round(p.points * 10) / 10} pts, ${side.own.includes(p) ? 'yours' : "your opponent's"})`);
+        const first = qualifying[0];
+        const banter = lines.length > 1
+          ? banterFor('bigPlaySeveral', `big-play:${m.matchupId}:${fingerprint}`, { count: lines.length })
+          : banterFor(side.own.includes(first) ? 'bigPlayMine' : 'bigPlayTheirs', `big-play:${m.matchupId}:${fingerprint}`, {
+            player: first.name,
+            event: BIG_PLAY_WORDS[first.type] || first.type,
+            points: Math.round(first.points * 10) / 10,
+          });
         await push.sendPushOnce({
           userIds: [userId],
           prefKey: 'touchdownCelebrations',
@@ -1378,6 +1389,7 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
             title: lines.length === 1 ? `Big play: ${what(qualifying[0])}` : `${lines.length} big plays`,
             body: lines.join('\n'),
             url: `/#/league/${leagueId}/game-center`,
+            banter,
           },
         });
       }
@@ -1413,6 +1425,7 @@ const scoreText = (a, b) => {
 async function alertScoreUpdates({ leagueId, season, week, scored }) {
   const push = require('../services/push.service');
   const { usersWanting } = require('../services/prefs.service');
+  const { banterFor } = require('../services/pushBanter');
   const url = `/#/league/${leagueId}/game-center`;
   for (const m of scored || []) {
     if (m.status === 'final') continue; // the result is written; nothing is news
@@ -1474,6 +1487,11 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
               title: leader === 'tied' ? 'Tied up' : leader === s.side ? 'You took the lead' : 'You lost the lead',
               body: body(s),
               url,
+              banter: banterFor(
+                leader === 'tied' ? 'tied' : leader === s.side ? 'leadTaken' : 'leadLost',
+                `score-lead:${subject}:${leader}:${Number(n) + 1}`,
+                { mine: s.mine.name, theirs: s.theirs.name }
+              ),
             },
           });
         }
@@ -1483,6 +1501,9 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
         for (const s of sides) {
           const result = leader === 'tied' ? 'tied' : leader === s.side ? 'you won' : 'you lost';
           const score = figures(s).join('-');
+          // Compared in hundredths so 63.1 vs 64.1 (0.9999999999999929 apart) is a full point.
+          const lostClose = Math.abs(Math.round(Number(s.mineScore) * 100) - Math.round(Number(s.theirScore) * 100)) < 100;
+          const situation = leader === 'tied' ? 'finalTied' : leader === s.side ? 'finalWon' : lostClose ? 'finalLostClose' : 'finalLost';
           await push.sendPushOnce({
             userIds: [s.mine.owner_id],
             prefKey: 'scoreUpdates',
@@ -1493,6 +1514,7 @@ async function alertScoreUpdates({ leagueId, season, week, scored }) {
               title: `Final: ${result} ${score}`,
               body: `Unofficial until the commissioner advances the week. ${body(s)}`,
               url,
+              banter: banterFor(situation, `score-played:${subject}:played`, { mine: s.mine.name, theirs: s.theirs.name }),
             },
           });
         }
@@ -1600,6 +1622,12 @@ async function runLiveSync() {
  * same-process short-circuit ahead of the gate's read); the nflverse HEAD polls throttle in memory (a check
  * that finds nothing writes no run row); retention has a day stamp (no run row);
  * the live sync is tick-counted.
+ *
+ * The next job added declares its throttle in its row, not in its body: a
+ * `gate: daily | everyTicks(n) | cadence(id)` field the tick reads before it
+ * calls `run`, so the order and the pacing of every duty read off this one
+ * table. No row carries `gate:` yet and the tick does not read one; the
+ * existing jobs keep the throttles above until each is moved.
  */
 const TICK_JOBS = [
   { name: 'stat-corrections', tier: 'deadline', syncRun: ['stat-corrections', 'nflverse-correction'], run: () => runDailyStatCorrections() },
@@ -1650,10 +1678,10 @@ const TICK_JOBS = [
   { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
   // A throw leaves the retention day unstamped, so it retries every tick.
   { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
-  // Daily Tank01 player-list sync (#2115, ADR 0060): the only writer of nfl_team
-  // and of departures now that the injuries job reads ESPN. One metered call a
-  // day, so it is gated on the Tank01 credentials; until #2117 moves the player
-  // list to ESPN. Still hand-runnable (admin dashboard, /api/scoring/sync-players).
+  // Daily player sync (#2115, #2117, ADR 0060): the only writer of nfl_team and
+  // of departures now that the injuries job reads ESPN. It reads the ESPN team
+  // rosters (shared with the roster-status run's sweep), so it needs no Tank01
+  // credentials. Still hand-runnable (admin dashboard, /api/scoring/sync-players).
   { name: 'player-sync', tier: 'housekeeping', syncRun: ['players'], run: () => runDailyPlayerSync() },
   // Weather snapshots (#1883): after live scoring and every deadline duty, ahead
   // of the multi-minute nightly fill; it never throws.

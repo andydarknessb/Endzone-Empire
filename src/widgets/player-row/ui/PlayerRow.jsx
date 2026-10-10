@@ -19,7 +19,7 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { playerRowColumnCount } from './PlayerRowTableHead';
 import { PositionChip, PlayerAvatar } from '../../../shared/ui';
-import { MIN_TOUCH_TARGET_SX, NO_HISTORY_LABEL, formatPoints, hasNoHistory, timeUntil, unavailableLabel } from '../../../shared/lib';
+import { MIN_TOUCH_TARGET_SX, NO_HISTORY_LABEL, formatPoints, hasNoHistory, timeUntil, reasonLabel } from '../../../shared/lib';
 import { WeeklyPointsBars, PlayerNameLink } from '../../../entities/player';
 import { weeksForSparkline } from '../model/weeksAdapter';
 
@@ -107,7 +107,7 @@ function StatusCell({ player }) {
  * players show the reason, never a number, in the list and on the bars"). */
 function ProjWeekCell({ projWeek, noHistory = false }) {
   if (!projWeek) return <span>-</span>;
-  if (projWeek.reason) return <span>{unavailableLabel(projWeek.reason) || projWeek.reason}</span>;
+  if (projWeek.reason) return <span>{reasonLabel(projWeek.reason) || projWeek.reason}</span>;
   // #1778 (spec #1774): a Position-baseline projection is the position's
   // average, so the column reads "no history" in place of its number. The
   // verdict is the server's (`startVerdict`); an Unavailable reason above
@@ -120,9 +120,14 @@ function ProjWeekCell({ projWeek, noHistory = false }) {
  * nothing to show (best ball, a row the server never scores an Upgrade for -
  * the caller's own roster - or a candidate who does not crack the lineup,
  * `points` 0; a negative Upgrade no longer exists, ADR 0055) - the same rule
- * DecisionStrip's own Upgrade tile applies. */
-function UpgradeCell({ upgrade }) {
+ * DecisionStrip's own Upgrade tile applies. A Free agent's or waiver player's
+ * Upgrade is read in his first playable week (#2166, ADR 0062), so the pill
+ * names that week ("Wk N") when it is not `currentWeek`, the row's own. */
+function UpgradeCell({ upgrade, currentWeek }) {
   if (!(upgrade?.points > 0)) return null;
+  const weekLabel = upgrade.week != null && currentWeek != null && upgrade.week !== currentWeek
+    ? ` Wk ${upgrade.week}`
+    : '';
   return (
     <Box
       component="span"
@@ -138,7 +143,7 @@ function UpgradeCell({ upgrade }) {
         fontSize: 13,
       }}
     >
-      +{formatPoints(upgrade.points)}
+      +{formatPoints(upgrade.points)}{weekLabel}
     </Box>
   );
 }
@@ -369,7 +374,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
                   <Typography sx={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                     Upgrade
                   </Typography>
-                  <UpgradeCell upgrade={player.upgrade} />
+                  <UpgradeCell upgrade={player.upgrade} currentWeek={player.projWeek?.week} />
                 </Box>
               )}
             </Stack>
@@ -415,7 +420,7 @@ export default function PlayerRow({ player, action, watchAction, expansion, best
       )}
       {showUpgrade && (
         <TableCell align="right">
-          <UpgradeCell upgrade={player.upgrade} />
+          <UpgradeCell upgrade={player.upgrade} currentWeek={player.projWeek?.week} />
         </TableCell>
       )}
       {/* Desktop table (2026-09-15 report): the full strip made this column

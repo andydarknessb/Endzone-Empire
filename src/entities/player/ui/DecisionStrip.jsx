@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { finite, formatPoints, unavailableLabel, NO_HISTORY_LABEL } from '../../../shared/lib';
+import { finite, formatPoints, reasonLabel, NO_HISTORY_LABEL } from '../../../shared/lib';
 
 /**
  * The decision strip (#1307, ADR 0040: "Every context adds the decision
@@ -29,7 +29,7 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
         {decision.projWeek.reason
           // #1765: an Unavailable week shows the reason, never a number
           // (CONTEXT.md, Unavailable) - the same label map the weekly bars use.
-          ? (unavailableLabel(decision.projWeek.reason) || decision.projWeek.reason)
+          ? (reasonLabel(decision.projWeek.reason) || decision.projWeek.reason)
           // #1777: `noHistory` (the caller's `hasNoHistory(entry)`, the one
           // shared helper) reads "no history" instead of the Position-baseline
           // number, after the Unavailable reason above, which always wins.
@@ -86,6 +86,12 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
   }
 
   if (decision?.upgrade?.points > 0) {
+    // #2166 (ADR 0062): a Free agent's or waiver player's Upgrade is read in his
+    // first playable week; name it when that is not the week this strip shows.
+    const upgradeWeek = decision.upgrade.week;
+    const weekLabel = upgradeWeek != null && decision.projWeek?.week != null && upgradeWeek !== decision.projWeek.week
+      ? ` Wk ${upgradeWeek}`
+      : '';
     tiles.push(
       <Tile key="upgrade" label="Upgrade" testId="decision-strip-upgrade">
         {/* Risk-review finding (accessibility): a tinted (`accent-soft`)
@@ -106,7 +112,7 @@ export default function DecisionStrip({ decision, usage, ownership, depth, roste
             fontWeight: 700,
           }}
         >
-          +{formatPoints(decision.upgrade.points)}
+          +{formatPoints(decision.upgrade.points)}{weekLabel}
         </Box>
         {decision.upgrade.slot && (
           <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-muted)', ml: 0.5 }}>

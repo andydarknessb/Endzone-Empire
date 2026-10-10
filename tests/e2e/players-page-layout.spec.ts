@@ -95,6 +95,43 @@ test('390x844: the league is named, the first card starts at or above y=360, is 
   expect(doc.scrollWidth, `document scrollWidth ${doc.scrollWidth} vs clientWidth ${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth + 1);
 });
 
+/**
+ * Each body row's Weeks strip: the span from its first week column's left
+ * edge to its last one's right edge (the strip box itself fills whatever
+ * spare width the table hands the cell).
+ */
+function probeWeeks() {
+  const strips = Array.from(document.querySelectorAll('[data-testid="player-row"] [data-testid="weekly-points-bars"]'));
+  const container = document.querySelector('table')?.parentElement as HTMLElement | null;
+  const span = (strip: Element) => {
+    const columns = Array.from(strip.children).map((column) => column.getBoundingClientRect());
+    return Math.round(Math.max(...columns.map((c) => c.right)) - Math.min(...columns.map((c) => c.left)));
+  };
+  return {
+    strips: strips.map((strip) => ({ width: span(strip) })),
+    container: container ? { scrollWidth: container.scrollWidth, clientWidth: container.clientWidth } : null,
+  };
+}
+
+test('1440x900: a player Unavailable every week keeps the Weeks strip as narrow as a points row', async ({ page }) => {
+  await setupPlayersPageLayout(page, { seasonUnavailable: true });
+  await page.setViewportSize(DESKTOP);
+  await page.goto(PLAYERS_LAYOUT_URL);
+  await expect(page.getByTestId('player-row')).toHaveCount(10);
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+
+  const { strips, container } = await page.evaluate(probeWeeks);
+  // eslint-disable-next-line no-console
+  console.log(`PLAYERS_LAYOUT_WEEKS ${JSON.stringify({ strips, container })}`);
+  expect(strips.length).toBe(10);
+  // Relative to the first (points) row, so a gap or column-width tweak moves
+  // every row together; the floor catches a probe that measured nothing.
+  const pointsRow = strips[0].width;
+  expect(pointsRow, `strips ${JSON.stringify(strips)}`).toBeGreaterThan(100);
+  for (const strip of strips) expect(strip.width, `strips ${JSON.stringify(strips)}`).toBeLessThanOrEqual(pointsRow + 1);
+  expect(container!.scrollWidth, `table container ${JSON.stringify(container)}`).toBeLessThanOrEqual(container!.clientWidth + 1);
+});
+
 // Permanent negative control (the pattern players-list.spec.ts uses for
 // width): proves the row height predicate can still go red, so a quietly
 // broken assertion doesn't read as a clean pass forever.

@@ -28,8 +28,8 @@ import useMatchupPreview from '../model/useMatchupPreview';
  *     demoted to an "Expected final" stat tile beside a Players remaining tile,
  *     the header carries the status Badge exactly as before #1102, and a
  *     SplitBar under the pairing shows the win probability. That bar is fed by
- *     `matchupWinProbability`, the same helper Game Center's hero reads, so
- *     the two surfaces cannot disagree; it is never given a points ratio,
+ *     the entity board's `winProbability`, the same figure Game Center's hero
+ *     reads, so the two surfaces cannot disagree; it is never given a points ratio,
  *     whose accessible name ("Win probability", #872) would then be a false
  *     claim.
  *

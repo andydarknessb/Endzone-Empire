@@ -63,14 +63,14 @@ describe('benchOptionsForSlot', () => {
     expect(result.map((r) => r.entry.playerId)).toEqual([3, 4, 2, 5]);
   });
 
-  test('an Unavailable player is never treated as no history: the reason wins (#1777)', () => {
+  test('an Unavailable player is never treated as no history, and sorts last (#1777, #2140)', () => {
     const out = entry({
-      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, startVerdict: { outcome: 'not_recommended', reason: 'no_history', numberTrusted: false },
+      playerId: 2, eligibleSlots: ['BENCH', 'RB'], projectedPoints: 0, startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true },
       availability: { available: false, reason: 'out' },
     });
     const low = entry({ playerId: 3, eligibleSlots: ['BENCH', 'RB'], projectedPoints: -1 });
     const result = benchOptionsForSlot([out, low], 'RB');
-    expect(result.map((r) => r.entry.playerId)).toEqual([2, 3]);
+    expect(result.map((r) => r.entry.playerId)).toEqual([3, 2]);
   });
 
   test('marks a locked candidate', () => {

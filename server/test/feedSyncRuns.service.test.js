@@ -1,13 +1,30 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool, select, insert } = require('./helpers/fakePool');
+const { createFakePool, select, insert, update } = require('./helpers/fakePool');
+
+// #2117: the player run reads ESPN rosters and spends no Tank01 call. Record and
+// refuse any tank01Get before the service loads, so a call fails loudly here.
+const tank01Client = require('../modules/tank01Client');
+const tank01Calls = [];
+tank01Client.tank01Get = async (...args) => {
+  tank01Calls.push(args);
+  throw new Error('unexpected Tank01 call');
+};
 const {
   missingTeamDefenses,
   syncTeamDefenses,
   syncPlayers,
+  normalizeRosterRow,
   syncPlayerSeasonStats,
   syncSchedule,
 } = require('../services/feedSyncRuns.service');
+
+// One ESPN roster row (espnAthleteClient.normalizeTeamRoster's shape) and a
+// `sweep` seam standing in for espnFactsSync.sharedRosterSweep.
+const rosterRow = (athleteId, teamCode, extra = {}) => ({
+  athleteId: String(athleteId), teamCode, rosterStatus: 'active', name: `Player ${athleteId}`, position: 'WR', jerseyNumber: null, photoUrl: null, ...extra,
+});
+const sweepOf = (rows, complete = true) => async () => ({ units: [{ teamCode: 'ANY', rows }], complete });
 
 // The following moved from scoring.service.test.js (#1506, spec #1492): all
 // exercise feedSyncRuns.service.js, the feed Sync run jobs module.
@@ -63,11 +80,7 @@ test('syncTeamDefenses upserts every missing team inside one transaction under P
 // jobs and, for players, it is the #904 guard against a row-lock deadlock
 // with syncInjuries/syncAdp. Without these two, `lock: null` in either
 // syncPlayers or syncPlayerSeasonStats leaves every other test green.
-test('syncPlayers upserts every fetched entry inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
-  const api = async (path) => {
-    assert.equal(path, '/getNFLPlayerList');
-    return { data: { body: [{ playerID: '1', longName: 'Test Player', pos: 'WR', team: 'BUF' }] } };
-  };
+test('syncPlayers upserts every roster row inside one transaction under PLAYERS_BULK_WRITE_LOCK', async (t) => {
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({ rows: [] }), 'client'],
@@ -75,10 +88,10 @@ test('syncPlayers upserts every fetched entry inside one transaction under PLAYE
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api });
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf([rosterRow(1, 'BUF')]) });
 
   assert.deepEqual(result, {
-    season: 2026, playersUpserted: 1, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+    season: 2026, playersUpserted: 1, skippedNonFantasy: 0, rosterComplete: true,
     teamChanges: 0, teamsCleared: 0, teamsDeferred: 0,
   });
 
@@ -89,6 +102,43 @@ test('syncPlayers upserts every fetched entry inside one transaction under PLAYE
   assert.ok(beginIdx >= 0 && beginIdx < lockIdx, 'BEGIN precedes the lock');
   assert.deepEqual(fake.calls[lockIdx].params, [23004], 'the lock id is 23004 (players-bulk-write)');
   assert.ok(lockIdx < firstWriteIdx, 'the lock is taken before the first insert');
+  fake.assertClean();
+});
+
+// #2117: the player run reads the ESPN rosters and spends no Tank01 call. The
+// stub at the top of this file records and refuses any `tank01Get`; the three
+// criteria in one run: no Tank01 call, a player ESPN moved gets his team
+// written, a stored player on no roster gets his team cleared.
+test('#2117: the player run makes zero tank01Get calls, writes a team move, and clears a player on no roster', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [select('players'), () => ({
+      rows: [
+        { id: 11, external_id: '1001', name: 'Mover', position: 'WR', nfl_team: 'ARI' }, // ESPN has him on NE
+        { id: 12, external_id: '1002', name: 'Gone', position: 'WR', nfl_team: 'HOU' }, // on no roster
+        { id: 13, external_id: '1003', name: 'Stays', position: 'WR', nfl_team: 'KC' }, // control
+      ],
+    }), 'client'],
+    [select('leagues'), () => ({ rows: [] }), 'client'],
+    [insert('players'), () => ({ rows: [] }), 'client'],
+    [update('players'), () => ({ rows: [] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+  const callsBefore = tank01Calls.length;
+
+  const result = await syncPlayers({
+    season: 2026,
+    sweep: sweepOf([rosterRow(1001, 'NE'), rosterRow(1003, 'KC')]),
+  });
+
+  assert.equal(tank01Calls.length, callsBefore, 'no Tank01 call');
+  assert.deepEqual(fake.matching(insert('players'))[0].params[3], ['NE', 'KC'], 'the upsert carries the ESPN team, not the stored one');
+  const clear = fake.matching(update('players')).find((c) => /"nfl_team" = NULL/.test(c.text));
+  assert.deepEqual(clear.params, [[12]], 'only the player on no roster clears');
+  assert.deepEqual(
+    { teamChanges: result.teamChanges, teamsCleared: result.teamsCleared, teamsDeferred: result.teamsDeferred },
+    { teamChanges: 1, teamsCleared: 1, teamsDeferred: 0 },
+  );
   fake.assertClean();
 });
 
@@ -120,14 +170,11 @@ test('syncPlayerSeasonStats upserts every rollup inside one transaction under PL
 // upsert each, so the number of write statements per unit is a fixed
 // constant, not one per row. Each test drives a unit of hundreds of rows -
 // this goes red against the old per-row loop, which issued one INSERT per
-// row between the lock and COMMIT. #1562 adds one fixed existing-rows SELECT
-// (the identity guard's own read) ahead of that INSERT - still one query
+// row between the lock and COMMIT. The player sync also reads the stored
+// players once (team moves and clears) ahead of that INSERT - still one query
 // each, independent of row count.
 test('syncPlayers issues a fixed number of statements between the lock and COMMIT regardless of row count', async (t) => {
-  const entries = Array.from({ length: 250 }, (_, i) => (
-    { playerID: String(2000 + i), longName: `Bulk Player ${i}`, pos: 'WR', team: 'BUF' }
-  ));
-  const api = async () => ({ data: { body: entries } });
+  const rows = Array.from({ length: 250 }, (_, i) => rosterRow(2000 + i, 'BUF'));
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [select('players'), () => ({ rows: [] }), 'client'],
@@ -135,10 +182,10 @@ test('syncPlayers issues a fixed number of statements between the lock and COMMI
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api });
+  const result = await syncPlayers({ season: 2026, sweep: sweepOf(rows) });
 
   assert.deepEqual(result, {
-    season: 2026, playersUpserted: 250, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
+    season: 2026, playersUpserted: 250, skippedNonFantasy: 0, rosterComplete: true,
     teamChanges: 0, teamsCleared: 0, teamsDeferred: 0,
   });
   const lockIdx = fake.calls.findIndex((c) => /^SELECT pg_advisory_xact_lock/.test(c.text));
@@ -172,15 +219,7 @@ test('syncPlayerSeasonStats issues a fixed number of write statements between th
   fake.assertClean();
 });
 
-test('syncPlayers dedupes a duplicate external_id within one batch, last entry wins, counted once', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '77', longName: 'Old Name', pos: 'WR', team: 'BUF', jerseyNum: '11' },
-        { playerID: '77', longName: 'New Name', pos: 'WR', team: 'MIA', jerseyNum: '22' },
-      ],
-    },
-  });
+test('syncPlayers dedupes a duplicate external_id within one batch, last row wins, counted once', async (t) => {
   let insertParams = null;
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
@@ -189,308 +228,72 @@ test('syncPlayers dedupes a duplicate external_id within one batch, last entry w
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(result, {
-    season: 2026, playersUpserted: 1, skippedNonFantasy: 0, skippedDuplicateIdentity: [],
-    teamChanges: 0, teamsCleared: 0, teamsDeferred: 0,
-  });
-  assert.equal(insertParams[0].length, 1, 'one parallel-array row for the deduped external_id');
-  assert.deepEqual(insertParams[0], ['77']);
-  assert.deepEqual(insertParams[1], ['New Name'], 'the later entry wins');
-  assert.deepEqual(insertParams[3], ['MIA'], 'the later entry wins');
-  assert.deepEqual(insertParams[5], ['22'], 'the later entry wins');
-  fake.assertClean();
-});
-
-// #1562: applySyncPlayersUnit's identity guard. Root cause: `players`' only
-// identity is `external_id`, so a known athlete arriving under a
-// never-seen `playerID` (a new source id) was inserted as a second row -
-// the worked example being a teamless Davante Adams copy under a new id,
-// rostered in two leagues and scoring 0. These four cases are the issue's
-// own red-tell plus its stated companions.
-
-test('#1562 arm (b): a teamless entry under a new playerID matching an existing rostered player by name+position is refused, not inserted', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
-        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
-      ],
-    },
-  });
-  let insertParams = null;
-  let recordedDetail = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    }), 'client'],
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), (text, params) => { recordedDetail = JSON.parse(params[3]); return { rows: [] }; }],
-  ]).install(t);
-
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(insertParams[0], ['16800'], 'only the already-known external id reaches the insert');
-  assert.equal(result.playersUpserted, 1);
-  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }]);
-  assert.deepEqual(recordedDetail.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }],
-    'the refusal is also visible on the recorded data_sync_runs row');
-  fake.assertClean();
-});
-
-test('#1562 arm (a): a new playerID whose numeric espnID matches an existing external_id is refused, even under a misspelled name', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '999', longName: 'Davante Adamms', pos: 'WR', team: 'LAR', espnID: '16800' },
-      ],
-    },
-  });
-  let insertParams = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    }), 'client'],
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [] })],
-  ]).install(t);
-
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.equal(insertParams, null, 'no INSERT ran at all: the sole entry in the batch was refused');
-  assert.deepEqual(result, {
+  const result = await syncPlayers({
     season: 2026,
-    playersUpserted: 0,
-    skippedNonFantasy: 0,
-    skippedDuplicateIdentity: [{ playerId: '999', matchedExternalId: '16800' }],
-    teamChanges: 0,
-    teamsCleared: 0,
-    teamsDeferred: 0,
+    sweep: sweepOf([
+      rosterRow(77, 'BUF', { name: 'Old Name', jerseyNumber: '11' }),
+      rosterRow('077', 'MIA', { name: 'New Name', jerseyNumber: '22' }),
+    ]),
   });
-  fake.assertClean();
-});
 
-test('#1562 arm (a): the batch anchor seed is used even when SELECT returns no rows', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
-        { playerID: '999', longName: 'Davante Adamms', pos: 'WR', team: 'LAR', espnID: '16800' },
-      ],
-    },
-  });
-  let insertParams = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [],
-    }), 'client'],
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [] })],
-  ]).install(t);
-
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(insertParams[0], ['16800'], 'only the anchor entry is inserted');
   assert.equal(result.playersUpserted, 1);
-  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '999', matchedExternalId: '16800' }],
-    'the espnID collision is caught by the batch-seeded anchor, even with empty SELECT');
+  assert.equal(insertParams[0].length, 1, 'one parallel-array row for the deduped external_id');
+  assert.deepEqual(insertParams[1], ['New Name'], 'the later row wins');
+  assert.deepEqual(insertParams[3], ['MIA'], 'the later row wins');
+  assert.deepEqual(insertParams[5], ['22'], 'the later row wins');
   fake.assertClean();
 });
 
-test('#1562: a teamed same-name player under a new playerID still inserts (a real second athlete, not a duplicate)', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV' },
-      ],
-    },
-  });
+test('syncPlayers inserts an athlete no stored row carries, with the ESPN id as external_id and his roster name, position, jersey and photo', async (t) => {
   let insertParams = null;
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    }), 'client'],
+    [select('players'), () => ({ rows: [] }), 'client'],
     [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(insertParams[0], ['2589699'], 'a teamed same-name player is a distinct athlete, never folded away');
-  assert.equal(result.playersUpserted, 1);
-  assert.deepEqual(result.skippedDuplicateIdentity, []);
-  fake.assertClean();
-});
-
-test('#1562 arm (b): the SELECT anchor is used even when the batch has no matching teamed entry', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
-      ],
-    },
+  await syncPlayers({
+    season: 2026,
+    sweep: sweepOf([rosterRow(4431562, 'NYG', {
+      name: 'New Rookie', position: 'PK', jerseyNumber: '9', photoUrl: 'https://a.espncdn.com/p/4431562.png',
+    })]),
   });
-  let insertParams = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    }), 'client'],
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [] })],
-  ]).install(t);
 
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.equal(insertParams, null, 'no INSERT ran: the teamless entry was refused by the SELECT anchor');
-  assert.equal(result.playersUpserted, 0);
-  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }],
-    'refused against arm (b) anchor from SELECT, even though batch had no matching teamed entry');
+  assert.deepEqual(insertParams, [
+    ['4431562'], ['New Rookie'], ['K'], ['NYG'], ['https://a.espncdn.com/p/4431562.png'], ['9'],
+  ]);
   fake.assertClean();
 });
 
-test('#1562: a playerID already known as an existing external_id upserts as before, even if it would otherwise look like a duplicate', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
-      ],
-    },
-  });
-  let insertParams = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    }), 'client'],
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [] })],
-  ]).install(t);
-
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(insertParams[0], ['16800'], 'the known id upserts, untouched by the identity guard');
-  assert.equal(result.playersUpserted, 1);
-  assert.deepEqual(result.skippedDuplicateIdentity, []);
-  fake.assertClean();
+// normalizeRosterRow: the ESPN roster row -> player shape (replaces the Tank01
+// entry normaliser's cases, #2117).
+test('normalizeRosterRow maps a roster row, uppercases the position and stringifies the id', () => {
+  assert.deepEqual(
+    normalizeRosterRow({ athleteId: 42, teamCode: 'KC', name: 'A Player', position: 'rb', jerseyNumber: '7', photoUrl: 'https://x/42.png' }),
+    { externalId: '42', name: 'A Player', position: 'RB', nflTeam: 'KC', photoUrl: 'https://x/42.png', jerseyNumber: '7' },
+  );
 });
 
-// qa-reviewer #1562 f2: players.external_id is an integer column, and the
-// batch's own within-feed dedup already keys on Number(...) so a zero-padded
-// or otherwise text-different id still collides with the same integer row.
-// The identity guard's own comparisons must agree, or an ALREADY-KNOWN
-// player whose feed-carried id happens to be spelled differently this run
-// would read as new, match its own real row, and get refused as a duplicate
-// of itself - silently dropping that run's update.
-test('#1562: an already-known playerID spelled with a leading zero still upserts as the known row, not refused as its own duplicate', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '016800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
-      ],
-    },
-  });
-  let insertParams = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({
-      rows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    }), 'client'],
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [] })],
-  ]).install(t);
-
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(insertParams[0], ['016800'], 'upserted, not refused, despite the different-looking id text');
-  assert.equal(result.playersUpserted, 1);
-  assert.deepEqual(result.skippedDuplicateIdentity, []);
-  fake.assertClean();
+test("normalizeRosterRow translates ESPN's PK to our K and carries null jersey and photo when the roster omits them", () => {
+  const parsed = normalizeRosterRow({ athleteId: '9', teamCode: 'DAL', name: 'A Kicker', position: 'PK' });
+  assert.equal(parsed.position, 'K');
+  assert.equal(parsed.jerseyNumber, null);
+  assert.equal(parsed.photoUrl, null);
 });
 
-// qa-reviewer #1562 f1: a duplicate pair can arrive in ONE feed body with
-// neither id in `players` yet (a fresh table, a new tenant, or simply the
-// first run to see either id) - matching only against the SELECT's rows
-// would insert both. The guard's anchor maps are built from the whole batch
-// too, so this is caught the same way a previously-seeded duplicate is.
-test('#1562 arm (b), batch-internal: two brand-new ids for the same athlete in ONE feed body still refuse the teamless copy, with nothing pre-existing in players', async (t) => {
-  const api = async () => ({
-    data: {
-      body: [
-        { playerID: '16800', longName: 'Davante Adams', pos: 'WR', team: 'LAR' },
-        { playerID: '2589699', longName: 'Davante Adams', pos: 'WR', team: 'LV', isFreeAgent: 'True' },
-      ],
-    },
-  });
-  let insertParams = null;
-  const fake = createFakePool([
-    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-    [select('players'), () => ({ rows: [] }), 'client'], // nothing in players yet
-    [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-    [insert('data_sync_runs'), () => ({ rows: [] })],
-  ]).install(t);
-
-  const result = await syncPlayers({ season: 2026, api });
-
-  assert.deepEqual(insertParams[0], ['16800'], 'only the teamed entry is inserted');
-  assert.equal(result.playersUpserted, 1);
-  assert.deepEqual(result.skippedDuplicateIdentity, [{ playerId: '2589699', matchedExternalId: '16800' }]);
-  fake.assertClean();
-});
-
-// qa-reviewer #1562 f3: companion cases that must stay insertable, so a
-// widened (and wrong) arm (b) - dropping the nfl_team requirement, or
-// matching on name or position alone - would go red here without going red
-// anywhere else.
-test('#1562 arm (b) companions: a teamless entry inserts unless it matches an EXISTING ROSTERED (nfl_team-carrying) row by name AND position', async (t) => {
-  const cases = [
-    {
-      label: 'no name match at all',
-      entry: { playerID: '501', longName: 'Nobody Special', pos: 'WR', isFreeAgent: 'True' },
-      existingRows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    },
-    {
-      label: 'name matches, but the existing row is itself teamless (nfl_team NULL)',
-      entry: { playerID: '502', longName: 'Davante Adams', pos: 'WR', isFreeAgent: 'True' },
-      existingRows: [{ external_id: 1884, name: 'Davante Adams', position: 'WR', nfl_team: null }],
-    },
-    {
-      label: 'name matches, position does not',
-      entry: { playerID: '503', longName: 'Davante Adams', pos: 'TE', isFreeAgent: 'True' },
-      existingRows: [{ external_id: 16800, name: 'Davante Adams', position: 'WR', nfl_team: 'LAR' }],
-    },
-  ];
-  for (const { label, entry, existingRows } of cases) {
-    const api = async () => ({ data: { body: [entry] } });
-    let insertParams = null;
-    const fake = createFakePool([
-      [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
-      [select('players'), () => ({ rows: existingRows }), 'client'],
-      [insert('players'), (text, params) => { insertParams = params; return { rows: [] }; }, 'client'],
-      [insert('data_sync_runs'), () => ({ rows: [] })],
-    ]).install(t);
-
-    const result = await syncPlayers({ season: 2026, api });
-
-    assert.deepEqual(insertParams[0], [entry.playerID], `${label}: the entry inserts, not refused`);
-    assert.equal(result.playersUpserted, 1, label);
-    assert.deepEqual(result.skippedDuplicateIdentity, [], label);
-    fake.assertClean();
+test('normalizeRosterRow drops non-fantasy positions, keeps individual defenders, and returns null for a missing id, name, position or row', () => {
+  assert.equal(normalizeRosterRow({ athleteId: '1', teamCode: 'SF', name: 'A Lineman', position: 'OT' }), null);
+  assert.equal(normalizeRosterRow({ athleteId: '2', teamCode: 'SF', name: 'A Center', position: 'C' }), null);
+  for (const position of ['DE', 'DT', 'LB', 'CB', 'S']) {
+    assert.equal(normalizeRosterRow({ athleteId: `d-${position}`, teamCode: 'SF', name: 'A Defender', position }).position, position);
   }
+  assert.equal(normalizeRosterRow({ teamCode: 'SF', name: 'No Id', position: 'WR' }), null);
+  assert.equal(normalizeRosterRow({ athleteId: '1', teamCode: 'SF', position: 'WR' }), null);
+  assert.equal(normalizeRosterRow({ athleteId: '1', teamCode: 'SF', name: 'No Position' }), null);
+  assert.equal(normalizeRosterRow(null), null);
 });
 
-// team-defenses' INSERT sets no column any real constraint protects
-// (external_id stays NULL; name/position/nfl_team carry no UNIQUE or CHECK,
-// per 20260710000001_initial_schema.js), so no real feed data can make its
-// second row fail against actual Postgres the way the other three jobs' pg
-// tests do (server/test/playersFamilySync.pg.test.js) - this fakePool test
-// proves the same rollback wiring instead: a throw mid-unit stops the loop
-// and rolls back rather than being swallowed by a per-team try/catch.
 test('syncTeamDefenses: a later insert that throws rolls back the run (no per-team try/catch survives it any more)', async (t) => {
   let insertCount = 0;
   const fake = createFakePool([
@@ -517,38 +320,112 @@ test('syncTeamDefenses: a later insert that throws rolls back the run (no per-te
 // #1203: syncSchedule (Sync run module, ADR 0036, job 'schedule') fetches all
 // 18 weeks before writing anything, then upserts the single unit in one
 // transaction under NFL_GAMES_BULK_WRITE_LOCK (23005) - the same lock
-// syncScheduleFromNflverse takes, so a Tank01 run and an nflverse run started
+// syncScheduleFromNflverse takes, so an ESPN run and an nflverse run started
 // together serialize instead of interleaving their upserts.
+//
+// #2116: the week's games come from ESPN's free scoreboard (ADR 0060), not
+// Tank01. `transport` is the axios-like ESPN client; scoreboard-week.json is a
+// real week-5 payload trimmed to four events (fixtures/espn/README.md).
 
-test('syncSchedule fetches all 18 weeks before writing, then upserts both team perspectives in one transaction under NFL_GAMES_BULK_WRITE_LOCK', async (t) => {
-  const apiCalls = [];
-  const api = async (path, opts) => {
-    assert.equal(path, '/getNFLGamesForWeek');
-    apiCalls.push(opts.params.week);
-    return {
-      data: {
-        body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: String(1700000000 + opts.params.week) }],
-      },
-    };
+const SCOREBOARD_WEEK = require('./fixtures/espn/scoreboard-week.json');
+const { ESPN_SCOREBOARD_URL, espnAbbrToOurs } = require('../modules/espnScoreboard');
+const tank01Feed = require('../services/tank01Feed');
+const { buildGameKey } = tank01Feed;
+
+// What each fixture event must write: home/away as our Team spellings, the
+// competition's own kickoff instant.
+const FIXTURE_GAMES = SCOREBOARD_WEEK.events.map((event) => {
+  const competition = event.competitions[0];
+  const side = (homeAway) =>
+    espnAbbrToOurs(competition.competitors.find((c) => c.homeAway === homeAway).team.abbreviation);
+  return { home: side('home'), away: side('away'), kickoffAt: new Date(competition.date) };
+});
+
+// Tank01's quota-metered client must never be touched by the schedule run:
+// tank01Get resolves its transport through tank01Feed.rapidApiClient() at call
+// time, so a stub there is reached by ANY counted Tank01 call the service makes
+// (a reintroduced module-level tank01Get included), not just one on an argument.
+function stubTank01(t) {
+  return t.mock.method(tank01Feed, 'rapidApiClient', () => {
+    throw new Error('the schedule run must not call Tank01');
+  });
+}
+
+// A not-yet-flexed game as ESPN lists it (live 2026-10-08: all 16 week-18 events
+// sat at 2027-01-10T05:00Z, competitions[0].timeValid false, shortDetail 'TBD').
+const TBD_KICKOFF = '2027-01-10T05:00Z';
+const TBD_EVENT = {
+  id: 'tbd-buf-nyj',
+  date: TBD_KICKOFF,
+  competitions: [{
+    date: TBD_KICKOFF,
+    timeValid: false,
+    competitors: [
+      { homeAway: 'home', team: { abbreviation: 'BUF' } },
+      { homeAway: 'away', team: { abbreviation: 'NYJ' } },
+    ],
+  }],
+};
+
+function scoreboardTransport(respond = () => ({ data: SCOREBOARD_WEEK })) {
+  const calls = [];
+  return {
+    calls,
+    async get(url, opts) {
+      calls.push({ url, ...opts.params });
+      return respond(opts.params.week);
+    },
   };
+}
+
+test('syncSchedule fetches all 18 weeks from the ESPN scoreboard before writing, then upserts both team perspectives in one transaction under NFL_GAMES_BULK_WRITE_LOCK', async (t) => {
+  const transport = scoreboardTransport();
+  const tank01 = stubTank01(t);
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncSchedule({ season: 2026, api });
+  const result = await syncSchedule({ season: 2026, transport });
 
-  assert.deepEqual(apiCalls, Array.from({ length: 18 }, (_, i) => i + 1), 'exactly one call per regular-season week');
+  assert.equal(tank01.mock.callCount(), 0, 'zero Tank01 calls: nothing resolved the Tank01 transport');
+
+  assert.deepEqual(
+    transport.calls.map((c) => [c.url, c.week, c.seasontype, c.dates]),
+    Array.from({ length: 18 }, (_, i) => [ESPN_SCOREBOARD_URL, i + 1, 2, 2026]),
+    'exactly one scoreboard call per regular-season week'
+  );
   const writes = fake.matching(insert('nfl_games'));
-  assert.equal(writes.length, 36, 'one game per week, two rows per game (home + away perspective)');
+  const expected = 18 * FIXTURE_GAMES.length * 2;
+  assert.equal(writes.length, expected, 'every event, two rows per game (home + away perspective), every week');
   // The RESOLVED value (and so what both routes forward as JSON) stays
   // exactly { season, gamesUpserted } - the pre-launch lead note's "the
   // routes see exactly what they see today". failedWeeks lives only in the
   // recorded data_sync_runs row, asserted below.
-  assert.deepEqual(result, { season: 2026, gamesUpserted: 36 });
+  assert.deepEqual(result, { season: 2026, gamesUpserted: expected });
   const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
-  assert.deepEqual(recordedDetail, { season: 2026, gamesUpserted: 36, failedWeeks: [] });
+  assert.deepEqual(recordedDetail, { season: 2026, gamesUpserted: expected, failedWeeks: [] });
+
+  // Every fixture game lands as a home row and an away row carrying the
+  // scoreboard's kickoff instant and the nfl_games.game_key spelling. Params
+  // are ($1 season, $2 week, $3 team, $4 opponent, $5 kickoff_at, $6 game_key,
+  // $7 home_away).
+  for (let week = 1; week <= 18; week++) {
+    const weekRows = writes.filter((w) => w.params[1] === week).map((w) => w.params);
+    for (const { home, away, kickoffAt } of FIXTURE_GAMES) {
+      const gameKey = buildGameKey({ season: 2026, week, away, home });
+      assert.ok(
+        weekRows.some((p) => p[2] === home && p[3] === away && p[6] === 'home' && p[5] === gameKey && +p[4] === +kickoffAt),
+        `week ${week}: ${home} home row for ${away} at ${home}`
+      );
+      assert.ok(
+        weekRows.some((p) => p[2] === away && p[3] === home && p[6] === 'away' && p[5] === gameKey && +p[4] === +kickoffAt),
+        `week ${week}: ${away} away row for ${away} at ${home}`
+      );
+    }
+    assert.ok(weekRows.some((p) => p[2] === 'WSH'), `week ${week}: Washington is written as WSH, the nfl_games spelling (ADR 0011)`);
+  }
 
   // Red-tell: remove the lock and this ordering assertion (or the pg
   // serialization test) goes red.
@@ -565,42 +442,61 @@ test('syncSchedule fetches all 18 weeks before writing, then upserts both team p
   fake.assertClean();
 });
 
-test('syncSchedule tolerates a throwing week and a non-array week: still calls every week and carries both in failedWeeks', async (t) => {
-  const apiCalls = [];
-  const api = async (path, opts) => {
-    const { week } = opts.params;
-    apiCalls.push(week);
-    if (week === 3) throw new Error('tank01 quota exceeded');
-    if (week === 7) return { data: { body: { not: 'an array' } } };
-    return { data: { body: [{ home: 'NYJ', away: 'BUF', gameTime_epoch: '1700000000' }] } };
-  };
+test('syncSchedule skips a game ESPN lists with timeValid false: a placeholder kickoff never overwrites kickoff_at', async (t) => {
+  const transport = scoreboardTransport(() => ({ data: { events: [...SCOREBOARD_WEEK.events, TBD_EVENT] } }));
   const fake = createFakePool([
     [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
     [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  const result = await syncSchedule({ season: 2026, api });
+  const result = await syncSchedule({ season: 2026, transport });
 
-  assert.equal(apiCalls.length, 18, 'every week is still called - Tank01 quota is metered per call regardless of earlier failures');
+  const writes = fake.matching(insert('nfl_games'));
+  const expected = 18 * FIXTURE_GAMES.length * 2;
+  assert.equal(writes.length, expected, 'only the valid-time events are written, the TBD event adds nothing');
+  assert.deepEqual(result, { season: 2026, gamesUpserted: expected });
+  assert.equal(
+    writes.filter((w) => +w.params[4] === +new Date(TBD_KICKOFF) || w.params[2] === 'NYJ').length,
+    0,
+    'no row carries the placeholder kickoff, and the TBD game NYJ at BUF (not on the valid slate) is not written at all'
+  );
+  fake.assertClean();
+});
+
+test('syncSchedule tolerates a throwing week and a non-array week: still calls every week and carries both in failedWeeks', async (t) => {
+  const transport = scoreboardTransport((week) => {
+    if (week === 3) throw new Error('espn unreachable');
+    if (week === 7) return { data: { events: { not: 'an array' } } };
+    return { data: SCOREBOARD_WEEK };
+  });
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('nfl_games'), () => ({ rows: [{ inserted: true }] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [] })],
+  ]).install(t);
+
+  const result = await syncSchedule({ season: 2026, transport });
+
+  assert.equal(transport.calls.length, 18, 'every week is still called regardless of earlier failures');
   // Resolved value: exactly { season, gamesUpserted }, no failedWeeks.
-  assert.deepEqual(result, { season: 2026, gamesUpserted: 32 }, '16 successful weeks x 2 rows; the other weeks wrote nothing');
+  assert.deepEqual(result, { season: 2026, gamesUpserted: 16 * FIXTURE_GAMES.length * 2 }, '16 successful weeks; the other weeks wrote nothing');
 
   const recordedDetail = JSON.parse(fake.matching(insert('data_sync_runs'))[0].params[3]);
   assert.deepEqual(recordedDetail.failedWeeks.map((f) => f.week), [3, 7]);
-  assert.equal(recordedDetail.failedWeeks[0].message, 'tank01 quota exceeded');
-  assert.match(recordedDetail.failedWeeks[1].message, /unexpected getNFLGamesForWeek response shape/);
-  assert.equal(recordedDetail.gamesUpserted, 32);
+  assert.equal(recordedDetail.failedWeeks[0].message, 'espn unreachable');
+  assert.match(recordedDetail.failedWeeks[1].message, /unexpected scoreboard response shape/);
+  assert.equal(recordedDetail.gamesUpserted, 16 * FIXTURE_GAMES.length * 2);
   fake.assertClean();
 });
 
 test('syncSchedule: when every week fails to fetch, the run is fetch_failed and nothing is written', async (t) => {
-  const api = async () => { throw new Error('tank01 down'); };
+  const transport = scoreboardTransport(() => { throw new Error('espn down'); });
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [] })],
   ]).install(t);
 
-  await assert.rejects(syncSchedule({ season: 2026, api }), /every week failed to fetch/);
+  await assert.rejects(syncSchedule({ season: 2026, transport }), /every week failed to fetch/);
 
   assert.equal(fake.calls.some((c) => c.text === 'BEGIN'), false, 'fetch failed before any unit reached the transaction');
   const runInsert = fake.matching(insert('data_sync_runs'))[0];

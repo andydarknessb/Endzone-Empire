@@ -1,5 +1,5 @@
 import { matchupBoard } from '../../../entities/matchup';
-import { matchupWinProbability, formatKickoff, formatPoints, finite } from '../../../shared/lib';
+import { formatKickoff, formatPoints, finite } from '../../../shared/lib';
 import { lookupRecord } from '../lib/records';
 
 /**
@@ -32,10 +32,9 @@ import { lookupRecord } from '../lib/records';
  *     warning for Awaiting final, the plain chip for Scheduled. The label is
  *     the board's.
  *
- * Win probability, the kickoff format and the points figure all come from
- * `shared/lib` (ADR 0031, #1120), the island's shared bottom layer: a side
- * whose Expected final is unknown is treated as having nothing left to add,
- * and an empty points string reads as unknown (the dash), not `0.0`.
+ * Win probability is the entity board's (#2142); the kickoff format and the
+ * points figure come from `shared/lib` (ADR 0031, #1120), the island's shared
+ * bottom layer: an empty points string reads as unknown (the dash), not `0.0`.
  */
 
 /** Players remaining as a whole number, or a dash when unknown. */
@@ -63,15 +62,7 @@ export function matchupCardView(matchup, { records, timeZone, locale } = {}) {
   const homeLeads = started && homeScore > awayScore;
   const awayLeads = started && awayScore > homeScore;
 
-  const probability = started
-    ? matchupWinProbability({
-        homeScore,
-        awayScore,
-        homeExpectedFinal: home.expectedFinal,
-        awayExpectedFinal: away.expectedFinal,
-        status,
-      })
-    : null;
+  const probability = board.winProbability;
   const homePct = probability ? Math.round(probability.home * 100) : null;
   const awayPct = probability ? 100 - homePct : null;
 

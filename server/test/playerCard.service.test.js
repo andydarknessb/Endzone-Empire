@@ -70,8 +70,16 @@ function buildHandlers({
   ownRosterRows = [], // rows for the caller's OWN team_players (own-roster Upgrade check)
   starterRows = [], // loadUpgradeContext's own lineup rows, starters and bench ({ player_id, slot, name, position?, nfl_team? })
   kickedOffTeams = [], // nfl_team codes whose game has kicked off (the lock predicate's read)
+  schedule = [], // { nfl_team, week, kickoff_at } rows: the first-playable-week read (#2166); none = unsynced schedule
+  waiverRows = [], // { player_id, available_at } rows: the clear times the first-playable-week read compares with `now`
+  rosteredElsewhere = [], // player ids another team holds (they keep the current week, #2167)
 } = {}) {
   return [
+    [/^SELECT "nfl_team", "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: schedule })],
+    [/^SELECT "player_id", "available_at" FROM "waiver_players" WHERE "league_id" = \$1 AND "player_id" = ANY\(\$2::int\[\]\)$/, () => ({ rows: waiverRows })],
+    [/^SELECT "player_id" FROM "team_players" WHERE "league_id" = \$1 AND "player_id" = ANY\(\$2::int\[\]\)$/, () => ({
+      rows: rosteredElsewhere.map((player_id) => ({ player_id })),
+    })],
     [/^SELECT \* FROM "leagues" WHERE "id" = \$1$/, () => ({ rows: [league] })],
     [/^SELECT \* FROM "teams" WHERE "league_id" = \$1 AND "owner_id" = \$2$/, () => ({ rows: [team] })],
     [/^SELECT \* FROM "players" WHERE "id" = \$1$/, () => ({ rows: [player] })],
@@ -366,6 +374,7 @@ test('upgradesFor (#1809): a Position-baseline candidate at 15.37 gets null, an 
     points: 7,
     overPlayer: { id: 999, name: 'Weak Starter', points: 5, unavailable: null },
     slot: 'WR',
+    week: 1,
   });
 });
 
@@ -379,6 +388,7 @@ test('getPlayerCard: an available free agent\'s Upgrade is his Point estimate ov
     points: 9,
     overPlayer: { id: 999, name: 'Weak Starter', points: 5, unavailable: null },
     slot: 'WR',
+    week: 1,
   });
 });
 
@@ -419,6 +429,7 @@ for (const reason of ['bye', 'out', 'ir', 'no_team', 'practice_squad']) {
       points: 10,
       overPlayer: { id: 999, name: 'Unavailable Starter', points: 0, unavailable: reason },
       slot: 'WR',
+      week: 1,
     });
   });
 }
@@ -429,7 +440,7 @@ test('getPlayerCard (#1793): with both starters healthy and better than the cand
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  assert.deepEqual(card.decision.upgrade, { points: 0, overPlayer: null, slot: null });
+  assert.deepEqual(card.decision.upgrade, { points: 0, overPlayer: null, slot: null, week: 1 });
 });
 
 // A candidate helper that pins the candidate's OWN position (and starter
@@ -466,6 +477,7 @@ test('getPlayerCard (#1793): an Unavailable starter at FLEX counts as 0 for an R
     points: 10,
     overPlayer: { id: 997, name: 'Unavailable Flex', points: 0, unavailable: 'out' },
     slot: 'FLEX',
+    week: 1,
   });
 });
 
@@ -490,6 +502,7 @@ test('getPlayerCard (#1910): a bench player who would start over an Unavailable 
     points: 3,
     overPlayer: { id: 998, name: 'Bench WR', points: 12, unavailable: null },
     slot: 'WR',
+    week: 1,
   });
 });
 
@@ -512,7 +525,7 @@ test('getPlayerCard (#1910): a starter whose game has kicked off is pinned, so n
 
   const card = await getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id });
 
-  assert.deepEqual(card.decision.upgrade, { points: 0, overPlayer: null, slot: null });
+  assert.deepEqual(card.decision.upgrade, { points: 0, overPlayer: null, slot: null, week: 1 });
 });
 
 test('getPlayerCard (#1765): an available player\'s projWeek keeps the Point estimate and carries no reason', async (t) => {
@@ -1118,6 +1131,7 @@ test('upgradesFor (ADR 0057): a Backup quarterback gets null, an evidenced start
     points: 5,
     overPlayer: { id: 999, name: 'Rostered QB', points: 16, unavailable: null },
     slot: 'QB',
+    week: 5,
   });
 });
 
@@ -1155,6 +1169,7 @@ test('upgradesFor (ADR 0057): a rostered Backup quarterback does not mask a free
     points: 2,
     overPlayer: { id: 999, name: 'Rostered QB', points: 16, unavailable: null },
     slot: 'QB',
+    week: 5,
   });
 
   // Control: the same roster without the verdict leaves the 18 no Upgrade.
@@ -1199,6 +1214,7 @@ test('upgradesFor (ADR 0057): a rostered QB who is both Position-baseline and Ba
     points: 2,
     overPlayer: { id: 999, name: 'Rostered QB', points: 16, unavailable: null },
     slot: 'QB',
+    week: 5,
   });
 });
 
@@ -1281,4 +1297,320 @@ test('getPlayerCard (start verdict): a Backup quarterback reads numberTrusted fa
 test('getPlayerCard (start verdict): a Questionable player with no observations stays recommendable', async (t) => {
   const card = await cardWithRun(t, { designation: 'Q' });
   assert.deepEqual(card.startVerdict, { outcome: 'recommendable', reason: 'questionable', numberTrusted: true });
+});
+
+// ---------------------------------------------------------------------------
+// #2166: a Free agent's or waiver player's Upgrade is read in his first
+// playable week (ADR 0062). Every case injects `now`; the league is in week 1
+// (last playoff week 16), the candidate plays for BUF, the one roster starter
+// (999) is a weak WR1 in a one-WR league.
+// ---------------------------------------------------------------------------
+
+const NOW = new Date('2026-09-13T12:00:00Z');
+const game = (nfl_team, week, kickoff_at) => ({ nfl_team, week, kickoff_at: new Date(kickoff_at) });
+const WK1_AFTER_NOW = '2026-09-13T17:00:00Z';
+const WK1_BEFORE_NOW = '2026-09-13T08:00:00Z';
+const WK2 = '2026-09-20T17:00:00Z';
+const AVAILABLE = { available: true };
+
+// The candidate projects 14 in week 1 and 11 in week 2; the starter 5 either week.
+function weekAwareProjection(overrides = {}) {
+  return (week, id) => {
+    if (overrides[id]) return overrides[id](week);
+    if (id === 999) return { mean: 5, median: 5, factors: { availability: AVAILABLE } };
+    const points = week === 1 ? 14 : 11;
+    return { mean: points, median: points, factors: { availability: AVAILABLE } };
+  };
+}
+
+function firstWeekWorld(t, {
+  league = wrSlots(1), schedule, waiverRows = [], rosteredElsewhere = [], ownRosterRows = [],
+  weeklyProjection = weekAwareProjection(),
+  candidates = [{ id: PLAYER.id, nfl_team: 'BUF' }],
+}) {
+  const kickedOffTeams = schedule
+    .filter((g) => g.week === league.current_week && g.kickoff_at <= NOW)
+    .map((g) => g.nfl_team);
+  const fake = createFakePool([
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: candidates.map((c) => ({ position: 'WR', ...c })),
+    })],
+    ...buildHandlers({
+      league,
+      starterRows: [{ player_id: 999, slot: 'WR', name: 'Weak Starter' }],
+      schedule,
+      waiverRows,
+      rosteredElsewhere,
+      ownRosterRows,
+      kickedOffTeams,
+    }),
+  ]).install(t);
+  const { weekProjectionCalls } = mockServices(t, { weeklyProjection });
+  return {
+    fake,
+    weekProjectionCalls,
+    materializedWeeks: () => lineupService.materializeLineup.mock.calls.map((c) => c.arguments[1].week),
+  };
+}
+
+const readUpgrade = async (league, id = PLAYER.id) => (await upgradesFor({
+  league, team: TEAM, season: 2026, week: league.current_week, playerIds: [id], now: NOW,
+})).get(id);
+
+test('upgradesFor (#2166 a): a Free agent whose team has not kicked off is read in the current week', async (t) => {
+  firstWeekWorld(t, { schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)] });
+  const upgrade = await readUpgrade(wrSlots(1));
+  assert.equal(upgrade.week, 1);
+  assert.equal(upgrade.points, 9);
+});
+
+test('upgradesFor (#2166 b): a Free agent whose team kicked off before now is read in the next week', async (t) => {
+  const { materializedWeeks } = firstWeekWorld(t, { schedule: [game('BUF', 1, WK1_BEFORE_NOW), game('BUF', 2, WK2)] });
+  const upgrade = await readUpgrade(wrSlots(1));
+  assert.equal(upgrade.week, 2);
+  assert.equal(upgrade.points, 6);
+  assert.deepEqual(materializedWeeks(), [1], 'the later week is never materialized');
+});
+
+test('upgradesFor (#2166 c): a waiver player is read in the first week that kicks off after his Clear time', async (t) => {
+  const schedule = [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)];
+  const afterKickoff = firstWeekWorld(t, { schedule, waiverRows: [{ player_id: PLAYER.id, available_at: new Date('2026-09-14T00:00:00Z') }] });
+  assert.equal((await readUpgrade(wrSlots(1))).week, 2);
+  assert.deepEqual(afterKickoff.materializedWeeks(), [1]);
+  t.mock.restoreAll();
+
+  firstWeekWorld(t, { schedule, waiverRows: [{ player_id: PLAYER.id, available_at: new Date('2026-09-13T15:00:00Z') }] });
+  assert.equal((await readUpgrade(wrSlots(1))).week, 1);
+});
+
+test('upgradesFor (#2166 c): a Clear time already past does not hold him; the comparison uses the injected now', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    waiverRows: [{ player_id: PLAYER.id, available_at: new Date('2026-09-12T00:00:00Z') }],
+  });
+  assert.equal((await readUpgrade(wrSlots(1))).week, 1);
+});
+
+test('upgradesFor (#2166): his own waiver row decides, not the later blanket clear time (processWaivers COALESCE)', async (t) => {
+  // Own row clears at 15:00, before the 17:00 kickoff; the blanket clears at midnight, after it.
+  const league = { ...wrSlots(1), waivers_clear_at: new Date('2026-09-14T00:00:00Z') };
+  firstWeekWorld(t, {
+    league,
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    waiverRows: [{ player_id: PLAYER.id, available_at: new Date('2026-09-13T15:00:00Z') }],
+  });
+  assert.equal((await readUpgrade(league)).week, 1);
+});
+
+test('upgradesFor (#2166): with no waiver row the league\'s blanket clear time holds him', async (t) => {
+  const league = { ...wrSlots(1), waivers_clear_at: new Date('2026-09-14T00:00:00Z') };
+  firstWeekWorld(t, { league, schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)] });
+  assert.equal((await readUpgrade(league)).week, 2);
+});
+
+test('upgradesFor (#2166): the injected now reaches the roster kickoff lock, not only the first-playable-week read', async (t) => {
+  const { fake } = firstWeekWorld(t, { schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)] });
+  await readUpgrade(wrSlots(1));
+  const lockReads = fake.matching(/^SELECT "nfl_team" FROM "nfl_games"/);
+  assert.equal(lockReads.length, 1);
+  assert.deepEqual(lockReads[0].params, [2026, 1, NOW]);
+});
+
+test('upgradesFor (#2166 d): a Free agent on bye this week is read in the next week, with points', async (t) => {
+  const { materializedWeeks } = firstWeekWorld(t, { schedule: [game('BUF', 2, WK2)] });
+  const upgrade = await readUpgrade(wrSlots(1));
+  assert.equal(upgrade.week, 2);
+  assert.equal(upgrade.points, 6);
+  assert.deepEqual(materializedWeeks(), [1]);
+});
+
+test('upgradesFor (#2166 e): a first playable week past the last playoff week is null', async (t) => {
+  const league = { ...wrSlots(1), current_week: 16 };
+  const { materializedWeeks } = firstWeekWorld(t, {
+    league,
+    schedule: [game('BUF', 16, WK1_BEFORE_NOW), game('BUF', 17, WK2)],
+  });
+  assert.equal(await readUpgrade(league), null);
+  assert.deepEqual(materializedWeeks(), [16]);
+});
+
+test('upgradesFor (#2166 f): in a next-week read a roster player on bye that week counts zero in the baseline', async (t) => {
+  const { materializedWeeks } = firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_BEFORE_NOW), game('BUF', 2, WK2)],
+    weeklyProjection: weekAwareProjection({
+      999: (week) => ({
+        mean: 5,
+        median: 5,
+        factors: { availability: week === 2 ? { available: false, reason: 'bye' } : AVAILABLE },
+      }),
+    }),
+  });
+  const upgrade = await readUpgrade(wrSlots(1));
+  assert.equal(upgrade.week, 2);
+  assert.equal(upgrade.points, 11);
+  assert.deepEqual(upgrade.overPlayer, { id: 999, name: 'Weak Starter', points: 0, unavailable: 'bye' });
+  assert.deepEqual(materializedWeeks(), [1]);
+});
+
+test('upgradesFor (#2166 g): an Out candidate is still null, judged on the verdict of his first playable week', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_BEFORE_NOW), game('BUF', 2, WK2)],
+    weeklyProjection: weekAwareProjection({
+      [PLAYER.id]: (week) => ({ mean: 14, median: 14, factors: { availability: week === 2 ? { available: false, reason: 'out' } : AVAILABLE } }),
+    }),
+  });
+  assert.equal(await readUpgrade(wrSlots(1)), null);
+});
+
+test('upgradesFor (#2166): refusal uses the first playable week, so a candidate Out only this week keeps his next-week Upgrade', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_BEFORE_NOW), game('BUF', 2, WK2)],
+    weeklyProjection: weekAwareProjection({
+      [PLAYER.id]: (week) => ({ mean: 14, median: 14, factors: { availability: week === 1 ? { available: false, reason: 'out' } : AVAILABLE } }),
+    }),
+  });
+  assert.equal((await readUpgrade(wrSlots(1))).week, 2);
+});
+
+// #2167 (ADR 0062): another team's player joins when a trade could first
+// complete: now when the league does not review trades, now plus
+// `trade_review_hours` when it does (`trade_veto_votes > 0` and
+// `trade_review_hours > 0`, trade.service.js `respondToTrade`).
+const HOUR_MS = 3600 * 1000;
+const kicksOffAfterNow = (hours) => new Date(NOW.getTime() + hours * HOUR_MS).toISOString();
+const reviewLeague = (hours, votes = 1) => ({ ...wrSlots(1), trade_veto_votes: votes, trade_review_hours: hours });
+
+test('upgradesFor (#2167 a): another team\'s player in a league with no review is read in the current week when his team has not kicked off', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade({ ...wrSlots(1), trade_veto_votes: 0, trade_review_hours: 0 })).week, 1);
+});
+
+test('upgradesFor (#2167 a): without review, another team\'s player whose team kicked off before now is read in the next week', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_BEFORE_NOW), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(wrSlots(1))).week, 2);
+});
+
+test('upgradesFor (#2167 b): with 24 review hours, a kickoff 12 hours after now is before a trade could complete: next week', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(12)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(24))).week, 2);
+});
+
+test('upgradesFor (#2167 c): with 24 review hours, a kickoff 30 hours after now is after a trade could complete: this week', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(30)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(24))).week, 1);
+});
+
+test('upgradesFor (#2167 d): review hours above zero with veto votes at 0 is no review', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(12)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(24, 0))).week, 1);
+});
+
+test('upgradesFor (#2167): veto votes above zero with review hours at 0 is no review either', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, kicksOffAfterNow(12)), game('BUF', 2, WK2)],
+    rosteredElsewhere: [PLAYER.id],
+  });
+  assert.equal((await readUpgrade(reviewLeague(0, 2))).week, 1);
+});
+
+test('upgradesFor (#2167): a player on the caller\'s own roster is still null', async (t) => {
+  firstWeekWorld(t, {
+    schedule: [game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2)],
+    ownRosterRows: [{ player_id: PLAYER.id }],
+  });
+  assert.equal(await readUpgrade(reviewLeague(24)), null);
+});
+
+test('upgradesFor (#2166): an unsynced schedule (no game rows at all) falls back to the current week', async (t) => {
+  firstWeekWorld(t, { schedule: [] });
+  assert.equal((await readUpgrade(wrSlots(1))).week, 1);
+});
+
+test('upgradesFor (#2166): one getWeeklyProjections call per distinct first playable week', async (t) => {
+  const { weekProjectionCalls } = firstWeekWorld(t, {
+    schedule: [
+      game('BUF', 1, WK1_AFTER_NOW), game('BUF', 2, WK2),
+      game('KC', 1, WK1_BEFORE_NOW), game('KC', 2, WK2),
+      game('SF', 1, WK1_BEFORE_NOW), game('SF', 2, WK2),
+    ],
+    candidates: [
+      { id: 55, nfl_team: 'BUF' },
+      { id: 56, nfl_team: 'KC' },
+      { id: 57, nfl_team: 'SF' },
+    ],
+  });
+  const upgrades = await upgradesFor({
+    league: wrSlots(1), team: TEAM, season: 2026, week: 1, playerIds: [55, 56, 57], now: NOW,
+  });
+  assert.deepEqual([55, 56, 57].map((id) => upgrades.get(id).week), [1, 2, 2]);
+  assert.deepEqual(weekProjectionCalls.map((c) => c.week), [1, 2], 'two calls: this week and next, not one per candidate');
+});
+
+// #2168 (ADR 0062): the card's `swapNet` is the best lineup with the candidate
+// in and the manager's picked drop out, minus the best lineup the roster fields
+// now. Signed; the Upgrade itself never takes the drop.
+function swapNetWorld(t, { starter, candidate }) {
+  createFakePool(starterHandlers([
+    { player_id: 999, slot: 'WR', name: 'Starter' },
+    { player_id: 998, slot: 'BENCH', name: 'Bench WR' },
+  ], 'WR', wrSlots(1))).install(t);
+  const points = { 999: starter, 998: 3, [PLAYER.id]: candidate };
+  mockServices(t, {
+    weeklyProjection: (week, id) => ({ mean: points[id], median: points[id], factors: { availability: { available: true } } }),
+  });
+}
+const readCard = (dropPlayerId) => getPlayerCard({ leagueId: 3, userId: 7, playerId: PLAYER.id, dropPlayerId });
+
+test('getPlayerCard (#2168 a): dropping a bench player outside the best lineup nets exactly the Upgrade', async (t) => {
+  swapNetWorld(t, { starter: 5, candidate: 14 });
+  const { decision } = await readCard(998);
+  assert.equal(decision.upgrade.points, 9);
+  assert.equal(decision.swapNet.points, 9);
+});
+
+test('getPlayerCard (#2168 b): dropping a starter worth more than the candidate nets a negative number', async (t) => {
+  swapNetWorld(t, { starter: 20, candidate: 10 });
+  const { decision } = await readCard(999);
+  assert.equal(decision.swapNet.points, -10);
+});
+
+test('getPlayerCard (#2168 c): swapNet.week is the Upgrade\'s week', async (t) => {
+  swapNetWorld(t, { starter: 5, candidate: 14 });
+  const { decision } = await readCard(998);
+  assert.equal(decision.swapNet.week, decision.upgrade.week);
+});
+
+test('getPlayerCard (#2168 d): with no dropPlayerId there is no swapNet and the Upgrade is unchanged', async (t) => {
+  swapNetWorld(t, { starter: 5, candidate: 14 });
+  const { decision } = await readCard();
+  assert.equal('swapNet' in decision, false);
+  assert.deepEqual(decision.upgrade, {
+    points: 9,
+    overPlayer: { id: 999, name: 'Starter', points: 5, unavailable: null },
+    slot: 'WR',
+    week: 1,
+  });
+});
+
+test('getPlayerCard (#2168): a candidate with no Upgrade (null) carries no swapNet either', async (t) => {
+  createFakePool(buildHandlers({ league: { ...LEAGUE, best_ball: true } })).install(t);
+  mockServices(t);
+  const { decision } = await readCard(998);
+  assert.equal(decision.upgrade, null);
+  assert.equal('swapNet' in decision, false);
 });

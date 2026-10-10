@@ -1,5 +1,5 @@
 /**
- * `llm_usage` (ADR 0061): one row per Claude call, the ledger the monthly
+ * `llm_usage` (ADR 0063): one row per Claude call, the ledger the monthly
  * `ANTHROPIC_MONTHLY_BUDGET` guard sums (server/services/claude.js). `usd` is
  * computed at write time from the token counts and the price table in that
  * module, so a later price change does not rewrite history.

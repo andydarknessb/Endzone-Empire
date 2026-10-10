@@ -120,7 +120,13 @@ test('dismissing the only remaining card moves focus to the panel itself, never 
   expect(screen.getByTestId('start-sit-panel-content')).toHaveAttribute('tabindex', '-1');
 });
 
-test('compare is a no-op affordance: it renders but calls only its own callback', async () => {
+test('no Compare button renders when onCompare is not passed', () => {
+  render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} />);
+  expect(screen.getByTestId('suggestion-dismiss')).toBeInTheDocument();
+  expect(screen.queryByTestId('suggestion-compare')).toBeNull();
+});
+
+test('Compare renders when onCompare is passed, and calls only that callback', async () => {
   const user = userEvent.setup();
   const onCompare = jest.fn();
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan: [] }} entries={entries} bestBall={false} onCompare={onCompare} />);
@@ -128,13 +134,13 @@ test('compare is a no-op affordance: it renders but calls only its own callback'
   expect(onCompare).toHaveBeenCalledTimes(1);
 });
 
-test('Apply sends the advice move plan through onApply', async () => {
+test('Apply sends the advice move plan through onApply as { playerId, slot } moves', async () => {
   const user = userEvent.setup();
   const onApply = jest.fn();
   const movePlan = [{ playerId: 1, fromSlot: 'RB', toSlot: 'BENCH' }, { playerId: 2, fromSlot: 'BENCH', toSlot: 'RB' }];
   render(<StartSitPanel advice={{ suggestions: [suggestion()], movePlan }} entries={entries} bestBall={false} onApply={onApply} />);
   await user.click(screen.getByTestId('start-sit-apply'));
-  expect(onApply).toHaveBeenCalledWith(movePlan);
+  expect(onApply).toHaveBeenCalledWith([{ playerId: 1, slot: 'BENCH' }, { playerId: 2, slot: 'RB' }]);
 });
 
 test('Apply after dismissing a suggestion sends only the remaining suggestions\' moves and open-slot fills', async () => {
@@ -158,9 +164,9 @@ test('Apply after dismissing a suggestion sends only the remaining suggestions\'
   await user.click(screen.getByTestId('start-sit-apply'));
 
   expect(onApply).toHaveBeenCalledWith([
-    { playerId: 4, fromSlot: 'BENCH', toSlot: 'WR' },
-    { playerId: 3, fromSlot: 'WR', toSlot: 'BENCH' },
-    { playerId: 9, fromSlot: 'BENCH', toSlot: 'FLEX' },
+    { playerId: 4, slot: 'WR' },
+    { playerId: 3, slot: 'BENCH' },
+    { playerId: 9, slot: 'FLEX' },
   ]);
 });
 
@@ -546,7 +552,7 @@ test('the shot adds no client filter: Apply still passes the payload plan minus 
     />
   );
   await user.click(screen.getByTestId('start-sit-apply'));
-  expect(onApply).toHaveBeenCalledWith(plan);
+  expect(onApply).toHaveBeenCalledWith([{ playerId: 5, slot: 'WR' }]);
 });
 
 test('while a shot request is in flight the actions stay mounted, aria-disabled, and ignore clicks (#1856)', async () => {

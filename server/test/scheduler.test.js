@@ -4,6 +4,7 @@ const { createFakePool } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const prefs = require('../services/prefs.service');
 const { alertCloseMatchups } = require('../modules/scheduler');
+const { banterFor } = require('../services/pushBanter');
 
 test('close-matchup push targets Game Center instead of the retired Matchups route', async (t) => {
   let sent;
@@ -27,6 +28,7 @@ test('close-matchup push targets Game Center instead of the retired Matchups rou
   assert.deepEqual(sent.ownerIds, [11, 22]);
   assert.equal(sent.payload.url, '/#/league/42/game-center');
   assert.equal(sent.payload.title, 'Your matchup is close!');
+  assert.equal(sent.payload.banter, banterFor('closeMatchup', 'close:987654:7', { margin: 4.5, week: 7 }));
 });
 
 // ---- quota-aware stat-sync cadence -----------------------------------------
@@ -259,18 +261,15 @@ test('injurySyncMs defaults to 15 minutes and honors INJURY_SYNC_MS (#2115)', ()
   }
 });
 
-// ---- daily Tank01 player sync (#2115, ADR 0060) ------------------------------
+// ---- daily player sync (#2115, #2117, ADR 0060) ------------------------------
+// The run reads the ESPN team rosters, so it needs no Tank01 credentials: the
+// world runs with none set.
 
-function playerSyncWorld(t, { credentials = true } = {}) {
+function playerSyncWorld(t) {
   const scoring = require('../services/feedSyncRuns.service');
   const saved = { key: process.env.RAPID_API_KEY, host: process.env.RAPID_API_HOST };
-  if (credentials) {
-    process.env.RAPID_API_KEY = 'test-key';
-    process.env.RAPID_API_HOST = 'test-host';
-  } else {
-    delete process.env.RAPID_API_KEY;
-    delete process.env.RAPID_API_HOST;
-  }
+  delete process.env.RAPID_API_KEY;
+  delete process.env.RAPID_API_HOST;
   t.after(() => {
     for (const [name, value] of [['RAPID_API_KEY', saved.key], ['RAPID_API_HOST', saved.host]]) {
       if (value === undefined) delete process.env[name]; else process.env[name] = value;
@@ -287,7 +286,7 @@ function playerSyncWorld(t, { credentials = true } = {}) {
   t.mock.method(scoring, 'syncPlayers', async (args) => {
     world.calls.push(args);
     world.runs.push({ finished_at: world.clock, ok: !world.fail });
-    if (world.fail) throw new Error('Tank01 unavailable');
+    if (world.fail) throw new Error('ESPN unavailable');
     return { season: args.season, playersUpserted: 3 };
   });
   world.run = (now) => {
@@ -312,17 +311,19 @@ test('runDailyPlayerSync backs off an hour after a failed run, then retries the 
   const world = playerSyncWorld(t);
   const T = new Date('2026-10-08T09:00:00Z');
   world.fail = true;
-  await assert.rejects(world.run(T), /Tank01 unavailable/);
+  await assert.rejects(world.run(T), /ESPN unavailable/);
   assert.equal(await world.run(new Date(T.getTime() + 30 * 60 * 1000)), null, '30 minutes after the failure: backing off');
   world.fail = false;
   assert.ok(await world.run(new Date(T.getTime() + 60 * 60 * 1000)), 'an hour after the failure: retries');
-  assert.equal(world.calls.length, 2, 'the backed-off tick spent no Tank01 call');
+  assert.equal(world.calls.length, 2, 'the backed-off tick spent no ESPN sweep');
 });
 
-test('runDailyPlayerSync does nothing without the Tank01 credentials', async (t) => {
-  const world = playerSyncWorld(t, { credentials: false });
-  assert.equal(await world.run(new Date('2026-10-08T09:00:00Z')), null);
-  assert.equal(world.calls.length, 0);
+test('runDailyPlayerSync runs with no Tank01 credentials set (#2117: it reads ESPN)', async (t) => {
+  const world = playerSyncWorld(t);
+  assert.equal(process.env.RAPID_API_KEY, undefined);
+  assert.equal(process.env.RAPID_API_HOST, undefined);
+  assert.ok(await world.run(new Date('2026-10-08T09:00:00Z')), 'due, and not gated on credentials');
+  assert.equal(world.calls.length, 1);
 });
 
 test('the player-sync tick job is housekeeping tier and names the players Sync run once', () => {

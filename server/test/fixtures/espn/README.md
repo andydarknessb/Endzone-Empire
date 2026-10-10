@@ -92,3 +92,20 @@ real active NFL athlete as of capture time). Team: NE (ESPN numeric team id
   fallbacks: the Doubtful entry has no `shortComment`, and the Out entry has no
   `links` (its id comes from the headshot filename). The top-level `id` of an
   entry is the injury record's id, never the athlete's.
+
+## scoreboard-week.json
+
+- URL: `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=5&dates=2026`
+  (the week fetch the schedule sync and the week-stats fallback read, #2116 and
+  ADR 0060; no key, not metered)
+- Captured: 2026-10-08 through the IC's researcher worker (ADR 0010); the
+  researcher returned the trimmed text, the IC wrote it and compared its sha256
+- HTTP status: 200
+- Bytes (full document): 270380; 15 events, `week.number` 5, `season.year` 2026
+- Bytes (committed, post-trim): 2153
+- sha256 (post-trim, the committed file): `8d6cd9581e08186b07326dcb51dc2c4c3c00a9e4483485847d86e6057835f769`
+- Trim: four events kept (the latest kickoff, BUF @ LAR at 2026-10-13T00:15Z,
+  which dates to the previous ET day; NYG @ WSH, the `WSH` spelling; TB @ DAL at
+  00:15Z; PHI VS JAX), each cut to `id`, `date`, `shortName` and
+  `competitions[0]` reduced to `date` and the two competitors' `homeAway` and
+  `team.abbreviation`. Top level keeps only `week.number` and `season.year`.

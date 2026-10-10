@@ -14,7 +14,7 @@ One more label belongs to the fleet's Principal role (fleet ADR 0011) and maps t
 
 | Label in our tracker | Meaning |
 | -------------------- | ------- |
-| `triage-proposed`    | The fleet Principal has posted an advisory `## Triage proposal` on this issue and is waiting for the owner's `Approved` comment. Removed by whoever applies a routing label; never removed by the Principal. |
+| `triage-proposed`    | The fleet Principal has posted an advisory `## Triage proposal` on this issue and awaits the Arbiter's `## Verdict` or the owner's `Approved` comment. Removed by whoever applies a routing label. |
 
 An issue carrying none of the six labels above is **unrouted** and counts as needing triage exactly as `needs-triage` does; nothing applies `needs-triage` automatically.
 

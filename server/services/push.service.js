@@ -75,8 +75,12 @@ async function removeSubscription({ userId, endpoint }) {
 
 /**
  * Send a push to every subscription a set of users holds. payload:
- * { title, body, url }. Dead endpoints are deleted; other errors are logged
- * and skipped. Returns { sent }.
+ * { title, body, url, banter? }. A `banter` string (pushBanter.js) is appended
+ * as a second body line for users whose `banter` preference is on, and is never
+ * part of the delivered JSON. The prefs lookup runs only when `banter` is a
+ * non-empty string and the users hold at least one subscription; if it fails,
+ * the error is logged and every user gets the plain body. Dead endpoints are
+ * deleted; other errors are logged and skipped. Returns { sent }.
  */
 async function sendPushToUsers(userIds, payload) {
   const webPush = webPushOrNull();
@@ -85,15 +89,28 @@ async function sendPushToUsers(userIds, payload) {
   if (ids.length === 0) return { sent: 0 };
 
   const subs = await pool.query(
-    `SELECT "id", "endpoint", "keys" FROM "push_subscriptions" WHERE "user_id" = ANY($1::int[])`,
+    `SELECT "id", "user_id", "endpoint", "keys" FROM "push_subscriptions" WHERE "user_id" = ANY($1::int[])`,
     [ids]
   );
+  const { banter, ...plain } = payload;
+  const hasBanter = typeof banter === 'string' && banter !== '';
+  let bantering = new Set();
+  if (hasBanter && subs.rows.length > 0) {
+    try {
+      bantering = new Set(await usersWanting(ids, 'banter'));
+    } catch (err) {
+      console.error('banter prefs lookup failed, sending plain:', err.message);
+    }
+  }
   let sent = 0;
   for (const sub of subs.rows) {
     try {
+      const out = hasBanter && bantering.has(sub.user_id)
+        ? { ...plain, body: `${plain.body}\n${banter}` }
+        : plain;
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: sub.keys },
-        JSON.stringify(payload)
+        JSON.stringify(out)
       );
       sent += 1;
     } catch (err) {

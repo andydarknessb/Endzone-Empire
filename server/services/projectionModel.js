@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { isPresentNumber: isNum } = require('./numericPresence');
-const { unavailableFor } = require('./unavailable');
+const { unavailableFor: availabilityFor } = require('./unavailable');
 
 /**
  * `free_baseline_v2` — the pure math behind the weekly start/sit projection
@@ -1581,7 +1581,7 @@ function projectPlayer({
     constants: constants.baseline,
   });
 
-  const availabilityInfo = availability || unavailableFor({});
+  const availabilityInfo = availability || availabilityFor({});
   const factors = {};
 
   if (baseline.value == null) {
@@ -1804,7 +1804,7 @@ module.exports = {
   standardNormal,
   gameEnvironmentEffect,
   expertConsensusBlend,
-  availabilityFor: unavailableFor,
+  availabilityFor,
   simulateDistribution,
   probabilityBetter,
   confidenceFor,

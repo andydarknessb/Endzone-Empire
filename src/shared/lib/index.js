@@ -19,12 +19,8 @@ export {
   isTeamOnTheClock,
   formatRemaining,
 } from './onTheClock';
-// Matchup arithmetic and display contracts (#1120, ADR 0031), promoted from
-// private below-island and per-widget copies once matchupWinProbability
-// passed ADR 0031's one-more-consumer threshold: matchup-hero, matchup-grid,
-// matchup-preview, scoreboard-strip, around-the-league and the Matchup page
-// all read these instead of a private copy.
-export { matchupWinProbability, homeWinProbability, remainingPoints, MARGIN_SCALE } from './winProbability';
+// Matchup display contracts (#1120, ADR 0031). The win probability arithmetic
+// moved into entities/matchup (#2142): a surface reads it off matchupBoard.
 export { formatInstant, formatKickoff } from './instantFormat';
 export { timeUntil, useNow } from './timeUntil';
 export { formatTimeSince } from './formatTimeSince';
@@ -37,10 +33,9 @@ export { initialsFor } from './initials';
 // promoted once quick-actions, my-team-summary and the Matchup page each
 // carried their own parse-and-tolerate body for `league.roster_slots`.
 export { parseRosterSlots } from './rosterSlots';
-// The Unavailable reason -> label map (#1208), promoted once LineupScreen,
-// the retro-scoreboard widget model and the slot-comparison widget model
-// each carried an identical bye/out/ir label object.
-export { unavailableLabel } from './unavailableLabel';
+// The Unavailable reason -> label map (#1208), for callers that hold only a
+// reason string; a whole Roster entry reads its label from entities/roster.
+export { reasonLabel } from './reasonLabel';
 // The starter game-state marker map (#2010), promoted once the Standard
 // Starters table and the Scoreboard Lineups card both drew it.
 export { starterStateView } from './starterState';

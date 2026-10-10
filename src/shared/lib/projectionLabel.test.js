@@ -26,7 +26,7 @@ describe('projectionLabel (#1776)', () => {
   });
 
   it('an Unavailable player is never "no history" (the harder fact wins)', () => {
-    const entry = { startVerdict: baseline, projectedPoints: 15.37, availability: { available: false, reason: 'bye' } };
+    const entry = { startVerdict: { outcome: 'unavailable', reason: 'bye', numberTrusted: true }, projectedPoints: 15.37, availability: { available: false, reason: 'bye' } };
     expect(hasNoHistory(entry)).toBe(false);
     expect(projectionLabel(entry)).toBe('15.4');
   });

@@ -11,9 +11,10 @@ import { ThemeProvider, useTheme } from '@mui/material/styles';
 import SportsFootballIcon from '@mui/icons-material/SportsFootball';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
-import useResource from '../../hooks/useResource';
+import { useNotifications } from '../../hooks/useNotifications';
 import LeagueStatusGrid from './LeagueStatusGrid';
 import ActionQueue from './ActionQueue';
+import AlertPrompt from './AlertPrompt';
 import NextDraftCard, { nextScheduledDraft } from './NextDraftCard';
 import {
   GreetingStats, GreetingSummary, LiveMatchupsChip, liveMatchupCount,
@@ -114,13 +115,14 @@ function UserPage() {
   // in only for a list we don't have; a poll that is loading or has failed
   // keeps the good list on screen.
   const {
-    data: notifications,
+    notifications,
+    loaded: haveActivity,
     loading: loadingActivity,
     error: activityFailure,
-  } = useResource(['notifications'], '/api/notifications');
-  const activityItems = (notifications?.notifications || []).slice(0, 5);
-  const awaitingActivity = loadingActivity && !notifications;
-  const activityError = Boolean(activityFailure) && !notifications;
+  } = useNotifications();
+  const activityItems = notifications.slice(0, 5);
+  const awaitingActivity = loadingActivity && !haveActivity;
+  const activityError = Boolean(activityFailure) && !haveActivity;
   // Skeletons only stand in for a list we don't have yet. A refetch (Try
   // again, or the refresh after a create or join) keeps the good list up.
   const awaitingFirstLeagues = loadingLeagues && myLeagues.length === 0;
@@ -262,7 +264,11 @@ function UserPage() {
               its own fetch and states, so it never holds up My leagues. */}
           <Grid container spacing={3} sx={{ mb: 5 }}>
             <Grid xs={12} lg={nextDraft ? 8 : 12}>
-              <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
+              {/* The queue shrinks to leave room for the Alert prompt below it. */}
+              <Stack spacing={3} useFlexGap sx={{ height: '100%' }}>
+                <ActionQueue onLoaded={setActionItems} leagues={myLeagues} />
+                <AlertPrompt leagues={myLeagues} />
+              </Stack>
             </Grid>
             {nextDraft && (
               <Grid xs={12} lg={4}>

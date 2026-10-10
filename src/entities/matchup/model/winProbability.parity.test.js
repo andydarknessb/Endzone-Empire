@@ -1,10 +1,10 @@
 import { matchupWinProbability as clientV1 } from './winProbability';
-import { matchupWinProbability as serverV1 } from '../../../server/services/winProbabilityV1';
+import { matchupWinProbability as serverV1 } from '../../../../server/services/winProbabilityV1';
 
 // Win probability v2's evaluation (server/services/winProbabilityEvaluation.js)
 // scores v1 against the real results, and v1 is not stored on a shadow row: it
 // is recomputed from the row's scores and Expected finals. The client's v1
-// lives here in src/shared/lib as an ES module the server cannot require, so
+// lives in src/entities/matchup as an ES module the server cannot require, so
 // the server carries a port (server/services/winProbabilityV1.js). This pins
 // the two to the SAME number, bit for bit, over a grid of inputs, so the
 // evaluation can never grade a v1 the browser does not actually show. Editing

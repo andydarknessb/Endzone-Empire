@@ -68,16 +68,23 @@ const MATCHUP_ROW = {
  * and one week of schedule (`scheduleRows`); everything else (bench, the away
  * team's lineup) comes back empty. Returns the home team's lone starter.
  */
-async function getDetail(t, { starterRow, scheduleRows }) {
+async function getDetail(t, {
+  starterRow, scheduleRows, readFails = false, verdict = { outcome: 'recommendable', reason: null, numberTrusted: true },
+}) {
   t.mock.method(scoringService, 'rulesForLeague', () => ({}));
   // The route reads the weekly (league-aware) run through expectedFinal.service
   // (every row, starter and bench, since #883); it does not matter to the
-  // opponent question.
-  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({
-    modelVersion: 'test',
-    projections: new Map(),
-    pointsFor: () => null,
-  }));
+  // opponent question. A row the producer did not price gets its availability
+  // from the same run's Start verdict (ADR 0061), `verdict` here.
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => {
+    if (readFails) throw new Error('projection store down');
+    return {
+      modelVersion: 'test',
+      projections: new Map(),
+      pointsFor: () => null,
+      startVerdictFor: () => verdict,
+    };
+  });
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   createFakePool([
@@ -148,6 +155,43 @@ test('a starter with no game row in the week\'s schedule carries opponent: null 
   const scheduleRows = [{ nfl_team: 'DAL', opponent: 'WSH' }];
   const starter = await getHomeStarter(t, { starterRow, scheduleRows });
   assert.equal(starter.opponent, null);
+});
+
+// ADR 0061: a row the producer did not price (here: its read returns no candidate
+// rows) still reads its availability from the Weekly projection read's Start
+// verdict. The deleted fallback built a verdict by hand with `onBye: false`
+// ("a bye is unknown then"), so a player on bye read available.
+test('a starter with no priced row and a bye in the read still reads on bye', async (t) => {
+  const starterRow = {
+    id: 106, name: 'Bye Week Back', position: 'RB', nfl_team: 'CHI',
+    injury_status: null, slot: 'RB', stats: null,
+  };
+  const starter = await getHomeStarter(t, {
+    starterRow,
+    scheduleRows: [],
+    verdict: { outcome: 'unavailable', reason: 'bye', numberTrusted: true },
+  });
+  assert.deepEqual(starter.availability, { available: false, reason: 'bye' });
+});
+
+test('a starter with no priced row and a healthy verdict in the read reads available', async (t) => {
+  const starterRow = {
+    id: 107, name: 'Healthy Back', position: 'RB', nfl_team: 'CHI',
+    injury_status: null, slot: 'RB', stats: null,
+  };
+  const starter = await getHomeStarter(t, { starterRow, scheduleRows: [] });
+  assert.deepEqual(starter.availability, { available: true, reason: null });
+});
+
+test('a starter with no priced row and no read at all carries availability: null, never a guessed verdict', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const starterRow = {
+    id: 108, name: 'Unknown Back', position: 'RB', nfl_team: 'CHI',
+    injury_status: 'O', slot: 'RB', stats: null,
+  };
+  // The producer's own read fails the same way, so nothing priced him either.
+  const starter = await getHomeStarter(t, { starterRow, scheduleRows: [], verdict: undefined, readFails: true });
+  assert.equal(starter.availability, null);
 });
 
 // #1857: each team's called shot rides on its side of the detail body once the
