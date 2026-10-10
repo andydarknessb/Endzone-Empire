@@ -202,7 +202,7 @@ test('a preview keeps the template when Claude is unavailable', async (t) => {
   assert.equal(w.stored.matchups[901].preview.source, 'template');
 });
 
-test('a preview is written once: a second call asks no one and writes nothing', async (t) => {
+test('a preview is written once per fact set: an unchanged second night asks no one and writes nothing', async (t) => {
   stubEngine(t);
   const w = world();
   const client = stubClient(w, 'First.');
@@ -211,6 +211,24 @@ test('a preview is written once: a second call asks no one and writes nothing', 
   await preview(w, client);
   assert.equal(client.requests.length, 1);
   assert.equal(w.writes.length, writes);
+});
+
+test('a preview whose facts changed is rewritten, template first', async (t) => {
+  stubEngine(t, { home: 150, away: 100 });
+  const w = world();
+  const client = stubClient(w, (i) => (i === 0 ? 'Home by a lot.' : 'Away now.'));
+  await preview(w, client);
+  assert.match(w.stored.matchups[901].preview.facts, /"favoured":"home","edge":"clear"/);
+  t.mock.restoreAll();
+  stubEngine(t, { home: 100, away: 150 }); // the home lead player ruled Out on Friday
+  await preview(w, client);
+  assert.equal(client.requests.length, 2);
+  assert.equal(client.storedAtCall[1].matchups[901].preview.source, 'template');
+  assert.deepEqual(
+    [w.stored.matchups[901].preview.narrative, w.stored.matchups[901].preview.source],
+    ['Away now.', 'claude']
+  );
+  assert.match(w.stored.matchups[901].preview.facts, /"favoured":"away"/);
 });
 
 test('no preview once the first Kickoff has passed, or before a projection exists', async (t) => {
@@ -239,6 +257,20 @@ test('the headliner is an available starter projected to score', async (t) => {
   assert.match(client.storedAtCall[0].matchups[901].preview.narrative, /leans on Josh Allen/);
   const sent = JSON.parse(client.requests[0].messages[0].content.split('from these facts:')[1]);
   assert.deepEqual(sent.home.starters.map((x) => x.name), ['Josh Allen']);
+});
+
+test('each lineup is materialized inside its own transaction', async (t) => {
+  stubEngine(t);
+  const w = world();
+  const seen = [];
+  t.mock.method(lineup, 'materializeLineup', async (tx, { teamId }) => {
+    assert.notEqual(tx, w.fake, 'a checked-out client, not the pool');
+    seen.push(teamId);
+  });
+  await preview(w, stubClient(w, 'Text.'));
+  assert.deepEqual(seen, [10, 20]);
+  assert.deepEqual(w.fake.matching(/^(BEGIN|COMMIT)$/).map((c) => c.text), ['BEGIN', 'COMMIT', 'BEGIN', 'COMMIT']);
+  assert.deepEqual(w.fake.releaseArgs(), [undefined, undefined], 'both connections returned to the pool');
 });
 
 test('one failing Matchup logs and the next still gets its preview', async (t) => {

@@ -1,5 +1,6 @@
 const defaultPool = require('../modules/pool');
 const { logger } = require('../modules/logger');
+const { withTransaction } = require('../modules/withTransaction');
 const claude = require('./claude');
 const lineup = require('./lineup.service');
 const expectedFinal = require('./expectedFinal.service');
@@ -79,8 +80,11 @@ async function readStore(db, key) {
   return (rows[0] && rows[0].data && rows[0].data.matchups) || {};
 }
 
-/** One (matchup, moment) key merged in SQL: concurrent puts keep each other's keys. */
-const put = (db, key, matchupId, moment, narrative, source) =>
+/**
+ * One (matchup, moment) key merged in SQL: concurrent puts keep each other's keys.
+ * `facts` is the fact set a preview was written from (absent on a postgame).
+ */
+const put = (db, key, matchupId, moment, narrative, source, facts) =>
   db.query(
     `INSERT INTO "league_analytics" ("league_id", "season", "week", "type", "data")
      VALUES ($1, $2, $3, '${TYPE}',
@@ -92,7 +96,7 @@ const put = (db, key, matchupId, moment, narrative, source) =>
        COALESCE("league_analytics"."data"->'matchups'->$4::text, '{}'::jsonb) || jsonb_build_object($5::text, $6::jsonb),
        true),
        "updated_at" = now()`,
-    [...key, String(matchupId), moment, JSON.stringify({ narrative, source, generatedAt: new Date().toISOString() })]
+    [...key, String(matchupId), moment, JSON.stringify({ narrative, source, facts, generatedAt: new Date().toISOString() })]
   );
 
 const withoutNames = (text, names) =>
@@ -114,7 +118,7 @@ function postgameOk(text, names, facts) {
 async function storeTemplate({ db, key }, job) {
   let text = job.template(job.templateFacts);
   for (const [tok, name] of Object.entries(job.names)) text = text.split(tok).join(name);
-  await put(db, key, job.matchupId, job.moment, text, 'template');
+  await put(db, key, job.matchupId, job.moment, text, 'template', job.factsKey);
   return job;
 }
 
@@ -126,7 +130,7 @@ async function rewrite({ db, client, now, key }, job) {
     user: `Write the ${job.moment} from these facts:\n${JSON.stringify(job.facts, null, 2)}`,
     placeholders: job.names,
   }, { client, pool: db, now });
-  if (text && job.accept(text)) await put(db, key, job.matchupId, job.moment, text, 'claude');
+  if (text && job.accept(text)) await put(db, key, job.matchupId, job.moment, text, 'claude', job.factsKey);
 }
 
 async function rewriteAll(ctx, jobs) {
@@ -148,8 +152,10 @@ const teamNames = async (db, leagueId) =>
 const namesFor = (names, ...teamIds) => Object.fromEntries(teamIds.map((id) => [token(id), names.get(Number(id))]));
 
 /**
- * Write the preview of every Matchup in the league's current week that has
- * none, while the week's first Kickoff is still ahead. Every template is
+ * Write the preview of every Matchup in the league's current week, while the
+ * week's first Kickoff is still ahead, once per fact set (ADR 0063): a stored
+ * preview is kept until its facts change (a starter ruled Out, the edge
+ * flipped), then rewritten. Every template is
  * stored first, then the rewrites run in parallel. Each Matchup is isolated:
  * a failure logs and the others still run.
  */
@@ -166,7 +172,7 @@ async function writePreviews({ league, now = new Date(), db = defaultPool, clien
   const matchups = (await db.query(
     `SELECT * FROM "matchups" WHERE "league_id" = $1 AND "season" = $2 AND "week" = $3`,
     key
-  )).rows.filter((m) => !m.final && !(store[m.id] && store[m.id].preview));
+  )).rows.filter((m) => !m.final);
   if (matchups.length === 0) return;
   const names = await teamNames(db, leagueId);
 
@@ -176,7 +182,12 @@ async function writePreviews({ league, now = new Date(), db = defaultPool, clien
   for (const m of matchups) {
     try {
       const teamIds = [Number(m.home_team_id), Number(m.away_team_id)];
-      for (const teamId of teamIds) await lineup.materializeLineup(db, { leagueId, teamId, season, week, league });
+      // materializeLineup must run inside a transaction: a first-ever week's
+      // starter seed half-written by a failed night would stick.
+      for (const teamId of teamIds) {
+        await withTransaction(db, (tx) => lineup.materializeLineup(tx, { leagueId, teamId, season, week, league }),
+          { label: 'matchup preview lineup' });
+      }
       const finals = await expectedFinal.expectedFinalsForWeek({ league, season, week, teamIds, db, now });
       const [h, a] = teamIds.map((id) => finals.get(id));
       if (!h || !a || h.expectedFinal == null || a.expectedFinal == null) { // no lineup or projection yet
@@ -206,6 +217,8 @@ async function writePreviews({ league, now = new Date(), db = defaultPool, clien
         favoured: even ? 'even' : diff > 0 ? 'home' : 'away',
         edge: even ? 'even' : gap > 0.15 ? 'clear' : 'slim',
       };
+      const factsKey = JSON.stringify(facts);
+      if (store[m.id]?.preview?.facts === factsKey) continue;
       const namesOf = namesFor(names, ...teamIds);
       jobs.push(await storeTemplate(ctx, {
         matchupId: m.id,
@@ -213,6 +226,7 @@ async function writePreviews({ league, now = new Date(), db = defaultPool, clien
         feature: 'matchup_preview',
         system: PREVIEW_SYSTEM,
         facts,
+        factsKey,
         templateFacts: facts,
         template: templatePreview,
         names: namesOf,

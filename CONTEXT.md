@@ -1490,7 +1490,8 @@ league's week)
 
 **Matchup narrative**:
 A Narrative about one Matchup, in two moments: a preview written once the
-week's Weekly projections exist and before the first Kickoff, and a postgame
+week's Weekly projections exist and before the first Kickoff (rewritten if
+what it says changes before then, such as a starter ruled Out), and a postgame
 written once the Matchup is final. Both Teams read the same text, which
 carries Team identity and nothing else about either manager. The Postgame
 cutscene and the League Dashboard matchup card show it; the Recap does not
