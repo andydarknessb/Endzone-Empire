@@ -514,7 +514,7 @@ test('runNightlyProjectionFill: a reconcile failure is logged and never fails th
   assert.ok(result && result.weeksGenerated > 0, 'the fill itself still succeeds');
 });
 
-// ADR 0061: Projection explanations follow the fill, once, for the live week.
+// ADR 0063: Projection explanations follow the fill, once, for the live week.
 test('runNightlyProjectionFill writes Projection explanations once after the fill, and a failure there never fails it', async (t) => {
   const cadence = require('../modules/cadence');
   const explanations = require('../services/projectionExplanation.service');
