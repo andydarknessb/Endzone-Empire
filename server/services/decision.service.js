@@ -25,7 +25,7 @@ const { getWeekOpponents } = require('./nflWeekOpponents');
 // start/sit card's fact chips (#1853) and tags (#1858) rather than read a second way.
 const decisionCardContext = require('./decisionCardContext.service');
 // The ONE pricer the settle pass uses (scoring.service). Hindsight and the
-// live what-if price a player-week the identical way the score of record does
+// Bench what-if price a player-week the identical way the score of record does
 // - `calculateFantasyPoints(stats, rulesForLeague(league))` - so a
 // custom-scoring league's advisors never contradict its settled score (#739,
 // ADR 0024). They read `player_stats.stats`, never the stored

@@ -28,7 +28,7 @@ const { slotEligible, DEFAULT_ROSTER_SLOTS } = require('./lineup.service');
  * bench instead of being forced into a slot.
  *
  * This is the one "best legal lineup" function (#2141): materialize, Hindsight,
- * the live what-if, Expected final, Monte Carlo, Draft grade, Start/sit advice
+ * the Bench what-if, Expected final, Monte Carlo, Draft grade, Start/sit advice
  * and the Upgrade all call `optimalLineup` (also exported as
  * `optimalAssignment`). What may not move is computed by lineup.service's
  * `heldLineup` and passed in as `pinned`; this module stays pure.
