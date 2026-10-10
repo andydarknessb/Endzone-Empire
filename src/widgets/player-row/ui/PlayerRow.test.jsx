@@ -113,6 +113,24 @@ test('a positive Upgrade renders as a pill outside best ball', () => {
   expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1');
 });
 
+test('an Upgrade read in a later week names it in the pill, on the table row and the mobile card; an equal or absent week names none (#2166)', () => {
+  const action = { kind: 'button', label: 'Add', onClick: jest.fn() };
+  const upgrade = (week) => ({ points: 4.1, overPlayer: { id: 9, name: 'Bench' }, slot: 'RB', ...(week === undefined ? {} : { week }) });
+  // The fixture's projWeek is week 3.
+  const { unmount: unmountLater } = renderRow({ player: player({ upgrade: upgrade(4) }), action });
+  expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1 Wk 4');
+  unmountLater();
+  const { unmount: unmountCard } = renderWithProviders(<PlayerRow player={player({ upgrade: upgrade(4) })} action={action} variant="card" />);
+  expect(screen.getByTestId('player-row-upgrade')).toHaveTextContent('+4.1 Wk 4');
+  unmountCard();
+
+  const { unmount: unmountEqual } = renderRow({ player: player({ upgrade: upgrade(3) }), action });
+  expect(screen.getByTestId('player-row-upgrade')).not.toHaveTextContent('Wk');
+  unmountEqual();
+  renderRow({ player: player({ upgrade: upgrade() }), action });
+  expect(screen.getByTestId('player-row-upgrade')).not.toHaveTextContent('Wk');
+});
+
 test('an Upgrade of 0 renders no pill, on the table row and the mobile card (#1910)', () => {
   const zero = { points: 0, overPlayer: null, slot: 'RB' };
   const action = { kind: 'button', label: 'Add', onClick: jest.fn() };

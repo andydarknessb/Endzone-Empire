@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { formatPoints, unavailableLabel } from '../../../shared/lib';
+import { formatPoints, reasonLabel as sharedReasonLabel } from '../../../shared/lib';
 
 /**
  * The eighteen-week bars (#1307, ADR 0040: "Every context adds ... the
@@ -30,7 +30,8 @@ import { formatPoints, unavailableLabel } from '../../../shared/lib';
  * Action column fell off the right edge. Dense keeps one column per week,
  * every `title`, accessible name and `aria-current`, but drops the visible
  * week numbers, shows the current week as a dot rather than the "Current"
- * pill, and tightens the columns and gaps.
+ * pill, tightens the columns and gaps, and draws an Unavailable week as a
+ * bar-width mark rather than its reason text.
  */
 export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd, dense = false }) {
   if (!Array.isArray(weeks) || weeks.length === 0) return null;
@@ -99,12 +100,12 @@ export default function WeeklyPointsBars({ weeks, currentWeek, seasonEnd, dense 
 // The wire carries the Unavailable reason CODE (#1675); the shared map labels
 // it. A code the map does not know reads as the code itself, never blank.
 function reasonLabel(reason) {
-  return unavailableLabel(reason) || reason;
+  return sharedReasonLabel(reason) || reason;
 }
 
 function weekTitle(week) {
   const opponent = week.opponent ? ` vs ${week.opponent}` : '';
-  if (week.kind === 'bye') return `Week ${week.week}: ${unavailableLabel('bye')}`;
+  if (week.kind === 'bye') return `Week ${week.week}: ${sharedReasonLabel('bye')}`;
   if (week.kind === 'unavailable') return `Week ${week.week}${opponent}: ${reasonLabel(week.reason)}`;
   const points = week.points != null ? formatPoints(week.points) : 'no number';
   const label = week.kind === 'projected' ? `${points} projected` : points;
@@ -145,7 +146,17 @@ function WeekBar({ week, maxPoints, isCurrent, isSeasonEnd, dense }) {
           }}
         />
       )}
-      {week.kind === 'unavailable' && (
+      {week.kind === 'unavailable' && dense && (
+        // Dense: a bar-width mark, not text. Seventeen 9px labels came to
+        // ~590px and widened the Players table's Weeks column for every row
+        // (2026-10-09 report). The title and accessible name state the
+        // reason, and the row's Proj cell shows it as text (ADR 0040).
+        <Box
+          data-testid={`weekly-bar-${week.week}-unavailable`}
+          sx={{ width: barWidth, height: 3, bgcolor: 'var(--warning)', borderRadius: 0.5 }}
+        />
+      )}
+      {week.kind === 'unavailable' && !dense && (
         <Typography
           data-testid={`weekly-bar-${week.week}-reason`}
           sx={{ fontSize: 9, fontWeight: 700, color: 'var(--warning)', textAlign: 'center', lineHeight: 1.1 }}

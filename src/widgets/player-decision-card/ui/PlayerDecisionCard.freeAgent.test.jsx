@@ -83,6 +83,16 @@ test('a null Upgrade renders no Upgrade tile and no empty label', async () => {
   expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument();
 });
 
+test('an Upgrade read in a later week names it in the Upgrade tile (#2166)', async () => {
+  mockCardRoute({
+    decision: { projWeek: { week: 4, points: 12 }, ros: { points: 90 }, upgrade: { points: 6, overPlayer: null, slot: 'WR', week: 5 } },
+  });
+  renderCard({ availability: { rosterCount: 10, rosterCapacity: 16 } });
+
+  await screen.findByTestId('decision-strip');
+  expect(screen.getByTestId('decision-strip-upgrade-pill')).toHaveTextContent('+6.0 Wk 5');
+});
+
 test('an Upgrade of 0 renders no Upgrade tile on the card (#1910)', async () => {
   mockCardRoute({
     decision: { projWeek: { week: 4, points: 12 }, ros: { points: 90 }, upgrade: { points: 0, overPlayer: null, slot: 'RB' } },

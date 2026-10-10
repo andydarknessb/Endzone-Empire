@@ -679,6 +679,79 @@ test('sort=upgrade: equal Upgrades order by the candidate\'s Weekly projection, 
   assert.equal(byId.get(3).upgrade, null);
 });
 
+// #2166 (ADR 0062): rows mix first playable weeks and still order by Upgrade
+// points descending, each read from the run of his own week. A wrong-week read
+// would flip the order: id 3 projects 30 in week 5 and id 1 only 3.
+test('sort=upgrade: rows mixing first playable weeks order by points descending and carry their week (#2166)', async (t) => {
+  const lineupService = require('../services/lineup.service');
+  const playerCardService = require('../services/playerCard.service');
+  const league = {
+    id: 1, name: 'Mixed League', roster_limit: 14, waiver_type: 'faab', current_season: 2026, current_week: 5,
+    regular_season_weeks: 14, playoff_teams: 4, best_ball: false,
+  };
+  const players = [
+    { id: 1, name: 'Kicked Off Twenty', position: 'QB', nfl_team: 'ARI', total_count: '3', identity_ids: [1] },
+    { id: 2, name: 'Yet To Play Twelve', position: 'QB', nfl_team: 'KC', total_count: '3', identity_ids: [2] },
+    { id: 3, name: 'Kicked Off Nine', position: 'QB', nfl_team: 'DAL', total_count: '3', identity_ids: [3] },
+  ];
+  const hourAgo = new Date(Date.now() - 3600e3);
+  const inAnHour = new Date(Date.now() + 3600e3);
+  const nextWeek = new Date(Date.now() + 7 * 24 * 3600e3);
+  const schedule = [
+    { nfl_team: 'ARI', week: 5, kickoff_at: hourAgo }, { nfl_team: 'ARI', week: 6, kickoff_at: nextWeek },
+    { nfl_team: 'KC', week: 5, kickoff_at: inAnHour }, { nfl_team: 'KC', week: 6, kickoff_at: nextWeek },
+    { nfl_team: 'DAL', week: 5, kickoff_at: hourAgo }, { nfl_team: 'DAL', week: 6, kickoff_at: nextWeek },
+  ];
+  const fake = createFakePool([
+    [select('teams'), () => ({
+      rows: [{ id: 17, league_id: 1, owner_id: 7, faab_remaining: 82, waiver_priority: 3 }],
+    })],
+    [select('leagues'), () => ({ rows: [league] })],
+    [/FROM "players" AS "source"/, () => ({ rows: players })],
+    [/^SELECT "id", "position", "nfl_team" FROM "players" WHERE "id" = ANY/, () => ({
+      rows: players.map(({ id, position, nfl_team }) => ({ id, position, nfl_team })),
+    })],
+    [/^SELECT "lineup_entries"\."player_id"/, () => ({ rows: [{ player_id: 999, slot: 'QB', name: 'Weak Starter', position: 'QB', nfl_team: null }] })],
+    [/^WITH "target" AS \(/, () => ({ rows: players.map(({ id }) => ({ id })) })],
+    [/^SELECT "nfl_team", "week", "kickoff_at" FROM "nfl_games"/, () => ({ rows: schedule })],
+    [/FROM "nfl_games"|FROM "player_season_stats"/, () => ({ rows: [] })],
+    [/COUNT\(\*\)::int AS "roster_count"/, () => ({ rows: [{ roster_count: 0 }] })],
+    [/FROM "team_players"/, () => ({ rows: [] })],
+    [/FROM "waiver_players"/, () => ({ rows: [] })],
+    [/FROM "player_watchlist"/, () => ({ rows: [] })],
+    [/FROM "player_ownership"/, () => ({ rows: [] })],
+  ]);
+  fake.install(t);
+
+  t.mock.method(lineupService, 'materializeLineup', async () => {});
+  const entry = (median) => ({
+    mean: median, median, factors: { availability: { available: true }, dataQuality: { reasons: [] } },
+  });
+  const pointsByWeek = { 5: { 999: 5, 1: 3, 2: 12, 3: 30 }, 6: { 999: 5, 1: 20, 2: 11, 3: 9 } };
+  const weeklyResult = (week) => projectionService.toWeeklyProjectionResult({
+    week,
+    projections: new Map(Object.entries(pointsByWeek[week] || pointsByWeek[5]).map(([id, median]) => [Number(id), entry(median)])),
+  });
+  t.mock.method(projectionService, 'getWeeklyProjections', async (options) => weeklyResult(options.week));
+  t.mock.method(projectionService, 'getWeeklyProjectionsForWeeks', async ({ weeks }) => new Map(
+    weeks.map((week) => [week, weeklyResult(week)]),
+  ));
+  t.mock.method(projectionService, 'getRestOfSeason', async () => new Map());
+  t.mock.method(playerCardService, 'availabilityForMany', async () => new Map());
+  t.mock.method(playerCardService, 'buildWeeksForPage', async () => new Map());
+
+  const result = await readPlayersPage(
+    baseQuery({ leagueId: '1', view: 'cards', sortField: 'upgrade', dir: 'DESC' }),
+    { db: fake },
+  );
+
+  // 1 (week 6: 20 - 5 = 15) > 2 (week 5: 12 - 5 = 7) > 3 (week 6: 9 - 5 = 4).
+  assert.deepEqual(result.players.map((p) => p.id), [1, 2, 3]);
+  const byId = new Map(result.players.map((p) => [p.id, p]));
+  assert.deepEqual([1, 2, 3].map((id) => byId.get(id).upgrade.points), [15, 7, 4]);
+  assert.deepEqual([1, 2, 3].map((id) => byId.get(id).upgrade.week), [6, 5, 6]);
+});
+
 // #1912 (#1800 Ruling items 4-5): `context.dropSuggestion` is the roster player
 // with the lowest Rest of season total (ties by lower id) when the roster is
 // at capacity, null when a spot is free, and never a player in an IR slot.

@@ -58,7 +58,10 @@ import LastPlays from './ui/LastPlays';
  * Both views render the SAME `starterRows` the page model pairs (#1210:
  * pairing is a Roster/Lineup fact, ADR 0029, paired here via
  * `entities/roster`'s `pairStartersBySlot`, never inside the Matchup entity),
- * so the two agree slot for slot under any league slot order. The status chip
+ * so the two agree slot for slot under any league slot order. The Scoreboard
+ * view's widget gets the same pairs as `scoreboardRows`, each player through
+ * the Matchup entity's `playerFromDetailRow` (#2147); the Slot comparison and
+ * the Decision card lookup below stay on the wire rows. The status chip
  * is the server's status fact (ADR 0030) read through the entity's one
  * predicate: the header chip and the strip's chip carry the same label and
  * the same variant (the page model's `statusChip` and the strip's view model
@@ -99,8 +102,8 @@ export default function MatchupPage() {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const {
-    matchup, starterRows, loading, error, refetch, leagueName, viewerTeamId, records,
-    statusChip, isLive, canSetLineup, isPlayoff, homeProb, games, benches, benchLeft, showBenchLeft, calledShots,
+    matchup, starterRows, scoreboardRows, loading, error, refetch, leagueName, viewerTeamId, records,
+    statusChip, isLive, canSetLineup, isPlayoff, board, games, benches, benchLeft, showBenchLeft, calledShots,
     whatIf, viewerHasRoster, ticker, retroActivePlay, celebration, view, setView,
   } = useMatchupPage(leagueId, matchupId);
   const [expandedId, setExpandedId] = useState(null);
@@ -154,9 +157,7 @@ export default function MatchupPage() {
   const lineupHref = `/league/${leagueId}/lineup`;
   // Which side of the table is the viewer's, for the empty slot's "Set lineup"
   // link (#2008): null for a non-participant.
-  const viewerSide = viewerTeamId == null ? null
-    : matchup?.home?.teamId === viewerTeamId ? 'home'
-      : matchup?.away?.teamId === viewerTeamId ? 'away' : null;
+  const { viewerSide } = board;
 
   // The Decision card's entry for whichever player a name link opened
   // (#1311, ADR 0040): SlotComparison and BenchCard hand back only the
@@ -238,11 +239,10 @@ export default function MatchupPage() {
             <RetroScoreboard
               matchup={matchup}
               leagueName={leagueName}
-              viewerTeamId={viewerTeamId}
-              rows={starterRows}
+              board={board}
+              rows={scoreboardRows}
               games={games}
               activePlay={retroActivePlay}
-              homeProb={homeProb}
               headingLevel={2}
               onFullComparison={showStandard}
               ticker={isLive ? <LastPlays items={ticker} mobile={compact} /> : null}
@@ -259,6 +259,7 @@ export default function MatchupPage() {
                 homeName={homeName}
                 awayName={awayName}
                 expectedFinal={{ home: matchup.home.expectedFinal, away: matchup.away.expectedFinal }}
+                scoreLabels={{ home: board.home.scoreLabel, away: board.away.scoreLabel }}
                 status={matchup.status}
                 onOpenPlayer={openPlayer}
                 expandedId={expandedId}

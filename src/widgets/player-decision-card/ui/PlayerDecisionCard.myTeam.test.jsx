@@ -652,7 +652,10 @@ describe('a Position-baseline projection (#1777)', () => {
   });
 
   test('an Unavailable reason wins over "no history": the strip shows the reason, no section says no history', async () => {
-    const out = baselineStarter({ availability: { available: false, reason: 'out' } });
+    const out = baselineStarter({
+      startVerdict: { outcome: 'unavailable', reason: 'out', numberTrusted: true },
+      availability: { available: false, reason: 'out' },
+    });
     mockCardRoute({ decision: { projWeek: { week: 4, points: 0, reason: 'out' } } });
     renderCard({ entry: out, entries: [out] });
 
@@ -737,7 +740,7 @@ test('f1(b): Start never offers a slot whose current occupant is locked', async 
 // s2 (round 3): if movesToStart's own invariant is ever stale (the menu
 // stayed open across a refetch) and it returns [] as its refusal, the
 // CALLER must honour that refusal rather than handing an empty moves array
-// to onSwap - which is performMove, a real PUT that would report "Lineup
+// to onSwap - which is the page's submit, a real PUT that would report "Lineup
 // saved" for a write that changed nothing.
 test('s2: an empty move list from movesToStart is never handed to onSwap', async () => {
   const onSwap = jest.fn();

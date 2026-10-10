@@ -282,38 +282,68 @@ function normalizeDepthChart(payload, teamCode) {
 /**
  * ESPN's team-roster group -> NFL roster status (#1766). The roster document
  * files every athlete under one group: offense/defense/specialTeam are the
- * 53-man Active roster, injuredReserveOrOut/suspended are Reserve,
- * practiceSquad is the Practice squad. A group not named here is skipped, not
- * guessed: an unknown group is ESPN adding a shape, never an Active player.
+ * 53-man Active roster, injuredReserveOrOut is Reserve, suspended is Suspended
+ * (#2150), practiceSquad is the Practice squad. A group not named here is skipped, not
+ * guessed: an unknown group is ESPN adding a shape, never an Active player. Its
+ * athletes get a null status (see normalizeTeamRoster), not a made-up one.
  */
 const ROSTER_GROUP_STATUS = Object.freeze({
   offense: 'active',
   defense: 'active',
   specialTeam: 'active',
   injuredReserveOrOut: 'reserve',
-  suspended: 'reserve',
+  suspended: 'suspended',
   practiceSquad: 'practice_squad',
 });
 
 /**
  * Pure: one team's site-API roster document -> `{ athleteId, teamCode,
- * rosterStatus }[]`, one per athlete (the first group an athlete appears in
- * wins). `rosterStatus` is `'active' | 'practice_squad' | 'reserve'`.
+ * rosterStatus, name, position, jerseyNumber, photoUrl, injuryStatus }[]`, one
+ * per athlete (the first group an athlete appears in wins). `rosterStatus` is
+ * `'active' | 'practice_squad' | 'reserve' | 'suspended' | null` (null: a group not named in
+ * ROSTER_GROUP_STATUS); the last five are null when ESPN omits them.
+ * `injuryStatus` (#2148) is ESPN's own string from the athlete's first
+ * `injuries` entry (Questionable, Out, Injured Reserve ...), untouched; the
+ * caller maps it. The league injuries document drops an athlete once ESPN stops
+ * listing him, season-ending IR included, but his roster entry keeps the block.
  */
 function normalizeTeamRoster(payload, teamCode) {
   const groups = payload && Array.isArray(payload.athletes) ? payload.athletes : [];
-  const seen = new Set();
+  const seen = new Map();
   const rows = [];
   for (const group of groups) {
-    const rosterStatus = group && ROSTER_GROUP_STATUS[group.position];
-    if (!rosterStatus) continue;
+    if (!group) continue;
+    // An unknown group's athletes are still on this team's roster (#2117): they
+    // stay in the rows with a null status, so the daily player sync never reads
+    // them as departed; the roster-status apply skips a null status.
+    const rosterStatus = ROSTER_GROUP_STATUS[group.position] ?? null;
     const items = Array.isArray(group.items) ? group.items : [];
     for (const item of items) {
       if (!item || item.id == null || item.id === '') continue;
       const athleteId = String(item.id);
-      if (seen.has(athleteId)) continue;
-      seen.add(athleteId);
-      rows.push({ athleteId, teamCode, rosterStatus });
+      const earlier = seen.get(athleteId);
+      if (earlier) {
+        // First group wins, except that a mapped status beats an unmapped
+        // group's null for the same athlete.
+        if (earlier.rosterStatus === null && rosterStatus !== null) earlier.rosterStatus = rosterStatus;
+        continue;
+      }
+      const jersey = item.jersey != null && String(item.jersey) !== '' ? String(item.jersey).slice(0, 8) : null;
+      const row = {
+        athleteId,
+        teamCode,
+        rosterStatus,
+        // The player-row fields the daily player sync writes (#2117): ESPN's own
+        // spelling, null when the document omits them.
+        name: item.fullName ? String(item.fullName) : null,
+        position: item.position && item.position.abbreviation ? String(item.position.abbreviation) : null,
+        jerseyNumber: jersey,
+        photoUrl: item.headshot && item.headshot.href ? String(item.headshot.href) : null,
+        injuryStatus: Array.isArray(item.injuries) && typeof item.injuries[0]?.status === 'string'
+          ? item.injuries[0].status : null,
+      };
+      seen.set(athleteId, row);
+      rows.push(row);
     }
   }
   return rows;
@@ -485,11 +515,14 @@ async function teamDepthChart(teamCode, { transport } = {}) {
   return payload ? normalizeDepthChart(payload, teamCode) : null;
 }
 
-/** This team's NFL roster -> `{ athleteId, teamCode, rosterStatus }[]` (never
- * cached: the daily roster-status Sync run's table is the cache). `null` for an
- * unknown team code or any fetch failure, `[]` when ESPN answered with no
- * usable groups - `espnFactsSync.js`'s `fetchRosterStatus` tells the two apart.
- * Never throws. */
+/** This team's NFL roster -> `{ athleteId, teamCode, rosterStatus, name, position,
+ * jerseyNumber, photoUrl, injuryStatus }[]` (`normalizeTeamRoster`'s rows:
+ * `rosterStatus` is null for an athlete in a group ROSTER_GROUP_STATUS does not
+ * map, and the last five are null when ESPN omits them). Not cached here: `espnFactsSync.js`'s
+ * `sharedRosterSweep` holds the 32-team sweep for ten minutes, and the daily
+ * roster-status table is the durable cache. `null` for an unknown team code or
+ * any fetch failure, `[]` when ESPN answered with no usable groups -
+ * `sweepTeams` tells the two apart. Never throws. */
 async function teamRoster(teamCode, { transport } = {}) {
   const code = String(teamCode || '').toUpperCase();
   const numericId = ESPN_TEAM_NUMERIC_ID[code];

@@ -20,8 +20,9 @@ import {
   hasNoHistory,
   isRosterAtCapacity,
   sortRosterForDrop,
-  unavailableLabel,
+  reasonLabel,
 } from '../../../shared/lib';
+import { usePlayerCard } from '../../../entities/player';
 import { useClaimPlayer } from '../model/useClaimPlayer';
 import { bidHelperText, isValidBid } from '../model/bidValidity';
 
@@ -43,30 +44,48 @@ const TOUCH = { minHeight: 44, minWidth: 44 };
  * `overPlayer.points` yet. `mine - upgrade.points` is the exact fallback
  * (that IS the math `points` came from server-side), never the roster's
  * stale Pool number, which is what regressed f1/f2 in the first place.
+ *
+ * #2168 (ADR 0062): `player.swapNet` is the card's net of the drop the manager
+ * picked, signed. It replaces the gain line, and keeps the preview up when the
+ * Upgrade is 0 with no overPlayer (a drop worth more than the claim).
+ * `netPending`: a drop is picked and its net has not arrived (loading or
+ * errored), so the Upgrade, which is not net of the drop, prints no gain line.
  */
-export function SwapPreview({ player }) {
+export function SwapPreview({ player, netPending = false }) {
   const upgrade = player.upgrade;
-  if (upgrade == null || upgrade.points == null || upgrade.overPlayer == null) return null;
-  const mine = player.projWeek?.points ?? null;
+  const swapNet = player.swapNet ?? null;
+  if (upgrade == null || upgrade.points == null || (upgrade.overPlayer == null && swapNet == null)) return null;
+  // #2175 (ADR 0062 point 2): a swap for any week but the current one names its
+  // week, and both sides are read in that week, as DecisionStrip's pill does.
+  const week = swapNet?.week ?? upgrade.week;
+  const currentWeek = player.projWeek?.week;
+  const later = week != null && currentWeek != null && week !== currentWeek;
+  const mine = later
+    ? (player.weeks?.find((w) => w.week === week)?.points ?? null)
+    : (player.projWeek?.points ?? null);
   const { overPlayer } = upgrade;
-  const reason = overPlayer.unavailable ? unavailableLabel(overPlayer.unavailable) : null;
-  const theirs = overPlayer.points ?? (mine != null ? mine - upgrade.points : null);
-  const gain = Number(upgrade.points);
+  const reason = overPlayer?.unavailable ? reasonLabel(overPlayer.unavailable) : null;
+  const theirs = overPlayer?.points ?? (mine != null ? mine - upgrade.points : null);
+  const gain = Number(swapNet != null ? swapNet.points : upgrade.points);
   // A Position-baseline row prints "no history" for his number and no gain
   // line (#1808): the gain is built from the hidden number. The verdict is the
   // server's, read through `hasNoHistory`, never re-derived here.
   const noHistory = hasNoHistory(player);
   return (
     <Box data-testid="claim-sheet-swap" sx={{ border: '1px solid var(--dash-line)', borderRadius: 1, p: 1.5 }}>
-      <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>This week&apos;s swap</Typography>
+      <Typography sx={{ fontSize: 12, color: 'var(--dash-dim)', mb: 0.5 }}>
+        {later ? `Wk ${week} swap` : "This week's swap"}
+      </Typography>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{ minWidth: 0 }}>{`${player.name} ${noHistory ? NO_HISTORY_LABEL : fmt(mine)}`}</Typography>
-        <Typography sx={{ minWidth: 0, textAlign: 'right' }}>
-          {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}
-        </Typography>
+        {overPlayer && (
+          <Typography sx={{ minWidth: 0, textAlign: 'right' }}>
+            {reason ? `${overPlayer.name} ${reason}` : `${overPlayer.name} ${fmt(theirs)}`}
+          </Typography>
+        )}
       </Box>
-      {!noHistory && (
-        <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} this week`}</Typography>
+      {!noHistory && !netPending && (
+        <Typography sx={{ fontWeight: 700 }}>{`${gain >= 0 ? '+' : ''}${fmt(gain)} ${later ? `Wk ${week}` : 'this week'}`}</Typography>
       )}
     </Box>
   );
@@ -85,6 +104,14 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
   const { submitClaim, pending: filing } = useClaimPlayer({ leagueId, onDone: onClaimed });
   const [saving, setSaving] = useState(false);
   const pending = filing || saving;
+  // #2168: the card re-read with the picked drop netted out. No read until a
+  // drop is picked, and none for a row with no Upgrade to net.
+  const { card } = usePlayerCard({
+    leagueId,
+    playerId: dropId !== '' && player.upgrade != null ? player.id : null,
+    dropPlayerId: dropId === '' ? null : Number(dropId),
+  });
+  const swapNet = dropId === '' ? null : (card?.decision?.swapNet ?? null);
 
   const isFaab = availability?.faabRemaining != null;
   // An edited claim's own bid is already held in the FAAB left.
@@ -118,7 +145,10 @@ function ClaimSheetBody({ player, claim, onSave, leagueId, availability, roster,
     <>
       <DialogTitle id="claim-sheet-title">{editing ? `Edit claim: ${player.name}` : `Claim ${player.name}`}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <SwapPreview player={player} />
+        <SwapPreview
+          player={swapNet ? { ...player, swapNet } : player}
+          netPending={dropId !== '' && player.upgrade != null && swapNet == null}
+        />
         <Box>
           <Typography id="claim-sheet-drop-label" sx={{ fontWeight: 700, mb: 0.5 }}>
             {atCapacity ? 'Drop a player' : 'Drop a player (optional)'}

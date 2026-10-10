@@ -133,3 +133,20 @@ test('dense drops the visible week numbers and pill but keeps every title, the a
   expect(screen.getByTestId('weekly-bar-12')).toHaveAttribute('title', 'Week 12 vs KC: 15.1 projected');
   expect(screen.getByTestId('weekly-points-bars')).toHaveAttribute('data-dense', 'true');
 });
+
+// Players table (2026-10-09 report): a player Unavailable every week (no
+// team, practice squad, IR) printed the reason under each of 17 dense
+// columns, ~590px of text that widened the Weeks column for every row and
+// squeezed the names into their position pills. Dense draws the week as a
+// bar-width mark; the title and accessible name still state the reason, and
+// the row's Proj cell shows it as text. tests/e2e/players-page-layout.spec.ts
+// measures the width.
+test('dense draws an unavailable week as a bar-width mark, its reason in the title, not as text', () => {
+  render(<WeeklyPointsBars weeks={weeks()} currentWeek={5} dense />);
+  const unavailable = screen.getByTestId('weekly-bar-3');
+  expect(unavailable).toHaveAttribute('title', 'Week 3 vs KC: out');
+  expect(unavailable).toHaveAccessibleName('Week 3 vs KC: out');
+  expect(within(unavailable).queryByText('out')).not.toBeInTheDocument();
+  expect(within(unavailable).getByTestId('weekly-bar-3-unavailable')).toBeInTheDocument();
+  expect(within(unavailable).queryByTestId('weekly-bar-3-fill')).not.toBeInTheDocument();
+});

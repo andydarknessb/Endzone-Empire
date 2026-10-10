@@ -16,7 +16,7 @@ const { winProbabilityV2 } = require('./winProbability');
  * a null status is a read the server could not trust (ADR 0030). A matchup
  * with no Expected final on either side has no v2 and writes nothing.
  *
- * v1 is not stored: the client's v1 (src/shared/lib/winProbability.js) is a
+ * v1 is not stored: the client's v1 (src/entities/matchup/model/winProbability.js) is a
  * function of each side's score and Expected final, both on the row, so the
  * evaluation recomputes it exactly by calling that function.
  *

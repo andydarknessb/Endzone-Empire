@@ -1,4 +1,4 @@
-import { hasNoHistory } from '../../../shared/lib';
+import { sortBench, spent } from './lineupModel';
 
 /**
  * Groups the Roster entity's normalized lineup entries (`entities/roster`'s
@@ -69,7 +69,7 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
   }));
 
   const benchEntries = bySlot.get('BENCH') || [];
-  const sortedBench = sortBenchEntries(benchEntries);
+  const sortedBench = sortBench(benchEntries);
   // An invalid stash on a full bench gets one extra empty bench row (#1480):
   // the server forgives that occupant one seat when he moves to BENCH, but
   // with the bench padded only to its occupied count there was no row to
@@ -91,52 +91,19 @@ export function buildLedgerSections({ entries, rosterSlots, benchSlots, irSlots 
   return { starters, ir, bench };
 }
 
-function isUnavailable(entry) {
-  return Boolean(entry.availability && entry.availability.available === false);
-}
-
 /**
  * The phone bar's counts (#1957 L6, #1965): Starters counts filled seats (a
  * spent row starts nobody, so it is not one) of the configured total; Bench
  * counts occupied Bench and IR rows, the group the Bench view shows. One rule,
- * exported through the widget's index so the page that owns the bar computes
- * its labels from `buildLedgerSections` without copying it.
+ * exported through the entity's index so the page that owns the bar computes
+ * its labels from the sections `useTeamLineup`/`useLedgerSections` return
+ * without copying it.
  */
 export function ledgerTabCounts({ starters, bench, ir }) {
   return {
-    startersFilled: starters.filter((row) => row.entry && !row.entry.spent).length,
+    startersFilled: starters.filter((row) => row.entry && !spent(row.entry)).length,
     startersTotal: starters.length,
     benchCount: [...ir, ...bench].filter((row) => row.entry).length,
   };
 }
-
-// Stable partition: every available entry (sorted by projectedPoints, the
-// Point estimate - the same number the Ledger row headlines, #1482 - high to
-// low, an unknown value sorting last among them) before every Unavailable
-// one (kept in the order the server returned them). Never `entry.projection`
-// (the distribution's bare mean): sorting by a different statistic than the
-// row prints could put the bench in an order its own headline numbers
-// contradict.
-//
-// Position-baseline players (#1776, `hasNoHistory`) sit between the two: their
-// number is the position's average, not evidence, so every evidenced player
-// sorts before them (kept in the order the server returned them, since their
-// hidden numbers tie), and Unavailable players still come last.
-function sortBenchEntries(benchEntries) {
-  const available = [];
-  const noHistory = [];
-  const unavailable = [];
-  for (const entry of benchEntries) {
-    if (isUnavailable(entry)) unavailable.push(entry);
-    else if (hasNoHistory(entry)) noHistory.push(entry);
-    else available.push(entry);
-  }
-  available.sort((a, b) => {
-    const ap = Number.isFinite(a.projectedPoints) ? a.projectedPoints : -Infinity;
-    const bp = Number.isFinite(b.projectedPoints) ? b.projectedPoints : -Infinity;
-    return bp - ap;
-  });
-  return [...available, ...noHistory, ...unavailable];
-}
-
 export default buildLedgerSections;

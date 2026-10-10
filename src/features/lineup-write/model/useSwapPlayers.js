@@ -27,7 +27,7 @@ const REFUSAL_COPY = {
  * swap-players feature (#1237, ADR 0019: Lineup is the sole team management
  * surface): select-then-target swap, slot-first quick pick, and the
  * optimistic PUT with the offline queue, restated from LineupScreen.jsx's
- * own `handleRowClick`/`performMove`/quick-pick handlers behind one hook so
+ * own `handleRowClick`/quick-pick handlers behind one hook so
  * the Lineup page and the lineup-ledger widget both stay thin.
  *
  * Takes the page's own `entries` (the entities/roster-normalized array the
@@ -44,12 +44,12 @@ const REFUSAL_COPY = {
  * `hasEligibleTarget` (#1425, optional): "does this candidate have a legal
  * target ANYWHERE in the lineup, filled or empty slot" - a whole-lineup
  * question `entries` alone cannot answer (it carries occupied rows only, no
- * empty-slot capacity), so the page supplies it, built from the Ledger
- * widget's own row enumeration (`buildLedgerSections`) over `isEligibleMove`
+ * empty-slot capacity), so the page supplies it, built from the Roster
+ * entity's Ledger sections (`useLedgerSections`) over `isEligibleMove`
  * above. Consulted only at the moment a fresh selection would begin.
  *
- * `submit` (spec #2042): `useLineupWrite`'s one write, which this hook feeds a
- * move plan. The optimistic patch, rollback, Undo, toast copy, replay and
+ * `submit` (spec #2042): `useLineupWrite`'s one write, which this hook calls
+ * directly with a move plan. The optimistic patch, rollback, Undo, toast copy, replay and
  * Matchups cache invalidation all live there, not here.
  */
 export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, hasEligibleTarget }) {
@@ -73,10 +73,6 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
 
   const list = Array.isArray(entries) ? entries : [];
   const byId = new Map(list.map((e) => [e.playerId, e]));
-
-  // The single entry point every move goes through. Takes no second argument
-  // on purpose: `onSwap={performMove}` callers must never reach `submit`'s Undo.
-  const performMove = (moves) => submit(moves);
 
   // Whether `targetEntry` (or an empty slot when null) is a legal landing
   // spot for the currently selected player.
@@ -140,10 +136,10 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
 
     setSelectedEntry(null);
     if (!entry) {
-      performMove([{ playerId: selectedEntry.playerId, slot: slotType }]);
+      submit([{ playerId: selectedEntry.playerId, slot: slotType }]);
       return;
     }
-    performMove([
+    submit([
       { playerId: selectedEntry.playerId, slot: entry.slot },
       { playerId: entry.playerId, slot: selectedEntry.slot },
     ]);
@@ -158,7 +154,7 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
     closeQuickPick();
     const chosen = byId.get(chosenPlayerId);
     if (!slotType || !chosen) return;
-    performMove([{ playerId: chosen.playerId, slot: slotType }]);
+    submit([{ playerId: chosen.playerId, slot: slotType }]);
   };
 
   return {
@@ -170,7 +166,6 @@ export function useSwapPlayers({ submit, entries, bestBall, leagueUnsettled, has
     handleQuickPickSelect,
     onRowClick,
     isEligibleTarget,
-    performMove,
   };
 }
 

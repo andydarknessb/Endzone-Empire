@@ -1,32 +1,33 @@
 const fs = require('fs');
 const path = require('path');
-const { unavailableLabel } = require('./unavailableLabel');
+const { reasonLabel } = require('./reasonLabel');
 
-describe('unavailableLabel', () => {
+describe('reasonLabel', () => {
   it('returns the CONTEXT.md Unavailable label for each known reason', () => {
-    expect(unavailableLabel('bye')).toBe('on bye');
-    expect(unavailableLabel('out')).toBe('out');
-    expect(unavailableLabel('ir')).toBe('on IR');
-    expect(unavailableLabel('no_team')).toBe('no team');
-    expect(unavailableLabel('practice_squad')).toBe('practice squad');
+    expect(reasonLabel('bye')).toBe('on bye');
+    expect(reasonLabel('out')).toBe('out');
+    expect(reasonLabel('ir')).toBe('on IR');
+    expect(reasonLabel('no_team')).toBe('no team');
+    expect(reasonLabel('practice_squad')).toBe('practice squad');
+    expect(reasonLabel('suspended')).toBe('suspended');
   });
 
   it('returns null for an unknown or missing reason', () => {
-    expect(unavailableLabel('questionable')).toBeNull();
-    expect(unavailableLabel('doubtful')).toBeNull();
-    expect(unavailableLabel(undefined)).toBeNull();
-    expect(unavailableLabel(null)).toBeNull();
-    expect(unavailableLabel('')).toBeNull();
+    expect(reasonLabel('questionable')).toBeNull();
+    expect(reasonLabel('doubtful')).toBeNull();
+    expect(reasonLabel(undefined)).toBeNull();
+    expect(reasonLabel(null)).toBeNull();
+    expect(reasonLabel('')).toBeNull();
   });
 
   it('returns null for an inherited Object.prototype member, not the member itself', () => {
     // An own-property-only lookup: {}['constructor'] and {}['toString'] both
     // resolve to real functions through the prototype chain, and a bracket
     // lookup with `|| null` would hand one back as if it were a label.
-    expect(unavailableLabel('constructor')).toBeNull();
-    expect(unavailableLabel('toString')).toBeNull();
-    expect(unavailableLabel('__proto__')).toBeNull();
-    expect(unavailableLabel('hasOwnProperty')).toBeNull();
+    expect(reasonLabel('constructor')).toBeNull();
+    expect(reasonLabel('toString')).toBeNull();
+    expect(reasonLabel('__proto__')).toBeNull();
+    expect(reasonLabel('hasOwnProperty')).toBeNull();
   });
 });
 
@@ -36,7 +37,7 @@ describe('unavailableLabel', () => {
 // Draft Sim template-literal sentences (useQuickActions.js, analysis.js) and
 // in test-asserted copy, none of which this guard may touch.
 describe('the bye -> "on bye" map lives in one file', () => {
-  const HELPER_PATH = path.join(__dirname, 'unavailableLabel.js');
+  const HELPER_PATH = path.join(__dirname, 'reasonLabel.js');
   const SRC_ROOT = path.join(__dirname, '..', '..');
   // An object-literal entry mapping the key `bye` (quoted or not) to the
   // string 'on bye', in single, double or backtick quotes either side.

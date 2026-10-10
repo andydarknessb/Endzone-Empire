@@ -136,6 +136,11 @@ test('GET /api/team/lineup reaches every Edge line kind (#1235)', async (t) => {
     [6, { points: 9, projection: { mean: 9, p10: 5, p90: 13, factors: {} } }],
     [7, { points: 14, projection: { mean: 14, p10: 9, p90: 19, factors: {} } }],
     [9, { points: 20, projection: { mean: 20, p10: 14, p90: 26, factors: {} } }],
+    // The run stores Out Guy Unavailable (ADR 0061: the Start verdict is the
+    // read's, not the entry's designation).
+    [8, { points: 0, projection: { mean: 0, p10: 0, p90: 0, factors: {
+      availability: { available: false, activeProbability: 0, reason: 'out', status: 'O' },
+    } } }],
     // f2: a spent row (id 50 below) joins this SAME call and gets priced too.
     [50, { points: 14, projection: { mean: 14, p10: 9, p90: 19, factors: {} } }],
   ]);

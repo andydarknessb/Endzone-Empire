@@ -15,7 +15,6 @@ const {
   picksMadeByUser,
   pickemStatus,
 } = require('./homeStatus.service');
-const { nflRosterStatusColumn } = require('./nflRosterStatus');
 
 /**
  * Email/notification digests: pre-lockout lineup reminders, waiver-results
@@ -200,37 +199,15 @@ async function sendLineupReminders() {
         pool,
         async (lineupClient) => {
         await materializeLineup(lineupClient, { leagueId, teamId: team.id, season, week, league });
-        // `on_bye` is read off the LEFT JOIN, so the join predicate IS the
-        // bye rule here. `nfl_games` keys teams by Tank01 abbreviation (DEN,
-        // WSH) while `players.nfl_team` holds a FULL TEAM NAME for every DEF
-        // unit and the app's own WAS for Washington, so raw equality never
-        // matched a DEF unit and told the manager his defense was on bye in
-        // all 17 weeks it plays (#287). `fn_normalize_nfl_team` on BOTH sides is
-        // the same fold `bye.service.computeByeWeeks` uses, and the functional
-        // index `idx_players_nfl_team_normalized` backs the players side.
-        // This is a SQL join, so it normalises in SQL; `services/nflTeam.js`
-        // is for consumers that have already read a side into memory.
-        // A WAS row beside a WSH row would make this LEFT JOIN fold two Raw
-        // team codes into one Team code; `nfl_games_season_week_team_code_unique`
-        // (ADR 0011, #421) makes that second row a rejected insert, not a case
-        // this query has to survive.
-        // `on_bye` also guards `players.nfl_team IS NOT NULL` (#1791): for a
-        // No NFL team row `fn_normalize_nfl_team(NULL)` is NULL, so the LEFT
-        // JOIN never matches and `nfl_games.nfl_team IS NULL` alone would
-        // misread a free agent as on bye, feeding `unavailableFor` the wrong
-        // precedence.
+        // The rows carry no availability fact: the Start verdict comes from the
+        // Weekly projection read below (ADR 0061).
         return lineupClient.query(
-          `SELECT "lineup_entries"."slot", "lineup_entries"."ir_attested",
-                  "players"."name", "players"."injury_status", "players"."nfl_team",
-                  ("players"."nfl_team" IS NOT NULL AND "nfl_games"."nfl_team" IS NULL) AS "on_bye",
-                  ${nflRosterStatusColumn()}
+          `SELECT "lineup_entries"."slot", "lineup_entries"."player_id", "lineup_entries"."ir_attested",
+                  "players"."name", "players"."injury_status", "players"."nfl_team"
            FROM "lineup_entries"
            JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
              AND "team_players"."player_id" = "lineup_entries"."player_id"
            JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-           LEFT JOIN "nfl_games" ON "nfl_games"."season" = $2 AND "nfl_games"."week" = $3
-             AND fn_normalize_nfl_team("nfl_games"."nfl_team")
-                 = fn_normalize_nfl_team("players"."nfl_team")
            WHERE "lineup_entries"."team_id" = $1 AND "lineup_entries"."season" = $2
              AND "lineup_entries"."week" = $3`,
           [team.id, season, week]
@@ -239,12 +216,25 @@ async function sendLineupReminders() {
         { label: 'reminders' }
       );
       const entries = entriesResult.rows.map((row) => ({
-        ...lineupEntryFromRow(row), nflTeam: row.nfl_team, nflRosterStatus: row.nfl_roster_status ?? null,
+        ...lineupEntryFromRow(row), nflTeam: row.nfl_team,
       }));
+      // The Start verdict (ADR 0061), from the Weekly projection read. Without
+      // it the team's availability is unknown, so the tick skips the team (a
+      // fail-closed read, like the ledger below) and the next tick retries.
+      let weekly;
+      try {
+        weekly = await require('./projection.service').getWeeklyProjections({
+          season, week, league, playerIds: entries.map((e) => e.playerId),
+        });
+      } catch (err) {
+        console.error('lineup reminder: weekly projection read failed, skipping team:', team.id, err.message);
+        continue;
+      }
       const { problems } = lineupStatus({
         entries,
         rosterSlots,
         bestBall: Boolean(league.best_ball),
+        startVerdictFor: (playerId) => weekly.startVerdictFor(playerId),
         kickoffByTeam: weekKickoffs.byTeam,
         weekLastKickoff: weekKickoffs.last,
         now: new Date(),
@@ -260,6 +250,7 @@ async function sendLineupReminders() {
       const message = `Lineup check for week ${week}: ${problems.join('; ')}`;
       try {
         const push = require('./push.service');
+        const { banterFor } = require('./pushBanter');
         const { skipped } = await push.sendPushOnce({
           userIds: [team.owner_id],
           prefKey: 'lineupReminder',
@@ -270,6 +261,7 @@ async function sendLineupReminders() {
             title: 'Set your lineup before kickoff',
             body: message,
             url: `/#/league/${leagueId}/lineup`,
+            banter: banterFor('lineupProblem', `lineup-reminder:${team.id}:${season}:${week}:sent`, { week }),
           },
         });
         if (skipped) continue;

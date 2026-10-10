@@ -6,6 +6,8 @@ const { gradeTeams } = require('../services/draftgrade.service');
 const { sendLineupReminders, sendPickemReminders } = require('../services/digest.service');
 const { mergePrefs, validatePrefs, DEFAULT_PREFS } = require('../services/prefs.service');
 const push = require('../services/push.service');
+const projectionService = require('../services/projection.service');
+const { banterFor } = require('../services/pushBanter');
 const { logger } = require('../modules/logger');
 
 // --- trophy: longestWinStreak -----------------------------------------------
@@ -238,6 +240,12 @@ test('sendLineupReminders sends best-ball teams only the unresolved IR warning',
 
 // --- reminders read the Home statuses (#1761) ---------------------------------
 
+// ADR 0061: starter availability is the Start verdict the Weekly projection read
+// gives by player id, never a fact of the lineup row. A fixture row names the
+// verdict the read would give it (`verdict`, test-only).
+const HEALTHY = { outcome: 'recommendable', reason: null, numberTrusted: true };
+const unavailable = (reason) => ({ outcome: 'unavailable', reason, numberTrusted: true });
+
 const HOUR = 60 * 60 * 1000;
 const hoursFromNow = (h) => new Date(Date.now() + h * HOUR).toISOString();
 
@@ -283,28 +291,35 @@ function lineupReminderWorld(t, { entries, kickoffRows, teamCount = 1, ledgerDow
     [/^SELECT "player_id" FROM "lineup_entries"/, () => ({
       rows: entries.map((e, i) => ({ player_id: 900 + i })),
     })],
-    [/^SELECT "lineup_entries"\."slot"/, () => ({ rows: entries })],
+    [/^SELECT "lineup_entries"\."slot"/, () => ({ rows: entries.map((e, i) => ({ player_id: 900 + i, ...e })) })],
     [insert('notifications'), () => ({ rows: [] })],
   ]).install(t);
+  // The Weekly projection read the status asks, one per league and team: the
+  // verdict each fixture row names, by the player id its row carries.
+  const verdictCalls = [];
+  t.mock.method(projectionService, 'getWeeklyProjections', async (args) => {
+    verdictCalls.push(args);
+    return { startVerdictFor: (playerId) => (entries[playerId - 900] || {}).verdict || HEALTHY };
+  });
   const pushes = [];
   t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
     pushes.push({ userIds, payload });
     return { sent: 1 };
   });
   nextTeamId += 10;
-  return { fake, pushes, kickoffReads };
+  return { fake, pushes, kickoffReads, verdictCalls };
 }
 
 const lineupRow = (slot, name, nflTeam, extra = {}) => ({
-  slot, name, nfl_team: nflTeam, injury_status: null, ir_attested: false, on_bye: false, ...extra,
+  slot, name, nfl_team: nflTeam, injury_status: null, ir_attested: false, ...extra,
 });
 const kickoff = (nflTeam, at) => ({ season: 2026, week: 9, nfl_team: nflTeam, kickoff_at: at });
 
 test('sendLineupReminders does not name a starter who is Out once his game has kicked off', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
     entries: [
-      lineupRow('QB', 'Locked Out QB', 'KC', { injury_status: 'O' }),
-      lineupRow('WR', 'Open Out WR', 'GB', { injury_status: 'O' }),
+      lineupRow('QB', 'Locked Out QB', 'KC', { injury_status: 'O', verdict: unavailable('out') }),
+      lineupRow('WR', 'Open Out WR', 'GB', { injury_status: 'O', verdict: unavailable('out') }),
     ],
     kickoffRows: [kickoff('KC', hoursFromNow(-1)), kickoff('GB', hoursFromNow(1))],
   });
@@ -313,16 +328,15 @@ test('sendLineupReminders does not name a starter who is Out once his game has k
 
   assert.deepEqual(result, { remindersSent: 1 });
   assert.equal(pushes[0].payload.body, 'Lineup check for week 9: Open Out WR (WR) is Out');
+  assert.equal(pushes[0].payload.banter, banterFor('lineupProblem', `lineup-reminder:${nextTeamId - 10}:2026:9:sent`, { week: 9 }));
   fake.assertClean();
 });
 
 test('sendLineupReminders names a Practice squad starter and a No NFL team starter (#1791)', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
     entries: [
-      lineupRow('QB', 'PS Quarterback', 'KC', {
-        nfl_roster_status: { status: 'practice_squad', capturedAt: new Date().toISOString() },
-      }),
-      lineupRow('WR', 'Free Agent WR', null),
+      lineupRow('QB', 'PS Quarterback', 'KC', { verdict: unavailable('practice_squad') }),
+      lineupRow('WR', 'Free Agent WR', null, { verdict: unavailable('no_team') }),
     ],
     kickoffRows: [kickoff('KC', hoursFromNow(2))], // not kicked off yet
   });
@@ -337,15 +351,11 @@ test('sendLineupReminders names a Practice squad starter and a No NFL team start
   fake.assertClean();
 });
 
-// #1791 QA: the reminder's own entries query keys on_bye off the same
-// fn_normalize_nfl_team(players.nfl_team) = fn_normalize_nfl_team(nfl_games.nfl_team)
-// LEFT JOIN as loadLineups. fn_normalize_nfl_team(NULL) is NULL, so a No NFL
-// team row's join never matches and on_bye would read true (bye, wrongly)
-// without the `players.nfl_team IS NOT NULL` guard - asserted on the actual
-// SQL text sent, so reverting the guard goes red even though the mocked rows
-// above never carry the pre-fix shape.
-test("sendLineupReminders' entries query guards a No NFL team row from reading as on_bye (#1791)", async (t) => {
-  const { fake } = lineupReminderWorld(t, {
+// ADR 0061: the reminder's entries query carries no availability fact (bye,
+// roster status); it selects the player id the Start verdict is asked by, and
+// the Weekly projection read is asked for the team's roster alone.
+test('sendLineupReminders reads the verdict from the Weekly projection read, not from its entries query', async (t) => {
+  const { fake, verdictCalls } = lineupReminderWorld(t, {
     entries: [lineupRow('QB', 'Fine QB', 'KC')],
     kickoffRows: [],
   });
@@ -354,16 +364,15 @@ test("sendLineupReminders' entries query guards a No NFL team row from reading a
 
   const [entriesQuery] = fake.matching(/^SELECT "lineup_entries"\."slot"/);
   assert.ok(entriesQuery, 'the reminder entries query never ran');
-  assert.match(
-    entriesQuery.text,
-    /\("players"\."nfl_team" IS NOT NULL AND "nfl_games"\."nfl_team" IS NULL\) AS "on_bye"/
-  );
+  assert.doesNotMatch(entriesQuery.text, /on_bye|nfl_roster_status/);
+  assert.match(entriesQuery.text, /"lineup_entries"\."player_id"/);
+  assert.deepEqual(verdictCalls.map((c) => [c.season, c.week, c.playerIds]), [[2026, 9, [900]]]);
 });
 
 test('sendLineupReminders sends nothing when the only problem is a starter whose game has kicked off', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
     entries: [
-      lineupRow('QB', 'Locked Out QB', 'KC', { injury_status: 'O' }),
+      lineupRow('QB', 'Locked Out QB', 'KC', { injury_status: 'O', verdict: unavailable('out') }),
       lineupRow('WR', 'Fine WR', 'GB'),
     ],
     kickoffRows: [kickoff('KC', hoursFromNow(-1)), kickoff('GB', hoursFromNow(1))],
@@ -380,7 +389,7 @@ test('sendLineupReminders sends nothing once the week\'s last kickoff has passed
   const { fake, pushes } = lineupReminderWorld(t, {
     // An empty WR seat and an Out QB: both problems before the last kickoff,
     // neither after it.
-    entries: [lineupRow('QB', 'Out QB', 'KC', { injury_status: 'O' })],
+    entries: [lineupRow('QB', 'Out QB', 'KC', { injury_status: 'O', verdict: unavailable('out') })],
     kickoffRows: [kickoff('KC', hoursFromNow(-3)), kickoff('GB', hoursFromNow(-1))],
   });
 
@@ -393,7 +402,7 @@ test('sendLineupReminders sends nothing once the week\'s last kickoff has passed
 
 test('sendLineupReminders reminds a team-week once across two calls, held by the ledger', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
-    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
+    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O', verdict: unavailable('out') }), lineupRow('WR', 'Fine WR', 'GB')],
     kickoffRows: [kickoff('GB', hoursFromNow(1))],
   });
 
@@ -411,7 +420,7 @@ test('sendLineupReminders reminds a team-week once across two calls, held by the
 
 test('sendLineupReminders skips the tick when the ledger errors: no notification, no email, no retry storm', async (t) => {
   const { fake, pushes } = lineupReminderWorld(t, {
-    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
+    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O', verdict: unavailable('out') }), lineupRow('WR', 'Fine WR', 'GB')],
     kickoffRows: [kickoff('GB', hoursFromNow(1))],
     ledgerDown: true,
   });
@@ -431,7 +440,7 @@ test('sendLineupReminders skips the tick when the ledger errors: no notification
 
 test('sendLineupReminders reads the week\'s kickoffs once per league and week, not per Team', async (t) => {
   const { fake, pushes, kickoffReads } = lineupReminderWorld(t, {
-    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O' }), lineupRow('WR', 'Fine WR', 'GB')],
+    entries: [lineupRow('QB', 'Open Out QB', 'GB', { injury_status: 'O', verdict: unavailable('out') }), lineupRow('WR', 'Fine WR', 'GB')],
     kickoffRows: [kickoff('GB', hoursFromNow(1))],
     teamCount: 3,
   });
@@ -491,6 +500,14 @@ test('mergePrefs fills defaults and respects stored overrides', () => {
   assert.equal(merged.weeklyRecap, false);
   assert.equal(merged.lineupReminder, true); // non-boolean stored value ignored
   assert.equal('junk' in merged, false);
+});
+
+test('banter is a known preference that defaults to on and can be switched off (#2125)', () => {
+  assert.equal(DEFAULT_PREFS.banter, true);
+  assert.equal(mergePrefs(undefined).banter, true);
+  assert.equal(mergePrefs({ weeklyRecap: false }).banter, true);
+  assert.equal(mergePrefs({ banter: false }).banter, false);
+  assert.deepEqual(validatePrefs({ banter: false }), []);
 });
 
 test('validatePrefs rejects unknown keys, non-booleans, and non-objects', () => {

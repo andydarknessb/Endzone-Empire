@@ -2,8 +2,6 @@ const { injuryDesignationName, isValidStash } = require('./irPolicy.service');
 const { normalizeNflTeam } = require('./nflTeam');
 const { deriveLeaguePhase, LEAGUE_PHASE } = require('./leaguePhase');
 const { isPickemOnly } = require('./leagueType');
-const { unavailableFor } = require('./unavailable');
-const { nflRosterStatusColumn } = require('./nflRosterStatus');
 
 /**
  * Home status: the answers the pre-lockout digests, the Home to-do list
@@ -20,12 +18,12 @@ const { nflRosterStatusColumn } = require('./nflRosterStatus');
  */
 
 /**
- * Pure: the `lineupProblems` phrase for a starter carrying `unavailableFor`'s
- * reason ('bye' | 'no_team' | 'practice_squad' | 'out' | 'ir'), or null for
+ * Pure: the `lineupProblems` phrase for a starter carrying the Start verdict's
+ * Unavailable reason ('bye' | 'no_team' | 'practice_squad' | 'suspended' | 'out' | 'ir'), or null for
  * every other verdict (available, doubtful, questionable - none of those are
  * a problem here). The wording matches this module's existing tone (`is on
  * bye`, `is Out`, `is on IR`) and the client's own reason labels
- * (src/shared/lib/unavailableLabel.js: 'no team', 'practice squad').
+ * (src/shared/lib/reasonLabel.js: 'no team', 'practice squad').
  */
 function starterProblemPhrase(reason) {
   switch (reason) {
@@ -33,6 +31,7 @@ function starterProblemPhrase(reason) {
     case 'out': return 'is Out';
     case 'ir': return 'is on IR';
     case 'practice_squad': return 'is on the practice squad';
+    case 'suspended': return 'is suspended';
     case 'no_team': return 'has no NFL team';
     default: return null;
   }
@@ -40,19 +39,18 @@ function starterProblemPhrase(reason) {
 
 /**
  * Pure: problems in a lineup that should trigger a pre-lockout reminder.
- * entries: [{ slot, name, onBye, injury_status, ir_attested, nflTeam,
- * nflRosterStatus }] (starter availability and unresolved IR stashes are
- * flagged; BENCH is ignored and a commissioner-attested stash never nags).
- * Starter availability is the one `unavailableFor` verdict (CONTEXT.md,
- * Unavailable; #1767, #1791): the same bye, no NFL team (`nflTeam == null`),
- * Practice squad (`nflRosterStatus`), Out and IR facts every other reader
- * checks, so a Practice squad or a No NFL team starter raises a problem here
- * exactly as the Lineup and Start/sit pages mark him Unavailable. rosterSlots:
- * [{key,count,...}] detects unfilled slots. `now` is injectable for tests
- * (Practice squad's 48-hour freshness window).
+ * entries: [{ playerId, slot, name, injury_status, ir_attested, locked? }]
+ * (starter availability and unresolved IR stashes are flagged; BENCH is
+ * ignored and a commissioner-attested stash never nags). Starter availability
+ * is the Start verdict (CONTEXT.md, Unavailable; ADR 0061) from
+ * `startVerdictFor(playerId)`, the Weekly projection read's accessor, so a bye,
+ * No NFL team, Practice squad, Out or IR starter raises a problem here exactly
+ * as the Lineup and Start/sit pages mark him Unavailable. A `locked` entry
+ * (his game has kicked off) is not checked: there is nothing left to act on.
+ * rosterSlots: [{key,count,...}] detects unfilled slots.
  * Returns human-readable problem strings (empty = lineup looks fine).
  */
-function lineupProblems(entries, rosterSlots = [], now = new Date()) {
+function lineupProblems(entries, rosterSlots = [], startVerdictFor) {
   const problems = [];
   const starters = entries.filter((e) => e.slot !== 'BENCH' && e.slot !== 'IR');
 
@@ -66,14 +64,9 @@ function lineupProblems(entries, rosterSlots = [], now = new Date()) {
   }
 
   for (const s of starters) {
-    const verdict = unavailableFor({
-      injuryStatus: s.injury_status,
-      onBye: s.onBye,
-      noTeam: s.nflTeam === null,
-      nflRosterStatus: s.nflRosterStatus ?? null,
-      now,
-    });
-    const phrase = starterProblemPhrase(verdict.reason);
+    if (s.locked) continue;
+    const verdict = startVerdictFor(s.playerId);
+    const phrase = verdict.outcome === 'unavailable' ? starterProblemPhrase(verdict.reason) : null;
     if (phrase) problems.push(`${s.name} (${s.slot}) ${phrase}`);
   }
   for (const stash of entries.filter((entry) => entry.slot === 'IR')) {
@@ -88,15 +81,14 @@ function lineupProblems(entries, rosterSlots = [], now = new Date()) {
 }
 
 /**
- * Pure: one lineup_entries row (joined to players, with the week's bye read
- * off the nfl_games LEFT JOIN as `on_bye`) in the shape `lineupProblems`
- * reads.
+ * Pure: one lineup_entries row (joined to players) in the shape
+ * `lineupProblems` reads.
  */
 function lineupEntryFromRow(row) {
   return {
+    playerId: row.player_id,
     slot: row.slot,
     name: row.name,
-    onBye: row.on_bye,
     injury_status: row.injury_status,
     ir_attested: row.ir_attested,
   };
@@ -108,10 +100,10 @@ function lineupEntryFromRow(row) {
  * stashes are the manager's to fix; every other league is checked in full
  * against its roster slots.
  */
-function leagueLineupProblems({ entries, rosterSlots, bestBall, now }) {
+function leagueLineupProblems({ entries, rosterSlots, bestBall, startVerdictFor }) {
   return bestBall
-    ? lineupProblems(entries.filter((entry) => entry.slot === 'IR'), [], now)
-    : lineupProblems(entries, rosterSlots, now);
+    ? lineupProblems(entries.filter((entry) => entry.slot === 'IR'), [], startVerdictFor)
+    : lineupProblems(entries, rosterSlots, startVerdictFor);
 }
 
 /**
@@ -166,11 +158,12 @@ const timeOf = (value) => (value == null ? NaN : new Date(value).getTime());
  * optimizer fills the seats; only IR problems are the manager's), matching the
  * digest.
  *
- * entries: [{ slot, name, onBye, injury_status, ir_attested, nflTeam, nflRosterStatus }];
+ * entries: [{ playerId, slot, name, injury_status, ir_attested, nflTeam }];
+ * startVerdictFor: the Weekly projection read's accessor (ADR 0061);
  * kickoffByTeam: Map<normalized team code, kickoff>; weekLastKickoff: the
  * week's last kickoff or null when the week has no schedule.
  */
-function lineupStatus({ entries, rosterSlots, bestBall, kickoffByTeam, weekLastKickoff, now }) {
+function lineupStatus({ entries, rosterSlots, bestBall, startVerdictFor, kickoffByTeam, weekLastKickoff, now }) {
   const nowMs = timeOf(now);
   const kickoffOf = (e) => (kickoffByTeam && kickoffByTeam.get(normalizeNflTeam(e.nflTeam))) || null;
   const locked = (e) => {
@@ -190,12 +183,11 @@ function lineupStatus({ entries, rosterSlots, bestBall, kickoffByTeam, weekLastK
     else if (e.slot !== 'IR') {
       // Locked starter (or bench): keeps his seat, sheds what he can no
       // longer be moved for (bye, injury, and Practice squad alike - a
-      // locked player's own game has already kicked off, so there is no
-      // NFL team fact left to lock on: `noTeam` never fires here).
-      actionable.push({ ...e, onBye: false, injury_status: null, nflRosterStatus: null });
+      // locked player's own game has already kicked off).
+      actionable.push({ ...e, locked: true });
     }
   }
-  const problems = leagueLineupProblems({ entries: actionable, rosterSlots, bestBall, now });
+  const problems = leagueLineupProblems({ entries: actionable, rosterSlots, bestBall, startVerdictFor });
 
   const emptySlots = [];
   if (!bestBall) {
@@ -271,7 +263,9 @@ function matchupSummary({ matchup, decoration, myTeamId, teamNameById }) {
 /* ------------------------------------------------------------------ *
  * Batched reads for the Home endpoints. Every read covers ALL of the   *
  * viewer's leagues at once (= ANY), so the query count never grows     *
- * with the number of leagues, and every read of league data is scoped  *
+ * with the number of leagues (the lineup status's Weekly projection    *
+ * read, one per league, is the exception), and every read of league    *
+ * data is scoped                                                       *
  * to the viewer through teams.owner_id. The schedule reads (kickoffs,  *
  * the Pick'em slate) are public NFL facts and run once per distinct    *
  * (season, week) in play, not per league.                              *
@@ -300,8 +294,7 @@ function currentWeeks(leagues) {
 
 /**
  * The viewer's lineup entries for each of their teams' current week, as
- * Map<teamId, entries[]> in `lineupStatus`'s shape (with `nflTeam` and
- * `nflRosterStatus`, nflRosterStatus.js's column, #1791).
+ * Map<teamId, entries[]> in `lineupStatus`'s shape (with `nflTeam`).
  *
  * Read-only, so unlike the digest it does not materialize the week first.
  * Instead it reads each team's latest week at or before the current one:
@@ -309,12 +302,8 @@ function currentWeeks(leagues) {
  * that week (a newly added player lands on the bench, which never changes a
  * problem, and a dropped player is left out by the team_players join, as in
  * the digest), so Tuesday's Home page reads the lineup Sunday will start
- * from rather than nine false empty seats. The bye is read against the
- * CURRENT week, with the digest's fn_normalize_nfl_team join (#287).
- * `on_bye` guards `players.nfl_team IS NOT NULL` (#1791): for a No NFL team
- * row `fn_normalize_nfl_team(NULL)` is NULL, so the LEFT JOIN below never
- * matches and `nfl_games.nfl_team IS NULL` alone would misread a free agent
- * as on bye, feeding `unavailableFor` the wrong precedence.
+ * from rather than nine false empty seats. The rows carry no availability
+ * fact: the Start verdict comes from the Weekly projection read (ADR 0061).
  */
 async function loadLineups(db, { userId, teamIds }) {
   const byTeam = new Map();
@@ -330,10 +319,8 @@ async function loadLineups(db, { userId, teamIds }) {
          AND "lineup_entries"."week" <= "leagues"."current_week"
        GROUP BY "lineup_entries"."team_id"
      )
-     SELECT "lineup_entries"."team_id", "lineup_entries"."slot", "lineup_entries"."ir_attested",
-            "players"."name", "players"."injury_status", "players"."nfl_team",
-            ("players"."nfl_team" IS NOT NULL AND "nfl_games"."nfl_team" IS NULL) AS "on_bye",
-            ${nflRosterStatusColumn()}
+     SELECT "lineup_entries"."team_id", "lineup_entries"."player_id", "lineup_entries"."slot", "lineup_entries"."ir_attested",
+            "players"."name", "players"."injury_status", "players"."nfl_team"
      FROM "source"
      JOIN "teams" ON "teams"."id" = "source"."team_id"
      JOIN "leagues" ON "leagues"."id" = "teams"."league_id"
@@ -343,16 +330,13 @@ async function loadLineups(db, { userId, teamIds }) {
      JOIN "team_players" ON "team_players"."team_id" = "lineup_entries"."team_id"
        AND "team_players"."player_id" = "lineup_entries"."player_id"
      JOIN "players" ON "players"."id" = "lineup_entries"."player_id"
-     LEFT JOIN "nfl_games" ON "nfl_games"."season" = "leagues"."current_season"
-       AND "nfl_games"."week" = "leagues"."current_week"
-       AND fn_normalize_nfl_team("nfl_games"."nfl_team") = fn_normalize_nfl_team("players"."nfl_team")
      WHERE "teams"."owner_id" = $1`,
     [userId, teamIds]
   );
   for (const row of result.rows) {
     if (!byTeam.has(row.team_id)) byTeam.set(row.team_id, []);
     byTeam.get(row.team_id).push({
-      ...lineupEntryFromRow(row), nflTeam: row.nfl_team, nflRosterStatus: row.nfl_roster_status ?? null,
+      ...lineupEntryFromRow(row), nflTeam: row.nfl_team,
     });
   }
   return byTeam;
@@ -505,17 +489,33 @@ const need = (settled) => {
  */
 async function loadLineupStatuses(db, { userId, leagues, now }) {
   const { parseLineupSettings } = require('./lineup.service');
+  const projectionService = require('./projection.service');
   const [lineups, kickoffs] = await Promise.all([
     loadLineups(db, { userId, teamIds: leagues.map((l) => l.my_team_id) }),
     loadWeekKickoffs(db, { weeks: currentWeeks(leagues) }),
   ]);
+  // The Start verdict (ADR 0061) per league, from the Weekly projection read
+  // for its current week (a cached run when one exists; a miss generates it).
+  // One league's failed read leaves only that league without a lineup status,
+  // never the other leagues' (the one read that is not batched across leagues).
+  const weekly = await Promise.all(leagues.map((league) => projectionService.getWeeklyProjections({
+    season: league.current_season,
+    week: league.current_week,
+    league,
+    playerIds: (lineups.get(league.my_team_id) || []).map((e) => e.playerId),
+  }).catch((err) => {
+    console.error('home lineup status: weekly projection read failed for league', league.id, err.message);
+    return null;
+  })));
   const out = new Map();
-  for (const league of leagues) {
+  for (const [index, league] of leagues.entries()) {
+    if (!weekly[index]) continue;
     const week = kickoffs.get(weekKey(league.current_season, league.current_week)) || { byTeam: new Map(), last: null };
     out.set(league.id, lineupStatus({
       entries: lineups.get(league.my_team_id) || [],
       rosterSlots: parseLineupSettings(league).rosterSlots,
       bestBall: Boolean(league.best_ball),
+      startVerdictFor: (playerId) => weekly[index].startVerdictFor(playerId),
       kickoffByTeam: week.byTeam,
       weekLastKickoff: week.last,
       now,
