@@ -17,6 +17,7 @@ const {
   removeLineupEntries,
   currentWeekEntry,
   restoreInterruptedStash,
+  heldLineup,
   DEFAULT_ROSTER_SLOTS,
 } = require('../services/lineup.service');
 
@@ -2480,4 +2481,31 @@ test('getLineup reads the kickoff lock at the time it is given, so the advice ca
   const later = await getLineup({ leagueId: 5, userId: 7, week: 6, now: new Date('2026-10-11T17:03:00.000Z') });
   assert.equal(later.entries[0].locked, true);
   fake.assertClean();
+});
+
+// #2141: Held is one rule in one helper, whoever asks.
+const heldEntries = () => [
+  { playerId: 1, position: 'RB', slot: 'RB', locked: true }, // kicked off, starting
+  { playerId: 2, position: 'RB', slot: 'BENCH', locked: true }, // kicked off, benched
+  { playerId: 3, position: 'WR', slot: 'WR' }, // the Called shot's starter
+  { playerId: 4, position: 'WR', slot: 'BENCH' }, // the Called shot's benched player
+  { playerId: 5, position: 'TE', slot: 'IR' },
+  { playerId: 6, position: 'TE', slot: 'BENCH' },
+  { playerId: 7, position: 'RB', slot: 'FLEX' },
+];
+
+test('heldLineup pins a kicked-off starter, drops a kicked-off bench player and holds a Called shot pair', () => {
+  const held = heldLineup(heldEntries(), { calledShot: { starterId: 3, benchedId: 4 } });
+  assert.deepEqual([...held.pinned], [[1, 'RB'], [3, 'WR']]);
+  assert.deepEqual(held.candidates.map((c) => c.playerId), [6, 7],
+    'no kicked-off bench player, no held starter, no IR occupant, no benched half of the shot');
+  assert.deepEqual(held.candidates[0], { playerId: 6, position: 'TE' });
+  assert.equal(held.entries.find((e) => e.playerId === 4).locked, true);
+});
+
+test('heldLineup holds nobody for a Called shot the lineup no longer matches', () => {
+  const entries = heldEntries().map((e) => (e.playerId === 3 ? { ...e, slot: 'BENCH' } : e));
+  const held = heldLineup(entries, { calledShot: { starterId: 3, benchedId: 4 } });
+  assert.deepEqual([...held.pinned], [[1, 'RB']]);
+  assert.deepEqual(held.candidates.map((c) => c.playerId), [3, 4, 6, 7]);
 });

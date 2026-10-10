@@ -26,11 +26,28 @@ const { slotEligible, DEFAULT_ROSTER_SLOTS } = require('./lineup.service');
  * Leaving a slot EMPTY is a legal outcome and costs exactly 0, which is why a
  * player projected below zero (real for IDP and DST) is correctly left on the
  * bench instead of being forced into a slot.
+ *
+ * This is the one "best legal lineup" function (#2141): materialize, Hindsight,
+ * the live what-if, Expected final, Monte Carlo, Draft grade, Start/sit advice
+ * and the Upgrade all call `optimalLineup` (also exported as
+ * `optimalAssignment`). What may not move is computed by lineup.service's
+ * `heldLineup` and passed in as `pinned`; this module stays pure.
+ *
+ * It has two modes. The default leaves a slot empty rather than start a
+ * negative value (Start/sit advice and the Upgrade). `fillEverySlot` fills
+ * every slot that has an eligible player, then maximizes points: the answer
+ * the deleted greedy scan gave, which the valuations and the best-ball score
+ * of record keep, so a K or DEF below zero still counts there.
  */
 
 // Any cost this large is never chosen unless the matrix has no alternative,
 // and such an assignment is discarded when the result is read back.
 const INELIGIBLE = 1e9;
+
+// What `fillEverySlot` charges for leaving a slot empty: far above any lineup
+// total, far below INELIGIBLE, so the solve fills as many slots as it can and
+// only then maximizes points.
+const EMPTY_SLOT_COST = 1e6;
 
 /** Pure: rosterSlots -> one entry per startable slot INSTANCE, in display order. */
 function expandSlotInstances(rosterSlots = DEFAULT_ROSTER_SLOTS) {
@@ -123,13 +140,19 @@ function pointsValue(pointsFor, playerId) {
  * @param {Map}      args.pointsFor    playerId -> points (or { points })
  * @param {Map}      args.pinned       playerId -> slotKey for locked starters,
  *                                     who keep their exact slot instance
- * @returns {{ assignments, byPlayer, total }}
+ * @param {boolean}  args.fillEverySlot  fill every slot that has an eligible
+ *                                     player, even with a negative value
+ *                                     (default: leave it empty)
+ * @returns {{ starters, assignments, byPlayer, total }} `starters` is every
+ *   filled slot as `{ playerId, position, slot, points }` (`position` is known
+ *   for candidates; a pinned player carries none).
  */
-function optimalAssignment({
+function optimalLineup({
   rosterSlots = DEFAULT_ROSTER_SLOTS,
   candidates = [],
   pointsFor = new Map(),
   pinned = new Map(),
+  fillEverySlot = false,
 }) {
   const instances = expandSlotInstances(rosterSlots);
   const assignments = instances.map((slot) => ({
@@ -138,6 +161,15 @@ function optimalAssignment({
     playerId: null,
     points: 0,
   }));
+  const positionOf = new Map(candidates.map((c) => [c.playerId, c.position]));
+  const result = (total) => ({
+    starters: assignments
+      .filter((a) => a.playerId !== null)
+      .map((a) => ({ playerId: a.playerId, position: positionOf.get(a.playerId), slot: a.slotKey, points: a.points })),
+    assignments,
+    byPlayer,
+    total: Math.round(total * 100) / 100,
+  });
 
   // Locked starters consume their slot instance up front and never enter the
   // matrix: they cannot legally be moved, so optimizing over them would
@@ -166,17 +198,18 @@ function optimalAssignment({
   const openSlots = assignments.filter((a) => a.playerId === null);
   const pool = candidates.filter((c) => c && !pinned.has(c.playerId));
   if (openSlots.length === 0 || pool.length === 0) {
-    return { assignments, byPlayer, total: Math.round(total * 100) / 100 };
+    return result(total);
   }
 
   // Rows: open slot instances. Columns: real players, then one "leave empty"
-  // dummy per slot so that every row can always be filled at zero cost.
+  // dummy per slot so that every row can always be filled: at zero cost by
+  // default, at EMPTY_SLOT_COST under `fillEverySlot`.
   const rows = openSlots.length;
   const cols = pool.length + rows;
   const cost = [];
   for (let r = 0; r < rows; r++) {
     const slot = openSlots[r];
-    const row = new Array(cols).fill(0);
+    const row = new Array(cols).fill(fillEverySlot ? EMPTY_SLOT_COST : 0);
     for (let c = 0; c < pool.length; c++) {
       const player = pool[c];
       row[c] = slotEligible(slot.slotKey, player.position, rosterSlots)
@@ -198,7 +231,7 @@ function optimalAssignment({
     total += openSlots[r].points;
   }
 
-  return { assignments, byPlayer, total: Math.round(total * 100) / 100 };
+  return result(total);
 }
 
 /**
@@ -287,7 +320,10 @@ module.exports = {
   INELIGIBLE,
   expandSlotInstances,
   minCostAssignment,
-  optimalAssignment,
+  optimalLineup,
+  // The same function under the name its other importers (the backtest
+  // scripts and their tests) already use.
+  optimalAssignment: optimalLineup,
   buildSwapSuggestions,
   pointsValue,
 };
