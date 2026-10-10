@@ -33,6 +33,11 @@ const { slotEligible, DEFAULT_ROSTER_SLOTS } = require('./lineup.service');
  * `optimalAssignment`). What may not move is computed by lineup.service's
  * `heldLineup` and passed in as `pinned`; this module stays pure.
  *
+ * `optimalAssignment` is a permanent alias kept for archived and preregistered
+ * callers (backtest-artifacts/v3.1-release, sha256-pinned in its manifest, and
+ * scripts/holdout/lib/regret.js) and for append-only ADRs; new code calls
+ * `optimalLineup`.
+ *
  * It has two modes. The default leaves a slot empty rather than start a
  * negative value (Start/sit advice and the Upgrade). `fillEverySlot` fills
  * every slot that has an eligible player, then maximizes points: the answer
