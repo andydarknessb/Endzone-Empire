@@ -380,7 +380,7 @@ test('#1861 a week with no stored row still reads Hindsight live', async (t) => 
   assert.deepEqual(data.facts.benchBlunder, { team: 'Team A', pointsLeftOnBench: 9 });
 });
 
-test('ADR 0061: the prompt carries [[team:N]] tokens, never a team name; the LLM text is stored after the template', async (t) => {
+test('ADR 0063: the prompt carries [[team:N]] tokens, never a team name; the LLM text is stored after the template', async (t) => {
   const fake = recapWorld();
   fake.install(t);
   const claude = require('../services/claude');

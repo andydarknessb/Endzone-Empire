@@ -6,12 +6,13 @@ import { useLeague } from '../../hooks/useLeague';
 import { useLiveGameStates, useWeekMatchups, viewerMatchupOf, matchupBoard } from '../../entities/matchup';
 import { deriveLeaguePhase, LEAGUE_PHASE, computeByeClusters, worstByeCluster, MIN_TOUCH_TARGET_SX } from '../../shared/lib';
 import PickWeek from '../../features/pick-week';
-import LineupLedger, { buildLedgerSections, ledgerTabCounts, gameStatusKind } from '../../widgets/lineup-ledger';
+import LineupLedger, { gameStatusKind } from '../../widgets/lineup-ledger';
 import TeamSummaryStrip from '../../widgets/team-summary-strip';
 import MatchupPreview from '../../widgets/matchup-preview';
 import StartSitPanel from '../../widgets/start-sit-panel';
 import ByeClusterGrid from '../../widgets/bye-cluster';
-import { useLineupWrite, useSwapPlayers, useApplyAdvice, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
+import { useLineupWrite, useSwapPlayers, isEligibleMove, QuickPickMenu } from '../../features/lineup-write';
+import { useLedgerSections, ledgerTabCounts } from '../../entities/roster';
 import { useDropPlayer, DropConfirmationDialog } from '../../features/drop-player';
 import PlayerDecisionCard, { myTeam } from '../../widgets/player-decision-card';
 import { useLineupLeagues } from './model/useLineupLeagues';
@@ -37,7 +38,7 @@ const WEEKS = Array.from({ length: MAX_WEEK }, (_, i) => i + 1);
  * both the Ledger and the summary strip rather than each fetching it again.
  *
  * Ticket 6 (#1238) lands the advice tile and the phone Outlook view: the
- * start-sit-panel widget and the apply-advice feature, both composed here.
+ * start-sit-panel widget, composed here, whose Apply goes to the one `submit`.
  * Below `sm` one page-owned bottom bar (#1965), "Starters | Bench | Outlook",
  * picks `phoneView`: Starters and Bench show the Ledger's matching section,
  * Outlook shows the rail (start-sit-panel and matchup-preview, otherwise
@@ -172,23 +173,22 @@ export default function LineupPage() {
   // widget's own model).
   const { scoreEvent } = useLiveScores({ leagueId: selectedLeagueId, setRaw, refetch });
 
+  // The Ledger's rows, built once by the Roster entity off this page's own
+  // (optimistic) lineup and shared by the Ledger, the eligibility check and the
+  // phone bar's counts (#2146).
+  const sections = useLedgerSections(lineup);
+
   // AC4 (#1425 ruling): "no eligible target anywhere" is a whole-lineup
   // question - every Starter, Bench and IR row, filled or empty, not just
-  // the occupied `entries` the swap rules read. Built from the Ledger
-  // widget's own row enumeration (`buildLedgerSections`, its public
-  // surface) so this reuses exactly the rows the widget renders and
+  // the occupied `entries` the swap rules read. Read off the entity's
+  // `sections` so this reuses exactly the rows the widget renders and
   // highlights rather than a second copy of the slot-count math, and from
   // `isEligibleMove` (the same exported pure rule `onRowClick` and the
   // Decision card already share) rather than a new copy of the eligibility
   // rule itself.
   const hasEligibleTarget = (candidate) => {
-    if (!lineup) return false;
-    const { starters, bench, ir } = buildLedgerSections({
-      entries: lineup.entries,
-      rosterSlots: lineup.rosterSlots,
-      benchSlots: lineup.benchSlots,
-      irSlots: lineup.irSlots,
-    });
+    if (!sections) return false;
+    const { starters, bench, ir } = sections;
     return [...starters, ...bench, ...ir].some((row) => {
       if (row.entry && row.entry.playerId === candidate.playerId) return false;
       return isEligibleMove({
@@ -201,9 +201,9 @@ export default function LineupPage() {
     });
   };
 
-  // The one Lineup write (spec #2042): swap and apply advice only build move
-  // plans on its `submit`. It clears the week's cached Matchups list itself
-  // when a save lands (#1881), as drop-player does for a roster change.
+  // The one Lineup write (spec #2042): swap, the Start/sit card's Apply, the
+  // Bench what-if and the Decision card all hand move plans to its `submit`.
+  // It clears the week's cached Matchups list itself when a save lands (#1881), as drop-player does for a roster change.
   const { submit } = useLineupWrite({ leagueId: selectedLeagueId, raw, setRaw });
   const swap = useSwapPlayers({
     submit,
@@ -216,12 +216,11 @@ export default function LineupPage() {
 
   // Start/sit advice (#1238, ADR 0037): one page-level read shared by the
   // start-sit-panel widget, the team-summary-strip widget's advice tile and
-  // the apply-advice feature below - the same "value two widgets both need
+  // the Start/sit card's Apply below - the same "value two widgets both need
   // is passed down by the page" rule `useLineupData` already follows for the
   // lineup itself. Best ball never calls the endpoint at all.
   const advice = useAdvice({ leagueId: selectedLeagueId, week: lineup?.week, bestBall });
   const decisionCardEntry = (lineup?.entries || []).find((e) => e.playerId === decisionCardEntryId) || null;
-  const applyAdvice = useApplyAdvice({ submit });
   // Called shots (#1856): the actions re-read the advice when they land, since
   // the server pins or releases the shot's pair.
   const calledShot = useCalledShot({ leagueId: selectedLeagueId, week: lineup?.week, onChanged: advice.reload });
@@ -239,9 +238,9 @@ export default function LineupPage() {
   const viewerMatchup = viewerMatchupOf(matchups, viewerTeamId);
   // The board nulls a settled week's Expected final (#2048), so a played week
   // draws no line even though the server still prices one.
-  const board = matchupBoard(viewerMatchup);
+  const board = matchupBoard(viewerMatchup, viewerTeamId);
   const expectedFinals = viewerMatchup
-    ? viewerMatchup.home.teamId === viewerTeamId
+    ? board.viewerSide === 'home'
       ? { mine: board.home.expectedFinal, theirs: board.away.expectedFinal }
       : { mine: board.away.expectedFinal, theirs: board.home.expectedFinal }
     : null;
@@ -266,7 +265,7 @@ export default function LineupPage() {
     if (!swapOffer) return;
     const { outEntry, inEntry } = swapOffer;
     consumeRequestedSwap();
-    swap.performMove([
+    submit([
       { playerId: outEntry.playerId, slot: inEntry.slot },
       { playerId: inEntry.playerId, slot: outEntry.slot },
     ]);
@@ -302,16 +301,7 @@ export default function LineupPage() {
   // own rule, off the same rows it renders. Before the lineup has loaded there
   // is nothing to count, so the labels go without counts rather than read
   // `Starters 0/0`.
-  const tabCounts = lineup
-    ? ledgerTabCounts(
-        buildLedgerSections({
-          entries: lineup.entries,
-          rosterSlots: lineup.rosterSlots,
-          benchSlots: lineup.benchSlots,
-          irSlots: lineup.irSlots,
-        })
-      )
-    : null;
+  const tabCounts = sections ? ledgerTabCounts(sections) : null;
   const phoneTabs = [
     {
       key: 'starters',
@@ -501,7 +491,7 @@ export default function LineupPage() {
                     <LineupLedger
                       leagueId={selectedLeagueId}
                       lineup={lineup}
-                      league={league}
+                      sections={sections}
                       liveGamesByKey={liveGamesByKey}
                       disabled={leagueUnsettled}
                       showEligibility={Boolean(swap.selectedEntry)}
@@ -525,7 +515,7 @@ export default function LineupPage() {
                     advice={advice}
                     entries={lineup?.entries}
                     bestBall={bestBall}
-                    onApply={applyAdvice.apply}
+                    onApply={submit}
                     onCallShot={lineup?.week != null && lineup.week === lineup.currentWeek ? calledShot.callShot : undefined}
                     onWithdrawShot={calledShot.withdrawShot}
                     shotBusy={calledShot.busy}
@@ -693,7 +683,7 @@ export default function LineupPage() {
         week={lineup?.week}
         context={myTeam({
           managed: true,
-          onSwap: swap.performMove,
+          onSwap: submit,
           onRequestDrop: drop.requestDrop,
           canDropEntry,
           entries: lineup?.entries || [],

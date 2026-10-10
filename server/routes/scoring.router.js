@@ -185,7 +185,8 @@ router.get('/rules', (req, res) => {
 });
 
 // POST /api/scoring/sync-schedule — pull the NFL schedule into nfl_games.
-// source 'tank01' (default) spends 18 metered requests and drops games whose
+// source 'tank01' (default; the name is historic, the games now come from ESPN's
+// free scoreboard, #2116) makes 18 unmetered requests and drops games whose
 // kickoff time is still TBD; source 'nflverse' is free, insert-only, and
 // covers TBD-time games (week 18) with placeholder kickoffs — use it to
 // complete a season Tank01 left with schedule gaps (unfillable byes).

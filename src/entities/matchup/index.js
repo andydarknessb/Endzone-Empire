@@ -32,6 +32,7 @@
 export {
   matchupFromListRow,
   matchupFromDetailBody,
+  playerFromDetailRow,
   applyScoreEvent,
   applyIdentityPatch,
   matchupResultLine,

@@ -1,0 +1,106 @@
+{
+  "week": {
+    "number": 5
+  },
+  "season": {
+    "year": 2026
+  },
+  "events": [
+    {
+      "id": "401872994",
+      "date": "2026-10-13T00:15Z",
+      "shortName": "BUF @ LAR",
+      "competitions": [
+        {
+          "date": "2026-10-13T00:15Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "LAR"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "BUF"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401872988",
+      "date": "2026-10-11T17:00Z",
+      "shortName": "NYG @ WSH",
+      "competitions": [
+        {
+          "date": "2026-10-11T17:00Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "WSH"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "NYG"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401872980",
+      "date": "2026-10-09T00:15Z",
+      "shortName": "TB @ DAL",
+      "competitions": [
+        {
+          "date": "2026-10-09T00:15Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "DAL"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "TB"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "401872981",
+      "date": "2026-10-11T13:30Z",
+      "shortName": "PHI VS JAX",
+      "competitions": [
+        {
+          "date": "2026-10-11T13:30Z",
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "abbreviation": "JAX"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "abbreviation": "PHI"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

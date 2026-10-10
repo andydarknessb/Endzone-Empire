@@ -5,7 +5,6 @@ const { normalizeNflTeam } = require('./nflTeam');
 const waiverBoards = require('./waiverBoards');
 const projectionService = require('./projection.service');
 const { poolPointsMap } = require('./poolProjection');
-const { unavailableFor } = require('./unavailable');
 
 /**
  * The public Waiver Wire page's "Week N Waiver Targets" (#1829, spec #1825):
@@ -125,7 +124,7 @@ const PLAYERS_SQL = `
 // filter, so the rule that a player with no recent stats is dropped lives in
 // one place (`computedCandidatesFrom`) next to the others.
 const COMPUTED_CANDIDATES_SQL = `
-  SELECT "p"."id", "p"."name", "p"."position", "p"."nfl_team", "p"."photo_url", "p"."injury_status",
+  SELECT "p"."id", "p"."name", "p"."position", "p"."nfl_team", "p"."photo_url",
          EXISTS (
            SELECT 1 FROM "player_stats" "s"
             WHERE "s"."player_id" = "p"."id" AND "s"."season" = $2 AND "s"."week" = ANY($3::int[])
@@ -229,19 +228,14 @@ async function editorialTargets({ board, games, week, stale = null }) {
 /**
  * Pure: the candidate rows that pass the facts on the player row itself, each
  * with its Pool projection, best projection first. Drops a Position outside
- * QB/RB/WR/TE, No NFL team, no recorded stats in the recent completed weeks, and
- * anyone Unavailable on his own injury designation (Out, IR). Doubtful is
- * dropped too: `unavailableFor` keeps a Doubtful player startable, but a claim
- * for a player unlikely to play is not a target. Questionable stays.
+ * QB/RB/WR/TE, No NFL team and no recorded stats in the recent completed weeks.
+ * Availability is not decided here: `computedTargets` keeps only players whose
+ * Start verdict (ADR 0061) is Recommendable.
  */
 function computedCandidatesFrom(rows, pointsById) {
   return rows
     .filter((row) => COMPUTED_POSITIONS.includes(row.position))
     .filter((row) => row.nfl_team && row.has_recent_stats)
-    .filter((row) => {
-      const verdict = unavailableFor({ injuryStatus: row.injury_status, noTeam: !row.nfl_team });
-      return verdict.available && verdict.status !== 'D';
-    })
     .map((row) => ({ row, points: pointsById.get(Number(row.id)) }))
     .filter(({ points }) => points != null)
     .sort((a, b) => b.points - a.points || Number(a.row.id) - Number(b.row.id));
@@ -295,16 +289,16 @@ async function computedTargets({ season, games, week }) {
     }
     if (batch.length === 0) break;
     const weekly = await projectionService.getWeeklyProjections({
-      season, week, playerIds: batch.map(({ row }) => Number(row.id)),
+      season, week, league: projectionService.PUBLIC, playerIds: batch.map(({ row }) => Number(row.id)),
     });
     for (const { row, points, percent, capturedDate } of batch) {
       const id = Number(row.id);
       if (targets.length === MAX_TARGETS) break;
       if (isFull(row.position)) continue;
-      // Unavailable, or a number that is not his own evidence (Position-baseline,
-      // Backup quarterback): the Start verdict's two refusals, as the Upgrade's.
-      const verdict = weekly.startVerdictFor(id);
-      if (verdict.outcome === 'unavailable' || !verdict.numberTrusted) continue;
+      // Only a Recommendable player is a target: not Unavailable, not a number
+      // that is not his own evidence (Position-baseline, Backup quarterback),
+      // and not one unlikely to play (Doubtful, no practice all week).
+      if (weekly.startVerdictFor(id).outcome !== 'recommendable') continue;
       // Two rows of one athlete would resolve to one snapshot; serve him once.
       const athleteIds = [id, ...(identityIdsById.get(id) || [])];
       if (athleteIds.some((known) => servedIds.has(known))) continue;

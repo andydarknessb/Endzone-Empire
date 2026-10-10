@@ -4,6 +4,7 @@ const { createFakePool, select, insert } = require('./helpers/fakePool');
 const push = require('../services/push.service');
 const clock = require('../modules/clock');
 const { alertBigPlays } = require('../modules/scheduler');
+const { banterFor } = require('../services/pushBanter');
 
 // Matchup 100: team 1 (owner 11) vs team 2 (owner 22). Players 501 and 601 start
 // for the home team, 502 sits on its bench, 701 starts for the away team.
@@ -67,6 +68,9 @@ test('a 6.0-point receiving TD by a home starter pushes the home owner "yours" a
   assert.equal(byOwner[11].body, 'Home Wideout receiving touchdown (6 pts, yours)');
   assert.equal(byOwner[22].body, "Home Wideout receiving touchdown (6 pts, your opponent's)");
   assert.equal(byOwner[11].url, '/#/league/42/game-center');
+  const facts = { player: 'Home Wideout', event: 'receiving touchdown', points: 6 };
+  assert.equal(byOwner[11].banter, banterFor('bigPlayMine', 'big-play:100:501:receivingTDs:1', facts));
+  assert.equal(byOwner[22].banter, banterFor('bigPlayTheirs', 'big-play:100:501:receivingTDs:1', facts));
   assert.deepEqual(state.ledger.map((r) => [r.user_id, r.subject, r.fingerprint]), [
     [11, '100', '501:receivingTDs:1'],
     [22, '100', '501:receivingTDs:1'],
@@ -112,6 +116,9 @@ test('two qualifying plays in one sync give each owner one push titled "2 big pl
     "Away Wideout receiving touchdown (6 pts, your opponent's)",
   ]);
   assert.equal(state.ledger[0].fingerprint, '501:receivingTDs:1,701:receivingTDs:1');
+  for (const s of state.sent) {
+    assert.equal(s.payload.banter, banterFor('bigPlaySeveral', 'big-play:100:501:receivingTDs:1,701:receivingTDs:1', { count: 2 }));
+  }
 });
 
 test('a second qualifying sync 2 minutes after a push sends nothing; 6 minutes after sends one', async (t) => {

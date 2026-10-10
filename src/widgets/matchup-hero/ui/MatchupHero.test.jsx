@@ -297,7 +297,7 @@ test('a final matchup degrades a missing Expected final to a named placeholder',
   expect(within(tile).getByText('Not available')).toBeInTheDocument();
   expect(within(tile).getByText('-')).toHaveAttribute('aria-hidden', 'true');
   expect(within(homeSide()).getByTestId('matchup-hero-pmr')).toHaveTextContent(/0$/);
-  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('Won by 5.2');
+  expect(screen.getByTestId('matchup-hero-sentence')).toHaveTextContent('You won by 5.2');
   expect(screen.getByTestId('matchup-hero-status')).toHaveTextContent('Final');
   expect(screen.getByTestId('matchup-hero-status')).toHaveAttribute('data-variant', 'success');
 });

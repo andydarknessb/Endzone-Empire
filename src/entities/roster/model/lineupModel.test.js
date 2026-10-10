@@ -1,4 +1,4 @@
-import { lineupModel, pairStartersBySlot, locked, lineupEntries, isQuestionable } from './lineupModel';
+import { lineupModel, pairStartersBySlot, locked, spent, unavailable, unavailableLabel, lineupEntries, isQuestionable } from './lineupModel';
 import { slotsFor } from './rosterTemplateModel';
 
 // One lineup row exactly as GET /api/team/lineup delivers it
@@ -706,5 +706,56 @@ describe('lineupEntries: normalized roster rows, ordered by the league', () => {
     expect(entries[0].spent).toBe(true);
     const notSpent = lineupEntries([row({ id: 1, slot: 'WR' })], league);
     expect(notSpent[0].spent).toBe(false);
+  });
+});
+
+// #2140 (spec #2138, decision 3): the Roster entity owns the facts widgets
+// render about an entry - Unavailable, its one label, Lineup lock, spent.
+describe('unavailable / unavailableLabel: one verdict read, one label', () => {
+  const out = { availability: { available: false, reason: 'out' } };
+  const noReason = { availability: { available: false } };
+
+  test('unavailable reads availability.available === false and nothing else', () => {
+    expect(unavailable(out)).toBe(true);
+    expect(unavailable({ availability: { available: true, reason: null } })).toBe(false);
+    expect(unavailable({})).toBe(false);
+    expect(unavailable(null)).toBe(false);
+  });
+
+  test('a known reason reads its CONTEXT.md label', () => {
+    expect(unavailableLabel({ availability: { available: false, reason: 'bye' } })).toBe('on bye');
+    expect(unavailableLabel(out)).toBe('out');
+    expect(unavailableLabel({ availability: { available: false, reason: 'ir' } })).toBe('on IR');
+  });
+
+  test('the same missing-reason or unknown-reason entry yields one label, "unavailable"', () => {
+    expect(unavailableLabel(noReason)).toBe('unavailable');
+    expect(unavailableLabel({ availability: { available: false, reason: 'mystery' } })).toBe('unavailable');
+    expect(unavailableLabel({ availability: { available: false, reason: null } })).toBe('unavailable');
+  });
+
+  test('an available or verdict-less entry has no label', () => {
+    expect(unavailableLabel({ availability: { available: true, reason: null } })).toBeNull();
+    expect(unavailableLabel({})).toBeNull();
+    expect(unavailableLabel(null)).toBeNull();
+  });
+});
+
+describe('spent and locked are separate predicates', () => {
+  test('an entry whose game is over is locked but not spent', () => {
+    const playedOut = { locked: true, spent: false };
+    expect(locked(playedOut)).toBe(true);
+    expect(spent(playedOut)).toBe(false);
+  });
+
+  test('a departed starter holding a settled week\'s slot is spent but not locked', () => {
+    const departed = { locked: false, spent: true };
+    expect(spent(departed)).toBe(true);
+    expect(locked(departed)).toBe(false);
+  });
+
+  test('a missing key or null entry reads as not spent', () => {
+    expect(spent({})).toBe(false);
+    expect(spent(null)).toBe(false);
   });
 });

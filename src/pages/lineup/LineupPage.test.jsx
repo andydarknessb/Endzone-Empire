@@ -14,7 +14,7 @@ import LineupPage from './index';
  * states, every Edge line kind, Unavailable reasons, the strip numbers, a
  * swap and a refused swap, best ball, the narrow layout." Every branch has
  * its own dedicated unit coverage already (LedgerRow.test.jsx for the Game
- * cell/Edge line/Unavailable rendering, buildLedgerSections.test.js for
+ * cell/Edge line/Unavailable rendering, entities/roster's buildLedgerSections.test.js for
  * bench sorting, useSwapPlayers.test.js and useDropPlayer.test.js for the
  * interaction rules, TeamSummaryStrip.test.jsx for the strip numbers); what
  * this suite proves is that the composed page wires them together

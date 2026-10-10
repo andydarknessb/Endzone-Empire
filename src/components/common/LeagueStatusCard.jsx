@@ -15,7 +15,6 @@ import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 import { formatInstant } from '../../shared/lib/instantFormat';
 import { deriveLeaguePhase, LEAGUE_PHASE, LEAGUE_PHASE_META } from '../../shared/lib/leaguePhase';
 import { isPickemOnly } from '../../shared/lib/leagueType';
-import { matchupWinProbability } from '../../shared/lib/winProbability';
 // The narrow module, not the entity index: this card is in the initial chunk
 // and the index drags the hooks, the supabase client and their lazy routes in.
 import { matchupBoard } from '../../entities/matchup/model/matchupBoard';
@@ -116,17 +115,11 @@ function roleLabel(league) {
 }
 
 /** 0..1 chance the viewer's side wins: the server's figure once v2 ships, else v1. */
-function myWinProbability(matchup) {
+function myWinProbability(matchup, board) {
   if (typeof matchup.winProbability === 'number' && Number.isFinite(matchup.winProbability)) {
     return matchup.winProbability;
   }
-  return matchupWinProbability({
-    homeScore: matchup.my?.score,
-    awayScore: matchup.opp?.score,
-    homeExpectedFinal: matchup.my?.expectedFinal,
-    awayExpectedFinal: matchup.opp?.expectedFinal,
-    status: matchup.status,
-  }).home;
+  return (board.winProbability ?? board.projectedWinProbability).home;
 }
 
 const actionSx = { ...MIN_TOUCH_TARGET_SX, px: 1.5, fontWeight: 600 };
@@ -371,7 +364,7 @@ function FantasyBody({ league, status }) {
         />
       </Box>
       <Box sx={{ px: 2.5, pt: 1, pb: 2 }}>
-        {showOdds && <WinProbabilityBar mine={myWinProbability(matchup)} opponentName={opponentName} />}
+        {showOdds && <WinProbabilityBar mine={myWinProbability(matchup, board)} opponentName={opponentName} />}
         {board.isFinal && resultText(matchup) && (
           <Typography variant="body2" sx={{ fontSize: '14px', fontWeight: 700 }}>{resultText(matchup)}</Typography>
         )}

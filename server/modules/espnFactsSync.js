@@ -71,7 +71,7 @@ async function fetchDepthCharts({ transport } = {}) {
   return sweepTeams({
     job: 'espn-depth-chart',
     fetchTeam: (teamCode) => espnAthleteClient.teamDepthChart(teamCode, { transport }),
-  });
+  }).then(({ units }) => units);
 }
 
 /**
@@ -81,7 +81,11 @@ async function fetchDepthCharts({ transport } = {}) {
  * counts against the circuit breaker. A team that answered with rows is one
  * unit; a failed team is simply not a unit, so it writes nothing while every
  * other team still does. Throws (`runSyncJob` then records `fetch_failed`)
- * when the breaker trips or every team failed.
+ * when the breaker trips or every team failed. `complete` is true only when
+ * all 32 teams answered with rows: a failed team and a team that answered with
+ * nothing both leave it false, so a reader that treats "on no roster" as a
+ * departure (the daily player sync, #2117) can tell a gap in the sweep from a
+ * real absence.
  */
 async function sweepTeams({ job, fetchTeam }) {
   const teamCodes = Object.keys(espnAthleteClient.ESPN_TEAM_NUMERIC_ID);
@@ -108,7 +112,33 @@ async function sweepTeams({ job, fetchTeam }) {
     if (rows.length > 0) units.push({ teamCode, rows });
   }
   if (!anySucceeded) throw new Error(`${job}: every team fetch failed`);
-  return units;
+  return { units, complete: units.length === teamCodes.length };
+}
+
+// The one roster sweep both team-level reads share (#2117): the roster-status
+// Sync run and the daily player sync (`syncPlayers`) read the same 32 ESPN team
+// rosters, so whichever runs first in a scheduler tick pays for the sweep and
+// the other reuses it. Held in memory for SHARED_SWEEP_TTL_MS from the moment it
+// starts (so a concurrent reader joins the in-flight sweep), keyed on the
+// transport so an injected test transport never reads another's. A failed sweep
+// is dropped, never held. The TTL is far shorter than any cadence that reads it
+// (the Saturday and game-day roster-status runs exist to see a change since the
+// last sweep), so a read hours later always sweeps again.
+const SHARED_SWEEP_TTL_MS = 10 * 60 * 1000;
+let sharedSweep = null;
+
+function sharedRosterSweep({ transport } = {}) {
+  if (sharedSweep && sharedSweep.transport === transport && sharedSweep.expires > Date.now()) {
+    return sharedSweep.promise;
+  }
+  const promise = sweepTeams({
+    job: 'espn-roster-sweep',
+    fetchTeam: (teamCode) => espnAthleteClient.teamRoster(teamCode, { transport }),
+  });
+  const entry = { transport, promise, expires: Date.now() + SHARED_SWEEP_TTL_MS };
+  sharedSweep = entry;
+  promise.catch(() => { if (sharedSweep === entry) sharedSweep = null; });
+  return promise;
 }
 
 /** apply() for the depth-chart job: one team's rows, resolved and inserted
@@ -180,6 +210,7 @@ function applyRosterStatusUnit(capturedDate) {
     const statuses = [];
     const capturedDates = [];
     for (const row of rows) {
+      if (!row.rosterStatus) continue; // a group we don't map: on the roster, but no status to record
       const playerId = idByExternalId.get(Number(row.athleteId));
       if (!playerId) continue; // ESPN reports an athlete we don't roster - skip, don't invent a player
       playerIds.push(playerId);
@@ -205,7 +236,8 @@ function applyRosterStatusUnit(capturedDate) {
 
 /**
  * The ESPN NFL roster-status Sync run (job `'espn-roster-status'`, #1766, ADR
- * 0041 amendment): one `teamRoster` call per team, each team that answered
+ * 0041 amendment): one `teamRoster` call per team (the sweep it shares with the
+ * daily player sync, `sharedRosterSweep`, #2117), each team that answered
  * with athletes one unit. A failed team fetch writes nothing for that team and
  * never fails the run; every team failing (or the consecutive-failure breaker
  * tripping) fails it, as the depth-chart run does. `now` is handled exactly as
@@ -231,13 +263,7 @@ async function runRosterStatusSync({ now = new Date(), transport } = {}) {
   const day = cadence.utcDateKey(now);
   const result = await runSyncJob({
     job: 'espn-roster-status',
-    fetch: async () => ({
-      units: await sweepTeams({
-        job: 'espn-roster-status',
-        fetchTeam: (teamCode) => espnAthleteClient.teamRoster(teamCode, { transport }),
-      }),
-      detail: { day },
-    }),
+    fetch: async () => ({ units: (await sharedRosterSweep({ transport })).units, detail: { day } }),
     apply: applyRosterStatusUnit(capturedDate),
   });
   try {
@@ -317,6 +343,7 @@ module.exports = {
   runDepthChartSync,
   runRosterStatusSync,
   runOwnershipSync,
+  sharedRosterSweep,
   // exported for tests
   loadPlayerIdsByExternalId,
 };

@@ -8,7 +8,6 @@ import {
   initialsFor,
   monogramInk,
   projectionLabel,
-  unavailableLabel,
   MIN_TOUCH_TARGET_SX,
   NFL_TEAM_COLORS,
   FALLBACK_KIT,
@@ -16,6 +15,7 @@ import {
   startVerdictReason,
 } from '../../../shared/lib';
 import { PlayerNameLink } from '../../../entities/player';
+import { locked, spent, unavailable as isUnavailable, unavailableLabel } from '../../../entities/roster';
 import EdgeLineIcon from '../lib/EdgeLineIcon';
 import { edgeLineColor, displayEdgeKind } from '../lib/edgeLine';
 import { gameCellView } from '../lib/gameCell';
@@ -245,7 +245,7 @@ export default function LedgerRow({
   // Ledger can drop (`reserveDropTrack`), so a row without the control (a
   // spent one) keeps its numbers on the same right edge as its neighbours.
   const dropTrack = !isEmpty && (canDrop || reserveDropTrack);
-  const unavailable = !isEmpty && entry.availability && entry.availability.available === false;
+  const unavailable = !isEmpty && isUnavailable(entry);
   // Computed once here (rather than inside GameCell) so the same read also
   // drives the points cell's live colour and the Edge line's kind
   // transition (#1241 AC2/AC3) without a second call to gameCellView.
@@ -264,7 +264,7 @@ export default function LedgerRow({
   const projectionText = isEmpty
     ? null
     : unavailable
-      ? unavailableLabel(entry.availability.reason) || 'unavailable'
+      ? unavailableLabel(entry)
       : projectionLabel(entry);
   // L3: a real number reads "14.2 proj" under the points figure; a label
   // ("no history", an Unavailable reason) or the dash for a missing
@@ -290,7 +290,7 @@ export default function LedgerRow({
   // L5: the injury designation and the projection close the phrase, enough
   // to make a start/sit call from the row alone. An Unavailable row names its
   // reason instead, never the designation as well ("on IR, injured reserve").
-  const unavailableText = unavailable ? unavailableLabel(entry.availability.reason) || 'unavailable' : null;
+  const unavailableText = unavailable ? unavailableLabel(entry) : null;
   const designation = isEmpty || unavailable ? null : injuryView(entry.injuryStatus)?.name.toLowerCase();
   // Drop is inert while a swap is under way and this row is no legal target
   // (the row itself is disabled and dimmed the same way).
@@ -300,7 +300,7 @@ export default function LedgerRow({
     : [
         entry.name,
         slotLabel,
-        entry.locked && 'locked',
+        locked(entry) && 'locked',
         unavailableText,
         designation,
         projectionShown && `projected ${projectionText}`,
@@ -315,7 +315,7 @@ export default function LedgerRow({
   return (
     <Box
       data-testid={testId}
-      data-spent={entry?.spent ? 'true' : undefined}
+      data-spent={spent(entry) ? 'true' : undefined}
       sx={{
         position: 'relative',
         mb: '8px',
@@ -328,7 +328,7 @@ export default function LedgerRow({
           ? 'var(--dash-accent-line)'
           : showEligibility && eligible
             ? 'var(--dash-accent-line)'
-            : entry?.spent
+            : spent(entry)
               ? 'var(--dash-warning)'
               : 'var(--dash-line)',
         backgroundColor: (selected || swapHighlighted || (showEligibility && eligible))
@@ -420,7 +420,7 @@ export default function LedgerRow({
                 {startVerdictReason(entry) === 'backup' && (
                   <Badge variant="neutral" data-testid="ledger-backup">{BACKUP_LABEL}</Badge>
                 )}
-                {entry.locked && (
+                {locked(entry) && (
                   <Tooltip title="Locked: this player's game has kicked off">
                     {/* role="img" legitimizes the aria-label on this otherwise
                         generic span (WAI-ARIA: aria-label is only valid on an
@@ -459,7 +459,7 @@ export default function LedgerRow({
                     </Box>
                   </Tooltip>
                 )}
-                {entry.spent && (
+                {spent(entry) && (
                   <Box
                     component="span"
                     data-testid="ledger-spent-chip"

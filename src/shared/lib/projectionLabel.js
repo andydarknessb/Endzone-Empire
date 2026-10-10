@@ -1,15 +1,13 @@
 // The one client mapping from a lineup row to the single number a surface
 // prints for its Weekly projection (#1776, spec #1774): "no history" for a
 // Position-baseline projection (CONTEXT.md), else the formatted Point
-// estimate. Sits beside `unavailableLabel`, which owns the harder facts: an
+// estimate. Sits beside `unavailableLabel` (`entities/roster`), which owns the harder facts: an
 // Unavailable reason (bye, out, IR, no team, practice squad) always wins over
-// "no history", so a caller renders `unavailableLabel(reason)` first and this
+// "no history", so a caller renders `unavailableLabel(entry)` first and this
 // only for an available row.
 //
 // The verdict is the server's (`entry.startVerdict` on every wire, whose reason
-// is `no_history` only for an available player); this holds no copy of it. The
-// guard on `availability` below is belt and braces for a row built by hand,
-// never a second derivation.
+// is `no_history` only for an available player); this holds no copy of it.
 
 import { formatPoints } from './numeric';
 import { startVerdictReason } from './startVerdict';
@@ -30,12 +28,12 @@ export const BACKUP_LABEL = 'Backup';
 /**
  * True when `entry` is a Position-baseline projection the surface must not
  * present as a number: its Start verdict reads `no_history` (every wire's
- * `startVerdict`, spec #2042) and the player is not Unavailable. Never throws
- * on a missing row.
+ * `startVerdict`, spec #2042). An Unavailable player carries an unavailable
+ * verdict whose reason is never `no_history`, so the reason alone decides: no
+ * second read of `availability` here (#2140). Never throws on a missing row.
  */
 export function hasNoHistory(entry) {
-  if (!entry || startVerdictReason(entry) !== 'no_history') return false;
-  return !(entry.availability && entry.availability.available === false);
+  return startVerdictReason(entry) === 'no_history';
 }
 
 /**

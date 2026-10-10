@@ -4,10 +4,10 @@
 // Recomputed on every score sync — as real points come in, "remaining" shrinks
 // and the curve sharpens toward whoever is ahead late.
 //
-// Promoted to `shared/lib` from `src/lib/winProbability` (#1120, ADR 0031):
-// `matchupWinProbability` reached five widget consumers plus the Matchup page,
-// past ADR 0031's one-more-consumer threshold for a `shared/lib` home. The
-// arithmetic and return shape are unchanged; only its address moved.
+// Promoted to `shared/lib` from `src/lib/winProbability` (#1120, ADR 0031),
+// then moved into the Matchup entity (#2142): a surface reads the Win
+// probability off `matchupBoard` and prices nothing itself. The arithmetic and
+// return shape are unchanged; only its address moved.
 
 // Spread (in fantasy points) of the expected-margin logistic. Roughly one
 // standard deviation of a weekly matchup margin; larger = flatter/less certain.
@@ -50,7 +50,7 @@ export function homeWinProbability({
  * 56%. The gate is the status, not "nothing remaining", because a missing
  * Expected final (a projection outage, an unreadable overtime clock) also
  * reads as nothing remaining on a game still in play. server/services/winProbabilityV1.js
- * mirrors this and src/shared/lib/winProbability.parity.test.js pins the two,
+ * mirrors this and src/entities/matchup/model/winProbability.parity.test.js pins the two,
  * so edit both or neither. Returns { home, away } probabilities summing to 1.
  */
 export function matchupWinProbability({

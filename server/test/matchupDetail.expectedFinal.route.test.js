@@ -40,8 +40,10 @@ const authed = (userId) => `Bearer ${signToken({ id: userId, username: `u${userI
 
 /**
  * A minimal stand-in for the real Weekly projection result object (#1703):
- * just the one accessor `expectedFinalsForWeek` calls, `pointsFor`, reading
- * this file's legacy-shaped `{ points }` fixtures.
+ * the accessors `expectedFinalsForWeek` and the route call, `pointsFor` reading
+ * this file's legacy-shaped `{ points }` fixtures and `startVerdictFor`
+ * (ADR 0061) deriving the Start verdict, through the real read's own accessor,
+ * from a fixture's stored Availability input (`availability`).
  */
 function fakeWeeklyResult(projections, extra = {}) {
   return {
@@ -53,9 +55,20 @@ function fakeWeeklyResult(projections, extra = {}) {
       const raw = typeof entry === 'object' ? entry.points : entry;
       return Number.isFinite(Number(raw)) ? Number(raw) : null;
     },
+    startVerdictFor(id) {
+      const entry = projections.get(id);
+      const availability = (entry && typeof entry === 'object' && entry.availability) || {};
+      return projectionService
+        .toWeeklyProjectionResult({ projections: new Map([[id, { factors: { availability } }]]) })
+        .startVerdictFor(id);
+    },
     ...extra,
   };
 }
+
+const OUT = { available: false, activeProbability: 0, reason: 'out', status: 'O' };
+const BYE = { available: false, activeProbability: 0, reason: 'bye', status: null };
+const NO_TEAM = { available: false, activeProbability: 0, reason: 'no_team', status: null };
 
 const MATCHUP_ROW = {
   id: 7,
@@ -99,10 +112,10 @@ const AWAY_STARTERS = [player(201, 'Resting Back', 'RB', 'Ghosts', null, 'RB', n
 
 const PROJECTIONS = new Map([
   [101, { points: 19 }],
-  [102, { points: 11.3 }],
+  [102, { points: 11.3, availability: OUT }],
   [103, { points: 7.7 }],
-  [104, { points: 5.5 }],
-  [201, { points: 9 }],
+  [104, { points: 5.5, availability: OUT }],
+  [201, { points: 9, availability: BYE }],
 ]);
 const LIVE = [{ home_team: 'KC', away_team: 'LV', game_status: 'final' }];
 const SCHEDULE = [
@@ -245,13 +258,13 @@ const NOW = '2026-10-25T18:00:00.000Z'; // Sunday afternoon, after the 17:00Z ki
 async function detailStatus(t, { live, schedule, throwLive = false, awayTeam = 'DAL' }) {
   t.mock.method(clock, 'now', () => new Date(NOW));
   t.mock.method(projectionService, 'getWeeklyProjections', async () => fakeWeeklyResult(
-    new Map([[301, { points: 10 }], [401, { points: 10 }]])
+    new Map([[301, { points: 10 }], [401, { points: 10, availability: awayTeam === null ? NO_TEAM : OUT }]])
   ));
   t.mock.method(lineupService, 'materializeLineup', async () => {});
   t.mock.method(decisionService, 'liveWhatIf', async () => null);
   const homeStarters = [player(301, 'Home QB', 'QB', 'KC', null, 'QB', null)];
-  // The away RB is ruled Out, so the no-priced-row fallback (F1) has a
-  // designation to speak from.
+  // The away RB is ruled Out in the run, so a row the producer did not price
+  // (F1) has a Start verdict to speak from (ADR 0061).
   const awayStarters = [player(401, 'Away RB', 'RB', awayTeam, awayTeam === null ? null : 'O', 'RB', null)];
   const byes = [];
   for (let w = 1; w <= 18; w++) for (const team of ['KC', 'DAL']) byes.push({ nfl_team: team, week: w });
@@ -314,9 +327,9 @@ test('the detail body states matchup.status null when a read fails, never a fals
   });
   assert.equal(body.matchup.status, null);
   assert.equal(body.home.expectedFinal, null);
-  // With no priced row the availability rule still speaks from the injury
-  // designation alone: the Out RB says so, the healthy QB carries no reason.
-  // Red-tell: returning null availability from the fallback turns this red.
+  // With no priced row the availability still speaks, from the Weekly projection
+  // read's Start verdict: the Out RB says so, the healthy QB carries no reason.
+  // Red-tell: returning null availability for an unpriced row turns this red.
   assert.deepEqual(body.away.starters[0].availability, { available: false, reason: 'out' });
   assert.deepEqual(body.home.starters[0].availability, { available: true, reason: null });
   assert.equal(body.away.starters[0].projected, null);
@@ -978,7 +991,7 @@ test('a settled matchup passes weekIsFinal into liveWhatIf, buying it out of its
   });
 });
 
-test('the detail fallback passes the no-team fact: a released player reads unavailable no_team (#1668)', async (t) => {
+test('an unpriced released player reads unavailable no_team from the Start verdict (#1668)', async (t) => {
   const body = await detailStatus(t, {
     throwLive: true,
     awayTeam: null,

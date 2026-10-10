@@ -16,10 +16,12 @@ export function playerCardFromResponse(data) {
 /**
  * The Decision-card read URL, the one place it is spelled. `week` is omitted
  * when null or undefined, matching the route's default (the league's current
- * week).
+ * week). `dropPlayerId` (#2168) asks for `decision.swapNet` with that roster
+ * player out of the lineup.
  */
-export function playerCardUrl({ leagueId, playerId, week }) {
-  return `/api/players/${playerId}/card?leagueId=${leagueId}${week != null ? `&week=${week}` : ''}`;
+export function playerCardUrl({ leagueId, playerId, week, dropPlayerId }) {
+  const drop = dropPlayerId != null ? `&dropPlayerId=${dropPlayerId}` : '';
+  return `/api/players/${playerId}/card?leagueId=${leagueId}${week != null ? `&week=${week}` : ''}${drop}`;
 }
 
 export default playerCardFromResponse;

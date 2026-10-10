@@ -6,28 +6,26 @@
 
 const UNAVAILABLE_LABELS = {
   bye: 'on bye', out: 'out', ir: 'on IR', no_team: 'no team', practice_squad: 'practice squad',
+  suspended: 'suspended',
   // ADR 0057: only an Upgrade's overPlayer carries it (a Backup quarterback valued at 0).
   backup: 'backup',
 };
 
 /**
  * The CONTEXT.md **Unavailable** label for a reason a player cannot play this
- * week: "on bye", "out", "on IR", "no team", "practice squad" for
- * `bye | out | ir | no_team | practice_squad`. `null` for an unknown
+ * week: "on bye", "out", "on IR", "no team", "practice squad", "suspended" for
+ * `bye | out | ir | no_team | practice_squad | suspended`. `null` for an unknown
  * or missing reason - never throws.
  *
- * Applies no fallback of its own: each caller keeps whatever fallback it
- * already has for a reason this map does not know (LineupScreen's start/sit
- * panel reads "unavailable"; the retro-scoreboard and slot-comparison widget
- * models read "out"). Folding one of those fallbacks in here would make this
- * helper wrong for the other callers, the same reasoning `parseRosterSlots`
- * documents for its own callers.
+ * Applies no fallback of its own: a reason-string reader (a projection week, a
+ * claim Upgrade) keeps its own. A whole Roster entry reads its label, with the
+ * one fallback word, from `entities/roster`'s `unavailableLabel` (#2140).
  *
  * Looks up an OWN property only, so a reason like `'constructor'` or
  * `'toString'` reads as unknown (null) rather than resolving an inherited
  * `Object.prototype` member.
  */
-export function unavailableLabel(reason) {
+export function reasonLabel(reason) {
   return Object.prototype.hasOwnProperty.call(UNAVAILABLE_LABELS, reason)
     ? UNAVAILABLE_LABELS[reason]
     : null;

@@ -88,7 +88,8 @@ export function viewerMatchupOf(matchups, viewerTeamId) {
  * `{ matchup, home, away }`, where the score lives on `matchup.home_score` and
  * each side's identity, Expected final and Players remaining live on the
  * per-side object. The detail body carries no per-side avatar today, so those
- * read null until a side supplies them.
+ * read null until a side supplies them. It reads no player row: a starter row
+ * goes through `playerFromDetailRow` below.
  */
 export function matchupFromDetailBody(body) {
   const b = body || {};
@@ -121,6 +122,46 @@ export function matchupFromDetailBody(body) {
       expectedFinal: a.expectedFinal ?? null,
       playersRemaining: a.playersRemaining ?? null,
     },
+  };
+}
+
+/**
+ * One player row of the Matchup detail body, normalised to the Roster entity's
+ * camelCase shape (`playerId`, `nflTeam`, `injuryStatus`, `photoUrl`,
+ * `gameState`, `gameClock`, `projectedPoints`; #2147, ADR 0029), so a surface
+ * that reads it never names a wire column. This is where those columns' names
+ * belong. `useMatchup` still hands the page the raw starters (the Decision card
+ * lookup, the score deltas and the Slot comparison read the wire shape), so the
+ * page model maps the rows a surface wants normalised through this.
+ *
+ * `points` is null exactly while the producer classifies the player's game
+ * `scheduled` (the Ledger row's "blank until kickoff", CONTEXT.md): the wire
+ * sends 0 there, and a player who has not taken the field has no points yet.
+ * Every other state, including none priced (null), keeps the wire's number;
+ * the producer's classification is the only kickoff fact the row carries and
+ * nothing is inferred (ADR 0030).
+ *
+ * A missing row is no player (null), so a slot only one side filled keeps its
+ * empty opposite side.
+ */
+export function playerFromDetailRow(row) {
+  if (row == null) return null;
+  const gameState = row.game_state ?? null;
+  return {
+    playerId: row.id ?? null,
+    name: row.name ?? null,
+    position: row.position ?? null,
+    slot: row.slot ?? null,
+    nflTeam: row.nfl_team ?? null,
+    injuryStatus: row.injury_status ?? null,
+    photoUrl: row.photo_url ?? null,
+    gameState,
+    gameClock: row.game_clock ?? null,
+    opponent: row.opponent ?? null,
+    projectedPoints: row.projected ?? null,
+    availability: row.availability ?? null,
+    stats: row.stats ?? null,
+    points: gameState === 'scheduled' ? null : row.points ?? null,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import apiClient from '../../../api/apiClient';
 import { readHttpFailure } from '../../../lib/httpFailure';
 import { lineupEntries } from '../../../entities/roster';
@@ -54,22 +54,23 @@ export function useLineupData({ leagueId, week }) {
     fetchLineup();
   }, [fetchLineup]);
 
-  const rosterSlots = parseRosterSlots(raw?.rosterSlots);
-  const entries =
-    raw && rosterSlots.length > 0 ? lineupEntries(raw.entries, { roster_slots: rosterSlots }) : [];
-
-  const lineup = raw
-    ? {
-        week: raw.week ?? null,
-        season: raw.season ?? null,
-        teamId: raw.teamId ?? null,
-        currentWeek: raw.currentWeek ?? null,
-        rosterSlots,
-        benchSlots: raw.benchSlots ?? null,
-        irSlots: raw.irSlots ?? null,
-        entries,
-      }
-    : null;
+  // Memoised on `raw` so `lineup` keeps its identity between changes: the
+  // Roster entity's `useLedgerSections(lineup)` rebuilds the Ledger rows only
+  // when a save, a live delta or a refetch actually changed `raw` (#2146).
+  const lineup = useMemo(() => {
+    if (!raw) return null;
+    const rosterSlots = parseRosterSlots(raw.rosterSlots);
+    return {
+      week: raw.week ?? null,
+      season: raw.season ?? null,
+      teamId: raw.teamId ?? null,
+      currentWeek: raw.currentWeek ?? null,
+      rosterSlots,
+      benchSlots: raw.benchSlots ?? null,
+      irSlots: raw.irSlots ?? null,
+      entries: rosterSlots.length > 0 ? lineupEntries(raw.entries, { roster_slots: rosterSlots }) : [],
+    };
+  }, [raw]);
 
   return { lineup, raw, setRaw, loading, error, refetch: fetchLineup };
 }
