@@ -450,6 +450,22 @@ test('no Factor tile when factorExplanation is null', async () => {
   expect(screen.queryByTestId('decision-card-factor')).not.toBeInTheDocument();
 });
 
+// ADR 0063: the stored Projection explanation rides the card payload.
+test('the Projection explanation renders with a stored explanation', async () => {
+  const explanation = 'Recent production is the biggest driver this week.';
+  mockCardRoute({ explanation });
+  renderCard();
+  await screen.findByTestId('decision-card-projection');
+  expect(await screen.findByTestId('decision-card-explanation')).toHaveTextContent(explanation);
+});
+
+test('no Projection explanation without a stored one', async () => {
+  mockCardRoute({ explanation: null });
+  renderCard();
+  await screen.findByTestId('decision-card-projection');
+  expect(screen.queryByTestId('decision-card-explanation')).not.toBeInTheDocument();
+});
+
 // #1281: the point of the ticket - an injured player can show BOTH the
 // injury tile and his largest Factor's explanation at once, which he could
 // not before (the Factor tile was gated on the Edge line's own kind, and

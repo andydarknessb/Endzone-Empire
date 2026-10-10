@@ -962,7 +962,7 @@ export default function PlayerDecisionCard(props) {
                 <Typography component="h3" sx={{ fontWeight: 700, px: 2, pt: 1.5 }}>{entry.name}</Typography>
                 <InjurySection entry={entry} level="h4" practice={card?.player?.practice} practiceTestId="decision-card-practice" />
                 <GameSection entry={entry} line={line} weather={weather} level="h4" />
-                <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} />
+                <ProjectionSection entry={entry} level="h4" volatility={card?.decision?.volatility} explanation={card?.explanation} />
                 <UsageSection usage={usage} opponents={opponents} position={entry.position} level="h4" />
                 <BenchOptionsSection
                   entry={entry}
@@ -990,7 +990,7 @@ export default function PlayerDecisionCard(props) {
                 </Box>
                 <InjurySection entry={compareEntry} level="h4" practice={compareCard?.player?.practice} practiceTestId="decision-card-compare-practice" />
                 <GameSection entry={compareEntry} line={compareLine} weather={compareWeather} level="h4" />
-                <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} />
+                <ProjectionSection entry={compareEntry} level="h4" volatility={compareCard?.decision?.volatility} explanation={compareCard?.explanation} />
                 <UsageSection usage={compareUsage} opponents={compareOpponents} position={compareEntry.position} level="h4" />
               </Box>
             </Box>
@@ -998,7 +998,7 @@ export default function PlayerDecisionCard(props) {
             <>
               <InjurySection entry={displayEntry} practice={card?.player?.practice} practiceTestId="decision-card-practice" />
               {lineupManaged && <GameSection entry={entry} line={line} weather={weather} />}
-              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} />}
+              {lineupManaged && <ProjectionSection entry={entry} volatility={card?.decision?.volatility} explanation={card?.explanation} />}
               <UsageSection usage={usage} opponents={opponents} position={entry?.position} showTable={lineupManaged} />
               {/* #1307, ADR 0040: "Every context adds the decision strip ...
                   and the eighteen-week bars" - additive to my_team's own
@@ -1257,7 +1257,7 @@ function GameSection({ entry, line, weather, level }) {
 // from the card payload's `decision.volatility` (`steady` | `boom_or_bust`);
 // anything else (null, absent, a tag this build does not know) renders nothing,
 // never an "unavailable" (ADR 0040).
-function ProjectionSection({ entry, level, volatility }) {
+function ProjectionSection({ entry, level, volatility, explanation }) {
   const factorText = entry.factorExplanation || null;
   const volatilityLabel = VOLATILITY_LABELS[volatility] ?? null;
   return (
@@ -1282,6 +1282,11 @@ function ProjectionSection({ entry, level, volatility }) {
       {factorText && (
         <Typography data-testid="decision-card-factor" sx={{ mt: 1, fontSize: 13 }}>
           {factorText}
+        </Typography>
+      )}
+      {explanation && (
+        <Typography variant="body2" data-testid="decision-card-explanation" sx={{ mt: 1, fontSize: 13 }}>
+          {explanation}
         </Typography>
       )}
     </Section>

@@ -1770,9 +1770,10 @@ _Avoid_: last year's defense, carry-over
 **Projection explanation**:
 A Narrative about one player's Weekly projection for one week, naming the
 Factors that moved it and never a value, a rank or a verdict. It is written
-once per player per week under the pool-wide default scoring rules, so it
-reads true in every league, and the Decision card shows it beside the number
-it explains. It is not Start/sit advice and never recommends a lineup.
+per player per week under the pool-wide default scoring rules, so it reads
+true in every league, and rewritten only when what it says would change (a
+new injury tag, a Factor that flipped). The Decision card shows it beside the
+number it explains. It is not Start/sit advice and never recommends a lineup.
 _Avoid_: AI insight, projection note, analysis, why-card
 
 **Start/sit advice**:

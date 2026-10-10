@@ -513,3 +513,34 @@ test('runNightlyProjectionFill: a reconcile failure is logged and never fails th
   const result = await scheduler.runNightlyProjectionFill({ now: new Date('2026-09-18T17:10:00Z') });
   assert.ok(result && result.weeksGenerated > 0, 'the fill itself still succeeds');
 });
+
+// ADR 0063: Projection explanations follow the fill, once, for the live week.
+test('runNightlyProjectionFill writes Projection explanations once after the fill, and a failure there never fails it', async (t) => {
+  const cadence = require('../modules/cadence');
+  const explanations = require('../services/projectionExplanation.service');
+  t.mock.method(cadence, 'due', async () => ({ due: true, reason: 'stubbed due' }));
+  t.mock.method(projection, 'getWeeklyProjections', async ({ playerIds }) => (
+    { projections: new Map(playerIds.map((id) => [id, { median: 5, cached: false }])) }
+  ));
+  t.mock.method(projection, 'liveReconcileScope', async () => ({ season: 2026, fromWeek: 2 }));
+  t.mock.method(projection, 'reconcileAvailability', async () => ({ checked: 0, updated: 0 }));
+  t.mock.method(console, 'log', () => {});
+  // The NFL calendar's week in play, not the league's current_week (2 here).
+  t.mock.method(require('../services/nflSeason.service'), 'upcomingNflSeason', async () => 2026);
+  t.mock.method(require('../services/pickemSeason.service'), 'getSeasonWeekBounds', async () => [
+    { week: 4, lastKickoffAt: new Date('2026-09-21T01:00:00Z') },
+    { week: 5, lastKickoffAt: new Date('2026-09-28T01:00:00Z') },
+  ]);
+  const generate = t.mock.method(explanations, 'generateForWeek', async () => { throw new Error('model blew up'); });
+  createFakePool([
+    [/INSERT INTO "data_sync_runs"/, () => ({ rows: [] })],
+    [/FROM "leagues"/, () => ({ rows: [LIVE_LEAGUE_ROW] })],
+    [/FROM "players"/, () => ({ rows: [{ id: 101 }] })],
+  ]).install(t);
+
+  const now = new Date('2026-09-18T17:10:00Z');
+  const result = await scheduler.runNightlyProjectionFill({ now });
+  assert.ok(result && result.weeksGenerated > 0, 'the fill itself still succeeds');
+  assert.equal(generate.mock.callCount(), 1);
+  assert.deepEqual(generate.mock.calls[0].arguments, [{ season: 2026, week: 4 }, { now }]);
+});
