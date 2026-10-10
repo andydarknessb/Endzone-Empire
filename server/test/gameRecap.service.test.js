@@ -113,15 +113,18 @@ test('llmNarrative returns null with no key and no client (template wins)', asyn
   }
 });
 
-test('llmNarrative falls back to null when the client throws', async () => {
+test('llmNarrative falls back to null when the client throws', async (t) => {
+  t.mock.method(pool, 'query', async () => ({ rows: [{ spent: 0 }] })); // reach the client
   const throwingClient = { messages: { create: async () => { throw new Error('boom'); } } };
   assert.equal(await svc.llmNarrative({ week: 1 }, { client: throwingClient }), null);
 });
 
-test('llmNarrative uses the enhanced text when the client succeeds', async () => {
+test('llmNarrative uses the enhanced text when the client succeeds', async (t) => {
+  // services/claude.js sums and records llm_usage around the call.
+  t.mock.method(pool, 'query', async (sql) => ({ rows: [{ spent: 0 }] }));
   const client = {
     messages: {
-      create: async () => ({ content: [{ type: 'text', text: 'Enhanced recap prose.' }] }),
+      create: async () => ({ content: [{ type: 'text', text: 'Enhanced recap prose.' }], stop_reason: 'end_turn' }),
     },
   };
   assert.equal(await svc.llmNarrative({ week: 1 }, { client }), 'Enhanced recap prose.');
@@ -321,19 +324,27 @@ test('reconcileRecaps counts only newly-accepted enqueues (dedupe against in-fli
 });
 
 test('generateForGame prefers the LLM narrative when a client is injected', async (t) => {
+  const upserts = [];
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);
     if (text.includes('FROM "live_game_states"')) return { rows: [FINAL_STATE] };
     if (text.includes('FROM "player_stats" "ps"')) return { rows: [] };
-    if (text.includes(`INTO ${RECAPS_TABLE_SQL}`)) return { rows: [{ tank01_game_id: params[0] }] };
+    if (text.includes(`INTO ${RECAPS_TABLE_SQL}`)) {
+      upserts.push(JSON.parse(params[8]));
+      return { rows: [{ tank01_game_id: params[0] }] };
+    }
+    // services/claude.js sums and records llm_usage around the call.
+    if (text.includes('"llm_usage"')) return { rows: [{ spent: 0 }] };
     throw new Error(`Unexpected SQL: ${text}`);
   });
   const client = {
-    messages: { create: async () => ({ content: [{ type: 'text', text: 'LLM enhanced.' }] }) },
+    messages: { create: async () => ({ content: [{ type: 'text', text: 'LLM enhanced.' }], stop_reason: 'end_turn' }) },
   };
   const data = await svc.generateForGame('20260112_KC@BUF', { api: stubApi({}), client });
   assert.equal(data.narrativeSource, 'llm');
   assert.equal(data.narrative, 'LLM enhanced.');
+  // Template first: the row is stored with the template, then again with the LLM text.
+  assert.deepEqual(upserts.map((d) => d.narrativeSource), ['template', 'llm']);
 });
 
 // ---- one box-score fetch serves the recap AND the final stat ingest ---------
