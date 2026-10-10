@@ -39,7 +39,8 @@ const { slotEligible, DEFAULT_ROSTER_SLOTS } = require('./lineup.service');
  * `optimalLineup`.
  *
  * It has two modes. The default leaves a slot empty rather than start a
- * negative value (Start/sit advice and the Upgrade). `fillEverySlot` fills
+ * negative value (Start/sit advice, the Upgrade and the Lineup seed,
+ * lineup.service's `seedLineup`). `fillEverySlot` fills
  * every slot that has an eligible player, then maximizes points: the answer
  * the deleted greedy scan gave, which the valuations and the best-ball score
  * of record keep, so a K or DEF below zero still counts there.
