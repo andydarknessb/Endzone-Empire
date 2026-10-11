@@ -61,9 +61,9 @@ test('applyGameBoxScore: the prevById baseline is the stored line the write retu
   await scoring.applyGameBoxScore({ box: BOX, season: 2026, week: 2, maps });
   await scoring.applyGameBoxScore({ box: BOX, season: 2026, week: 2, maps });
 
-  const second = JSON.parse(upserts[1][3]);
-  assert.equal(second.usageTargets, 7, 'kills the "prevById.set(fresh)" mutant: carry survives re-applies');
-  assert.equal(second.gameTeam, 'KC');
+  assert.equal(upserts.length, 1, 'the second apply stores the same line, so it issues no write (#2203)');
+  assert.equal(maps.prevById.get(7).usageTargets, 7, 'kills the "prevById.set(fresh)" mutant: carry survives re-applies');
+  assert.equal(maps.prevById.get(7).gameTeam, 'KC');
 });
 
 // --- Washington skill player: the emitted play carries Team codes (#449) -----
