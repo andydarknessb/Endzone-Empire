@@ -351,7 +351,7 @@ test('normalizeNflversePlayerStats maps a kicker row with exact FG distances and
   assert.equal(stats.passingYards, 0);
 });
 
-test('normalizeNflversePlayerStats maps punt AND kickoff return yardage (Tank01 only sees punts)', () => {
+test('normalizeNflversePlayerStats maps punt AND kickoff return yardage', () => {
   const stats = normalizeNflversePlayerStats({
     punt_returns: '2', punt_return_yards: '31', kickoff_returns: '3', kickoff_return_yards: '74',
     special_teams_tds: '1',

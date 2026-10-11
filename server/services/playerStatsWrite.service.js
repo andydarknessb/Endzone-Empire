@@ -38,9 +38,9 @@
 
 // Per-player keys the Live box and the Final box produce (tank01BoxSource and
 // espnBoxSource, zeros included) and the team-defense aggregate keys. The last
-// two are ESPN-only (its return-yardage columns); the Tank01 box has no field
-// for them. kickReturnYards is removed by a box that lacks it (the old carry
-// list never held it); idpInterceptionReturnYards is on BOX_KEEP_IF_ABSENT.
+// two are return-yardage columns: kickReturnYards comes from both boxes (Tank01
+// reads Kicking.kickReturnYds since #2200), idpInterceptionReturnYards is
+// ESPN-only (the Tank01 box has no field for it) and is on BOX_KEEP_IF_ABSENT.
 // idpFumbleRecovery is ESPN-only too since #2002 and kept the same way.
 const BOX_PLAYER_KEYS = [
   'passingYards', 'passingTDs', 'interceptions', 'rushingYards', 'rushingTDs',
