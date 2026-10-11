@@ -1038,7 +1038,9 @@ async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, m
     gameId: target.gameId,
     isFinal: target.isFinal,
     updated: result.updated,
-    plays: result.plays,
+    // statsBefore/statsAfter stay server-side: this result is recorded in
+    // data_sync_runs and returned by the sync routes.
+    plays: result.plays.map(({ statsBefore, statsAfter, ...play }) => play),
   };
 }
 

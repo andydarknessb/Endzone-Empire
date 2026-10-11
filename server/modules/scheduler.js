@@ -1293,37 +1293,47 @@ const BIG_PLAY_WORDS = {
  * after (`statsBefore`/`statsAfter`); plays of one player from the same sync
  * (identical lines) share that whole change, split across them by
  * attributePlayPoints under the league's rules, so a sync's plays still sum to
- * the player's whole change. The same unrounded number decides eligibility and
- * (rounded to a tenth) fills the body and the Banter `{points}`. A play without
- * the stat lines (an older producer) falls back to the touchdown's price under
- * league rules, or `pointsDelta` for a field goal.
+ * the player's whole change. A DEF's pointsAllowed/yardsAllowed are game-state
+ * tiers, not a play, so they are left out of both lines before pricing. The
+ * same unrounded number decides eligibility and (rounded to a tenth) fills the
+ * body and the Banter `{points}`. A play without the stat lines (an older
+ * producer), or whose before-line is empty (a player's first sync of the game,
+ * which would price every earlier stat as the play), falls back to the
+ * touchdown's price under league rules, or `pointsDelta` for a field goal.
  */
 async function alertBigPlays({ leagueId, season, week, scored, plays }) {
   const minPoints = Number(process.env.BIG_PLAY_MIN_POINTS) || 6;
   if (!plays || plays.length === 0 || !scored || scored.length === 0) return;
   try {
     const { rulesForLeague, calculateFantasyPoints } = require('../services/scoringRules');
-    const { PLAY_STAT_EVENTS } = require('../services/boxScoreApply.service');
+    const { PLAY_STAT_EVENTS, attributePlayPoints } = require('../services/boxScoreApply.service');
     const push = require('../services/push.service');
     const { banterFor } = require('../services/pushBanter');
     const league = (await pool.query(`SELECT * FROM "leagues" WHERE "id" = $1`, [leagueId])).rows[0];
     const rules = rulesForLeague(league);
     // A play carries its event `type` but not the stat key it was detected from.
     const statKeyOf = (type) => Object.keys(PLAY_STAT_EVENTS).find((k) => PLAY_STAT_EVENTS[k].type === type);
-    const { attributePlayPoints } = require('../services/boxScoreApply.service');
     const round2 = (n) => Math.round(n * 100) / 100;
     // One sync's plays for a player share a stat line pair: group on it, price
     // the group's whole change under league rules, split it across the group.
     const groups = new Map();
     for (const p of plays) {
       if (!p.statsBefore || !p.statsAfter) continue;
+      // A first sync (no line before) would price the whole game so far as one
+      // play; such a play keeps the touchdown's own price instead.
+      if (Object.keys(p.statsBefore).length === 0) continue;
       const key = `${p.playerId}|${JSON.stringify(p.statsBefore)}|${JSON.stringify(p.statsAfter)}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(p);
     }
     const pointsOf = new Map();
     for (const group of groups.values()) {
-      const { statsBefore, statsAfter } = group[0];
+      // pointsAllowed/yardsAllowed are a DEF's game-state tiers, not a play: left
+      // in, a DEF's first sync prices the whole tier (+20 at 0/0) onto a sack, and
+      // a tier drop in the same sync zeroes a pick-six. Price the play without them.
+      const playLine = ({ pointsAllowed, yardsAllowed, ...line }) => line;
+      const statsBefore = playLine(group[0].statsBefore);
+      const statsAfter = playLine(group[0].statsAfter);
       const whole = round2(calculateFantasyPoints(statsAfter, rules) - calculateFantasyPoints(statsBefore, rules));
       const events = group.map((p) => ({ statKey: statKeyOf(p.type) }));
       attributePlayPoints(statsBefore, statsAfter, events, whole, rules)
@@ -1332,7 +1342,7 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
     const big = plays
       .map((p) => {
         const statKey = statKeyOf(p.type);
-        // Without stat lines: ponytail: field goals fall back to pointsDelta (default rules); price by fieldGoalDistances under league rules if a league ever pays 6+ for a long kick.
+        // No stat lines (an older producer, or a first sync): the touchdown's price under league rules; a field goal keeps pointsDelta (default rules).
         const points = pointsOf.has(p) ? pointsOf.get(p)
           : statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
         return { ...p, statKey, points };
