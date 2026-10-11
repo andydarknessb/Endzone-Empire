@@ -114,6 +114,8 @@ router.post('/sync/:job', async (req, res) => {
     } else if (job === 'stats') {
       if (!week) return res.status(400).json({ error: 'week is required for a stats sync' });
       result = await scoring.syncWeekStats({ season, week });
+      // The plays' stat lines are server-internal (boxScoreApply wirePlays).
+      result = { ...result, plays: require('../services/boxScoreApply.service').wirePlays(result.plays) };
     } else if (job === 'photos') {
       // Free source (TheSportsDB) — no RapidAPI needed.
       result = await require('../services/sportsdb.service').syncPlayerPhotos();
