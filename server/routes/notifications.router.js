@@ -82,6 +82,17 @@ router.delete('/push-subscribe', async (req, res) => {
   }
 });
 
+// POST /api/notifications/push-test — a Test alert to the caller's own devices
+router.post('/push-test', async (req, res) => {
+  try {
+    const push = require('../services/push.service');
+    res.json(await push.sendTestPush({ userId: req.user.id }));
+  } catch (error) {
+    console.error('Push test failed', error);
+    res.status(500).json({ error: 'failed to send test alert' });
+  }
+});
+
 // PUT /api/notifications/read — mark some ({ ids: [] }) or all (no body) as read
 router.put('/read', async (req, res) => {
   const { ids } = req.body || {};

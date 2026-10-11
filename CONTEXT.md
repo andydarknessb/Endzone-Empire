@@ -1569,9 +1569,10 @@ its line from the event itself, so the same event reads the same on every
 device. A line never restates the facts above it and, filled in, runs no
 longer than 110 characters, so facts and line fit a phone's lock screen
 together. A Manager who turns Banter off receives the plain alert. Score
-updates, Big plays, Lineup reminders, close-matchup alerts and the draft
-starting alert carry it; Injury alerts and every transactional alert (waiver
-results, trade offers, IR action, draft reminders, Pick'em reminders) never do.
+updates, Big plays, Lineup reminders, close-matchup alerts, the draft
+starting alert and the Test alert carry it; Injury alerts and every
+transactional alert (waiver results, trade offers, IR action, draft reminders,
+Pick'em reminders) never do.
 _Avoid_: joke, quip, trash talk (the weekly recap's register, not a term),
 commentary
 
@@ -1615,6 +1616,15 @@ A Push alert sent when a starter's Kickoff is near and the Manager's Lineup
 has a problem: an empty Slot, a starter on bye, or a starter with an Injury
 designation. Never sent when there is nothing to fix.
 _Avoid_: lineup nudge, set-your-lineup
+
+**Test alert**:
+A Push alert a Manager sends to their own devices from Notification Settings,
+to see what an alert looks like on the device in hand. Its facts are sample
+facts and say so; its Banter line comes from the real bank with a fresh seed
+per send, so a second tap reads differently. It has no preference of its own
+and is never deduped: it goes only where the Manager asked for it, as often as
+they ask.
+_Avoid_: sample notification, test push, ping, debug alert
 
 ### The projection engine
 
