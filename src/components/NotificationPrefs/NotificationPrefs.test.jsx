@@ -272,6 +272,45 @@ describe('push notifications section', () => {
     });
   });
 
+  test('offers a test alert only while this device is subscribed, and POSTs it on click', async () => {
+    mockPushSupport({
+      existingSubscription: { endpoint: 'https://push.example.com/existing', unsubscribe: jest.fn() },
+    });
+    apiClient.get.mockImplementation(withPushKey('fake-public-key'));
+    apiClient.post.mockResolvedValue({ data: { sent: 1, situation: 'tied', banter: 'Tied.' } });
+
+    renderWithProviders(<NotificationPrefs />);
+    const button = await screen.findByRole('button', { name: 'Send a test alert' });
+
+    await userEvent.click(button);
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/notifications/push-test');
+    expect(await screen.findByTestId('push-test-result')).toHaveTextContent('Sent. Check this device.');
+  });
+
+  test('tells the manager when the test alert found no subscribed device', async () => {
+    mockPushSupport({
+      existingSubscription: { endpoint: 'https://push.example.com/existing', unsubscribe: jest.fn() },
+    });
+    apiClient.get.mockImplementation(withPushKey('fake-public-key'));
+    apiClient.post.mockResolvedValue({ data: { sent: 0, situation: 'tied', banter: 'Tied.' } });
+
+    renderWithProviders(<NotificationPrefs />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Send a test alert' }));
+
+    expect(await screen.findByTestId('push-test-result')).toHaveTextContent('No subscribed device found');
+  });
+
+  test('hides the test alert button while push is off on this device', async () => {
+    mockPushSupport({ existingSubscription: null });
+    apiClient.get.mockImplementation(withPushKey('fake-public-key'));
+
+    renderWithProviders(<NotificationPrefs />);
+    await screen.findByLabelText('Push notifications on this device');
+
+    expect(screen.queryByRole('button', { name: 'Send a test alert' })).not.toBeInTheDocument();
+  });
+
   test('reverts and shows an alert when enabling fails (permission denied)', async () => {
     mockPushSupport({ existingSubscription: null });
     window.Notification.requestPermission = jest.fn(() => Promise.resolve('denied'));
