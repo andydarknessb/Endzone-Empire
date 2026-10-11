@@ -70,3 +70,25 @@ test('upsertPlayerStats refuses a call with no source', async () => {
   );
   assert.equal(db.calls.length, 0);
 });
+
+test('upsertPlayerStats issues no statement when the stored line already equals the prior (#2203)', async () => {
+  const db = captureDb();
+  const result = await upsertPlayerStats(db, {
+    playerId: 7, season: 2025, week: 1, source: 'box', fresh: FOUR_FORTY_ONE,
+    prior: { receivingTDs: 1, receivingYards: 40, receptions: 4 },
+  });
+  assert.equal(db.calls.length, 0, 'an unchanged line, whatever its key order, needs no write');
+  assert.equal(result.written, false);
+  assert.deepEqual(result.stats, FOUR_FORTY_ONE);
+  assert.equal(result.fantasyPoints, 12);
+});
+
+test('upsertPlayerStats writes when the line moved', async () => {
+  const db = captureDb();
+  const result = await upsertPlayerStats(db, {
+    playerId: 7, season: 2025, week: 1, source: 'box', fresh: FOUR_FORTY_ONE,
+    prior: { receivingTDs: 1, receivingYards: 40, receptions: 3 },
+  });
+  assert.equal(db.calls.length, 1);
+  assert.equal(result.written, true);
+});
