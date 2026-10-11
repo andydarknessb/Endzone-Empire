@@ -36,6 +36,7 @@ import OfflineBanner from '../OfflineBanner/OfflineBanner';
 import NotFound from '../NotFound/NotFound';
 import { SnackbarProvider } from '../Snackbar/SnackbarProvider';
 import NavigationGuard from '../NavigationGuard/NavigationGuard';
+import PushAlertToast from '../PushAlertToast/PushAlertToast';
 import { MIN_TOUCH_TARGET_SX } from '../../shared/lib/a11y';
 
 import './App.css';
@@ -188,6 +189,7 @@ function App() {
     <SnackbarProvider>
     <OfflineBanner />
     <Router>
+      <PushAlertToast />
       <NavigationGuard>
       <AppLayout>
         <Suspense

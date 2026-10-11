@@ -37,13 +37,21 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      data: { url },
+      data: { url, title, body },
     })
   );
 });
 
+// Tapping an alert opens the whole alert, not just the page: iOS truncates the
+// expanded body, so the text rides along as ?alert=<json> AFTER the hash path
+// (HashRouter's useSearchParams reads the query there) and the app shows it.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/';
+  const data = event.notification.data || {};
+  let url = data.url || '/';
+  if (data.title || data.body) {
+    const alert = encodeURIComponent(JSON.stringify({ title: data.title, body: data.body }));
+    url += `${url.includes('?') ? '&' : '?'}alert=${alert}`;
+  }
   event.waitUntil(self.clients.openWindow(url));
 });
