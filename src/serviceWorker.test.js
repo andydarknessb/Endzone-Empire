@@ -101,12 +101,12 @@ test('notificationclick closes the notification and opens its url unchanged when
   expect(calls.opened).toEqual(['/#/lineup']);
 });
 
-test('notificationclick opens "/" when the notification has no data at all', async () => {
+test('notificationclick opens "/#/" when the notification has no data at all', async () => {
   const { listeners, calls } = loadServiceWorker();
 
   await dispatch(listeners.notificationclick, { notification: { close: jest.fn() } });
 
-  expect(calls.opened).toEqual(['/']);
+  expect(calls.opened).toEqual(['/#/']);
 });
 
 test('notificationclick appends the whole alert after the hash path so useSearchParams sees it', async () => {
@@ -135,10 +135,22 @@ test('notificationclick joins with & when the hash path already has a query', as
   ]);
 });
 
-test('notificationclick falls back to "/" and still carries the alert when there is no url', async () => {
+test('notificationclick falls back to "/#/" and still carries the alert when there is no url', async () => {
   const { listeners, calls } = loadServiceWorker();
 
   await dispatch(listeners.notificationclick, { notification: { close: jest.fn(), data: { title: 'T', body: 'B' } } });
 
-  expect(calls.opened[0].startsWith('/?alert=')).toBe(true);
+  expect(calls.opened[0].startsWith('/#/?alert=')).toBe(true);
+});
+
+test('notificationclick puts ?alert= after the hash path when only the part before the hash has a query', async () => {
+  const { listeners, calls } = loadServiceWorker();
+
+  await dispatch(listeners.notificationclick, {
+    notification: { close: jest.fn(), data: { url: '/?x=1#/p', title: 'T', body: 'B' } },
+  });
+
+  expect(calls.opened).toEqual([
+    `/?x=1#/p?alert=${encodeURIComponent(JSON.stringify({ title: 'T', body: 'B' }))}`,
+  ]);
 });

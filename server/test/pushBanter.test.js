@@ -63,10 +63,10 @@ test('every line, filled with realistic facts, is at most 110 characters (readab
     theirs: 'The Other Guys',
     player: 'Jaylen Warren',
     event: 'receiving touchdown',
-    points: 6,
+    points: 12.4,
     count: 3,
     margin: 2.5,
-    week: 6,
+    week: 17,
     league: 'Your League',
   };
   for (const situation of SITUATIONS) {
