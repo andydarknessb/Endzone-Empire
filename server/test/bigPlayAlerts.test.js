@@ -199,7 +199,7 @@ test('a 1-yard rushing TD worth 6.1 qualifies and shows 6.1', async (t) => {
   const state = world(t);
 
   await run([play({ playerId: 601, name: 'Home Back', type: 'rushing',
-    statsBefore: {}, statsAfter: { rushingYards: 1, rushingTDs: 1 } })]);
+    statsBefore: { rushingYards: 0 }, statsAfter: { rushingYards: 1, rushingTDs: 1 } })]);
 
   assert.equal(state.sent.find((s) => s.userIds[0] === 11).payload.body, 'Home Back rushing touchdown (6.1 pts, yours)');
 });
@@ -208,7 +208,7 @@ test('a TD with a yardage loss in the same sync (5.6 whole) does not qualify', a
   const state = world(t);
 
   await run([play({ playerId: 601, name: 'Home Back', type: 'rushing',
-    statsBefore: {}, statsAfter: { rushingYards: -4, rushingTDs: 1 } })]);
+    statsBefore: { rushingYards: 0 }, statsAfter: { rushingYards: -4, rushingTDs: 1 } })]);
 
   assert.deepEqual(state.sent, [], '6 - 0.4 = 5.6 is under 6');
 });
@@ -237,4 +237,81 @@ test('two plays of one sync split the whole change: only the rushing TD with the
 
   // 11.3 whole = 4 (passing TD, under 6) + 7.3 (rushing TD plus both yardage bonuses)
   assert.equal(state.sent.find((s) => s.userIds[0] === 11).payload.body, 'Home Back rushing touchdown (7.3 pts, yours)');
+});
+
+// --- what counts as "the play" ----------------------------------------------
+
+const priced = (line, rules = SCORING_RULES) => calculateFantasyPoints(line, rules);
+const withoutTiers = ({ pointsAllowed, yardsAllowed, ...line }) => line;
+const shownOf = (n) => Math.round(n * 10) / 10;
+
+test('a DEF sack on its first sync does not price the whole yards/points tier onto the sack', async (t) => {
+  const state = world(t);
+
+  await run([play({ playerId: 601, name: 'Home DEF', type: 'sack', isTouchdown: false, tdDelta: 1, pointsDelta: 1,
+    statsBefore: {}, statsAfter: { pointsAllowed: 0, yardsAllowed: 15, sack: 1 } })]);
+
+  assert.deepEqual(state.sent, []);
+});
+
+test('a pick-six in a sync that also crossed a yards-allowed tier is priced without the tiers', async (t) => {
+  const state = world(t);
+  const statsBefore = { pointsAllowed: 0, yardsAllowed: 95, sack: 1 };
+  const statsAfter = { pointsAllowed: 3, yardsAllowed: 130, sack: 1, defensiveTD: 1 };
+  const expected = shownOf(priced(withoutTiers(statsAfter)) - priced(withoutTiers(statsBefore)));
+  assert.equal(expected, 6);
+
+  await run([play({ playerId: 601, name: 'Home DEF', type: 'defensive', statsBefore, statsAfter })]);
+
+  assert.equal(state.sent.find((s) => s.userIds[0] === 11).payload.body,
+    `Home DEF defensive touchdown (${expected} pts, yours)`);
+});
+
+test('a player\'s first sync of the game falls back to the touchdown price', async (t) => {
+  const state = world(t);
+
+  // A passing TD is 4 under default rules: the 150 yards already there are not "the play".
+  await run([play({ type: 'passing', statsBefore: {}, statsAfter: { passingYards: 150, passingTDs: 1 } })]);
+  assert.deepEqual(state.sent, []);
+
+  // A receiving TD is 6, not the 15 the whole game so far is worth.
+  const statsAfter = { receivingYards: 80, receptions: 6, receivingTDs: 1 };
+  assert.ok(priced(statsAfter) > 6);
+  await run([play({ type: 'receiving', statsBefore: {}, statsAfter })]);
+
+  assert.equal(state.sent.find((s) => s.userIds[0] === 11).payload.body,
+    'Home Wideout receiving touchdown (6 pts, yours)');
+});
+
+test('a 54-yard field goal in a league paying 6 for 50+ shows 6 pts', async (t) => {
+  const state = world(t, { kicking: { fieldGoal: [
+    { min: 0, max: 39, points: 3 },
+    { min: 40, max: 49, points: 4 },
+    { min: 50, max: null, points: 6 },
+  ] } });
+
+  await run([play({ type: 'fieldGoal', tdDelta: 1, pointsDelta: 5, isTouchdown: false,
+    statsBefore: { fieldGoal: 1, fieldGoalDistances: [33] },
+    statsAfter: { fieldGoal: 2, fieldGoalDistances: [33, 54] } })]);
+
+  assert.equal(state.sent.find((s) => s.userIds[0] === 11).payload.body, 'Home Wideout field goal (6 pts, yours)');
+});
+
+test('two syncs of one player in one bucket are priced separately', async (t) => {
+  const state = world(t);
+  const first = { statsBefore: { rushingYards: 10 }, statsAfter: { rushingYards: 12, rushingTDs: 1 } };
+  const second = { statsBefore: first.statsAfter, statsAfter: { rushingYards: 40, rushingTDs: 2 } };
+  const a = shownOf(priced(first.statsAfter) - priced(first.statsBefore));
+  const b = shownOf(priced(second.statsAfter) - priced(second.statsBefore));
+  assert.deepEqual([a, b], [6.2, 8.8]);
+
+  await run([
+    play({ playerId: 601, name: 'Home Back', type: 'rushing', ...first }),
+    play({ playerId: 601, name: 'Home Back', type: 'rushing', ...second }),
+  ]);
+
+  assert.deepEqual(state.sent.find((s) => s.userIds[0] === 11).payload.body.split('\n'), [
+    'Home Back rushing touchdown (6.2 pts, yours)',
+    'Home Back rushing touchdown (8.8 pts, yours)',
+  ]);
 });
