@@ -19,9 +19,9 @@ test('the bank covers exactly the thirteen situations', () => {
   assert.deepEqual(Object.keys(LINES).sort(), [...SITUATIONS].sort());
 });
 
-test('every situation has at least five distinct lines', () => {
+test('every situation has at least ten distinct lines', () => {
   for (const situation of SITUATIONS) {
-    assert.ok(new Set(LINES[situation]).size >= 5, `${situation} has fewer than five distinct lines`);
+    assert.ok(new Set(LINES[situation]).size >= 10, `${situation} has fewer than ten distinct lines`);
   }
 });
 
@@ -41,15 +41,15 @@ test('banterFor is deterministic over (situation, seed) and pins a line', () => 
   const facts = { theirs: 'Away FC' };
   const first = banterFor('leadLost', 'score-lead:7:away:1', facts);
   assert.equal(first, banterFor('leadLost', 'score-lead:7:away:1', facts));
-  assert.equal(first, 'The lead is gone, like my hairline and my 1966 letterman jacket. One of those came back. Not the hairline.');
+  assert.equal(first, 'Away FC is out front. Check the lineup, then check your nerves. The nerves are harder to fix.');
 });
 
 test('a different seed can pick a different line, and placeholders are filled from the facts', () => {
   const other = banterFor('leadLost', 'score-lead:7:away:1:b', { theirs: 'Away FC' });
-  assert.equal(other, 'Away FC just went ahead. I have watched a lot of things slip away from the couch. Add this to the pile.');
+  assert.equal(other, 'Behind now. My dog has better comebacks than this, and he spends most of the day asleep on the rug.');
   const seeds = new Set();
   for (let i = 0; i < 40; i += 1) seeds.add(banterFor('leadLost', `seed:${i}`, { theirs: 'Away FC' }));
-  assert.ok(seeds.size > 1);
+  assert.ok(seeds.size >= 8);
 });
 
 test('a missing fact renders empty and an unknown situation is null', () => {
