@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, Paper, Box, FormControlLabel, FormHelperText, Switch, Alert } from '@mui/material';
+import { Container, Typography, Paper, Box, Button, FormControlLabel, FormHelperText, Switch, Alert } from '@mui/material';
 import apiClient from '../../api/apiClient';
 import { readHttpFailure } from '../../lib/httpFailure';
 import {
@@ -52,6 +52,8 @@ function NotificationPrefs() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState(null);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   useEffect(() => {
     fetchPrefs();
@@ -96,6 +98,24 @@ function NotificationPrefs() {
       } finally {
         setPushBusy(false);
       }
+    }
+  };
+
+  // Test alert (CONTEXT.md): one alert to this Manager's own devices so they
+  // can see what one looks like on the device in hand. sent: 0 means the
+  // server found no subscription for them.
+  const handleTestPush = async () => {
+    setTestResult(null);
+    setTestBusy(true);
+    try {
+      const res = await apiClient.post('/api/notifications/push-test');
+      setTestResult((res.data && res.data.sent) > 0
+        ? 'Sent. Check this device.'
+        : 'No subscribed device found. Turn push on first.');
+    } catch (err) {
+      setTestResult(readHttpFailure(err).message || err.message || 'Failed to send the test alert');
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -170,6 +190,18 @@ function NotificationPrefs() {
             }
             label="Push notifications on this device"
           />
+          {pushEnabled && (
+            <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Button variant="outlined" size="small" onClick={handleTestPush} disabled={testBusy}>
+                Send a test alert
+              </Button>
+              {testResult && (
+                <Typography variant="body2" data-testid="push-test-result">
+                  {testResult}
+                </Typography>
+              )}
+            </Box>
+          )}
         </Paper>
       )}
 
