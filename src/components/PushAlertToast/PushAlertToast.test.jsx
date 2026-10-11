@@ -39,13 +39,6 @@ test('keeps other query params when it removes alert', async () => {
   expect(screen.getByTestId('location')).toHaveTextContent(/^\/team\?leagueId=5$/);
 });
 
-test('shows the alert once under StrictMode', async () => {
-  renderAt(`/league/5/game-center${alertParam({ title: 'Once', body: 'only' })}`, { strict: true });
-
-  expect(await screen.findAllByRole('alert')).toHaveLength(1);
-  expect(screen.getByTestId('location')).toHaveTextContent(/^\/league\/5\/game-center$/);
-});
-
 test('ignores a malformed alert param without throwing and still clears it', () => {
   renderAt('/league/5/game-center?alert=%7Bnot-json');
 

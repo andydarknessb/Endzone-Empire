@@ -48,10 +48,11 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
-  let url = data.url || '/';
+  let url = data.url || '/#/';
   if (data.title || data.body) {
     const alert = encodeURIComponent(JSON.stringify({ title: data.title, body: data.body }));
-    url += `${url.includes('?') ? '&' : '?'}alert=${alert}`;
+    const hashQuery = url.includes('#') ? url.slice(url.indexOf('#')) : '';
+    url += `${hashQuery.includes('?') ? '&' : '?'}alert=${alert}`;
   }
   event.waitUntil(self.clients.openWindow(url));
 });
