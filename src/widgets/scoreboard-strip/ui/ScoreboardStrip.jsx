@@ -344,8 +344,13 @@ function TeamName({ name, size }) {
   return (
     <Typography
       component="span"
+      data-testid="scoreboard-team-name"
       sx={{
         minWidth: 0,
+        // A column flex item aligned to its start/end edge sizes to its text,
+        // so without this cap the ellipsis never engages and a long name runs
+        // into the other side's (phone row, 2026 week 5).
+        maxWidth: '100%',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
