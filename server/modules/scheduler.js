@@ -1317,10 +1317,16 @@ const BIG_PLAY_WORDS = {
  * five minutes old (the capped plays are dropped, not queued). Runs after
  * scoreMatchups has committed, never inside its transaction.
  *
- * A play's `pointsDelta` is priced at the default rules, so the league's price
- * is the play's own stat moved by its count under `rulesForLeague`; a field
- * goal has no single-key price (its worth is on the per-make distances), so it
- * keeps `pointsDelta`.
+ * A play is priced at its whole fantasy value under that league's rules (R4):
+ * the player's point change for the sync as `rulesForLeague` prices it, not the
+ * touchdown's own price alone. The plays carry the sync's stat line before and
+ * after (`statsBefore`/`statsAfter`); plays of one player from the same sync
+ * (identical lines) share that whole change, split across them by
+ * attributePlayPoints under the league's rules, so a sync's plays still sum to
+ * the player's whole change. The same unrounded number decides eligibility and
+ * (rounded to a tenth) fills the body and the Banter `{points}`. A play without
+ * the stat lines (an older producer) falls back to the touchdown's price under
+ * league rules, or `pointsDelta` for a field goal.
  */
 async function alertBigPlays({ leagueId, season, week, scored, plays }) {
   const minPoints = Number(process.env.BIG_PLAY_MIN_POINTS) || 6;
@@ -1334,11 +1340,31 @@ async function alertBigPlays({ leagueId, season, week, scored, plays }) {
     const rules = rulesForLeague(league);
     // A play carries its event `type` but not the stat key it was detected from.
     const statKeyOf = (type) => Object.keys(PLAY_STAT_EVENTS).find((k) => PLAY_STAT_EVENTS[k].type === type);
+    const { attributePlayPoints } = require('../services/boxScoreApply.service');
+    const round2 = (n) => Math.round(n * 100) / 100;
+    // One sync's plays for a player share a stat line pair: group on it, price
+    // the group's whole change under league rules, split it across the group.
+    const groups = new Map();
+    for (const p of plays) {
+      if (!p.statsBefore || !p.statsAfter) continue;
+      const key = `${p.playerId}|${JSON.stringify(p.statsBefore)}|${JSON.stringify(p.statsAfter)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    }
+    const pointsOf = new Map();
+    for (const group of groups.values()) {
+      const { statsBefore, statsAfter } = group[0];
+      const whole = round2(calculateFantasyPoints(statsAfter, rules) - calculateFantasyPoints(statsBefore, rules));
+      const events = group.map((p) => ({ statKey: statKeyOf(p.type) }));
+      attributePlayPoints(statsBefore, statsAfter, events, whole, rules)
+        .forEach((points, i) => pointsOf.set(group[i], points));
+    }
     const big = plays
       .map((p) => {
         const statKey = statKeyOf(p.type);
-        // ponytail: field goals are priced at default rules from pointsDelta; price by fieldGoalDistances under league rules if a league ever pays 6+ for a long kick.
-        const points = statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
+        // Without stat lines: ponytail: field goals fall back to pointsDelta (default rules); price by fieldGoalDistances under league rules if a league ever pays 6+ for a long kick.
+        const points = pointsOf.has(p) ? pointsOf.get(p)
+          : statKey === 'fieldGoal' ? p.pointsDelta : calculateFantasyPoints({ [statKey]: p.tdDelta }, rules);
         return { ...p, statKey, points };
       })
       .filter((p) => p.points >= minPoints);
