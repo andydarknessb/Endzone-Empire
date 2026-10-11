@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { detectScoringEvents, attributePlayPoints } = require('../services/boxScoreApply.service');
+const { rulesForLeague } = require('../services/scoringRules');
 
 test('detects a new rushing touchdown from a stat delta', () => {
   const prev = { rushingYards: 40, rushingTDs: 0 };
@@ -160,4 +161,20 @@ test('a single event returns [wholeDelta] unchanged (today\'s one-play-per-sync 
 
 test('zero events returns an empty array', () => {
   assert.deepEqual(attributePlayPoints({}, {}, [], 0), []);
+});
+
+test('attributePlayPoints prices the marginals with a custom rules object (default rules otherwise)', () => {
+  const prev = { passingYards: 200, passingTDs: 1, rushingYards: 20, rushingTDs: 0 };
+  const next = { passingYards: 220, passingTDs: 2, rushingYards: 25, rushingTDs: 1 };
+  const events = detectScoringEvents(prev, next);
+  // Passing TDs worth 6, rushing TDs worth 8, no yardage points at all.
+  const rules = rulesForLeague({
+    scoring_rules: { passing: { touchdowns: 6, yards: 0 }, rushing: { touchdowns: 8, yards: 0 } },
+  });
+  const wholeDelta = 14; // 6 + 8
+  const deltas = attributePlayPoints(prev, next, events, wholeDelta, rules);
+  assert.deepEqual(deltas, [6, 8]);
+  assert.equal(sum2(deltas), wholeDelta);
+  // Same inputs without rules: the default 4 / 6 marginals, unchanged.
+  assert.deepEqual(attributePlayPoints(prev, next, events, 11.3), [4, 7.3]);
 });

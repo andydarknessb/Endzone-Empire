@@ -45,6 +45,25 @@ test('runSyncJob success: one unit applies inside a transaction, one ok=true row
   fake.assertClean();
 });
 
+test('runSyncJob records a unit result without its plays\' stat lines, and still resolves them to the caller', async (t) => {
+  const fake = createFakePool([
+    [/^SELECT pg_advisory_xact_lock/, () => ({ rows: [{}] }), 'client'],
+    [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],
+  ]).install(t);
+  const play = { playerId: 7, type: 'rushing', tdDelta: 1, pointsDelta: 6, statsBefore: { rushingYards: 10 }, statsAfter: { rushingYards: 12, rushingTDs: 1 } };
+
+  const result = await runSyncJob({
+    job: 'week-stats',
+    lock: 12345,
+    fetch: async () => [{ id: 'g1' }],
+    apply: async () => ({ updated: 1, plays: [play] }),
+  });
+
+  assert.deepEqual(result.results[0].plays[0], play, 'the caller (the scheduler, which prices Big plays) keeps the stat lines');
+  const detail = JSON.parse(dataSyncRuns(fake.calls)[0].params[3]);
+  assert.deepEqual(detail.plays, [{ playerId: 7, type: 'rushing', tdDelta: 1, pointsDelta: 6 }], 'the recorded row never carries statsBefore/statsAfter');
+});
+
 test('runSyncJob with no lock never queries pg_advisory_xact_lock', async (t) => {
   const fake = createFakePool([
     [insert('data_sync_runs'), () => ({ rows: [{ id: 1 }] })],

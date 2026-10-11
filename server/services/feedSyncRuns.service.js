@@ -1038,6 +1038,9 @@ async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, m
     gameId: target.gameId,
     isFinal: target.isFinal,
     updated: result.updated,
+    // The plays keep their statsBefore/statsAfter: the scheduler hands
+    // syncWeekStats's plays to alertBigPlays, which prices on them. runSyncJob
+    // strips them from the recorded row and the sync routes from the response.
     plays: result.plays,
   };
 }

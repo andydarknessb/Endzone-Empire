@@ -11,7 +11,7 @@
  */
 const pool = require('../modules/pool');
 const { normalizeNflTeam } = require('./nflTeam');
-const { calculateFantasyPoints } = require('./scoringRules');
+const { calculateFantasyPoints, SCORING_RULES } = require('./scoringRules');
 const { upsertPlayerStats } = require('./playerStatsWrite.service');
 const tank01BoxSource = require('./tank01BoxSource');
 
@@ -110,18 +110,21 @@ const EVENT_PRICING_KEY = { fieldGoal: 'fieldGoalDistances' };
  * @param {object} next  the player's stat line after this sync
  * @param {Array<{statKey: string}>} events  detectScoringEvents' output for this diff
  * @param {number} wholeDelta  the player's whole, already-rounded points change for the sync
+ * @param {object} [rules]  the scoring rules `wholeDelta` was priced under and the
+ *   per-event marginals are priced with (default SCORING_RULES; a league's
+ *   `rulesForLeague` when the caller prices under its rules)
  * @returns {number[]} one pointsDelta per event, same order as `events`, summing to `wholeDelta`
  */
-function attributePlayPoints(prev, next, events, wholeDelta) {
+function attributePlayPoints(prev, next, events, wholeDelta, rules = SCORING_RULES) {
   if (!events || events.length === 0) return [];
   if (events.length === 1) return [wholeDelta];
   const base = prev || {};
   const after = next || {};
-  const baseScore = calculateFantasyPoints(base);
+  const baseScore = calculateFantasyPoints(base, rules);
   const marginalCents = events.map((ev) => {
     const pricingKey = EVENT_PRICING_KEY[ev.statKey] || ev.statKey;
     const withOne = { ...base, [pricingKey]: after[pricingKey] };
-    return Math.round((calculateFantasyPoints(withOne) - baseScore) * 100);
+    return Math.round((calculateFantasyPoints(withOne, rules) - baseScore) * 100);
   });
   const wholeCents = Math.round(wholeDelta * 100);
   const sumCents = marginalCents.reduce((s, c) => s + c, 0);
@@ -299,6 +302,11 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
           tdDelta: ev.tdDelta,
           pointsDelta: deltas[i],
           isTouchdown: ev.isTouchdown,
+          // The sync's stat line before and after, so a consumer can price
+          // the play's whole value under a league's rules (alertBigPlays).
+          // Server-internal: matchupScoring strips both before the socket emit.
+          statsBefore: { ...(prev || {}) },
+          statsAfter: { ...stats },
         });
       });
     }
@@ -336,6 +344,11 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
           tdDelta: ev.tdDelta,
           pointsDelta: deltas[i],
           isTouchdown: ev.isTouchdown,
+          // The sync's stat line before and after, so a consumer can price
+          // the play's whole value under a league's rules (alertBigPlays).
+          // Server-internal: matchupScoring strips both before the socket emit.
+          statsBefore: { ...(prev || {}) },
+          statsAfter: { ...stats },
         });
       });
     }
@@ -391,7 +404,18 @@ async function markFinalStatsSynced(tank01GameId, client = pool) {
   );
 }
 
+/**
+ * A Scoring play's `statsBefore`/`statsAfter` (the stat lines alertBigPlays
+ * prices against) are server-internal. Every boundary a play crosses (the
+ * scores:updated emit, the recorded data_sync_runs row, the sync routes'
+ * responses) sends it through here first.
+ */
+function wirePlays(plays) {
+  return (plays || []).map(({ statsBefore, statsAfter, ...play }) => play);
+}
+
 module.exports = {
+  wirePlays,
   loadDefUnitsByTeamCode,
   loadWeekMaps,
   applyGameBoxScore,

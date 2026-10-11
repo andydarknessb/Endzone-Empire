@@ -40,6 +40,19 @@ function stubUpserts(t) {
   return upserts;
 }
 
+// The golden pins the wire shape of a play. statsBefore/statsAfter ride the
+// server-side play for alertBigPlays and are stripped before the socket emit
+// (matchupScoring), so they are compared on their own, not baked into the golden.
+const wireShape = ({ statsBefore, statsAfter, ...rest }) => rest;
+const assertStatLines = (plays, upserts) => {
+  for (const p of plays) {
+    assert.equal(typeof p.statsBefore, 'object', `play for ${p.playerId} carries statsBefore`);
+    assert.equal(typeof p.statsAfter, 'object', `play for ${p.playerId} carries statsAfter`);
+    const stored = upserts.find((u) => u[0] === p.playerId);
+    assert.deepEqual(p.statsAfter, stored[3], `statsAfter is the line stored for ${p.playerId}`);
+  }
+};
+
 test('tank01BoxSource: the adapter output applied through applyGameBoxScore matches the golden contract', async (t) => {
   const upserts = stubUpserts(t);
   const liveBox = tank01BoxSource.fromBox(golden.box);
@@ -54,7 +67,9 @@ test('tank01BoxSource: the adapter output applied through applyGameBoxScore matc
   // Postgres jsonb keeps no key order, and the carried keys' order follows the
   // stored line now that the write module owns the carry (#1760).
   assert.deepEqual(upserts, golden.expected.upserts);
-  assert.deepEqual(out.plays, golden.expected.plays);
+  assert.deepEqual(out.plays.map(wireShape), golden.expected.plays);
+  assert.ok(out.plays.length > 0);
+  assertStatLines(out.plays, upserts);
 
   // #1545 self-check, independent of the golden file: a multi-play player's
   // pointsDelta values changed (each play now carries its own marginal share
@@ -212,6 +227,6 @@ test('applyGameBoxScore: a raw Tank01 box is still accepted and routed through t
   // no assertion in them had to change (#1183 done-when).
   const upserts = stubUpserts(t);
   const out = await scoring.applyGameBoxScore({ box: golden.box, season: 2026, week: 2, maps: mapsFromFixture() });
-  assert.deepEqual(out.plays, golden.expected.plays);
+  assert.deepEqual(out.plays.map(wireShape), golden.expected.plays);
   assert.equal(upserts.length, golden.expected.upserts.length);
 });

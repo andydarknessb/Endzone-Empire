@@ -1499,7 +1499,9 @@ the Draft assistant's voice. The alert's facts sit above it and are complete
 without it; the remark names the opponent only by team name and roasts a team,
 a player's day or the narrator's own life, never a person. Each alert picks
 its line from the event itself, so the same event reads the same on every
-device. A Manager who turns Banter off receives the plain alert. Score
+device. A line never restates the facts above it and, filled in, runs no
+longer than 110 characters, so facts and line fit a phone's lock screen
+together. A Manager who turns Banter off receives the plain alert. Score
 updates, Big plays, Lineup reminders, close-matchup alerts, the draft
 starting alert and the Test alert carry it; Injury alerts and every
 transactional alert (waiver results, trade offers, IR action, draft reminders,
@@ -1530,9 +1532,19 @@ _Avoid_: score alert, close matchup (a separate kind that fires on margin)
 
 **Big play**:
 A Scoring play by a starter in the Manager's live Matchup, on either side,
-worth at least six points under that league's Scoring rules. A Push alert
-carries it; several detected in one sync are one alert.
+worth at least six points under that league's Scoring rules. Its worth is
+the whole play as the league prices it (the touchdown, the yards, the
+catch), not the touchdown alone, and the alert shows that number. A Push
+alert carries it; several detected in one sync are one alert.
 _Avoid_: highlight, touchdown alert (a Big play need not be a touchdown)
+
+**Alert toast**:
+The in-app repeat of a Push alert's title and body, shown once in the shared
+Snackbar when a Manager opens the app by tapping the alert, on top of the
+page the alert points to. It exists because a phone's lock screen cuts a long
+body short and a tap would otherwise lose the text. It is not stored and never
+appears on its own.
+_Avoid_: notification detail, alert page, push preview
 
 **Lineup reminder**:
 A Push alert sent when a starter's Kickoff is near and the Manager's Lineup
