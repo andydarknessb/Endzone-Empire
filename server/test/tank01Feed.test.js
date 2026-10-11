@@ -52,6 +52,7 @@ test('normalizeTank01Stats maps a full box-score entry', () => {
     returnTDs: 0,
     puntReturns: 2,
     puntReturnYards: 18,
+    kickReturnYards: 0,
   });
 });
 
@@ -74,6 +75,26 @@ test('normalizeTank01Stats maps a punt-return touchdown', () => {
   assert.equal(result.returnTDs, 1);
   assert.equal(result.puntReturns, 1);
   assert.equal(result.puntReturnYards, 82);
+});
+
+test('normalizeTank01Stats reads the kickoff-return line from Kicking (#2200, Turpin 20261008_TB@DAL)', () => {
+  const result = normalizeTank01Stats({
+    Kicking: { kickReturns: '5', kickReturnTD: '0', kickReturnYds: '127', kickReturnAvg: '25.4', kickReturnLong: '30' },
+    Punting: { puntReturns: '1', puntReturnYds: '10', puntReturnAvg: '10.0', puntReturnLong: '10', puntReturnTD: '0' },
+  });
+  assert.equal(result.returnTDs, 0);
+  assert.equal(result.kickReturnYards, 127);
+  assert.equal(result.puntReturns, 1);
+  assert.equal(result.puntReturnYards, 10);
+});
+
+test('normalizeTank01Stats: returnTDs adds the kickoff-return and punt-return touchdowns (#2200)', () => {
+  const result = normalizeTank01Stats({
+    Kicking: { kickReturns: '2', kickReturnYds: '98', kickReturnTD: '1' },
+    Punting: { puntReturnTD: '1' },
+  });
+  assert.equal(result.returnTDs, 2);
+  assert.equal(result.kickReturnYards, 98);
 });
 
 // --- Individual defender (IDP) handling ---------------------------------------

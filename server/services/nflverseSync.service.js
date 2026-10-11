@@ -833,8 +833,8 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
  *
  * Semantics matched to the Tank01 normalizers where the sources differ:
  * - fumbles = fumbles_lost_total (all lost fumbles, any category).
- * - returnTDs = special_teams_tds — broader than Tank01's punt-return-only
- *   field (kickoff-return TDs are invisible to Tank01 entirely).
+ * - returnTDs = special_teams_tds — one total, where the Tank01 normalizer
+ *   adds Punting.puntReturnTD and Kicking.kickReturnTD (#2200).
  * - idpDefensiveTD = def_tds + fumble_recovery_tds. Measured against the
  *   pinned stats_player_week_2025.csv (19,421 rows, quote-aware parse):
  *   `def_tds` counts interception-return (and other non-fumble) defensive

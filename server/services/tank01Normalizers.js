@@ -27,11 +27,10 @@ function normalizeTank01Stats(entry) {
   const receiving = e.Receiving || {};
   const kicking = e.Kicking || {};
   const defense = e.Defense || {};
-  // Tank01 nests the return specialist's own punt-return line under
-  // "Punting" (alongside a punter's punting line) rather than a dedicated
-  // "Returns" category — there is no equivalent kickoff-return category
-  // anywhere in the box score response (confirmed empty across a full
-  // season sample), so kick returns have no real source to detect from.
+  // The box carries a returner's own lines in two groups: punt returns under
+  // "Punting" (alongside a punter's punting line) and kickoff returns under
+  // "Kicking" (alongside a kicker's fgMade etc.). Read each by key, never by
+  // the presence of the group.
   const punting = e.Punting || {};
   return {
     passingYards: num(passing.passYds),
@@ -51,12 +50,12 @@ function normalizeTank01Stats(entry) {
     fieldGoalMissed: Math.max(num(kicking.fgAttempts) - num(kicking.fgMade), 0),
     extraPoint: num(kicking.xpMade),
     extraPointMissed: Math.max(num(kicking.xpAttempts) - num(kicking.xpMade), 0),
-    returnTDs: num(punting.puntReturnTD),
+    returnTDs: num(punting.puntReturnTD) + num(kicking.kickReturnTD),
     puntReturns: num(punting.puntReturns),
     puntReturnYards: num(punting.puntReturnYds),
-    // Tank01 has no kickoff-return category at all (see the comment above),
-    // so kickReturnYards has no live source; the nflverse finalization /
-    // backfill passes are the only place it can come from.
+    // Kickoff returns come from Kicking.kickReturnYds (#2200); the count
+    // (kickReturns) scores nothing, so it is not emitted.
+    kickReturnYards: num(kicking.kickReturnYds),
   };
 }
 
