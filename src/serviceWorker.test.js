@@ -83,20 +83,74 @@ test('activate still claims clients on a browser with no navigationPreload', asy
   expect(calls.claimed).toBe(1);
 });
 
-test('push shows a notification with the payload title, body and url', async () => {
+test('push shows a notification with the payload title and body, and keeps all three in data for the click', async () => {
   const { listeners, calls } = loadServiceWorker();
 
   await dispatch(listeners.push, { data: { json: () => ({ title: 'Lineup locked', body: 'Week 5', url: '/lineup' }) } });
 
-  expect(calls.notifications).toEqual([{ title: 'Lineup locked', options: { body: 'Week 5', data: { url: '/lineup' } } }]);
+  expect(calls.notifications).toEqual([{ title: 'Lineup locked', options: { body: 'Week 5', data: { url: '/lineup', title: 'Lineup locked', body: 'Week 5' } } }]);
 });
 
-test('notificationclick closes the notification and opens its url', async () => {
+test('notificationclick closes the notification and opens its url unchanged when the alert has no text', async () => {
   const { listeners, calls } = loadServiceWorker();
   const close = jest.fn();
 
-  await dispatch(listeners.notificationclick, { notification: { close, data: { url: '/lineup' } } });
+  await dispatch(listeners.notificationclick, { notification: { close, data: { url: '/#/lineup' } } });
 
   expect(close).toHaveBeenCalled();
-  expect(calls.opened).toEqual(['/lineup']);
+  expect(calls.opened).toEqual(['/#/lineup']);
+});
+
+test('notificationclick opens "/#/" when the notification has no data at all', async () => {
+  const { listeners, calls } = loadServiceWorker();
+
+  await dispatch(listeners.notificationclick, { notification: { close: jest.fn() } });
+
+  expect(calls.opened).toEqual(['/#/']);
+});
+
+test('notificationclick appends the whole alert after the hash path so useSearchParams sees it', async () => {
+  const { listeners, calls } = loadServiceWorker();
+  const title = 'Big play: Jaylen Warren';
+  const body = 'facts line\nbanter line & more?';
+
+  await dispatch(listeners.notificationclick, {
+    notification: { close: jest.fn(), data: { url: '/#/league/5/game-center', title, body } },
+  });
+
+  const [opened] = calls.opened;
+  expect(opened.startsWith('/#/league/5/game-center?alert=')).toBe(true);
+  expect(JSON.parse(decodeURIComponent(opened.split('?alert=')[1]))).toEqual({ title, body });
+});
+
+test('notificationclick joins with & when the hash path already has a query', async () => {
+  const { listeners, calls } = loadServiceWorker();
+
+  await dispatch(listeners.notificationclick, {
+    notification: { close: jest.fn(), data: { url: '/#/team?leagueId=5', title: 'T', body: 'B' } },
+  });
+
+  expect(calls.opened).toEqual([
+    `/#/team?leagueId=5&alert=${encodeURIComponent(JSON.stringify({ title: 'T', body: 'B' }))}`,
+  ]);
+});
+
+test('notificationclick falls back to "/#/" and still carries the alert when there is no url', async () => {
+  const { listeners, calls } = loadServiceWorker();
+
+  await dispatch(listeners.notificationclick, { notification: { close: jest.fn(), data: { title: 'T', body: 'B' } } });
+
+  expect(calls.opened[0].startsWith('/#/?alert=')).toBe(true);
+});
+
+test('notificationclick puts ?alert= after the hash path when only the part before the hash has a query', async () => {
+  const { listeners, calls } = loadServiceWorker();
+
+  await dispatch(listeners.notificationclick, {
+    notification: { close: jest.fn(), data: { url: '/?x=1#/p', title: 'T', body: 'B' } },
+  });
+
+  expect(calls.opened).toEqual([
+    `/?x=1#/p?alert=${encodeURIComponent(JSON.stringify({ title: 'T', body: 'B' }))}`,
+  ]);
 });

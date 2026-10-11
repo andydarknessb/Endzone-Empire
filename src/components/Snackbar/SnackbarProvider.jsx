@@ -61,7 +61,7 @@ export function SnackbarProvider({ children }) {
           severity={snack?.severity || 'success'}
           variant="filled"
           onClose={handleClose}
-          sx={{ alignItems: 'center' }}
+          sx={{ alignItems: 'center', '& .MuiAlert-message': { whiteSpace: 'pre-line' } }}
           action={
             <>
               {snack?.actionLabel && (
