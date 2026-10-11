@@ -316,8 +316,8 @@ async function scoreMatchups({ leagueId, season, week, plays = [], settle = fals
   // path passes none — so a cutscene can never fire from a correction.
   // Each play's statsBefore/statsAfter (the stat lines alertBigPlays prices
   // against) stay server-side: stripped here, at the wire boundary.
-  const wirePlays = plays.map(({ statsBefore, statsAfter, ...wire }) => wire);
-  await getDraftRoomBroadcast().scoresUpdated(leagueId, { leagueId, season, week, scored, plays: wirePlays });
+  const { wirePlays } = require('./boxScoreApply.service');
+  await getDraftRoomBroadcast().scoresUpdated(leagueId, { leagueId, season, week, scored, plays: wirePlays(plays) });
   // Win probability v2 shadow mode: record v2 for the open matchups from the
   // decorations the emit already used. Fire-and-forget and after the emit:
   // the scheduler scores leagues one after another, so an awaited write that

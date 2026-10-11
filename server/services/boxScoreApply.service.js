@@ -404,7 +404,18 @@ async function markFinalStatsSynced(tank01GameId, client = pool) {
   );
 }
 
+/**
+ * A Scoring play's `statsBefore`/`statsAfter` (the stat lines alertBigPlays
+ * prices against) are server-internal. Every boundary a play crosses (the
+ * scores:updated emit, the recorded data_sync_runs row, the sync routes'
+ * responses) sends it through here first.
+ */
+function wirePlays(plays) {
+  return (plays || []).map(({ statsBefore, statsAfter, ...play }) => play);
+}
+
 module.exports = {
+  wirePlays,
   loadDefUnitsByTeamCode,
   loadWeekMaps,
   applyGameBoxScore,
