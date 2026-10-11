@@ -170,3 +170,35 @@ test('sendPushToUsers without banter makes no prefs query and sends the payload 
   assert.equal(delivered.length, 3);
   for (const d of delivered) assert.deepEqual(JSON.parse(d.json), payload);
 });
+
+test('sendTestPush sends one Test alert to the caller with a filled banter line from a real situation', async (t) => {
+  const { SITUATIONS } = require('../services/pushBanter');
+  const calls = [];
+  t.mock.method(push, 'sendPushToUsers', async (userIds, payload) => {
+    calls.push({ userIds, payload });
+    return { sent: userIds.length };
+  });
+
+  const result = await push.sendTestPush({ userId: 7, now: 1700000000003 });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].userIds, [7]);
+  assert.equal(calls[0].payload.title, 'Test alert');
+  assert.equal(calls[0].payload.url, '/#/settings/notifications');
+  assert.equal(calls[0].payload.banter, result.banter);
+  assert.ok(SITUATIONS.includes(result.situation));
+  assert.equal(typeof result.banter, 'string');
+  assert.ok(result.banter.length > 0);
+  assert.doesNotMatch(result.banter, /\{/, 'every placeholder is filled from the sample facts');
+  assert.equal(result.sent, 1);
+});
+
+test('sendTestPush rotates the situation with the send time and reports sent: 0 when no device is subscribed', async (t) => {
+  t.mock.method(push, 'sendPushToUsers', async () => ({ sent: 0 }));
+
+  const a = await push.sendTestPush({ userId: 7, now: 1700000000000 });
+  const b = await push.sendTestPush({ userId: 7, now: 1700000000001 });
+
+  assert.notEqual(a.situation, b.situation);
+  assert.equal(a.sent, 0);
+});
