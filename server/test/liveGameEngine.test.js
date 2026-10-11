@@ -522,3 +522,64 @@ test('upsertRows: an unmoved in-progress game whose box this process never read 
   const { changed } = await upsertRows([ESPN_ROW]);
   assert.deepEqual(changed.map((c) => [c.gameId, c.refresh]), [[ESPN_ROW.tank01GameId, true]]);
 });
+
+// --- stale kickoff alert -----------------------------------------------------
+// The lineup lock reads only nfl_games.kickoff_at. CHI@GB 2026 wk5 moved
+// 4:25 -> 1:00 ET and the schedule kept 4:25, so the lock stayed open mid-game.
+// The live row already carried the real 1:00 start days ahead.
+
+const STALE_LIVE = { season: 2026, week: 5, home_team: 'GB', away_team: 'CHI', game_status: 'scheduled', start_time: new Date('2026-10-11T17:00:00Z') };
+const STALE_SCHEDULE = [
+  { season: 2026, week: 5, nfl_team: 'GB', kickoff_at: new Date('2026-10-11T20:25:00Z') },
+  { season: 2026, week: 5, nfl_team: 'CHI', kickoff_at: new Date('2026-10-11T20:25:00Z') },
+];
+
+test('staleKickoffs: a schedule kickoff that disagrees with the live start time, before or after kickoff', () => {
+  const { staleKickoffs } = require('../modules/liveGameEngine');
+  const live = [
+    STALE_LIVE,
+    { season: 2026, week: 5, home_team: 'WSH', away_team: 'DAL', game_status: 'final', start_time: new Date('2026-10-11T13:00:00Z') },
+    // Same teams, another week: never matched across weeks.
+    { season: 2026, week: 6, home_team: 'ATL', away_team: 'CHI', game_status: 'scheduled', start_time: new Date('2026-10-18T17:00:00Z') },
+  ];
+  const schedule = [
+    ...STALE_SCHEDULE,
+    { season: 2026, week: 5, nfl_team: 'WAS', kickoff_at: new Date('2026-10-11T13:00:00Z') },
+    { season: 2026, week: 5, nfl_team: 'DAL', kickoff_at: new Date('2026-10-11T13:00:00Z') },
+    { season: 2026, week: 6, nfl_team: 'CHI', kickoff_at: new Date('2026-10-18T17:00:00Z') },
+    { season: 2026, week: 6, nfl_team: 'ATL', kickoff_at: new Date('2026-10-18T17:00:00Z') },
+  ];
+  const stale = staleKickoffs(live, schedule);
+  assert.deepEqual(stale.map((s) => s.team).sort(), ['CHI', 'GB']);
+  assert.equal(stale[0].startTime.toISOString(), '2026-10-11T17:00:00.000Z');
+});
+
+test('reportStaleKickoffs alerts once per stale row, not once per tick', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  const sentry = require('../modules/sentry');
+  const captured = [];
+  t.mock.method(sentry, 'captureError', (err, ctx) => captured.push({ err, ctx }));
+  t.mock.method(console, 'error', () => {});
+  const fake = createFakePool([
+    [select('live_game_states'), () => ({ rows: [STALE_LIVE] })],
+    [select('nfl_games'), () => ({ rows: STALE_SCHEDULE })],
+  ]).install(t);
+  engine.__resetClockSourceState();
+
+  const now = new Date('2026-10-11T12:00:00Z');
+  await engine.reportStaleKickoffs({ now });
+  await engine.reportStaleKickoffs({ now });
+  assert.equal(captured.length, 2, 'one alert per stale team row');
+  assert.match(captured[0].err.message, /kickoff/);
+  assert.equal(captured[0].ctx.week, 5);
+  assert.deepEqual(fake.matching(select('live_game_states'))[0].params, [now]);
+});
+
+test('reportStaleKickoffs: a failed read is logged, never thrown into the tick', async (t) => {
+  const engine = require('../modules/liveGameEngine');
+  const logged = [];
+  t.mock.method(console, 'error', (...args) => logged.push(args));
+  t.mock.method(require('../modules/pool'), 'query', async () => { throw new Error('db down'); });
+  await engine.reportStaleKickoffs({ now: new Date() });
+  assert.equal(logged.length, 1);
+});

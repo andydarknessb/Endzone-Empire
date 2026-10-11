@@ -270,9 +270,10 @@ async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete
  * syncPlayers) — powering lineup locks and bye detection. One ESPN scoreboard
  * call per regular-season week (18; free and unmetered, #2116 and ADR 0060 —
  * Tank01 is the fallback and Final box only), all 18 issued before any write.
- * Reached only by hand (the admin and scoring routes); the daily writer is
- * syncScheduleFromNflverse. `transport` is the axios-like ESPN client (tests
- * inject).
+ * Runs daily (scheduler runDailyEspnSchedule) and by hand (the admin and
+ * scoring routes). It is the only writer that moves an existing kickoff:
+ * syncScheduleFromNflverse inserts and fills context only. `transport` is the
+ * axios-like ESPN client (tests inject).
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,
  * the advisory lock and the one data_sync_runs row per run, job 'schedule'.

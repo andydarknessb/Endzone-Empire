@@ -1119,8 +1119,8 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
 /**
  * Daily nflverse game-context fill (#1725, follow-up to #1707): run the
  * existing `syncScheduleFromNflverse` for the CURRENT season so `nfl_games`
- * `venue`, `roof`, `surface` and `rest_days` are populated. The manual schedule
- * sync (ESPN scoreboard) never writes them, so without this pass `venue` stays NULL, the
+ * `venue`, `roof`, `surface` and `rest_days` are populated. The ESPN schedule
+ * sync (`runDailyEspnSchedule` below) never writes them, so without this pass `venue` stays NULL, the
  * venue-keyed coordinate table (services/venueCoordinates.js) resolves nothing
  * and the NWS weather job is starved, and `roof` NULL reads a dome as outdoors.
  * This schedules the one sync that exists, not a new path; the manual
@@ -1148,6 +1148,25 @@ async function runNflverseGameContextFill({ now = new Date() } = {}) {
   if (season == null) return null;
   const nflverseSync = require('../services/nflverseSync.service');
   return nflverseSync.syncScheduleFromNflverse({ season });
+}
+
+/**
+ * Daily ESPN schedule sync: `syncSchedule` (feedSyncRuns.service.js, job
+ * 'schedule') for the current season, gated once per UTC day like the
+ * nflverse fill above. It is the only writer that moves an existing kickoff;
+ * the nflverse fill never does. Until this ran it was manual-only, so a game
+ * moved after its first insert kept its old slot and the lineup lock opened
+ * late (CHI@GB 2026 wk5). It skips ESPN's timeValid:false placeholders, so a
+ * TBD kickoff never overwrites a real one. A throw propagates to `runJobs`.
+ */
+async function runDailyEspnSchedule({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'schedule', every: 'utc-day', now });
+  if (!gate.due) return null;
+  const nflSeason = require('../services/nflSeason.service');
+  const season = await nflSeason.upcomingNflSeason();
+  if (season == null) return null;
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
+  return feedSyncRuns.syncSchedule({ season });
 }
 
 // How often to ask nflverse whether it has republished (a HEAD per season,
@@ -1652,6 +1671,7 @@ const TICK_JOBS = [
   { name: 'stat-corrections', tier: 'deadline', syncRun: ['stat-corrections', 'nflverse-correction'], run: () => runDailyStatCorrections() },
   { name: 'nflverse-finalization', tier: 'deadline', syncRun: ['nflverse-week', 'nflverse-snaps'], run: () => runNflverseFinalization() },
   { name: 'nflverse-game-context-fill', tier: 'deadline', syncRun: ['schedule-nflverse'], run: () => runNflverseGameContextFill() },
+  { name: 'espn-schedule', tier: 'deadline', syncRun: ['schedule'], run: () => runDailyEspnSchedule() },
   { name: 'nflverse-current-week', tier: 'deadline', syncRun: ['nflverse-current-week'], run: () => runNflverseCurrentWeek() },
   { name: 'injuries', tier: 'deadline', syncRun: ['injuries'], run: () => runDailyInjurySync() },
   { name: 'adp', tier: 'deadline', syncRun: ['adp'], run: () => runDailyAdpSync() },
@@ -1687,6 +1707,7 @@ const TICK_JOBS = [
     },
   },
   { name: 'live-sync', tier: 'deadline', syncRun: ['week-stats'], run: () => runLiveSync() },
+  { name: 'stale-kickoff-alert', tier: 'deadline', run: () => require('./liveGameEngine').reportStaleKickoffs() },
   // Override capture (#1862, ADR 0054): each kickoff once, the advice as of a
   // minute before it. After every time-sensitive duty above, since it asks for
   // advice per team and its run time must never delay them; it logs per league.
@@ -1725,7 +1746,7 @@ const TICK_JOBS = [
 
 // Sync runs only a commissioner trigger writes (feedSyncRuns.service.js); no tick
 // job does, so the list cannot declare them.
-const MANUAL_SYNC_RUN_JOBS = ['schedule', 'season-stats', 'team-defenses'];
+const MANUAL_SYNC_RUN_JOBS = ['season-stats', 'team-defenses'];
 
 /**
  * Every feed-sync job the Sync run module records (ADR 0036), in the order
@@ -1892,6 +1913,7 @@ module.exports = {
   runNightlyProjectionFill,
   runNflverseFinalization,
   runNflverseGameContextFill,
+  runDailyEspnSchedule,
   runNflverseCurrentWeek,
   runNflversePractice,
   runNightlyStatsIntegrityScan,

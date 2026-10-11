@@ -31,6 +31,8 @@ const gameRecap = require('../services/gameRecap.service');
 const liveBoxPoll = require('./liveBoxPoll');
 const liveBox = require('./liveBox');
 const finalBox = require('./finalBox');
+const sentry = require('./sentry');
+const { normalizeNflTeam } = require('../services/nflTeam');
 
 const RECAP_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // reconciliation cadence (safety net, not a hot path)
 const ESPN_FAILURE_THRESHOLD = 3; // consecutive failures before falling back to Tank01
@@ -65,6 +67,8 @@ let espnConsecutiveFailures = 0;
 let lastSourceUsed = null;
 let lastQuotaMode = null;
 let lastLiveBoxAt = null;
+// Stale kickoffs already reported this process: `season:week:team:kickoff`.
+const reportedStaleKickoffs = new Set();
 
 /**
  * Which source this tick will actually use. ESPN is retried on every tick even
@@ -451,6 +455,72 @@ async function upsertRows(rows) {
 }
 
 /**
+ * Pure: the schedule rows whose `nfl_games.kickoff_at` disagrees with the
+ * live row's `start_time` for the same (season, week, team). The lineup lock
+ * reads only that kickoff, so a game moved earlier unlocks late (CHI@GB 2026
+ * wk5: moved 4:25 -> 1:00 ET, schedule kept 4:25, lock open mid-game). The
+ * live row carried the real start days ahead, so this fires before kickoff.
+ * Either side can be the stale one; the alert says which disagree, not which
+ * is right. Teams are folded on both sides (ADR 0011).
+ */
+function staleKickoffs(liveRows, scheduleRows) {
+  const live = new Map();
+  for (const row of liveRows) {
+    for (const team of [row.home_team, row.away_team]) live.set(`${row.season}:${row.week}:${normalizeNflTeam(team)}`, row);
+  }
+  const stale = [];
+  for (const row of scheduleRows) {
+    const team = normalizeNflTeam(row.nfl_team);
+    const match = live.get(`${row.season}:${row.week}:${team}`);
+    if (!match || !match.start_time || +new Date(match.start_time) === +new Date(row.kickoff_at)) continue;
+    stale.push({
+      season: row.season, week: row.week, team, status: match.game_status,
+      kickoffAt: new Date(row.kickoff_at), startTime: new Date(match.start_time),
+    });
+  }
+  return stale;
+}
+
+/**
+ * Tick job: alert (Sentry captureError + console.error) once per process per
+ * stale kickoff `staleKickoffs` finds among live rows starting from a day ago
+ * to a week ahead. Alert only, never a repair: the daily ESPN schedule sync
+ * corrects a moved kickoff, a hand fix covers the rest. Its own tick job, not
+ * part of the live poll, because the poll's windows open from the very
+ * kickoff this distrusts. Never throws into the tick.
+ */
+async function reportStaleKickoffs({ now = new Date() } = {}) {
+  try {
+    const live = await pool.query(
+      `SELECT "season", "week", "home_team", "away_team", "game_status", "start_time" FROM "live_game_states"
+        WHERE "start_time" BETWEEN $1::timestamptz - interval '1 day' AND $1::timestamptz + interval '7 days'`,
+      [now]
+    );
+    if (live.rows.length === 0) return;
+    const weeks = [...new Set(live.rows.map((r) => `${r.season}:${r.week}`))].map((k) => k.split(':').map(Number));
+    const schedule = await pool.query(
+      `SELECT "season", "week", "nfl_team", "kickoff_at" FROM "nfl_games"
+        WHERE ("season", "week") IN (SELECT * FROM unnest($1::int[], $2::int[]))`,
+      [weeks.map((w) => w[0]), weeks.map((w) => w[1])]
+    );
+    for (const s of staleKickoffs(live.rows, schedule.rows)) {
+      const key = `${s.season}:${s.week}:${s.team}:${s.kickoffAt.toISOString()}:${s.startTime.toISOString()}`;
+      if (reportedStaleKickoffs.has(key)) continue;
+      reportedStaleKickoffs.add(key);
+      const message = `stale kickoff: ${s.team} ${s.season} wk${s.week} nfl_games.kickoff_at ${s.kickoffAt.toISOString()} but live start_time ${s.startTime.toISOString()} (${s.status}); the lineup lock follows kickoff_at`;
+      console.error('liveGameEngine: %s', message);
+      sentry.captureError(
+        new Error(message),
+        { season: s.season, week: s.week, team: s.team, kickoffAt: s.kickoffAt.toISOString(), startTime: s.startTime.toISOString(), status: s.status },
+        { fingerprint: ['stale-kickoff', String(s.season), String(s.week), s.team] }
+      );
+    }
+  } catch (err) {
+    console.error('liveGameEngine: stale kickoff check failed:', err.message);
+  }
+}
+
+/**
  * Fetch one (season, week) from the active source, upsert it, then read and
  * apply the Live box of every in-progress game that moved (#1185) and re-score
  * the leagues that are due. The Live box work is contained: a failure there is
@@ -618,6 +688,8 @@ module.exports = {
   fetchRowsForWeek,
   upsertRows,
   pollAndUpsert,
+  staleKickoffs,
+  reportStaleKickoffs,
   finalTransitions,
   activeClockSource,
   configuredClockSource,
@@ -628,5 +700,6 @@ module.exports = {
     espnConsecutiveFailures = 0;
     lastSourceUsed = null;
     lastQuotaMode = null;
+    reportedStaleKickoffs.clear();
   },
 };
