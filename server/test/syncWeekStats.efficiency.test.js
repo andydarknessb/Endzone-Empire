@@ -449,6 +449,7 @@ test('applyGameBoxScore: re-applying the SAME box score does not re-fire the pla
   const second = await scoring.applyGameBoxScore({ box, season: 2026, week: 2, maps });
   assert.equal(first.plays.length, 1);
   assert.equal(second.plays.length, 0);
+  assert.equal(second.updated, 0, 'the stored line is unchanged, so nothing is re-written (#2203)');
 });
 
 test('applyGameBoxScore: players outside our pool are ignored', async (t) => {

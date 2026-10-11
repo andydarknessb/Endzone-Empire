@@ -261,13 +261,13 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
   // line it returns, not the fresh one, is the diff baseline and the line the
   // plays are priced against.
   const upsertStats = async (playerId, fresh, prior) => {
-    const { stats, fantasyPoints } = await upsertPlayerStats(client, {
+    const { stats, fantasyPoints, written } = await upsertPlayerStats(client, {
       playerId, season, week, source: 'box', fresh, prior,
     });
     // Keep the diff baseline current so a re-apply of the same box (the recap
     // path following a live sync) can't re-fire the same touchdown.
     prevById.set(playerId, stats);
-    updated += 1;
+    if (written) updated += 1; // rows actually written (#2203)
     return { stats, points: fantasyPoints };
   };
 
