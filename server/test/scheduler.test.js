@@ -869,13 +869,13 @@ test('runNflverseGameContextFill runs at most once per UTC day against the real 
   assert.equal(syncCalls, 2, 'the next UTC day runs again');
 });
 
-// ---- ESPN schedule, daily -----------------------------------------------------
+// ---- ESPN schedule, hourly -----------------------------------------------------
 // syncSchedule (ESPN scoreboard) is the only writer that moves a kickoff, and it
 // ran by hand only, so a game moved after its first nflverse insert kept its
 // old slot (CHI@GB 2026 wk5, lineup lock open mid-game). It skips ESPN's
 // timeValid:false placeholders, so week 18's 1:00 ET TBDs are never written.
 
-test('runDailyEspnSchedule asks the cadence gate about schedule once per UTC day and syncs the current season', async (t) => {
+test('runEspnSchedule asks the cadence gate about schedule hourly, backs off 15 minutes, and syncs the current season', async (t) => {
   const feedSyncRuns = require('../services/feedSyncRuns.service');
   const nflSeason = require('../services/nflSeason.service');
   const cadence = require('../modules/cadence');
@@ -886,20 +886,20 @@ test('runDailyEspnSchedule asks the cadence gate about schedule once per UTC day
   t.mock.method(feedSyncRuns, 'syncSchedule', async (args) => { calls.push(args); return { season: 2026, gamesUpserted: 544 }; });
 
   const now = new Date('2026-10-11T12:00:00Z');
-  const result = await scheduler.runDailyEspnSchedule({ now });
+  const result = await scheduler.runEspnSchedule({ now });
 
-  assert.deepEqual(dueArgs, { job: 'schedule', every: 'utc-day', now });
+  assert.deepEqual(dueArgs, { job: 'schedule', every: { ms: 3600000 }, retryMs: 900000, now });
   assert.deepEqual(calls, [{ season: 2026 }]);
   assert.deepEqual(result, { season: 2026, gamesUpserted: 544 });
 });
 
-test('runDailyEspnSchedule does nothing when the cadence gate says it already ran today', async (t) => {
+test('runEspnSchedule does nothing when the cadence gate says it already ran today', async (t) => {
   const feedSyncRuns = require('../services/feedSyncRuns.service');
   const cadence = require('../modules/cadence');
   t.mock.method(cadence, 'due', async () => ({ due: false, reason: 'stubbed not due' }));
   let syncCalls = 0;
   t.mock.method(feedSyncRuns, 'syncSchedule', async () => { syncCalls += 1; return {}; });
-  assert.equal(await scheduler.runDailyEspnSchedule({ now: new Date('2026-10-11T12:05:00Z') }), null);
+  assert.equal(await scheduler.runEspnSchedule({ now: new Date('2026-10-11T12:05:00Z') }), null);
   assert.equal(syncCalls, 0);
 });
 
@@ -2270,7 +2270,6 @@ test('the real tick list is the pre-#2049 tickUnlocked order, deadline then hous
     'stat-corrections',
     'nflverse-finalization',
     'nflverse-game-context-fill',
-    'espn-schedule',
     'nflverse-current-week',
     'injuries',
     'adp',
@@ -2286,8 +2285,9 @@ test('the real tick list is the pre-#2049 tickUnlocked order, deadline then hous
     'trades',
     'scheduled-drafts',
     'live-sync',
-    'stale-kickoff-alert',
     'override-capture',
+    'espn-schedule',
+    'stale-kickoff-alert',
     'nflverse-practice',
     'retention',
     'player-sync',

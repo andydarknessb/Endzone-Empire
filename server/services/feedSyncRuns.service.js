@@ -270,7 +270,7 @@ async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete
  * syncPlayers) — powering lineup locks and bye detection. One ESPN scoreboard
  * call per regular-season week (18; free and unmetered, #2116 and ADR 0060 —
  * Tank01 is the fallback and Final box only), all 18 issued before any write.
- * Runs daily (scheduler runDailyEspnSchedule) and by hand (the admin and
+ * Runs hourly (scheduler runEspnSchedule) and by hand (the admin and
  * scoring routes). It is the only writer that moves an existing kickoff:
  * syncScheduleFromNflverse inserts and fills context only. `transport` is the
  * axios-like ESPN client (tests inject).

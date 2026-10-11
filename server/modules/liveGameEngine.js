@@ -455,45 +455,52 @@ async function upsertRows(rows) {
 }
 
 /**
- * Pure: the schedule rows whose `nfl_games.kickoff_at` disagrees with the
- * live row's `start_time` for the same (season, week, team). The lineup lock
- * reads only that kickoff, so a game moved earlier unlocks late (CHI@GB 2026
- * wk5: moved 4:25 -> 1:00 ET, schedule kept 4:25, lock open mid-game). The
- * live row carried the real start days ahead, so this fires before kickoff.
- * Either side can be the stale one; the alert says which disagree, not which
- * is right. Teams are folded on both sides (ADR 0011).
+ * Pure: the games whose `nfl_games.kickoff_at` disagrees with the live row's
+ * `start_time` for the same (season, week, team), one entry per game. The
+ * lineup lock reads only that kickoff, so a game moved earlier unlocks late
+ * (CHI@GB 2026 wk5: moved 4:25 -> 1:00 ET, schedule kept 4:25, lock open
+ * mid-game). Only in_progress/final live rows count: the poll rewrites their
+ * start_time, while a scheduled row can be days old and would cry wolf over a
+ * schedule the daily ESPN sync already fixed. `liveRows` oldest first, so a
+ * game moved to another date (a second, orphaned live row) is read from its
+ * newest row. Teams are folded for the match (ADR 0011); `nflTeam` is the
+ * code nfl_games stores, for a hand fix.
  */
 function staleKickoffs(liveRows, scheduleRows) {
   const live = new Map();
   for (const row of liveRows) {
     for (const team of [row.home_team, row.away_team]) live.set(`${row.season}:${row.week}:${normalizeNflTeam(team)}`, row);
   }
-  const stale = [];
+  const byGame = new Map();
   for (const row of scheduleRows) {
-    const team = normalizeNflTeam(row.nfl_team);
-    const match = live.get(`${row.season}:${row.week}:${team}`);
-    if (!match || !match.start_time || +new Date(match.start_time) === +new Date(row.kickoff_at)) continue;
-    stale.push({
-      season: row.season, week: row.week, team, status: match.game_status,
-      kickoffAt: new Date(row.kickoff_at), startTime: new Date(match.start_time),
-    });
+    const match = live.get(`${row.season}:${row.week}:${normalizeNflTeam(row.nfl_team)}`);
+    if (!match || (match.game_status !== 'in_progress' && match.game_status !== 'final') || !match.start_time) continue;
+    if (+new Date(match.start_time) === +new Date(row.kickoff_at)) continue;
+    const game = `${row.season} wk${row.week} ${match.away_team}@${match.home_team}`;
+    const entry = byGame.get(game) || {
+      game, season: row.season, week: row.week, status: match.game_status,
+      startTime: new Date(match.start_time), kickoffs: [],
+    };
+    entry.kickoffs.push({ nflTeam: row.nfl_team, kickoffAt: new Date(row.kickoff_at) });
+    byGame.set(game, entry);
   }
-  return stale;
+  return [...byGame.values()];
 }
 
 /**
  * Tick job: alert (Sentry captureError + console.error) once per process per
- * stale kickoff `staleKickoffs` finds among live rows starting from a day ago
- * to a week ahead. Alert only, never a repair: the daily ESPN schedule sync
- * corrects a moved kickoff, a hand fix covers the rest. Its own tick job, not
- * part of the live poll, because the poll's windows open from the very
- * kickoff this distrusts. Never throws into the tick.
+ * game `staleKickoffs` finds among live rows started from a day ago on. Alert
+ * only, never a repair: the hourly ESPN schedule sync corrects a moved
+ * kickoff, a hand fix covers the rest. Its own tick job, not part of the live
+ * poll; it can only see a game the poll has written in_progress, so the ESPN
+ * sync, not this, is what catches a move before kickoff. Never throws.
  */
 async function reportStaleKickoffs({ now = new Date() } = {}) {
   try {
     const live = await pool.query(
       `SELECT "season", "week", "home_team", "away_team", "game_status", "start_time" FROM "live_game_states"
-        WHERE "start_time" BETWEEN $1::timestamptz - interval '1 day' AND $1::timestamptz + interval '7 days'`,
+        WHERE "game_status" IN ('in_progress', 'final') AND "start_time" >= $1::timestamptz - interval '1 day'
+        ORDER BY "last_updated" ASC NULLS FIRST`,
       [now]
     );
     if (live.rows.length === 0) return;
@@ -504,15 +511,15 @@ async function reportStaleKickoffs({ now = new Date() } = {}) {
       [weeks.map((w) => w[0]), weeks.map((w) => w[1])]
     );
     for (const s of staleKickoffs(live.rows, schedule.rows)) {
-      const key = `${s.season}:${s.week}:${s.team}:${s.kickoffAt.toISOString()}:${s.startTime.toISOString()}`;
-      if (reportedStaleKickoffs.has(key)) continue;
-      reportedStaleKickoffs.add(key);
-      const message = `stale kickoff: ${s.team} ${s.season} wk${s.week} nfl_games.kickoff_at ${s.kickoffAt.toISOString()} but live start_time ${s.startTime.toISOString()} (${s.status}); the lineup lock follows kickoff_at`;
+      if (reportedStaleKickoffs.has(s.game)) continue;
+      reportedStaleKickoffs.add(s.game);
+      const kickoffs = s.kickoffs.map((k) => `${k.nflTeam} ${k.kickoffAt.toISOString()}`).join(', ');
+      const message = `stale kickoff: ${s.game} is ${s.status} from ${s.startTime.toISOString()} but nfl_games.kickoff_at is ${kickoffs}; the lineup lock follows kickoff_at`;
       console.error('liveGameEngine: %s', message);
       sentry.captureError(
         new Error(message),
-        { season: s.season, week: s.week, team: s.team, kickoffAt: s.kickoffAt.toISOString(), startTime: s.startTime.toISOString(), status: s.status },
-        { fingerprint: ['stale-kickoff', String(s.season), String(s.week), s.team] }
+        { season: s.season, week: s.week, game: s.game, startTime: s.startTime.toISOString(), kickoffs, status: s.status },
+        { fingerprint: ['stale-kickoff', s.game] }
       );
     }
   } catch (err) {
