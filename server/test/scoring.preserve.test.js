@@ -96,6 +96,10 @@ test('applyGameBoxScore: a WSH skill player emits a play folded to Team codes (#
   assert.ok(play, 'a Washington skill-player scoring play must be emitted');
   assert.equal(play.nflTeam, 'WAS', "the play carries WSH folded to the Team code WAS, not the raw code");
   assert.equal(play.opponent, 'JAX', 'the opponent is folded to a Team code too (raw JAC -> JAX)');
+  // The play carries the sync's stat lines for alertBigPlays to price from.
+  assert.deepEqual(play.statsBefore, { rushingYards: 40, rushingTDs: 0 });
+  assert.deepEqual(play.statsAfter, JSON.parse(upserts.find((p) => p[0] === 7)[3]));
+  assert.ok(play.statsAfter.rushingTDs > 0);
   // The stored player_stats row is untouched by the fold: ADR 0011 keeps the
   // raw code in the table.
   assert.ok(upserts.some((p) => p[0] === 7), 'the player_stats row was still written');
@@ -206,6 +210,10 @@ test('applyGameBoxScore: a DEF unit with two tracked events in one sync emits pl
 
   const plays = out.plays.filter((p) => p.playerId === 91);
   assert.equal(plays.length, 2, 'both fumbleRecovery and defensiveTD fired');
+  for (const p of plays) {
+    assert.deepEqual(p.statsBefore, prevStats, 'the DEF site carries the pre-sync line too');
+    assert.equal(p.statsAfter.defensiveTD, 1);
+  }
 
   const stored = JSON.parse(upserts[0][3]);
   const wholeDelta = Math.round(
@@ -228,4 +236,15 @@ test('applyGameBoxScore: a carried usageTargets produces no play', async (t) => 
   const maps = playerMaps(prior);
   const out = await scoring.applyGameBoxScore({ box: BOX, season: 2026, week: 2, maps });
   assert.deepEqual(out.plays, []);
+});
+
+test('applyGameBoxScore: a player with no stored line gets statsBefore {}', async (t) => {
+  stubUpserts(t);
+  const maps = playerMaps(undefined);
+  const out = await scoring.applyGameBoxScore({ box: BOX, season: 2026, week: 2, maps });
+
+  const play = out.plays.find((p) => p.playerId === 7);
+  assert.ok(play, 'the first sync of a TD is a play');
+  assert.deepEqual(play.statsBefore, {});
+  assert.ok(play.statsAfter.rushingTDs > 0);
 });
