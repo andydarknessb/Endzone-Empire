@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { SITUATIONS, LINES, banterFor } = require('../services/pushBanter');
+const { SITUATIONS, LINES, banterFor, fillTemplate } = require('../services/pushBanter');
 
 // The same forbidden-name pattern the Draft assistant's voice test decodes
 // (src/lib/draftAssistant/voices/polkHighLegend.test.js), carried as base64 so
@@ -55,4 +55,32 @@ test('a different seed can pick a different line, and placeholders are filled fr
 test('a missing fact renders empty and an unknown situation is null', () => {
   assert.doesNotMatch(banterFor('closeMatchup', 'x'), /\{/);
   assert.equal(banterFor('nope', 'score-lead:7:away:1'), null);
+});
+
+test('every line, filled with realistic facts, is at most 110 characters (readability ruling R1)', () => {
+  const facts = {
+    mine: 'Your Squad',
+    theirs: 'The Other Guys',
+    player: 'Jaylen Warren',
+    event: 'receiving touchdown',
+    points: 6,
+    count: 3,
+    margin: 2.5,
+    week: 6,
+    league: 'Your League',
+  };
+  for (const situation of SITUATIONS) {
+    for (const line of LINES[situation]) {
+      const filled = fillTemplate(line, facts);
+      assert.ok(filled.length <= 110, `${situation} is ${filled.length} chars: ${filled}`);
+    }
+  }
+});
+
+test('a big play line never restates the facts line: not both {event} and {points} (readability ruling R2)', () => {
+  for (const situation of ['bigPlayMine', 'bigPlayTheirs']) {
+    for (const line of LINES[situation]) {
+      assert.ok(!(line.includes('{event}') && line.includes('{points}')), `${situation} uses both: ${line}`);
+    }
+  }
 });
