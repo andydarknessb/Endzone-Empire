@@ -61,6 +61,10 @@ let lastCorrectionDay = null;
 // is due again. A refused run is not retried: it settles its UTC day.
 const STAT_CORRECTIONS_RETRY_MS = 60 * 60 * 1000;
 const PLAYER_SYNC_RETRY_MS = 60 * 60 * 1000;
+// ESPN schedule sync (#2216): hourly, so a game-day move lands before the new
+// kickoff; a failed run (18 sequential scoreboard calls) backs off 15 minutes.
+const ESPN_SCHEDULE_INTERVAL_MS = 60 * 60 * 1000;
+const ESPN_SCHEDULE_RETRY_MS = 15 * 60 * 1000;
 const ADP_RETRY_MS = 15 * 60 * 1000;
 let lastRetentionDay = null;
 // The ESPN injury refresh keeps its last-run stamp in data_sync_runs, not
@@ -1089,8 +1093,8 @@ async function runNflverseFinalization({ now = new Date() } = {}) {
 /**
  * Daily nflverse game-context fill (#1725, follow-up to #1707): run the
  * existing `syncScheduleFromNflverse` for the CURRENT season so `nfl_games`
- * `venue`, `roof`, `surface` and `rest_days` are populated. The manual schedule
- * sync (ESPN scoreboard) never writes them, so without this pass `venue` stays NULL, the
+ * `venue`, `roof`, `surface` and `rest_days` are populated. The ESPN schedule
+ * sync (`runEspnSchedule` below) never writes them, so without this pass `venue` stays NULL, the
  * venue-keyed coordinate table (services/venueCoordinates.js) resolves nothing
  * and the NWS weather job is starved, and `roof` NULL reads a dome as outdoors.
  * This schedules the one sync that exists, not a new path; the manual
@@ -1118,6 +1122,28 @@ async function runNflverseGameContextFill({ now = new Date() } = {}) {
   if (season == null) return null;
   const nflverseSync = require('../services/nflverseSync.service');
   return nflverseSync.syncScheduleFromNflverse({ season });
+}
+
+/**
+ * Hourly ESPN schedule sync: `syncSchedule` (feedSyncRuns.service.js, job
+ * 'schedule') for the current season. It is the only writer that moves an
+ * existing kickoff; the nflverse fill never does. Until this ran it was
+ * manual-only, so a game moved after its first insert kept its old slot and
+ * the lineup lock opened late (CHI@GB 2026 wk5). Hourly rather than daily so
+ * a game-day move lands before the new kickoff. It skips ESPN's
+ * timeValid:false placeholders, so a TBD kickoff never overwrites a real one.
+ * The gate reads the job, not the season (a manual sync of another season
+ * settles it for an hour), and a run with some failedWeeks is ok; both cost
+ * at most one interval. A throw propagates to `runJobs`.
+ */
+async function runEspnSchedule({ now = new Date() } = {}) {
+  const gate = await cadence.due({ job: 'schedule', every: { ms: ESPN_SCHEDULE_INTERVAL_MS }, retryMs: ESPN_SCHEDULE_RETRY_MS, now });
+  if (!gate.due) return null;
+  const nflSeason = require('../services/nflSeason.service');
+  const season = await nflSeason.upcomingNflSeason();
+  if (season == null) return null;
+  const feedSyncRuns = require('../services/feedSyncRuns.service');
+  return feedSyncRuns.syncSchedule({ season });
 }
 
 // How often to ask nflverse whether it has republished (a HEAD per season,
@@ -1694,6 +1720,9 @@ const TICK_JOBS = [
   // nflverse practice-participation poll (#1922): a poll that finds a new file is
   // up to a minute and a half of serial downloads that must never delay a
   // deadline duty. Nothing above reads what it writes within the same tick.
+  // #2216: not deadline duties, so after override-capture and live-sync.
+  { name: 'espn-schedule', tier: 'housekeeping', syncRun: ['schedule'], run: () => runEspnSchedule() },
+  { name: 'stale-kickoff-alert', tier: 'housekeeping', run: () => require('./liveGameEngine').reportStaleKickoffs() },
   { name: 'nflverse-practice', tier: 'housekeeping', syncRun: ['nflverse-practice'], run: () => runNflversePractice() },
   // A throw leaves the retention day unstamped, so it retries every tick.
   { name: 'retention', tier: 'housekeeping', run: () => runRetention() },
@@ -1725,7 +1754,7 @@ const TICK_JOBS = [
 
 // Sync runs only a commissioner trigger writes (feedSyncRuns.service.js); no tick
 // job does, so the list cannot declare them.
-const MANUAL_SYNC_RUN_JOBS = ['schedule', 'season-stats', 'team-defenses'];
+const MANUAL_SYNC_RUN_JOBS = ['season-stats', 'team-defenses'];
 
 /**
  * Every feed-sync job the Sync run module records (ADR 0036), in the order
@@ -1892,6 +1921,7 @@ module.exports = {
   runNightlyProjectionFill,
   runNflverseFinalization,
   runNflverseGameContextFill,
+  runEspnSchedule,
   runNflverseCurrentWeek,
   runNflversePractice,
   runNightlyStatsIntegrityScan,
