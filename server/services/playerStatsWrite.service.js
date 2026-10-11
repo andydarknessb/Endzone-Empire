@@ -11,7 +11,8 @@
  *    the funnel computes it and never accepts one from the caller. A row whose
  *    points disagree with its stats can therefore only reach the table from
  *    outside the application, which is what playerStatsIntegrity.service scans
- *    for.
+ *    for. A `box` write whose stored line already equals `prior` issues no
+ *    statement (#2203).
  *
  * Sources:
  *  - `box`                 replace, may create. The Live box and the Final box.
@@ -172,9 +173,29 @@ function storedStatLine({ source, fresh, prior }) {
 }
 
 /**
+ * Pure: a stat line as a string that ignores key order. The diff baseline is
+ * reloaded from player_stats every MAPS_TTL_MS, and jsonb returns keys sorted
+ * by length rather than in the order the box source wrote them, so a plain
+ * JSON.stringify read an identical line as a change once per reload for every
+ * player in the next box read, re-scoring every league that rostered one. It
+ * lives here because the write module uses it to decide whether a line changed.
+ */
+function statLineKey(line) {
+  const canon = (v) => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v && typeof v === 'object') {
+      return Object.keys(v).sort().reduce((out, k) => { out[k] = canon(v[k]); return out; }, {});
+    }
+    return v;
+  };
+  return JSON.stringify(canon(line || null));
+}
+
+/**
  * Write one Player-week's Stat line as `source` sees it. Resolves to
- * `{ stats, fantasyPoints }` (the stored line and its default-rules score), or
- * null, with no statement issued, when the policy writes nothing.
+ * `{ stats, fantasyPoints, written }` (the stored line, its default-rules score,
+ * and whether a statement ran), or null, with no statement issued, when the
+ * policy writes nothing.
  */
 async function upsertPlayerStats(db, { playerId, season, week, source, fresh, prior }) {
   const stored = storedStatLine({ source, fresh, prior });
@@ -184,6 +205,14 @@ async function upsertPlayerStats(db, { playerId, season, week, source, fresh, pr
   // path, so a load-time require would be a cycle.
   const { calculateFantasyPoints } = require('./scoringRules');
   const fantasyPoints = calculateFantasyPoints(stats);
+  // The Live box re-applies every player in a game each tick (#2203) and most
+  // lines do not move between ticks; the stored points derive from the stats,
+  // so an unchanged line needs no statement. Box only: the weekly
+  // nflverse-correction rewrite stays the pass that repairs a row whose points
+  // were put out of step with its stats from outside the application.
+  if (source === 'box' && prior !== null && prior !== undefined && statLineKey(stats) === statLineKey(prior)) {
+    return { stats, fantasyPoints, written: false };
+  }
   await db.query(
     `INSERT INTO "player_stats" ("player_id", "season", "week", "stats", "fantasy_points")
      VALUES ($1, $2, $3, $4, $5)
@@ -191,7 +220,7 @@ async function upsertPlayerStats(db, { playerId, season, week, source, fresh, pr
      DO UPDATE SET "stats" = EXCLUDED."stats", "fantasy_points" = EXCLUDED."fantasy_points"`,
     [playerId, season, week, JSON.stringify(stats), fantasyPoints]
   );
-  return { stats, fantasyPoints };
+  return { stats, fantasyPoints, written: true };
 }
 
-module.exports = { upsertPlayerStats, storedStatLine, STAT_KEY_OWNERSHIP };
+module.exports = { upsertPlayerStats, storedStatLine, statLineKey, STAT_KEY_OWNERSHIP };

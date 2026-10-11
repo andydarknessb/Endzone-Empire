@@ -18,6 +18,7 @@
 const pool = require('./pool');
 const liveBox = require('./liveBox');
 const { fantasySeasonLiveWhereSql } = require('../services/leaguePhase');
+const { statLineKey } = require('../services/playerStatsWrite.service');
 
 const RESCORE_FLOOR_MS = 60 * 1000;
 const BOX_REFRESH_MS = 60 * 1000;
@@ -94,24 +95,6 @@ function createRescoreGate({ floorMs = RESCORE_FLOOR_MS } = {}) {
     },
     pendingCount: () => pendingPlays.size,
   };
-}
-
-/**
- * Pure: a stat line as a string that ignores key order. The diff baseline is
- * reloaded from player_stats every MAPS_TTL_MS, and jsonb returns keys sorted
- * by length rather than in the order the box source wrote them, so a plain
- * JSON.stringify read an identical line as a change once per reload for every
- * player in the next box read, re-scoring every league that rostered one.
- */
-function statLineKey(line) {
-  const canon = (v) => {
-    if (Array.isArray(v)) return v.map(canon);
-    if (v && typeof v === 'object') {
-      return Object.keys(v).sort().reduce((out, k) => { out[k] = canon(v[k]); return out; }, {});
-    }
-    return v;
-  };
-  return JSON.stringify(canon(line || null));
 }
 
 let gate = createRescoreGate();
