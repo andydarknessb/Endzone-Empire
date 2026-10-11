@@ -271,8 +271,7 @@ async function applySyncPlayersUnit(client, { season, rows: rosterRows, complete
  * call per regular-season week (18; free and unmetered, #2116 and ADR 0060 —
  * Tank01 is the fallback and Final box only), all 18 issued before any write.
  * Reached only by hand (the admin and scoring routes); the daily writer is
- * syncScheduleFromNflverse, which also moves kickoffs, so the next nightly run
- * overwrites whatever this wrote. `transport` is the axios-like ESPN client (tests
+ * syncScheduleFromNflverse. `transport` is the axios-like ESPN client (tests
  * inject).
  *
  * Sync run module (ADR 0036): runSyncJob owns fetch/apply, the transaction,

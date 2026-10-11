@@ -1171,7 +1171,7 @@ test('buildScheduleRows flags a neutral-site game', () => {
   assert.equal(home.neutralSite, true);
 });
 
-test('syncScheduleFromNflverse moves a kickoff the file moved, never the opponent, and fills in game context', async (t) => {
+test('syncScheduleFromNflverse never overwrites a Tank01 kickoff, but does fill in game context', async (t) => {
   const csv = [
     'game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,roof,surface,stadium',
     '2026_18_SF_ARI,2026,REG,18,2027-01-10,Sunday,13:00,SF,,ARI,,closed,grass,State Farm Stadium',
@@ -1191,11 +1191,9 @@ test('syncScheduleFromNflverse moves a kickoff the file moved, never the opponen
   const writes = fake.matching(insert('nfl_games'));
   assert.equal(writes.length, 2);
   assert.match(writes[0].text, /INSERT INTO "nfl_games"/);
-  // The conflict branch moves the kickoff (a game moved after the first insert,
-  // CHI@GB 2026 wk5 left unlocked mid-game at its old 4:25 slot) and fills the
-  // additive context columns; the opponent stays as it is.
+  // The conflict branch touches ONLY the additive context columns.
   assert.match(writes[0].text, /ON CONFLICT \("season", "week", "nfl_team"\) DO UPDATE SET/);
-  assert.match(writes[0].text, /DO UPDATE SET[\s\S]*"kickoff_at" = EXCLUDED\."kickoff_at"/);
+  assert.equal(/DO UPDATE SET[\s\S]*"kickoff_at"/.test(writes[0].text), false);
   assert.equal(/DO UPDATE SET[\s\S]*"opponent" =/.test(writes[0].text), false);
   assert.deepEqual(writes[0].params.slice(0, 4), [2026, 18, 'ARI', 'SF']);
   assert.equal(writes[0].params[5], '2026_18_SF_ARI');

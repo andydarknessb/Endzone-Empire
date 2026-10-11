@@ -798,13 +798,12 @@ async function fetchScheduleFromNflverseUnits({ season, now = new Date() }) {
 /**
  * apply(client, unit) for the schedule-nflverse job: runs inside
  * runSyncJob's withTransaction, after the module has already taken
- * NFL_GAMES_BULK_WRITE_LOCK on this client. Never overwrites `opponent` on an
- * existing row. DOES move `kickoff_at`: this is the only daily schedule writer
- * (ESPN `syncSchedule` runs by hand only), so a game moved after its first
- * insert kept its old slot and the lineup lock opened late (CHI@GB 2026 wk5,
- * moved 4:25 -> 1:00 ET). `buildScheduleRows` drops a row with no kickoff, so
- * this never writes a null. The additive game-context columns are each
- * COALESCEd so a null in this file cannot erase a value already there.
+ * NFL_GAMES_BULK_WRITE_LOCK on this client. Same per-row upsert as before,
+ * unchanged — still never overwrites `opponent` or `kickoff_at` on an
+ * existing row (a Tank01-synced kickoff stays authoritative), and the ON
+ * CONFLICT branch still only fills in the additive game-context columns,
+ * each COALESCEd so a null in this file cannot erase a value already there —
+ * just run on the transaction client instead of the bare pool.
  */
 async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
   let rowsInserted = 0;
@@ -816,8 +815,7 @@ async function applyScheduleFromNflverseUnit(client, { season, scheduleRows }) {
           "game_key", "home_away", "neutral_site", "venue", "roof", "surface", "rest_days")
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT ("season", "week", "nfl_team")
-       DO UPDATE SET "kickoff_at" = EXCLUDED."kickoff_at",
-                     "game_key" = COALESCE(EXCLUDED."game_key", "nfl_games"."game_key"),
+       DO UPDATE SET "game_key" = COALESCE(EXCLUDED."game_key", "nfl_games"."game_key"),
                      "home_away" = COALESCE(EXCLUDED."home_away", "nfl_games"."home_away"),
                      "neutral_site" = COALESCE(EXCLUDED."neutral_site", "nfl_games"."neutral_site"),
                      "venue" = COALESCE(EXCLUDED."venue", "nfl_games"."venue"),
