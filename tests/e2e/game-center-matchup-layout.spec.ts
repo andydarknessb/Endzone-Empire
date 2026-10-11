@@ -536,6 +536,41 @@ for (const w of [320, 360, 390]) {
   });
 }
 
+// ---- Phone scoreboard names ----
+//
+// On a phone the strip puts both Team names on one row, half the card each. A
+// 28-char name ("Smokeys Stump Jumpers's Team", week 5 2026) ran 85px past its
+// half and 62px into the other name: the name span sits in a column flex box
+// aligned to its start/end edge, so it sized to its text and the ellipsis never
+// engaged. This binds the rendered geometry with the fixture's 30-char names:
+// each name box stays inside its side box and the two never overlap. Red-tell:
+// deleting `maxWidth: '100%'` from the strip's TeamName turns the 390 case red.
+for (const w of [360, 390]) {
+  test(`Matchup Standard @ ${w}: the scoreboard's two Team names stay in their halves and never overlap`, async ({ page }) => {
+    await gotoShape(page, MATCHUP_STANDARD, w, 844);
+    const res = await page.evaluate(() => {
+      const rect = (el: Element | null) => {
+        const r = el!.getBoundingClientRect();
+        return { left: r.left, right: r.right, text: (el!.textContent || '').trim() };
+      };
+      const side = (t: string) => document.querySelector(`[data-testid="scoreboard-side-${t}"]`);
+      return {
+        layout: document.querySelector('[data-testid="scoreboard-strip"]')?.getAttribute('data-layout'),
+        home: { side: rect(side('home')), name: rect(side('home')!.querySelector('[data-testid="scoreboard-team-name"]')) },
+        away: { side: rect(side('away')), name: rect(side('away')!.querySelector('[data-testid="scoreboard-team-name"]')) },
+      };
+    });
+    expect(res.layout, 'the phone layout is the one under test').toBe('mobile');
+    for (const t of ['home', 'away'] as const) {
+      const { side, name } = res[t];
+      expect(name.text.length, `${t} name long enough to spill without the guard`).toBeGreaterThanOrEqual(22);
+      expect(name.left, `${t} name "${name.text}" starts inside its half`).toBeGreaterThanOrEqual(side.left - 1);
+      expect(name.right, `${t} name "${name.text}" ends inside its half`).toBeLessThanOrEqual(side.right + 1);
+    }
+    expect(res.home.name.right, 'home and away names do not overlap').toBeLessThanOrEqual(res.away.name.left + 1);
+  });
+}
+
 // ---- Red-tell outcomes (#920, each run in Chromium; see the PR body) ----
 //
 // Game Center (both fire, and each co-binds the jsdom case in
