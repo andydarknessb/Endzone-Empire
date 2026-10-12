@@ -1,34 +1,37 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createFakePool } = require('./helpers/fakePool');
+const { createFakePool, select, insert } = require('./helpers/fakePool');
 const push = require('../services/push.service');
-const prefs = require('../services/prefs.service');
-const { alertCloseMatchups } = require('../modules/scheduler');
+const { sendAlert } = require('../services/pushAlerts.service');
 const { banterFor } = require('../services/pushBanter');
 
 test('close-matchup push targets Game Center instead of the retired Matchups route', async (t) => {
-  let sent;
-  createFakePool([[/./, () => ({ rows: [{ owner_id: 11 }, { owner_id: 22 }] })]]).install(t);
-  t.mock.method(prefs, 'usersWanting', async (ownerIds, key) => {
-    assert.deepEqual(ownerIds, [11, 22]);
-    assert.equal(key, 'closeMatchups');
-    return ownerIds;
-  });
+  const sent = [];
+  const fake = createFakePool([
+    [select('teams'), () => ({ rows: [{ owner_id: 11 }, { owner_id: 22 }] })],
+    [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
+    [insert('push_events'), (text, [user_id]) => ({ rows: [{ user_id }] })],
+  ]);
+  fake.install(t);
   t.mock.method(push, 'sendPushToUsers', async (ownerIds, payload) => {
-    sent = { ownerIds, payload };
+    sent.push({ ownerIds, payload });
     return { sent: ownerIds.length };
   });
 
-  await alertCloseMatchups({
+  await sendAlert({
+    kind: 'close-matchup',
     leagueId: 42,
     week: 7,
     scored: [{ matchupId: 987654, homeTeamId: 3, awayTeamId: 4, homeScore: 101, awayScore: 96.5 }],
   });
 
-  assert.deepEqual(sent.ownerIds, [11, 22]);
-  assert.equal(sent.payload.url, '/#/league/42/game-center');
-  assert.equal(sent.payload.title, 'Your matchup is close!');
-  assert.equal(sent.payload.banter, banterFor('closeMatchup', 'close:987654:7', { margin: 4.5, week: 7 }));
+  const prefsQuery = fake.calls.find((c) => /notification_prefs/.test(c.text));
+  assert.deepEqual(prefsQuery.params, [[11, 22]], 'both owners are checked against their preferences');
+  assert.deepEqual(sent.map((s) => s.ownerIds), [[11], [22]], 'one push per owner');
+  assert.deepEqual(sent[1].payload, sent[0].payload);
+  assert.equal(sent[0].payload.url, '/#/league/42/game-center');
+  assert.equal(sent[0].payload.title, 'Your matchup is close!');
+  assert.equal(sent[0].payload.banter, banterFor('closeMatchup', 'close:987654:7', { margin: 4.5, week: 7 }));
 });
 
 // ---- quota-aware stat-sync cadence -----------------------------------------

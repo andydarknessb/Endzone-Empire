@@ -195,7 +195,7 @@ function digestWorld(t, world) {
     })],
     [/^SELECT "user_id", "prefs" FROM "notification_prefs"/, () => ({ rows: [] })],
     // The push_events ledger: every user's row is new.
-    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: params[0].map((user_id) => ({ user_id })) })],
+    [/^INSERT INTO "push_events"/, (text, params) => ({ rows: [{ user_id: params[0] }] })],
     [/^SELECT "team_players"\."player_id"/, () => ({
       rows: world.entries.map((e) => ({ player_id: e.player_id, position: e.position })),
     })],

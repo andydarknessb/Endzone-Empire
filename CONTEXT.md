@@ -436,10 +436,13 @@ because `NWS_USER_AGENT` is unset is `ok` in the table, but the scheduler
 status reports its outcome as `unconfigured`, never `ok` (#1930). A Sync
 run's outcome is one typed status: `ok`, `refused`, `fetch_failed`,
 `bad_response`, `write_failed` or `unconfigured`; the cadence gate reads it, so
-a refused run closes its job's day and a failed one is retried after that job's
-own interval (ADR 0036). The scheduler status and the health probe read the
-latest Sync run for a job; "last successful sync" means the latest one that
-succeeded, not the latest one that ran (ADR 0036). The stat-correction pass
+a refused run settles its job's cadence period (a day for `utc-day` jobs, the
+interval for `{ ms }` jobs) and a failed one is retried on the next tick unless
+the job passes `retryMs` (`adp`, `stat-corrections`, `players` and `schedule`
+do; ADR 0036). The
+scheduler status and the health probe read the latest Sync run for a job; "last
+successful sync" means the latest one that succeeded, not the latest one that
+ran (ADR 0036). The stat-correction pass
 wipes every Weekly projection run from the corrected week+1 onward, so a
 `stat-corrections` run newer than the last `nightly-projection-run` means a
 refill is owed, and the fill runs at the end of the next tick instead of
@@ -1490,9 +1493,15 @@ _Avoid_: rank, weight, points (what it becomes, not what it is)
 A notification delivered to a Manager's phone, tablet or desktop through the
 browser's push service, whether the app is open or not. A home-screen install
 receives the same alert as a browser tab; on iOS only a home-screen install
-can receive one. Each kind of Push alert has its own per-Manager preference.
+can receive one. Every Push alert has a kind: Injury alert, Score update, Big
+play, close matchup, IR action, Lineup reminder, Pick'em reminder, waiver
+results, trade offer, draft reminder, the draft starting, or the Test alert.
+Each kind has its own per-Manager preference (the Test alert none), its own
+recipients rule, and its own once-only or rate rule, and every kind is sent
+through one path, so a new kind is a new entry in that path's table, never a
+new sender.
 _Avoid_: notification (the in-app list), toast, app push (there is no
-separate native app channel)
+separate native app channel), alert type (kind is the word)
 
 **Banter**:
 The Polk High Legend's one-line remark on the end of a Push alert's body, in

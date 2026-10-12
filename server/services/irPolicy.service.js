@@ -336,22 +336,7 @@ async function flagRecoveredIrStashes(client, transitions) {
 }
 
 async function sendIrFlagPushes(irFlags) {
-  if (irFlags.length === 0) return { sent: 0 };
-  const { usersWanting } = require('./prefs.service');
-  const push = require('./push.service');
-  const userIds = [...new Set(irFlags.map((flag) => flag.userId))];
-  const wanted = new Set(await usersWanting(userIds, 'irAlerts'));
-  let sent = 0;
-  for (const flag of irFlags) {
-    if (!wanted.has(flag.userId)) continue;
-    const result = await push.sendPushToUsers([flag.userId], {
-      title: 'IR roster action required',
-      body: flag.message,
-      url: `/#/league/${flag.leagueId}/lineup`,
-    });
-    sent += result.sent;
-  }
-  return { sent };
+  return require('./pushAlerts.service').sendAlert({ kind: 'ir-action', flags: irFlags });
 }
 
 module.exports = {

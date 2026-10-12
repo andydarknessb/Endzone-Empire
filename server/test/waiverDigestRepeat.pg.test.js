@@ -6,10 +6,11 @@
  * microsecond clock and no WHERE clause:
  *
  * 1. digest.sendWaiverResultsDigest emails a resolved claim ONCE. The
- *    per-league watermark is a JS Date (millisecond precision) while
- *    waiver_claims.processed_at is timestamptz (microsecond precision), so
- *    `processed_at > $watermark` must not re-select the very claim the
- *    watermark was advanced to.
+ *    watermark (the fingerprint of the league's newest waiver-results row in
+ *    the push_events ledger, pushAlerts.service) is a JS Date (millisecond
+ *    precision) while waiver_claims.processed_at is timestamptz (microsecond
+ *    precision), so `processed_at > $watermark` must not re-select the very
+ *    claim the watermark was advanced to.
  * 2. waiver.service.processAllDueWaivers stops listing a league once its
  *    post-draft blanket window has expired and been processed with nothing
  *    pending. A league whose waivers_clear_at sits in the past must not be
@@ -111,6 +112,12 @@ if (!ENABLED) {
     assert.equal(first.sent, 1, 'first digest emails the freshly resolved claim');
     assert.equal(sentEmails.length, 1);
     assert.match(sentEmails[0].text, /WON: Waiver Digest PG Player/);
+    // The watermark is the ledger row the digest's push wrote.
+    const ledger = await pool.query(
+      `SELECT "subject" FROM "push_events" WHERE "user_id" = $1 AND "kind" = 'waiver-results'`,
+      [ownerId]
+    );
+    assert.deepEqual(ledger.rows, [{ subject: String(leagueId) }], 'one waiver-results ledger row for the league');
 
     // The scheduler calls this again on the next tick. Nothing new resolved, so
     // nothing may be re-sent. This is the assertion that mirrors the report.

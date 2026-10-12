@@ -3,7 +3,7 @@
  *
  * One row per push a user was sent about a subject, so a repeat of the same
  * event is skipped even across restarts and instances. The unique index is the
- * dedupe: sendPushOnce inserts with ON CONFLICT DO NOTHING and sends only to
+ * dedupe: the Push alert module inserts with ON CONFLICT DO NOTHING and sends only to
  * the users whose row went in.
  */
 exports.up = async function (knex) {

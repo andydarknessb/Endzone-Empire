@@ -471,53 +471,12 @@ async function syncInjuries({
   return result;
 }
 
-const INJURY_ALERT_LABELS = { Q: 'Questionable', D: 'Doubtful', O: 'Out', IR: 'IR' };
-
 /**
  * #2106: after the unit commits, one `injuryAlerts` push per manager per player
- * whose designation changed, across every unfinished league that rosters him.
- * Each manager's url is his own first league's lineup page, so managers are
- * grouped by that url and sendPushOnce is called once per url; the ledger
- * dedupes per user.
+ * whose designation changed (the alert's rules live in pushAlerts.service).
  */
 async function sendInjuryAlerts(changes, day) {
-  if (changes.length === 0) return;
-  const push = require('./push.service');
-  const { rows } = await pool.query(
-    `SELECT tp."player_id", tp."league_id", t."owner_id", p."name", p."injury_detail"
-       FROM "team_players" tp
-       JOIN "teams" t ON t."id" = tp."team_id"
-       JOIN "players" p ON p."id" = tp."player_id"
-       JOIN "leagues" l ON l."id" = tp."league_id"
-      WHERE tp."player_id" = ANY($1::int[]) AND l."season_status" != 'complete'
-      ORDER BY tp."league_id", tp."id"`,
-    [changes.map((c) => c.playerId)]
-  );
-  for (const { playerId, currentDesignation } of changes) {
-    const rostered = rows.filter((row) => row.player_id === playerId);
-    if (rostered.length === 0) continue;
-    const label = INJURY_ALERT_LABELS[currentDesignation] || 'healthy';
-    const firstLeague = new Map(); // owner -> his lowest league_id (rows arrive ordered)
-    for (const row of rostered) if (!firstLeague.has(row.owner_id)) firstLeague.set(row.owner_id, row.league_id);
-    const ownersByLeague = new Map();
-    for (const [owner, leagueId] of firstLeague) {
-      ownersByLeague.set(leagueId, [...(ownersByLeague.get(leagueId) || []), owner]);
-    }
-    for (const [leagueId, userIds] of ownersByLeague) {
-      await push.sendPushOnce({
-        userIds,
-        prefKey: 'injuryAlerts',
-        kind: 'injury',
-        subject: String(playerId),
-        fingerprint: `${label}:${day}`,
-        payload: {
-          title: `${rostered[0].name} is now ${label}`,
-          body: rostered[0].injury_detail || '',
-          url: `/#/league/${leagueId}/lineup`,
-        },
-      });
-    }
-  }
+  await require('./pushAlerts.service').sendAlert({ kind: 'injury', changes, day });
 }
 
 /**
@@ -1068,7 +1027,7 @@ async function applyWeekStatsUnit(client, { target, liveBox }, { season, week, m
     isFinal: target.isFinal,
     updated: result.updated,
     // The plays keep their statsBefore/statsAfter: the scheduler hands
-    // syncWeekStats's plays to alertBigPlays, which prices on them. runSyncJob
+    // syncWeekStats's plays to the big-play alert, which prices on them. runSyncJob
     // strips them from the recorded row and the sync routes from the response.
     plays: result.plays,
   };
