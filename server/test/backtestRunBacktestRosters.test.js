@@ -43,22 +43,22 @@ const GAME_W4 = {
 const TEAM_WEEK_ROWS = [
   {
     season: 2025, week: 3, season_type: 'REG', team: 'KC', opponent_team: 'WAS', game_id: GAME_W3.game_id,
-    def_sacks: 3, def_interceptions: 1, def_fumbles_forced: 0, def_tds: 0, def_safeties: 0,
+    def_sacks: 3, def_interceptions: 1, fumble_recovery_opp: 0, def_tds: 0, def_safeties: 0,
     passing_yards: 200, sack_yards_lost: -10, rushing_yards: 80,
   },
   {
     season: 2025, week: 3, season_type: 'REG', team: 'WAS', opponent_team: 'KC', game_id: GAME_W3.game_id,
-    def_sacks: 1, def_interceptions: 0, def_fumbles_forced: 0, def_tds: 0, def_safeties: 0,
+    def_sacks: 1, def_interceptions: 0, fumble_recovery_opp: 0, def_tds: 0, def_safeties: 0,
     passing_yards: 180, sack_yards_lost: 0, rushing_yards: 60,
   },
   {
     season: 2025, week: 4, season_type: 'REG', team: 'KC', opponent_team: 'DEN', game_id: GAME_W4.game_id,
-    def_sacks: 2, def_interceptions: 0, def_fumbles_forced: 1, def_tds: 0, def_safeties: 0,
+    def_sacks: 2, def_interceptions: 0, fumble_recovery_opp: 1, def_tds: 0, def_safeties: 0,
     passing_yards: 150, sack_yards_lost: -5, rushing_yards: 90,
   },
   {
     season: 2025, week: 4, season_type: 'REG', team: 'DEN', opponent_team: 'KC', game_id: GAME_W4.game_id,
-    def_sacks: 0, def_interceptions: 1, def_fumbles_forced: 0, def_tds: 0, def_safeties: 0,
+    def_sacks: 0, def_interceptions: 1, fumble_recovery_opp: 0, def_tds: 0, def_safeties: 0,
     passing_yards: 220, sack_yards_lost: 0, rushing_yards: 40,
   },
 ];
@@ -248,4 +248,40 @@ test('DEF prior games flow all the way to a fillable DEF quota in selectCandidat
   const ranked = rosters.rankCandidates({ candidates, positionRank, nameRankById, label: 'test' });
   const pool = rosters.selectCandidatePool({ ranked, quotas: { DEF: 10 }, label: 'test' });
   assert.equal(pool.length, 10, 'the DEF quota is exactly filled, not short');
+});
+
+// ---------------------------------------------------------------------------
+// DEF fumble parity with production's buildDstStatUpdates (#2224)
+// ---------------------------------------------------------------------------
+
+test('computeDefenseTeamPoints adds only opponent-recovery fumble-return TDs from this team\'s player rows', () => {
+  const teamWeekRowByTeamKey = new Map([['KC', TEAM_WEEK_ROWS[0]], ['WAS', TEAM_WEEK_ROWS[1]]]);
+  const gameByTeamKey = new Map([['KC', GAME_W3], ['WAS', GAME_W3]]);
+  const score = (playerRowsThisWeek) => runRosters.computeDefenseTeamPoints({
+    teamKey: 'KC', teamWeekRowByTeamKey, gameByTeamKey, season: 2025, week: 3, playerRowsThisWeek,
+  });
+  const base = score([]);
+  const kcOpp = { team: 'KC', fumble_recovery_opp: 1, fumble_recovery_tds: 1 };
+  assert.ok(score([kcOpp]) > base, 'an opponent fumble-return TD adds to the DEF line');
+  assert.equal(score([kcOpp, kcOpp]) - base, 2 * (score([kcOpp]) - base), 'each one counts');
+  assert.equal(
+    score([{ team: 'KC', fumble_recovery_opp: 0, fumble_recovery_tds: 1 }]), base,
+    'an own-team recovery TD (fumble_recovery_opp 0) does not'
+  );
+  assert.equal(
+    score([{ team: 'WAS', fumble_recovery_opp: 1, fumble_recovery_tds: 1 }]), base,
+    'another team\'s player row does not'
+  );
+});
+
+test('computeDefenseTeamPoints reads fumble_recovery_opp off the team row, not def_fumbles_forced', () => {
+  const gameByTeamKey = new Map([['KC', GAME_W3], ['WAS', GAME_W3]]);
+  const score = (kcOverrides) => runRosters.computeDefenseTeamPoints({
+    teamKey: 'KC',
+    teamWeekRowByTeamKey: new Map([['KC', { ...TEAM_WEEK_ROWS[0], ...kcOverrides }], ['WAS', TEAM_WEEK_ROWS[1]]]),
+    gameByTeamKey, season: 2025, week: 3,
+  });
+  const base = score({ def_fumbles_forced: 0, fumble_recovery_opp: 0 });
+  assert.equal(score({ def_fumbles_forced: 3, fumble_recovery_opp: 0 }), base);
+  assert.ok(score({ def_fumbles_forced: 0, fumble_recovery_opp: 2 }) > base);
 });
