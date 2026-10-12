@@ -180,6 +180,25 @@ if (!ENABLED) {
     assert.match(latest.detail.failed[0].message, new RegExp(`game ${GAME_2}`), 'the failing game is named in the run detail');
   });
 
+  // Red-tell: drop `playerRows` from the buildDstStatUpdates call in
+  // applyNflverseFullWeek and the DEF line silently reverts to def_tds only (#2218).
+  test('syncNflverseCorrection: the DEF row counts an opponent-fumble-recovery TD from the unit player rows (#2218)', async () => {
+    const lb = await seedPlayer('Disposable Fumble LB', 'LB', 'KC');
+    const def = await seedPlayer('Disposable DEF KC TD', 'DEF', 'KC', { external: false });
+    await pool.query(`DELETE FROM "player_stats" WHERE "season" = $1`, [SEASON]);
+
+    await syncNflverseCorrection({
+      season: SEASON,
+      week: WEEK,
+      playerRows: [playerRow(lb.gsis, 'KC', 'BUF', { fumble_recovery_opp: '1', fumble_recovery_tds: '1' })],
+      teamRows: [teamRow(GAME_1, 'KC', 'BUF'), teamRow(GAME_1, 'BUF', 'KC')],
+      scoresByGameId: SCORES,
+      crosswalk: new Map([[lb.gsis, String(lb.externalId)]]),
+    });
+
+    assert.equal((await statRow(def.id)).stats.defensiveTD, 1, 'KC DEF: team def_tds 0 + the LB fumble-return TD');
+  });
+
   // Red-tell: drop the correction's carry of the keys it does not own (the
   // write module's ownership table) and the play-by-play arrays and snap keys
   // Tank01 wrote are overwritten by the wholesale nflverse upsert.
