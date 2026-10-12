@@ -59,6 +59,18 @@ test('gamesNeedingBoxScore: a stamped final is rechecked once its stamp is reche
   assert.equal(scoring.gamesNeedingBoxScore([row(5 * HOUR)], opts).length, 1, 'long past the delay still rechecks');
 });
 
+test('gamesNeedingBoxScore: the recheck window is bounded above by maxAgeMs; a days-old stamp is never rechecked (#2223)', () => {
+  const row = (agoMs) => ({
+    tank01_game_id: 'g1', game_status: 'final',
+    final_stats_synced_at: stampedAgo(agoMs), final_stats_rechecked_at: null,
+  });
+  const opts = { now: NOW, recheckMs: 2 * HOUR, maxAgeMs: 6 * HOUR };
+  assert.equal(scoring.gamesNeedingBoxScore([row(6 * HOUR)], opts).length, 1, 'exactly max age is still due');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(6 * HOUR + 1)], opts), [], '1ms past max age is not');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(5 * 24 * HOUR)], opts), [], 'a days-old stamp is left to Tue/Wed');
+  assert.deepEqual(scoring.gamesNeedingBoxScore([row(5 * 24 * HOUR)]), [], 'and so under the 6h default');
+});
+
 test('gamesNeedingBoxScore: an already rechecked final needs nothing; an unstamped final is still a plain Final box (#2223)', () => {
   const opts = { now: NOW, recheckMs: 2 * HOUR };
   const rows = [
@@ -69,17 +81,23 @@ test('gamesNeedingBoxScore: an already rechecked final needs nothing; an unstamp
   assert.deepEqual(scoring.gamesNeedingBoxScore(rows, opts), [{ gameId: 'fresh', status: 'final', isFinal: true }]);
 });
 
-test('gamesNeedingBoxScore: recheckMs defaults from FINAL_BOX_RECHECK_MS, then to 2h (#2223)', (t) => {
+test('gamesNeedingBoxScore: recheckMs and maxAgeMs default from the env, then to 2h and 6h (#2223)', (t) => {
   const row = { tank01_game_id: 'g1', game_status: 'final', final_stats_synced_at: stampedAgo(HOUR), final_stats_rechecked_at: null };
   const saved = process.env.FINAL_BOX_RECHECK_MS;
+  const savedMax = process.env.FINAL_BOX_RECHECK_MAX_AGE_MS;
   t.after(() => {
     if (saved === undefined) delete process.env.FINAL_BOX_RECHECK_MS;
     else process.env.FINAL_BOX_RECHECK_MS = saved;
+    if (savedMax === undefined) delete process.env.FINAL_BOX_RECHECK_MAX_AGE_MS;
+    else process.env.FINAL_BOX_RECHECK_MAX_AGE_MS = savedMax;
   });
+  delete process.env.FINAL_BOX_RECHECK_MAX_AGE_MS;
   delete process.env.FINAL_BOX_RECHECK_MS;
   assert.equal(scoring.gamesNeedingBoxScore([row], { now: NOW }).length, 0, 'one hour old is inside the 2h default');
   process.env.FINAL_BOX_RECHECK_MS = String(HOUR);
   assert.equal(scoring.gamesNeedingBoxScore([row], { now: NOW }).length, 1, 'the env override applies');
+  process.env.FINAL_BOX_RECHECK_MAX_AGE_MS = String(HOUR - 1);
+  assert.equal(scoring.gamesNeedingBoxScore([row], { now: NOW }).length, 0, 'the max age env override applies');
 });
 
 // --- syncWeekStats -----------------------------------------------------------

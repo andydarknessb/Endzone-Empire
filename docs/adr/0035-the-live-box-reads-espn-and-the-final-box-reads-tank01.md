@@ -144,6 +144,12 @@ so it happens at most once.
   `essential-only` or `blocked` the recheck target is dropped before any
   fetch, so it never spends essential headroom or turns a quiet tick into a
   `fetch_failed` run.
+- The recheck is bounded: a stamp older than `FINAL_BOX_RECHECK_MAX_AGE_MS`
+  (default 6h) is never rechecked. A late recheck (a deploy mid-week with old
+  stamps and a NULL `final_stats_rechecked_at`, a quota shed lasting hours, an
+  nflverse correction already run) would box-replace box-owned keys over a
+  correction and revert it, so past the bound the Tue/Wed correction settles
+  the game.
 - Plays stay suppressed, as for the first Final box, and the recheck stamps
   `final_stats_rechecked_at`, not `final_stats_synced_at`.
 - The same in-window scheduler tick re-scores leagues through

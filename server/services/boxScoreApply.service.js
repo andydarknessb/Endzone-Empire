@@ -370,19 +370,25 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
  *    through the Box source seam (modules/liveBoxPoll, ADR 0035), not here
  *  - finals not yet ingested are the main fetches: the Final box (#1185)
  *  - one recheck per final (#2223, ADR 0035 amendment): a stamped final whose
- *    stamp is at least `recheckMs` old and whose final_stats_rechecked_at is
- *    still NULL comes back once more as `recheck: true`, because a one-shot
- *    Final box can carry a transient value (#2219). A row without the column
- *    (undefined) never rechecks; only a real NULL does.
+ *    stamp is at least `recheckMs` old, and no more than `maxAgeMs` old, and
+ *    whose final_stats_rechecked_at is still NULL comes back once more as
+ *    `recheck: true`, because a one-shot Final box can carry a transient value
+ *    (#2219). The max age bounds a LATE recheck (deploy mid-week with old
+ *    stamps, quota shed for hours): a box replace that late could overwrite an
+ *    nflverse correction, so past it the Tue/Wed correction is left to settle
+ *    the game. A row without the column (undefined) never rechecks; only a real
+ *    NULL does.
  *
- * Pure: `now` (ms) and `recheckMs` are injected; they default to Date.now() and
- * FINAL_BOX_RECHECK_MS (2h).
+ * Pure: `now` (ms), `recheckMs` and `maxAgeMs` are injected; they default to
+ * Date.now(), FINAL_BOX_RECHECK_MS (2h) and FINAL_BOX_RECHECK_MAX_AGE_MS (6h).
  *
  * @param {Array<{tank01_game_id: string, game_status: string, final_stats_synced_at: ?Date, final_stats_rechecked_at?: ?Date}>} rows
- * @param {{now?: number, recheckMs?: number}} [opts]
+ * @param {{now?: number, recheckMs?: number, maxAgeMs?: number}} [opts]
  * @returns {Array<{gameId: string, status: string, isFinal: boolean, recheck?: boolean}>}
  */
-function gamesNeedingBoxScore(rows, { now = Date.now(), recheckMs = finalBoxRecheckMs() } = {}) {
+function gamesNeedingBoxScore(rows, {
+  now = Date.now(), recheckMs = finalBoxRecheckMs(), maxAgeMs = finalBoxRecheckMaxAgeMs(),
+} = {}) {
   const out = [];
   for (const row of rows || []) {
     const gameId = row.tank01_game_id;
@@ -391,21 +397,28 @@ function gamesNeedingBoxScore(rows, { now = Date.now(), recheckMs = finalBoxRech
     if (status !== 'final') continue;
     if (!row.final_stats_synced_at) {
       out.push({ gameId, status, isFinal: true });
-    } else if (
-      row.final_stats_rechecked_at === null &&
-      new Date(row.final_stats_synced_at).getTime() <= now - recheckMs
-    ) {
-      out.push({ gameId, status, isFinal: true, recheck: true });
+    } else if (row.final_stats_rechecked_at === null) {
+      const age = now - new Date(row.final_stats_synced_at).getTime();
+      if (age >= recheckMs && age <= maxAgeMs) out.push({ gameId, status, isFinal: true, recheck: true });
     }
   }
   return out;
 }
 
+function envMs(name, fallback) {
+  const raw = process.env[name];
+  const ms = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(ms) && ms >= 0 ? ms : fallback;
+}
+
 /** Ms after the Final box stamp before its one recheck (#2223); env FINAL_BOX_RECHECK_MS. */
 function finalBoxRecheckMs() {
-  const raw = process.env.FINAL_BOX_RECHECK_MS;
-  const ms = raw === undefined || raw === '' ? NaN : Number(raw);
-  return Number.isFinite(ms) && ms >= 0 ? ms : 2 * 60 * 60 * 1000;
+  return envMs('FINAL_BOX_RECHECK_MS', 2 * 60 * 60 * 1000);
+}
+
+/** Ms after the stamp past which a recheck is never made (#2223); env FINAL_BOX_RECHECK_MAX_AGE_MS. */
+function finalBoxRecheckMaxAgeMs() {
+  return envMs('FINAL_BOX_RECHECK_MAX_AGE_MS', 6 * 60 * 60 * 1000);
 }
 
 /**
