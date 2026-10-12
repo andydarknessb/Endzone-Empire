@@ -145,6 +145,20 @@ test('scoreMatchups emits exactly one scoresUpdated carrying leagueId/season/wee
   assert.deepEqual(rec.payload.plays, plays);
 });
 
+test('scoreMatchups strips the server-side statsBefore/statsAfter from the plays it emits', async (t) => {
+  t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
+  scoringPool({ matchups: [OPEN] }).install(t);
+  const emitted = captureEmits(t);
+
+  const play = { playerId: 3, type: 'passing', isTouchdown: true };
+  await scoreMatchups({
+    leagueId: LEAGUE_ID, season: SEASON, week: WEEK,
+    plays: [{ ...play, statsBefore: {}, statsAfter: { passingTDs: 1 } }],
+  });
+
+  assert.deepEqual(emitted[0].payload.plays, [play]);
+});
+
 test('scoreMatchups defaults plays to an empty array when the caller passes none (#765)', async (t) => {
   t.mock.method(expectedFinalService, 'expectedFinalsForWeek', async () => new Map());
   scoringPool({ matchups: [OPEN] }).install(t);

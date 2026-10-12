@@ -163,7 +163,13 @@ async function runSyncJob({ job, lock, transaction = true, fetch, apply }) {
   // order on the ok path: fetchDetail first, the unit shape wins on any key
   // collision. The RESOLVED value callers see is always { status, results } -
   // fetchDetail only ever reaches the recorded row, never a caller's return.
-  const unitShape = results.length === 1 ? results[0] : { results };
+  // A unit result's Scoring plays carry server-internal stat lines
+  // (boxScoreApply's statsBefore/statsAfter): the recorded row never does.
+  const stripStatLines = (r) => (r && Array.isArray(r.plays)
+    ? { ...r, plays: r.plays.map(({ statsBefore, statsAfter, ...play }) => play) }
+    : r);
+  const stored = results.map(stripStatLines);
+  const unitShape = stored.length === 1 ? stored[0] : { results: stored };
   const recorded = fetchDetail ? { ...fetchDetail, ...unitShape } : unitShape;
   const recordedDetail = status === 'unconfigured' ? { ...recorded, unconfigured: true } : recorded;
   await recordDataSyncRun({ job, startedAt, ok: true, detail: recordedDetail });

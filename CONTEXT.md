@@ -1599,8 +1599,10 @@ _Avoid_: score alert, close matchup (a separate kind that fires on margin)
 
 **Big play**:
 A Scoring play by a starter in the Manager's live Matchup, on either side,
-worth at least six points under that league's Scoring rules. A Push alert
-carries it; several detected in one sync are one alert.
+worth at least six points under that league's Scoring rules. Its worth is
+the whole play as the league prices it (the touchdown, the yards, the
+catch), not the touchdown alone, and the alert shows that number. A Push
+alert carries it; several detected in one sync are one alert.
 _Avoid_: highlight, touchdown alert (a Big play need not be a touchdown)
 
 **Alert toast**:

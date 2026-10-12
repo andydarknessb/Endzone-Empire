@@ -4,6 +4,7 @@ const { requireAuth } = require('../modules/auth');
 const { isTransientDatabaseError, withDatabaseRetry } = require('../modules/dbRetry');
 const { SCORING_RULES, SCORING_PRESETS } = require('../services/scoringRules');
 const feedSyncRuns = require('../services/feedSyncRuns.service');
+const { wirePlays } = require('../services/boxScoreApply.service');
 const matchupScoring = require('../services/matchupScoring.service');
 const sportsdb = require('../services/sportsdb.service');
 const adp = require('../services/adp.service');
@@ -58,7 +59,8 @@ router.post('/sync', async (req, res) => {
   if (!sw) return;
   try {
     const result = await feedSyncRuns.syncWeekStats(sw);
-    res.json(result);
+    // The plays' stat lines are server-internal (boxScoreApply wirePlays).
+    res.json({ ...result, plays: wirePlays(result.plays) });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     console.error('Stat sync failed:', error);
