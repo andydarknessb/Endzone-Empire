@@ -128,3 +128,30 @@ recovery the officials reverse is still credited by the play-text pass and
 now stands until the correction too (#2003). The
 team DST `fumbleRecovery` is opponent-only in Tank01 and still comes from the
 Final box.
+
+## Amendment (2026-10-12, #2223)
+
+The Final box is no longer strictly one read. On 2026-10-11 the single read
+most likely carried a transient SF DEF `defTD 2` (true value 1; Halton's
+`idpDefensiveTD` likewise, #2219), and nothing on game day corrects a Final
+box: it held until the Tue/Wed nflverse correction. Each game now gets one
+recheck, ~2h (`FINAL_BOX_RECHECK_MS`, default 7200000) after
+`final_stats_synced_at`, recorded in `live_game_states.final_stats_rechecked_at`
+so it happens at most once.
+
+- It runs through the same `syncWeekStats` path and the same box write, at
+  `standard` priority. The first Final box stays `essential`. Under
+  `essential-only` or `blocked` the recheck target is dropped before any
+  fetch, so it never spends essential headroom or turns a quiet tick into a
+  `fetch_failed` run.
+- Plays stay suppressed, as for the first Final box, and the recheck stamps
+  `final_stats_rechecked_at`, not `final_stats_synced_at`.
+- The same in-window scheduler tick re-scores leagues through
+  `scoreMatchups`. The window is any kickoff in the last 8h, which covers +2h
+  for every slot, SNF and MNF included.
+- Cost is about 16 Tank01 calls a week (about 70 a month) against the 950
+  budget.
+
+The Tue/Wed nflverse correction is still the authoritative backstop for the
+box-owned keys; the recheck only shortens how long a transient first read
+stands.

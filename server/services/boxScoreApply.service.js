@@ -364,25 +364,48 @@ async function applyGameBoxScore({ liveBox, box, season, week, maps, suppressPla
  * every game in the week on every ~30-minute pass, so a finished 1pm game was
  * re-fetched for the rest of the afternoon (~350 calls/Sunday). Now:
  *  - `scheduled` games have no stats yet — never fetch
- *  - `final` games already ingested (final_stats_synced_at set) — never again
+ *  - `final` games already ingested (final_stats_synced_at set) — not again,
+ *    except for the one recheck below
  *  - `in_progress` games are the Live box, read by the clock engine's loop
  *    through the Box source seam (modules/liveBoxPoll, ADR 0035), not here
- *  - finals not yet ingested are the only fetches: the Final box (#1185)
+ *  - finals not yet ingested are the main fetches: the Final box (#1185)
+ *  - one recheck per final (#2223, ADR 0035 amendment): a stamped final whose
+ *    stamp is at least `recheckMs` old and whose final_stats_rechecked_at is
+ *    still NULL comes back once more as `recheck: true`, because a one-shot
+ *    Final box can carry a transient value (#2219). A row without the column
+ *    (undefined) never rechecks; only a real NULL does.
  *
- * @param {Array<{tank01_game_id: string, game_status: string, final_stats_synced_at: ?Date}>} rows
- * @returns {Array<{gameId: string, status: string, isFinal: boolean}>}
+ * Pure: `now` (ms) and `recheckMs` are injected; they default to Date.now() and
+ * FINAL_BOX_RECHECK_MS (2h).
+ *
+ * @param {Array<{tank01_game_id: string, game_status: string, final_stats_synced_at: ?Date, final_stats_rechecked_at?: ?Date}>} rows
+ * @param {{now?: number, recheckMs?: number}} [opts]
+ * @returns {Array<{gameId: string, status: string, isFinal: boolean, recheck?: boolean}>}
  */
-function gamesNeedingBoxScore(rows) {
+function gamesNeedingBoxScore(rows, { now = Date.now(), recheckMs = finalBoxRecheckMs() } = {}) {
   const out = [];
   for (const row of rows || []) {
     const gameId = row.tank01_game_id;
     if (!gameId) continue;
     const status = row.game_status;
     if (status !== 'final') continue;
-    if (row.final_stats_synced_at) continue;
-    out.push({ gameId, status, isFinal: true });
+    if (!row.final_stats_synced_at) {
+      out.push({ gameId, status, isFinal: true });
+    } else if (
+      row.final_stats_rechecked_at === null &&
+      new Date(row.final_stats_synced_at).getTime() <= now - recheckMs
+    ) {
+      out.push({ gameId, status, isFinal: true, recheck: true });
+    }
   }
   return out;
+}
+
+/** Ms after the Final box stamp before its one recheck (#2223); env FINAL_BOX_RECHECK_MS. */
+function finalBoxRecheckMs() {
+  const raw = process.env.FINAL_BOX_RECHECK_MS;
+  const ms = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(ms) && ms >= 0 ? ms : 2 * 60 * 60 * 1000;
 }
 
 /**
@@ -405,6 +428,18 @@ async function markFinalStatsSynced(tank01GameId, client = pool) {
 }
 
 /**
+ * Stamp a game's one Final box recheck as done (#2223). Never touches
+ * final_stats_synced_at: that stamp keeps meaning "the first Final box landed".
+ */
+async function markFinalStatsRechecked(tank01GameId, client = pool) {
+  await client.query(
+    `UPDATE "live_game_states" SET "final_stats_rechecked_at" = now(), "updated_at" = now()
+      WHERE "tank01_game_id" = $1`,
+    [tank01GameId]
+  );
+}
+
+/**
  * A Scoring play's `statsBefore`/`statsAfter` (the stat lines alertBigPlays
  * prices against) are server-internal. Every boundary a play crosses (the
  * scores:updated emit, the recorded data_sync_runs row, the sync routes'
@@ -421,6 +456,7 @@ module.exports = {
   applyGameBoxScore,
   gamesNeedingBoxScore,
   markFinalStatsSynced,
+  markFinalStatsRechecked,
   detectScoringEvents,
   attributePlayPoints,
   PLAY_STAT_EVENTS,
