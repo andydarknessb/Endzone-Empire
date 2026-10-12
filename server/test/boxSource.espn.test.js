@@ -183,3 +183,32 @@ test('espnBoxSource: a summary with no athletes for a game in progress yields an
   assert.equal(box.isFinal, false);
   assert.deepEqual(box.players, []);
 });
+
+// #2219: in 2026 week 5 SF at SEA, Gracen Halton (SF) forced G.Holani's fumble
+// at the SEA goal line and recovered it himself in the end zone for the TD. The
+// live stats stored idpDefensiveTD 2 for Halton and defensiveTD 2 for SF DEF:
+// most likely the one-shot Tank01 Final box (applied ~15 minutes after final)
+// read a transient defTD 2; nothing in the ESPN read doubles it. This trimmed real
+// summary (event 401872992) pins the one-TD reading: forcing and recovering the
+// same fumble is one defensive TD and one recovery, not two.
+test('espnBoxSource: a fumble forced and recovered in the end zone by the same player is one idpDefensiveTD and one team defensiveTD (#2219)', () => {
+  const sfSea = require('./fixtures/espn-summary-2026-w5-sf-sea-final.json');
+  const box = espnBoxSource.fromSummary(sfSea, { gameId: '20261011_SF@SEA' });
+  const halton = player(box, '4685369');
+  assert.equal(halton.stats.idpDefensiveTD, 1);
+  assert.equal(halton.stats.forcedFumble, 1);
+  assert.equal(halton.stats.idpFumbleRecovery, 1);
+  assert.equal(box.teamDefense.SF.defensiveTD, 1);
+  assert.equal(box.teamDefense.SEA.defensiveTD, 0);
+
+  const plays = box.playTextFindings.filter((f) => f.text.includes('RECOVERED by SF-G.Halton'));
+  assert.equal(plays.length, 1, 'the Halton play yields exactly one finding');
+  assert.equal(plays[0].fumbleRecoveredBy, 'SF');
+  assert.equal(plays[0].recoveringPlayer, '4685369');
+  assert.equal(plays[0].forcedBy, '4685369');
+  assert.equal(plays[0].forcingTeam, 'SF');
+  // The game's other recoveries are untouched by the Halton play: SF has this
+  // one plus Mustapha's, SEA has Saubert's and Jobe's.
+  assert.equal(box.teamDefense.SF.fumbleRecovery, 2);
+  assert.equal(box.teamDefense.SEA.fumbleRecovery, 2);
+});

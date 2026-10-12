@@ -1,0 +1,1260 @@
+{
+ "header": {
+  "id": "401872992",
+  "competitions": [
+   {
+    "id": "401872992",
+    "status": {
+     "type": {
+      "id": "3",
+      "name": "STATUS_FINAL",
+      "state": "post",
+      "completed": true,
+      "description": "Final",
+      "detail": "Final",
+      "shortDetail": "Final"
+     },
+     "isTBDFlex": false
+    },
+    "competitors": [
+     {
+      "id": "26",
+      "homeAway": "home",
+      "winner": false,
+      "score": "29",
+      "team": {
+       "id": "26",
+       "abbreviation": "SEA",
+       "displayName": "Seattle Seahawks"
+      }
+     },
+     {
+      "id": "25",
+      "homeAway": "away",
+      "winner": true,
+      "score": "32",
+      "team": {
+       "id": "25",
+       "abbreviation": "SF",
+       "displayName": "San Francisco 49ers"
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "boxscore": {
+  "players": [
+   {
+    "team": {
+     "id": "25",
+     "abbreviation": "SF",
+     "displayName": "San Francisco 49ers"
+    },
+    "statistics": [
+     {
+      "name": "rushing",
+      "keys": [
+       "rushingAttempts",
+       "rushingYards",
+       "yardsPerRushAttempt",
+       "rushingTouchdowns",
+       "longRushing"
+      ],
+      "athletes": []
+     },
+     {
+      "name": "defensive",
+      "keys": [
+       "totalTackles",
+       "soloTackles",
+       "sacks",
+       "tacklesForLoss",
+       "passesDefended",
+       "QBHits",
+       "defensiveTouchdowns"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "3138826",
+         "firstName": "Fred",
+         "lastName": "Warner",
+         "displayName": "Fred Warner",
+         "jersey": "54"
+        },
+        "stats": [
+         "10",
+         "5",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "5086161",
+         "firstName": "Jaden",
+         "lastName": "Dugger",
+         "displayName": "Jaden Dugger",
+         "jersey": "53"
+        },
+        "stats": [
+         "9",
+         "7",
+         "1",
+         "1",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4693644",
+         "firstName": "Ji'Ayir",
+         "lastName": "Brown",
+         "displayName": "Ji'Ayir Brown",
+         "jersey": "27"
+        },
+        "stats": [
+         "7",
+         "6",
+         "0",
+         "0",
+         "1",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4696211",
+         "firstName": "Malik",
+         "lastName": "Mustapha",
+         "displayName": "Malik Mustapha",
+         "jersey": "6"
+        },
+        "stats": [
+         "7",
+         "5",
+         "0",
+         "0",
+         "1",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4243493",
+         "firstName": "Keion",
+         "lastName": "White",
+         "displayName": "Keion White",
+         "jersey": "56"
+        },
+        "stats": [
+         "3",
+         "3",
+         "1",
+         "2",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4685369",
+         "firstName": "Gracen",
+         "lastName": "Halton",
+         "displayName": "Gracen Halton",
+         "jersey": "93"
+        },
+        "stats": [
+         "3",
+         "3",
+         "1",
+         "2",
+         "0",
+         "1",
+         "1"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4775220",
+         "firstName": "Sebastian",
+         "lastName": "Valdez",
+         "displayName": "Sebastian Valdez",
+         "jersey": "55"
+        },
+        "stats": [
+         "3",
+         "2",
+         "1",
+         "1",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "3916903",
+         "firstName": "Dre",
+         "lastName": "Greenlaw",
+         "displayName": "Dre Greenlaw",
+         "jersey": "57"
+        },
+        "stats": [
+         "3",
+         "2",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4035840",
+         "firstName": "Osa",
+         "lastName": "Odighizuwa",
+         "displayName": "Osa Odighizuwa",
+         "jersey": "92"
+        },
+        "stats": [
+         "2",
+         "2",
+         "1",
+         "1",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4242488",
+         "firstName": "Deommodore",
+         "lastName": "Lenoir",
+         "displayName": "Deommodore Lenoir",
+         "jersey": "2"
+        },
+        "stats": [
+         "2",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4685623",
+         "firstName": "Mykel",
+         "lastName": "Williams",
+         "displayName": "Mykel Williams",
+         "jersey": "98"
+        },
+        "stats": [
+         "2",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4360290",
+         "firstName": "Brayden",
+         "lastName": "Willis",
+         "displayName": "Brayden Willis",
+         "jersey": "9"
+        },
+        "stats": [
+         "2",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "3858271",
+         "firstName": "Ashtyn",
+         "lastName": "Davis",
+         "displayName": "Ashtyn Davis",
+         "jersey": "24"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4427325",
+         "firstName": "Renardo",
+         "lastName": "Green",
+         "displayName": "Renardo Green",
+         "jersey": "0"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "3",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4431523",
+         "firstName": "Connor",
+         "lastName": "Colby",
+         "displayName": "Connor Colby",
+         "jersey": "75"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4565200",
+         "firstName": "Upton",
+         "lastName": "Stout",
+         "displayName": "Upton Stout",
+         "jersey": "20"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4685397",
+         "firstName": "Jordan",
+         "lastName": "James",
+         "displayName": "Jordan James",
+         "jersey": "29"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "3116097",
+         "firstName": "Luke",
+         "lastName": "Gifford",
+         "displayName": "Luke Gifford",
+         "jersey": "51"
+        },
+        "stats": [
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4040612",
+         "firstName": "Luke",
+         "lastName": "Farrell",
+         "displayName": "Luke Farrell",
+         "jersey": "89"
+        },
+        "stats": [
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4039029",
+         "firstName": "Khalid",
+         "lastName": "Kareem",
+         "displayName": "Khalid Kareem",
+         "jersey": "47"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4432244",
+         "firstName": "Romello",
+         "lastName": "Height",
+         "displayName": "Romello Height",
+         "jersey": "94"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "interceptions",
+      "keys": [
+       "interceptions",
+       "interceptionYards",
+       "interceptionTouchdowns"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4427325",
+         "firstName": "Renardo",
+         "lastName": "Green",
+         "displayName": "Renardo Green",
+         "jersey": "0"
+        },
+        "stats": [
+         "2",
+         "2",
+         "0"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "team": {
+     "id": "26",
+     "abbreviation": "SEA",
+     "displayName": "Seattle Seahawks"
+    },
+    "statistics": [
+     {
+      "name": "rushing",
+      "keys": [
+       "rushingAttempts",
+       "rushingYards",
+       "yardsPerRushAttempt",
+       "rushingTouchdowns",
+       "longRushing"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4429835",
+         "firstName": "George",
+         "lastName": "Holani",
+         "displayName": "George Holani",
+         "jersey": "36"
+        },
+        "stats": [
+         "4",
+         "7",
+         "1.8",
+         "0",
+         "9"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "defensive",
+      "keys": [
+       "totalTackles",
+       "soloTackles",
+       "sacks",
+       "tacklesForLoss",
+       "passesDefended",
+       "QBHits",
+       "defensiveTouchdowns"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4362851",
+         "firstName": "Ernest",
+         "lastName": "Jones IV",
+         "displayName": "Ernest Jones IV",
+         "jersey": "13"
+        },
+        "stats": [
+         "9",
+         "5",
+         "1",
+         "1",
+         "1",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4570040",
+         "firstName": "Byron",
+         "lastName": "Murphy II",
+         "displayName": "Byron Murphy II",
+         "jersey": "91"
+        },
+        "stats": [
+         "6",
+         "5",
+         "2",
+         "3",
+         "0",
+         "3",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4046675",
+         "firstName": "Julian",
+         "lastName": "Love",
+         "displayName": "Julian Love",
+         "jersey": "20"
+        },
+        "stats": [
+         "6",
+         "3",
+         "0",
+         "0",
+         "1",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4428659",
+         "firstName": "Drake",
+         "lastName": "Thomas",
+         "displayName": "Drake Thomas",
+         "jersey": "32"
+        },
+        "stats": [
+         "5",
+         "2",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4372020",
+         "firstName": "Josh",
+         "lastName": "Jobe",
+         "displayName": "Josh Jobe",
+         "jersey": "29"
+        },
+        "stats": [
+         "4",
+         "4",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "3120358",
+         "firstName": "Uchenna",
+         "lastName": "Nwosu",
+         "displayName": "Uchenna Nwosu",
+         "jersey": "7"
+        },
+        "stats": [
+         "4",
+         "3",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4575431",
+         "firstName": "Devon",
+         "lastName": "Witherspoon",
+         "displayName": "Devon Witherspoon",
+         "jersey": "21"
+        },
+        "stats": [
+         "4",
+         "3",
+         "0",
+         "1",
+         "1",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4869523",
+         "firstName": "Nick",
+         "lastName": "Emmanwori",
+         "displayName": "Nick Emmanwori",
+         "jersey": "3"
+        },
+        "stats": [
+         "4",
+         "3",
+         "0",
+         "0",
+         "0",
+         "2",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4247808",
+         "firstName": "Ty",
+         "lastName": "Okada",
+         "displayName": "Ty Okada",
+         "jersey": "39"
+        },
+        "stats": [
+         "4",
+         "2",
+         "0",
+         "1",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "5082331",
+         "firstName": "Avery",
+         "lastName": "Smith",
+         "displayName": "Avery Smith",
+         "jersey": "27"
+        },
+        "stats": [
+         "3",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4035693",
+         "firstName": "Velus",
+         "lastName": "Jones Jr.",
+         "displayName": "Velus Jones Jr.",
+         "jersey": "33"
+        },
+        "stats": [
+         "2",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4364623",
+         "firstName": "Patrick",
+         "lastName": "O'Connell",
+         "displayName": "Patrick O'Connell",
+         "jersey": "52"
+        },
+        "stats": [
+         "2",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4567226",
+         "firstName": "Derick",
+         "lastName": "Hall",
+         "displayName": "Derick Hall",
+         "jersey": "58"
+        },
+        "stats": [
+         "2",
+         "1",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "2975863",
+         "firstName": "Eric",
+         "lastName": "Saubert",
+         "displayName": "Eric Saubert",
+         "jersey": "81"
+        },
+        "stats": [
+         "2",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4426376",
+         "firstName": "Charles",
+         "lastName": "Cross",
+         "displayName": "Charles Cross",
+         "jersey": "67"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4430878",
+         "firstName": "Jaxon",
+         "lastName": "Smith-Njigba",
+         "displayName": "Jaxon Smith-Njigba",
+         "jersey": "11"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4678006",
+         "firstName": "Elijah",
+         "lastName": "Arroyo",
+         "displayName": "Elijah Arroyo",
+         "jersey": "18"
+        },
+        "stats": [
+         "1",
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "2971622",
+         "firstName": "Leonard",
+         "lastName": "Williams",
+         "displayName": "Leonard Williams",
+         "jersey": "99"
+        },
+        "stats": [
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4243176",
+         "firstName": "Brady",
+         "lastName": "Russell",
+         "displayName": "Brady Russell",
+         "jersey": "38"
+        },
+        "stats": [
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4259651",
+         "firstName": "Brandon",
+         "lastName": "Pili",
+         "displayName": "Brandon Pili",
+         "jersey": "95"
+        },
+        "stats": [
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4686540",
+         "firstName": "Tyrice",
+         "lastName": "Knight",
+         "displayName": "Tyrice Knight",
+         "jersey": "48"
+        },
+        "stats": [
+         "1",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "16802",
+         "firstName": "DeMarcus",
+         "lastName": "Lawrence",
+         "displayName": "DeMarcus Lawrence",
+         "jersey": "0"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "3115312",
+         "firstName": "Jarran",
+         "lastName": "Reed",
+         "displayName": "Jarran Reed",
+         "jersey": "90"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0"
+        ]
+       },
+       {
+        "athlete": {
+         "id": "4567222",
+         "firstName": "Nehemiah",
+         "lastName": "Pritchett",
+         "displayName": "Nehemiah Pritchett",
+         "jersey": "28"
+        },
+        "stats": [
+         "0",
+         "0",
+         "0",
+         "0",
+         "1",
+         "0",
+         "0"
+        ]
+       }
+      ]
+     },
+     {
+      "name": "interceptions",
+      "keys": [
+       "interceptions",
+       "interceptionYards",
+       "interceptionTouchdowns"
+      ],
+      "athletes": [
+       {
+        "athlete": {
+         "id": "4567222",
+         "firstName": "Nehemiah",
+         "lastName": "Pritchett",
+         "displayName": "Nehemiah Pritchett",
+         "jersey": "28"
+        },
+        "stats": [
+         "1",
+         "20",
+         "0"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "teams": [
+   {
+    "team": {
+     "id": "25",
+     "abbreviation": "SF",
+     "displayName": "San Francisco 49ers"
+    },
+    "statistics": [
+     {
+      "name": "totalYards",
+      "displayValue": "269",
+      "value": "-",
+      "label": "Total Yards"
+     }
+    ]
+   },
+   {
+    "team": {
+     "id": "26",
+     "abbreviation": "SEA",
+     "displayName": "Seattle Seahawks"
+    },
+    "statistics": [
+     {
+      "name": "totalYards",
+      "displayValue": "251",
+      "value": "-",
+      "label": "Total Yards"
+     }
+    ]
+   }
+  ]
+ },
+ "scoringPlays": [
+  {
+   "id": "4018729922147",
+   "type": {
+    "id": "39",
+    "text": "Fumble Return Touchdown",
+    "abbreviation": "TD"
+   },
+   "text": "Gracen Halton Fumble Recovery in End Zone (Eddy Pineiro Kick)",
+   "period": {
+    "number": 2
+   },
+   "clock": {
+    "value": 13,
+    "displayValue": "0:13"
+   },
+   "team": {
+    "id": "25",
+    "abbreviation": "SF",
+    "displayName": "San Francisco 49ers"
+   },
+   "awayScore": 21,
+   "homeScore": 13
+  }
+ ],
+ "drives": {
+  "previous": [
+   {
+    "id": "4018729924",
+    "team": {
+     "id": "26",
+     "abbreviation": "SEA",
+     "displayName": "Seattle Seahawks"
+    },
+    "plays": [
+     {
+      "id": "401872992469",
+      "sequenceNumber": "46900",
+      "type": {
+       "id": "30",
+       "text": "Muffed Punt Recovery (Opponent)"
+      },
+      "text": "M.Dickson punts 39 yards to SF 35, Center-C.Stoll. J.Cowing MUFFS catch, touched at SF 33, RECOVERED by SEA-E.Saubert at SF 24.",
+      "awayScore": 7,
+      "homeScore": 0,
+      "period": {
+       "number": 1
+      },
+      "clock": {
+       "displayValue": "9:34"
+      },
+      "scoringPlay": false,
+      "start": {
+       "down": 4,
+       "distance": 2,
+       "yardLine": 26,
+       "yardsToEndzone": 26,
+       "downDistanceText": "4th & 2 at SEA 26",
+       "shortDownDistanceText": "4th & 2",
+       "possessionText": "SEA 26",
+       "team": {
+        "id": "26"
+       }
+      },
+      "end": {
+       "down": 1,
+       "distance": 10,
+       "yardLine": 76,
+       "yardsToEndzone": 24,
+       "downDistanceText": "1st & 10 at SF 24",
+       "shortDownDistanceText": "1st & 10",
+       "possessionText": "SF 24",
+       "team": {
+        "id": "26"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "40187299211",
+    "team": {
+     "id": "26",
+     "abbreviation": "SEA",
+     "displayName": "Seattle Seahawks"
+    },
+    "plays": [
+     {
+      "id": "4018729921482",
+      "sequenceNumber": "148200",
+      "type": {
+       "id": "29",
+       "text": "Fumble Recovery (Opponent)"
+      },
+      "text": "E.Wilson right end to SEA 11 for 2 yards (F.Warner). FUMBLES (F.Warner), RECOVERED by SF-M.Mustapha at SEA 12. M.Mustapha to SEA 11 for 1 yard (C.Cross).",
+      "awayScore": 7,
+      "homeScore": 10,
+      "period": {
+       "number": 2
+      },
+      "clock": {
+       "displayValue": "8:31"
+      },
+      "scoringPlay": false,
+      "start": {
+       "down": 1,
+       "distance": 10,
+       "yardLine": 9,
+       "yardsToEndzone": 91,
+       "downDistanceText": "1st & 10 at SEA 9",
+       "shortDownDistanceText": "1st & 10",
+       "possessionText": "SEA 9",
+       "team": {
+        "id": "26"
+       }
+      },
+      "end": {
+       "down": 1,
+       "distance": 10,
+       "yardLine": 11,
+       "yardsToEndzone": 11,
+       "downDistanceText": "1st & 10 at SEA 11",
+       "shortDownDistanceText": "1st & 10",
+       "possessionText": "SEA 11",
+       "team": {
+        "id": "25"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "40187299215",
+    "team": {
+     "id": "26",
+     "abbreviation": "SEA",
+     "displayName": "Seattle Seahawks"
+    },
+    "plays": [
+     {
+      "id": "4018729922147",
+      "sequenceNumber": "214700",
+      "type": {
+       "id": "39",
+       "text": "Fumble Return Touchdown",
+       "abbreviation": "TD"
+      },
+      "text": "G.Holani left guard to SEA 0 for -4 yards (G.Halton). FUMBLES (G.Halton), touched at SEA 0, RECOVERED by SF-G.Halton at SEA -4. TOUCHDOWN. E.Pineiro extra point is GOOD, Center-J.Weeks, Holder-C.Waitman.",
+      "awayScore": 21,
+      "homeScore": 13,
+      "period": {
+       "number": 2
+      },
+      "clock": {
+       "displayValue": "0:13"
+      },
+      "scoringPlay": true,
+      "start": {
+       "down": 1,
+       "distance": 10,
+       "yardLine": 4,
+       "yardsToEndzone": 96,
+       "downDistanceText": "1st & 10 at SEA 4",
+       "shortDownDistanceText": "1st & 10",
+       "possessionText": "SEA 4",
+       "team": {
+        "id": "26"
+       }
+      },
+      "end": {
+       "down": -1,
+       "distance": 10,
+       "yardLine": 0,
+       "yardsToEndzone": 0,
+       "team": {
+        "id": "25"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "id": "40187299222",
+    "team": {
+     "id": "25",
+     "abbreviation": "SF",
+     "displayName": "San Francisco 49ers"
+    },
+    "plays": [
+     {
+      "id": "4018729922917",
+      "sequenceNumber": "291700",
+      "type": {
+       "id": "29",
+       "text": "Fumble Recovery (Opponent)"
+      },
+      "text": "(Shotgun) D.Samuel left end to SF 35 for no gain (D.Thomas). FUMBLES (D.Thomas), RECOVERED by SEA-J.Jobe at SF 36. SF-D.Samuel was injured during the play. The Replay Official reviewed the runner was not down by contact ruling, and the play was Upheld. The ruling on the field stands.",
+      "awayScore": 21,
+      "homeScore": 23,
+      "period": {
+       "number": 3
+      },
+      "clock": {
+       "displayValue": "5:06"
+      },
+      "scoringPlay": false,
+      "start": {
+       "down": 1,
+       "distance": 10,
+       "yardLine": 65,
+       "yardsToEndzone": 65,
+       "downDistanceText": "1st & 10 at SF 35",
+       "shortDownDistanceText": "1st & 10",
+       "possessionText": "SF 35",
+       "team": {
+        "id": "25"
+       }
+      },
+      "end": {
+       "down": 1,
+       "distance": 10,
+       "yardLine": 64,
+       "yardsToEndzone": 36,
+       "downDistanceText": "1st & 10 at SF 36",
+       "shortDownDistanceText": "1st & 10",
+       "possessionText": "SF 36",
+       "team": {
+        "id": "26"
+       }
+      }
+     }
+    ]
+   }
+  ]
+ }
+}
