@@ -36,7 +36,7 @@ test('GET roster annotates each player with a schedule-derived bye_week', async 
   ];
   let nflGamesTeams = null;
 
-  t.mock.method(projectionService, 'getWeekProjections', async () => new Map());
+  t.mock.method(projectionService, 'getWeeklyProjections', async () => ({ pointsFor: () => null }));
 
   t.mock.method(pool, 'query', async (sql, params) => {
     const text = String(sql);

@@ -2,11 +2,8 @@ const { after, test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const express = require('express');
-const request = require('supertest');
 const { createFakePool, select } = require('./helpers/fakePool');
-const { signToken } = require('../modules/auth');
-const leagueRouter = require('../routes/league.router');
+const { getMatchupDetail } = require('../services/matchupDetail.service');
 const projectionService = require('../services/projection.service');
 const lineupService = require('../services/lineup.service');
 const decisionService = require('../services/decision.service');
@@ -150,22 +147,36 @@ function seed(t) {
   ]).install(t);
 }
 
-const app = express();
-app.use(express.json());
-app.use('/api/league', leagueRouter);
-
 async function fetchDetail(t) {
-  seed(t);
-  const res = await request(app)
-    .get(`/api/league/${LEAGUE_ID}/matchups/7`)
-    .set('Authorization', `Bearer ${signToken({ id: 42, username: 'u42' })}`);
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  return res.body;
+  const fake = seed(t);
+  const client = await fake.connect();
+  try {
+    return await getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 7, viewerUserId: 42, client });
+  } finally {
+    client.release();
+    fake.assertClean(); // the live path's BEGIN was COMMITted
+  }
 }
 
 test('the matchup detail body equals the golden fixture byte for byte', async (t) => {
-  const body = await fetchDetail(t);
+  const detail = await fetchDetail(t);
+  assert.ok(detail, 'the matchup is in the league');
+  const body = JSON.parse(JSON.stringify(detail)); // the wire form: Dates and undefined as the route sends them
   const golden = JSON.parse(fs.readFileSync(GOLDEN, 'utf8'));
   assert.deepEqual(body, golden);
   assert.equal(JSON.stringify(body), JSON.stringify(golden));
+});
+
+test('a matchup that is not in the league is null, which the route maps to 404', async (t) => {
+  const fake = seed(t);
+  const client = await fake.connect();
+  try {
+    t.mock.method(client, 'query', async (sql) => {
+      if (/FROM "matchups"/.test(sql)) return { rows: [] };
+      throw new Error(`unexpected query after the empty matchup read: ${sql}`);
+    });
+    assert.equal(await getMatchupDetail({ leagueId: LEAGUE_ID, matchupId: 999, viewerUserId: 42, client }), null);
+  } finally {
+    client.release();
+  }
 });

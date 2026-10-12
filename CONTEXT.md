@@ -1667,8 +1667,8 @@ _Avoid_: prediction, forecast
 
 **Pool projection**:
 The older, league-agnostic estimate computed for the whole player pool at once
-under default scoring. It backs trades, waivers, public rankings and the Monte
-Carlo simulator.
+under default scoring. It backs trades, public rankings and the Monte Carlo
+simulator.
 _Avoid_: projection, unqualified
 
 **Weekly projection**:

@@ -33,11 +33,11 @@ const TOUCH = { minHeight: 44, minWidth: 44 };
  * The swap preview: this player's Proj Wk against the starter he replaces.
  * The replaced starter's number is `overPlayer.points` (Ruling on #1793,
  * option B) - the same Weekly producer `upgrade.points` itself came from,
- * zeroed already if he is Unavailable, never the roster's Pool projection
- * (`projected_weekly_points`), which never agreed with it (ADR 0040 left the
- * Pool number for the drop list below, not this preview). When he is
- * Unavailable, his reason replaces his number ("Stud Starter on bye"), so
- * the line reads honestly instead of implying he still projects it.
+ * zeroed already if he is Unavailable, never a Pool projection, which never
+ * agreed with it. The roster's `projected_weekly_points` is the Weekly
+ * projection too now (ADR 0040), so the drop list below reads it as well.
+ * When he is Unavailable, his reason replaces his number ("Stud Starter on
+ * bye"), so the line reads honestly instead of implying he still projects it.
  *
  * QA f1 (deploy skew): the client (Netlify) and API (Render) release
  * separately, so a client build can run ahead of an API that has not shipped
