@@ -1,4 +1,6 @@
 const pool = require('../modules/pool');
+const cadence = require('../modules/cadence');
+const { runSyncJob } = require('../modules/syncRun');
 const { withTransaction } = require('../modules/withTransaction');
 const feedSyncRuns = require('./feedSyncRuns.service');
 const matchupScoring = require('./matchupScoring.service');
@@ -378,6 +380,70 @@ async function resyncPriorWeeks({ source = 'nflverse' } = {}) {
   return { corrected: results, invalidated, failed };
 }
 
+/**
+ * The stat-correction pass as a Sync run (ADR 0036) with one unit and
+ * `transaction: false`: a BEGIN'd client sitting idle for the minutes this
+ * pass takes - while `correctLeagueWeek` opens its own transaction per league
+ * on other clients, beside the tick's session-level advisory lock - is the
+ * idle-in-transaction shape #839 already bit this repo with under the pooler.
+ * The row carries the UTC `day` the pass ran for. A thrown pass (including the
+ * aggregate cache-maintenance error resyncPriorWeeks raises after finishing)
+ * records a failed row and rethrows. A pass that finishes with failed week
+ * syncs records a failed row with them in its detail and returns the partial
+ * result (`failedWeeks` set) without throwing. The caller
+ * (scheduler.runDailyStatCorrections) owns the gate and the day stamp, and
+ * stamps only when `failedWeeks` is empty. Reaches `resyncPriorWeeks` through
+ * `module.exports` so a test stub bites.
+ */
+async function runStatCorrections({ now = new Date() } = {}) {
+  const today = cadence.utcDateKey(now);
+  let result;
+  try {
+    ({ results: [result] } = await runSyncJob({
+      job: 'stat-corrections',
+      transaction: false,
+      fetch: async () => ({ units: [{}], detail: { day: today } }),
+      apply: async () => {
+        let run;
+        try {
+          run = await module.exports.resyncPriorWeeks();
+        } catch (err) {
+          if (err && typeof err === 'object') {
+            err.syncDetail = {
+              invalidated: err.invalidated || [],
+              ...(err.failed && err.failed.length > 0 ? { failedWeeks: err.failed } : {}),
+            };
+          }
+          throw err;
+        }
+        const summary = { corrected: (run.corrected || []).length, invalidated: run.invalidated || [] };
+        const failed = run.failed || [];
+        if (failed.length > 0) {
+          const error = new Error(`stat corrections failed for ${failed.length} week(s)`);
+          error.syncDetail = { ...summary, failedWeeks: failed };
+          error.partial = { ...summary, failedWeeks: failed };
+          throw error;
+        }
+        return summary;
+      },
+    }));
+  } catch (err) {
+    if (!err || !err.partial) throw err;
+    result = err.partial;
+  }
+  if (result.corrected > 0) {
+    console.log(`scheduler: stat corrections changed scores in ${result.corrected} league(s)`);
+  }
+  if (result.invalidated.length > 0) {
+    console.log(
+      `scheduler: stat corrections invalidated weekly projection runs (${result.invalidated
+        .map((w) => `${w.season} from week ${w.fromWeek}: ${w.deletedRuns} run(s)`)
+        .join('; ')}); refill runs at the end of this tick`
+    );
+  }
+  return result;
+}
+
 module.exports = {
   CORRECTION_WINDOW_ERROR,
   CorrectionWindowError,
@@ -387,4 +453,5 @@ module.exports = {
   diffMatchupScores,
   correctLeagueWeek,
   resyncPriorWeeks,
+  runStatCorrections,
 };
