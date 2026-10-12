@@ -142,9 +142,8 @@ so it happens at most once.
 - It runs through the same `syncWeekStats` path and the same box write, at
   `standard` priority. The first Final box stays `essential`.
 - The recheck is shed, before the fetch, when the quota mode is
-  `essential-only` or `blocked` or the quota state is unreadable, so it
-  does not spend essential headroom or turn a quiet tick into a
-  `fetch_failed` run. A recheck that is fetched and fails (5xx/429, or the
+  `essential-only` or `blocked` or the quota state is unreadable, so a shed
+  recheck spends no essential headroom and records no run. A recheck that is fetched and fails (5xx/429, or the
   mode flips between that check and `tank01Get`'s own gate) records a
   `fetch_failed` run like any failed Final box, and is retried on later
   in-window syncs until the cap below.
@@ -157,9 +156,8 @@ so it happens at most once.
 - Plays stay suppressed, as for the first Final box, and the recheck stamps
   `final_stats_rechecked_at`, not `final_stats_synced_at`.
 - The same in-window scheduler tick re-scores leagues through
-  `scoreMatchups`. The window is any kickoff in the last 8h, which covers +2h
-  for every slot, SNF and MNF included. It runs only on in-window ticks (any
-  kickoff for the leagues' current week in the last 8h). A normal slot has
+  `scoreMatchups`. It runs only on in-window ticks (any kickoff for the
+  leagues' current week in the last 8h). A normal slot, SNF and MNF included, has
   1.25-1.75h to spare, but a long weather delay in the last game of a window,
   a late first stamp, or every league advancing before +2h skips it; Tue/Wed
   still settles the value.
